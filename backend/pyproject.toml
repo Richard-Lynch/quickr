@@ -7,8 +7,10 @@ dependencies = [
     "asyncpg>=0.32.0",
     "fastapi[standard]>=0.143.2",
     "fastmcp>=4.1.0",
+    "py-vapid>=1.9",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.0",
+    "pywebpush>=2.5",
     "sqlalchemy[asyncio]>=2.1.4",
     "uvicorn>=0.54.0",
 ]
@@ -20,6 +22,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.17.1",
+    "types-requests>=2.33.0.20261006",
 ]
 
 [tool.ruff]
@@ -41,6 +44,10 @@ plugins = ["pydantic.mypy"]
 warn_unreachable = true
 disallow_any_explicit = false
 exclude = ["alembic/versions"]
+
+[[tool.mypy.overrides]]
+module = ["pywebpush", "pywebpush.*", "py_vapid", "py_vapid.*"]
+ignore_missing_imports = true
 
 [tool.pydantic-mypy]
 init_forbid_extra = true

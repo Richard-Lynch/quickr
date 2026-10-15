@@ -8,9 +8,10 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Select, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.errors import NotFound, TopicArchived
+from app.errors import Conflict, NotFound, TopicArchived
 from app.models import Answer, Channel, Entry, Topic, TopicStatus
 from app.schemas.api import (
     AnswerOut,
@@ -22,6 +23,8 @@ from app.schemas.api import (
     EntryPage,
     EntryUpdate,
     EnumAnswer,
+    EnumListAnswer,
+    FieldIssue,
     IntAnswer,
     StrAnswer,
 )
@@ -42,6 +45,8 @@ def _answer_out(a: Answer) -> AnswerOut:
         case "double":
             assert a.value_double is not None
             return DoubleAnswer(key=a.question_key, value=a.value_double)
+        case "enum" if a.value_list is not None:
+            return EnumListAnswer(key=a.question_key, value=list(a.value_list))
         case "enum":
             assert a.value_str is not None
             return EnumAnswer(key=a.question_key, value=a.value_str)
@@ -76,12 +81,15 @@ def _to_rows(topic_id: UUID, typed: list[TypedAnswer]) -> list[Answer]:
             value_int=t.value_int,
             value_double=t.value_double,
             value_str=t.value_str,
+            value_list=list(t.value_list) if t.value_list is not None else None,
         )
         for t in typed
     ]
 
 
-def _raw_value(a: Answer) -> int | float | str:
+def _raw_value(a: Answer) -> int | float | str | list[str]:
+    if a.value_list is not None:
+        return list(a.value_list)
     if a.value_int is not None:
         return a.value_int
     if a.value_double is not None:
@@ -90,8 +98,25 @@ def _raw_value(a: Answer) -> int | float | str:
     return a.value_str
 
 
+async def _existing(db: AsyncSession, entry_id: UUID, topic_id: UUID) -> EntryOut | None:
+    """Idempotent replay: the entry with this client id, if it was already recorded for the topic."""
+    row = (await db.execute(select(Entry.topic_id).where(Entry.id == entry_id))).scalar_one_or_none()
+    if row is None:
+        return None
+    if row != topic_id:
+        raise Conflict(
+            f"entry '{entry_id}' already exists under another topic",
+            [FieldIssue(loc=["id"], message="already used by an entry of another topic")],
+        )
+    return await get_entry(db, entry_id)
+
+
 async def create_entry(db: AsyncSession, ref: str, body: EntryCreate, channel: Channel) -> EntryOut:
+    """Record an entry. With a client ``id`` this is idempotent (see ``EntryCreate.id``)."""
     topic = await resolve_topic(db, ref)
+    topic_id = topic.id  # survives a rollback (which expires ORM objects)
+    if body.id is not None and (existing := await _existing(db, body.id, topic_id)) is not None:
+        return existing  # logged before (possibly before the topic was archived)
     if topic.status == TopicStatus.archived:
         raise TopicArchived(f"topic '{topic.slug}' is archived; unarchive it to record entries")
     version = await get_version(db, topic, body.version)
@@ -107,8 +132,17 @@ async def create_entry(db: AsyncSession, ref: str, body: EntryCreate, channel: C
         meta=body.meta,
         answers=_to_rows(topic.id, typed),
     )
+    if body.id is not None:
+        entry.id = body.id
     db.add(entry)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # A concurrent submit of the same id won the race: replay it.
+        await db.rollback()
+        if body.id is None or (existing := await _existing(db, body.id, topic_id)) is None:
+            raise
+        return existing
     return await get_entry(db, entry.id)
 
 
@@ -136,15 +170,9 @@ async def update_entry(db: AsyncSession, entry_id: UUID, body: EntryUpdate) -> E
         existing = {a.question_key: a for a in s.answers}
         merged: dict[str, Any] = {k: _raw_value(a) for k, a in existing.items()}
         merged.update(body.answers)
-        # Archived enum values the entry already holds stay editable-around.
-        keep_archived = {
-            k: a.value_str for k, a in existing.items() if a.question_type == "enum" and a.value_str
-        }
-        typed = validate_answers(
-            parse_questions(version.questions),
-            merged,
-            allowed_archived={k: v for k, v in keep_archived.items() if v is not None},
-        )
+        # Archived enum options the entry already holds may be kept.
+        held = {k: frozenset(_enum_values(a)) for k, a in existing.items() if a.question_type == "enum"}
+        typed = validate_answers(parse_questions(version.questions), merged, allowed_archived=held)
         s.answers.clear()
         await db.flush()
         s.answers.extend(_to_rows(topic.id, typed))
@@ -159,6 +187,16 @@ async def update_entry(db: AsyncSession, entry_id: UUID, body: EntryUpdate) -> E
     s.updated_at = datetime.now(UTC)
     await db.commit()
     return await get_entry(db, s.id)
+
+
+def _enum_values(a: Answer) -> list[str]:
+    if a.value_list is not None:
+        return list(a.value_list)
+    return [a.value_str] if a.value_str is not None else []
+
+
+def _csv_value(v: int | float | str | list[str]) -> int | float | str:
+    return ";".join(v) if isinstance(v, list) else v
 
 
 async def delete_entry(db: AsyncSession, entry_id: UUID) -> None:
@@ -231,7 +269,7 @@ async def export_csv(db: AsyncSession, ref: str, filters: EntryFilters) -> Async
                 s.source,
                 s.channel.value,
                 s.notes,
-                *[by_key.get(k, "") for k in keys],
+                *[_csv_value(by_key.get(k, "")) for k in keys],
             ]
         )
 

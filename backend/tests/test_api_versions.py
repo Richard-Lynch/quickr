@@ -42,7 +42,10 @@ async def test_check_endpoint_reports_without_publishing(client: httpx.AsyncClie
 
     bad = [*sleep_questions(), {"key": "hours", "label": "x", "type": "int"}]
     r = await client.post("/topics/sleep-log/versions/check", json={"questions": bad})
-    assert r.status_code == 400
+    assert r.status_code == 422
+    assert r.json()["errors"] == [
+        {"loc": ["body", "questions", 4, "key"], "message": "duplicate question key 'hours'"}
+    ]
 
 
 async def test_publish_and_list_versions(client: httpx.AsyncClient) -> None:

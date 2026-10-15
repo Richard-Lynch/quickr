@@ -150,11 +150,19 @@ def test_enum_type_and_archived() -> None:
 
 
 def test_enum_allowed_archived() -> None:
-    typed = validate_answers(QUESTIONS, {**VALID, "mood": "meh"}, allowed_archived={"mood": "meh"})
+    typed = validate_answers(
+        QUESTIONS, {**VALID, "mood": "meh"}, allowed_archived={"mood": frozenset({"meh"})}
+    )
     assert by_key(typed)["mood"].value_str == "meh"
     # Allowance is per key and per value.
-    assert issues({**VALID, "mood": "meh"}, allowed_archived={"mood": "bad"})["mood"] == "option is archived"
-    assert issues({**VALID, "mood": "meh"}, allowed_archived={"other": "meh"})["mood"] == "option is archived"
+    assert (
+        issues({**VALID, "mood": "meh"}, allowed_archived={"mood": frozenset({"bad"})})["mood"]
+        == "option is archived"
+    )
+    assert (
+        issues({**VALID, "mood": "meh"}, allowed_archived={"other": frozenset({"meh"})})["mood"]
+        == "option is archived"
+    )
 
 
 def test_error_locations() -> None:
@@ -170,7 +178,7 @@ def test_answer_map_is_strict() -> None:
     parsed = answer_map_adapter.validate_json('{"a": "5", "b": 5, "c": 5.5, "d": null}')
     assert parsed == {"a": "5", "b": 5, "c": 5.5, "d": None}
     assert type(parsed["b"]) is int
-    with pytest.raises(ValueError, match=r"valid integer|valid number|valid string"):
+    with pytest.raises(ValueError, match=r"must be a number, a string, or a list of strings"):
         answer_map_adapter.validate_json('{"a": true}')
-    with pytest.raises(ValueError, match="pattern"):
+    with pytest.raises(ValueError, match="must start with a lowercase letter"):
         answer_map_adapter.validate_json('{"Bad Key": 1}')

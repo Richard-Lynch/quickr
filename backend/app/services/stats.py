@@ -138,15 +138,25 @@ async def _text(db: AsyncSession, topic_id: Any, q: Question, filters: EntryFilt
     )
 
 
+async def _option_counts(db: AsyncSession, topic_id: Any, key: str, filters: EntryFilters) -> dict[str, int]:
+    """Entries selecting each option: single-select values plus every element of multi-select lists."""
+    counts = {vc.value: vc.count for vc in await _value_counts(db, topic_id, key, filters, None)}
+    sub = _answers_for(topic_id, key, filters, func.unnest(Answer.value_list).label("v")).subquery()
+    for value, n in (await db.execute(select(sub.c.v, func.count()).group_by(sub.c.v))).all():
+        counts[value] = counts.get(value, 0) + n
+    return counts
+
+
 async def _enum(
     db: AsyncSession, topic_id: Any, q: EnumQuestion, filters: EntryFilters, total: int
 ) -> EnumStats:
-    counts = {vc.value: vc.count for vc in await _value_counts(db, topic_id, q.key, filters, None)}
-    answered = sum(counts.values())
+    counts = await _option_counts(db, topic_id, q.key, filters)
+    answered = (await db.execute(_answers_for(topic_id, q.key, filters, func.count()))).scalar_one()
     return EnumStats(
         key=q.key,
         label=q.label,
         type="enum",
+        multiple=q.multiple,
         count=answered,
         missing=max(total - answered, 0),
         options=[
@@ -259,4 +269,14 @@ async def question_series(
             p.count += n
             if q.type == "enum" and value is not None:
                 p.option_counts[value] = n
+        if q.type == "enum":
+            sub = _answers_for(
+                topic.id, key, filters, start, func.unnest(Answer.value_list).label("v")
+            ).subquery()
+            for s, value, n in (
+                await db.execute(select(sub.c.start, sub.c.v, func.count()).group_by(sub.c.start, sub.c.v))
+            ).all():
+                p = points[s]
+                p.option_counts[value] = p.option_counts.get(value, 0) + n
+        points = dict(sorted(points.items()))
     return QuestionSeries(key=key, type=q.type, bucket=bucket, points=list(points.values()))
