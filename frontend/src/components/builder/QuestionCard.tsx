@@ -148,7 +148,7 @@ export function QuestionCard({ index, count, expanded, onToggle, onMove, onRemov
                 aria-describedby={describedBy}
                 aria-invalid={invalid || undefined}
                 placeholder={placeholderFor(q.type)}
-               
+
                 {...labelReg}
               />
             )}
@@ -220,8 +220,16 @@ export function QuestionCard({ index, count, expanded, onToggle, onMove, onRemov
                 q.type === 'double' ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3',
               )}
             >
-              <NumField label="Min" error={err('min')} {...register(`${base}.min`, { deps: [`${base}.max`] })} />
-              <NumField label="Max" error={err('max')} {...register(`${base}.max`, { deps: [`${base}.min`] })} />
+              <NumField
+                label="Min"
+                error={err('min')}
+                {...register(`${base}.min`, { deps: [`${base}.max`] })}
+              />
+              <NumField
+                label="Max"
+                error={err('max')}
+                {...register(`${base}.max`, { deps: [`${base}.min`] })}
+              />
               {q.type === 'double' ? (
                 <NumField
                   label="Decimals"

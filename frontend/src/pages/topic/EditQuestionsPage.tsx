@@ -100,6 +100,12 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
           if (idx >= 0)
             form.setError(`questions.${idx}.key`, { type: 'compat', message: i.message });
         }
+        // The check diffs against the *current* version; if that moved on since
+        // this draft was loaded, publishing would 409 anyway — say so now.
+        if (report.next_version !== base.current_version + 1) {
+          setConflict(true);
+          return;
+        }
         setReview({ report, draft });
       } catch (err) {
         handleError(err);

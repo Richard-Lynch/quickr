@@ -1,26 +1,26 @@
 import { createBrowserRouter } from 'react-router';
 
 import { AppShell, RouteError } from './components/AppShell';
-import { NewTopicPage } from './pages/NewTopicPage';
+import { PageSpinner } from './components/ui/Spinner';
 import { NotFoundPage } from './pages/NotFoundPage';
-import { EditQuestionsPage } from './pages/topic/EditQuestionsPage';
-import { OverviewPage } from './pages/topic/OverviewPage';
 import { RecordPage } from './pages/topic/RecordPage';
-import { SessionEditPage } from './pages/topic/SessionEditPage';
-import { SessionsPage } from './pages/topic/SessionsPage';
-import { SettingsPage } from './pages/topic/SettingsPage';
 import { TopicLayout, TopicTabs } from './pages/topic/TopicLayout';
-import { VersionsPage } from './pages/topic/VersionsPage';
 import { TopicsPage } from './pages/TopicsPage';
 
+// The list and the record screen (the hot path) ship in the main bundle;
+// builder, charts and data views load on demand.
 export const router = createBrowserRouter([
   {
     path: '/',
     element: <AppShell />,
     errorElement: <RouteError />,
+    hydrateFallbackElement: <PageSpinner />,
     children: [
       { index: true, element: <TopicsPage /> },
-      { path: 'new', element: <NewTopicPage /> },
+      {
+        path: 'new',
+        lazy: async () => ({ Component: (await import('./pages/NewTopicPage')).NewTopicPage }),
+      },
       {
         path: 't/:ref',
         element: <TopicLayout />,
@@ -28,15 +28,45 @@ export const router = createBrowserRouter([
           {
             element: <TopicTabs />,
             children: [
-              { index: true, element: <OverviewPage /> },
-              { path: 'sessions', element: <SessionsPage /> },
-              { path: 'versions', element: <VersionsPage /> },
+              {
+                index: true,
+                lazy: async () => ({
+                  Component: (await import('./pages/topic/OverviewPage')).OverviewPage,
+                }),
+              },
+              {
+                path: 'sessions',
+                lazy: async () => ({
+                  Component: (await import('./pages/topic/SessionsPage')).SessionsPage,
+                }),
+              },
+              {
+                path: 'versions',
+                lazy: async () => ({
+                  Component: (await import('./pages/topic/VersionsPage')).VersionsPage,
+                }),
+              },
             ],
           },
           { path: 'record', element: <RecordPage /> },
-          { path: 'sessions/:sessionId', element: <SessionEditPage /> },
-          { path: 'edit', element: <EditQuestionsPage /> },
-          { path: 'settings', element: <SettingsPage /> },
+          {
+            path: 'sessions/:sessionId',
+            lazy: async () => ({
+              Component: (await import('./pages/topic/SessionEditPage')).SessionEditPage,
+            }),
+          },
+          {
+            path: 'edit',
+            lazy: async () => ({
+              Component: (await import('./pages/topic/EditQuestionsPage')).EditQuestionsPage,
+            }),
+          },
+          {
+            path: 'settings',
+            lazy: async () => ({
+              Component: (await import('./pages/topic/SettingsPage')).SettingsPage,
+            }),
+          },
         ],
       },
       { path: '*', element: <NotFoundPage /> },

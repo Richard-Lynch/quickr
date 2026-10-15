@@ -49,14 +49,16 @@ export function invalidateOperations(qc: QueryClient, ids: readonly OperationId[
   });
 }
 
-/** Anything that changes sessions changes counts, stats and series too. */
+/**
+ * Anything that changes sessions changes counts, stats and series too.
+ * (Single-session caches are updated/removed explicitly by the caller.)
+ */
 export function invalidateSessionData(qc: QueryClient): Promise<void> {
   return invalidateOperations(qc, [
     'listTopics',
     'getTopic',
     'listTopicVersions',
     'listSessions',
-    'getSession',
     'getTopicStats',
     'getQuestionSeries',
   ]);

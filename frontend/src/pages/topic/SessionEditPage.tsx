@@ -7,6 +7,7 @@ import { invalidateSessionData } from '../../api/queryClient';
 import {
   deleteSessionMutation,
   getSessionOptions,
+  getSessionQueryKey,
   listTopicVersionsOptions,
   updateSessionMutation,
 } from '../../client/@tanstack/react-query.gen';
@@ -117,7 +118,7 @@ export function SessionEditPage() {
             </Button>
           }
           onSubmit={async (v) => {
-            await update.mutateAsync({
+            const updated = await update.mutateAsync({
               path: { session_id: s.id },
               body: {
                 // every key of the version: null clears a previously-set answer
@@ -127,7 +128,8 @@ export function SessionEditPage() {
                 notes: v.notes,
               },
             });
-            await invalidateSessionData(qc);
+            qc.setQueryData(getSessionQueryKey({ path: { session_id: s.id } }), updated);
+            void invalidateSessionData(qc);
             toast({ title: 'Entry updated' });
             void navigate(back);
           }}
@@ -153,12 +155,10 @@ export function SessionEditPage() {
             {
               onSuccess: () => {
                 setConfirmDelete(false);
-                qc.removeQueries({
-                  queryKey: getSessionOptions({ path: { session_id: s.id } }).queryKey,
-                });
+                void navigate(back);
+                qc.removeQueries({ queryKey: getSessionQueryKey({ path: { session_id: s.id } }) });
                 void invalidateSessionData(qc);
                 toast({ title: 'Entry deleted' });
-                void navigate(back);
               },
               onError: (err) =>
                 toast({ title: 'Delete failed', description: errorMessage(err), tone: 'danger' }),
