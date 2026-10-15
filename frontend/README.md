@@ -18,7 +18,33 @@ query cache, durable offline outbox for new entries, push plumbing, install UX) 
 | `pnpm gen:icons`                    | Regenerate PWA/iOS icons from `public/favicon.svg` (committed)     |
 | `pnpm format` / `pnpm format:check` | Prettier                                                           |
 
-\* override with `QUICKER_BACKEND_URL=http://host:port pnpm dev`.
+\* `QUICKR_API_TARGET=http://localhost:8200 PORT=5190 pnpm dev` points the dev proxy at another
+backend / port (`pnpm preview` honours `QUICKR_API_TARGET` and `PREVIEW_PORT`).
+
+## Features at a glance
+
+- **Due-first home** (`src/pages/TopicsPage.tsx`): `GET /topics?sort=due`, a "Due now" section
+  ("Overdue · since 08:00", "Due in 25 min"), then "Coming up" and the rest. Refetched every
+  minute while visible and on focus. The app icon badge shows the due count
+  (`src/api/dueBadge.ts`).
+- **Quick-log tiles** (`src/components/topics/TopicTile.tsx`, rules in `src/lib/quickLog.ts`):
+  one-tap chips for a single required single-select (≤ 6 options), a stepper prefilled with the
+  last value for a single required number, and a big thumb-side Log button on every tile.
+  Quick-logs go through the outbox, are optimistic and show an Undo toast
+  (`src/api/quickLog.ts`).
+- **Record screen**: "Same as last time", focus on the first unanswered question, collapsed
+  Details, one-tap save for pick-only topics, "Log another" (remembered), Undo.
+- **Schedules** (`src/components/schedule/ScheduleEditor.tsx`, `src/lib/schedule.ts`): none /
+  daily (times, weekdays, time zone) / every N minutes/hours/days, plus a notify toggle. In the
+  topic builder and in topic settings.
+- **Multi-select enums**: min/max selections in the builder, checkbox chips in forms,
+  `enum_list` display, stats shares that can sum to more than 100%.
+- **Validation mirrors the server**: `src/lib/builder.ts`, `schedule.ts`, `answerSchema.ts`,
+  `entryMeta.ts`, using the ceilings from `GET /limits` (`src/api/limits.ts`). Server error
+  `loc`s (e.g. `["body","questions",2,"options",1,"value"]`, `["body","schedule","times",0]`)
+  land on the exact field (`src/api/errors.ts`, `components/builder/serverErrors.ts`).
+
+The tap-count design loop behind the logging UX is in [docs/design-loop.md](docs/design-loop.md).
 
 ## API client codegen
 
@@ -29,9 +55,8 @@ option factories. Never edit it by hand and never hand-write API types — impor
 Flow when the backend API changes: regenerate `openapi.json` at the repo root (backend), then
 `pnpm gen:api`, commit the diff. CI runs `pnpm gen:api && git diff --exit-code -- src/client`.
 
-Runtime config (same-origin `baseUrl`, `X-Quicker-Channel: ui` header — defined in
-`src/api/constants.ts`, to become `X-QuickR-Channel`) lives in
-`src/api/clientConfig.ts`. The generated fetch-client runtime (`src/client/{client,core}`) is not
+Runtime config (same-origin `baseUrl`, the `X-QuickR-Channel: ui` header defined in
+`src/api/constants.ts`) lives in `src/api/clientConfig.ts`. The generated fetch-client runtime (`src/client/{client,core}`) is not
 `exactOptionalPropertyTypes`-clean, so it is type-checked as its own project
 (`tsconfig.client-runtime.json`); everything else, generated or not, uses the strict app config.
 

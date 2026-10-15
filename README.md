@@ -49,7 +49,7 @@ Local development:
 make install       # uv sync + pnpm install
 make db migrate    # Postgres in docker on :5433, apply migrations
 make api           # FastAPI on :8100 (reload)
-make web           # Vite on :5180 (proxies /api and /mcp to :8100)
+make web           # Vite on :5180 (proxies /api and /mcp to :8100; QUICKR_API_TARGET overrides)
 make seed          # optional demo data (scheduled topics, a multi-select question)
 make check         # everything CI runs
 ```

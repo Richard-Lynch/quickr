@@ -13,7 +13,8 @@ Screen** — which is WebKit underneath, so everything that applies to iOS Safar
 | Mutation outbox          | `src/lib/outbox/*`, `src/api/outboxEffects.ts`, `src/api/entries.ts`   |
 | Optimistic mutations     | `src/api/cache.ts`, `src/api/mutations.ts`, `src/lib/undo.ts`          |
 | Push                     | `src/lib/push.ts`, `src/lib/pushPayload.ts`, `src/sw.ts`               |
-| Badge                    | `src/lib/badge.ts`                                                     |
+| Badge (due count)        | `src/lib/badge.ts`, fed by `src/api/dueBadge.ts`                       |
+| Quick-log + Undo         | `src/api/quickLog.ts`, `src/lib/quickLog.ts`, `components/topics/*`    |
 | Install UX               | `src/lib/install.ts`, `src/lib/platform.ts`, `components/pwa/Install*` |
 | Unsaved-changes guard    | `src/lib/unsavedChanges.tsx`                                           |
 | Settings screen          | `src/pages/AppSettingsPage.tsx` (`/settings`)                          |
@@ -125,61 +126,91 @@ the Settings screen.
    the server response + invalidate), `onFailed` / `onDiscard` (roll back).
 3. **`src/components/pwa/Sync.tsx` → `describeOutboxItem`** — title / time / fix URL.
 4. Enqueue: `const item = await outbox.enqueue(kind, payload)` then `outbox.sendNow(item.id)`
-   (see `useRecordEntry` in `src/api/entries.ts` for the online-wait / offline-return flow).
+   (see `recordEntry` in `src/api/entries.ts` for the online-wait / offline-return flow).
 
-### Entry creation today → tomorrow
+### Entry creation (v2)
 
-`entry.create` currently posts to the existing `POST /api/v1/topics/{topic id}/sessions`
-(`SessionCreate` is `extra=forbid`, so the client id is **not** sent yet; a lost response +
-retry can therefore duplicate in the meantime). Once the backend ships entries:
+`entry.create` posts to `POST /api/v1/topics/{topic id}/entries` with
+`{ ...payload.body, id: item.id }` (`entryCreateBody` in `kinds.ts`). The outbox
+item id **is** the entry id, which has two effects:
 
-- `kinds.ts` → `url: /api/v1/topics/{ref}/entries`, `body: { id: item.id, ...body,
-captured_at }` (marked `TODO(api-v2)`). Creation becomes idempotent; retries are safe.
-- `outboxEffects.ts` → parse the new `EntryOut` instead of `zSessionOut`, update the
-  entries list caches (`prependSession` / `patchSessions` in `src/api/cache.ts` are keyed on
-  operation ids — add the new ones to `OperationId` in `queryClient.ts`).
-- `RecordPage` / `SessionsPage` pending cards read `payload.body`; adapt to the new body.
+- Creation is idempotent. A retry after a lost response gets the stored entry
+  back (201) instead of creating a duplicate, so every retry is safe.
+- An entry can be addressed before the server has seen it. Undo discards the
+  item while it is queued, or sends `DELETE /entries/{id}` once it has synced
+  (`useUndoLog` in `src/api/quickLog.ts`).
+
+`recordEntry()` (`src/api/entries.ts`) checks the body against the generated
+`zEntryCreate` before anything becomes durable. `outboxEffects.ts` parses
+`EntryOut`, prepends it to the cached entry lists, and on enqueue bumps the
+topic's counts and **clears its due state** (`dueAfterLogging`), so a logged
+topic leaves "Due now" at once.
 
 ## Optimistic updates
 
 `src/api/cache.ts` has typed helpers on the generated query keys
 (`cancelOperations`, `snapshotOperations`, `restoreSnapshot`, `patchTopics`,
-`patchSessions`, `prependSession`). `src/api/mutations.ts` uses them:
+`patchEntries`, `prependEntry`). `src/api/mutations.ts` uses them:
 
-- `useUpdateSession` — patch list + detail, rollback on error, reconcile with the response.
-- `useDeleteSessionWithUndo` — removes immediately, **Undo** toast (6 s); the DELETE is only
-  sent when the window closes (or the page is hidden — `src/lib/undo.ts`). Failure restores.
-- `useSetTopicArchived` — archive/unarchive flip instantly; archive has an Undo toast instead
-  of a confirm. Deleting a topic keeps the typed confirm.
-- `useUpdateTopicMeta` — name/description shown at once (slug changes aren't optimistic).
-- Recording → topic counts / last activity bumped on enqueue, entry shown as "Waiting to
-  sync" until confirmed, then the server's row replaces it without flicker.
+- `useUpdateEntry`: patch list + detail, roll back on error, reconcile with the
+  response.
+- `useDeleteEntryWithUndo`: removes the entry at once and shows an **Undo**
+  toast (6 s). The DELETE is only sent when the undo window closes (or the page
+  is hidden, `src/lib/undo.ts`). A failure restores the entry.
+- `useSetTopicArchived`: archive/unarchive flips at once. Archive has an Undo
+  toast instead of a confirm. Deleting a topic keeps the typed confirm.
+- `useUpdateTopicMeta`: name/description show at once (slug changes aren't
+  optimistic).
+- `useUpdateTopicSchedule`: the new schedule shows at once and the topic stops
+  being due (a changed schedule is never due right away). The server's `due`
+  replaces it on success.
+- Logging (record screen and quick-log tiles): counts, last activity and due
+  state change on enqueue. The entry shows as "Waiting to sync" until confirmed,
+  then the server's row replaces it without flicker.
 
-## Push (client side; backend contract pending)
+## Push
 
-`src/lib/push.ts` (raw `fetch` until the client is regenerated — `TODO(api-v2)`):
+`src/lib/push.ts` uses the generated SDK (`getPushConfig`,
+`createPushSubscription`, `deletePushSubscription`, `sendTestPush`):
 
-- `pushSupport()` / `evaluatePushSupport(env)` → `available | denied | needs-install | unsupported`.
-- `fetchPushConfig()` → `GET /api/v1/push/config` `{public_key}`; 404/405/501 → `null`.
-- `enablePush(publicKey?)` — **call synchronously from the tap handler**: it calls
-  `Notification.requestPermission()` first, then `pushManager.subscribe({userVisibleOnly:
-true, applicationServerKey})` (re-subscribes if the VAPID key rotated) and
-  `POST /api/v1/push/subscriptions {endpoint, keys:{p256dh, auth}, user_agent}`.
-- `disablePush()` → unsubscribe + `POST /api/v1/push/subscriptions/delete {endpoint}`.
-- `sendTestPush()` → `POST /api/v1/push/test`.
+- `pushSupport()` / `evaluatePushSupport(env)` →
+  `available | denied | needs-install | unsupported`.
+- `fetchPushConfig()` → `{public_key}`; a server without push (404/405/501) →
+  `null`.
+- `enablePush(publicKey?)`: **call it synchronously from the tap handler.** It
+  calls `Notification.requestPermission()` first, then
+  `pushManager.subscribe({userVisibleOnly: true, applicationServerKey})`
+  (re-subscribing if the VAPID key rotated), then registers
+  `{endpoint, keys:{p256dh, auth}, user_agent}`.
+- `disablePush()` → unsubscribe + delete on the server.
+- `sendTestPush()` → `{sent, failed}`. Settings shows the counts ("To 1 device",
+  or "No device received it").
 
-SW: `push` parses `{title, body, url, tag, topic_slug}` (`parsePushPayload`, tolerant: a
-malformed push still shows a notification, as `userVisibleOnly` requires), shows it with
-icon/badge and `tag` for de-dupe. `notificationclick` focuses an existing window and posts
-`{type:'quickr:navigate', url}` so the SPA routes in place (state kept, unsaved guard
-respected), or opens a new window at `url`. Only same-origin paths are honoured.
+Payload contract (backend `PushPayload`): `{title, body, url, tag, topic_slug}`.
+A due reminder has `url: "/t/{slug}/record"` and `tag: "due-{topic id}"`. In the
+SW, `push` parses the payload (`parsePushPayload`). It is tolerant: a malformed
+push still shows a notification, as `userVisibleOnly` requires. The notification
+gets the icon/badge and its `tag` for de-dupe. On `notificationclick`, the SW
+focuses an existing window and posts `{type:'quickr:navigate', url}` so the SPA
+routes in place (state kept, unsaved guard respected), or opens a new window at
+`url`. Only same-origin paths are honoured. A reminder therefore opens the
+record screen directly. For pick-only topics, the chip tap there saves (2 taps
+from the lock screen). For a single number, the value is prefilled.
 
-Settings → Notifications shows a toggle + "Send a test notification" when available,
-Home-Screen instructions on iOS in a browser tab, and "This server doesn't support
-notifications yet" while the endpoints 404.
+Verified end to end in Chromium against the v2 backend: the subscription was
+created via FCM, `POST /push/test` returned `{sent: 1}`, and the SW displayed
+the notification. The scheduler's due reminder arrived with
+`url: /t/water/record`.
 
-**Badge:** `setAppBadge(n)` / `clearAppBadge()` in `src/lib/badge.ts` (no-ops when
-unsupported). Feed it the due count from schedules; on iOS it needs notification permission.
+Settings → Notifications shows the toggle and "Send a test notification". In an
+iOS browser tab it shows Home Screen instructions instead. Per-topic
+notification is the **Notify me when it's due** switch in the schedule editor.
+
+**Badge:** `connectDueBadge(queryClient)` (`src/api/dueBadge.ts`, wired in
+`main.tsx`) recomputes the number of due topics whenever an unfiltered topic
+list changes (fetch, refetch, optimistic patch), plus once a minute. It calls
+`setAppBadge(n)` and clears the badge at 0. On iOS the badge needs notification
+permission.
 
 ## Install UX
 
@@ -201,7 +232,7 @@ guard.allowNavigation();
 
 `useBlocker` for in-app navigation (search/hash-only changes pass) with a confirm sheet, plus
 `beforeunload`. Applied to: new topic, edit questions, topic details, record (only once
-something is entered), entry edit (`SessionForm` has it built in; `onSubmit` and a function
+something is entered), entry edit, topic schedule (`EntryForm` has it built in; `onSubmit` and a function
 `secondaryAction` receive `{ allowNavigation }`). `hasUnsavedChanges()` is used by the update
 prompt.
 
@@ -231,6 +262,6 @@ manipulation` on controls, no text selection / callout on buttons, inputs ≥ 16
 
 ## Channel header
 
-`X-Quicker-Channel: ui` is defined once in `src/api/constants.ts` (used by the SDK client
-config, the outbox and push calls). The backend renames it to `X-QuickR-Channel` — change it
-there only (`TODO(api-v2)`).
+`X-QuickR-Channel: ui` is defined once in `src/api/constants.ts`. The SDK client config
+(and therefore push), the outbox and the service worker all use it, so the server records
+`channel: ui` for everything the app sends.
