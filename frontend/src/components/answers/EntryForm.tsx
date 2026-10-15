@@ -9,6 +9,7 @@ import type { Limits } from '../../client';
 import {
   buildAnswerSchema,
   hasInput,
+  inputHints,
   type AnswerFormValues,
   type AnswerMap,
 } from '../../lib/answerSchema';
@@ -85,6 +86,11 @@ interface EntryFormProps {
   prefill?: Prefill | null | undefined;
   /** Focus (and scroll to) the first unanswered question on mount. */
   focusFirstEmpty?: boolean;
+  /**
+   * Save as soon as this (single-select) question is answered — single-question topics,
+   * where the pick *is* the entry. Undo comes from the caller's toast.
+   */
+  submitOnPick?: string | undefined;
 }
 
 export interface SubmitHelpers {
@@ -106,6 +112,7 @@ export function EntryForm({
   guardUnsaved = true,
   prefill,
   focusFirstEmpty = false,
+  submitOnPick,
 }: EntryFormProps) {
   const limits = useLimits();
   const schema = useMemo(
@@ -144,7 +151,7 @@ export function EntryForm({
     }
     if (focusFirstEmpty) {
       const first = questions.find((q) => !hasInput(defaultValues.answers[q.key]));
-      if (first) focusAnswer(form, first.key);
+      if (first) focusAnswer(form, first);
     }
     // mount only: later errors come from submits
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -163,12 +170,47 @@ export function EntryForm({
     }
   }, focusFirstError);
 
+  /**
+   * After a single-select pick, jump to the next unanswered *typed* question (number /
+   * text) — synchronously, inside the tap, so mobile keyboards open. Chips don't need it.
+   */
+  const focusNextInput = (index: number) => {
+    const values = form.getValues('answers');
+    const next = questions.slice(index + 1).find((x) => !hasInput(values[x.key]));
+    if (next && next.type !== 'enum') {
+      try {
+        form.setFocus(`answers.${next.key}`);
+      } catch {
+        // not focusable
+      }
+    }
+  };
+
   const errors = form.formState.errors;
   const metaError = Boolean(errors.captured_at ?? errors.source ?? errors.notes);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   return (
-    <form onSubmit={(e) => void submit(e)} noValidate className="flex flex-col gap-4">
+    <form
+      onSubmit={(e) => void submit(e)}
+      onKeyDown={(e) => {
+        // Enter ("next" on phone keyboards) in an answer moves on instead of saving early.
+        const el = e.target as HTMLElement;
+        if (e.key !== 'Enter' || el.tagName !== 'INPUT') return;
+        const i = questions.findIndex((q) => el.closest(`#answer-${q.key}`));
+        if (i === -1) return;
+        const values = form.getValues('answers');
+        const next = questions
+          .slice(i + 1)
+          .find((x) => !hasInput(values[x.key]) && x.type !== 'enum');
+        if (next) {
+          e.preventDefault();
+          form.setFocus(`answers.${next.key}`);
+        }
+      }}
+      noValidate
+      className="flex flex-col gap-4"
+    >
       {banner ? (
         <Banner title={banner.message}>
           {banner.extra.length > 0 ? (
@@ -183,12 +225,15 @@ export function EntryForm({
         </Banner>
       ) : null}
 
-      {prefill ? <SameAsLast form={form} prefill={prefill} questions={questions} /> : null}
+      {prefill && !submitOnPick ? (
+        <SameAsLast form={form} prefill={prefill} questions={questions} />
+      ) : null}
 
       <Card className="flex flex-col divide-y divide-dashed divide-line">
         {questions.map((q, i) => (
           <div
             key={q.key}
+            id={`answer-${q.key}`}
             className="animate-rise scroll-mt-24 scroll-mb-32 p-4 sm:p-5"
             style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}
           >
@@ -199,7 +244,11 @@ export function EntryForm({
                 <AnswerField
                   question={q}
                   value={field.value}
-                  onChange={field.onChange}
+                  onChange={(v) => {
+                    field.onChange(v);
+                    if (submitOnPick === q.key && hasInput(v)) void submit();
+                    else if (focusFirstEmpty && isPick(q) && hasInput(v)) focusNextInput(i);
+                  }}
                   onBlur={field.onBlur}
                   inputRef={field.ref}
                   error={fieldState.error?.message}
@@ -210,6 +259,9 @@ export function EntryForm({
           </div>
         ))}
       </Card>
+      {submitOnPick ? (
+        <p className="-mt-1 px-1 text-sm text-muted">Tap an answer to log it right away.</p>
+      ) : null}
 
       {children}
 
@@ -366,13 +418,27 @@ function MetaSummary({ control }: { control: Control<EntryFormValues, unknown, E
   return <>{[when, source].filter(Boolean).join(' · ') || '—'}</>;
 }
 
+/** Single-select enum: one tap answers it. */
+function isPick(q: Question): boolean {
+  return q.type === 'enum' && !q.multiple;
+}
+
+/**
+ * Bring the first unanswered question into view. Text and number inputs get focus (ready
+ * to type); chips are only scrolled to — a focus ring on an unpicked chip reads as
+ * "selected".
+ */
 function focusAnswer(
   form: UseFormReturn<EntryFormValues, unknown, EntryFormOutput>,
-  key: string,
+  q: Question,
 ): void {
   window.requestAnimationFrame(() => {
+    if (q.type === 'enum' && inputHints(q).kind !== 'select') {
+      document.getElementById(`answer-${q.key}`)?.scrollIntoView({ block: 'nearest' });
+      return;
+    }
     try {
-      form.setFocus(`answers.${key}`);
+      form.setFocus(`answers.${q.key}`);
     } catch {
       // the field has no focusable element (shouldn't happen)
     }

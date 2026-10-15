@@ -2,9 +2,11 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router';
 
+import { lastEntryOptions } from '../../api/entries';
 import { useQuickLog } from '../../api/quickLog';
 import type { TopicSummary } from '../../client';
-import { getTopicOptions, listEntriesOptions } from '../../client/@tanstack/react-query.gen';
+import { getTopicOptions } from '../../client/@tanstack/react-query.gen';
+import { formatAnswer } from '../../lib/answerDisplay';
 import { formatRelative } from '../../lib/dates';
 import { plural } from '../../lib/format';
 import { inputHints } from '../../lib/answerSchema';
@@ -61,6 +63,16 @@ export function TopicTile({ topic: t, now }: { topic: TopicSummary; now: Date })
   const questions =
     detail.data?.current_version === t.current_version ? detail.data.questions : null;
   const quick = !archived && questions ? quickLogFor(questions) : null;
+  // Quick tiles show (and number tiles start from) the last answer.
+  const last = useQuery({
+    ...lastEntryOptions(t.slug),
+    staleTime: DETAIL_STALE_MS,
+    enabled: quick !== null && t.entry_count > 0,
+  });
+  const lastAnswer = quick
+    ? last.data?.items[0]?.answers.find((a) => a.key === quick.question.key)
+    : undefined;
+  const lastText = quick && lastAnswer ? formatAnswer(quick.question, lastAnswer) : null;
   const due = dueView(t.due, now);
   const isDue = due.tone === 'due' || due.tone === 'overdue';
   const base = `/t/${t.slug}`;
@@ -90,13 +102,20 @@ export function TopicTile({ topic: t, now }: { topic: TopicSummary; now: Date })
               </Badge>
             ) : null}
             <span>
-              {t.entry_count === 0
-                ? 'No entries yet'
-                : `${plural(t.entry_count, 'entry', 'entries')} · ${formatRelative(t.last_captured_at, now)}`}
+              {t.entry_count === 0 ? (
+                'No entries yet'
+              ) : lastText ? (
+                <>
+                  Last <strong className="font-semibold text-ink-soft">{lastText}</strong> ·{' '}
+                  {formatRelative(t.last_captured_at, now)}
+                </>
+              ) : (
+                `${plural(t.entry_count, 'entry', 'entries')} · ${formatRelative(t.last_captured_at, now)}`
+              )}
             </span>
           </div>
         </div>
-        {quick ? <QuickArea topic={t} quick={quick} /> : null}
+        {quick ? <QuickArea topic={t} quick={quick} last={lastAnswer?.value} /> : null}
       </div>
       {!archived ? (
         <Link
@@ -118,23 +137,37 @@ export function TopicTile({ topic: t, now }: { topic: TopicSummary; now: Date })
   );
 }
 
-function QuickArea({ topic, quick }: { topic: TopicSummary; quick: QuickLog }) {
+function QuickArea({
+  topic,
+  quick,
+  last,
+}: {
+  topic: TopicSummary;
+  quick: QuickLog;
+  last: unknown;
+}) {
   return quick.kind === 'chips' ? (
-    <QuickChips topic={topic} quick={quick} />
+    <QuickChips topic={topic} quick={quick} last={typeof last === 'string' ? last : null} />
   ) : (
-    <QuickNumber topic={topic} question={quick.question} />
+    <QuickNumber topic={topic} question={quick.question} last={last} />
   );
 }
+
+/** How long a tapped chip stays lit as confirmation (the Undo toast has the details). */
+const CONFIRM_MS = 1_600;
 
 function QuickChips({
   topic,
   quick,
+  last,
 }: {
   topic: TopicSummary;
   quick: Extract<QuickLog, { kind: 'chips' }>;
+  last: string | null;
 }) {
   const log = useQuickLog();
   const [busy, setBusy] = useState<string | null>(null);
+  const [logged, setLogged] = useState<string | null>(null);
   const n = quick.options.length;
   return (
     <div
@@ -145,39 +178,60 @@ function QuickChips({
         n === 1 ? 'grid-cols-1' : n % 3 === 0 && n > 3 ? 'grid-cols-3' : 'grid-cols-2',
       )}
     >
-      {quick.options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          disabled={busy !== null}
-          aria-busy={busy === o.value || undefined}
-          onClick={() => {
-            setBusy(o.value);
-            void log(topic, { [quick.question.key]: o.value }, { label: o.label }).finally(() =>
-              setBusy(null),
-            );
-          }}
-          className="min-h-11 rounded-xl border-2 border-line-strong bg-paper/60 px-2 py-1.5 text-[0.9rem] leading-tight font-semibold text-ink transition-[transform,background-color,border-color] hover:border-ink/40 active:scale-[0.96] active:border-accent active:bg-accent active:text-on-accent disabled:opacity-60"
-        >
-          {o.label}
-        </button>
-      ))}
+      {quick.options.map((o) => {
+        const lit = logged === o.value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            disabled={busy !== null}
+            aria-busy={busy === o.value || undefined}
+            aria-label={`Log ${o.label}${last === o.value ? ' (same as last time)' : ''}`}
+            onClick={() => {
+              setBusy(o.value);
+              void log(topic, { [quick.question.key]: o.value }, { label: o.label })
+                .then((r) => {
+                  if (r.status === 'failed') return;
+                  setLogged(o.value);
+                  window.setTimeout(() => setLogged(null), CONFIRM_MS);
+                })
+                .finally(() => setBusy(null));
+            }}
+            className={cn(
+              'relative flex min-h-11 items-center justify-center gap-1.5 rounded-xl border-2 px-2 py-1.5 text-[0.9rem] leading-tight font-semibold transition-[transform,background-color,border-color,color] active:scale-[0.96] active:border-accent active:bg-accent active:text-on-accent disabled:cursor-wait',
+              lit
+                ? 'border-ok bg-ok text-white'
+                : 'border-line-strong bg-paper/60 text-ink hover:border-ink/40',
+            )}
+          >
+            {lit ? <Icon name="check" className="size-4" strokeWidth={3} /> : null}
+            {o.label}
+            {last === o.value && !lit ? (
+              <span
+                aria-hidden
+                title="Last time"
+                className="absolute top-1 right-1 size-1.5 rounded-full bg-accent"
+              />
+            ) : null}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-function QuickNumber({ topic, question: q }: { topic: TopicSummary; question: NumericQuestion }) {
+function QuickNumber({
+  topic,
+  question: q,
+  last,
+}: {
+  topic: TopicSummary;
+  question: NumericQuestion;
+  last: unknown;
+}) {
   const log = useQuickLog();
-  const last = useQuery({
-    ...listEntriesOptions({
-      path: { ref: topic.slug },
-      query: { limit: 1, order: '-captured_at' },
-    }),
-    staleTime: DETAIL_STALE_MS,
-  });
-  const lastValue = last.data?.items[0]?.answers.find((a) => a.key === q.key)?.value;
   const [typed, setTyped] = useState<string | null>(() => numberDrafts.get(topic.id) ?? null);
-  const value = typed ?? initialNumber(q, lastValue);
+  const value = typed ?? initialNumber(q, last);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const hints = inputHints(q);

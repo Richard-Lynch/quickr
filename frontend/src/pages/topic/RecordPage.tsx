@@ -2,10 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 
-import { useRecordEntry } from '../../api/entries';
+import { lastEntryOptions, useRecordEntry } from '../../api/entries';
 import { useUndoLog } from '../../api/quickLog';
 import type { TopicDetail } from '../../client';
-import { listEntriesOptions } from '../../client/@tanstack/react-query.gen';
 import { canGoBack, Page, TopBar } from '../../components/AppShell';
 import { EntryForm, type EntryFormValues, type Prefill } from '../../components/answers/EntryForm';
 import { OfflineNotice } from '../../components/pwa/Sync';
@@ -25,6 +24,7 @@ import {
 } from '../../lib/answerSchema';
 import { toLocalInputValue } from '../../lib/dates';
 import { isEntryCreate, type EntryCreatePayload } from '../../lib/outbox/kinds';
+import { quickLogFor } from '../../lib/quickLog';
 import type { OutboxItem } from '../../lib/outbox/types';
 import { useOutbox } from '../../lib/outbox/useOutbox';
 import {
@@ -114,10 +114,7 @@ function RecordForm({
 
   // The latest entry, for "Same as last time" (shared with the number tiles' prefill).
   const last = useQuery({
-    ...listEntriesOptions({
-      path: { ref: topic.slug },
-      query: { limit: 1, order: '-captured_at' },
-    }),
+    ...lastEntryOptions(topic.slug),
     enabled: fixItem === null,
   });
   const prefill = useMemo((): Prefill | null => {
@@ -156,6 +153,11 @@ function RecordForm({
     };
   });
 
+  // A single-select-only topic: the pick is the whole entry, so it saves on tap.
+  const only = topic.questions.length === 1 ? topic.questions[0] : undefined;
+  const pickKey =
+    !fixItem && only && quickLogFor(topic.questions)?.kind === 'chips' ? only.key : undefined;
+
   const leave = () => {
     if (canGoBack()) void navigate(-1);
     else void navigate('/', { replace: true });
@@ -193,6 +195,7 @@ function RecordForm({
           initialError={fixItem?.last_error?.body ?? undefined}
           prefill={prefill}
           focusFirstEmpty={!fixItem}
+          submitOnPick={pickKey}
           {...(fixItem || !another ? {} : { resetOnSuccess: (v) => freshValues(v.source) })}
           secondaryAction={
             fixItem ? null : (
