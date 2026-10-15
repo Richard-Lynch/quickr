@@ -17,6 +17,9 @@ from app.schemas.questions import (
     StrQuestion,
 )
 
+# Answers are stored in a BIGINT column.
+INT64_MIN, INT64_MAX = -(2**63), 2**63 - 1
+
 
 @dataclass(frozen=True, slots=True)
 class TypedAnswer:
@@ -33,6 +36,8 @@ def _check_int(q: IntQuestion, v: AnswerValue) -> tuple[int | None, str | None]:
         v = int(v)
     if not isinstance(v, int) or isinstance(v, bool):
         return None, "must be an integer"
+    if not INT64_MIN <= v <= INT64_MAX:
+        return None, "out of range for a 64-bit integer"
     if q.min is not None and v < q.min:
         return None, f"must be >= {q.min}"
     if q.max is not None and v > q.max:
@@ -54,6 +59,8 @@ def _check_double(q: DoubleQuestion, v: AnswerValue) -> tuple[float | None, str 
 
 
 def _check_str(q: StrQuestion, v: str) -> str | None:
+    if "\x00" in v:
+        return "contains an invalid NUL character"
     if len(v) < q.min_length:
         return f"must be at least {q.min_length} characters"
     if len(v) > q.max_length:

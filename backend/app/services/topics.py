@@ -6,8 +6,9 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import TypeAdapter
-from sqlalchemy import Select, Text, cast, func, or_, select
+from pydantic import TypeAdapter, ValidationError
+from sqlalchemy import Select, column, func, literal, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +16,7 @@ from app.errors import Conflict, DomainError, IncompatibleVersion, NotFound
 from app.models import Session, Topic, TopicStatus, TopicVersion
 from app.schemas.api import (
     CompatibilityReport,
+    FieldIssue,
     StatusFilter,
     TopicCreate,
     TopicDetail,
@@ -49,8 +51,12 @@ def slugify(name: str) -> str:
 def _validated_set(questions: list[Question]) -> list[Question]:
     try:
         return QuestionSet(questions=questions).questions
-    except ValueError as exc:  # pydantic ValidationError subclasses ValueError
-        raise DomainError(str(exc)) from exc
+    except ValidationError as exc:
+        issues = [
+            FieldIssue(loc=["questions", *e["loc"]], message=e["msg"].removeprefix("Value error, "))
+            for e in exc.errors()
+        ]
+        raise DomainError("invalid question set", issues) from exc
 
 
 async def resolve_topic(db: AsyncSession, ref: str) -> Topic:
@@ -144,6 +150,17 @@ async def topic_detail(db: AsyncSession, topic_id: UUID) -> TopicDetail:
     return TopicDetail(**summary.model_dump(), questions=questions)
 
 
+def _question_text_matches(pattern: str) -> Any:
+    """Match question keys/labels/help text in the current version config.
+
+    Matches individual fields rather than the serialized JSON, so searching for
+    e.g. "label" or "_" does not hit every topic via the JSON structure.
+    """
+    elem = func.jsonb_array_elements(TopicVersion.questions).table_valued(column("value", JSONB)).alias("qe")
+    fields = [elem.c.value[f].astext.ilike(pattern) for f in ("key", "label", "help_text")]
+    return select(literal(1)).select_from(elem).where(or_(*fields)).exists()
+
+
 async def list_topics(
     db: AsyncSession,
     *,
@@ -165,8 +182,7 @@ async def list_topics(
                 Topic.name.ilike(pattern),
                 Topic.slug.ilike(pattern),
                 Topic.description.ilike(pattern),
-                # Match question labels/keys inside the current version config.
-                cast(TopicVersion.questions, Text).ilike(pattern),
+                _question_text_matches(pattern),
             )
         )
         count_stmt = count_stmt.join(

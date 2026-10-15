@@ -83,6 +83,7 @@ def _diff_question(old: Question, new: Question, issues: list[CompatibilityIssue
             old_opts = {o.value: o for o in old.options}
             new_opts = {o.value: o for o in new.options}
             for value in old_opts.keys() - new_opts.keys():
+                details.append(f"option removed: {value}")
                 issues.append(
                     CompatibilityIssue(
                         level="error",
