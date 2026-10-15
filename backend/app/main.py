@@ -20,7 +20,7 @@ def _operation_id(route: APIRoute) -> str:
 def create_app() -> FastAPI:
     mcp_app = mcp.http_app(path="/")
     app = FastAPI(
-        title="Quicker API",
+        title="quickR API",
         version="1.0.0",
         description="Config-driven topics, questions and answer sessions.",
         lifespan=mcp_app.lifespan,

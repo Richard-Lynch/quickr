@@ -20,7 +20,7 @@ def spec() -> dict[str, Any]:
 def test_spec_generates() -> None:
     s = spec()
     assert s["openapi"].startswith("3.")
-    assert s["info"]["title"] == "Quicker API"
+    assert s["info"]["title"] == "quickR API"
     assert "/api/v1/topics" in s["paths"]
 
 

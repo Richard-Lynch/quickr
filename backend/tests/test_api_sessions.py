@@ -41,7 +41,7 @@ async def test_channel_header_and_explicit_fields(client: httpx.AsyncClient) -> 
     r = await client.post(
         "/topics/sleep-log/sessions",
         json={"answers": ANSWERS},
-        headers={"X-Quicker-Channel": "ui"},
+        headers={"X-QuickR-Channel": "ui"},
     )
     assert r.status_code == 201
     assert (r.json()["channel"], r.json()["source"]) == ("ui", "ui")
@@ -61,7 +61,7 @@ async def test_channel_header_and_explicit_fields(client: httpx.AsyncClient) -> 
     assert answers_of(s)["dream"] == "flying"
 
     r = await client.post(
-        "/topics/sleep-log/sessions", json={"answers": ANSWERS}, headers={"X-Quicker-Channel": "fax"}
+        "/topics/sleep-log/sessions", json={"answers": ANSWERS}, headers={"X-QuickR-Channel": "fax"}
     )
     assert r.status_code == 422
 
@@ -217,7 +217,7 @@ async def test_list_sessions_filters_order_pagination(client: httpx.AsyncClient)
         s = await record(client, "sleep-log", ANSWERS, source=source, captured_at=f"2026-05-0{day}T12:00:00Z")
         ids.append(s["id"])
     await client.post(
-        "/topics/sleep-log/sessions", json={"answers": ANSWERS}, headers={"X-Quicker-Channel": "mcp"}
+        "/topics/sleep-log/sessions", json={"answers": ANSWERS}, headers={"X-QuickR-Channel": "mcp"}
     )
 
     page = (await client.get("/topics/sleep-log/sessions")).json()

@@ -33,7 +33,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ghcr.io/${{ github.repository_owner }}/quicker-${{ matrix.component }}
+          images: ghcr.io/${{ github.repository_owner }}/quickr-${{ matrix.component }}
           tags: |
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_run' }}
             type=sha,format=long,prefix=,value=${{ github.event.workflow_run.head_sha || github.sha }}

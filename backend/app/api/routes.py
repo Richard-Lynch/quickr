@@ -44,7 +44,7 @@ Db = Annotated[AsyncSession, Depends(get_db)]
 TopicRef = Annotated[str, Path(description="Topic UUID or slug.", examples=["sleep-log"])]
 ChannelHeader = Annotated[
     Channel | None,
-    Header(alias="X-Quicker-Channel", description="Client channel; defaults to 'api'."),
+    Header(alias="X-QuickR-Channel", description="Client channel; defaults to 'api'."),
 ]
 
 ERRORS: dict[int | str, dict[str, object]] = {

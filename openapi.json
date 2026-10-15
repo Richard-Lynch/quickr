@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Quicker API",
+    "title": "quickR API",
     "description": "Config-driven topics, questions and answer sessions.",
     "version": "1.0.0"
   },
@@ -1210,7 +1210,7 @@
             "description": "Topic UUID or slug."
           },
           {
-            "name": "X-Quicker-Channel",
+            "name": "X-QuickR-Channel",
             "in": "header",
             "required": false,
             "schema": {
@@ -1223,7 +1223,7 @@
                 }
               ],
               "description": "Client channel; defaults to 'api'.",
-              "title": "X-Quicker-Channel"
+              "title": "X-Quickr-Channel"
             },
             "description": "Client channel; defaults to 'api'."
           }
