@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Controller, useForm, useWatch, type Control } from 'react-hook-form';
 import { z } from 'zod';
 
@@ -7,6 +7,7 @@ import { applyFieldErrors, mapApiError, type FieldError } from '../../api/errors
 import { zSessionCreate } from '../../client/zod.gen';
 import { buildAnswerSchema, type AnswerFormValues, type AnswerMap } from '../../lib/answerSchema';
 import { localInputToIso } from '../../lib/dates';
+import { useUnsavedChangesGuard } from '../../lib/unsavedChanges';
 import type { Question } from '../../lib/questions';
 import { StickyActions } from '../AppShell';
 import { Button } from '../ui/Button';
@@ -58,15 +59,28 @@ interface SessionFormProps {
   /** Archived enum values this session already holds (edit mode). */
   allowArchived?: Record<string, string>;
   submitLabel: string;
-  /** Throw to have errors mapped onto fields; resolve to finish. */
-  onSubmit: (values: SessionFormOutput) => Promise<void>;
+  /**
+   * Throw to have errors mapped onto fields; resolve to finish. Call
+   * `allowNavigation()` before navigating away after a successful save.
+   */
+  onSubmit: (values: SessionFormOutput, helpers: SubmitHelpers) => Promise<void>;
   /** Shown beside the submit button. */
-  secondaryAction?: ReactNode;
+  secondaryAction?: ReactNode | ((helpers: SubmitHelpers) => ReactNode);
   /** Extra content between answers and meta fields. */
   children?: ReactNode;
   /** Values to reset to after a successful submit (record-another flow). */
   resetOnSuccess?: (submitted: SessionFormOutput) => SessionFormValues;
+  /** A server error to show on mount (e.g. fixing a rejected offline entry). */
+  initialError?: unknown;
+  /** Ask before leaving with unsaved input (default on). */
+  guardUnsaved?: boolean;
 }
+
+export interface SubmitHelpers {
+  allowNavigation: () => void;
+}
+
+type FormField = `answers.${string}` | 'captured_at' | 'source' | 'notes';
 
 export function SessionForm({
   questions,
@@ -77,6 +91,8 @@ export function SessionForm({
   secondaryAction,
   children,
   resetOnSuccess,
+  initialError,
+  guardUnsaved = true,
 }: SessionFormProps) {
   const schema = useMemo(() => buildSchema(questions, allowArchived), [questions, allowArchived]);
   const form = useForm<SessionFormValues, unknown, SessionFormOutput>({
@@ -84,26 +100,40 @@ export function SessionForm({
     defaultValues,
     mode: 'onTouched',
   });
-  const [banner, setBanner] = useState<{ message: string; extra: FieldError[] } | null>(null);
   const keys = useMemo(() => new Set(questions.map((q) => q.key)), [questions]);
+  const resolveField = (path: string): FormField | null => {
+    const [root, key] = path.split('.');
+    if (root === 'answers' && key && keys.has(key)) return `answers.${key}`;
+    if (root === 'captured_at' || root === 'source' || root === 'notes') return root;
+    return null;
+  };
+  const [banner, setBanner] = useState<{ message: string; extra: FieldError[] } | null>(() => {
+    if (initialError === undefined) return null;
+    const mapped = mapApiError(initialError);
+    return {
+      message: mapped.message,
+      extra: mapped.fieldErrors.filter((fe) => resolveField(fe.path) === null),
+    };
+  });
+  const guard = useUnsavedChangesGuard(guardUnsaved && form.formState.isDirty);
+
+  // Put a rejected entry's server errors back on its fields.
+  useEffect(() => {
+    if (initialError === undefined) return;
+    applyFieldErrors(mapApiError(initialError).fieldErrors, resolveField, form.setError);
+    focusFirstError();
+    // mount only: later errors come from submits
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const submit = form.handleSubmit(async (values) => {
     setBanner(null);
     try {
-      await onSubmit(values);
+      await onSubmit(values, { allowNavigation: guard.allowNavigation });
       if (resetOnSuccess) form.reset(resetOnSuccess(values));
     } catch (err) {
       const mapped = mapApiError(err);
-      const unplaced = applyFieldErrors(
-        mapped.fieldErrors,
-        (path): `answers.${string}` | 'captured_at' | 'source' | 'notes' | null => {
-          const [root, key] = path.split('.');
-          if (root === 'answers' && key && keys.has(key)) return `answers.${key}`;
-          if (root === 'captured_at' || root === 'source' || root === 'notes') return root;
-          return null;
-        },
-        form.setError,
-      );
+      const unplaced = applyFieldErrors(mapped.fieldErrors, resolveField, form.setError);
       setBanner({ message: mapped.message, extra: unplaced });
       focusFirstError();
     }
@@ -215,7 +245,9 @@ export function SessionForm({
       </details>
 
       <StickyActions>
-        {secondaryAction}
+        {typeof secondaryAction === 'function'
+          ? secondaryAction({ allowNavigation: guard.allowNavigation })
+          : secondaryAction}
         <Button
           type="submit"
           variant="primary"
@@ -227,6 +259,7 @@ export function SessionForm({
           {submitLabel}
         </Button>
       </StickyActions>
+      {guard.dialog}
     </form>
   );
 }

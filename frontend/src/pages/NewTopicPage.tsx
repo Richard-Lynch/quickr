@@ -21,6 +21,7 @@ import {
   type TopicDraft,
   type TopicDraftOutput,
 } from '../lib/builder';
+import { useUnsavedChangesGuard } from '../lib/unsavedChanges';
 
 const CLIENT_INVALID = 'Fix the highlighted fields';
 
@@ -36,6 +37,9 @@ export function NewTopicPage() {
     mode: 'onSubmit',
     reValidateMode: 'onChange',
   });
+  const guard = useUnsavedChangesGuard(form.formState.isDirty, {
+    message: 'This topic hasn’t been created yet. Leave and lose it?',
+  });
 
   const onSubmit = form.handleSubmit(
     async (body) => {
@@ -45,6 +49,7 @@ export function NewTopicPage() {
         qc.setQueryData(getTopicQueryKey({ path: { ref: topic.slug } }), topic);
         void invalidateOperations(qc, ['listTopics']);
         toast({ title: 'Topic created', description: 'Record your first entry.' });
+        guard.allowNavigation();
         void navigate(`/t/${topic.slug}/record`, { replace: true });
       } catch (err) {
         const mapped = mapApiError(err);
@@ -105,6 +110,7 @@ export function NewTopicPage() {
           }
         />
       </Page>
+      {guard.dialog}
     </>
   );
 }
