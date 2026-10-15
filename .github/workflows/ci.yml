@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: quicker
+          POSTGRES_PASSWORD: quicker
+          POSTGRES_DB: quicker_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U quicker" --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      QUICKER_TEST_DATABASE_URL: postgresql+asyncpg://quicker:quicker@localhost:5432/quicker_test
+      QUICKER_DATABASE_URL: postgresql+asyncpg://quicker:quicker@localhost:5432/quicker_test
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Ruff lint
+        run: uv run ruff check .
+      - name: Ruff format
+        run: uv run ruff format --check .
+      - name: Mypy (strict)
+        run: uv run mypy app scripts tests
+      - name: OpenAPI spec is up to date
+        run: |
+          uv run python scripts/export_openapi.py /tmp/openapi.json
+          diff -u ../openapi.json /tmp/openapi.json || (echo "::error::openapi.json is stale - run 'make openapi'" && exit 1)
+      - name: Migrations match models
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+      - name: Tests
+        run: uv run pytest -q

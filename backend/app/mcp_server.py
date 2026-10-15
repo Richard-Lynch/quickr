@@ -142,7 +142,7 @@ async def update_topic(
 
 @mcp.tool
 async def set_topic_archived(ref: TopicRef, archived: bool) -> TopicDetail:
-    """Archive (read-only, hidden by default) or unarchive a topic."""
+    """Archive (blocks new sessions, hidden from default listings) or unarchive a topic."""
     async with _db() as db:
         return await topic_svc.set_archived(db, ref, archived=archived)
 
