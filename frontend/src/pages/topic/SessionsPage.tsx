@@ -166,7 +166,9 @@ export function SessionsPage() {
                             className={
                               c.question.type === 'str'
                                 ? 'line-clamp-2 text-sm'
-                                : 'font-mono text-[0.95rem] font-semibold tabular'
+                                : c.question.type === 'enum'
+                                  ? 'text-[0.95rem] font-semibold'
+                                  : 'font-mono text-[0.95rem] font-semibold tabular'
                             }
                           >
                             {v}
@@ -234,7 +236,9 @@ export function SessionsPage() {
                           className={
                             c.question.type === 'str'
                               ? 'max-w-56 truncate px-3 py-3'
-                              : 'px-3 py-3 font-mono font-semibold whitespace-nowrap tabular'
+                              : c.question.type === 'enum'
+                                ? 'px-3 py-3 font-medium whitespace-nowrap'
+                                : 'px-3 py-3 font-mono font-semibold whitespace-nowrap tabular'
                           }
                           title={v ?? undefined}
                         >

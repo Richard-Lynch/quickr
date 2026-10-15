@@ -23,7 +23,7 @@ export function FilterBar({ filters, onChange, versions, sources, children }: Fi
         options={RANGE_PRESETS}
       />
       {versions && versions.length > 1 ? (
-        <div className="w-32">
+        <div className="w-36">
           <Select
             aria-label="Version"
             value={filters.version ?? ''}

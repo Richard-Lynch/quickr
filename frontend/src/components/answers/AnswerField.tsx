@@ -128,7 +128,7 @@ export function AnswerField({
                 onClick={() => onChange(selected && !q.required ? '' : o.value)}
                 onBlur={onBlur}
                 className={cn(
-                  'flex min-h-13 items-center justify-center gap-2 rounded-2xl border-2 px-3 py-2 text-center text-[0.95rem] leading-tight font-semibold transition-[background-color,border-color,color,transform] active:scale-[0.97]',
+                  'flex min-h-13 items-center justify-center gap-2 rounded-2xl border-2 px-3 py-2 text-center text-[0.95rem] leading-tight font-semibold transition-transform active:scale-[0.97]',
                   selected
                     ? 'border-accent bg-accent text-on-accent shadow-card'
                     : 'border-line-strong bg-surface text-ink hover:border-ink/40',
