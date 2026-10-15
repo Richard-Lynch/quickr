@@ -132,6 +132,22 @@ export function answerValuesFromSession(
   );
 }
 
+/** Form state pre-filled from a request-shaped answer map (`{ key: value }`). */
+export function answerValuesFromMap(
+  questions: readonly Question[],
+  answers: Readonly<Record<string, unknown>>,
+): AnswerFormValues {
+  return Object.fromEntries(
+    questions.map((q) => {
+      const v = answers[q.key];
+      return [
+        q.key,
+        typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean' ? String(v) : '',
+      ];
+    }),
+  );
+}
+
 /** Archived enum values a session already holds — still valid when editing it. */
 export function archivedValuesInSession(
   questions: readonly Question[],

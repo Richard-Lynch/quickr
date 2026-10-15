@@ -1,6 +1,7 @@
-import { QueryClient, type QueryKey } from '@tanstack/react-query';
+import { QueryClient } from '@tanstack/react-query';
 
 import { zProblem } from '../client/zod.gen';
+import { keyMeta } from './cache';
 
 /** Don't retry domain errors (4xx Problems) — only transient failures. */
 function shouldRetry(failureCount: number, error: unknown): boolean {
@@ -8,19 +9,32 @@ function shouldRetry(failureCount: number, error: unknown): boolean {
   return failureCount < 2;
 }
 
+/**
+ * How long cached data is kept (in memory and in the IndexedDB snapshot). Must be
+ * ≥ the persister's `maxAge`, or restored queries would be garbage-collected at once.
+ */
+export const CACHE_GC_TIME = 7 * 24 * 60 * 60 * 1000;
+
 export function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
       queries: {
         staleTime: 20_000,
+        gcTime: CACHE_GC_TIME,
         retry: shouldRetry,
+        // Run the queryFn even when the browser says offline: the service worker may
+        // answer from its runtime cache. If it fails, the query pauses (keeping any
+        // cached/persisted data on screen) and resumes when the connection returns.
+        networkMode: 'offlineFirst',
       },
-      mutations: { retry: false },
+      // Plain mutations fail fast offline with a clear message instead of hanging
+      // "pending" forever; durable writes go through the outbox (src/lib/outbox).
+      mutations: { retry: false, networkMode: 'always' },
     },
   });
 }
 
-type OperationId =
+export type OperationId =
   | 'listTopics'
   | 'getTopic'
   | 'listTopicVersions'
@@ -29,39 +43,32 @@ type OperationId =
   | 'getTopicStats'
   | 'getQuestionSeries';
 
-/** Generated query keys are `[{ _id: operationId, path, query, ... }]`. */
-function operationOf(key: QueryKey): string | undefined {
-  const first: unknown = key[0];
-  if (typeof first === 'object' && first !== null && '_id' in first) {
-    const id = first._id;
-    return typeof id === 'string' ? id : undefined;
-  }
-  return undefined;
-}
-
 /** Invalidate every cached query for the given generated operations. */
 export function invalidateOperations(qc: QueryClient, ids: readonly OperationId[]): Promise<void> {
   return qc.invalidateQueries({
     predicate: (q) => {
-      const op = operationOf(q.queryKey);
+      const op = keyMeta(q.queryKey)?._id;
       return op !== undefined && (ids as readonly string[]).includes(op);
     },
   });
 }
+
+/** Everything whose numbers depend on the set of sessions. */
+export const SESSION_DATA_OPS: readonly OperationId[] = [
+  'listTopics',
+  'getTopic',
+  'listTopicVersions',
+  'listSessions',
+  'getTopicStats',
+  'getQuestionSeries',
+];
 
 /**
  * Anything that changes sessions changes counts, stats and series too.
  * (Single-session caches are updated/removed explicitly by the caller.)
  */
 export function invalidateSessionData(qc: QueryClient): Promise<void> {
-  return invalidateOperations(qc, [
-    'listTopics',
-    'getTopic',
-    'listTopicVersions',
-    'listSessions',
-    'getTopicStats',
-    'getQuestionSeries',
-  ]);
+  return invalidateOperations(qc, SESSION_DATA_OPS);
 }
 
 export function invalidateTopicData(qc: QueryClient): Promise<void> {

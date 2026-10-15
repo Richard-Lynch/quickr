@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { isRouteErrorResponse, Link, Outlet, useNavigate, useRouteError } from 'react-router';
 
 import { errorMessage } from '../api/errors';
+import { SyncIndicator } from './pwa/Sync';
 import { ButtonLink, IconButton } from './ui/Button';
 import { EmptyState } from './ui/Card';
 import { cn } from './ui/cn';
@@ -46,15 +47,32 @@ export function Logo({ className }: { className?: string | undefined }) {
 
 export function AppShell() {
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col">
+    <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
       <Outlet />
     </div>
   );
 }
 
 /**
+ * Where "back" goes when there is no in-app history to pop (opened from a notification
+ * or the Home Screen straight into a deep link — standalone iOS has no browser back).
+ */
+function canGoBack(): boolean {
+  const state: unknown = window.history.state;
+  return (
+    typeof state === 'object' &&
+    state !== null &&
+    'idx' in state &&
+    typeof state.idx === 'number' &&
+    state.idx > 0
+  );
+}
+
+/**
  * Compact sticky top bar. `back` renders a back button (phones navigate
- * mostly by thumb + back), `actions` sit on the right.
+ * mostly by thumb + back; installed iOS apps have no browser back button at all),
+ * `actions` sit on the right next to the sync/offline indicator.
+ * `back={true}` pops history when there is any, else goes to the topic list.
  */
 export function TopBar({
   title,
@@ -71,7 +89,7 @@ export function TopBar({
   return (
     <header
       className={cn(
-        'sticky top-0 z-30 flex h-14 items-center gap-1 border-b border-line/70 bg-paper/85 px-2 pt-[env(safe-area-inset-top)] backdrop-blur-md sm:h-16 sm:px-4',
+        'sticky top-0 z-30 flex h-[calc(3.5rem+env(safe-area-inset-top))] items-center gap-1 border-b border-line/70 bg-paper/85 px-2 pt-[env(safe-area-inset-top)] backdrop-blur-md select-none sm:h-[calc(4rem+env(safe-area-inset-top))] sm:px-4',
         className,
       )}
     >
@@ -79,8 +97,9 @@ export function TopBar({
         <IconButton
           label="Back"
           onClick={() => {
-            if (back === true) void navigate(-1);
-            else void navigate(back);
+            if (back !== true) void navigate(back);
+            else if (canGoBack()) void navigate(-1);
+            else void navigate('/');
           }}
         >
           <Icon name="chevronLeft" />
@@ -93,7 +112,10 @@ export function TopBar({
       <div className="min-w-0 flex-1 truncate font-display text-lg font-semibold tracking-tight">
         {title}
       </div>
-      <div className="flex items-center gap-1">{actions}</div>
+      <div className="flex items-center gap-1">
+        <SyncIndicator />
+        {actions}
+      </div>
     </header>
   );
 }
@@ -107,7 +129,10 @@ export function Page({
 }) {
   return (
     <main
-      className={cn('flex w-full flex-1 flex-col gap-5 px-4 pt-4 pb-32 sm:px-6 sm:pt-6', className)}
+      className={cn(
+        'flex w-full flex-1 flex-col gap-5 px-4 pt-4 pb-[calc(8rem+env(safe-area-inset-bottom))] sm:px-6 sm:pt-6',
+        className,
+      )}
     >
       {children}
     </main>
@@ -128,7 +153,7 @@ export function StickyActions({
   return (
     <div
       className={cn(
-        'fixed inset-x-0 bottom-0 z-20 border-t border-line bg-paper/90 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md',
+        'fixed inset-x-0 bottom-0 z-20 border-t border-line bg-paper/90 pt-3 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] backdrop-blur-md',
         'sm:static sm:z-auto sm:mt-2 sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none',
         className,
       )}

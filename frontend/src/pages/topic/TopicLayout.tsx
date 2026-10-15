@@ -39,6 +39,26 @@ export function TopicLayout() {
   const ref = useTopicRef();
   const query = useQuery(getTopicOptions({ path: { ref } }));
 
+  if (query.isPending && query.fetchStatus === 'paused') {
+    return (
+      <>
+        <TopBar back="/" />
+        <Page>
+          <EmptyState
+            title="You’re offline"
+            icon={<Icon name="cloudOff" className="size-9" />}
+            action={
+              <ButtonLink to="/" variant="primary">
+                All topics
+              </ButtonLink>
+            }
+          >
+            This topic isn’t saved on this device yet. It will load when you’re back online.
+          </EmptyState>
+        </Page>
+      </>
+    );
+  }
   if (query.isPending) {
     return (
       <>
@@ -175,7 +195,7 @@ export function TopicTabs() {
 
         <nav
           aria-label="Topic sections"
-          className="sticky top-14 z-20 -mx-4 border-b border-line bg-paper/90 px-4 backdrop-blur-md sm:top-16 sm:-mx-6 sm:px-6"
+          className="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-20 -mx-4 border-b border-line bg-paper/90 px-4 backdrop-blur-md select-none sm:top-[calc(4rem+env(safe-area-inset-top))] sm:-mx-6 sm:px-6"
         >
           <ul className="flex gap-1">
             {TABS.map((t) => (
