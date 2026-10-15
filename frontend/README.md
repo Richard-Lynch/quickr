@@ -1,7 +1,9 @@
 # quickR — frontend
 
 React 19 + Vite 8 + TypeScript SPA (Tailwind v4, TanStack Query, React Router, react-hook-form + zod).
-Mobile-first; light/dark follows the OS.
+Mobile-first; light/dark follows the OS. An installable **PWA** (offline app shell, persisted
+query cache, durable offline outbox for new entries, push plumbing, install UX) — see
+[docs/pwa.md](docs/pwa.md).
 
 ## Scripts
 
@@ -13,6 +15,7 @@ Mobile-first; light/dark follows the OS.
 | `pnpm lint`                         | ESLint (typescript-eslint strict + stylistic type-checked)         |
 | `pnpm test`                         | Vitest (jsdom)                                                     |
 | `pnpm gen:api`                      | Regenerate `src/client/` from `../openapi.json`                    |
+| `pnpm gen:icons`                    | Regenerate PWA/iOS icons from `public/favicon.svg` (committed)     |
 | `pnpm format` / `pnpm format:check` | Prettier                                                           |
 
 \* override with `QUICKER_BACKEND_URL=http://host:port pnpm dev`.
@@ -26,7 +29,8 @@ option factories. Never edit it by hand and never hand-write API types — impor
 Flow when the backend API changes: regenerate `openapi.json` at the repo root (backend), then
 `pnpm gen:api`, commit the diff. CI runs `pnpm gen:api && git diff --exit-code -- src/client`.
 
-Runtime config (same-origin `baseUrl`, `X-Quicker-Channel: ui` header) lives in
+Runtime config (same-origin `baseUrl`, `X-Quicker-Channel: ui` header — defined in
+`src/api/constants.ts`, to become `X-QuickR-Channel`) lives in
 `src/api/clientConfig.ts`. The generated fetch-client runtime (`src/client/{client,core}`) is not
 `exactOptionalPropertyTypes`-clean, so it is type-checked as its own project
 (`tsconfig.client-runtime.json`); everything else, generated or not, uses the strict app config.
@@ -35,6 +39,8 @@ Runtime config (same-origin `baseUrl`, `X-Quicker-Channel: ui` header) lives in
 
 `Dockerfile` builds with Node 24 + pnpm and serves `dist/` from nginx (SPA fallback, gzip, immutable
 caching for hashed assets) while proxying `/api/` and `/mcp` (unbuffered, for streamable HTTP/SSE)
-to `BACKEND_ORIGIN` (default `http://backend:8000`).
+to `BACKEND_ORIGIN` (default `http://backend:8000`). `sw.js` and
+`manifest.webmanifest` are served with `Cache-Control: no-cache` so app updates are picked up;
+service workers (offline, push, install) need the site to be served over HTTPS.
 
 ![Record](docs/screenshots/record.png)
