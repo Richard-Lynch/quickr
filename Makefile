@@ -36,6 +36,10 @@ web: ## Run the Vite dev server on :5180
 seed: ## Load demo topics and entries
 	$(BACKEND) uv run python scripts/seed.py
 
+.PHONY: vapid
+vapid: ## Print a fresh VAPID key pair for QUICKR_VAPID_PRIVATE_KEY / QUICKR_VAPID_PUBLIC_KEY
+	$(BACKEND) uv run python -c "from app.services.push import generate_vapid_keys as g; k = g(); print(f'QUICKR_VAPID_PRIVATE_KEY={k.private_key}'); print(f'QUICKR_VAPID_PUBLIC_KEY={k.public_key}')"
+
 .PHONY: openapi
 openapi: ## Regenerate openapi.json from the FastAPI app
 	$(BACKEND) uv run python scripts/export_openapi.py ../openapi.json
