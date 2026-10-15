@@ -1,22 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
 import { errorMessage } from '../../api/errors';
-import { invalidateSessionData } from '../../api/queryClient';
+import { useDeleteSessionWithUndo, useUpdateSession } from '../../api/mutations';
 import {
-  deleteSessionMutation,
   getSessionOptions,
-  getSessionQueryKey,
   listTopicVersionsOptions,
-  updateSessionMutation,
 } from '../../client/@tanstack/react-query.gen';
 import { Page, TopBar } from '../../components/AppShell';
 import { SessionForm, type SessionFormValues } from '../../components/answers/SessionForm';
 import { Button } from '../../components/ui/Button';
 import { Badge, Banner, VersionTag } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
-import { ConfirmSheet } from '../../components/ui/Sheet';
 import { PageSpinner } from '../../components/ui/Spinner';
 import { useToast } from '../../components/ui/Toast';
 import { answerValuesFromSession, archivedValuesInSession } from '../../lib/answerSchema';
@@ -27,15 +23,13 @@ export function SessionEditPage() {
   const topic = useTopic();
   const { sessionId = '' } = useParams();
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const { toast } = useToast();
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const base = `/t/${topic.slug}`;
 
   const session = useQuery(getSessionOptions({ path: { session_id: sessionId } }));
   const versions = useQuery(listTopicVersionsOptions({ path: { ref: topic.slug } }));
-  const update = useMutation(updateSessionMutation());
-  const remove = useMutation(deleteSessionMutation());
+  const update = useUpdateSession();
+  const deleteWithUndo = useDeleteSessionWithUndo();
 
   const version = useMemo(
     () => versions.data?.find((v) => v.version === session.data?.version),
@@ -105,20 +99,26 @@ export function SessionEditPage() {
           defaultValues={prepared.defaults}
           allowArchived={prepared.allowArchived}
           submitLabel="Save changes"
-          secondaryAction={
+          secondaryAction={({ allowNavigation }) => (
             <Button
               variant="quiet-danger"
               size="lg"
-              onClick={() => setConfirmDelete(true)}
+              onClick={() => {
+                // No blocking confirm: the entry vanishes now and an Undo toast holds the
+                // actual DELETE back until it expires. Deleting discards any edits too.
+                allowNavigation();
+                void navigate(back);
+                deleteWithUndo(s, topic);
+              }}
               icon={<Icon name="trash" />}
               aria-label="Delete entry"
               className="px-4"
             >
               <span className="hidden sm:inline">Delete</span>
             </Button>
-          }
-          onSubmit={async (v) => {
-            const updated = await update.mutateAsync({
+          )}
+          onSubmit={async (v, { allowNavigation }) => {
+            await update.mutateAsync({
               path: { session_id: s.id },
               body: {
                 // every key of the version: null clears a previously-set answer
@@ -128,44 +128,12 @@ export function SessionEditPage() {
                 notes: v.notes,
               },
             });
-            qc.setQueryData(getSessionQueryKey({ path: { session_id: s.id } }), updated);
-            void invalidateSessionData(qc);
             toast({ title: 'Entry updated' });
+            allowNavigation();
             void navigate(back);
           }}
         />
       </Page>
-
-      <ConfirmSheet
-        open={confirmDelete}
-        onClose={() => setConfirmDelete(false)}
-        title="Delete this entry?"
-        body={
-          <p>
-            This permanently removes the entry from {formatDateTime(s.captured_at)}. It can’t be
-            undone.
-          </p>
-        }
-        confirmLabel="Delete entry"
-        danger
-        busy={remove.isPending}
-        onConfirm={() => {
-          remove.mutate(
-            { path: { session_id: s.id } },
-            {
-              onSuccess: () => {
-                setConfirmDelete(false);
-                void navigate(back);
-                qc.removeQueries({ queryKey: getSessionQueryKey({ path: { session_id: s.id } }) });
-                void invalidateSessionData(qc);
-                toast({ title: 'Entry deleted' });
-              },
-              onError: (err) =>
-                toast({ title: 'Delete failed', description: errorMessage(err), tone: 'danger' }),
-            },
-          );
-        }}
-      />
     </>
   );
 }
