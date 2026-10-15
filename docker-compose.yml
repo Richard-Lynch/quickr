@@ -1,0 +1,45 @@
+name: quicker
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: quicker
+      POSTGRES_PASSWORD: quicker
+      POSTGRES_DB: quicker
+    ports:
+      - "${QUICKER_DB_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quicker -d quicker"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    build: ./backend
+    environment:
+      QUICKER_DATABASE_URL: postgresql+asyncpg://quicker:quicker@db:5432/quicker
+      QUICKER_CORS_ORIGINS: '["http://localhost:8080","http://localhost:5180"]'
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${QUICKER_API_PORT:-8100}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${QUICKER_WEB_PORT:-8080}:80"
+
+volumes:
+  pgdata:
