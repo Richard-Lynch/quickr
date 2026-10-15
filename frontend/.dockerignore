@@ -1,0 +1,13 @@
+node_modules
+dist
+coverage
+docs
+*.tsbuildinfo
+.vite
+.env
+.env.*
+npm-debug.log*
+pnpm-debug.log*
+.DS_Store
+Dockerfile
+.dockerignore
