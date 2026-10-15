@@ -1,4 +1,4 @@
-# quicker
+# quickR
 
 Config-driven data capture. Create **topics**, give each an ordered set of typed
 **questions**, and record **sessions** (one set of answers) from your phone, the
@@ -82,7 +82,7 @@ the topic's current version (optimistic concurrency, `409` otherwise).
 | `GET /api/v1/topics/{ref}/stats` · `GET .../questions/{key}/series`                   | aggregation and time series                           |
 | `GET /api/v1/question-types`                                                          | JSON schema for every question type                   |
 
-Send `X-Quicker-Channel: ui|api|mcp` to tag the channel (defaults to `api`).
+Send `X-QuickR-Channel: ui|api|mcp` to tag the channel (defaults to `api`).
 Domain errors use one envelope: `{code, detail, errors: [{loc, message}]}`.
 
 ## MCP
@@ -94,7 +94,7 @@ Point any MCP client at `http://<host>/mcp/` (streamable HTTP). Tools:
 `delete_session`, `topic_stats`, `question_series`.
 
 ```bash
-claude mcp add --transport http quicker http://localhost:8100/mcp/
+claude mcp add --transport http quickr http://localhost:8100/mcp/
 ```
 
 ## CI/CD
@@ -110,5 +110,5 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every PR:
 
 `main` is protected. Changes land through PRs with all three checks green. When
 CI passes on `main`, `release.yml` publishes multi-arch images to
-`ghcr.io/richard-lynch/quicker-{backend,frontend}`, tagged `latest` plus the
+`ghcr.io/richard-lynch/quickr-{backend,frontend}`, tagged `latest` plus the
 commit SHA, and with semver tags for `v*` tags.

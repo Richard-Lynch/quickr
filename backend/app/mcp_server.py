@@ -48,7 +48,7 @@ from app.services import stats as stats_svc
 from app.services import topics as topic_svc
 
 INSTRUCTIONS = """\
-Quicker records structured answers ("sessions") against config-driven "topics".
+quickR records structured answers ("sessions") against config-driven "topics".
 A topic has an ordered list of questions; each question has a stable `key` and a
 `type` of int | double | str | enum with constraints (min/max, length, options).
 
@@ -80,7 +80,7 @@ class DomainErrorMiddleware(Middleware):
             raise
 
 
-mcp = FastMCP("quicker", instructions=INSTRUCTIONS, mask_error_details=True)
+mcp = FastMCP("quickr", instructions=INSTRUCTIONS, mask_error_details=True)
 mcp.add_middleware(DomainErrorMiddleware())
 
 TopicRef = Annotated[str, Field(description="Topic UUID or slug.")]

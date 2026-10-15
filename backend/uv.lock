@@ -1866,7 +1866,7 @@ wheels = [
 ]
 
 [[package]]
-name = "quicker-backend"
+name = "quickr-backend"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

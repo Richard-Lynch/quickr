@@ -1,6 +1,6 @@
 """Shared fixtures.
 
-The test database (``QUICKER_TEST_DATABASE_URL``, default ``quicker_test`` on the
+The test database (``QUICKR_TEST_DATABASE_URL``, default ``quickr_test`` on the
 dev server) is created if missing and migrated with Alembic -- never
 ``metadata.create_all`` -- so the migrations themselves are exercised. Tables
 are truncated before every DB-backed test.
@@ -16,10 +16,10 @@ from pathlib import Path
 import pytest
 
 TEST_DATABASE_URL = os.environ.get(
-    "QUICKER_TEST_DATABASE_URL", "postgresql+asyncpg://quicker:quicker@localhost:5433/quicker_test"
+    "QUICKR_TEST_DATABASE_URL", "postgresql+asyncpg://quickr:quickr@localhost:5433/quickr_test"
 )
 # Must happen before anything calls the lru_cached get_settings()/get_engine().
-os.environ["QUICKER_DATABASE_URL"] = TEST_DATABASE_URL
+os.environ["QUICKR_DATABASE_URL"] = TEST_DATABASE_URL
 
 import httpx  # noqa: E402
 from alembic.config import Config  # noqa: E402
