@@ -29,6 +29,7 @@ import {
   type TopicDraft,
   type VersionDraftOutput,
 } from '../../lib/builder';
+import { useUnsavedChangesGuard } from '../../lib/unsavedChanges';
 import { useTopic } from './TopicLayout';
 
 const CLIENT_INVALID = 'Fix the highlighted fields';
@@ -49,6 +50,9 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
     defaultValues: draftFromTopic(base),
     mode: 'onSubmit',
     reValidateMode: 'onChange',
+  });
+  const guard = useUnsavedChangesGuard(form.formState.isDirty, {
+    message: 'Your question changes haven’t been published. Leave and lose them?',
   });
   const check = useMutation(checkTopicVersionMutation());
   const publish = useMutation(publishTopicVersionMutation());
@@ -124,6 +128,7 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
       void invalidateTopicData(qc);
       setReview(null);
       toast({ title: `Published v${updated.current_version}` });
+      guard.allowNavigation();
       void navigate(`${topicPath}/versions`);
     } catch (err) {
       handleError(err);
@@ -293,6 +298,7 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
           you need first.
         </p>
       </Sheet>
+      {guard.dialog}
     </>
   );
 }

@@ -85,6 +85,7 @@ interface ConfirmProps {
   title: string;
   body: ReactNode;
   confirmLabel: string;
+  cancelLabel?: string;
   danger?: boolean;
   busy?: boolean;
   /** Require typing this text before confirming. */
@@ -98,6 +99,7 @@ export function ConfirmSheet({
   title,
   body,
   confirmLabel,
+  cancelLabel = 'Cancel',
   danger,
   busy,
   typeToConfirm,
@@ -116,7 +118,7 @@ export function ConfirmSheet({
       footer={
         <>
           <Button onClick={close} size="lg" className="sm:h-11 sm:px-5 sm:text-[0.95rem]">
-            Cancel
+            {cancelLabel}
           </Button>
           <Button
             variant={danger ? 'danger' : 'primary'}
