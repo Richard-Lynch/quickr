@@ -22,7 +22,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="quickR API",
         version="1.0.0",
-        description="Config-driven topics, questions and answer sessions.",
+        description="Config-driven topics, questions and answer entries.",
         lifespan=mcp_app.lifespan,
         generate_unique_id_function=_operation_id,
     )

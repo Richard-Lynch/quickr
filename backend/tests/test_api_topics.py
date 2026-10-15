@@ -22,7 +22,7 @@ async def test_create_and_get_topic(client: httpx.AsyncClient) -> None:
     assert t["status"] == "active"
     assert t["current_version"] == 1
     assert t["question_count"] == 4
-    assert t["session_count"] == 0
+    assert t["entry_count"] == 0
     assert t["last_captured_at"] is None
     assert t["archived_at"] is None
     assert [q["key"] for q in t["questions"]] == ["hours", "wakeups", "quality", "dream"]
@@ -135,8 +135,8 @@ async def test_archive_lifecycle(client: httpx.AsyncClient) -> None:
     assert r.json()["status"] == "archived"
     assert r.json()["archived_at"] is not None
 
-    # Archived topics refuse new sessions.
-    r = await client.post("/topics/sleep-log/sessions", json={"answers": {"hours": 1}})
+    # Archived topics refuse new entries.
+    r = await client.post("/topics/sleep-log/entries", json={"answers": {"hours": 1}})
     assert r.status_code == 409
     assert r.json()["code"] == "topic_archived"
 
@@ -263,10 +263,10 @@ async def test_summary_counts(client: httpx.AsyncClient) -> None:
         client, "sleep-log", {"hours": 2, "wakeups": 0, "quality": "ok"}, captured_at="2026-01-03T00:00:00Z"
     )
     (item,) = (await client.get("/topics")).json()["items"]
-    assert item["session_count"] == 2
+    assert item["entry_count"] == 2
     assert item["last_captured_at"] == "2026-01-03T00:00:00Z"
     detail = (await client.get("/topics/sleep-log")).json()
-    assert detail["session_count"] == 2
+    assert detail["entry_count"] == 2
 
 
 async def test_question_types(client: httpx.AsyncClient) -> None:

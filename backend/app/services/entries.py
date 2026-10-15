@@ -11,18 +11,18 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import NotFound, TopicArchived
-from app.models import Answer, Channel, Session, Topic, TopicStatus
+from app.models import Answer, Channel, Entry, Topic, TopicStatus
 from app.schemas.api import (
     AnswerOut,
     DoubleAnswer,
+    EntryCreate,
+    EntryFilters,
+    EntryOrder,
+    EntryOut,
+    EntryPage,
+    EntryUpdate,
     EnumAnswer,
     IntAnswer,
-    SessionCreate,
-    SessionFilters,
-    SessionOrder,
-    SessionOut,
-    SessionPage,
-    SessionUpdate,
     StrAnswer,
 )
 from app.services.answers import TypedAnswer, validate_answers
@@ -50,8 +50,8 @@ def _answer_out(a: Answer) -> AnswerOut:
             return StrAnswer(key=a.question_key, value=a.value_str)
 
 
-def session_out(s: Session) -> SessionOut:
-    return SessionOut(
+def entry_out(s: Entry) -> EntryOut:
+    return EntryOut(
         id=s.id,
         topic_id=s.topic_id,
         version=s.version,
@@ -90,13 +90,13 @@ def _raw_value(a: Answer) -> int | float | str:
     return a.value_str
 
 
-async def create_session(db: AsyncSession, ref: str, body: SessionCreate, channel: Channel) -> SessionOut:
+async def create_entry(db: AsyncSession, ref: str, body: EntryCreate, channel: Channel) -> EntryOut:
     topic = await resolve_topic(db, ref)
     if topic.status == TopicStatus.archived:
-        raise TopicArchived(f"topic '{topic.slug}' is archived; unarchive it to record sessions")
+        raise TopicArchived(f"topic '{topic.slug}' is archived; unarchive it to record entries")
     version = await get_version(db, topic, body.version)
     typed = validate_answers(parse_questions(version.questions), body.answers)
-    session = Session(
+    entry = Entry(
         topic_id=topic.id,
         topic_version_id=version.id,
         version=version.version,
@@ -107,36 +107,36 @@ async def create_session(db: AsyncSession, ref: str, body: SessionCreate, channe
         meta=body.meta,
         answers=_to_rows(topic.id, typed),
     )
-    db.add(session)
+    db.add(entry)
     await db.commit()
-    return await get_session(db, session.id)
+    return await get_entry(db, entry.id)
 
 
-async def _load(db: AsyncSession, session_id: UUID) -> Session:
+async def _load(db: AsyncSession, entry_id: UUID) -> Entry:
     # populate_existing: return DB-normalised values (e.g. UTC captured_at) even
     # when the object is already in the identity map from this request.
-    stmt = select(Session).where(Session.id == session_id).execution_options(populate_existing=True)
+    stmt = select(Entry).where(Entry.id == entry_id).execution_options(populate_existing=True)
     s = (await db.execute(stmt)).scalar_one_or_none()
     if s is None:
-        raise NotFound(f"session '{session_id}' not found")
+        raise NotFound(f"entry '{entry_id}' not found")
     return s
 
 
-async def get_session(db: AsyncSession, session_id: UUID) -> SessionOut:
-    s = await _load(db, session_id)
+async def get_entry(db: AsyncSession, entry_id: UUID) -> EntryOut:
+    s = await _load(db, entry_id)
     await db.refresh(s, ["answers"])
-    return session_out(s)
+    return entry_out(s)
 
 
-async def update_session(db: AsyncSession, session_id: UUID, body: SessionUpdate) -> SessionOut:
-    s = await _load(db, session_id)
+async def update_entry(db: AsyncSession, entry_id: UUID, body: EntryUpdate) -> EntryOut:
+    s = await _load(db, entry_id)
     topic = (await db.execute(select(Topic).where(Topic.id == s.topic_id))).scalar_one()
     if body.answers is not None:
         version = await get_version(db, topic, s.version)
         existing = {a.question_key: a for a in s.answers}
         merged: dict[str, Any] = {k: _raw_value(a) for k, a in existing.items()}
         merged.update(body.answers)
-        # Archived enum values the session already holds stay editable-around.
+        # Archived enum values the entry already holds stay editable-around.
         keep_archived = {
             k: a.value_str for k, a in existing.items() if a.question_type == "enum" and a.value_str
         }
@@ -158,56 +158,56 @@ async def update_session(db: AsyncSession, session_id: UUID, body: SessionUpdate
         s.meta = body.meta
     s.updated_at = datetime.now(UTC)
     await db.commit()
-    return await get_session(db, s.id)
+    return await get_entry(db, s.id)
 
 
-async def delete_session(db: AsyncSession, session_id: UUID) -> None:
-    s = await _load(db, session_id)
+async def delete_entry(db: AsyncSession, entry_id: UUID) -> None:
+    s = await _load(db, entry_id)
     await db.delete(s)
     await db.commit()
 
 
-def apply_filters[*Ts](stmt: Select[*Ts], topic_id: UUID, f: SessionFilters) -> Select[*Ts]:
-    stmt = stmt.where(Session.topic_id == topic_id)
+def apply_filters[*Ts](stmt: Select[*Ts], topic_id: UUID, f: EntryFilters) -> Select[*Ts]:
+    stmt = stmt.where(Entry.topic_id == topic_id)
     if f.captured_from is not None:
-        stmt = stmt.where(Session.captured_at >= f.captured_from)
+        stmt = stmt.where(Entry.captured_at >= f.captured_from)
     if f.captured_to is not None:
-        stmt = stmt.where(Session.captured_at < f.captured_to)
+        stmt = stmt.where(Entry.captured_at < f.captured_to)
     if f.version is not None:
-        stmt = stmt.where(Session.version == f.version)
+        stmt = stmt.where(Entry.version == f.version)
     if f.source is not None:
-        stmt = stmt.where(Session.source == f.source)
+        stmt = stmt.where(Entry.source == f.source)
     if f.channel is not None:
-        stmt = stmt.where(Session.channel == f.channel)
+        stmt = stmt.where(Entry.channel == f.channel)
     return stmt
 
 
-async def list_sessions(
+async def list_entries(
     db: AsyncSession,
     ref: str,
-    filters: SessionFilters,
+    filters: EntryFilters,
     *,
-    order: SessionOrder = "-captured_at",
+    order: EntryOrder = "-captured_at",
     limit: int = 50,
     offset: int = 0,
-) -> SessionPage:
+) -> EntryPage:
     topic = await resolve_topic(db, ref)
-    total = (await db.execute(apply_filters(select(func.count(Session.id)), topic.id, filters))).scalar_one()
-    col = Session.captured_at if order.lstrip("-") == "captured_at" else Session.created_at
-    stmt = apply_filters(select(Session), topic.id, filters).order_by(
-        col.desc() if order.startswith("-") else col.asc(), Session.id
+    total = (await db.execute(apply_filters(select(func.count(Entry.id)), topic.id, filters))).scalar_one()
+    col = Entry.captured_at if order.lstrip("-") == "captured_at" else Entry.created_at
+    stmt = apply_filters(select(Entry), topic.id, filters).order_by(
+        col.desc() if order.startswith("-") else col.asc(), Entry.id
     )
     rows = (await db.execute(stmt.limit(limit).offset(offset))).scalars().all()
-    return SessionPage(items=[session_out(s) for s in rows], total=total, limit=limit, offset=offset)
+    return EntryPage(items=[entry_out(s) for s in rows], total=total, limit=limit, offset=offset)
 
 
-async def export_csv(db: AsyncSession, ref: str, filters: SessionFilters) -> AsyncIterator[str]:
+async def export_csv(db: AsyncSession, ref: str, filters: EntryFilters) -> AsyncIterator[str]:
     topic = await resolve_topic(db, ref)
     questions = list((await all_questions_by_key(db, topic)).values())
     current_keys = [q.key for q in parse_questions((await get_version(db, topic)).questions)]
     keys = current_keys + [q.key for q in questions if q.key not in current_keys]
     header = [
-        "session_id",
+        "entry_id",
         "captured_at",
         "version",
         "source",
@@ -221,7 +221,7 @@ async def export_csv(db: AsyncSession, ref: str, filters: SessionFilters) -> Asy
         csv.writer(buf).writerow(values)
         return buf.getvalue()
 
-    def row(s: Session) -> str:
+    def row(s: Entry) -> str:
         by_key = {a.question_key: _raw_value(a) for a in s.answers}
         return line(
             [
@@ -237,7 +237,7 @@ async def export_csv(db: AsyncSession, ref: str, filters: SessionFilters) -> Asy
 
     async def gen() -> AsyncIterator[str]:
         yield line(list(header))
-        stmt = apply_filters(select(Session), topic.id, filters).order_by(Session.captured_at, Session.id)
+        stmt = apply_filters(select(Entry), topic.id, filters).order_by(Entry.captured_at, Entry.id)
         offset = 0
         while True:
             # Paged rather than streamed: answers are selectin-loaded per page

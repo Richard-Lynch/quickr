@@ -43,7 +43,7 @@ async def stats(client: httpx.AsyncClient, **params: Any) -> dict[str, Any]:
 async def test_stats_empty_topic(client: httpx.AsyncClient) -> None:
     await make_topic(client)
     s = await stats(client)
-    assert s["session_count"] == 0
+    assert s["entry_count"] == 0
     assert s["first_captured_at"] is None
     assert s["sources"] == []
     q = by_key(s)
@@ -57,7 +57,7 @@ async def test_stats_empty_topic(client: httpx.AsyncClient) -> None:
 async def test_numeric_stats(client: httpx.AsyncClient) -> None:
     await seed(client)
     s = await stats(client)
-    assert s["session_count"] == 4
+    assert s["entry_count"] == 4
     assert s["first_captured_at"] == "2026-05-01T08:00:00Z"
     assert s["last_captured_at"] == "2026-05-04T08:00:00Z"
     assert s["sources"] == [{"value": "phone", "count": 3}, {"value": "watch", "count": 1}]
@@ -110,7 +110,7 @@ async def test_histogram_edge_cases(client: httpx.AsyncClient) -> None:
 
 
 async def test_enum_and_str_stats(client: httpx.AsyncClient) -> None:
-    sessions = await seed(client)
+    entries = await seed(client)
     q = by_key(await stats(client))
     quality = q["quality"]
     assert (quality["count"], quality["missing"]) == (4, 0)
@@ -125,7 +125,7 @@ async def test_enum_and_str_stats(client: httpx.AsyncClient) -> None:
     assert (dream["count"], dream["missing"], dream["distinct"]) == (3, 1, 2)
     assert dream["top"] == [{"value": "falling", "count": 2}]  # singletons omitted
     assert [r["value"] for r in dream["recent"]] == ["flying", "falling", "falling"]
-    assert dream["recent"][0]["session_id"] == sessions[2]["id"]
+    assert dream["recent"][0]["entry_id"] == entries[2]["id"]
     assert dream["recent"][0]["captured_at"] == "2026-05-03T08:00:00Z"
 
 
@@ -161,21 +161,21 @@ async def test_archived_option_counts(client: httpx.AsyncClient) -> None:
 async def test_stats_filters(client: httpx.AsyncClient) -> None:
     await seed(client)
     s = await stats(client, captured_from="2026-05-02T00:00:00Z", captured_to="2026-05-04T00:00:00Z")
-    assert s["session_count"] == 2
+    assert s["entry_count"] == 2
     assert by_key(s)["hours"]["mean"] == 7.5
     assert by_key(s)["quality"]["options"][1]["share"] == 1.0
 
     s = await stats(client, source="watch")
-    assert s["session_count"] == 1
+    assert s["entry_count"] == 1
     assert s["sources"] == [{"value": "watch", "count": 1}]
     assert by_key(s)["hours"]["sum"] == 8.0
 
     s = await stats(client, version=2)
-    assert s["session_count"] == 0
+    assert s["entry_count"] == 0
     assert by_key(s)["hours"]["count"] == 0
 
     s = await stats(client, version=1, channel="api")
-    assert s["session_count"] == 4
+    assert s["entry_count"] == 4
     assert (await client.get("/topics/nope/stats")).status_code == 404
 
 
@@ -258,7 +258,7 @@ async def test_series_filters_and_removed_question(client: httpx.AsyncClient) ->
 
 
 async def export(client: httpx.AsyncClient, **params: Any) -> list[list[str]]:
-    r = await client.get("/topics/sleep-log/sessions.csv", params=params)
+    r = await client.get("/topics/sleep-log/entries.csv", params=params)
     assert r.status_code == 200, r.text
     assert r.headers["content-type"].startswith("text/csv")
     assert r.headers["content-disposition"].startswith('attachment; filename="sleep-log-')
@@ -266,13 +266,13 @@ async def export(client: httpx.AsyncClient, **params: Any) -> list[list[str]]:
 
 
 async def test_csv_export(client: httpx.AsyncClient) -> None:
-    sessions = await seed(client)
+    entries = await seed(client)
     rows = await export(client)
-    meta_cols = ["session_id", "captured_at", "version", "source", "channel", "notes"]
+    meta_cols = ["entry_id", "captured_at", "version", "source", "channel", "notes"]
     assert rows[0] == [*meta_cols, "hours", "wakeups", "quality", "dream", "unused"]
     assert len(rows) == 5
     assert rows[1] == [
-        sessions[0]["id"],
+        entries[0]["id"],
         "2026-05-01T08:00:00+00:00",
         "1",
         "phone",
@@ -313,4 +313,4 @@ async def test_csv_export_filters_and_pages(client: httpx.AsyncClient) -> None:
     assert [r[-1] for r in rows[1:]] == [str(i) for i in range(520)]
     rows = await export(client, captured_to="2026-01-01T00:00:10Z")
     assert len(rows) == 11
-    assert (await client.get("/topics/nope/sessions.csv")).status_code == 404
+    assert (await client.get("/topics/nope/entries.csv")).status_code == 404

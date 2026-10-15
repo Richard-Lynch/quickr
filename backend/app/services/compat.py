@@ -46,7 +46,7 @@ def _diff_question(old: Question, new: Question, issues: list[CompatibilityIssue
             CompatibilityIssue(
                 level="warning",
                 question_key=key,
-                message="now required; existing sessions without an answer are kept as-is",
+                message="now required; existing entries without an answer are kept as-is",
             )
         )
 
@@ -152,7 +152,7 @@ def check_compatibility(
                     CompatibilityIssue(
                         level="info",
                         question_key=q.key,
-                        message="new required question; existing sessions will show it as unanswered",
+                        message="new required question; existing entries will show it as unanswered",
                     )
                 )
 
@@ -164,7 +164,7 @@ def check_compatibility(
                 CompatibilityIssue(
                     level="warning",
                     question_key=q.key,
-                    message="removed from new sessions; historic answers are kept and still aggregated",
+                    message="removed from new entries; historic answers are kept and still aggregated",
                 )
             )
 

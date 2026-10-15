@@ -31,7 +31,7 @@ from app.config import get_settings  # noqa: E402
 from app.db import get_engine, get_sessionmaker  # noqa: E402
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
-TABLES = ("answers", "sessions", "topic_versions", "topics")
+TABLES = ("answers", "entries", "topic_versions", "topics")
 
 
 async def _ensure_database(url: str) -> None:

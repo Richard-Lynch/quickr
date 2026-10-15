@@ -8,6 +8,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import Connection, text
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from alembic import command
 from app.db import get_engine
@@ -41,3 +42,85 @@ async def test_downgrade_and_upgrade_roundtrip(migrated_db: str) -> None:
     cfg = alembic_config()
     await asyncio.to_thread(command.downgrade, cfg, "base")
     await asyncio.to_thread(command.upgrade, cfg, "head")
+
+
+INITIAL = "c05f3d88ef9b"
+T = "00000000-0000-0000-0000-00000000000"  # + digit: fixed UUIDs for raw SQL
+
+
+async def _alembic(fn: Any, revision: str) -> None:
+    import asyncio
+
+    await get_engine().dispose()
+    await asyncio.to_thread(fn, alembic_config(), revision)
+
+
+async def _insert_v1_data(conn: AsyncConnection) -> None:
+    """A v1 (``sessions``) database with one topic, session and answer."""
+    await conn.execute(
+        text(
+            "INSERT INTO topics (id, slug, name, description, status, current_version)"
+            f" VALUES ('{T}1', 'demo', 'Demo', '', 'active', 1)"
+        )
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO topic_versions (id, topic_id, version, questions, change_note) VALUES"
+            f""" ('{T}2', '{T}1', 1, '[{{"type": "int", "key": "n", "label": "N"}}]', '')"""
+        )
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO sessions (id, topic_id, topic_version_id, version, source, channel,"
+            f" captured_at, notes, meta) VALUES ('{T}3', '{T}1', '{T}2', 1, 'phone', 'ui',"
+            " '2026-01-01T08:00:00Z', 'hi', '{}')"
+        )
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO answers (id, session_id, topic_id, question_key, question_type, position,"
+            f" value_int) VALUES ('{T}4', '{T}3', '{T}1', 'n', 'int', 0, 42)"
+        )
+    )
+
+
+async def test_upgrade_and_downgrade_preserve_data(clean_db: None) -> None:
+    """Upgrade a v1 database holding sessions to head, then back: no data is lost."""
+    await _alembic(command.downgrade, INITIAL)
+    try:
+        async with get_engine().begin() as conn:
+            await _insert_v1_data(conn)
+
+        await _alembic(command.upgrade, "head")
+        async with get_engine().connect() as conn:
+            entry = (
+                await conn.execute(text("SELECT id::text, source, channel::text, notes FROM entries"))
+            ).one()
+            assert tuple(entry) == (f"{T}3", "phone", "ui", "hi")
+            answer = (await conn.execute(text("SELECT entry_id::text, value_int FROM answers"))).one()
+            assert tuple(answer) == (f"{T}3", 42)
+            names = set(
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT conname FROM pg_constraint"
+                            " WHERE conrelid IN ('entries'::regclass, 'answers'::regclass)"
+                        )
+                    )
+                ).scalars()
+            )
+            assert {"entries_pkey", "answers_entry_id_fkey", "uq_answer_entry_key"} <= names
+            assert not any("session" in n for n in names)
+            assert (
+                await conn.scalar(text("SELECT count(*) FROM pg_type WHERE typname = 'entry_channel'")) == 1
+            )
+
+        await _alembic(command.downgrade, INITIAL)
+        async with get_engine().connect() as conn:
+            assert tuple((await conn.execute(text("SELECT source, channel::text FROM sessions"))).one()) == (
+                "phone",
+                "ui",
+            )
+            assert (await conn.execute(text("SELECT session_id::text FROM answers"))).scalar_one() == f"{T}3"
+    finally:
+        await _alembic(command.upgrade, "head")
