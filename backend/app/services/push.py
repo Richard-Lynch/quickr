@@ -154,8 +154,24 @@ class _NoRedirectSession(requests.Session):
         return super().request(*args, **kwargs)
 
 
+def signing_key(private_key: str) -> Vapid:
+    """The VAPID signer for `private_key`, accepting any `mailto:` or `https:` subject.
+
+    py_vapid's strict check only allows a bare `https://host` subject, which rejects
+    the default `https://github.com/...` URL (RFC 8292 allows any https URI) and made every
+    send fail. The subject itself is operator configuration (QUICKR_VAPID_SUBJECT).
+    """
+    vapid = Vapid.from_string(private_key)
+    vapid.conf = {"no-strict": True}
+    return vapid
+
+
 def deliver(
-    subscription: dict[str, Any], data: str, private_key: str, claims: dict[str, str | int], ttl: int
+    subscription: dict[str, Any],
+    data: str,
+    private_key: str | Vapid,
+    claims: dict[str, str | int],
+    ttl: int,
 ) -> None:
     """Send one push message (blocking). Raises PushGone or PushFailed.
 
@@ -198,13 +214,14 @@ async def send_to_all(
     """
     keys = await get_vapid_keys(db)
     claims: dict[str, str | int] = {"sub": get_settings().vapid_subject}
+    signer = signing_key(keys.private_key)
     data = payload.model_dump_json()
     sent = failed = 0
     subs = (await db.execute(select(PushSubscription).order_by(PushSubscription.created_at))).scalars().all()
     for sub in subs:
         info = {"endpoint": sub.endpoint, "keys": {"p256dh": sub.p256dh, "auth": sub.auth}}
         try:
-            await asyncio.to_thread(deliver, info, data, keys.private_key, claims, ttl)
+            await asyncio.to_thread(deliver, info, data, signer, claims, ttl)
         except PushGone:
             log.info("push subscription %s is gone; removing it", sub.id)
             await db.delete(sub)

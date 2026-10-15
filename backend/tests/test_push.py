@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import re
 import socket
@@ -14,6 +15,7 @@ from typing import Any
 import httpx
 import pytest
 import requests
+from cryptography.hazmat.primitives import serialization
 from py_vapid import Vapid
 from pywebpush import WebPushException
 from sqlalchemy import select, text
@@ -42,7 +44,7 @@ def sub(n: int) -> dict[str, Any]:
 class Sent:
     endpoint: str
     payload: dict[str, Any]
-    private_key: str
+    private_key: str | Vapid
     claims: dict[str, str | int]
     ttl: int
 
@@ -53,7 +55,11 @@ def outbox(monkeypatch: pytest.MonkeyPatch) -> list[Sent]:
     sent: list[Sent] = []
 
     def fake_deliver(
-        subscription: dict[str, Any], data: str, private_key: str, claims: dict[str, str | int], ttl: int
+        subscription: dict[str, Any],
+        data: str,
+        private_key: str | Vapid,
+        claims: dict[str, str | int],
+        ttl: int,
     ) -> None:
         endpoint = subscription["endpoint"]
         if endpoint.endswith("/gone"):
@@ -165,7 +171,16 @@ async def test_send_test_push(client: httpx.AsyncClient, outbox: list[Sent]) -> 
     }
     assert outbox[0].claims == {"sub": "https://github.com/Richard-Lynch/quickr"}
     public = (await client.get("/push/config")).json()["public_key"]
-    assert push_svc._public_from_private(outbox[0].private_key) == public
+    signer = outbox[0].private_key
+    assert isinstance(signer, Vapid)
+    raw = signer.public_key.public_bytes(
+        serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint
+    )
+    assert base64.urlsafe_b64encode(raw).rstrip(b"=").decode() == public
+    # Regression: the default https:// subject has a path, which py_vapid's strict check
+    # rejected ("Missing 'sub' from claims"), so every real send failed.
+    headers = signer.sign({**outbox[0].claims, "aud": "https://fcm.googleapis.com"})
+    assert "authorization" in {k.lower() for k in headers}
 
     async with get_sessionmaker()() as db:
         rows = {s.endpoint: s for s in (await db.execute(select(PushSubscription))).scalars()}
