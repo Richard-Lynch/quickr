@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 
@@ -24,7 +24,7 @@ import {
 } from '../../lib/answerSchema';
 import { toLocalInputValue } from '../../lib/dates';
 import { isEntryCreate, type EntryCreatePayload } from '../../lib/outbox/kinds';
-import { quickLogFor } from '../../lib/quickLog';
+import { initialNumber, quickLogFor } from '../../lib/quickLog';
 import type { OutboxItem } from '../../lib/outbox/types';
 import { useOutbox } from '../../lib/outbox/useOutbox';
 import {
@@ -104,6 +104,7 @@ function RecordForm({
   topic: TopicDetail;
   fixItem: OutboxItem<EntryCreatePayload> | null;
 }) {
+  const qc = useQueryClient();
   const navigate = useNavigate();
   const { toast } = useToast();
   const record = useRecordEntry();
@@ -143,7 +144,19 @@ function RecordForm({
     [topic.questions],
   );
   const [defaults] = useState<EntryFormValues>(() => {
-    if (!fixItem) return freshValues(rememberedSource());
+    if (!fixItem) {
+      const fresh = freshValues(rememberedSource());
+      // A single-number topic starts from the last value, like its tile does: from a
+      // notification that's one tap (Save) when nothing changed.
+      const quick = topic.questions.length === 1 ? quickLogFor(topic.questions) : null;
+      if (quick?.kind === 'number') {
+        const cached = qc.getQueryData(lastEntryOptions(topic.slug).queryKey);
+        const v = cached?.items[0]?.answers.find((a) => a.key === quick.question.key)?.value;
+        const start = initialNumber(quick.question, v);
+        if (start) fresh.answers[quick.question.key] = start;
+      }
+      return fresh;
+    }
     const b = fixItem.payload.body;
     return {
       answers: answerValuesFromMap(topic.questions, b.answers),

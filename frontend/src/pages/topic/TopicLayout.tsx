@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import {
+  Link,
   NavLink,
   Outlet,
   useLocation,
@@ -19,6 +20,8 @@ import { Icon } from '../../components/ui/Icon';
 import { PageSpinner } from '../../components/ui/Spinner';
 import { formatRelative } from '../../lib/dates';
 import { plural } from '../../lib/format';
+import { describeSchedule, dueView } from '../../lib/schedule';
+import { DueBadge } from '../../components/topics/TopicTile';
 import { zProblem } from '../../client/zod.gen';
 
 interface TopicContext {
@@ -165,6 +168,15 @@ export function TopicTabs() {
               {formatRelative(topic.last_captured_at)}
             </span>
           </div>
+          {topic.schedule && !archived ? (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+              <DueBadge view={dueView(topic.due)} />
+              <Link to={`${base}/settings`} className="underline-offset-2 hover:underline">
+                {describeSchedule(topic.schedule)}
+                {topic.schedule.notify ? ' · notifies' : ''}
+              </Link>
+            </div>
+          ) : null}
           <div className="flex items-end justify-between gap-4">
             <div className="min-w-0">
               <h1 className="font-display text-3xl leading-[1.05] font-bold tracking-tight text-balance sm:text-5xl">

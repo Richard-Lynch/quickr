@@ -225,7 +225,7 @@ export function EntryForm({
         </Banner>
       ) : null}
 
-      {prefill && !submitOnPick ? (
+      {prefill && !submitOnPick && !sameInputs(prefill.values, defaultValues.answers) ? (
         <SameAsLast form={form} prefill={prefill} questions={questions} />
       ) : null}
 
@@ -416,6 +416,11 @@ function MetaSummary({ control }: { control: Control<EntryFormValues, unknown, E
   const [source, capturedAt] = useWatch({ control, name: ['source', 'captured_at'] });
   const when = capturedAt ? capturedAt.replace('T', ' ') : '';
   return <>{[when, source].filter(Boolean).join(' · ') || '—'}</>;
+}
+
+/** Whether "Same as last time" would change nothing (e.g. a prefilled number). */
+function sameInputs(a: AnswerFormValues, b: AnswerFormValues): boolean {
+  return Object.keys(a).every((k) => JSON.stringify(a[k]) === JSON.stringify(b[k]));
 }
 
 /** Single-select enum: one tap answers it. */
