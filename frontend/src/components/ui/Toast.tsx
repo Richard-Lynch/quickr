@@ -5,7 +5,7 @@ import { Icon } from './Icon';
 
 export interface ToastInput {
   title: string;
-  description?: string;
+  description?: string | undefined;
   tone?: 'ok' | 'danger' | 'info';
   action?: { label: string; onClick: () => void };
   /** ms; 0 keeps it until dismissed. */

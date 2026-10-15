@@ -6,14 +6,9 @@ import { useNavigate } from 'react-router';
 import type { z } from 'zod';
 
 import { applyFieldErrors, errorMessage, mapApiError } from '../../api/errors';
-import { invalidateOperations, invalidateTopicData } from '../../api/queryClient';
-import {
-  archiveTopicMutation,
-  deleteTopicMutation,
-  getTopicQueryKey,
-  unarchiveTopicMutation,
-  updateTopicMutation,
-} from '../../client/@tanstack/react-query.gen';
+import { useSetTopicArchived, useUpdateTopicMeta } from '../../api/mutations';
+import { invalidateTopicData } from '../../api/queryClient';
+import { deleteTopicMutation, getTopicQueryKey } from '../../client/@tanstack/react-query.gen';
 import type { TopicDetail } from '../../client';
 import { Page, TopBar } from '../../components/AppShell';
 import { Button } from '../../components/ui/Button';
@@ -25,6 +20,7 @@ import { useToast } from '../../components/ui/Toast';
 import { topicMetaSchema } from '../../lib/builder';
 import { formatDateTime } from '../../lib/dates';
 import { plural } from '../../lib/format';
+import { useUnsavedChangesGuard } from '../../lib/unsavedChanges';
 import { useTopic } from './TopicLayout';
 
 type MetaValues = z.input<typeof topicMetaSchema>;
@@ -44,16 +40,16 @@ export function SettingsPage() {
 }
 
 function MetaForm({ topic }: { topic: TopicDetail }) {
-  const qc = useQueryClient();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [banner, setBanner] = useState<string | null>(null);
-  const update = useMutation(updateTopicMutation());
+  const update = useUpdateTopicMeta();
   const form = useForm<MetaValues, unknown, MetaOutput>({
     resolver: zodResolver(topicMetaSchema),
     defaultValues: { name: topic.name, slug: topic.slug, description: topic.description },
   });
   const e = form.formState.errors;
+  const guard = useUnsavedChangesGuard(form.formState.isDirty);
 
   const onSubmit = form.handleSubmit(async (v) => {
     setBanner(null);
@@ -68,9 +64,9 @@ function MetaForm({ topic }: { topic: TopicDetail }) {
     }
     try {
       const updated = await update.mutateAsync({ path: { ref: topic.slug }, body });
-      qc.setQueryData(getTopicQueryKey({ path: { ref: updated.slug } }), updated);
-      void invalidateOperations(qc, ['listTopics', 'getTopic']);
       toast({ title: 'Saved' });
+      // The form remounts with the saved values (keyed by updated_at).
+      guard.allowNavigation();
       if (updated.slug !== topic.slug)
         void navigate(`/t/${updated.slug}/settings`, { replace: true });
     } catch (err) {
@@ -141,6 +137,7 @@ function MetaForm({ topic }: { topic: TopicDetail }) {
           </Button>
         </div>
       </form>
+      {guard.dialog}
     </Card>
   );
 }
@@ -149,15 +146,27 @@ function Lifecycle({ topic }: { topic: TopicDetail }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [confirm, setConfirm] = useState<'archive' | 'delete' | null>(null);
-  const archive = useMutation(archiveTopicMutation());
-  const unarchive = useMutation(unarchiveTopicMutation());
+  const [confirm, setConfirm] = useState<'delete' | null>(null);
+  const setArchived = useSetTopicArchived();
   const remove = useMutation(deleteTopicMutation());
   const archived = topic.status === 'archived';
 
-  const setTopic = (t: TopicDetail) => {
-    qc.setQueryData(getTopicQueryKey({ path: { ref: t.slug } }), t);
-    void invalidateOperations(qc, ['listTopics']);
+  /** Applied instantly (optimistic); archive offers Undo instead of a confirm. */
+  const change = (to: boolean, undoable: boolean) => {
+    setArchived.run(topic, to).then(
+      () => {
+        toast({
+          title: to ? 'Topic archived' : 'Topic unarchived',
+          ...(undoable
+            ? {
+                description: 'Hidden from the list; no new entries.',
+                action: { label: 'Undo', onClick: () => change(!to, false) },
+              }
+            : {}),
+        });
+      },
+      (err: unknown) => toast({ title: 'Failed', description: errorMessage(err), tone: 'danger' }),
+    );
   };
 
   return (
@@ -170,23 +179,7 @@ function Lifecycle({ topic }: { topic: TopicDetail }) {
       </p>
       {archived ? (
         <div className="flex flex-col gap-3 sm:flex-row">
-          <Button
-            icon={<Icon name="restore" />}
-            loading={unarchive.isPending}
-            onClick={() =>
-              unarchive.mutate(
-                { path: { ref: topic.slug } },
-                {
-                  onSuccess: (t) => {
-                    setTopic(t);
-                    toast({ title: 'Topic unarchived' });
-                  },
-                  onError: (err) =>
-                    toast({ title: 'Failed', description: errorMessage(err), tone: 'danger' }),
-                },
-              )
-            }
-          >
+          <Button icon={<Icon name="restore" />} onClick={() => change(false, false)}>
             Unarchive
           </Button>
           <Button
@@ -202,7 +195,7 @@ function Lifecycle({ topic }: { topic: TopicDetail }) {
           <Button
             className="self-start"
             icon={<Icon name="archive" />}
-            onClick={() => setConfirm('archive')}
+            onClick={() => change(true, true)}
           >
             Archive topic
           </Button>
@@ -213,33 +206,6 @@ function Lifecycle({ topic }: { topic: TopicDetail }) {
         </div>
       )}
 
-      <ConfirmSheet
-        open={confirm === 'archive'}
-        onClose={() => setConfirm(null)}
-        title="Archive this topic?"
-        body={
-          <p>
-            It will be hidden from the topic list and stop accepting entries. All data is kept and
-            you can unarchive any time.
-          </p>
-        }
-        confirmLabel="Archive"
-        busy={archive.isPending}
-        onConfirm={() =>
-          archive.mutate(
-            { path: { ref: topic.slug } },
-            {
-              onSuccess: (t) => {
-                setConfirm(null);
-                setTopic(t);
-                toast({ title: 'Topic archived' });
-              },
-              onError: (err) =>
-                toast({ title: 'Failed', description: errorMessage(err), tone: 'danger' }),
-            },
-          )
-        }
-      />
       <ConfirmSheet
         open={confirm === 'delete'}
         onClose={() => setConfirm(null)}
