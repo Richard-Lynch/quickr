@@ -21,7 +21,13 @@ from app.schemas.api import (
     EntryOut,
     EntryPage,
     EntryUpdate,
+    Limits,
     Problem,
+    PushConfig,
+    PushSubscriptionDelete,
+    PushSubscriptionIn,
+    PushSubscriptionOut,
+    PushTestResult,
     QuestionSeries,
     QuestionTypeInfo,
     StatusFilter,
@@ -37,6 +43,7 @@ from app.schemas.api import (
 )
 from app.schemas.questions import DoubleQuestion, EnumQuestion, IntQuestion, StrQuestion
 from app.services import entries as entry_svc
+from app.services import push as push_svc
 from app.services import stats as stats_svc
 from app.services import topics as topic_svc
 
@@ -96,13 +103,20 @@ async def question_types() -> list[QuestionTypeInfo]:
         (
             "enum",
             EnumQuestion,
-            "One of a configured list of options. Options can be archived, never removed.",
+            "One (or, with multiple, several) of a configured list of options. Options can be "
+            "archived, never removed.",
         ),
     ]
     return [
         QuestionTypeInfo(type=t, description=d, json_schema=TypeAdapter(m).json_schema())  # type: ignore[arg-type]
         for t, m, d in specs
     ]
+
+
+@router.get("/limits", tags=["meta"], operation_id="getLimits")
+async def limits() -> Limits:
+    """Validation ceilings (lengths, counts, ranges) so clients can mirror server-side validation."""
+    return Limits()
 
 
 # --- topics -----------------------------------------------------------------
@@ -115,11 +129,20 @@ async def list_topics(
         str | None, Query(max_length=200, description="Search name, slug, description, questions.")
     ] = None,
     status_: Annotated[StatusFilter, Query(alias="status")] = "active",
-    sort: TopicSort = "-activity",
+    sort: Annotated[
+        TopicSort,
+        Query(
+            description="'due' (default): due topics first (longest overdue first), then scheduled topics "
+            "by next due time, then the rest by latest activity."
+        ),
+    ] = "due",
+    due_only: Annotated[bool, Query(description="Only topics that are due now.")] = False,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> TopicPage:
-    return await topic_svc.list_topics(db, q=q, status=status_, sort=sort, limit=limit, offset=offset)
+    return await topic_svc.list_topics(
+        db, q=q, status=status_, sort=sort, due_only=due_only, limit=limit, offset=offset
+    )
 
 
 @router.post("/topics", tags=["topics"], operation_id="createTopic", status_code=status.HTTP_201_CREATED)
@@ -266,3 +289,42 @@ async def get_series(
     tz: Annotated[str, Query(max_length=64, description="IANA timezone for bucketing.")] = "UTC",
 ) -> QuestionSeries:
     return await stats_svc.question_series(db, ref, key, filters, bucket=bucket, tz=tz)
+
+
+# --- push notifications -----------------------------------------------------
+
+
+@router.get("/push/config", tags=["push"], operation_id="getPushConfig")
+async def push_config(db: Db) -> PushConfig:
+    """The VAPID public key to pass to ``PushManager.subscribe({applicationServerKey})``."""
+    keys = await push_svc.get_vapid_keys(db)
+    return PushConfig(public_key=keys.public_key)
+
+
+@router.post(
+    "/push/subscriptions",
+    tags=["push"],
+    operation_id="createPushSubscription",
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_push_subscription(db: Db, body: PushSubscriptionIn) -> PushSubscriptionOut:
+    """Register (or refresh, keyed by endpoint) a browser push subscription."""
+    return await push_svc.subscribe(db, body)
+
+
+@router.post(
+    "/push/subscriptions/delete",
+    tags=["push"],
+    operation_id="deletePushSubscription",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_push_subscription(db: Db, body: PushSubscriptionDelete) -> Response:
+    """Remove a subscription by endpoint (idempotent). POST because DELETE bodies are poorly supported."""
+    await push_svc.unsubscribe(db, body.endpoint)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/push/test", tags=["push"], operation_id="sendTestPush")
+async def send_test_push(db: Db) -> PushTestResult:
+    """Send a test notification to every subscription."""
+    return await push_svc.send_test(db)

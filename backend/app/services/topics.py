@@ -16,6 +16,7 @@ from app.errors import Conflict, DomainError, IncompatibleVersion, NotFound
 from app.models import Entry, Topic, TopicStatus, TopicVersion
 from app.schemas.api import (
     CompatibilityReport,
+    DueStatus,
     FieldIssue,
     StatusFilter,
     TopicCreate,
@@ -27,14 +28,17 @@ from app.schemas.api import (
     TopicVersionOut,
     VersionCreate,
 )
+from app.schemas.base import issues_from
 from app.schemas.questions import Question, QuestionSet
 from app.services.compat import check_compatibility
+from app.services.schedule import compute_due, dump_schedule, parse_schedule
 
 _questions_adapter: TypeAdapter[list[Question]] = TypeAdapter(list[Question])
 
 
 def parse_questions(raw: list[dict[str, Any]]) -> list[Question]:
-    return _questions_adapter.validate_python(raw)
+    """Parse a stored question config (checks added after it was stored are skipped)."""
+    return _questions_adapter.validate_python(raw, context={"stored": True})
 
 
 def dump_questions(questions: list[Question]) -> list[dict[str, Any]]:
@@ -52,11 +56,7 @@ def _validated_set(questions: list[Question]) -> list[Question]:
     try:
         return QuestionSet(questions=questions).questions
     except ValidationError as exc:
-        issues = [
-            FieldIssue(loc=["questions", *e["loc"]], message=e["msg"].removeprefix("Value error, "))
-            for e in exc.errors()
-        ]
-        raise DomainError("invalid question set", issues) from exc
+        raise DomainError("invalid question set", issues_from(exc)) from exc
 
 
 async def resolve_topic(db: AsyncSession, ref: str) -> Topic:
@@ -96,8 +96,24 @@ def _entry_stats_subquery() -> Any:
     )
 
 
-async def _summaries(db: AsyncSession, stmt: Select[Any]) -> list[tuple[TopicSummary, list[Question]]]:
+def _due(topic: Topic, last_captured: datetime | None, now: datetime) -> DueStatus | None:
+    schedule = parse_schedule(topic.schedule)
+    if schedule is None:
+        return None
+    return compute_due(
+        schedule,
+        now=now,
+        last_entry_at=last_captured,
+        created_at=topic.created_at,
+        archived=topic.status == TopicStatus.archived,
+    )
+
+
+async def _summaries(
+    db: AsyncSession, stmt: Select[Any], now: datetime | None = None
+) -> list[tuple[TopicSummary, list[Question]]]:
     rows = (await db.execute(stmt)).all()
+    now = now or datetime.now(UTC)
     out: list[tuple[TopicSummary, list[Question]]] = []
     for topic, questions_raw, entry_count, last_captured in rows:
         questions = parse_questions(questions_raw)
@@ -116,6 +132,8 @@ async def _summaries(db: AsyncSession, stmt: Select[Any]) -> list[tuple[TopicSum
                     created_at=topic.created_at,
                     updated_at=topic.updated_at,
                     archived_at=topic.archived_at,
+                    schedule=parse_schedule(topic.schedule),
+                    due=_due(topic, last_captured, now),
                 ),
                 questions,
             )
@@ -166,9 +184,11 @@ async def list_topics(
     *,
     q: str | None = None,
     status: StatusFilter = "active",
-    sort: TopicSort = "-updated",
+    sort: TopicSort = "due",
+    due_only: bool = False,
     limit: int = 50,
     offset: int = 0,
+    now: datetime | None = None,
 ) -> TopicPage:
     stmt, stats = _base_select()
     count_stmt = select(func.count(Topic.id))
@@ -193,6 +213,16 @@ async def list_topics(
         stmt = stmt.where(f)
         count_stmt = count_stmt.where(f)
 
+    if sort == "due" or due_only:
+        # Due status is computed in Python, so sort/filter the whole (personal-scale) set here.
+        rows = await _summaries(db, stmt, now)
+        items = [s for s, _ in rows if not due_only or (s.due is not None and s.due.is_due)]
+        if sort == "due":
+            items.sort(key=_due_sort_key)
+        else:
+            _sort_in_python(items, sort)
+        return TopicPage(items=items[offset : offset + limit], total=len(items), limit=limit, offset=offset)
+
     activity = func.coalesce(stats.c.last_captured_at, Topic.updated_at)
     order_cols = {
         "updated": Topic.updated_at,
@@ -203,8 +233,44 @@ async def list_topics(
     col = order_cols[sort.lstrip("-")]
     stmt = stmt.order_by(col.desc() if sort.startswith("-") else col.asc(), Topic.id)
     total = (await db.execute(count_stmt)).scalar_one()
-    items = await _summaries(db, stmt.limit(limit).offset(offset))
-    return TopicPage(items=[s for s, _ in items], total=total, limit=limit, offset=offset)
+    page = await _summaries(db, stmt.limit(limit).offset(offset), now)
+    return TopicPage(items=[s for s, _ in page], total=total, limit=limit, offset=offset)
+
+
+_FAR_FUTURE = datetime.max.replace(tzinfo=UTC).timestamp()
+
+
+def _activity(s: TopicSummary) -> datetime:
+    return s.last_captured_at or s.updated_at
+
+
+def _due_sort_key(s: TopicSummary) -> tuple[int, float, str]:
+    """Due topics (oldest due first), then scheduled by next due time, then the rest by activity."""
+    if s.due is not None and s.due.is_due and s.due.due_since is not None:
+        return (0, s.due.due_since.timestamp(), str(s.id))
+    if s.due is not None:
+        nxt = s.due.next_due_at.timestamp() if s.due.next_due_at is not None else _FAR_FUTURE
+        return (1, nxt, str(s.id))
+    return (2, -_activity(s).timestamp(), str(s.id))
+
+
+def _sort_in_python(items: list[TopicSummary], sort: TopicSort) -> None:
+    """Python equivalent of the SQL orderings (used when filtering by due status)."""
+    field = sort.lstrip("-")
+
+    def value(s: TopicSummary) -> Any:
+        match field:
+            case "name":
+                return s.name.lower()
+            case "updated":
+                return s.updated_at
+            case "created":
+                return s.created_at
+            case _:
+                return _activity(s)
+
+    items.sort(key=lambda s: str(s.id))
+    items.sort(key=value, reverse=sort.startswith("-"))  # stable: ties keep id order
 
 
 async def create_topic(db: AsyncSession, body: TopicCreate) -> TopicDetail:
@@ -215,6 +281,7 @@ async def create_topic(db: AsyncSession, body: TopicCreate) -> TopicDetail:
         description=body.description,
         status=TopicStatus.active,
         current_version=1,
+        schedule=dump_schedule(body.schedule),
     )
     topic.versions.append(
         TopicVersion(
@@ -240,6 +307,8 @@ async def update_topic(db: AsyncSession, ref: str, body: TopicUpdate) -> TopicDe
         topic.slug = body.slug
     if body.description is not None:
         topic.description = body.description
+    if "schedule" in body.model_fields_set:  # explicit null clears the schedule
+        topic.schedule = dump_schedule(body.schedule)
     try:
         await db.commit()
     except IntegrityError as exc:

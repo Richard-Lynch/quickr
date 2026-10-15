@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -90,17 +91,20 @@ async def test_invalid_slug_rejected(client: httpx.AsyncClient) -> None:
 async def test_create_rejects_bad_question_config(client: httpx.AsyncClient) -> None:
     dup = [*sleep_questions(), {"key": "hours", "label": "Again", "type": "int"}]
     r = await client.post("/topics", json={"name": "x", "questions": dup})
-    assert r.status_code == 400
+    assert r.status_code == 422
     assert r.json() == {
-        "code": "bad_request",
-        "detail": "invalid question set",
-        "errors": [{"loc": ["questions"], "message": "question keys must be unique"}],
+        "code": "invalid_request",
+        "detail": "request validation failed",
+        "errors": [{"loc": ["body", "questions", 4, "key"], "message": "duplicate question key 'hours'"}],
     }
     assert (await client.get("/topics", params={"status": "all"})).json()["total"] == 0
 
     bad = [{"key": "a", "label": "A", "type": "int", "min": 3, "max": 1}]
     r = await client.post("/topics", json={"name": "x", "questions": bad})
     assert r.status_code == 422
+    assert r.json()["errors"] == [
+        {"loc": ["body", "questions", 0, "max"], "message": "max must be greater than or equal to min"}
+    ]
 
     r = await client.post("/topics", json={"name": "x", "questions": []})
     assert r.status_code == 422
@@ -230,9 +234,17 @@ async def test_sorts(client: httpx.AsyncClient) -> None:
         client,
         "apple",
         {"hours": 1, "wakeups": 0, "quality": "ok"},
-        captured_at="2999-01-01T00:00:00Z",
+        captured_at="2026-01-01T00:00:00Z",
     )
-    assert (await _names(client))[0] == "Apple"  # default sort is -activity
+    await record(
+        client,
+        "apple",
+        {"hours": 1, "wakeups": 0, "quality": "ok"},
+        captured_at=(datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+    )
+    # Unscheduled topics sort by activity under the default "due" sort.
+    assert (await _names(client))[0] == "Apple"
+    assert (await _names(client, sort="-activity"))[0] == "Apple"
     assert (await _names(client, sort="activity"))[-1] == "Apple"
     r = await client.get("/topics", params={"sort": "bogus"})
     assert r.status_code == 422

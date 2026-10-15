@@ -41,6 +41,7 @@ async def test_lists_tools_with_schemas(mcp_client: Client[Any]) -> None:
         "list_entries",
         "update_entry",
         "delete_entry",
+        "list_due_topics",
         "topic_stats",
         "question_series",
     }
@@ -159,7 +160,7 @@ async def test_domain_errors_are_surfaced(mcp_client: Client[Any]) -> None:
             {"ref": "sleep-log", "questions": sleep_questions()[:2], "base_version": 7},
         )
     dup = [*sleep_questions(), sleep_questions()[0]]
-    with pytest.raises(ToolError, match="question keys must be unique"):
+    with pytest.raises(ToolError, match=r"duplicate question key .hours."):
         await mcp_client.call_tool("check_topic_version", {"ref": "sleep-log", "questions": dup})
     await call(mcp_client, "set_topic_archived", ref="sleep-log", archived=True)
     with pytest.raises(ToolError, match="archived"):
@@ -185,3 +186,64 @@ async def test_unexpected_errors_are_masked(mcp_client: Client[Any], monkeypatch
     with pytest.raises(ToolError) as exc:
         await mcp_client.call_tool("list_topics", {})
     assert "secret" not in str(exc.value)
+
+
+async def test_schedules_and_due_topics(mcp_client: Client[Any]) -> None:
+    interval = {"kind": "interval", "every_minutes": 60, "timezone": "UTC"}
+    t = await call(mcp_client, "create_topic", name="Water", questions=sleep_questions(), schedule=interval)
+    assert t["schedule"]["every_minutes"] == 60
+    assert t["due"]["is_due"] is True
+    await call(mcp_client, "create_topic", name="Plain", questions=sleep_questions())
+
+    due = await call(mcp_client, "list_due_topics")
+    assert [x["slug"] for x in due["items"]] == ["water"]
+    listed = await call(mcp_client, "list_topics", due_only=True)
+    assert listed["total"] == 1
+    by_name = await call(mcp_client, "list_topics", sort="name")
+    assert [x["slug"] for x in by_name["items"]] == ["plain", "water"]
+
+    updated = await call(mcp_client, "update_topic", ref="water", schedule={**interval, "every_minutes": 30})
+    assert updated["schedule"]["every_minutes"] == 30
+    kept = await call(mcp_client, "update_topic", ref="water", description="drink")
+    assert kept["schedule"]["every_minutes"] == 30
+    cleared = await call(mcp_client, "update_topic", ref="water", clear_schedule=True)
+    assert (cleared["schedule"], cleared["due"]) == (None, None)
+    assert (await call(mcp_client, "list_due_topics"))["items"] == []
+
+
+async def test_record_entry_idempotent_and_multi_select(mcp_client: Client[Any]) -> None:
+    questions = [
+        *sleep_questions(),
+        {
+            "key": "factors",
+            "label": "Factors",
+            "type": "enum",
+            "multiple": True,
+            "required": False,
+            "options": [{"value": "coffee", "label": "Coffee"}, {"value": "screens", "label": "Screens"}],
+        },
+    ]
+    await call(mcp_client, "create_topic", name="Sleep log", questions=questions)
+    answers = {"hours": 7, "wakeups": 0, "quality": "ok", "factors": ["screens", "coffee"]}
+    entry_id = "6f1c1d1e-0000-4000-8000-000000000001"
+    first = await call(mcp_client, "record_entry", ref="sleep-log", answers=answers, id=entry_id)
+    assert first["id"] == entry_id
+    assert first["answers"][-1] == {"key": "factors", "type": "enum_list", "value": ["coffee", "screens"]}
+    again = await call(mcp_client, "record_entry", ref="sleep-log", answers=answers, id=entry_id)
+    assert again == first
+    assert (await call(mcp_client, "list_entries", ref="sleep-log"))["total"] == 1
+
+
+async def test_validation_errors_inside_tools_are_described(mcp_client: Client[Any]) -> None:
+    await call(mcp_client, "create_topic", name="Sleep log", questions=sleep_questions())
+    with pytest.raises(ToolError, match="invalid arguments: captured_at: must not be more than 24 hours"):
+        await mcp_client.call_tool(
+            "record_entry",
+            {
+                "ref": "sleep-log",
+                "answers": {"hours": 1, "wakeups": 0, "quality": "ok"},
+                "captured_at": "2999-01-01T00:00:00Z",
+            },
+        )
+    with pytest.raises(ToolError, match="invalid arguments: name: "):
+        await mcp_client.call_tool("update_topic", {"ref": "sleep-log", "name": ""})

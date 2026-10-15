@@ -205,3 +205,37 @@ def test_label_and_help_changes() -> None:
     r = check_compatibility([qs(i("a"))], qs(i("a", label="Alpha", help_text="Some help")))
     assert r.changes[0].details == ["label: A -> Alpha", "help_text: none -> Some help"]
     assert r.issues == []
+
+
+def test_single_to_multiple_is_a_warning() -> None:
+    r = check_compatibility([qs(e("f", "a", "b"))], qs(e("f", "a", "b", multiple=True, max_selected=2)))
+    assert r.ok
+    assert levels(r, "warning") == {
+        "f": "now multi-select; historic single answers count as one-option selections"
+    }
+    assert r.changes[0].details == ["multiple: False -> True", "max_selected: none -> 2"]
+
+
+def test_multiple_to_single_is_an_error() -> None:
+    r = check_compatibility([qs(e("f", "a", "b", multiple=True))], qs(e("f", "a", "b")))
+    assert not r.ok
+    assert levels(r, "error") == {"f": "a multi-select question cannot become single-select; use a new key"}
+
+
+def test_multiple_to_single_blocked_for_restored_keys() -> None:
+    history = [qs(e("f", "a", multiple=True), i("x")), qs(i("x"))]
+    r = check_compatibility(history, qs(i("x"), e("f", "a")))
+    assert not r.ok
+    assert "f" in levels(r, "error")
+
+
+def test_selection_limits_tightened_warns() -> None:
+    v1 = qs(e("f", "a", "b", "c", multiple=True, max_selected=3))
+    r = check_compatibility([v1], qs(e("f", "a", "b", "c", multiple=True, max_selected=2, min_selected=1)))
+    assert r.ok
+    assert levels(r, "warning") == {
+        "f": "selection limits tightened; historic answers remain valid for their version"
+    }
+    loosened = check_compatibility([v1], qs(e("f", "a", "b", "c", multiple=True)))
+    assert loosened.ok
+    assert levels(loosened, "warning") == {}

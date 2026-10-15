@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
@@ -122,5 +123,50 @@ async def test_upgrade_and_downgrade_preserve_data(clean_db: None) -> None:
                 "ui",
             )
             assert (await conn.execute(text("SELECT session_id::text FROM answers"))).scalar_one() == f"{T}3"
+    finally:
+        await _alembic(command.upgrade, "head")
+
+
+async def _answer(conn: AsyncConnection, n: int, key: str, qtype: str, values: str) -> None:
+    await conn.execute(
+        text(
+            "INSERT INTO answers (id, entry_id, topic_id, question_key, question_type, position,"
+            f" value_int, value_str, value_list) VALUES ('{T}{n:x}', '{T}3', '{T}1', '{key}', '{qtype}', 0,"
+            f" {values})"
+        )
+    )
+
+
+async def test_answer_check_constraint_and_multi_select_downgrade(clean_db: None) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    rename_rev = "a1e2b3c4d5f6"
+    await _alembic(command.downgrade, INITIAL)
+    async with get_engine().begin() as conn:
+        await _insert_v1_data(conn)
+    await _alembic(command.upgrade, "head")
+    try:
+        async with get_engine().begin() as conn:
+            await _answer(conn, 5, "one", "enum", "NULL, 'a', NULL")
+            await _answer(conn, 6, "many", "enum", "NULL, NULL, ARRAY['a', 'b']")
+        # Invalid shapes are rejected by ck_answer_typed_value.
+        for n, values in [
+            (7, "NULL, 'a', ARRAY['a']"),  # both
+            (8, "NULL, NULL, ARRAY[]::text[]"),  # empty list
+            (9, "NULL, NULL, NULL"),  # neither
+            (10, "1, NULL, ARRAY['a']"),  # int + list
+        ]:
+            with pytest.raises(IntegrityError):
+                async with get_engine().begin() as conn:
+                    await _answer(conn, n, f"bad{n}", "enum", values)
+        with pytest.raises(IntegrityError):
+            async with get_engine().begin() as conn:
+                await _answer(conn, 11, "s", "str", "NULL, 'x', ARRAY['x']")
+
+        # v1 cannot represent multi-select answers: downgrade drops only those.
+        await _alembic(command.downgrade, rename_rev)
+        async with get_engine().connect() as conn:
+            keys = (await conn.execute(text("SELECT question_key FROM answers ORDER BY 1"))).scalars().all()
+        assert keys == ["n", "one"]
     finally:
         await _alembic(command.upgrade, "head")

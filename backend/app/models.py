@@ -26,7 +26,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -63,6 +63,10 @@ class Topic(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # Validated Schedule payload (not versioned); null = unscheduled.
+    schedule: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
+    # due_since of the last slot a push notification was sent for (scheduler dedupe).
+    last_notified_due_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     versions: Mapped[list[TopicVersion]] = relationship(
         back_populates="topic", cascade="all, delete-orphan", order_by="TopicVersion.version"
@@ -113,8 +117,24 @@ class Entry(Base):
     __table_args__ = (Index("ix_entries_topic_captured", "topic_id", "captured_at"),)
 
 
+ANSWER_TYPED_VALUE_CHECK = (
+    "(question_type = 'int' AND value_int IS NOT NULL"
+    " AND value_double IS NULL AND value_str IS NULL AND value_list IS NULL)"
+    " OR (question_type = 'double' AND value_double IS NOT NULL"
+    " AND value_int IS NULL AND value_str IS NULL AND value_list IS NULL)"
+    " OR (question_type = 'str' AND value_str IS NOT NULL"
+    " AND value_int IS NULL AND value_double IS NULL AND value_list IS NULL)"
+    " OR (question_type = 'enum' AND value_int IS NULL AND value_double IS NULL AND ("
+    "(value_str IS NOT NULL AND value_list IS NULL)"
+    " OR (value_str IS NULL AND value_list IS NOT NULL AND cardinality(value_list) > 0)))"
+)
+
+
 class Answer(Base):
-    """One typed answer. Exactly one value column is populated (by question type)."""
+    """One typed answer. Exactly one value column is populated (by question type).
+
+    Enum answers use ``value_str`` (single-select) or ``value_list`` (multi-select).
+    """
 
     __tablename__ = "answers"
 
@@ -127,18 +147,37 @@ class Answer(Base):
     value_int: Mapped[int | None] = mapped_column(BigInteger, default=None)
     value_double: Mapped[float | None] = mapped_column(Double, default=None)
     value_str: Mapped[str | None] = mapped_column(Text, default=None)
+    # Multi-select enum answers (option values, in option order). Never empty.
+    value_list: Mapped[list[str] | None] = mapped_column(ARRAY(Text), default=None)
 
     entry: Mapped[Entry] = relationship(back_populates="answers")
 
     __table_args__ = (
         UniqueConstraint("entry_id", "question_key", name="uq_answer_entry_key"),
         Index("ix_answers_topic_key", "topic_id", "question_key"),
-        CheckConstraint(
-            "(question_type = 'int' AND value_int IS NOT NULL AND value_double IS NULL AND value_str IS NULL)"
-            " OR (question_type = 'double' AND value_double IS NOT NULL"
-            " AND value_int IS NULL AND value_str IS NULL)"
-            " OR (question_type IN ('str', 'enum') AND value_str IS NOT NULL"
-            " AND value_int IS NULL AND value_double IS NULL)",
-            name="ck_answer_typed_value",
-        ),
+        CheckConstraint(ANSWER_TYPED_VALUE_CHECK, name="ck_answer_typed_value"),
     )
+
+
+class PushSubscription(Base):
+    """A browser Web Push subscription. Upserted by endpoint."""
+
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    endpoint: Mapped[str] = mapped_column(Text, unique=True)
+    p256dh: Mapped[str] = mapped_column(Text)
+    auth: Mapped[str] = mapped_column(Text)
+    user_agent: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
+class AppSetting(Base):
+    """Small key/value store for server state that must survive restarts (e.g. generated VAPID keys)."""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[str] = mapped_column(Text)

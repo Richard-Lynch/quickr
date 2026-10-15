@@ -34,6 +34,46 @@ def _range_tightened(old: IntQuestion | DoubleQuestion, new: IntQuestion | Doubl
     return lower or upper
 
 
+def _diff_selection(
+    old: EnumQuestion, new: EnumQuestion, details: list[str], issues: list[CompatibilityIssue]
+) -> None:
+    """single -> multiple is safe (a value becomes a one-item list); the reverse is not."""
+    key = new.key
+    for attr in ("multiple", "min_selected", "max_selected"):
+        a, b = getattr(old, attr), getattr(new, attr)
+        if a != b:
+            details.append(f"{attr}: {_fmt(a)} -> {_fmt(b)}")
+    if old.multiple and not new.multiple:
+        issues.append(
+            CompatibilityIssue(
+                level="error",
+                question_key=key,
+                message="a multi-select question cannot become single-select; use a new key",
+            )
+        )
+    elif not old.multiple and new.multiple:
+        issues.append(
+            CompatibilityIssue(
+                level="warning",
+                question_key=key,
+                message="now multi-select; historic single answers count as one-option selections",
+            )
+        )
+    elif new.multiple and (
+        (new.min_selected or 0) > (old.min_selected or 0)
+        or (
+            new.max_selected is not None and (old.max_selected is None or new.max_selected < old.max_selected)
+        )
+    ):
+        issues.append(
+            CompatibilityIssue(
+                level="warning",
+                question_key=key,
+                message="selection limits tightened; historic answers remain valid for their version",
+            )
+        )
+
+
 def _diff_question(old: Question, new: Question, issues: list[CompatibilityIssue]) -> list[str]:
     details: list[str] = []
     key = new.key
@@ -80,6 +120,7 @@ def _diff_question(old: Question, new: Question, issues: list[CompatibilityIssue
                     )
                 )
         case EnumQuestion(), EnumQuestion():
+            _diff_selection(old, new, details, issues)
             old_opts = {o.value: o for o in old.options}
             new_opts = {o.value: o for o in new.options}
             for value in old_opts.keys() - new_opts.keys():

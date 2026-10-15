@@ -20,6 +20,10 @@ TEST_DATABASE_URL = os.environ.get(
 )
 # Must happen before anything calls the lru_cached get_settings()/get_engine().
 os.environ["QUICKR_DATABASE_URL"] = TEST_DATABASE_URL
+# Tests drive scheduler.tick() directly; never start the background loop.
+os.environ["QUICKR_SCHEDULER_ENABLED"] = "false"
+os.environ.pop("QUICKR_VAPID_PRIVATE_KEY", None)
+os.environ.pop("QUICKR_VAPID_PUBLIC_KEY", None)
 
 import httpx  # noqa: E402
 from alembic.config import Config  # noqa: E402
@@ -31,7 +35,7 @@ from app.config import get_settings  # noqa: E402
 from app.db import get_engine, get_sessionmaker  # noqa: E402
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
-TABLES = ("answers", "entries", "topic_versions", "topics")
+TABLES = ("answers", "entries", "topic_versions", "topics", "push_subscriptions", "app_settings")
 
 
 async def _ensure_database(url: str) -> None:

@@ -5,12 +5,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
+from fastmcp.utilities.lifespan import combine_lifespans
 
 from app.api.routes import router
 from app.config import get_settings
 from app.errors import DomainError
 from app.mcp_server import mcp
-from app.schemas.api import FieldIssue, Problem
+from app.schemas.base import FieldIssue, Problem, error_loc, error_message
+from app.services import scheduler
 
 
 def _operation_id(route: APIRoute) -> str:
@@ -23,7 +25,7 @@ def create_app() -> FastAPI:
         title="quickR API",
         version="1.0.0",
         description="Config-driven topics, questions and answer entries.",
-        lifespan=mcp_app.lifespan,
+        lifespan=combine_lifespans(scheduler.lifespan, mcp_app.lifespan),
         generate_unique_id_function=_operation_id,
     )
     app.add_middleware(
@@ -37,8 +39,8 @@ def create_app() -> FastAPI:
     async def _request_error(_: Request, exc: RequestValidationError) -> JSONResponse:
         issues = [
             FieldIssue(
-                loc=[p for p in err.get("loc", ()) if isinstance(p, str | int)],
-                message=str(err.get("msg", "")),
+                loc=error_loc(err.get("loc", ()), err.get("ctx")),
+                message=error_message(str(err.get("msg", ""))),
             )
             for err in exc.errors()
         ]
