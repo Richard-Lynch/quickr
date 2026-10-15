@@ -51,6 +51,8 @@ ERRORS: dict[int | str, dict[str, object]] = {
     400: {"model": Problem},
     404: {"model": Problem},
     409: {"model": Problem},
+    # Replaces FastAPI's default HTTPValidationError: every error uses one envelope.
+    422: {"model": Problem},
 }
 
 router = APIRouter(responses=ERRORS)
@@ -166,7 +168,7 @@ async def list_versions(db: Db, ref: TopicRef) -> list[TopicVersionOut]:
 @router.post("/topics/{ref}/versions/check", tags=["versions"], operation_id="checkTopicVersion")
 async def check_version(db: Db, ref: TopicRef, body: VersionDraft) -> CompatibilityReport:
     """Dry-run: report what publishing these questions would change, and whether it is allowed."""
-    return await topic_svc.check_version(db, ref, body.questions)
+    return await topic_svc.check_version(db, ref, body.questions, body.base_version)
 
 
 @router.post(
@@ -174,7 +176,6 @@ async def check_version(db: Db, ref: TopicRef, body: VersionDraft) -> Compatibil
     tags=["versions"],
     operation_id="publishTopicVersion",
     status_code=status.HTTP_201_CREATED,
-    responses={422: {"model": Problem}},
 )
 async def publish_version(db: Db, ref: TopicRef, body: VersionCreate) -> TopicDetail:
     return await topic_svc.publish_version(db, ref, body)
@@ -200,7 +201,6 @@ async def list_sessions(
     tags=["sessions"],
     operation_id="createSession",
     status_code=status.HTTP_201_CREATED,
-    responses={422: {"model": Problem}},
 )
 async def create_session(
     db: Db, ref: TopicRef, body: SessionCreate, channel: ChannelHeader = None
@@ -234,7 +234,6 @@ async def get_session(db: Db, session_id: UUID) -> SessionOut:
     "/sessions/{session_id}",
     tags=["sessions"],
     operation_id="updateSession",
-    responses={422: {"model": Problem}},
 )
 async def update_session(db: Db, session_id: UUID, body: SessionUpdate) -> SessionOut:
     return await session_svc.update_session(db, session_id, body)

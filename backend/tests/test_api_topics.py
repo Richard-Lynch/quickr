@@ -281,3 +281,23 @@ async def test_question_types(client: httpx.AsyncClient) -> None:
         assert "key" in schema["properties"]
     enum_schema = body[3]["json_schema"]
     assert "options" in enum_schema["properties"]
+
+
+async def test_slug_conflict_has_field_location(client: httpx.AsyncClient) -> None:
+    await make_topic(client)
+    r = await client.post("/topics", json={"name": "Sleep log", "questions": sleep_questions()})
+    assert r.status_code == 409
+    assert r.json()["errors"][0]["loc"] == ["slug"]
+
+
+async def test_request_validation_uses_problem_envelope(client: httpx.AsyncClient) -> None:
+    r = await client.post("/topics", json={"name": "", "questions": []})
+    assert r.status_code == 422
+    body = r.json()
+    assert body["code"] == "invalid_request"
+    locs = [e["loc"] for e in body["errors"]]
+    assert ["body", "name"] in locs
+    assert ["body", "questions"] in locs
+    r = await client.get("/topics", params={"limit": 0})
+    assert r.status_code == 422
+    assert r.json()["errors"][0]["loc"] == ["query", "limit"]

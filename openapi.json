@@ -57,6 +57,16 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         }
       }
@@ -106,6 +116,16 @@
           },
           "409": {
             "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -245,14 +265,14 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       },
@@ -314,14 +334,14 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -391,14 +411,14 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       },
@@ -476,14 +496,14 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       },
@@ -545,14 +565,14 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -622,14 +642,14 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -699,14 +719,14 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -780,14 +800,14 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       },
@@ -953,14 +973,14 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -1157,14 +1177,14 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       },
@@ -1425,14 +1445,14 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -1498,14 +1518,14 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       },
@@ -1643,14 +1663,14 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -1808,14 +1828,14 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -2010,14 +2030,14 @@
             "description": "Conflict"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -2668,19 +2688,6 @@
           "message"
         ],
         "title": "FieldIssue"
-      },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "type": "array",
-            "title": "Detail"
-          }
-        },
-        "type": "object",
-        "title": "HTTPValidationError"
       },
       "HistogramBin": {
         "properties": {
@@ -4328,46 +4335,6 @@
         ],
         "title": "TopicVersionOut"
       },
-      "ValidationError": {
-        "properties": {
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "type": "array",
-            "title": "Location"
-          },
-          "msg": {
-            "type": "string",
-            "title": "Message"
-          },
-          "type": {
-            "type": "string",
-            "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
-          }
-        },
-        "type": "object",
-        "required": [
-          "loc",
-          "msg",
-          "type"
-        ],
-        "title": "ValidationError"
-      },
       "ValueCount": {
         "properties": {
           "value": {
@@ -4473,6 +4440,19 @@
             "maxItems": 100,
             "minItems": 1,
             "title": "Questions"
+          },
+          "base_version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Version",
+            "description": "Optional: the version this draft was based on. When given and stale, the dry run fails with 409 just as publishing would."
           }
         },
         "additionalProperties": false,
