@@ -332,6 +332,9 @@ export interface NumberInputProps {
   disabled: boolean;
   integer: boolean;
   inputRef: ((el: HTMLElement | null) => void) | undefined;
+  /** Accessible name when there is no visible <label> (topic tiles). */
+  label?: string;
+  enterKeyHint?: 'next' | 'done';
 }
 
 function decimalsOf(step: string): number {
@@ -355,6 +358,8 @@ export function NumberInput({
   disabled,
   integer,
   inputRef,
+  label,
+  enterKeyHint = 'next',
 }: NumberInputProps) {
   const stepN = step === 'any' ? 1 : Number(step);
   const places = step === 'any' ? 0 : decimalsOf(step);
@@ -404,7 +409,8 @@ export function NumberInput({
           aria-describedby={describedBy}
           disabled={disabled}
           placeholder={range ?? (integer ? '0' : '0.0')}
-          enterKeyHint="next"
+          enterKeyHint={enterKeyHint}
+          aria-label={label}
           className={cn(
             'h-13 w-full rounded-xl border border-line-strong bg-surface px-4 text-center font-mono text-xl font-semibold tabular outline-none placeholder:font-sans placeholder:text-base placeholder:font-normal placeholder:text-muted/70 focus:border-accent focus:ring-3 focus:ring-accent/20 aria-invalid:border-danger',
             unit ? 'pr-14' : null,

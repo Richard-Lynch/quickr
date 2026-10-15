@@ -8,10 +8,12 @@
  */
 import type { QueryClient } from '@tanstack/react-query';
 
+import type { TopicSummary } from '../client';
 import { getEntryQueryKey } from '../client/@tanstack/react-query.gen';
 import { zEntryOut } from '../client/zod.gen';
 import { ENTRY_CREATE, type EntryCreatePayload } from '../lib/outbox/kinds';
 import type { Outbox } from '../lib/outbox/outbox';
+import { dueAfterLogging } from '../lib/schedule';
 import type { OutboxEvent, OutboxItem } from '../lib/outbox/types';
 import { patchTopics, prependEntry, topicIs } from './cache';
 import { invalidateOperations, invalidateEntryData } from './queryClient';
@@ -33,11 +35,28 @@ function laterIso(a: string | null, b: string | null | undefined): string | null
   return Date.parse(b) > Date.parse(a) ? b : a;
 }
 
+/**
+ * Whether an entry captured at `at` plausibly satisfies the open slot. The server allows
+ * logging up to 2 h early; a back-dated entry from before the slot doesn't count.
+ */
+function satisfiesDue(due: TopicSummary['due'], at: string): boolean {
+  if (!due?.is_due) return false;
+  if (!due.due_since) return true;
+  return Date.parse(at) >= Date.parse(due.due_since) - 2 * 60 * 60_000;
+}
+
 function bumpTopic(qc: QueryClient, item: OutboxItem<EntryCreatePayload>, delta: 1 | -1): void {
   const capturedAt = item.payload.body.captured_at ?? item.created_at;
   patchTopics(qc, topicIs(item.payload.topic), (t) => ({
     entry_count: Math.max(0, t.entry_count + delta),
-    ...(delta > 0 ? { last_captured_at: laterIso(t.last_captured_at, capturedAt) } : {}),
+    ...(delta > 0
+      ? {
+          last_captured_at: laterIso(t.last_captured_at, capturedAt),
+          // Logging a due topic drops it out of "Due now" at once; the refetch after the
+          // send brings the server's own due status (next slot etc.).
+          ...(satisfiesDue(t.due, capturedAt) ? { due: dueAfterLogging(t.due, capturedAt) } : {}),
+        }
+      : {}),
   }));
 }
 

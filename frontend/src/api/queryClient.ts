@@ -54,7 +54,7 @@ export function invalidateOperations(qc: QueryClient, ids: readonly OperationId[
 }
 
 /** Everything whose numbers depend on the set of entries. */
-export const SESSION_DATA_OPS: readonly OperationId[] = [
+export const ENTRY_DATA_OPS: readonly OperationId[] = [
   'listTopics',
   'getTopic',
   'listTopicVersions',
@@ -68,7 +68,7 @@ export const SESSION_DATA_OPS: readonly OperationId[] = [
  * (Single-entry caches are updated/removed explicitly by the caller.)
  */
 export function invalidateEntryData(qc: QueryClient): Promise<void> {
-  return invalidateOperations(qc, SESSION_DATA_OPS);
+  return invalidateOperations(qc, ENTRY_DATA_OPS);
 }
 
 export function invalidateTopicData(qc: QueryClient): Promise<void> {
