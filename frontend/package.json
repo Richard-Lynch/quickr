@@ -14,7 +14,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "gen:api": "openapi-ts",
-    "gen:icons": "pwa-assets-generator",
+    "gen:icons": "pwa-assets-generator && node scripts/gen-badge.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview"
