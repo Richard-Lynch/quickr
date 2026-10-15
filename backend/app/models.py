@@ -65,6 +65,8 @@ class Topic(Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     # Validated Schedule payload (not versioned); null = unscheduled.
     schedule: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
+    # When the schedule was last set/changed: the reference point for due status.
+    schedule_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     # due_since of the last slot a push notification was sent for (scheduler dedupe).
     last_notified_due_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 

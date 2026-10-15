@@ -25,7 +25,7 @@ services:
       # Web Push. Without keys, a pair is generated once and stored in the database.
       QUICKR_VAPID_PRIVATE_KEY: ${QUICKR_VAPID_PRIVATE_KEY:-}
       QUICKR_VAPID_PUBLIC_KEY: ${QUICKR_VAPID_PUBLIC_KEY:-}
-      QUICKR_VAPID_SUBJECT: ${QUICKR_VAPID_SUBJECT:-mailto:admin@localhost}
+      QUICKR_VAPID_SUBJECT: ${QUICKR_VAPID_SUBJECT:-https://github.com/Richard-Lynch/quickr}
       QUICKR_SCHEDULER_ENABLED: ${QUICKR_SCHEDULER_ENABLED:-true}
     depends_on:
       db:

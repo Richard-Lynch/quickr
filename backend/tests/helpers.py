@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import httpx
+from sqlalchemy import update
+
+from app.db import get_sessionmaker
+from app.models import Topic
 
 
 def sleep_questions() -> list[dict[str, Any]]:
@@ -46,3 +51,14 @@ async def record(
     assert r.status_code == 201, r.text
     body: dict[str, Any] = r.json()
     return body
+
+
+async def backdate_schedule(slug: str, to: datetime) -> None:
+    """Pretend the topic's schedule was set at ``to`` (due status ignores anything earlier)."""
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            update(Topic)
+            .where(Topic.slug == slug)
+            .values(schedule_updated_at=to, updated_at=Topic.updated_at)
+        )
+        await db.commit()

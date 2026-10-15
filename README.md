@@ -62,9 +62,10 @@ Configuration is via `QUICKR_*` environment variables (or `backend/.env`):
 | `QUICKR_CORS_ORIGINS`               | `["http://localhost:5180","http://localhost:8080"]`        |
 | `QUICKR_VAPID_PRIVATE_KEY`          | unset → generated once and stored in the database          |
 | `QUICKR_VAPID_PUBLIC_KEY`           | derived from the private key when unset                    |
-| `QUICKR_VAPID_SUBJECT`              | `mailto:admin@localhost`                                   |
+| `QUICKR_VAPID_SUBJECT`              | `https://github.com/Richard-Lynch/quickr`                  |
 | `QUICKR_SCHEDULER_ENABLED`          | `true`                                                     |
 | `QUICKR_SCHEDULER_INTERVAL_SECONDS` | `60`                                                       |
+| `QUICKR_PUSH_ALLOWED_HOSTS`         | `[]`: extra push-service hosts (JSON list), see below      |
 
 Tests use `QUICKR_TEST_DATABASE_URL` (default
 `postgresql+asyncpg://quickr:quickr@localhost:5433/quickr_test`). The database
@@ -109,9 +110,17 @@ unscheduled):
 - **Daily:** a slot is each time on each allowed day. Let _s_ be the latest slot
   at or before now and _p_ the slot before it. _s_ is satisfied by any entry
   captured at or after _s_ − min(2 h, (_s_ − _p_) / 2), so logging a bit early
-  counts. Otherwise the topic is due since _s_. `next_due_at` is the next slot.
+  counts. Otherwise the topic is due since _s_. `next_due_at` is the next slot
+  that isn't already satisfied. For example, if you log at 07:30 for the 08:00
+  slot, it is the slot after that.
 - **Interval:** due `every_minutes` after the latest entry (`due_since` = that
-  instant). A topic that has never been logged is due since it was created.
+  instant). A topic with no entries becomes due one interval after its schedule
+  was set.
+- Only the schedule's own lifetime counts. `schedule_updated_at` records when
+  the schedule was last set or changed (re-sending an identical schedule keeps
+  it). Daily slots before it are ignored, and intervals never count from an
+  entry older than it. A new or changed schedule therefore never makes a topic
+  overdue right away.
 - Archived topics are never due.
 
 `GET /topics` sorts by `due` by default. Due topics come first (longest overdue
@@ -144,15 +153,24 @@ Setup:
    To manage keys yourself, run `make vapid` and set `QUICKR_VAPID_PRIVATE_KEY`
    (and optionally `QUICKR_VAPID_PUBLIC_KEY`). Changing the keys invalidates
    every existing subscription.
-2. **Subject.** Set `QUICKR_VAPID_SUBJECT` to a real `mailto:` address or
-   `https://` URL. Some push services (notably Apple's) reject
-   `mailto:…@localhost`.
+2. **Subject.** `QUICKR_VAPID_SUBJECT` identifies the sender to push services.
+   It must be a `mailto:` address or an `https://` URL. The default (the project
+   URL) works everywhere. Apple rejects `mailto:…@localhost`.
 3. **HTTPS.** Browsers only allow push on secure origins: `https://` or
    `http://localhost`.
 4. **Scheduler.** It runs inside the API process and checks every
    `QUICKR_SCHEDULER_INTERVAL_SECONDS`. It is safe with several replicas,
    because each tick takes a Postgres advisory lock. Subscriptions the push
    service reports as gone (404/410) are deleted.
+5. **Allowed push services.** The API has no auth, so subscription endpoints are
+   restricted to known browser push services: `fcm.googleapis.com`
+   (Chrome/Edge/Android), `updates.push.services.mozilla.com` (Firefox),
+   `*.push.apple.com` (Safari/iOS), and `*.notify.windows.com` /
+   `*.wns.windows.com`. Anything else gets a `422`. To allow more hosts, add
+   them with `QUICKR_PUSH_ALLOWED_HOSTS='["push.example.org"]'` (this adds to
+   the defaults; subdomains match). Before each send, the backend also checks
+   that the host resolves only to public IP addresses, and it never follows
+   redirects.
 
 **iPhone/iPad:** Web Push only works when the PWA has been added to the Home
 Screen (iOS/iPadOS 16.4 or later), and permission must be requested from inside

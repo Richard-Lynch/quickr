@@ -170,3 +170,32 @@ async def test_answer_check_constraint_and_multi_select_downgrade(clean_db: None
         assert keys == ["n", "one"]
     finally:
         await _alembic(command.upgrade, "head")
+
+
+SCHEDULE_JSON = '{"kind": "interval", "every_minutes": 60, "timezone": "UTC", "notify": true}'
+
+
+async def test_schedule_updated_at_backfilled_from_created_at(clean_db: None) -> None:
+    await _alembic(command.downgrade, INITIAL)
+    try:
+        async with get_engine().begin() as conn:
+            await _insert_v1_data(conn)
+            await conn.execute(
+                text(
+                    "INSERT INTO topics (id, slug, name, description, status, current_version, created_at)"
+                    f" VALUES ('{T}9', 'plain', 'Plain', '', 'active', 1, '2026-01-01T00:00:00Z')"
+                )
+            )
+        await _alembic(command.upgrade, "c3a4b5c6d7e8")  # schedules exist, the reference point does not
+        async with get_engine().begin() as conn:
+            await conn.execute(
+                text("UPDATE topics SET schedule = CAST(:s AS jsonb) WHERE slug = 'demo'"),
+                {"s": SCHEDULE_JSON},
+            )
+        await _alembic(command.upgrade, "head")
+        async with get_engine().connect() as conn:
+            result = await conn.execute(text("SELECT slug, schedule_updated_at = created_at FROM topics"))
+            rows = {row[0]: row[1] for row in result}  # dict(result) would use Result.keys()
+        assert rows == {"demo": True, "plain": None}  # unscheduled topics stay NULL
+    finally:
+        await _alembic(command.upgrade, "head")

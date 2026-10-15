@@ -52,7 +52,7 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
                 Topic.slug,
                 Topic.name,
                 Topic.schedule,
-                Topic.created_at,
+                func.coalesce(Topic.schedule_updated_at, Topic.created_at),
                 Topic.last_notified_due_since,
             )
             .add_columns(last_entry)
@@ -61,11 +61,11 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
         )
     ).all()
     notified = 0
-    for topic_id, slug, name, raw_schedule, created_at, last_notified, last_entry_at in rows:
+    for topic_id, slug, name, raw_schedule, since, last_notified, last_entry_at in rows:
         schedule = parse_schedule(raw_schedule)
         if schedule is None or not schedule.notify:
             continue
-        due = compute_due(schedule, now=now, last_entry_at=last_entry_at, created_at=created_at)
+        due = compute_due(schedule, now=now, last_entry_at=last_entry_at, schedule_since=since)
         if not due.is_due or due.due_since is None or due.due_since == last_notified:
             continue
         payload = PushPayload(

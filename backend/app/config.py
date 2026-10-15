@@ -13,7 +13,10 @@ class Settings(BaseSettings):
     # Web Push (VAPID). When unset, a key pair is generated once and stored in app_settings.
     vapid_private_key: str | None = None  # base64url raw 32-byte key, or base64url DER
     vapid_public_key: str | None = None  # base64url uncompressed P-256 point
-    vapid_subject: str = "mailto:admin@localhost"
+    # A mailto: or https: URL identifying the sender (Apple rejects mailto:...@localhost).
+    vapid_subject: str = "https://github.com/Richard-Lynch/quickr"
+    # Extra push service hosts (JSON list) on top of app.push_guard.DEFAULT_PUSH_HOSTS.
+    push_allowed_hosts: list[str] = []
 
     # Background task that sends "topic due" notifications.
     scheduler_enabled: bool = True

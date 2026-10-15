@@ -104,7 +104,7 @@ def _due(topic: Topic, last_captured: datetime | None, now: datetime) -> DueStat
         schedule,
         now=now,
         last_entry_at=last_captured,
-        created_at=topic.created_at,
+        schedule_since=topic.schedule_updated_at or topic.created_at,
         archived=topic.status == TopicStatus.archived,
     )
 
@@ -133,6 +133,7 @@ async def _summaries(
                     updated_at=topic.updated_at,
                     archived_at=topic.archived_at,
                     schedule=parse_schedule(topic.schedule),
+                    schedule_updated_at=topic.schedule_updated_at,
                     due=_due(topic, last_captured, now),
                 ),
                 questions,
@@ -282,6 +283,7 @@ async def create_topic(db: AsyncSession, body: TopicCreate) -> TopicDetail:
         status=TopicStatus.active,
         current_version=1,
         schedule=dump_schedule(body.schedule),
+        schedule_updated_at=func.now() if body.schedule is not None else None,
     )
     topic.versions.append(
         TopicVersion(
@@ -308,7 +310,10 @@ async def update_topic(db: AsyncSession, ref: str, body: TopicUpdate) -> TopicDe
     if body.description is not None:
         topic.description = body.description
     if "schedule" in body.model_fields_set:  # explicit null clears the schedule
-        topic.schedule = dump_schedule(body.schedule)
+        new = dump_schedule(body.schedule)
+        if new != topic.schedule:  # an unchanged schedule keeps its reference point
+            topic.schedule = new
+            topic.schedule_updated_at = func.now() if new is not None else None
     try:
         await db.commit()
     except IntegrityError as exc:

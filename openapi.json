@@ -5064,6 +5064,19 @@
             ],
             "title": "Schedule"
           },
+          "schedule_updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Updated At",
+            "description": "When the schedule was last set or changed; due status ignores anything before it."
+          },
           "due": {
             "anyOf": [
               {
@@ -5121,6 +5134,7 @@
           "updated_at",
           "archived_at",
           "schedule",
+          "schedule_updated_at",
           "due",
           "questions"
         ],
@@ -5341,6 +5355,19 @@
             ],
             "title": "Schedule"
           },
+          "schedule_updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Updated At",
+            "description": "When the schedule was last set or changed; due status ignores anything before it."
+          },
           "due": {
             "anyOf": [
               {
@@ -5369,6 +5396,7 @@
           "updated_at",
           "archived_at",
           "schedule",
+          "schedule_updated_at",
           "due"
         ],
         "title": "TopicSummary"

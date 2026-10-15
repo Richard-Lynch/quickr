@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from tests.helpers import make_topic, record
+from tests.helpers import backdate_schedule, make_topic, record
 
 QUESTIONS = [{"key": "n", "label": "N", "type": "int"}]
 
@@ -36,10 +36,19 @@ async def names(client: httpx.AsyncClient, **params: Any) -> list[str]:
 async def test_create_with_schedule_and_due_status(client: httpx.AsyncClient) -> None:
     t = await topic(client, "Water", every(60))
     assert t["schedule"] == {"kind": "interval", "every_minutes": 60, "timezone": "UTC", "notify": True}
-    # Never logged: due since creation.
-    assert t["due"]["is_due"] is True
-    assert t["due"]["due_since"] == t["created_at"]
-    assert t["due"]["last_entry_at"] is None
+    # Never logged: due one interval after the schedule was set.
+    assert t["schedule_updated_at"] == t["created_at"]
+    since = datetime.fromisoformat(t["schedule_updated_at"])
+    assert t["due"] == {
+        "is_due": False,
+        "due_since": None,
+        "next_due_at": (since + timedelta(minutes=60)).isoformat().replace("+00:00", "Z"),
+        "last_entry_at": None,
+    }
+    await backdate_schedule("water", since - timedelta(minutes=61))
+    stale = (await client.get("/topics/water")).json()
+    assert stale["due"]["is_due"] is True
+    assert datetime.fromisoformat(stale["due"]["due_since"]) == since - timedelta(minutes=1)
 
     await record(client, "water", {"n": 1})
     detail = (await client.get("/topics/water")).json()
@@ -65,7 +74,10 @@ async def test_daily_schedule_roundtrip(client: httpx.AsyncClient) -> None:
     )
     assert t["schedule"]["days"] == [1, 2, 3, 4, 5, 6, 7]
     assert t["schedule"]["times"] == sorted(t["schedule"]["times"])
-    assert t["due"]["is_due"] is True
+    # The slot a minute ago predates the schedule: not due yet.
+    assert t["due"]["is_due"] is False
+    await backdate_schedule("meds", now - timedelta(days=2))
+    assert (await client.get("/topics/meds")).json()["due"]["is_due"] is True
     await record(client, "meds", {"n": 1})
     assert (await client.get("/topics/meds")).json()["due"]["is_due"] is False
 
@@ -80,7 +92,61 @@ async def test_patch_schedule_set_keep_clear(client: httpx.AsyncClient) -> None:
     assert r.json()["schedule"]["every_minutes"] == 30
     # Explicit null clears.
     r = await client.patch("/topics/water", json={"schedule": None})
-    assert (r.json()["schedule"], r.json()["due"]) == (None, None)
+    assert (r.json()["schedule"], r.json()["due"], r.json()["schedule_updated_at"]) == (None, None, None)
+
+
+async def test_patch_schedule_resets_reference_point(client: httpx.AsyncClient) -> None:
+    await topic(client, "Water", every(60))
+    long_ago = datetime.now(UTC) - timedelta(days=1)
+    await backdate_schedule("water", long_ago)
+    assert (await client.get("/topics/water")).json()["due"]["is_due"] is True
+
+    # Re-sending the same schedule (or other metadata) keeps the reference point.
+    for body in ({"schedule": every(60)}, {"description": "drink"}):
+        r = (await client.patch("/topics/water", json=body)).json()
+        assert datetime.fromisoformat(r["schedule_updated_at"]) == long_ago
+        assert r["due"]["is_due"] is True
+
+    # Changing it restarts the clock: not due until one new interval has passed.
+    before = datetime.now(UTC) - timedelta(seconds=5)  # DB clock vs test clock
+    r = (await client.patch("/topics/water", json={"schedule": every(90)})).json()
+    assert datetime.fromisoformat(r["schedule_updated_at"]) >= before
+    assert r["due"]["is_due"] is False
+    assert datetime.fromisoformat(r["due"]["next_due_at"]) == datetime.fromisoformat(
+        r["schedule_updated_at"]
+    ) + timedelta(minutes=90)
+
+    # Clearing and setting again also starts fresh.
+    await backdate_schedule("water", long_ago)
+    await client.patch("/topics/water", json={"schedule": None})
+    r = (await client.patch("/topics/water", json={"schedule": every(90)})).json()
+    assert datetime.fromisoformat(r["schedule_updated_at"]) >= before
+    assert r["due"]["is_due"] is False
+
+
+async def test_patch_daily_schedule_ignores_earlier_slots(client: httpx.AsyncClient) -> None:
+    now = datetime.now(UTC)
+    slot = (now - timedelta(minutes=5)).strftime("%H:%M")
+    daily = {"kind": "daily", "times": [slot], "timezone": "UTC"}
+    await topic(client, "Meds", every(60))
+    await backdate_schedule("meds", now - timedelta(days=3))
+    r = (await client.patch("/topics/meds", json={"schedule": daily})).json()
+    # Today's slot passed before the change, so it is not due; tomorrow's is next.
+    assert r["due"]["is_due"] is False
+    assert datetime.fromisoformat(r["due"]["next_due_at"]) > now + timedelta(hours=23)
+
+
+async def test_body_integers_are_strict(client: httpx.AsyncClient) -> None:
+    await topic(client, "Water")
+    r = await client.patch("/topics/water", json={"schedule": {**every(60), "every_minutes": "60"}})
+    assert r.status_code == 422
+    assert r.json()["errors"][0]["loc"] == ["body", "schedule", "every_minutes"]
+    r = await client.post("/topics/water/versions", json={"questions": QUESTIONS, "base_version": "1"})
+    assert r.status_code == 422
+    assert r.json()["errors"][0]["loc"] == ["body", "base_version"]
+    r = await client.post("/topics/water/entries", json={"answers": {"n": 1}, "version": "1"})
+    assert r.status_code == 422
+    assert r.json()["errors"][0]["loc"] == ["body", "version"]
 
 
 async def test_schedule_validation_locations(client: httpx.AsyncClient) -> None:
@@ -130,6 +196,7 @@ async def test_due_sort_is_default(client: httpx.AsyncClient) -> None:
         ("Unscheduled new", None, None),
     ]:
         t = await topic(client, name, schedule)
+        await backdate_schedule(t["slug"], datetime.now(UTC) - timedelta(days=1))
         if last is not None:
             await record(client, t["slug"], {"n": 1}, captured_at=last)
 
