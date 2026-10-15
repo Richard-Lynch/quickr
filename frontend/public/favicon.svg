@@ -1,1 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#e8590c"/><path d="M8 9v14M13 9v14M18 9v14M23 9v14M6 20 26 12" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- quickR app icon: a "q" with speed lines on signal orange.
+       The glyph stays inside the maskable safe zone (radius 0.4 x size). -->
+  <rect width="512" height="512" rx="116" fill="#e8590c"/>
+  <g fill="none" stroke="#fff" stroke-linecap="round" transform="translate(256 256) scale(0.9) translate(-218 -268)">
+    <circle cx="262" cy="242" r="88" stroke-width="56"/>
+    <path d="M350 186v196" stroke-width="56"/>
+    <path d="M88 202h44M70 242h62M88 282h44" stroke-width="24" stroke-opacity="0.85"/>
+  </g>
+</svg>

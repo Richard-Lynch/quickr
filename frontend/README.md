@@ -1,4 +1,4 @@
-# quicker — frontend
+# quickR — frontend
 
 React 19 + Vite 8 + TypeScript SPA (Tailwind v4, TanStack Query, React Router, react-hook-form + zod).
 Mobile-first; light/dark follows the OS.
