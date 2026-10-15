@@ -7,6 +7,25 @@ import { EmptyState } from './ui/Card';
 import { cn } from './ui/cn';
 import { Icon } from './ui/Icon';
 
+/** The app icon (same artwork as public/favicon.svg), themed via tokens. */
+export function AppMark({ className }: { className?: string | undefined }) {
+  return (
+    <svg viewBox="0 0 512 512" className={className} aria-hidden="true">
+      <rect width="512" height="512" rx="116" className="fill-accent" />
+      <g
+        fill="none"
+        className="stroke-on-accent"
+        strokeLinecap="round"
+        transform="translate(256 256) scale(0.9) translate(-218 -268)"
+      >
+        <circle cx="262" cy="242" r="88" strokeWidth="56" />
+        <path d="M350 186v196" strokeWidth="56" />
+        <path d="M88 202h44M70 242h62M88 282h44" strokeWidth="24" strokeOpacity="0.85" />
+      </g>
+    </svg>
+  );
+}
+
 export function Logo({ className }: { className?: string | undefined }) {
   return (
     <Link
@@ -15,23 +34,11 @@ export function Logo({ className }: { className?: string | undefined }) {
         'group inline-flex items-center gap-2 font-display text-[1.35rem] font-bold tracking-tight',
         className,
       )}
-      aria-label="Quicker — all topics"
+      aria-label="quickR — all topics"
     >
-      <svg
-        viewBox="0 0 32 32"
-        className="size-7 transition-transform group-active:scale-90"
-        aria-hidden="true"
-      >
-        <rect width="32" height="32" rx="9" className="fill-accent" />
-        <path
-          d="M9 9v14M14 9v14M19 9v14M24 9v14M7 20 26 12"
-          className="stroke-on-accent"
-          strokeWidth="2.6"
-          strokeLinecap="round"
-        />
-      </svg>
+      <AppMark className="size-7 transition-transform group-active:scale-90" />
       <span>
-        quick<span className="text-accent">er</span>
+        quick<span className="text-accent">R</span>
       </span>
     </Link>
   );

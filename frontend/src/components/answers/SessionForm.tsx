@@ -189,12 +189,12 @@ export function SessionForm({
                 aria-invalid={invalid || undefined}
                 autoCapitalize="none"
                 autoComplete="off"
-                list="quicker-sources"
+                list="quickr-sources"
                 {...form.register('source')}
               />
             )}
           </Field>
-          <datalist id="quicker-sources">
+          <datalist id="quickr-sources">
             <option value="phone" />
             <option value="tablet" />
             <option value="desktop" />
