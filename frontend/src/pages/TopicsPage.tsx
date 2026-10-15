@@ -6,6 +6,7 @@ import { errorMessage } from '../api/errors';
 import { listTopicsInfiniteOptions } from '../client/@tanstack/react-query.gen';
 import type { ListTopicsData, TopicSummary } from '../client';
 import { Page, TopBar } from '../components/AppShell';
+import { InstallHint } from '../components/pwa/InstallHint';
 import { Button, ButtonLink } from '../components/ui/Button';
 import { Badge, Banner, Card, EmptyState, VersionTag } from '../components/ui/Card';
 import { Select } from '../components/ui/Field';
@@ -80,15 +81,27 @@ export function TopicsPage() {
     <>
       <TopBar
         actions={
-          <ButtonLink
-            to="/new"
-            variant="primary"
-            size="sm"
-            className="max-sm:hidden"
-            icon={<Icon name="plus" className="size-4" />}
-          >
-            New topic
-          </ButtonLink>
+          <>
+            <ButtonLink
+              to="/new"
+              variant="primary"
+              size="sm"
+              className="max-sm:hidden"
+              icon={<Icon name="plus" className="size-4" />}
+            >
+              New topic
+            </ButtonLink>
+            <ButtonLink
+              to="/settings"
+              variant="ghost"
+              size="sm"
+              aria-label="Settings"
+              title="Settings"
+              className="px-2.5"
+            >
+              <Icon name="settings" className="size-5" />
+            </ButtonLink>
+          </>
         }
       />
       <Page>
@@ -145,6 +158,8 @@ export function TopicsPage() {
           </div>
         </div>
 
+        <InstallHint />
+
         {query.isError ? (
           <Banner
             title="Could not load topics"
@@ -158,7 +173,12 @@ export function TopicsPage() {
           </Banner>
         ) : null}
 
-        {query.isPending ? (
+        {query.isPending && query.fetchStatus === 'paused' ? (
+          <EmptyState title="You’re offline" icon={<Icon name="cloudOff" className="size-9" />}>
+            Topics will appear here once you’re back online. Next time they’ll be saved on this
+            device.
+          </EmptyState>
+        ) : query.isPending ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 4 }, (_, i) => (
               <Skeleton key={i} className="h-40 rounded-card" />

@@ -18,6 +18,12 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <TopicsPage /> },
       {
+        path: 'settings',
+        lazy: async () => ({
+          Component: (await import('./pages/AppSettingsPage')).AppSettingsPage,
+        }),
+      },
+      {
         path: 'new',
         lazy: async () => ({ Component: (await import('./pages/NewTopicPage')).NewTopicPage }),
       },
