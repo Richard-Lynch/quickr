@@ -23,7 +23,7 @@ export const CACHE_MAX_AGE = CACHE_GC_TIME;
 export const CACHE_BUSTER = `${__APP_VERSION__}+${__API_HASH__}`;
 
 /** Never persisted (large or pointless offline). */
-const SKIP_OPERATIONS = new Set(['exportSessionsCsv', 'health']);
+const SKIP_OPERATIONS = new Set(['exportEntriesCsv', 'health']);
 
 let store: UseStore | null = null;
 const cacheStore = () => (store ??= createStore(CACHE_DB, CACHE_STORE));

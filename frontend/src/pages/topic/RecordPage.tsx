@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { useRecordEntry } from '../../api/entries';
 import type { TopicDetail } from '../../client';
 import { Page, TopBar } from '../../components/AppShell';
-import { SessionForm, type SessionFormValues } from '../../components/answers/SessionForm';
+import { EntryForm, type EntryFormValues } from '../../components/answers/EntryForm';
 import { OfflineNotice } from '../../components/pwa/Sync';
 import { ButtonLink } from '../../components/ui/Button';
 import { Banner, VersionTag } from '../../components/ui/Card';
@@ -39,7 +39,7 @@ export function RecordPage() {
               </ButtonLink>
             }
           >
-            Unarchive it to record new entries.
+            Unarchive it to log new entries.
           </Banner>
         </Page>
       </>
@@ -52,13 +52,13 @@ export function RecordPage() {
     if (!item || !isEntryCreate(item)) {
       return (
         <>
-          <TopBar back={`${base}/sessions`} title="Fix entry" />
+          <TopBar back={`${base}/entries`} title="Fix entry" />
           <Page>
             <Banner
               tone="info"
               title="Nothing to fix"
               action={
-                <ButtonLink to={`${base}/sessions`} size="sm">
+                <ButtonLink to={`${base}/entries`} size="sm">
                   Entries
                 </ButtonLink>
               }
@@ -90,7 +90,7 @@ function RecordForm({
 
   const freshValues = useMemo(
     () =>
-      (source: string): SessionFormValues => ({
+      (source: string): EntryFormValues => ({
         answers: emptyAnswerValues(topic.questions),
         captured_at: toLocalInputValue(new Date()),
         source,
@@ -98,7 +98,7 @@ function RecordForm({
       }),
     [topic.questions],
   );
-  const [defaults] = useState<SessionFormValues>(() => {
+  const [defaults] = useState<EntryFormValues>(() => {
     if (!fixItem) return freshValues(rememberedSource());
     const b = fixItem.payload.body;
     return {
@@ -112,7 +112,7 @@ function RecordForm({
   return (
     <>
       <TopBar
-        back={fixItem ? `${base}/sessions` : base}
+        back={fixItem ? `${base}/entries` : base}
         title={
           <span className="flex items-center gap-2">
             <span className="truncate">{fixItem ? `Fix entry · ${topic.name}` : topic.name}</span>
@@ -134,7 +134,7 @@ function RecordForm({
             The server rejected it. Correct it and save again, or discard it from the sync list.
           </Banner>
         ) : null}
-        <SessionForm
+        <EntryForm
           questions={topic.questions}
           defaultValues={defaults}
           submitLabel={fixItem ? 'Save again' : 'Save entry'}
@@ -152,11 +152,11 @@ function RecordForm({
               },
               { fixItemId: fixItem?.id },
             );
-            // Rejected (4xx): SessionForm maps the Problem onto the fields.
+            // Rejected (4xx): EntryForm maps the Problem onto the fields.
             if (result.status === 'failed') throw result.error;
 
             rememberSource(v.source);
-            const view = { label: 'View', onClick: () => void navigate(`${base}/sessions`) };
+            const view = { label: 'View', onClick: () => void navigate(`${base}/entries`) };
             const saved =
               result.status === 'sent'
                 ? { title: 'Entry saved', description: 'Ready for the next one.' }
@@ -168,7 +168,7 @@ function RecordForm({
             if (fixItem) {
               allowNavigation();
               toast({ ...saved, description: undefined });
-              void navigate(`${base}/sessions`);
+              void navigate(`${base}/entries`);
               return;
             }
             setCount((c) => c + 1);

@@ -183,6 +183,9 @@ describe('draftFromQuestion / previewQuestion', () => {
       { value: 'good', label: 'Good', archived: false },
       { value: 'bad', label: 'Bad', archived: true },
     ],
+    multiple: false,
+    min_selected: null,
+    max_selected: null,
   };
 
   it('round-trips a published question', () => {

@@ -4,8 +4,8 @@ import * as z from 'zod';
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { ArchiveTopicData, ArchiveTopicErrors, ArchiveTopicResponses, CheckTopicVersionData, CheckTopicVersionErrors, CheckTopicVersionResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateTopicData, CreateTopicErrors, CreateTopicResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteTopicData, DeleteTopicErrors, DeleteTopicResponses, ExportSessionsCsvData, ExportSessionsCsvErrors, ExportSessionsCsvResponses, GetQuestionSeriesData, GetQuestionSeriesErrors, GetQuestionSeriesResponses, GetSessionData, GetSessionErrors, GetSessionResponses, GetTopicData, GetTopicErrors, GetTopicResponses, GetTopicStatsData, GetTopicStatsErrors, GetTopicStatsResponses, HealthData, HealthErrors, HealthResponses, ListQuestionTypesData, ListQuestionTypesErrors, ListQuestionTypesResponses, ListSessionsData, ListSessionsErrors, ListSessionsResponses, ListTopicsData, ListTopicsErrors, ListTopicsResponses, ListTopicVersionsData, ListTopicVersionsErrors, ListTopicVersionsResponses, PublishTopicVersionData, PublishTopicVersionErrors, PublishTopicVersionResponses, UnarchiveTopicData, UnarchiveTopicErrors, UnarchiveTopicResponses, UpdateSessionData, UpdateSessionErrors, UpdateSessionResponses, UpdateTopicData, UpdateTopicErrors, UpdateTopicResponses } from './types.gen';
-import { zArchiveTopicPath, zArchiveTopicResponse, zCheckTopicVersionBody, zCheckTopicVersionPath, zCheckTopicVersionResponse, zCreateSessionBody, zCreateSessionHeaders, zCreateSessionPath, zCreateSessionResponse, zCreateTopicBody, zCreateTopicResponse, zDeleteSessionPath, zDeleteSessionResponse, zDeleteTopicPath, zDeleteTopicResponse, zExportSessionsCsvPath, zExportSessionsCsvQuery, zExportSessionsCsvResponse, zGetQuestionSeriesPath, zGetQuestionSeriesQuery, zGetQuestionSeriesResponse, zGetSessionPath, zGetSessionResponse, zGetTopicPath, zGetTopicResponse, zGetTopicStatsPath, zGetTopicStatsQuery, zGetTopicStatsResponse, zHealthResponse, zListQuestionTypesResponse, zListSessionsPath, zListSessionsQuery, zListSessionsResponse, zListTopicsQuery, zListTopicsResponse, zListTopicVersionsPath, zListTopicVersionsResponse, zPublishTopicVersionBody, zPublishTopicVersionPath, zPublishTopicVersionResponse, zUnarchiveTopicPath, zUnarchiveTopicResponse, zUpdateSessionBody, zUpdateSessionPath, zUpdateSessionResponse, zUpdateTopicBody, zUpdateTopicPath, zUpdateTopicResponse } from './zod.gen';
+import type { ArchiveTopicData, ArchiveTopicErrors, ArchiveTopicResponses, CheckTopicVersionData, CheckTopicVersionErrors, CheckTopicVersionResponses, CreateEntryData, CreateEntryErrors, CreateEntryResponses, CreatePushSubscriptionData, CreatePushSubscriptionErrors, CreatePushSubscriptionResponses, CreateTopicData, CreateTopicErrors, CreateTopicResponses, DeleteEntryData, DeleteEntryErrors, DeleteEntryResponses, DeletePushSubscriptionData, DeletePushSubscriptionErrors, DeletePushSubscriptionResponses, DeleteTopicData, DeleteTopicErrors, DeleteTopicResponses, ExportEntriesCsvData, ExportEntriesCsvErrors, ExportEntriesCsvResponses, GetEntryData, GetEntryErrors, GetEntryResponses, GetLimitsData, GetLimitsErrors, GetLimitsResponses, GetPushConfigData, GetPushConfigErrors, GetPushConfigResponses, GetQuestionSeriesData, GetQuestionSeriesErrors, GetQuestionSeriesResponses, GetTopicData, GetTopicErrors, GetTopicResponses, GetTopicStatsData, GetTopicStatsErrors, GetTopicStatsResponses, HealthData, HealthErrors, HealthResponses, ListEntriesData, ListEntriesErrors, ListEntriesResponses, ListQuestionTypesData, ListQuestionTypesErrors, ListQuestionTypesResponses, ListTopicsData, ListTopicsErrors, ListTopicsResponses, ListTopicVersionsData, ListTopicVersionsErrors, ListTopicVersionsResponses, PublishTopicVersionData, PublishTopicVersionErrors, PublishTopicVersionResponses, SendTestPushData, SendTestPushErrors, SendTestPushResponses, UnarchiveTopicData, UnarchiveTopicErrors, UnarchiveTopicResponses, UpdateEntryData, UpdateEntryErrors, UpdateEntryResponses, UpdateTopicData, UpdateTopicErrors, UpdateTopicResponses } from './types.gen';
+import { zArchiveTopicPath, zArchiveTopicResponse, zCheckTopicVersionBody, zCheckTopicVersionPath, zCheckTopicVersionResponse, zCreateEntryBody, zCreateEntryHeaders, zCreateEntryPath, zCreateEntryResponse, zCreatePushSubscriptionBody, zCreatePushSubscriptionResponse, zCreateTopicBody, zCreateTopicResponse, zDeleteEntryPath, zDeleteEntryResponse, zDeletePushSubscriptionBody, zDeletePushSubscriptionResponse, zDeleteTopicPath, zDeleteTopicResponse, zExportEntriesCsvPath, zExportEntriesCsvQuery, zExportEntriesCsvResponse, zGetEntryPath, zGetEntryResponse, zGetLimitsResponse, zGetPushConfigResponse, zGetQuestionSeriesPath, zGetQuestionSeriesQuery, zGetQuestionSeriesResponse, zGetTopicPath, zGetTopicResponse, zGetTopicStatsPath, zGetTopicStatsQuery, zGetTopicStatsResponse, zHealthResponse, zListEntriesPath, zListEntriesQuery, zListEntriesResponse, zListQuestionTypesResponse, zListTopicsQuery, zListTopicsResponse, zListTopicVersionsPath, zListTopicVersionsResponse, zPublishTopicVersionBody, zPublishTopicVersionPath, zPublishTopicVersionResponse, zSendTestPushResponse, zUnarchiveTopicPath, zUnarchiveTopicResponse, zUpdateEntryBody, zUpdateEntryPath, zUpdateEntryResponse, zUpdateTopicBody, zUpdateTopicPath, zUpdateTopicResponse } from './zod.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -48,6 +48,22 @@ export const listQuestionTypes = <ThrowOnError extends boolean = false>(options?
     }).parseAsync(data),
     responseValidator: async (data) => await zListQuestionTypesResponse.parseAsync(data),
     url: '/api/v1/question-types',
+    ...options
+});
+
+/**
+ * Limits
+ *
+ * Validation ceilings (lengths, counts, ranges) so clients can mirror server-side validation.
+ */
+export const getLimits = <ThrowOnError extends boolean = false>(options?: Options<GetLimitsData, ThrowOnError>): RequestResult<GetLimitsResponses, GetLimitsErrors, ThrowOnError> => (options?.client ?? client).get<GetLimitsResponses, GetLimitsErrors, ThrowOnError>({
+    requestValidator: async (data) => await z.object({
+        body: z.never().optional(),
+        path: z.never().optional(),
+        query: z.never().optional()
+    }).parseAsync(data),
+    responseValidator: async (data) => await zGetLimitsResponse.parseAsync(data),
+    url: '/api/v1/limits',
     ...options
 });
 
@@ -212,31 +228,31 @@ export const checkTopicVersion = <ThrowOnError extends boolean = false>(options:
 });
 
 /**
- * List Sessions
+ * List Entries
  */
-export const listSessions = <ThrowOnError extends boolean = false>(options: Options<ListSessionsData, ThrowOnError>): RequestResult<ListSessionsResponses, ListSessionsErrors, ThrowOnError> => (options.client ?? client).get<ListSessionsResponses, ListSessionsErrors, ThrowOnError>({
+export const listEntries = <ThrowOnError extends boolean = false>(options: Options<ListEntriesData, ThrowOnError>): RequestResult<ListEntriesResponses, ListEntriesErrors, ThrowOnError> => (options.client ?? client).get<ListEntriesResponses, ListEntriesErrors, ThrowOnError>({
     requestValidator: async (data) => await z.object({
         body: z.never().optional(),
-        path: zListSessionsPath,
-        query: zListSessionsQuery.optional()
+        path: zListEntriesPath,
+        query: zListEntriesQuery.optional()
     }).parseAsync(data),
-    responseValidator: async (data) => await zListSessionsResponse.parseAsync(data),
-    url: '/api/v1/topics/{ref}/sessions',
+    responseValidator: async (data) => await zListEntriesResponse.parseAsync(data),
+    url: '/api/v1/topics/{ref}/entries',
     ...options
 });
 
 /**
- * Create Session
+ * Create Entry
  */
-export const createSession = <ThrowOnError extends boolean = false>(options: Options<CreateSessionData, ThrowOnError>): RequestResult<CreateSessionResponses, CreateSessionErrors, ThrowOnError> => (options.client ?? client).post<CreateSessionResponses, CreateSessionErrors, ThrowOnError>({
+export const createEntry = <ThrowOnError extends boolean = false>(options: Options<CreateEntryData, ThrowOnError>): RequestResult<CreateEntryResponses, CreateEntryErrors, ThrowOnError> => (options.client ?? client).post<CreateEntryResponses, CreateEntryErrors, ThrowOnError>({
     requestValidator: async (data) => await z.object({
-        body: zCreateSessionBody,
-        headers: zCreateSessionHeaders.optional(),
-        path: zCreateSessionPath,
+        body: zCreateEntryBody,
+        headers: zCreateEntryHeaders.optional(),
+        path: zCreateEntryPath,
         query: z.never().optional()
     }).parseAsync(data),
-    responseValidator: async (data) => await zCreateSessionResponse.parseAsync(data),
-    url: '/api/v1/topics/{ref}/sessions',
+    responseValidator: async (data) => await zCreateEntryResponse.parseAsync(data),
+    url: '/api/v1/topics/{ref}/entries',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -245,58 +261,58 @@ export const createSession = <ThrowOnError extends boolean = false>(options: Opt
 });
 
 /**
- * Export Sessions
+ * Export Entries
  */
-export const exportSessionsCsv = <ThrowOnError extends boolean = false>(options: Options<ExportSessionsCsvData, ThrowOnError>): RequestResult<ExportSessionsCsvResponses, ExportSessionsCsvErrors, ThrowOnError> => (options.client ?? client).get<ExportSessionsCsvResponses, ExportSessionsCsvErrors, ThrowOnError>({
+export const exportEntriesCsv = <ThrowOnError extends boolean = false>(options: Options<ExportEntriesCsvData, ThrowOnError>): RequestResult<ExportEntriesCsvResponses, ExportEntriesCsvErrors, ThrowOnError> => (options.client ?? client).get<ExportEntriesCsvResponses, ExportEntriesCsvErrors, ThrowOnError>({
     requestValidator: async (data) => await z.object({
         body: z.never().optional(),
-        path: zExportSessionsCsvPath,
-        query: zExportSessionsCsvQuery.optional()
+        path: zExportEntriesCsvPath,
+        query: zExportEntriesCsvQuery.optional()
     }).parseAsync(data),
-    responseValidator: async (data) => await zExportSessionsCsvResponse.parseAsync(data),
-    url: '/api/v1/topics/{ref}/sessions.csv',
+    responseValidator: async (data) => await zExportEntriesCsvResponse.parseAsync(data),
+    url: '/api/v1/topics/{ref}/entries.csv',
     ...options
 });
 
 /**
- * Delete Session
+ * Delete Entry
  */
-export const deleteSession = <ThrowOnError extends boolean = false>(options: Options<DeleteSessionData, ThrowOnError>): RequestResult<DeleteSessionResponses, DeleteSessionErrors, ThrowOnError> => (options.client ?? client).delete<DeleteSessionResponses, DeleteSessionErrors, ThrowOnError>({
+export const deleteEntry = <ThrowOnError extends boolean = false>(options: Options<DeleteEntryData, ThrowOnError>): RequestResult<DeleteEntryResponses, DeleteEntryErrors, ThrowOnError> => (options.client ?? client).delete<DeleteEntryResponses, DeleteEntryErrors, ThrowOnError>({
     requestValidator: async (data) => await z.object({
         body: z.never().optional(),
-        path: zDeleteSessionPath,
+        path: zDeleteEntryPath,
         query: z.never().optional()
     }).parseAsync(data),
-    responseValidator: async (data) => await zDeleteSessionResponse.parseAsync(data),
-    url: '/api/v1/sessions/{session_id}',
+    responseValidator: async (data) => await zDeleteEntryResponse.parseAsync(data),
+    url: '/api/v1/entries/{entry_id}',
     ...options
 });
 
 /**
- * Get Session
+ * Get Entry
  */
-export const getSession = <ThrowOnError extends boolean = false>(options: Options<GetSessionData, ThrowOnError>): RequestResult<GetSessionResponses, GetSessionErrors, ThrowOnError> => (options.client ?? client).get<GetSessionResponses, GetSessionErrors, ThrowOnError>({
+export const getEntry = <ThrowOnError extends boolean = false>(options: Options<GetEntryData, ThrowOnError>): RequestResult<GetEntryResponses, GetEntryErrors, ThrowOnError> => (options.client ?? client).get<GetEntryResponses, GetEntryErrors, ThrowOnError>({
     requestValidator: async (data) => await z.object({
         body: z.never().optional(),
-        path: zGetSessionPath,
+        path: zGetEntryPath,
         query: z.never().optional()
     }).parseAsync(data),
-    responseValidator: async (data) => await zGetSessionResponse.parseAsync(data),
-    url: '/api/v1/sessions/{session_id}',
+    responseValidator: async (data) => await zGetEntryResponse.parseAsync(data),
+    url: '/api/v1/entries/{entry_id}',
     ...options
 });
 
 /**
- * Update Session
+ * Update Entry
  */
-export const updateSession = <ThrowOnError extends boolean = false>(options: Options<UpdateSessionData, ThrowOnError>): RequestResult<UpdateSessionResponses, UpdateSessionErrors, ThrowOnError> => (options.client ?? client).patch<UpdateSessionResponses, UpdateSessionErrors, ThrowOnError>({
+export const updateEntry = <ThrowOnError extends boolean = false>(options: Options<UpdateEntryData, ThrowOnError>): RequestResult<UpdateEntryResponses, UpdateEntryErrors, ThrowOnError> => (options.client ?? client).patch<UpdateEntryResponses, UpdateEntryErrors, ThrowOnError>({
     requestValidator: async (data) => await z.object({
-        body: zUpdateSessionBody,
-        path: zUpdateSessionPath,
+        body: zUpdateEntryBody,
+        path: zUpdateEntryPath,
         query: z.never().optional()
     }).parseAsync(data),
-    responseValidator: async (data) => await zUpdateSessionResponse.parseAsync(data),
-    url: '/api/v1/sessions/{session_id}',
+    responseValidator: async (data) => await zUpdateEntryResponse.parseAsync(data),
+    url: '/api/v1/entries/{entry_id}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -329,5 +345,77 @@ export const getQuestionSeries = <ThrowOnError extends boolean = false>(options:
     }).parseAsync(data),
     responseValidator: async (data) => await zGetQuestionSeriesResponse.parseAsync(data),
     url: '/api/v1/topics/{ref}/questions/{key}/series',
+    ...options
+});
+
+/**
+ * Push Config
+ *
+ * The VAPID public key to pass to ``PushManager.subscribe({applicationServerKey})``.
+ */
+export const getPushConfig = <ThrowOnError extends boolean = false>(options?: Options<GetPushConfigData, ThrowOnError>): RequestResult<GetPushConfigResponses, GetPushConfigErrors, ThrowOnError> => (options?.client ?? client).get<GetPushConfigResponses, GetPushConfigErrors, ThrowOnError>({
+    requestValidator: async (data) => await z.object({
+        body: z.never().optional(),
+        path: z.never().optional(),
+        query: z.never().optional()
+    }).parseAsync(data),
+    responseValidator: async (data) => await zGetPushConfigResponse.parseAsync(data),
+    url: '/api/v1/push/config',
+    ...options
+});
+
+/**
+ * Create Push Subscription
+ *
+ * Register (or refresh, keyed by endpoint) a browser push subscription.
+ */
+export const createPushSubscription = <ThrowOnError extends boolean = false>(options: Options<CreatePushSubscriptionData, ThrowOnError>): RequestResult<CreatePushSubscriptionResponses, CreatePushSubscriptionErrors, ThrowOnError> => (options.client ?? client).post<CreatePushSubscriptionResponses, CreatePushSubscriptionErrors, ThrowOnError>({
+    requestValidator: async (data) => await z.object({
+        body: zCreatePushSubscriptionBody,
+        path: z.never().optional(),
+        query: z.never().optional()
+    }).parseAsync(data),
+    responseValidator: async (data) => await zCreatePushSubscriptionResponse.parseAsync(data),
+    url: '/api/v1/push/subscriptions',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Delete Push Subscription
+ *
+ * Remove a subscription by endpoint (idempotent). POST because DELETE bodies are poorly supported.
+ */
+export const deletePushSubscription = <ThrowOnError extends boolean = false>(options: Options<DeletePushSubscriptionData, ThrowOnError>): RequestResult<DeletePushSubscriptionResponses, DeletePushSubscriptionErrors, ThrowOnError> => (options.client ?? client).post<DeletePushSubscriptionResponses, DeletePushSubscriptionErrors, ThrowOnError>({
+    requestValidator: async (data) => await z.object({
+        body: zDeletePushSubscriptionBody,
+        path: z.never().optional(),
+        query: z.never().optional()
+    }).parseAsync(data),
+    responseValidator: async (data) => await zDeletePushSubscriptionResponse.parseAsync(data),
+    url: '/api/v1/push/subscriptions/delete',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Send Test Push
+ *
+ * Send a test notification to every subscription.
+ */
+export const sendTestPush = <ThrowOnError extends boolean = false>(options?: Options<SendTestPushData, ThrowOnError>): RequestResult<SendTestPushResponses, SendTestPushErrors, ThrowOnError> => (options?.client ?? client).post<SendTestPushResponses, SendTestPushErrors, ThrowOnError>({
+    requestValidator: async (data) => await z.object({
+        body: z.never().optional(),
+        path: z.never().optional(),
+        query: z.never().optional()
+    }).parseAsync(data),
+    responseValidator: async (data) => await zSendTestPushResponse.parseAsync(data),
+    url: '/api/v1/push/test',
     ...options
 });

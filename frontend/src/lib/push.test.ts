@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { client } from '../client/client.gen';
 import { detectPlatform } from './platform';
 import {
   evaluatePushSupport,
@@ -79,45 +80,69 @@ describe('urlBase64ToUint8Array', () => {
 });
 
 describe('push API helpers', () => {
+  // Node's Request needs absolute URLs; the app itself uses same-origin paths.
+  beforeAll(() => {
+    client.setConfig({ baseUrl: 'http://localhost' });
+  });
+  afterAll(() => {
+    client.setConfig({ baseUrl: '' });
+  });
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
   it('treats a missing endpoint (404) as "not configured" instead of an error', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve(new Response('', { status: 404 }))),
+      vi.fn(() =>
+        Promise.resolve(json({ code: 'not_found', detail: 'Not Found', errors: [] }, 404)),
+      ),
     );
     expect(await fetchPushConfig()).toBeNull();
-    expect(await sendTestPush()).toBe(false);
+    expect(await sendTestPush()).toBeNull();
   });
 
   it('returns the VAPID key and sends the channel header', async () => {
-    const fetchMock = vi.fn(() =>
-      Promise.resolve(
-        new Response(JSON.stringify({ public_key: 'abc' }), {
-          headers: { 'Content-Type': 'application/json' },
-        }),
-      ),
+    const fetchMock = vi.fn<(req: Request) => Promise<Response>>(() =>
+      Promise.resolve(json({ public_key: 'abc' })),
     );
     vi.stubGlobal('fetch', fetchMock);
     expect(await fetchPushConfig()).toEqual({ public_key: 'abc' });
-    const [url, init] = (fetchMock.mock.calls[0] ?? []) as unknown as [string, RequestInit];
-    expect(url).toBe('/api/v1/push/config');
-    expect(init.headers).toMatchObject({ 'X-Quicker-Channel': 'ui' });
+    const req = fetchMock.mock.calls[0]?.[0];
+    expect(new URL(req?.url ?? '').pathname).toBe('/api/v1/push/config');
+    expect(req?.headers.get('X-QuickR-Channel')).toBe('ui');
+  });
+
+  it('returns the test result counts', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(json({ sent: 2, failed: 1 }))),
+    );
+    expect(await sendTestPush()).toEqual({ sent: 2, failed: 1 });
   });
 
   it('surfaces real server errors', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() =>
-        Promise.resolve(new Response(JSON.stringify({ detail: 'boom' }), { status: 500 })),
-      ),
+      vi.fn(() => Promise.resolve(json({ code: 'internal', detail: 'boom', errors: [] }, 500))),
     );
-    await expect(fetchPushConfig()).rejects.toThrow('boom');
+    await expect(fetchPushConfig()).rejects.toThrow('Boom');
+  });
+
+  it('reports network failures', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))),
+    );
+    await expect(fetchPushConfig()).rejects.toThrow('Could not reach the server');
   });
 });
-
 describe('push payload', () => {
   it('parses the contract and fills gaps', () => {
     expect(

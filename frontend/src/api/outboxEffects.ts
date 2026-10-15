@@ -8,13 +8,13 @@
  */
 import type { QueryClient } from '@tanstack/react-query';
 
-import { getSessionQueryKey } from '../client/@tanstack/react-query.gen';
-import { zSessionOut } from '../client/zod.gen';
+import { getEntryQueryKey } from '../client/@tanstack/react-query.gen';
+import { zEntryOut } from '../client/zod.gen';
 import { ENTRY_CREATE, type EntryCreatePayload } from '../lib/outbox/kinds';
 import type { Outbox } from '../lib/outbox/outbox';
 import type { OutboxEvent, OutboxItem } from '../lib/outbox/types';
-import { patchTopics, prependSession, topicIs } from './cache';
-import { invalidateOperations, invalidateSessionData } from './queryClient';
+import { patchTopics, prependEntry, topicIs } from './cache';
+import { invalidateOperations, invalidateEntryData } from './queryClient';
 
 export interface KindEffects<P> {
   /** Optimistic patch (the item is already durable in IndexedDB). */
@@ -36,7 +36,7 @@ function laterIso(a: string | null, b: string | null | undefined): string | null
 function bumpTopic(qc: QueryClient, item: OutboxItem<EntryCreatePayload>, delta: 1 | -1): void {
   const capturedAt = item.payload.body.captured_at ?? item.created_at;
   patchTopics(qc, topicIs(item.payload.topic), (t) => ({
-    session_count: Math.max(0, t.session_count + delta),
+    entry_count: Math.max(0, t.entry_count + delta),
     ...(delta > 0 ? { last_captured_at: laterIso(t.last_captured_at, capturedAt) } : {}),
   }));
 }
@@ -46,12 +46,12 @@ const entryCreate: KindEffects<EntryCreatePayload> = {
     bumpTopic(qc, item, 1);
   },
   onSent(qc, item, data) {
-    const parsed = zSessionOut.safeParse(data);
+    const parsed = zEntryOut.safeParse(data);
     if (parsed.success) {
-      prependSession(qc, item.payload.topic, parsed.data);
-      qc.setQueryData(getSessionQueryKey({ path: { session_id: parsed.data.id } }), parsed.data);
+      prependEntry(qc, item.payload.topic, parsed.data);
+      qc.setQueryData(getEntryQueryKey({ path: { entry_id: parsed.data.id } }), parsed.data);
     }
-    void invalidateSessionData(qc);
+    void invalidateEntryData(qc);
   },
   onFailed(qc, item) {
     bumpTopic(qc, item, -1);
@@ -72,7 +72,7 @@ const EFFECTS: Readonly<Record<string, KindEffects<never>>> = {
 export function connectOutboxEffects(qc: QueryClient, outbox: Outbox): () => void {
   return outbox.subscribe((e: OutboxEvent) => {
     if (e.type === 'cleared') {
-      void invalidateSessionData(qc);
+      void invalidateEntryData(qc);
       return;
     }
     const fx = EFFECTS[e.item.kind] as KindEffects<unknown> | undefined;

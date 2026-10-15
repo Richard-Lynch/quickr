@@ -8,7 +8,7 @@
  */
 import { z } from 'zod';
 
-import type { SessionOut } from '../client';
+import type { EntryOut } from '../client';
 import { activeOptions, type Question } from './questions';
 
 export type AnswerValue = number | string | null;
@@ -17,7 +17,7 @@ export type AnswerMap = Record<string, AnswerValue>;
 
 export interface AnswerSchemaOptions {
   /**
-   * key -> archived enum value that is still accepted (editing a session that
+   * key -> archived enum value that is still accepted (editing an entry that
    * already holds it). Mirrors `allowed_archived` on the backend.
    */
   allowArchived?: Readonly<Record<string, string>>;
@@ -118,10 +118,10 @@ export function emptyAnswerValues(questions: readonly Question[]): AnswerFormVal
   return Object.fromEntries(questions.map((q) => [q.key, '']));
 }
 
-/** Form state pre-filled from an existing session's answers. */
-export function answerValuesFromSession(
+/** Form state pre-filled from an existing entry's answers. */
+export function answerValuesFromEntry(
   questions: readonly Question[],
-  answers: SessionOut['answers'],
+  answers: EntryOut['answers'],
 ): AnswerFormValues {
   const byKey = new Map(answers.map((a) => [a.key, a.value]));
   return Object.fromEntries(
@@ -148,10 +148,10 @@ export function answerValuesFromMap(
   );
 }
 
-/** Archived enum values a session already holds — still valid when editing it. */
-export function archivedValuesInSession(
+/** Archived enum values an entry already holds — still valid when editing it. */
+export function archivedValuesInEntry(
   questions: readonly Question[],
-  answers: SessionOut['answers'],
+  answers: EntryOut['answers'],
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const q of questions) {

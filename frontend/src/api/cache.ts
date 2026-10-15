@@ -4,13 +4,13 @@
  *
  * Pattern (TanStack "onMutate / rollback"):
  *   onMutate:  await cancelOperations(qc, ops); const snap = snapshotOperations(qc, ops);
- *              patchTopics(...) / patchSessions(...); return { snap };
+ *              patchTopics(...) / patchEntries(...); return { snap };
  *   onError:   restoreSnapshot(qc, ctx.snap);
  *   onSettled: invalidateOperations(qc, ops);
  */
 import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query';
 
-import type { SessionOut, SessionPage, TopicPage, TopicSummary } from '../client';
+import type { EntryOut, EntryPage, TopicPage, TopicSummary } from '../client';
 import type { OperationId } from './queryClient';
 
 interface KeyMeta {
@@ -119,21 +119,21 @@ export function patchTopics(
   );
 }
 
-/** Topic-scoped session lists are keyed by `path.ref` (slug in the UI, id in the outbox). */
-export function sessionListIsFor(topic: { id: string; slug: string }) {
+/** Topic-scoped entry lists are keyed by `path.ref` (slug in the UI, id in the outbox). */
+export function entryListIsFor(topic: { id: string; slug: string }) {
   return (m: KeyMeta) => {
     const ref = m.path?.ref;
     return ref === topic.id || ref === topic.slug;
   };
 }
 
-/** Patch / remove sessions in every `listSessions` page and `getSession` entry. */
-export function patchSessions(
+/** Patch / remove entries in every `listEntries` page and `getEntry` entry. */
+export function patchEntries(
   qc: QueryClient,
-  fn: (s: SessionOut) => SessionOut | null,
+  fn: (s: EntryOut) => EntryOut | null,
   keyFilter: (m: KeyMeta) => boolean = () => true,
 ): void {
-  mapPages<SessionPage>(qc, 'listSessions', keyFilter, (page) => {
+  mapPages<EntryPage>(qc, 'listEntries', keyFilter, (page) => {
     let removed = 0;
     const items = page.items.flatMap((s) => {
       const next = fn(s);
@@ -145,21 +145,21 @@ export function patchSessions(
     });
     return { ...page, items, total: page.total - removed };
   });
-  qc.setQueriesData<SessionOut>(
-    { predicate: ({ queryKey }) => keyMeta(queryKey)?._id === 'getSession' },
+  qc.setQueriesData<EntryOut>(
+    { predicate: ({ queryKey }) => keyMeta(queryKey)?._id === 'getEntry' },
     (s) => (s ? (fn(s) ?? s) : s),
   );
 }
 
-/** Put a freshly created session at the top of a topic's cached lists (no flicker). */
-export function prependSession(
+/** Put a freshly created entry at the top of a topic's cached lists (no flicker). */
+export function prependEntry(
   qc: QueryClient,
   topic: { id: string; slug: string },
-  session: SessionOut,
+  entry: EntryOut,
 ): void {
-  mapPages<SessionPage>(qc, 'listSessions', sessionListIsFor(topic), (page, i) =>
-    i === 0 && !page.items.some((s) => s.id === session.id)
-      ? { ...page, items: [session, ...page.items], total: page.total + 1 }
+  mapPages<EntryPage>(qc, 'listEntries', entryListIsFor(topic), (page, i) =>
+    i === 0 && !page.items.some((s) => s.id === entry.id)
+      ? { ...page, items: [entry, ...page.items], total: page.total + 1 }
       : page,
   );
 }

@@ -17,6 +17,9 @@ const mood: Question = {
     { value: 'bad', label: 'Bad', archived: false },
     { value: 'old', label: 'Old', archived: true },
   ],
+  multiple: false,
+  min_selected: null,
+  max_selected: null,
 };
 
 const water: Question = {
@@ -54,7 +57,7 @@ describe('AnswerField', () => {
     expect(screen.getByTestId('value')).toHaveTextContent('');
   });
 
-  it('keeps an archived value selectable when editing a session that holds it', () => {
+  it('keeps an archived value selectable when editing an entry that holds it', () => {
     render(<AnswerField question={mood} value="old" onChange={() => undefined} keepValue="old" />);
     expect(screen.getByRole('radio', { name: /Old \(retired\)/ })).toHaveAttribute(
       'aria-checked',

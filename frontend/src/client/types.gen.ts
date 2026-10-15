@@ -7,7 +7,7 @@ export type ClientOptions = {
 /**
  * Channel
  *
- * How a session reached the system. Set server-side.
+ * How an entry reached the system. Set server-side.
  */
 export type Channel = 'ui' | 'api' | 'mcp';
 
@@ -51,6 +51,74 @@ export type CompatibilityReport = {
      * Changes
      */
     changes: Array<QuestionChange>;
+};
+
+/**
+ * DailySchedule
+ *
+ * Due at fixed local times on selected weekdays.
+ */
+export type DailyScheduleInput = {
+    /**
+     * Kind
+     */
+    kind?: 'daily';
+    /**
+     * Times
+     *
+     * Local times; stored sorted.
+     */
+    times: Array<string>;
+    /**
+     * Days
+     */
+    days?: Array<number>;
+    /**
+     * Timezone
+     *
+     * IANA timezone the schedule is evaluated in.
+     */
+    timezone: string;
+    /**
+     * Notify
+     *
+     * Send a push notification when the topic becomes due.
+     */
+    notify?: boolean;
+};
+
+/**
+ * DailySchedule
+ *
+ * Due at fixed local times on selected weekdays.
+ */
+export type DailyScheduleOutput = {
+    /**
+     * Kind
+     */
+    kind: 'daily';
+    /**
+     * Times
+     *
+     * Local times; stored sorted.
+     */
+    times: Array<string>;
+    /**
+     * Days
+     */
+    days: Array<number>;
+    /**
+     * Timezone
+     *
+     * IANA timezone the schedule is evaluated in.
+     */
+    timezone: string;
+    /**
+     * Notify
+     *
+     * Send a push notification when the topic becomes due.
+     */
+    notify: boolean;
 };
 
 /**
@@ -172,7 +240,192 @@ export type DoubleQuestionOutput = {
 };
 
 /**
+ * DueStatus
+ *
+ * Whether a scheduled topic is waiting for an entry. Computed server-side.
+ */
+export type DueStatus = {
+    /**
+     * Is Due
+     */
+    is_due: boolean;
+    /**
+     * Due Since
+     *
+     * Start of the slot/interval that is overdue.
+     */
+    due_since: string | null;
+    /**
+     * Next Due At
+     *
+     * When the topic next becomes due.
+     */
+    next_due_at: string | null;
+    /**
+     * Last Entry At
+     */
+    last_entry_at: string | null;
+};
+
+/**
+ * EntryCreate
+ */
+export type EntryCreate = {
+    /**
+     * Id
+     *
+     * Client-generated id, for idempotent/offline-safe submission. Re-sending an entry with the same id for the same topic returns the existing entry (201) instead of a duplicate; the same id under another topic is a 409.
+     */
+    id?: string | null;
+    /**
+     * Answers
+     *
+     * Map of question key -> value. int questions take integers, double questions numbers, str questions strings, enum questions an option value, multi-select enum questions a list of option values. null/absent/empty list = unanswered.
+     */
+    answers: {
+        [key: string]: unknown | number | number | string | Array<string> | null;
+    };
+    /**
+     * Source
+     *
+     * Defaults to the channel name.
+     */
+    source?: string | null;
+    /**
+     * Captured At
+     *
+     * When the observation happened, in the client's clock (timezone-aware). May be in the past (offline/late submissions) but not more than 24h ahead or before 2000-01-01.
+     */
+    captured_at?: string | null;
+    /**
+     * Notes
+     */
+    notes?: string;
+    /**
+     * Meta
+     *
+     * Arbitrary string key/value metadata.
+     */
+    meta?: {
+        [key: string]: string;
+    };
+    /**
+     * Version
+     *
+     * Topic version the answers were written against. Defaults to current.
+     */
+    version?: number | null;
+};
+
+/**
+ * EntryOut
+ */
+export type EntryOut = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Topic Id
+     */
+    topic_id: string;
+    /**
+     * Version
+     */
+    version: number;
+    /**
+     * Source
+     */
+    source: string;
+    channel: Channel;
+    /**
+     * Captured At
+     */
+    captured_at: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Notes
+     */
+    notes: string;
+    /**
+     * Meta
+     */
+    meta: {
+        [key: string]: string;
+    };
+    /**
+     * Answers
+     */
+    answers: Array<IntAnswer | DoubleAnswer | StrAnswer | EnumAnswer | EnumListAnswer>;
+};
+
+/**
+ * EntryPage
+ */
+export type EntryPage = {
+    /**
+     * Items
+     */
+    items: Array<EntryOut>;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * EntryUpdate
+ *
+ * Partial update. ``answers`` merges into existing answers; a null value clears an answer.
+ */
+export type EntryUpdate = {
+    /**
+     * Answers
+     */
+    answers?: {
+        [key: string]: unknown | number | number | string | Array<string> | null;
+    } | null;
+    /**
+     * Source
+     */
+    source?: string | null;
+    /**
+     * Captured At
+     *
+     * When the observation happened, in the client's clock (timezone-aware). May be in the past (offline/late submissions) but not more than 24h ahead or before 2000-01-01.
+     */
+    captured_at?: string | null;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+    /**
+     * Meta
+     */
+    meta?: {
+        [key: string]: string;
+    } | null;
+};
+
+/**
  * EnumAnswer
+ *
+ * Answer to a single-select enum question.
  */
 export type EnumAnswer = {
     /**
@@ -187,6 +440,26 @@ export type EnumAnswer = {
      * Value
      */
     value: string;
+};
+
+/**
+ * EnumListAnswer
+ *
+ * Answer to a multi-select enum question (option values in option order).
+ */
+export type EnumListAnswer = {
+    /**
+     * Key
+     */
+    key: string;
+    /**
+     * Type
+     */
+    type: 'enum_list';
+    /**
+     * Value
+     */
+    value: Array<string>;
 };
 
 /**
@@ -251,12 +524,14 @@ export type EnumOptionCount = {
     archived: boolean;
     /**
      * Count
+     *
+     * Answered entries that selected this option.
      */
     count: number;
     /**
      * Share
      *
-     * Fraction of answered sessions (0-1).
+     * count / answered entries (0-1). Multi-select shares can sum to more than 1.
      */
     share: number;
 };
@@ -291,6 +566,24 @@ export type EnumQuestionInput = {
      * Options
      */
     options: Array<EnumOptionInput>;
+    /**
+     * Multiple
+     *
+     * Allow selecting several options; the answer is then a list of option values.
+     */
+    multiple?: boolean;
+    /**
+     * Min Selected
+     *
+     * Multi-select only: fewest options an answer may select.
+     */
+    min_selected?: number | null;
+    /**
+     * Max Selected
+     *
+     * Multi-select only: most options an answer may select.
+     */
+    max_selected?: number | null;
 };
 
 /**
@@ -323,6 +616,24 @@ export type EnumQuestionOutput = {
      * Options
      */
     options: Array<EnumOptionOutput>;
+    /**
+     * Multiple
+     *
+     * Allow selecting several options; the answer is then a list of option values.
+     */
+    multiple: boolean;
+    /**
+     * Min Selected
+     *
+     * Multi-select only: fewest options an answer may select.
+     */
+    min_selected: number | null;
+    /**
+     * Max Selected
+     *
+     * Multi-select only: most options an answer may select.
+     */
+    max_selected: number | null;
 };
 
 /**
@@ -341,6 +652,12 @@ export type EnumStats = {
      * Type
      */
     type: 'enum';
+    /**
+     * Multiple
+     *
+     * Whether the question (as currently configured) is multi-select.
+     */
+    multiple: boolean;
     /**
      * Count
      */
@@ -494,6 +811,162 @@ export type IntQuestionOutput = {
 };
 
 /**
+ * IntervalSchedule
+ *
+ * Due ``every_minutes`` after the latest entry.
+ */
+export type IntervalScheduleInput = {
+    /**
+     * Kind
+     */
+    kind?: 'interval';
+    /**
+     * Every Minutes
+     */
+    every_minutes: number;
+    /**
+     * Timezone
+     *
+     * IANA timezone the schedule is evaluated in.
+     */
+    timezone: string;
+    /**
+     * Notify
+     *
+     * Send a push notification when the topic becomes due.
+     */
+    notify?: boolean;
+};
+
+/**
+ * IntervalSchedule
+ *
+ * Due ``every_minutes`` after the latest entry.
+ */
+export type IntervalScheduleOutput = {
+    /**
+     * Kind
+     */
+    kind: 'interval';
+    /**
+     * Every Minutes
+     */
+    every_minutes: number;
+    /**
+     * Timezone
+     *
+     * IANA timezone the schedule is evaluated in.
+     */
+    timezone: string;
+    /**
+     * Notify
+     *
+     * Send a push notification when the topic becomes due.
+     */
+    notify: boolean;
+};
+
+/**
+ * Limits
+ *
+ * Validation ceilings, so clients can mirror server-side validation without hard-coding.
+ */
+export type Limits = {
+    /**
+     * Key Pattern
+     */
+    key_pattern: string;
+    /**
+     * Slug Pattern
+     */
+    slug_pattern: string;
+    /**
+     * Time Pattern
+     */
+    time_pattern: string;
+    /**
+     * Max Questions
+     */
+    max_questions: number;
+    /**
+     * Max Enum Options
+     */
+    max_enum_options: number;
+    /**
+     * Max Str Length
+     */
+    max_str_length: number;
+    /**
+     * Max Label Length
+     */
+    max_label_length: number;
+    /**
+     * Max Help Text Length
+     */
+    max_help_text_length: number;
+    /**
+     * Max Unit Length
+     */
+    max_unit_length: number;
+    /**
+     * Max Decimals
+     */
+    max_decimals: number;
+    /**
+     * Max Topic Name Length
+     */
+    max_topic_name_length: number;
+    /**
+     * Max Description Length
+     */
+    max_description_length: number;
+    /**
+     * Max Change Note Length
+     */
+    max_change_note_length: number;
+    /**
+     * Max Source Length
+     */
+    max_source_length: number;
+    /**
+     * Max Notes Length
+     */
+    max_notes_length: number;
+    /**
+     * Max Meta Entries
+     */
+    max_meta_entries: number;
+    /**
+     * Max Meta Key Length
+     */
+    max_meta_key_length: number;
+    /**
+     * Max Meta Value Length
+     */
+    max_meta_value_length: number;
+    /**
+     * Captured At Min
+     */
+    captured_at_min: string;
+    /**
+     * Captured At Max Future Hours
+     */
+    captured_at_max_future_hours: number;
+    /**
+     * Schedule Max Times
+     */
+    schedule_max_times: number;
+    /**
+     * Interval Min Minutes
+     */
+    interval_min_minutes: number;
+    /**
+     * Interval Max Minutes
+     */
+    interval_max_minutes: number;
+};
+
+/**
  * NumericStats
  */
 export type NumericStats = {
@@ -550,7 +1023,7 @@ export type NumericStats = {
 /**
  * Problem
  *
- * Error envelope for all domain errors (4xx other than request-shape 422s).
+ * Error envelope for every 4xx response.
  */
 export type Problem = {
     /**
@@ -565,6 +1038,91 @@ export type Problem = {
      * Errors
      */
     errors: Array<FieldIssue>;
+};
+
+/**
+ * PushConfig
+ */
+export type PushConfig = {
+    /**
+     * Public Key
+     *
+     * VAPID public key (base64url, uncompressed P-256 point): the applicationServerKey for PushManager.subscribe().
+     */
+    public_key: string;
+};
+
+/**
+ * PushKeys
+ */
+export type PushKeys = {
+    /**
+     * P256Dh
+     */
+    p256dh: string;
+    /**
+     * Auth
+     */
+    auth: string;
+};
+
+/**
+ * PushSubscriptionDelete
+ */
+export type PushSubscriptionDelete = {
+    /**
+     * Endpoint
+     */
+    endpoint: string;
+};
+
+/**
+ * PushSubscriptionIn
+ *
+ * A browser PushSubscription (``subscription.toJSON()``), upserted by endpoint.
+ */
+export type PushSubscriptionIn = {
+    /**
+     * Endpoint
+     */
+    endpoint: string;
+    keys: PushKeys;
+    /**
+     * User Agent
+     */
+    user_agent?: string | null;
+};
+
+/**
+ * PushSubscriptionOut
+ */
+export type PushSubscriptionOut = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Endpoint
+     */
+    endpoint: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * PushTestResult
+ */
+export type PushTestResult = {
+    /**
+     * Sent
+     */
+    sent: number;
+    /**
+     * Failed
+     */
+    failed: number;
 };
 
 /**
@@ -632,9 +1190,9 @@ export type QuestionTypeInfo = {
  */
 export type RecentText = {
     /**
-     * Session Id
+     * Entry Id
      */
-    session_id: string;
+    entry_id: string;
     /**
      * Value
      */
@@ -671,157 +1229,12 @@ export type SeriesPoint = {
     max: number | null;
     /**
      * Option Counts
+     *
+     * Enum questions: entries in the bucket that selected each option.
      */
     option_counts: {
         [key: string]: number;
     };
-};
-
-/**
- * SessionCreate
- */
-export type SessionCreate = {
-    /**
-     * Answers
-     *
-     * Map of question key -> value. int questions take integers, double questions numbers, str questions strings, enum questions an option value. null/absent = unanswered.
-     */
-    answers: {
-        [key: string]: unknown | number | number | string | null;
-    };
-    /**
-     * Source
-     *
-     * Defaults to the channel name.
-     */
-    source?: string | null;
-    /**
-     * Captured At
-     *
-     * When the observation happened (timezone-aware). Defaults to now.
-     */
-    captured_at?: string | null;
-    /**
-     * Notes
-     */
-    notes?: string;
-    /**
-     * Meta
-     *
-     * Arbitrary string key/value metadata.
-     */
-    meta?: {
-        [key: string]: string;
-    };
-    /**
-     * Version
-     *
-     * Topic version the answers were written against. Defaults to current.
-     */
-    version?: number | null;
-};
-
-/**
- * SessionOut
- */
-export type SessionOut = {
-    /**
-     * Id
-     */
-    id: string;
-    /**
-     * Topic Id
-     */
-    topic_id: string;
-    /**
-     * Version
-     */
-    version: number;
-    /**
-     * Source
-     */
-    source: string;
-    channel: Channel;
-    /**
-     * Captured At
-     */
-    captured_at: string;
-    /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Updated At
-     */
-    updated_at: string;
-    /**
-     * Notes
-     */
-    notes: string;
-    /**
-     * Meta
-     */
-    meta: {
-        [key: string]: string;
-    };
-    /**
-     * Answers
-     */
-    answers: Array<IntAnswer | DoubleAnswer | StrAnswer | EnumAnswer>;
-};
-
-/**
- * SessionPage
- */
-export type SessionPage = {
-    /**
-     * Items
-     */
-    items: Array<SessionOut>;
-    /**
-     * Total
-     */
-    total: number;
-    /**
-     * Limit
-     */
-    limit: number;
-    /**
-     * Offset
-     */
-    offset: number;
-};
-
-/**
- * SessionUpdate
- *
- * Partial update. ``answers`` merges into existing answers; a null value clears an answer.
- */
-export type SessionUpdate = {
-    /**
-     * Answers
-     */
-    answers?: {
-        [key: string]: unknown | number | number | string | null;
-    } | null;
-    /**
-     * Source
-     */
-    source?: string | null;
-    /**
-     * Captured At
-     */
-    captured_at?: string | null;
-    /**
-     * Notes
-     */
-    notes?: string | null;
-    /**
-     * Meta
-     */
-    meta?: {
-        [key: string]: string;
-    } | null;
 };
 
 /**
@@ -982,6 +1395,16 @@ export type TopicCreate = {
      * Questions
      */
     questions: Array<IntQuestionInput | DoubleQuestionInput | StrQuestionInput | EnumQuestionInput>;
+    /**
+     * Schedule
+     *
+     * When entries are expected (optional).
+     */
+    schedule?: ({
+        kind: 'daily';
+    } & DailyScheduleInput) | ({
+        kind: 'interval';
+    } & IntervalScheduleInput) | null;
 };
 
 /**
@@ -1014,9 +1437,9 @@ export type TopicDetail = {
      */
     question_count: number;
     /**
-     * Session Count
+     * Entry Count
      */
-    session_count: number;
+    entry_count: number;
     /**
      * Last Captured At
      */
@@ -1033,6 +1456,24 @@ export type TopicDetail = {
      * Archived At
      */
     archived_at: string | null;
+    /**
+     * Schedule
+     */
+    schedule: ({
+        kind: 'daily';
+    } & DailyScheduleOutput) | ({
+        kind: 'interval';
+    } & IntervalScheduleOutput) | null;
+    /**
+     * Schedule Updated At
+     *
+     * When the schedule was last set or changed; due status ignores anything before it.
+     */
+    schedule_updated_at: string | null;
+    /**
+     * Null when the topic has no schedule.
+     */
+    due: DueStatus | null;
     /**
      * Questions
      */
@@ -1070,9 +1511,9 @@ export type TopicStats = {
      */
     topic_id: string;
     /**
-     * Session Count
+     * Entry Count
      */
-    session_count: number;
+    entry_count: number;
     /**
      * First Captured At
      */
@@ -1128,9 +1569,9 @@ export type TopicSummary = {
      */
     question_count: number;
     /**
-     * Session Count
+     * Entry Count
      */
-    session_count: number;
+    entry_count: number;
     /**
      * Last Captured At
      */
@@ -1147,12 +1588,32 @@ export type TopicSummary = {
      * Archived At
      */
     archived_at: string | null;
+    /**
+     * Schedule
+     */
+    schedule: ({
+        kind: 'daily';
+    } & DailyScheduleOutput) | ({
+        kind: 'interval';
+    } & IntervalScheduleOutput) | null;
+    /**
+     * Schedule Updated At
+     *
+     * When the schedule was last set or changed; due status ignores anything before it.
+     */
+    schedule_updated_at: string | null;
+    /**
+     * Null when the topic has no schedule.
+     */
+    due: DueStatus | null;
 };
 
 /**
  * TopicUpdate
  *
- * Metadata-only update. Omitted fields are unchanged. Questions change via versions.
+ * Metadata-only update. Omitted fields are unchanged; ``schedule: null`` clears the schedule.
+ *
+ * Questions change via versions.
  */
 export type TopicUpdate = {
     /**
@@ -1167,6 +1628,14 @@ export type TopicUpdate = {
      * Description
      */
     description?: string | null;
+    /**
+     * Schedule
+     */
+    schedule?: ({
+        kind: 'daily';
+    } & DailyScheduleInput) | ({
+        kind: 'interval';
+    } & IntervalScheduleInput) | null;
 };
 
 /**
@@ -1190,9 +1659,9 @@ export type TopicVersionOut = {
      */
     created_at: string;
     /**
-     * Session Count
+     * Entry Count
      */
-    session_count: number;
+    entry_count: number;
 };
 
 /**
@@ -1325,6 +1794,43 @@ export type ListQuestionTypesResponses = {
 
 export type ListQuestionTypesResponse = ListQuestionTypesResponses[keyof ListQuestionTypesResponses];
 
+export type GetLimitsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/limits';
+};
+
+export type GetLimitsErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type GetLimitsError = GetLimitsErrors[keyof GetLimitsErrors];
+
+export type GetLimitsResponses = {
+    /**
+     * Successful Response
+     */
+    200: Limits;
+};
+
+export type GetLimitsResponse = GetLimitsResponses[keyof GetLimitsResponses];
+
 export type ListTopicsData = {
     body?: never;
     path?: never;
@@ -1341,8 +1847,16 @@ export type ListTopicsData = {
         status?: 'active' | 'archived' | 'all';
         /**
          * Sort
+         *
+         * 'due' (default): due topics first (longest overdue first), then scheduled topics by next due time, then the rest by latest activity.
          */
-        sort?: 'updated' | '-updated' | 'name' | '-name' | 'created' | '-created' | 'activity' | '-activity';
+        sort?: 'due' | 'updated' | '-updated' | 'name' | '-name' | 'created' | '-created' | 'activity' | '-activity';
+        /**
+         * Due Only
+         *
+         * Only topics that are due now.
+         */
+        due_only?: boolean;
         /**
          * Limit
          */
@@ -1776,7 +2290,7 @@ export type CheckTopicVersionResponses = {
 
 export type CheckTopicVersionResponse = CheckTopicVersionResponses[keyof CheckTopicVersionResponses];
 
-export type ListSessionsData = {
+export type ListEntriesData = {
     body?: never;
     path: {
         /**
@@ -1824,10 +2338,10 @@ export type ListSessionsData = {
          */
         channel?: Channel | null;
     };
-    url: '/api/v1/topics/{ref}/sessions';
+    url: '/api/v1/topics/{ref}/entries';
 };
 
-export type ListSessionsErrors = {
+export type ListEntriesErrors = {
     /**
      * Bad Request
      */
@@ -1846,26 +2360,26 @@ export type ListSessionsErrors = {
     422: Problem;
 };
 
-export type ListSessionsError = ListSessionsErrors[keyof ListSessionsErrors];
+export type ListEntriesError = ListEntriesErrors[keyof ListEntriesErrors];
 
-export type ListSessionsResponses = {
+export type ListEntriesResponses = {
     /**
      * Successful Response
      */
-    200: SessionPage;
+    200: EntryPage;
 };
 
-export type ListSessionsResponse = ListSessionsResponses[keyof ListSessionsResponses];
+export type ListEntriesResponse = ListEntriesResponses[keyof ListEntriesResponses];
 
-export type CreateSessionData = {
-    body: SessionCreate;
+export type CreateEntryData = {
+    body: EntryCreate;
     headers?: {
         /**
-         * X-Quicker-Channel
+         * X-Quickr-Channel
          *
          * Client channel; defaults to 'api'.
          */
-        'X-Quicker-Channel'?: Channel | null;
+        'X-QuickR-Channel'?: Channel | null;
     };
     path: {
         /**
@@ -1876,10 +2390,10 @@ export type CreateSessionData = {
         ref: string;
     };
     query?: never;
-    url: '/api/v1/topics/{ref}/sessions';
+    url: '/api/v1/topics/{ref}/entries';
 };
 
-export type CreateSessionErrors = {
+export type CreateEntryErrors = {
     /**
      * Bad Request
      */
@@ -1898,18 +2412,18 @@ export type CreateSessionErrors = {
     422: Problem;
 };
 
-export type CreateSessionError = CreateSessionErrors[keyof CreateSessionErrors];
+export type CreateEntryError = CreateEntryErrors[keyof CreateEntryErrors];
 
-export type CreateSessionResponses = {
+export type CreateEntryResponses = {
     /**
      * Successful Response
      */
-    201: SessionOut;
+    201: EntryOut;
 };
 
-export type CreateSessionResponse = CreateSessionResponses[keyof CreateSessionResponses];
+export type CreateEntryResponse = CreateEntryResponses[keyof CreateEntryResponses];
 
-export type ExportSessionsCsvData = {
+export type ExportEntriesCsvData = {
     body?: never;
     path: {
         /**
@@ -1945,10 +2459,10 @@ export type ExportSessionsCsvData = {
          */
         channel?: Channel | null;
     };
-    url: '/api/v1/topics/{ref}/sessions.csv';
+    url: '/api/v1/topics/{ref}/entries.csv';
 };
 
-export type ExportSessionsCsvErrors = {
+export type ExportEntriesCsvErrors = {
     /**
      * Bad Request
      */
@@ -1967,30 +2481,30 @@ export type ExportSessionsCsvErrors = {
     422: Problem;
 };
 
-export type ExportSessionsCsvError = ExportSessionsCsvErrors[keyof ExportSessionsCsvErrors];
+export type ExportEntriesCsvError = ExportEntriesCsvErrors[keyof ExportEntriesCsvErrors];
 
-export type ExportSessionsCsvResponses = {
+export type ExportEntriesCsvResponses = {
     /**
      * Successful Response
      */
     200: string;
 };
 
-export type ExportSessionsCsvResponse = ExportSessionsCsvResponses[keyof ExportSessionsCsvResponses];
+export type ExportEntriesCsvResponse = ExportEntriesCsvResponses[keyof ExportEntriesCsvResponses];
 
-export type DeleteSessionData = {
+export type DeleteEntryData = {
     body?: never;
     path: {
         /**
-         * Session Id
+         * Entry Id
          */
-        session_id: string;
+        entry_id: string;
     };
     query?: never;
-    url: '/api/v1/sessions/{session_id}';
+    url: '/api/v1/entries/{entry_id}';
 };
 
-export type DeleteSessionErrors = {
+export type DeleteEntryErrors = {
     /**
      * Bad Request
      */
@@ -2009,30 +2523,30 @@ export type DeleteSessionErrors = {
     422: Problem;
 };
 
-export type DeleteSessionError = DeleteSessionErrors[keyof DeleteSessionErrors];
+export type DeleteEntryError = DeleteEntryErrors[keyof DeleteEntryErrors];
 
-export type DeleteSessionResponses = {
+export type DeleteEntryResponses = {
     /**
      * Successful Response
      */
     204: void;
 };
 
-export type DeleteSessionResponse = DeleteSessionResponses[keyof DeleteSessionResponses];
+export type DeleteEntryResponse = DeleteEntryResponses[keyof DeleteEntryResponses];
 
-export type GetSessionData = {
+export type GetEntryData = {
     body?: never;
     path: {
         /**
-         * Session Id
+         * Entry Id
          */
-        session_id: string;
+        entry_id: string;
     };
     query?: never;
-    url: '/api/v1/sessions/{session_id}';
+    url: '/api/v1/entries/{entry_id}';
 };
 
-export type GetSessionErrors = {
+export type GetEntryErrors = {
     /**
      * Bad Request
      */
@@ -2051,30 +2565,30 @@ export type GetSessionErrors = {
     422: Problem;
 };
 
-export type GetSessionError = GetSessionErrors[keyof GetSessionErrors];
+export type GetEntryError = GetEntryErrors[keyof GetEntryErrors];
 
-export type GetSessionResponses = {
+export type GetEntryResponses = {
     /**
      * Successful Response
      */
-    200: SessionOut;
+    200: EntryOut;
 };
 
-export type GetSessionResponse = GetSessionResponses[keyof GetSessionResponses];
+export type GetEntryResponse = GetEntryResponses[keyof GetEntryResponses];
 
-export type UpdateSessionData = {
-    body: SessionUpdate;
+export type UpdateEntryData = {
+    body: EntryUpdate;
     path: {
         /**
-         * Session Id
+         * Entry Id
          */
-        session_id: string;
+        entry_id: string;
     };
     query?: never;
-    url: '/api/v1/sessions/{session_id}';
+    url: '/api/v1/entries/{entry_id}';
 };
 
-export type UpdateSessionErrors = {
+export type UpdateEntryErrors = {
     /**
      * Bad Request
      */
@@ -2093,16 +2607,16 @@ export type UpdateSessionErrors = {
     422: Problem;
 };
 
-export type UpdateSessionError = UpdateSessionErrors[keyof UpdateSessionErrors];
+export type UpdateEntryError = UpdateEntryErrors[keyof UpdateEntryErrors];
 
-export type UpdateSessionResponses = {
+export type UpdateEntryResponses = {
     /**
      * Successful Response
      */
-    200: SessionOut;
+    200: EntryOut;
 };
 
-export type UpdateSessionResponse = UpdateSessionResponses[keyof UpdateSessionResponses];
+export type UpdateEntryResponse = UpdateEntryResponses[keyof UpdateEntryResponses];
 
 export type GetTopicStatsData = {
     body?: never;
@@ -2255,3 +2769,151 @@ export type GetQuestionSeriesResponses = {
 };
 
 export type GetQuestionSeriesResponse = GetQuestionSeriesResponses[keyof GetQuestionSeriesResponses];
+
+export type GetPushConfigData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/push/config';
+};
+
+export type GetPushConfigErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type GetPushConfigError = GetPushConfigErrors[keyof GetPushConfigErrors];
+
+export type GetPushConfigResponses = {
+    /**
+     * Successful Response
+     */
+    200: PushConfig;
+};
+
+export type GetPushConfigResponse = GetPushConfigResponses[keyof GetPushConfigResponses];
+
+export type CreatePushSubscriptionData = {
+    body: PushSubscriptionIn;
+    path?: never;
+    query?: never;
+    url: '/api/v1/push/subscriptions';
+};
+
+export type CreatePushSubscriptionErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type CreatePushSubscriptionError = CreatePushSubscriptionErrors[keyof CreatePushSubscriptionErrors];
+
+export type CreatePushSubscriptionResponses = {
+    /**
+     * Successful Response
+     */
+    201: PushSubscriptionOut;
+};
+
+export type CreatePushSubscriptionResponse = CreatePushSubscriptionResponses[keyof CreatePushSubscriptionResponses];
+
+export type DeletePushSubscriptionData = {
+    body: PushSubscriptionDelete;
+    path?: never;
+    query?: never;
+    url: '/api/v1/push/subscriptions/delete';
+};
+
+export type DeletePushSubscriptionErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type DeletePushSubscriptionError = DeletePushSubscriptionErrors[keyof DeletePushSubscriptionErrors];
+
+export type DeletePushSubscriptionResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeletePushSubscriptionResponse = DeletePushSubscriptionResponses[keyof DeletePushSubscriptionResponses];
+
+export type SendTestPushData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/push/test';
+};
+
+export type SendTestPushErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type SendTestPushError = SendTestPushErrors[keyof SendTestPushErrors];
+
+export type SendTestPushResponses = {
+    /**
+     * Successful Response
+     */
+    200: PushTestResult;
+};
+
+export type SendTestPushResponse = SendTestPushResponses[keyof SendTestPushResponses];

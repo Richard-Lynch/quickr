@@ -5,7 +5,7 @@ import * as z from 'zod';
 /**
  * Channel
  *
- * How a session reached the system. Set server-side.
+ * How an entry reached the system. Set server-side.
  */
 export const zChannel = z.enum([
     'ui',
@@ -24,6 +24,48 @@ export const zCompatibilityIssue = z.object({
     ]),
     question_key: z.string().nullable(),
     message: z.string()
+});
+
+/**
+ * DailySchedule
+ *
+ * Due at fixed local times on selected weekdays.
+ */
+export const zDailyScheduleInput = z.object({
+    kind: z.literal('daily').optional().default('daily'),
+    times: z.array(z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/)).min(1).max(24),
+    days: z.array(z.int().gte(1).lte(7)).min(1).max(7).optional().default([
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+    ]),
+    timezone: z.string().min(1).max(64),
+    notify: z.boolean().optional().default(true)
+});
+
+/**
+ * DailySchedule
+ *
+ * Due at fixed local times on selected weekdays.
+ */
+export const zDailyScheduleOutput = z.object({
+    kind: z.literal('daily').default('daily'),
+    times: z.array(z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/)).min(1).max(24),
+    days: z.array(z.int().gte(1).lte(7)).min(1).max(7).default([
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+    ]),
+    timezone: z.string().min(1).max(64),
+    notify: z.boolean().default(true)
 });
 
 /**
@@ -78,12 +120,63 @@ export const zDoubleQuestionOutput = z.object({
 });
 
 /**
+ * DueStatus
+ *
+ * Whether a scheduled topic is waiting for an entry. Computed server-side.
+ */
+export const zDueStatus = z.object({
+    is_due: z.boolean(),
+    due_since: z.iso.datetime({ offset: true }).nullable(),
+    next_due_at: z.iso.datetime({ offset: true }).nullable(),
+    last_entry_at: z.iso.datetime({ offset: true }).nullable()
+});
+
+/**
+ * EntryCreate
+ */
+export const zEntryCreate = z.object({
+    id: z.uuid().nullish(),
+    answers: z.record(z.string(), z.unknown()),
+    source: z.string().min(1).max(100).nullish(),
+    captured_at: z.iso.datetime({ offset: true }).nullish(),
+    notes: z.string().max(5000).optional().default(''),
+    meta: z.record(z.string(), z.string().max(500)).optional().default({}),
+    version: z.int().gte(1).nullish()
+});
+
+/**
+ * EntryUpdate
+ *
+ * Partial update. ``answers`` merges into existing answers; a null value clears an answer.
+ */
+export const zEntryUpdate = z.object({
+    answers: z.record(z.string(), z.unknown()).nullish(),
+    source: z.string().min(1).max(100).nullish(),
+    captured_at: z.iso.datetime({ offset: true }).nullish(),
+    notes: z.string().max(5000).nullish(),
+    meta: z.record(z.string(), z.string().max(500)).nullish()
+});
+
+/**
  * EnumAnswer
+ *
+ * Answer to a single-select enum question.
  */
 export const zEnumAnswer = z.object({
     key: z.string(),
     type: z.literal('enum').default('enum'),
     value: z.string()
+});
+
+/**
+ * EnumListAnswer
+ *
+ * Answer to a multi-select enum question (option values in option order).
+ */
+export const zEnumListAnswer = z.object({
+    key: z.string(),
+    type: z.literal('enum_list').default('enum_list'),
+    value: z.array(z.string())
 });
 
 /**
@@ -124,7 +217,10 @@ export const zEnumQuestionInput = z.object({
     help_text: z.string().max(1000).nullish(),
     required: z.boolean().optional().default(true),
     type: z.literal('enum').optional().default('enum'),
-    options: z.array(zEnumOptionInput).min(1).max(200)
+    options: z.array(zEnumOptionInput).min(1).max(200),
+    multiple: z.boolean().optional().default(false),
+    min_selected: z.int().gte(1).nullish(),
+    max_selected: z.int().gte(1).nullish()
 });
 
 /**
@@ -136,7 +232,10 @@ export const zEnumQuestionOutput = z.object({
     help_text: z.string().max(1000).nullable(),
     required: z.boolean().default(true),
     type: z.literal('enum').default('enum'),
-    options: z.array(zEnumOptionOutput).min(1).max(200)
+    options: z.array(zEnumOptionOutput).min(1).max(200),
+    multiple: z.boolean().default(false),
+    min_selected: z.int().gte(1).nullable(),
+    max_selected: z.int().gte(1).nullable()
 });
 
 /**
@@ -146,6 +245,7 @@ export const zEnumStats = z.object({
     key: z.string(),
     label: z.string(),
     type: z.literal('enum'),
+    multiple: z.boolean(),
     count: z.int(),
     missing: z.int(),
     options: z.array(zEnumOptionCount)
@@ -206,6 +306,61 @@ export const zIntQuestionOutput = z.object({
 });
 
 /**
+ * IntervalSchedule
+ *
+ * Due ``every_minutes`` after the latest entry.
+ */
+export const zIntervalScheduleInput = z.object({
+    kind: z.literal('interval').optional().default('interval'),
+    every_minutes: z.int().gte(15).lte(129600),
+    timezone: z.string().min(1).max(64),
+    notify: z.boolean().optional().default(true)
+});
+
+/**
+ * IntervalSchedule
+ *
+ * Due ``every_minutes`` after the latest entry.
+ */
+export const zIntervalScheduleOutput = z.object({
+    kind: z.literal('interval').default('interval'),
+    every_minutes: z.int().gte(15).lte(129600),
+    timezone: z.string().min(1).max(64),
+    notify: z.boolean().default(true)
+});
+
+/**
+ * Limits
+ *
+ * Validation ceilings, so clients can mirror server-side validation without hard-coding.
+ */
+export const zLimits = z.object({
+    key_pattern: z.string().default('^[a-z][a-z0-9_]{0,62}$'),
+    slug_pattern: z.string().default('^[a-z0-9][a-z0-9-]{0,63}$'),
+    time_pattern: z.string().default('^([01][0-9]|2[0-3]):[0-5][0-9]$'),
+    max_questions: z.int().default(100),
+    max_enum_options: z.int().default(200),
+    max_str_length: z.int().default(10000),
+    max_label_length: z.int().default(200),
+    max_help_text_length: z.int().default(1000),
+    max_unit_length: z.int().default(32),
+    max_decimals: z.int().default(10),
+    max_topic_name_length: z.int().default(200),
+    max_description_length: z.int().default(5000),
+    max_change_note_length: z.int().default(2000),
+    max_source_length: z.int().default(100),
+    max_notes_length: z.int().default(5000),
+    max_meta_entries: z.int().default(50),
+    max_meta_key_length: z.int().default(64),
+    max_meta_value_length: z.int().default(500),
+    captured_at_min: z.iso.datetime({ offset: true }).default('2000-01-01T00:00:00Z'),
+    captured_at_max_future_hours: z.int().default(24),
+    schedule_max_times: z.int().default(24),
+    interval_min_minutes: z.int().default(15),
+    interval_max_minutes: z.int().default(129600)
+});
+
+/**
  * NumericStats
  */
 export const zNumericStats = z.object({
@@ -226,12 +381,62 @@ export const zNumericStats = z.object({
 /**
  * Problem
  *
- * Error envelope for all domain errors (4xx other than request-shape 422s).
+ * Error envelope for every 4xx response.
  */
 export const zProblem = z.object({
     code: z.string(),
     detail: z.string(),
     errors: z.array(zFieldIssue).default([])
+});
+
+/**
+ * PushConfig
+ */
+export const zPushConfig = z.object({
+    public_key: z.string()
+});
+
+/**
+ * PushKeys
+ */
+export const zPushKeys = z.object({
+    p256dh: z.string().min(1).max(256),
+    auth: z.string().min(1).max(256)
+});
+
+/**
+ * PushSubscriptionDelete
+ */
+export const zPushSubscriptionDelete = z.object({
+    endpoint: z.string().min(1).max(2048)
+});
+
+/**
+ * PushSubscriptionIn
+ *
+ * A browser PushSubscription (``subscription.toJSON()``), upserted by endpoint.
+ */
+export const zPushSubscriptionIn = z.object({
+    endpoint: z.string().min(1).max(2048),
+    keys: zPushKeys,
+    user_agent: z.string().max(500).nullish()
+});
+
+/**
+ * PushSubscriptionOut
+ */
+export const zPushSubscriptionOut = z.object({
+    id: z.uuid(),
+    endpoint: z.string(),
+    created_at: z.iso.datetime({ offset: true })
+});
+
+/**
+ * PushTestResult
+ */
+export const zPushTestResult = z.object({
+    sent: z.int(),
+    failed: z.int()
 });
 
 /**
@@ -277,7 +482,7 @@ export const zQuestionTypeInfo = z.object({
  * RecentText
  */
 export const zRecentText = z.object({
-    session_id: z.uuid(),
+    entry_id: z.uuid(),
     value: z.string(),
     captured_at: z.iso.datetime({ offset: true })
 });
@@ -314,31 +519,6 @@ export const zQuestionSeries = z.object({
 });
 
 /**
- * SessionCreate
- */
-export const zSessionCreate = z.object({
-    answers: z.record(z.string(), z.unknown()),
-    source: z.string().min(1).max(100).nullish(),
-    captured_at: z.iso.datetime({ offset: true }).nullish(),
-    notes: z.string().max(5000).optional().default(''),
-    meta: z.record(z.string(), z.string().max(500)).optional().default({}),
-    version: z.int().gte(1).nullish()
-});
-
-/**
- * SessionUpdate
- *
- * Partial update. ``answers`` merges into existing answers; a null value clears an answer.
- */
-export const zSessionUpdate = z.object({
-    answers: z.record(z.string(), z.unknown()).nullish(),
-    source: z.string().min(1).max(100).nullish(),
-    captured_at: z.iso.datetime({ offset: true }).nullish(),
-    notes: z.string().max(5000).nullish(),
-    meta: z.record(z.string(), z.string().max(500)).nullish()
-});
-
-/**
  * StrAnswer
  */
 export const zStrAnswer = z.object({
@@ -348,9 +528,9 @@ export const zStrAnswer = z.object({
 });
 
 /**
- * SessionOut
+ * EntryOut
  */
-export const zSessionOut = z.object({
+export const zEntryOut = z.object({
     id: z.uuid(),
     topic_id: z.uuid(),
     version: z.int(),
@@ -365,15 +545,16 @@ export const zSessionOut = z.object({
         zIntAnswer,
         zDoubleAnswer,
         zStrAnswer,
-        zEnumAnswer
+        zEnumAnswer,
+        zEnumListAnswer
     ]))
 });
 
 /**
- * SessionPage
+ * EntryPage
  */
-export const zSessionPage = z.object({
-    items: z.array(zSessionOut),
+export const zEntryPage = z.object({
+    items: z.array(zEntryOut),
     total: z.int(),
     limit: z.int(),
     offset: z.int()
@@ -419,7 +600,11 @@ export const zTopicCreate = z.object({
         zDoubleQuestionInput,
         zStrQuestionInput,
         zEnumQuestionInput
-    ])).min(1).max(100)
+    ])).min(1).max(100),
+    schedule: z.discriminatedUnion('kind', [
+        zDailyScheduleInput,
+        zIntervalScheduleInput
+    ]).nullish()
 });
 
 /**
@@ -438,11 +623,17 @@ export const zTopicDetail = z.object({
     status: zTopicStatus,
     current_version: z.int(),
     question_count: z.int(),
-    session_count: z.int(),
+    entry_count: z.int(),
     last_captured_at: z.iso.datetime({ offset: true }).nullable(),
     created_at: z.iso.datetime({ offset: true }),
     updated_at: z.iso.datetime({ offset: true }),
     archived_at: z.iso.datetime({ offset: true }).nullable(),
+    schedule: z.discriminatedUnion('kind', [
+        zDailyScheduleOutput,
+        zIntervalScheduleOutput
+    ]).nullable(),
+    schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
+    due: zDueStatus.nullable(),
     questions: z.array(z.union([
         zIntQuestionOutput,
         zDoubleQuestionOutput,
@@ -462,11 +653,17 @@ export const zTopicSummary = z.object({
     status: zTopicStatus,
     current_version: z.int(),
     question_count: z.int(),
-    session_count: z.int(),
+    entry_count: z.int(),
     last_captured_at: z.iso.datetime({ offset: true }).nullable(),
     created_at: z.iso.datetime({ offset: true }),
     updated_at: z.iso.datetime({ offset: true }),
-    archived_at: z.iso.datetime({ offset: true }).nullable()
+    archived_at: z.iso.datetime({ offset: true }).nullable(),
+    schedule: z.discriminatedUnion('kind', [
+        zDailyScheduleOutput,
+        zIntervalScheduleOutput
+    ]).nullable(),
+    schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
+    due: zDueStatus.nullable()
 });
 
 /**
@@ -482,12 +679,18 @@ export const zTopicPage = z.object({
 /**
  * TopicUpdate
  *
- * Metadata-only update. Omitted fields are unchanged. Questions change via versions.
+ * Metadata-only update. Omitted fields are unchanged; ``schedule: null`` clears the schedule.
+ *
+ * Questions change via versions.
  */
 export const zTopicUpdate = z.object({
     name: z.string().min(1).max(200).nullish(),
     slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/).nullish(),
-    description: z.string().max(5000).nullish()
+    description: z.string().max(5000).nullish(),
+    schedule: z.discriminatedUnion('kind', [
+        zDailyScheduleInput,
+        zIntervalScheduleInput
+    ]).nullish()
 });
 
 /**
@@ -503,7 +706,7 @@ export const zTopicVersionOut = z.object({
     ])),
     change_note: z.string(),
     created_at: z.iso.datetime({ offset: true }),
-    session_count: z.int()
+    entry_count: z.int()
 });
 
 /**
@@ -533,7 +736,7 @@ export const zStrStats = z.object({
  */
 export const zTopicStats = z.object({
     topic_id: z.uuid(),
-    session_count: z.int(),
+    entry_count: z.int(),
     first_captured_at: z.iso.datetime({ offset: true }).nullable(),
     last_captured_at: z.iso.datetime({ offset: true }).nullable(),
     sources: z.array(zValueCount),
@@ -585,6 +788,11 @@ export const zHealthResponse = z.record(z.string(), z.string());
  */
 export const zListQuestionTypesResponse = z.array(zQuestionTypeInfo);
 
+/**
+ * Successful Response
+ */
+export const zGetLimitsResponse = zLimits;
+
 export const zListTopicsQuery = z.object({
     q: z.string().max(200).nullish(),
     status: z.enum([
@@ -593,6 +801,7 @@ export const zListTopicsQuery = z.object({
         'all'
     ]).optional().default('active'),
     sort: z.enum([
+        'due',
         'updated',
         '-updated',
         'name',
@@ -601,7 +810,8 @@ export const zListTopicsQuery = z.object({
         '-created',
         'activity',
         '-activity'
-    ]).optional().default('-activity'),
+    ]).optional().default('due'),
+    due_only: z.boolean().optional().default(false),
     limit: z.int().gte(1).lte(200).optional().default(50),
     offset: z.int().gte(0).optional().default(0)
 });
@@ -698,11 +908,11 @@ export const zCheckTopicVersionPath = z.object({
  */
 export const zCheckTopicVersionResponse = zCompatibilityReport;
 
-export const zListSessionsPath = z.object({
+export const zListEntriesPath = z.object({
     ref: z.string()
 });
 
-export const zListSessionsQuery = z.object({
+export const zListEntriesQuery = z.object({
     order: z.enum([
         'captured_at',
         '-captured_at',
@@ -721,28 +931,28 @@ export const zListSessionsQuery = z.object({
 /**
  * Successful Response
  */
-export const zListSessionsResponse = zSessionPage;
+export const zListEntriesResponse = zEntryPage;
 
-export const zCreateSessionBody = zSessionCreate;
+export const zCreateEntryBody = zEntryCreate;
 
-export const zCreateSessionHeaders = z.object({
-    'X-Quicker-Channel': zChannel.nullish()
+export const zCreateEntryHeaders = z.object({
+    'X-QuickR-Channel': zChannel.nullish()
 });
 
-export const zCreateSessionPath = z.object({
+export const zCreateEntryPath = z.object({
     ref: z.string()
 });
 
 /**
  * Successful Response
  */
-export const zCreateSessionResponse = zSessionOut;
+export const zCreateEntryResponse = zEntryOut;
 
-export const zExportSessionsCsvPath = z.object({
+export const zExportEntriesCsvPath = z.object({
     ref: z.string()
 });
 
-export const zExportSessionsCsvQuery = z.object({
+export const zExportEntriesCsvQuery = z.object({
     captured_from: z.iso.datetime({ offset: true }).nullish(),
     captured_to: z.iso.datetime({ offset: true }).nullish(),
     version: z.int().gte(1).nullish(),
@@ -753,36 +963,36 @@ export const zExportSessionsCsvQuery = z.object({
 /**
  * Successful Response
  */
-export const zExportSessionsCsvResponse = z.string();
+export const zExportEntriesCsvResponse = z.string();
 
-export const zDeleteSessionPath = z.object({
-    session_id: z.uuid()
+export const zDeleteEntryPath = z.object({
+    entry_id: z.uuid()
 });
 
 /**
  * Successful Response
  */
-export const zDeleteSessionResponse = z.void();
+export const zDeleteEntryResponse = z.void();
 
-export const zGetSessionPath = z.object({
-    session_id: z.uuid()
+export const zGetEntryPath = z.object({
+    entry_id: z.uuid()
 });
 
 /**
  * Successful Response
  */
-export const zGetSessionResponse = zSessionOut;
+export const zGetEntryResponse = zEntryOut;
 
-export const zUpdateSessionBody = zSessionUpdate;
+export const zUpdateEntryBody = zEntryUpdate;
 
-export const zUpdateSessionPath = z.object({
-    session_id: z.uuid()
+export const zUpdateEntryPath = z.object({
+    entry_id: z.uuid()
 });
 
 /**
  * Successful Response
  */
-export const zUpdateSessionResponse = zSessionOut;
+export const zUpdateEntryResponse = zEntryOut;
 
 export const zGetTopicStatsPath = z.object({
     ref: z.string()
@@ -824,3 +1034,27 @@ export const zGetQuestionSeriesQuery = z.object({
  * Successful Response
  */
 export const zGetQuestionSeriesResponse = zQuestionSeries;
+
+/**
+ * Successful Response
+ */
+export const zGetPushConfigResponse = zPushConfig;
+
+export const zCreatePushSubscriptionBody = zPushSubscriptionIn;
+
+/**
+ * Successful Response
+ */
+export const zCreatePushSubscriptionResponse = zPushSubscriptionOut;
+
+export const zDeletePushSubscriptionBody = zPushSubscriptionDelete;
+
+/**
+ * Successful Response
+ */
+export const zDeletePushSubscriptionResponse = z.void();
+
+/**
+ * Successful Response
+ */
+export const zSendTestPushResponse = zPushTestResult;

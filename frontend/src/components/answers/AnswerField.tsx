@@ -12,7 +12,7 @@ interface AnswerFieldProps {
   onChange: (value: string) => void;
   onBlur?: () => void;
   error?: string | undefined;
-  /** Keep this (possibly archived) enum value selectable — editing an old session. */
+  /** Keep this (possibly archived) enum value selectable — editing an old entry. */
   keepValue?: string | undefined;
   disabled?: boolean;
   inputRef?: (el: HTMLElement | null) => void;

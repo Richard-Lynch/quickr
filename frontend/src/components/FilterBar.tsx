@@ -1,13 +1,13 @@
 import type { ReactNode } from 'react';
 
 import { RANGE_PRESETS } from '../lib/dates';
-import type { SessionFilterState } from '../lib/filters';
+import type { EntryFilterState } from '../lib/filters';
 import { Select } from './ui/Field';
 import { Segmented } from './ui/Segmented';
 
 interface FilterBarProps {
-  filters: SessionFilterState;
-  onChange: (patch: Partial<SessionFilterState>) => void;
+  filters: EntryFilterState;
+  onChange: (patch: Partial<EntryFilterState>) => void;
   versions?: readonly number[];
   sources?: readonly string[];
   children?: ReactNode;

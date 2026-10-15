@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router';
+import { createBrowserRouter, redirect } from 'react-router';
 
 import { AppShell, RouteError } from './components/AppShell';
 import { PageSpinner } from './components/ui/Spinner';
@@ -41,9 +41,9 @@ export const router = createBrowserRouter([
                 }),
               },
               {
-                path: 'sessions',
+                path: 'entries',
                 lazy: async () => ({
-                  Component: (await import('./pages/topic/SessionsPage')).SessionsPage,
+                  Component: (await import('./pages/topic/EntriesPage')).EntriesPage,
                 }),
               },
               {
@@ -56,9 +56,18 @@ export const router = createBrowserRouter([
           },
           { path: 'record', element: <RecordPage /> },
           {
-            path: 'sessions/:sessionId',
+            // Pre-v2 URLs (bookmarks, Home Screen shortcuts): /t/:ref/sessions[/:id].
+            path: 'sessions/*',
+            loader: ({ params, request }) => {
+              const rest = params['*'] ? `/${params['*']}` : '';
+              const { search } = new URL(request.url);
+              return redirect(`/t/${params.ref ?? ''}/entries${rest}${search}`);
+            },
+          },
+          {
+            path: 'entries/:entryId',
             lazy: async () => ({
-              Component: (await import('./pages/topic/SessionEditPage')).SessionEditPage,
+              Component: (await import('./pages/topic/EntryEditPage')).EntryEditPage,
             }),
           },
           {

@@ -106,7 +106,7 @@ export function TopicLayout() {
 
 const TABS = [
   { to: '', label: 'Overview', icon: 'chart' },
-  { to: 'sessions', label: 'Entries', icon: 'list' },
+  { to: 'entries', label: 'Entries', icon: 'list' },
   { to: 'versions', label: 'Versions', icon: 'layers' },
 ] as const;
 
@@ -161,7 +161,7 @@ export function TopicTabs() {
               <Badge tone="ok">Active</Badge>
             )}
             <span className="text-xs text-muted">
-              {plural(topic.session_count, 'entry', 'entries')} · last{' '}
+              {plural(topic.entry_count, 'entry', 'entries')} · last{' '}
               {formatRelative(topic.last_captured_at)}
             </span>
           </div>
@@ -182,13 +182,13 @@ export function TopicTabs() {
                 className="shrink-0 max-sm:hidden"
                 icon={<Icon name="plus" strokeWidth={2.6} />}
               >
-                Record
+                Log
               </ButtonLink>
             ) : null}
           </div>
           {archived ? (
             <Banner tone="warn" title="This topic is archived">
-              New entries are paused. Unarchive it in settings to record again.
+              New entries are paused. Unarchive it in settings to log again.
             </Banner>
           ) : null}
         </section>
@@ -233,7 +233,7 @@ export function TopicTabs() {
           className="fixed right-4 bottom-[max(1.25rem,calc(env(safe-area-inset-bottom)+0.75rem))] z-20 h-16 px-7 text-lg shadow-float sm:hidden"
           icon={<Icon name="plus" className="size-6" strokeWidth={2.6} />}
         >
-          Record
+          Log
         </ButtonLink>
       ) : null}
     </>

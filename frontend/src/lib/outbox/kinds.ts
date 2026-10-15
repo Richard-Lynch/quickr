@@ -11,7 +11,7 @@
  *  3. enqueue it with `useOutbox().enqueue(kind, payload)`.
  */
 import { API_PREFIX } from '../../api/constants';
-import type { SessionCreate } from '../../client/types.gen';
+import type { EntryCreate } from '../../client/types.gen';
 import type { OutboxItem, OutboxKind } from './types';
 
 /** Background Sync tag registered by the page and handled in `sw.ts`. */
@@ -22,22 +22,26 @@ export const ENTRY_CREATE = 'entry.create';
 export interface EntryCreatePayload {
   /** Enough of the topic to address the request and label the item in the UI. */
   topic: { id: string; slug: string; name: string };
-  /** Body for the create endpoint, exactly as the form produced it. */
-  body: SessionCreate;
+  /**
+   * Body for `POST /topics/{ref}/entries` as the form produced it, minus `id`: the outbox
+   * item's own id *is* the entry id (added at send time by `entryCreateBody`).
+   */
+  body: Omit<EntryCreate, 'id'>;
+}
+
+/** The body actually sent. The client id makes creation idempotent. */
+export function entryCreateBody(item: OutboxItem<EntryCreatePayload>): EntryCreate {
+  return { ...item.payload.body, id: item.id };
 }
 
 const entryCreate: OutboxKind<EntryCreatePayload> = {
   toRequest(item: OutboxItem<EntryCreatePayload>) {
-    const { topic, body } = item.payload;
     return {
       method: 'POST',
       // Address the topic by id: survives a slug rename while the item waits offline.
-      // TODO(api-v2): switch to `POST /api/v1/topics/{ref}/entries` and send
-      //   `{ id: item.id, ...body }` so creation is idempotent by the client id (retries
-      //   after a lost response can then never duplicate). The current SessionCreate
-      //   model is `extra=forbid`, so the id must NOT be sent until the backend ships it.
-      url: `${API_PREFIX}/topics/${encodeURIComponent(topic.id)}/sessions`,
-      body,
+      url: `${API_PREFIX}/topics/${encodeURIComponent(item.payload.topic.id)}/entries`,
+      // A retry after a lost response returns the stored entry (201), never a duplicate.
+      body: entryCreateBody(item),
     };
   },
 };
