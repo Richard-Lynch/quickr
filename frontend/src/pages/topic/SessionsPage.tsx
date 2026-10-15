@@ -8,7 +8,7 @@ import {
   listSessionsInfiniteOptions,
   listTopicVersionsOptions,
 } from '../../client/@tanstack/react-query.gen';
-import type { SessionOut, TopicVersionOut } from '../../client';
+import type { SessionOut, TopicDetail, TopicVersionOut } from '../../client';
 import { FilterBar } from '../../components/FilterBar';
 import { Button, buttonClass, ButtonLink } from '../../components/ui/Button';
 import { Badge, Banner, Card, EmptyState, VersionTag } from '../../components/ui/Card';
@@ -17,6 +17,9 @@ import { Skeleton } from '../../components/ui/Spinner';
 import { formatDateTime, formatRelative } from '../../lib/dates';
 import { csvHref, filterQuery, useSessionFilters } from '../../lib/filters';
 import { formatNumber, plural } from '../../lib/format';
+import { isEntryCreate, type EntryCreatePayload } from '../../lib/outbox/kinds';
+import type { OutboxItem } from '../../lib/outbox/types';
+import { useOutbox } from '../../lib/outbox/useOutbox';
 import type { Question } from '../../lib/questions';
 import { useTopic } from './TopicLayout';
 
@@ -61,6 +64,114 @@ function display(col: Column, s: SessionOut): string | null {
   }
 }
 
+/** A queued (not yet synced) entry, shaped like a session so it renders the same way. */
+function pendingAsSession(item: OutboxItem<EntryCreatePayload>, topic: TopicDetail): SessionOut {
+  const b = item.payload.body;
+  const types = new Map(topic.questions.map((q) => [q.key, q.type]));
+  const answers = Object.entries(b.answers).flatMap(([key, value]) => {
+    const type = types.get(key);
+    return type && value !== null && value !== undefined ? [{ key, type, value }] : [];
+  }) as SessionOut['answers'];
+  return {
+    id: item.id,
+    topic_id: topic.id,
+    version: b.version ?? topic.current_version,
+    source: b.source ?? 'ui',
+    channel: 'ui',
+    captured_at: b.captured_at ?? item.created_at,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+    notes: b.notes ?? '',
+    meta: b.meta ?? {},
+    answers,
+  };
+}
+
+function AnswerGrid({ columns, session }: { columns: Column[]; session: SessionOut }) {
+  return (
+    <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
+      {columns.map((c) => {
+        const v = display(c, session);
+        if (v === null) return null;
+        return (
+          <div key={c.key} className={c.question.type === 'str' ? 'col-span-2' : undefined}>
+            <dt className="truncate text-xs text-muted">{c.label}</dt>
+            <dd
+              className={
+                c.question.type === 'str'
+                  ? 'line-clamp-2 text-sm'
+                  : c.question.type === 'enum'
+                    ? 'text-[0.95rem] font-semibold'
+                    : 'font-mono text-[0.95rem] font-semibold tabular'
+              }
+            >
+              {v}
+            </dd>
+          </div>
+        );
+      })}
+    </dl>
+  );
+}
+
+/** Entries recorded on this device that the server hasn't confirmed yet. */
+function PendingEntries({ topic, columns }: { topic: TopicDetail; columns: Column[] }) {
+  const { items } = useOutbox();
+  const mine = items.filter(
+    (i): i is OutboxItem<EntryCreatePayload> => isEntryCreate(i) && i.payload.topic.id === topic.id,
+  );
+  if (mine.length === 0) return null;
+  return (
+    <ul className="flex flex-col gap-3" aria-label="Not yet synced">
+      {mine.map((item) => {
+        const s = pendingAsSession(item, topic);
+        const failed = item.status === 'failed';
+        return (
+          <li key={item.id}>
+            <Card
+              className={
+                failed
+                  ? 'relative border-danger/40 bg-danger-soft/30 p-4'
+                  : 'relative border-dashed border-line-strong p-4'
+              }
+            >
+              <div className="mb-3 flex items-center gap-2">
+                {failed ? (
+                  <Link
+                    to={`/t/${topic.slug}/record?fix=${encodeURIComponent(item.id)}`}
+                    className="min-w-0 flex-1 truncate font-semibold after:absolute after:inset-0"
+                  >
+                    {formatDateTime(s.captured_at)}
+                  </Link>
+                ) : (
+                  <span className="min-w-0 flex-1 truncate font-semibold">
+                    {formatDateTime(s.captured_at)}
+                  </span>
+                )}
+                {failed ? (
+                  <Badge tone="danger">
+                    <Icon name="alert" className="size-3.5" /> Failed — tap to fix
+                  </Badge>
+                ) : (
+                  <Badge tone="info">
+                    <Icon name="clock" className="size-3.5" /> Waiting to sync
+                  </Badge>
+                )}
+              </div>
+              <AnswerGrid columns={columns} session={s} />
+              {failed && item.last_error ? (
+                <p className="mt-3 border-t border-dashed border-danger/30 pt-2 text-sm text-danger">
+                  {item.last_error.message}
+                </p>
+              ) : null}
+            </Card>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function SessionsPage() {
   const topic = useTopic();
   const navigate = useNavigate();
@@ -84,6 +195,10 @@ export function SessionsPage() {
   );
   const items = sessions.data?.pages.flatMap((p) => p.items) ?? [];
   const total = sessions.data?.pages[0]?.total ?? 0;
+  const outbox = useOutbox();
+  const queuedHere = outbox.items.filter(
+    (i) => isEntryCreate(i) && i.payload.topic.id === topic.id,
+  ).length;
   const base = `/t/${topic.slug}`;
   const open = (s: SessionOut) => void navigate(`${base}/sessions/${s.id}`);
 
@@ -107,8 +222,12 @@ export function SessionsPage() {
       </div>
 
       <p className="-mt-2 text-sm text-muted" aria-live="polite">
-        {sessions.isSuccess ? plural(total, 'entry', 'entries') : ' '}
+        {sessions.isSuccess
+          ? `${plural(total, 'entry', 'entries')}${queuedHere ? ` · ${queuedHere} not synced yet` : ''}`
+          : ' '}
       </p>
+
+      <PendingEntries topic={topic} columns={columns} />
 
       {sessions.isError ? (
         <Banner title="Could not load entries">{errorMessage(sessions.error)}</Banner>
@@ -118,7 +237,7 @@ export function SessionsPage() {
             <Skeleton key={i} className="h-28 rounded-card" />
           ))}
         </div>
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && queuedHere > 0 ? null : items.length === 0 ? (
         <EmptyState
           title={topic.session_count === 0 ? 'No entries yet' : 'No entries match'}
           action={
@@ -152,31 +271,7 @@ export function SessionsPage() {
                     ) : null}
                     <Icon name="chevronRight" className="size-4 text-muted" />
                   </div>
-                  <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
-                    {columns.map((c) => {
-                      const v = display(c, s);
-                      if (v === null) return null;
-                      return (
-                        <div
-                          key={c.key}
-                          className={c.question.type === 'str' ? 'col-span-2' : undefined}
-                        >
-                          <dt className="truncate text-xs text-muted">{c.label}</dt>
-                          <dd
-                            className={
-                              c.question.type === 'str'
-                                ? 'line-clamp-2 text-sm'
-                                : c.question.type === 'enum'
-                                  ? 'text-[0.95rem] font-semibold'
-                                  : 'font-mono text-[0.95rem] font-semibold tabular'
-                            }
-                          >
-                            {v}
-                          </dd>
-                        </div>
-                      );
-                    })}
-                  </dl>
+                  <AnswerGrid columns={columns} session={s} />
                   {s.notes ? (
                     <p className="mt-3 line-clamp-2 border-t border-dashed border-line pt-2 text-sm text-ink-soft">
                       {s.notes}
