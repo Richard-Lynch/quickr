@@ -10,6 +10,7 @@
  * an entry can be addressed — undone, opened — before the server has even seen it.
  */
 import type { EntryOut } from '../client';
+import { listEntriesOptions } from '../client/@tanstack/react-query.gen';
 import { zEntryCreate, zEntryOut } from '../client/zod.gen';
 import { isOnline, outbox } from '../lib/outbox/client';
 import { ENTRY_CREATE, type EntryCreatePayload } from '../lib/outbox/kinds';
@@ -74,6 +75,11 @@ export async function recordEntry(
     case 'queued':
       return { status: 'queued', itemId: item.id };
   }
+}
+
+/** The latest entry of a topic (tiles' "Last …", number prefill, "Same as last time"). */
+export function lastEntryOptions(slug: string) {
+  return listEntriesOptions({ path: { ref: slug }, query: { limit: 1, order: '-captured_at' } });
 }
 
 /** Hook form for components (the function is stable; no React state involved). */
