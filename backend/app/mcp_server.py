@@ -11,11 +11,16 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 from uuid import UUID
 
+import mcp_types as mt
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
+from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
+from fastmcp.tools import ToolResult
 from pydantic import AwareDatetime, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_sessionmaker
+from app.errors import DomainError
 from app.models import Channel
 from app.schemas.api import (
     AnswerMap,
@@ -54,7 +59,29 @@ then `publish_topic_version` with `base_version` = the topic's current_version.
 Question types can never change for a key and enum options can only be archived.
 """
 
-mcp = FastMCP("quicker", instructions=INSTRUCTIONS)
+
+class DomainErrorMiddleware(Middleware):
+    """Surface domain errors (with per-field issues) to the client verbatim.
+
+    Everything else stays masked (``mask_error_details``) so unexpected
+    exceptions never leak internals.
+    """
+
+    async def on_call_tool(
+        self,
+        context: MiddlewareContext[mt.CallToolRequestParams],
+        call_next: CallNext[mt.CallToolRequestParams, ToolResult],
+    ) -> ToolResult:
+        try:
+            return await call_next(context)
+        except ToolError as exc:
+            if isinstance(exc.__cause__, DomainError):
+                raise ToolError(exc.__cause__.describe()) from exc.__cause__
+            raise
+
+
+mcp = FastMCP("quicker", instructions=INSTRUCTIONS, mask_error_details=True)
+mcp.add_middleware(DomainErrorMiddleware())
 
 TopicRef = Annotated[str, Field(description="Topic UUID or slug.")]
 
