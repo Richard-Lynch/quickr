@@ -10,6 +10,13 @@ class DomainError(Exception):
         self.detail = detail
         self.errors = errors or []
 
+    def describe(self) -> str:
+        """Detail plus every field issue, for clients that only see a message (MCP)."""
+        if not self.errors:
+            return self.detail
+        issues = "; ".join(f"{'.'.join(str(p) for p in e.loc)}: {e.message}" for e in self.errors)
+        return f"{self.detail}: {issues}"
+
 
 class NotFound(DomainError):
     status_code = 404
