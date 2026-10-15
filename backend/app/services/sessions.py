@@ -113,7 +113,10 @@ async def create_session(db: AsyncSession, ref: str, body: SessionCreate, channe
 
 
 async def _load(db: AsyncSession, session_id: UUID) -> Session:
-    s = (await db.execute(select(Session).where(Session.id == session_id))).scalar_one_or_none()
+    # populate_existing: return DB-normalised values (e.g. UTC captured_at) even
+    # when the object is already in the identity map from this request.
+    stmt = select(Session).where(Session.id == session_id).execution_options(populate_existing=True)
+    s = (await db.execute(stmt)).scalar_one_or_none()
     if s is None:
         raise NotFound(f"session '{session_id}' not found")
     return s

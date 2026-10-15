@@ -103,3 +103,6 @@ def downgrade() -> None:
     op.drop_index("ix_topics_status_updated", table_name="topics")
     op.drop_table("topics")
     # ### end Alembic commands ###
+    # Native enum types are created implicitly with their tables but not dropped with them.
+    sa.Enum(name="session_channel").drop(op.get_bind(), checkfirst=True)
+    sa.Enum(name="topic_status").drop(op.get_bind(), checkfirst=True)
