@@ -258,7 +258,7 @@ function TopicCard({ topic: t }: { topic: TopicSummary }) {
         <div>
           <dt className="text-xs text-muted">Entries</dt>
           <dd className="font-mono text-lg font-semibold tabular">
-            {t.session_count.toLocaleString()}
+            {t.entry_count.toLocaleString()}
           </dd>
         </div>
         <div>
@@ -285,10 +285,10 @@ function TopicCard({ topic: t }: { topic: TopicSummary }) {
             size="sm"
             icon={<Icon name="plus" className="size-4" strokeWidth={2.6} />}
           >
-            Record
+            Log
           </ButtonLink>
         )}
-        <ButtonLink to={`/t/${t.slug}/sessions`} variant="ghost" size="sm">
+        <ButtonLink to={`/t/${t.slug}/entries`} variant="ghost" size="sm">
           Data
         </ButtonLink>
       </div>

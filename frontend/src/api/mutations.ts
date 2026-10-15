@@ -6,19 +6,19 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import {
   archiveTopicMutation,
-  getSessionQueryKey,
+  getEntryQueryKey,
   getTopicQueryKey,
   unarchiveTopicMutation,
-  updateSessionMutation,
+  updateEntryMutation,
   updateTopicMutation,
 } from '../client/@tanstack/react-query.gen';
-import { deleteSession } from '../client/sdk.gen';
-import type { SessionOut, SessionUpdate, TopicDetail, TopicSummary } from '../client';
+import { deleteEntry } from '../client/sdk.gen';
+import type { EntryOut, EntryUpdate, TopicDetail, TopicSummary } from '../client';
 import { useToast } from '../components/ui/Toast';
 import { scheduleUndoable, UNDO_WINDOW_MS } from '../lib/undo';
 import {
   cancelOperations,
-  patchSessions,
+  patchEntries,
   patchTopics,
   restoreSnapshot,
   snapshotOperations,
@@ -28,7 +28,7 @@ import {
 import { errorMessage } from './errors';
 import {
   invalidateOperations,
-  invalidateSessionData,
+  invalidateEntryData,
   SESSION_DATA_OPS,
   type OperationId,
 } from './queryClient';
@@ -37,8 +37,8 @@ interface Ctx {
   snap: CacheSnapshot;
 }
 
-/** Best-effort local application of a SessionUpdate (the server response replaces it). */
-export function applySessionUpdate(s: SessionOut, body: SessionUpdate): SessionOut {
+/** Best-effort local application of a EntryUpdate (the server response replaces it). */
+export function applyEntryUpdate(s: EntryOut, body: EntryUpdate): EntryOut {
   let answers = s.answers;
   if (body.answers) {
     const patch = body.answers;
@@ -58,28 +58,26 @@ export function applySessionUpdate(s: SessionOut, body: SessionUpdate): SessionO
   };
 }
 
-const SESSION_OPS: readonly OperationId[] = ['listSessions', 'getSession'];
+const SESSION_OPS: readonly OperationId[] = ['listEntries', 'getEntry'];
 
-export function useUpdateSession() {
+export function useUpdateEntry() {
   const qc = useQueryClient();
   return useMutation({
-    ...updateSessionMutation(),
+    ...updateEntryMutation(),
     onMutate: async (vars): Promise<Ctx> => {
       await cancelOperations(qc, SESSION_OPS);
       const snap = snapshotOperations(qc, SESSION_OPS);
-      patchSessions(qc, (s) =>
-        s.id === vars.path.session_id ? applySessionUpdate(s, vars.body) : s,
-      );
+      patchEntries(qc, (s) => (s.id === vars.path.entry_id ? applyEntryUpdate(s, vars.body) : s));
       return { snap };
     },
     onError: (_err, _vars, ctx) => {
       if (ctx) restoreSnapshot(qc, ctx.snap);
     },
     onSuccess: (updated) => {
-      qc.setQueryData(getSessionQueryKey({ path: { session_id: updated.id } }), updated);
-      patchSessions(qc, (s) => (s.id === updated.id ? updated : s));
+      qc.setQueryData(getEntryQueryKey({ path: { entry_id: updated.id } }), updated);
+      patchEntries(qc, (s) => (s.id === updated.id ? updated : s));
     },
-    onSettled: () => invalidateSessionData(qc),
+    onSettled: () => invalidateEntryData(qc),
   });
 }
 
@@ -88,24 +86,24 @@ export function useUpdateSession() {
  * every cached list at once, and the DELETE is only sent when the undo window closes
  * (or the app is hidden). Failure restores the caches and says so.
  */
-export function useDeleteSessionWithUndo() {
+export function useDeleteEntryWithUndo() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  return (session: SessionOut, topic: Pick<TopicSummary, 'id' | 'slug'>) => {
+  return (entry: EntryOut, topic: Pick<TopicSummary, 'id' | 'slug'>) => {
     void cancelOperations(qc, SESSION_DATA_OPS);
-    const snap = snapshotOperations(qc, [...SESSION_DATA_OPS, 'getSession']);
-    patchSessions(qc, (s) => (s.id === session.id ? null : s));
-    patchTopics(qc, topicIs(topic), (t) => ({ session_count: Math.max(0, t.session_count - 1) }));
+    const snap = snapshotOperations(qc, [...SESSION_DATA_OPS, 'getEntry']);
+    patchEntries(qc, (s) => (s.id === entry.id ? null : s));
+    patchTopics(qc, topicIs(topic), (t) => ({ entry_count: Math.max(0, t.entry_count - 1) }));
 
     const pending = scheduleUndoable(async () => {
       try {
-        await deleteSession({ path: { session_id: session.id }, throwOnError: true });
-        qc.removeQueries({ queryKey: getSessionQueryKey({ path: { session_id: session.id } }) });
+        await deleteEntry({ path: { entry_id: entry.id }, throwOnError: true });
+        qc.removeQueries({ queryKey: getEntryQueryKey({ path: { entry_id: entry.id } }) });
       } catch (err) {
         restoreSnapshot(qc, snap);
         toast({ title: 'Delete failed', description: errorMessage(err), tone: 'danger' });
       } finally {
-        void invalidateSessionData(qc);
+        void invalidateEntryData(qc);
       }
     }, UNDO_WINDOW_MS);
 

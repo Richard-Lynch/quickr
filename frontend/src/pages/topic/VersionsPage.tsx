@@ -64,7 +64,7 @@ export function VersionsPage() {
                     <span className="text-sm text-muted">{formatDateTime(v.created_at)}</span>
                     <span className="ml-auto flex items-center gap-2 text-sm">
                       <span className="font-mono tabular">
-                        {plural(v.session_count, 'entry', 'entries')}
+                        {plural(v.entry_count, 'entry', 'entries')}
                       </span>
                       <Icon
                         name="chevronDown"

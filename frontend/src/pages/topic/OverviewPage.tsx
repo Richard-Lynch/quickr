@@ -19,7 +19,7 @@ import { Icon } from '../../components/ui/Icon';
 import { Segmented } from '../../components/ui/Segmented';
 import { Skeleton } from '../../components/ui/Spinner';
 import { browserTimeZone, formatDate, formatRelative, type RangePreset } from '../../lib/dates';
-import { filterQuery, useSessionFilters, type SessionFilterState } from '../../lib/filters';
+import { filterQuery, useEntryFilters, type EntryFilterState } from '../../lib/filters';
 import { formatNumber, formatPercent, plural } from '../../lib/format';
 import type { Question } from '../../lib/questions';
 import { useTopic } from './TopicLayout';
@@ -36,7 +36,7 @@ function defaultBucket(range: RangePreset): Bucket {
 
 export function OverviewPage() {
   const topic = useTopic();
-  const [filters, setFilters] = useSessionFilters();
+  const [filters, setFilters] = useEntryFilters();
   const [bucketChoice, setBucket] = useState<{ range: RangePreset; bucket: Bucket } | null>(null);
   const bucket =
     bucketChoice?.range === filters.range ? bucketChoice.bucket : defaultBucket(filters.range);
@@ -70,24 +70,24 @@ export function OverviewPage() {
           <Skeleton className="h-72 rounded-card" />
           <Skeleton className="h-72 rounded-card" />
         </div>
-      ) : stats.data.session_count === 0 ? (
+      ) : stats.data.entry_count === 0 ? (
         <EmptyState
-          title={topic.session_count === 0 ? 'No data yet' : 'Nothing in this range'}
+          title={topic.entry_count === 0 ? 'No data yet' : 'Nothing in this range'}
           icon={<Icon name="chart" className="size-9" />}
           action={
-            topic.session_count === 0 && topic.status === 'active' ? (
+            topic.entry_count === 0 && topic.status === 'active' ? (
               <ButtonLink
                 to={`/t/${topic.slug}/record`}
                 variant="primary"
                 icon={<Icon name="plus" />}
               >
-                Record the first entry
+                Log the first entry
               </ButtonLink>
             ) : null
           }
         >
-          {topic.session_count === 0
-            ? 'Charts and stats appear as soon as you record an entry.'
+          {topic.entry_count === 0
+            ? 'Charts and stats appear as soon as you log an entry.'
             : 'Try a wider date range.'}
         </EmptyState>
       ) : (
@@ -119,7 +119,7 @@ export function OverviewPage() {
 function Summary({ stats }: { stats: TopicStats }) {
   return (
     <Card className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-4 sm:p-5">
-      <Tile label="Entries" value={stats.session_count.toLocaleString()} big />
+      <Tile label="Entries" value={stats.entry_count.toLocaleString()} big />
       <Tile label="Latest" value={formatRelative(stats.last_captured_at)} />
       <Tile
         label="First"
@@ -160,7 +160,7 @@ interface CardProps {
   stats: TopicStats['questions'][number];
   question: Question | undefined;
   slug: string;
-  filters: SessionFilterState;
+  filters: EntryFilterState;
   bucket: Bucket;
 }
 
@@ -200,7 +200,7 @@ function QuestionCard({ stats, question, slug, filters, bucket }: CardProps) {
   );
 }
 
-function useSeries(slug: string, key: string, filters: SessionFilterState, bucket: Bucket) {
+function useSeries(slug: string, key: string, filters: EntryFilterState, bucket: Bucket) {
   return useQuery(
     getQuestionSeriesOptions({
       path: { ref: slug, key },
@@ -219,7 +219,7 @@ function NumericCard({
   stats: NumericStats;
   unit: string | null;
   slug: string;
-  filters: SessionFilterState;
+  filters: EntryFilterState;
   bucket: Bucket;
 }) {
   const series = useSeries(slug, stats.key, filters, bucket);
@@ -274,7 +274,7 @@ function EnumCard({
 }: {
   stats: EnumStats;
   slug: string;
-  filters: SessionFilterState;
+  filters: EntryFilterState;
   bucket: Bucket;
 }) {
   const series = useSeries(slug, stats.key, filters, bucket);
@@ -345,7 +345,7 @@ function StrCard({ stats }: { stats: StrStats }) {
         ) : (
           <ul className="flex flex-col divide-y divide-dashed divide-line">
             {stats.recent.slice(0, 5).map((r) => (
-              <li key={r.session_id + r.captured_at} className="py-2">
+              <li key={r.entry_id + r.captured_at} className="py-2">
                 <p className="line-clamp-3 text-sm whitespace-pre-line">{r.value}</p>
                 <p className="mt-0.5 text-xs text-muted">{formatRelative(r.captured_at)}</p>
               </li>

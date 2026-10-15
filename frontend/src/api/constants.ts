@@ -6,11 +6,8 @@
 /** Same-origin API prefix (paths in the OpenAPI spec already carry it). */
 export const API_PREFIX = '/api/v1';
 
-/**
- * Header that tags requests made by the UI.
- * TODO(api-v2): the backend renames this to `X-QuickR-Channel` — change it here only.
- */
-export const CHANNEL_HEADER = 'X-Quicker-Channel';
+/** Header that tags requests made by the UI (`channel: ui` on the server). */
+export const CHANNEL_HEADER = 'X-QuickR-Channel';
 export const CHANNEL = 'ui';
 
 export const CHANNEL_HEADERS: Readonly<Record<string, string>> = { [CHANNEL_HEADER]: CHANNEL };

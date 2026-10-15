@@ -1,19 +1,24 @@
 /**
- * Web Push client plumbing.
- *
- * Backend contract (not in the generated client yet — TODO(api-v2): switch these raw
- * calls to the generated SDK once `openapi.json` has the push endpoints):
- *   GET  /api/v1/push/config               → { public_key }   (VAPID, base64url)
- *   POST /api/v1/push/subscriptions        { endpoint, keys: { p256dh, auth }, user_agent }
- *   POST /api/v1/push/subscriptions/delete { endpoint }
- *   POST /api/v1/push/test
- * Until the backend ships them, 404/405/501 surface as `not-configured` (no errors thrown).
+ * Web Push client plumbing, on top of the generated SDK:
+ *   getPushConfig            GET  /api/v1/push/config               → { public_key } (VAPID)
+ *   createPushSubscription   POST /api/v1/push/subscriptions        subscription.toJSON() + UA
+ *   deletePushSubscription   POST /api/v1/push/subscriptions/delete { endpoint }
+ *   sendTestPush             POST /api/v1/push/test                 → { sent, failed }
+ * A server without push (404/405/501, e.g. an older backend) surfaces as `not-configured`
+ * / `null` rather than as an error.
  *
  * iOS: Web Push only exists in Home Screen apps (iOS 16.4+), and the permission prompt
  * must come straight from a user gesture — call `enablePush()` synchronously inside the
  * click handler (it calls `Notification.requestPermission()` before any other await).
  */
-import { API_PREFIX, CHANNEL_HEADERS } from '../api/constants';
+import { errorMessage } from '../api/errors';
+import type { PushSubscriptionIn, PushTestResult } from '../client';
+import {
+  createPushSubscription,
+  deletePushSubscription,
+  getPushConfig,
+  sendTestPush as sendTestPushRequest,
+} from '../client/sdk.gen';
 import { detectPlatform, isStandalone, type Platform } from './platform';
 
 export type PushSupport =
@@ -76,22 +81,16 @@ export function urlBase64ToUint8Array(base64url: string): Uint8Array<ArrayBuffer
   return out;
 }
 
-export interface PushSubscriptionBody {
-  endpoint: string;
-  keys: { p256dh: string; auth: string };
-  user_agent: string;
-}
-
-export function subscriptionBody(sub: PushSubscription): PushSubscriptionBody {
+export function subscriptionBody(sub: PushSubscription): PushSubscriptionIn {
   const json = sub.toJSON();
   return {
     endpoint: sub.endpoint,
     keys: { p256dh: json.keys?.p256dh ?? '', auth: json.keys?.auth ?? '' },
-    user_agent: navigator.userAgent,
+    user_agent: navigator.userAgent.slice(0, 500),
   };
 }
 
-/** Thrown for unexpected API failures (not for "endpoint not there yet"). */
+/** Thrown for unexpected API failures (not for "endpoint not there"). */
 export class PushApiError extends Error {
   readonly status: number | null;
   constructor(message: string, status: number | null) {
@@ -103,42 +102,38 @@ export class PushApiError extends Error {
 
 const NOT_READY = new Set([404, 405, 501]);
 
-async function api(path: string, body?: unknown): Promise<Response | null> {
-  let res: Response;
-  try {
-    res = await fetch(`${API_PREFIX}${path}`, {
-      method: body === undefined ? 'GET' : 'POST',
-      headers: {
-        ...CHANNEL_HEADERS,
-        Accept: 'application/json',
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      cache: 'no-store',
-    });
-  } catch {
-    throw new PushApiError('Could not reach the server', null);
-  }
-  if (NOT_READY.has(res.status)) return null;
-  if (!res.ok) {
-    let detail = '';
-    try {
-      const j = (await res.json()) as { detail?: unknown };
-      if (typeof j.detail === 'string') detail = j.detail;
-    } catch {
-      // not JSON
-    }
-    throw new PushApiError(detail || `Request failed (${res.status})`, res.status);
-  }
-  return res;
+interface SdkResult<T> {
+  data?: T | undefined;
+  error?: unknown;
+  response?: Response | undefined;
 }
 
-/** VAPID public key, or null when the backend has no push support (yet). */
+/** Unwrap an SDK result: data, `null` when the server has no push, else throw. */
+async function unwrap<T>(call: Promise<SdkResult<T>>): Promise<T | null> {
+  let r: SdkResult<T>;
+  try {
+    r = await call;
+  } catch (err) {
+    // Request/response validation (ZodError) or a network failure.
+    throw new PushApiError(errorMessage(err), null);
+  }
+  const status = r.response?.status ?? null;
+  if (status !== null && NOT_READY.has(status)) return null;
+  if (r.error !== undefined || status === null || !r.response?.ok) {
+    throw new PushApiError(
+      status === null ? 'Could not reach the server' : errorMessage(r.error ?? `HTTP ${status}`),
+      status,
+    );
+  }
+  return r.data ?? null;
+}
+
+const noStore = { cache: 'no-store' } as const;
+
+/** VAPID public key, or null when the backend has no push support. */
 export async function fetchPushConfig(): Promise<{ public_key: string } | null> {
-  const res = await api('/push/config');
-  if (!res) return null;
-  const j = (await res.json()) as { public_key?: unknown };
-  return typeof j.public_key === 'string' && j.public_key ? { public_key: j.public_key } : null;
+  const c = await unwrap(getPushConfig(noStore));
+  return c?.public_key ? { public_key: c.public_key } : null;
 }
 
 async function registration(): Promise<ServiceWorkerRegistration | null> {
@@ -193,8 +188,14 @@ export async function enablePush(publicKey?: string): Promise<EnablePushResult> 
     applicationServerKey: keyBytes,
   });
 
-  const saved = await api('/push/subscriptions', subscriptionBody(sub));
-  if (!saved) {
+  let saved: unknown;
+  try {
+    saved = await unwrap(createPushSubscription({ body: subscriptionBody(sub) }));
+  } catch (err) {
+    await sub.unsubscribe().catch(() => undefined);
+    throw err;
+  }
+  if (saved === null) {
     await sub.unsubscribe().catch(() => undefined);
     return { ok: false, reason: 'not-configured' };
   }
@@ -207,12 +208,15 @@ export async function disablePush(): Promise<void> {
   if (!sub) return;
   const { endpoint } = sub;
   await sub.unsubscribe().catch(() => undefined);
-  await api('/push/subscriptions/delete', { endpoint }).catch((err: unknown) => {
+  await unwrap(deletePushSubscription({ body: { endpoint } })).catch((err: unknown) => {
     console.warn('[push] could not remove the subscription on the server', err);
   });
 }
 
-/** Ask the API to push a test notification to this user's subscriptions. */
-export async function sendTestPush(): Promise<boolean> {
-  return (await api('/push/test', {})) !== null;
+/**
+ * Ask the API to push a test notification to every subscription.
+ * `null` when the server has no push support.
+ */
+export async function sendTestPush(): Promise<PushTestResult | null> {
+  return unwrap(sendTestPushRequest(noStore));
 }

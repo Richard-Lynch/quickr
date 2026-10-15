@@ -210,7 +210,7 @@ function NotificationsSection() {
       ) : (
         <>
           <p className="text-sm text-muted">
-            Get reminders when it’s time to record.
+            Get reminders when it’s time to log.
             {badgeSupported() ? ' The app icon shows how many are due.' : ''}
           </p>
           {subscribed ? (
@@ -222,11 +222,22 @@ function NotificationsSection() {
                 onClick={() => {
                   setTesting(true);
                   sendTestPush()
-                    .then((ok) => {
+                    .then((r) => {
                       toast(
-                        ok
-                          ? { title: 'Test sent', description: 'It should arrive in a moment.' }
-                          : { title: 'Test not available on this server', tone: 'info' },
+                        r === null
+                          ? { title: 'Test not available on this server', tone: 'info' }
+                          : r.sent > 0
+                            ? {
+                                title: 'Test sent',
+                                description: `To ${plural(r.sent, 'device')}${r.failed ? ` (${r.failed} failed)` : ''} — it should arrive in a moment.`,
+                              }
+                            : {
+                                title: 'No device received it',
+                                description: r.failed
+                                  ? `${plural(r.failed, 'subscription')} failed. Turn notifications off and on again.`
+                                  : 'No subscriptions on the server. Turn notifications off and on again.',
+                                tone: 'danger',
+                              },
                       );
                     })
                     .catch((err: unknown) => {
@@ -258,8 +269,8 @@ function SyncSection() {
       aside={online ? <Badge tone="ok">Online</Badge> : <Badge tone="warn">Offline</Badge>}
     >
       <p className="text-sm text-muted">
-        Topics and recent entries you’ve viewed are kept on this device. Entries recorded offline
-        are queued here and sent automatically.
+        Topics and recent entries you’ve viewed are kept on this device. Entries logged offline are
+        queued here and sent automatically.
       </p>
       <OutboxPanel />
     </Section>

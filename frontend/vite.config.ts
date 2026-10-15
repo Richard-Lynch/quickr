@@ -7,8 +7,10 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// Where the dev/preview server proxies /api and /mcp (`QUICKR_API_TARGET=http://localhost:8200`).
+// QUICKR_BACKEND_URL is the older name for the same thing.
 const backend =
-  process.env.QUICKR_BACKEND_URL ?? process.env.QUICKER_BACKEND_URL ?? 'http://localhost:8100';
+  process.env.QUICKR_API_TARGET ?? process.env.QUICKR_BACKEND_URL ?? 'http://localhost:8100';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
   version: string;
@@ -97,7 +99,7 @@ export default defineConfig({
     }),
   ],
   server: {
-    port: 5180,
+    port: Number(process.env.PORT ?? 5180),
     strictPort: true,
     proxy,
   },

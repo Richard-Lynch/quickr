@@ -38,8 +38,8 @@ export type OperationId =
   | 'listTopics'
   | 'getTopic'
   | 'listTopicVersions'
-  | 'listSessions'
-  | 'getSession'
+  | 'listEntries'
+  | 'getEntry'
   | 'getTopicStats'
   | 'getQuestionSeries';
 
@@ -53,24 +53,24 @@ export function invalidateOperations(qc: QueryClient, ids: readonly OperationId[
   });
 }
 
-/** Everything whose numbers depend on the set of sessions. */
+/** Everything whose numbers depend on the set of entries. */
 export const SESSION_DATA_OPS: readonly OperationId[] = [
   'listTopics',
   'getTopic',
   'listTopicVersions',
-  'listSessions',
+  'listEntries',
   'getTopicStats',
   'getQuestionSeries',
 ];
 
 /**
- * Anything that changes sessions changes counts, stats and series too.
- * (Single-session caches are updated/removed explicitly by the caller.)
+ * Anything that changes entries changes counts, stats and series too.
+ * (Single-entry caches are updated/removed explicitly by the caller.)
  */
-export function invalidateSessionData(qc: QueryClient): Promise<void> {
+export function invalidateEntryData(qc: QueryClient): Promise<void> {
   return invalidateOperations(qc, SESSION_DATA_OPS);
 }
 
 export function invalidateTopicData(qc: QueryClient): Promise<void> {
-  return invalidateSessionData(qc);
+  return invalidateEntryData(qc);
 }

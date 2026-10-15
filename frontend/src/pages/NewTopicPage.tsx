@@ -48,7 +48,7 @@ export function NewTopicPage() {
         const topic = await create.mutateAsync({ body });
         qc.setQueryData(getTopicQueryKey({ path: { ref: topic.slug } }), topic);
         void invalidateOperations(qc, ['listTopics']);
-        toast({ title: 'Topic created', description: 'Record your first entry.' });
+        toast({ title: 'Topic created', description: 'Log your first entry.' });
         guard.allowNavigation();
         void navigate(`/t/${topic.slug}/record`, { replace: true });
       } catch (err) {

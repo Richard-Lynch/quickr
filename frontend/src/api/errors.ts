@@ -26,12 +26,14 @@ export interface MappedError {
 }
 
 const QUESTION_TAGS = new Set(['int', 'double', 'str', 'enum']);
+const SCHEDULE_TAGS = new Set(['daily', 'interval']);
 const ROOTS = new Set(['body', 'query', 'path', 'header']);
 
 /**
- * Turn a server `loc` into a body-relative dotted path. Drops the `body` root and
- * the discriminator tag pydantic inserts for tagged unions
- * (`['body','questions',0,'int','min']` -> `questions.0.min`).
+ * Turn a server `loc` into a body-relative dotted path. Drops the `body` root and the
+ * discriminator tags of tagged unions, should any slip through (the v2 server already
+ * strips them): `['body','questions',0,'int','min']` -> `questions.0.min`,
+ * `['body','schedule','daily','times',0]` -> `schedule.times.0`.
  */
 export function locToPath(loc: readonly (string | number)[]): string {
   const parts: (string | number)[] = [];
@@ -39,6 +41,7 @@ export function locToPath(loc: readonly (string | number)[]): string {
     if (i === 0 && typeof seg === 'string' && ROOTS.has(seg)) return;
     const prev = loc[i - 1];
     if (typeof seg === 'string' && QUESTION_TAGS.has(seg) && typeof prev === 'number') return;
+    if (typeof seg === 'string' && SCHEDULE_TAGS.has(seg) && prev === 'schedule') return;
     parts.push(seg);
   });
   return parts.join('.');

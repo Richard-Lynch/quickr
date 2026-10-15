@@ -390,6 +390,9 @@ export function convertDraftQuestion(
           label: o.label.trim(),
           archived: o.archived,
         })),
+        multiple: false,
+        min_selected: null,
+        max_selected: null,
       };
       break;
     }
@@ -558,6 +561,9 @@ export function toOutputShape(q: QuestionInput): Question {
           label: o.label,
           archived: o.archived ?? false,
         })),
+        multiple: q.multiple ?? false,
+        min_selected: q.min_selected ?? null,
+        max_selected: q.max_selected ?? null,
       };
     default:
       throw new Error('question type missing');
@@ -605,5 +611,8 @@ export function previewQuestion(d: DraftQuestion, index: number): Question {
     required: filled.required,
     type: 'enum',
     options: [],
+    multiple: false,
+    min_selected: null,
+    max_selected: null,
   };
 }

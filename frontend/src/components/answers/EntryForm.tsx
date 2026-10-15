@@ -4,7 +4,7 @@ import { Controller, useForm, useWatch, type Control } from 'react-hook-form';
 import { z } from 'zod';
 
 import { applyFieldErrors, mapApiError, type FieldError } from '../../api/errors';
-import { zSessionCreate } from '../../client/zod.gen';
+import { zEntryCreate } from '../../client/zod.gen';
 import { buildAnswerSchema, type AnswerFormValues, type AnswerMap } from '../../lib/answerSchema';
 import { localInputToIso } from '../../lib/dates';
 import { useUnsavedChangesGuard } from '../../lib/unsavedChanges';
@@ -16,14 +16,14 @@ import { Field, Input, Textarea } from '../ui/Field';
 import { Icon } from '../ui/Icon';
 import { AnswerField } from './AnswerField';
 
-export interface SessionFormValues {
+export interface EntryFormValues {
   answers: AnswerFormValues;
   captured_at: string;
   source: string;
   notes: string;
 }
 
-export interface SessionFormOutput {
+export interface EntryFormOutput {
   answers: AnswerMap;
   captured_at: string;
   source: string;
@@ -43,7 +43,7 @@ function buildSchema(questions: readonly Question[], allowArchived: Record<strin
         }
         return iso;
       })
-      .pipe(zSessionCreate.shape.captured_at.unwrap().unwrap()),
+      .pipe(zEntryCreate.shape.captured_at.unwrap().unwrap()),
     source: z
       .string()
       .trim()
@@ -53,23 +53,23 @@ function buildSchema(questions: readonly Question[], allowArchived: Record<strin
   });
 }
 
-interface SessionFormProps {
+interface EntryFormProps {
   questions: readonly Question[];
-  defaultValues: SessionFormValues;
-  /** Archived enum values this session already holds (edit mode). */
+  defaultValues: EntryFormValues;
+  /** Archived enum values this entry already holds (edit mode). */
   allowArchived?: Record<string, string>;
   submitLabel: string;
   /**
    * Throw to have errors mapped onto fields; resolve to finish. Call
    * `allowNavigation()` before navigating away after a successful save.
    */
-  onSubmit: (values: SessionFormOutput, helpers: SubmitHelpers) => Promise<void>;
+  onSubmit: (values: EntryFormOutput, helpers: SubmitHelpers) => Promise<void>;
   /** Shown beside the submit button. */
   secondaryAction?: ReactNode | ((helpers: SubmitHelpers) => ReactNode);
   /** Extra content between answers and meta fields. */
   children?: ReactNode;
   /** Values to reset to after a successful submit (record-another flow). */
-  resetOnSuccess?: (submitted: SessionFormOutput) => SessionFormValues;
+  resetOnSuccess?: (submitted: EntryFormOutput) => EntryFormValues;
   /** A server error to show on mount (e.g. fixing a rejected offline entry). */
   initialError?: unknown;
   /** Ask before leaving with unsaved input (default on). */
@@ -82,7 +82,7 @@ export interface SubmitHelpers {
 
 type FormField = `answers.${string}` | 'captured_at' | 'source' | 'notes';
 
-export function SessionForm({
+export function EntryForm({
   questions,
   defaultValues,
   allowArchived = {},
@@ -93,9 +93,9 @@ export function SessionForm({
   resetOnSuccess,
   initialError,
   guardUnsaved = true,
-}: SessionFormProps) {
+}: EntryFormProps) {
   const schema = useMemo(() => buildSchema(questions, allowArchived), [questions, allowArchived]);
-  const form = useForm<SessionFormValues, unknown, SessionFormOutput>({
+  const form = useForm<EntryFormValues, unknown, EntryFormOutput>({
     resolver: zodResolver(schema),
     defaultValues,
     mode: 'onTouched',
@@ -264,11 +264,7 @@ export function SessionForm({
   );
 }
 
-function MetaSummary({
-  control,
-}: {
-  control: Control<SessionFormValues, unknown, SessionFormOutput>;
-}) {
+function MetaSummary({ control }: { control: Control<EntryFormValues, unknown, EntryFormOutput> }) {
   const [source, capturedAt] = useWatch({ control, name: ['source', 'captured_at'] });
   const when = capturedAt ? capturedAt.replace('T', ' ') : '';
   return <>{[when, source].filter(Boolean).join(' · ') || '—'}</>;

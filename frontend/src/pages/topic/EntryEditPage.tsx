@@ -3,54 +3,51 @@ import { useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
 import { errorMessage } from '../../api/errors';
-import { useDeleteSessionWithUndo, useUpdateSession } from '../../api/mutations';
-import {
-  getSessionOptions,
-  listTopicVersionsOptions,
-} from '../../client/@tanstack/react-query.gen';
+import { useDeleteEntryWithUndo, useUpdateEntry } from '../../api/mutations';
+import { getEntryOptions, listTopicVersionsOptions } from '../../client/@tanstack/react-query.gen';
 import { Page, TopBar } from '../../components/AppShell';
-import { SessionForm, type SessionFormValues } from '../../components/answers/SessionForm';
+import { EntryForm, type EntryFormValues } from '../../components/answers/EntryForm';
 import { Button } from '../../components/ui/Button';
 import { Badge, Banner, VersionTag } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
 import { PageSpinner } from '../../components/ui/Spinner';
 import { useToast } from '../../components/ui/Toast';
-import { answerValuesFromSession, archivedValuesInSession } from '../../lib/answerSchema';
+import { answerValuesFromEntry, archivedValuesInEntry } from '../../lib/answerSchema';
 import { formatDateTime, toLocalInputValue } from '../../lib/dates';
 import { useTopic } from './TopicLayout';
 
-export function SessionEditPage() {
+export function EntryEditPage() {
   const topic = useTopic();
-  const { sessionId = '' } = useParams();
+  const { entryId = '' } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
   const base = `/t/${topic.slug}`;
 
-  const session = useQuery(getSessionOptions({ path: { session_id: sessionId } }));
+  const entry = useQuery(getEntryOptions({ path: { entry_id: entryId } }));
   const versions = useQuery(listTopicVersionsOptions({ path: { ref: topic.slug } }));
-  const update = useUpdateSession();
-  const deleteWithUndo = useDeleteSessionWithUndo();
+  const update = useUpdateEntry();
+  const deleteWithUndo = useDeleteEntryWithUndo();
 
   const version = useMemo(
-    () => versions.data?.find((v) => v.version === session.data?.version),
-    [versions.data, session.data?.version],
+    () => versions.data?.find((v) => v.version === entry.data?.version),
+    [versions.data, entry.data?.version],
   );
 
   const prepared = useMemo(() => {
-    if (!session.data || !version) return null;
-    const s = session.data;
-    const defaults: SessionFormValues = {
-      answers: answerValuesFromSession(version.questions, s.answers),
+    if (!entry.data || !version) return null;
+    const s = entry.data;
+    const defaults: EntryFormValues = {
+      answers: answerValuesFromEntry(version.questions, s.answers),
       captured_at: toLocalInputValue(new Date(s.captured_at)),
       source: s.source,
       notes: s.notes,
     };
-    return { defaults, allowArchived: archivedValuesInSession(version.questions, s.answers) };
-  }, [session.data, version]);
+    return { defaults, allowArchived: archivedValuesInEntry(version.questions, s.answers) };
+  }, [entry.data, version]);
 
-  const back = `${base}/sessions`;
+  const back = `${base}/entries`;
 
-  if (session.isPending || versions.isPending) {
+  if (entry.isPending || versions.isPending) {
     return (
       <>
         <TopBar back={back} title="Edit entry" />
@@ -58,14 +55,14 @@ export function SessionEditPage() {
       </>
     );
   }
-  if (session.isError || versions.isError || !prepared || !version) {
+  if (entry.isError || versions.isError || !prepared || !version) {
     return (
       <>
         <TopBar back={back} title="Edit entry" />
         <Page>
           <Banner title="Could not load this entry">
-            {session.error
-              ? errorMessage(session.error)
+            {entry.error
+              ? errorMessage(entry.error)
               : versions.error
                 ? errorMessage(versions.error)
                 : 'Its topic version could not be found.'}
@@ -75,7 +72,7 @@ export function SessionEditPage() {
     );
   }
 
-  const s = session.data;
+  const s = entry.data;
   const outdated = s.version !== topic.current_version;
 
   return (
@@ -85,15 +82,15 @@ export function SessionEditPage() {
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
           <VersionTag version={s.version} />
           <Badge>{s.channel}</Badge>
-          <span>recorded {formatDateTime(s.created_at)}</span>
+          <span>logged {formatDateTime(s.created_at)}</span>
         </div>
         {outdated ? (
-          <Banner tone="info" title={`Recorded against version ${s.version}`}>
+          <Banner tone="info" title={`Logged against version ${s.version}`}>
             Validated with that version’s questions so historic answers stay consistent.
           </Banner>
         ) : null}
 
-        <SessionForm
+        <EntryForm
           key={s.updated_at}
           questions={version.questions}
           defaultValues={prepared.defaults}
@@ -119,7 +116,7 @@ export function SessionEditPage() {
           )}
           onSubmit={async (v, { allowNavigation }) => {
             await update.mutateAsync({
-              path: { session_id: s.id },
+              path: { entry_id: s.id },
               body: {
                 // every key of the version: null clears a previously-set answer
                 answers: v.answers,

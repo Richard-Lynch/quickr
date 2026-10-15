@@ -2,22 +2,22 @@ import { QueryClient, type InfiniteData } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  getSessionQueryKey,
+  getEntryQueryKey,
   getTopicQueryKey,
-  listSessionsInfiniteQueryKey,
+  listEntriesInfiniteQueryKey,
   listTopicsInfiniteQueryKey,
 } from '../client/@tanstack/react-query.gen';
-import type { SessionOut, SessionPage, TopicDetail, TopicPage } from '../client';
+import type { EntryOut, EntryPage, TopicDetail, TopicPage } from '../client';
 import { scheduleUndoable } from '../lib/undo';
 import {
-  patchSessions,
+  patchEntries,
   patchTopics,
-  prependSession,
+  prependEntry,
   restoreSnapshot,
   snapshotOperations,
   topicIs,
 } from './cache';
-import { applySessionUpdate } from './mutations';
+import { applyEntryUpdate } from './mutations';
 
 const topic = {
   id: 't1',
@@ -27,15 +27,18 @@ const topic = {
   status: 'active',
   current_version: 1,
   question_count: 1,
-  session_count: 2,
+  entry_count: 2,
   last_captured_at: '2026-01-01T00:00:00Z',
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
   archived_at: null,
+  schedule: null,
+  schedule_updated_at: null,
+  due: null,
   questions: [],
 } satisfies TopicDetail;
 
-const session = (id: string, value = 1): SessionOut => ({
+const entry = (id: string, value = 1): EntryOut => ({
   id,
   topic_id: 't1',
   version: 1,
@@ -57,23 +60,23 @@ function seed() {
     pageParams: [0],
   });
   qc.setQueryData(getTopicQueryKey({ path: { ref: 'sleep' } }), topic);
-  const sessionsKey = listSessionsInfiniteQueryKey({ path: { ref: 'sleep' } });
-  qc.setQueryData<InfiniteData<SessionPage>>(sessionsKey, {
-    pages: [{ items: [session('a'), session('b')], total: 2, limit: 25, offset: 0 }],
+  const entriesKey = listEntriesInfiniteQueryKey({ path: { ref: 'sleep' } });
+  qc.setQueryData<InfiniteData<EntryPage>>(entriesKey, {
+    pages: [{ items: [entry('a'), entry('b')], total: 2, limit: 25, offset: 0 }],
     pageParams: [0],
   });
-  return { qc, topicsKey, sessionsKey };
+  return { qc, topicsKey, entriesKey };
 }
 
 describe('optimistic cache helpers', () => {
   it('patches a topic in lists and details, and can drop it from lists', () => {
     const { qc, topicsKey } = seed();
-    patchTopics(qc, topicIs({ slug: 'sleep' }), (t) => ({ session_count: t.session_count + 1 }));
+    patchTopics(qc, topicIs({ slug: 'sleep' }), (t) => ({ entry_count: t.entry_count + 1 }));
     expect(
       qc.getQueryData<TopicDetail>(getTopicQueryKey({ path: { ref: 'sleep' } })),
-    ).toMatchObject({ session_count: 3 });
+    ).toMatchObject({ entry_count: 3 });
     const list = qc.getQueryData<InfiniteData<TopicPage>>(topicsKey);
-    expect(list?.pages[0]?.items[0]?.session_count).toBe(3);
+    expect(list?.pages[0]?.items[0]?.entry_count).toBe(3);
     patchTopics(qc, topicIs({ id: 't1' }), () => null);
     expect(qc.getQueryData<InfiniteData<TopicPage>>(topicsKey)?.pages[0]).toMatchObject({
       items: [],
@@ -81,38 +84,38 @@ describe('optimistic cache helpers', () => {
     });
   });
 
-  it('removes / prepends sessions and restores a snapshot', () => {
-    const { qc, sessionsKey } = seed();
-    const snap = snapshotOperations(qc, ['listSessions', 'listTopics', 'getTopic']);
-    patchSessions(qc, (s) => (s.id === 'a' ? null : s));
-    expect(qc.getQueryData<InfiniteData<SessionPage>>(sessionsKey)?.pages[0]).toMatchObject({
+  it('removes / prepends entries and restores a snapshot', () => {
+    const { qc, entriesKey } = seed();
+    const snap = snapshotOperations(qc, ['listEntries', 'listTopics', 'getTopic']);
+    patchEntries(qc, (s) => (s.id === 'a' ? null : s));
+    expect(qc.getQueryData<InfiniteData<EntryPage>>(entriesKey)?.pages[0]).toMatchObject({
       total: 1,
       items: [{ id: 'b' }],
     });
-    prependSession(qc, topic, session('new'));
-    prependSession(qc, topic, session('new')); // idempotent
+    prependEntry(qc, topic, entry('new'));
+    prependEntry(qc, topic, entry('new')); // idempotent
     expect(
-      qc.getQueryData<InfiniteData<SessionPage>>(sessionsKey)?.pages[0]?.items.map((s) => s.id),
+      qc.getQueryData<InfiniteData<EntryPage>>(entriesKey)?.pages[0]?.items.map((s) => s.id),
     ).toEqual(['new', 'b']);
     restoreSnapshot(qc, snap);
     expect(
-      qc.getQueryData<InfiniteData<SessionPage>>(sessionsKey)?.pages[0]?.items.map((s) => s.id),
+      qc.getQueryData<InfiniteData<EntryPage>>(entriesKey)?.pages[0]?.items.map((s) => s.id),
     ).toEqual(['a', 'b']);
   });
 
-  it('applies session updates locally (answers merge, null clears)', () => {
-    const s = session('a', 7);
-    expect(applySessionUpdate(s, { answers: { hours: 8 }, notes: 'n' })).toMatchObject({
+  it('applies entry updates locally (answers merge, null clears)', () => {
+    const s = entry('a', 7);
+    expect(applyEntryUpdate(s, { answers: { hours: 8 }, notes: 'n' })).toMatchObject({
       notes: 'n',
       answers: [{ key: 'hours', value: 8 }],
     });
-    expect(applySessionUpdate(s, { answers: { hours: null } }).answers).toEqual([]);
+    expect(applyEntryUpdate(s, { answers: { hours: null } }).answers).toEqual([]);
     const qc = new QueryClient();
-    qc.setQueryData(getSessionQueryKey({ path: { session_id: 'a' } }), s);
-    patchSessions(qc, (x) => applySessionUpdate(x, { source: 'watch' }));
-    expect(
-      qc.getQueryData<SessionOut>(getSessionQueryKey({ path: { session_id: 'a' } }))?.source,
-    ).toBe('watch');
+    qc.setQueryData(getEntryQueryKey({ path: { entry_id: 'a' } }), s);
+    patchEntries(qc, (x) => applyEntryUpdate(x, { source: 'watch' }));
+    expect(qc.getQueryData<EntryOut>(getEntryQueryKey({ path: { entry_id: 'a' } }))?.source).toBe(
+      'watch',
+    );
   });
 });
 

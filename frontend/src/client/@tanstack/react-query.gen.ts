@@ -3,8 +3,8 @@
 import { type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { archiveTopic, checkTopicVersion, createSession, createTopic, deleteSession, deleteTopic, exportSessionsCsv, getQuestionSeries, getSession, getTopic, getTopicStats, health, listQuestionTypes, listSessions, listTopics, listTopicVersions, type Options, publishTopicVersion, unarchiveTopic, updateSession, updateTopic } from '../sdk.gen';
-import type { ArchiveTopicData, ArchiveTopicError, ArchiveTopicResponse, CheckTopicVersionData, CheckTopicVersionError, CheckTopicVersionResponse, CreateSessionData, CreateSessionError, CreateSessionResponse, CreateTopicData, CreateTopicError, CreateTopicResponse, DeleteSessionData, DeleteSessionError, DeleteSessionResponse, DeleteTopicData, DeleteTopicError, DeleteTopicResponse, ExportSessionsCsvData, ExportSessionsCsvError, ExportSessionsCsvResponse, GetQuestionSeriesData, GetQuestionSeriesError, GetQuestionSeriesResponse, GetSessionData, GetSessionError, GetSessionResponse, GetTopicData, GetTopicError, GetTopicResponse, GetTopicStatsData, GetTopicStatsError, GetTopicStatsResponse, HealthData, HealthError, HealthResponse, ListQuestionTypesData, ListQuestionTypesError, ListQuestionTypesResponse, ListSessionsData, ListSessionsError, ListSessionsResponse, ListTopicsData, ListTopicsError, ListTopicsResponse, ListTopicVersionsData, ListTopicVersionsError, ListTopicVersionsResponse, PublishTopicVersionData, PublishTopicVersionError, PublishTopicVersionResponse, UnarchiveTopicData, UnarchiveTopicError, UnarchiveTopicResponse, UpdateSessionData, UpdateSessionError, UpdateSessionResponse, UpdateTopicData, UpdateTopicError, UpdateTopicResponse } from '../types.gen';
+import { archiveTopic, checkTopicVersion, createEntry, createPushSubscription, createTopic, deleteEntry, deletePushSubscription, deleteTopic, exportEntriesCsv, getEntry, getLimits, getPushConfig, getQuestionSeries, getTopic, getTopicStats, health, listEntries, listQuestionTypes, listTopics, listTopicVersions, type Options, publishTopicVersion, sendTestPush, unarchiveTopic, updateEntry, updateTopic } from '../sdk.gen';
+import type { ArchiveTopicData, ArchiveTopicError, ArchiveTopicResponse, CheckTopicVersionData, CheckTopicVersionError, CheckTopicVersionResponse, CreateEntryData, CreateEntryError, CreateEntryResponse, CreatePushSubscriptionData, CreatePushSubscriptionError, CreatePushSubscriptionResponse, CreateTopicData, CreateTopicError, CreateTopicResponse, DeleteEntryData, DeleteEntryError, DeleteEntryResponse, DeletePushSubscriptionData, DeletePushSubscriptionError, DeletePushSubscriptionResponse, DeleteTopicData, DeleteTopicError, DeleteTopicResponse, ExportEntriesCsvData, ExportEntriesCsvError, ExportEntriesCsvResponse, GetEntryData, GetEntryError, GetEntryResponse, GetLimitsData, GetLimitsError, GetLimitsResponse, GetPushConfigData, GetPushConfigError, GetPushConfigResponse, GetQuestionSeriesData, GetQuestionSeriesError, GetQuestionSeriesResponse, GetTopicData, GetTopicError, GetTopicResponse, GetTopicStatsData, GetTopicStatsError, GetTopicStatsResponse, HealthData, HealthError, HealthResponse, ListEntriesData, ListEntriesError, ListEntriesResponse, ListQuestionTypesData, ListQuestionTypesError, ListQuestionTypesResponse, ListTopicsData, ListTopicsError, ListTopicsResponse, ListTopicVersionsData, ListTopicVersionsError, ListTopicVersionsResponse, PublishTopicVersionData, PublishTopicVersionError, PublishTopicVersionResponse, SendTestPushData, SendTestPushError, SendTestPushResponse, UnarchiveTopicData, UnarchiveTopicError, UnarchiveTopicResponse, UpdateEntryData, UpdateEntryError, UpdateEntryResponse, UpdateTopicData, UpdateTopicError, UpdateTopicResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -75,6 +75,26 @@ export const listQuestionTypesOptions = (options?: Options<ListQuestionTypesData
         return data;
     },
     queryKey: listQuestionTypesQueryKey(options)
+});
+
+export const getLimitsQueryKey = (options?: Options<GetLimitsData>) => createQueryKey('getLimits', options);
+
+/**
+ * Limits
+ *
+ * Validation ceilings (lengths, counts, ranges) so clients can mirror server-side validation.
+ */
+export const getLimitsOptions = (options?: Options<GetLimitsData>) => queryOptions<GetLimitsResponse, GetLimitsError, GetLimitsResponse, ReturnType<typeof getLimitsQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getLimits({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getLimitsQueryKey(options)
 });
 
 export const listTopicsQueryKey = (options?: Options<ListTopicsData>) => createQueryKey('listTopics', options);
@@ -313,14 +333,14 @@ export const checkTopicVersionMutation = (options?: Partial<Options<CheckTopicVe
     return mutationOptions;
 };
 
-export const listSessionsQueryKey = (options: Options<ListSessionsData>) => createQueryKey('listSessions', options);
+export const listEntriesQueryKey = (options: Options<ListEntriesData>) => createQueryKey('listEntries', options);
 
 /**
- * List Sessions
+ * List Entries
  */
-export const listSessionsOptions = (options: Options<ListSessionsData>) => queryOptions<ListSessionsResponse, ListSessionsError, ListSessionsResponse, ReturnType<typeof listSessionsQueryKey>>({
+export const listEntriesOptions = (options: Options<ListEntriesData>) => queryOptions<ListEntriesResponse, ListEntriesError, ListEntriesResponse, ReturnType<typeof listEntriesQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
-        const { data } = await listSessions({
+        const { data } = await listEntries({
             ...options,
             ...queryKey[0],
             signal,
@@ -328,27 +348,27 @@ export const listSessionsOptions = (options: Options<ListSessionsData>) => query
         });
         return data;
     },
-    queryKey: listSessionsQueryKey(options)
+    queryKey: listEntriesQueryKey(options)
 });
 
-export const listSessionsInfiniteQueryKey = (options: Options<ListSessionsData>): QueryKey<Options<ListSessionsData>> => createQueryKey('listSessions', options, true);
+export const listEntriesInfiniteQueryKey = (options: Options<ListEntriesData>): QueryKey<Options<ListEntriesData>> => createQueryKey('listEntries', options, true);
 
 /**
- * List Sessions
+ * List Entries
  */
-export const listSessionsInfiniteOptions = (options: Options<ListSessionsData>) => {
-    const opts = infiniteQueryOptions<ListSessionsResponse, ListSessionsError, InfiniteData<ListSessionsResponse>, QueryKey<Options<ListSessionsData>>, number | Pick<QueryKey<Options<ListSessionsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
+export const listEntriesInfiniteOptions = (options: Options<ListEntriesData>) => {
+    const opts = infiniteQueryOptions<ListEntriesResponse, ListEntriesError, InfiniteData<ListEntriesResponse>, QueryKey<Options<ListEntriesData>>, number | Pick<QueryKey<Options<ListEntriesData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
     // @ts-ignore
     {
         queryFn: async ({ pageParam, queryKey, signal }) => {
             // @ts-ignore
-            const page: Pick<QueryKey<Options<ListSessionsData>>[0], 'body' | 'headers' | 'path' | 'query'> = typeof pageParam === 'object' ? pageParam : {
+            const page: Pick<QueryKey<Options<ListEntriesData>>[0], 'body' | 'headers' | 'path' | 'query'> = typeof pageParam === 'object' ? pageParam : {
                 query: {
                     offset: pageParam
                 }
             };
             const params = createInfiniteParams(queryKey, page);
-            const { data } = await listSessions({
+            const { data } = await listEntries({
                 ...options,
                 ...params,
                 signal,
@@ -356,18 +376,18 @@ export const listSessionsInfiniteOptions = (options: Options<ListSessionsData>) 
             });
             return data;
         },
-        queryKey: listSessionsInfiniteQueryKey(options)
+        queryKey: listEntriesInfiniteQueryKey(options)
     });
     return opts as Omit<typeof opts, 'initialData'>;
 };
 
 /**
- * Create Session
+ * Create Entry
  */
-export const createSessionMutation = (options?: Partial<Options<CreateSessionData>>): UseMutationOptions<CreateSessionResponse, CreateSessionError, Options<CreateSessionData>> => {
-    const mutationOptions: UseMutationOptions<CreateSessionResponse, CreateSessionError, Options<CreateSessionData>> = {
+export const createEntryMutation = (options?: Partial<Options<CreateEntryData>>): UseMutationOptions<CreateEntryResponse, CreateEntryError, Options<CreateEntryData>> => {
+    const mutationOptions: UseMutationOptions<CreateEntryResponse, CreateEntryError, Options<CreateEntryData>> = {
         mutationFn: async (fnOptions) => {
-            const { data } = await createSession({
+            const { data } = await createEntry({
                 ...options,
                 ...fnOptions,
                 throwOnError: true
@@ -378,14 +398,14 @@ export const createSessionMutation = (options?: Partial<Options<CreateSessionDat
     return mutationOptions;
 };
 
-export const exportSessionsCsvQueryKey = (options: Options<ExportSessionsCsvData>) => createQueryKey('exportSessionsCsv', options);
+export const exportEntriesCsvQueryKey = (options: Options<ExportEntriesCsvData>) => createQueryKey('exportEntriesCsv', options);
 
 /**
- * Export Sessions
+ * Export Entries
  */
-export const exportSessionsCsvOptions = (options: Options<ExportSessionsCsvData>) => queryOptions<ExportSessionsCsvResponse, ExportSessionsCsvError, ExportSessionsCsvResponse, ReturnType<typeof exportSessionsCsvQueryKey>>({
+export const exportEntriesCsvOptions = (options: Options<ExportEntriesCsvData>) => queryOptions<ExportEntriesCsvResponse, ExportEntriesCsvError, ExportEntriesCsvResponse, ReturnType<typeof exportEntriesCsvQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
-        const { data } = await exportSessionsCsv({
+        const { data } = await exportEntriesCsv({
             ...options,
             ...queryKey[0],
             signal,
@@ -393,16 +413,16 @@ export const exportSessionsCsvOptions = (options: Options<ExportSessionsCsvData>
         });
         return data;
     },
-    queryKey: exportSessionsCsvQueryKey(options)
+    queryKey: exportEntriesCsvQueryKey(options)
 });
 
 /**
- * Delete Session
+ * Delete Entry
  */
-export const deleteSessionMutation = (options?: Partial<Options<DeleteSessionData>>): UseMutationOptions<DeleteSessionResponse, DeleteSessionError, Options<DeleteSessionData>> => {
-    const mutationOptions: UseMutationOptions<DeleteSessionResponse, DeleteSessionError, Options<DeleteSessionData>> = {
+export const deleteEntryMutation = (options?: Partial<Options<DeleteEntryData>>): UseMutationOptions<DeleteEntryResponse, DeleteEntryError, Options<DeleteEntryData>> => {
+    const mutationOptions: UseMutationOptions<DeleteEntryResponse, DeleteEntryError, Options<DeleteEntryData>> = {
         mutationFn: async (fnOptions) => {
-            const { data } = await deleteSession({
+            const { data } = await deleteEntry({
                 ...options,
                 ...fnOptions,
                 throwOnError: true
@@ -413,14 +433,14 @@ export const deleteSessionMutation = (options?: Partial<Options<DeleteSessionDat
     return mutationOptions;
 };
 
-export const getSessionQueryKey = (options: Options<GetSessionData>) => createQueryKey('getSession', options);
+export const getEntryQueryKey = (options: Options<GetEntryData>) => createQueryKey('getEntry', options);
 
 /**
- * Get Session
+ * Get Entry
  */
-export const getSessionOptions = (options: Options<GetSessionData>) => queryOptions<GetSessionResponse, GetSessionError, GetSessionResponse, ReturnType<typeof getSessionQueryKey>>({
+export const getEntryOptions = (options: Options<GetEntryData>) => queryOptions<GetEntryResponse, GetEntryError, GetEntryResponse, ReturnType<typeof getEntryQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
-        const { data } = await getSession({
+        const { data } = await getEntry({
             ...options,
             ...queryKey[0],
             signal,
@@ -428,16 +448,16 @@ export const getSessionOptions = (options: Options<GetSessionData>) => queryOpti
         });
         return data;
     },
-    queryKey: getSessionQueryKey(options)
+    queryKey: getEntryQueryKey(options)
 });
 
 /**
- * Update Session
+ * Update Entry
  */
-export const updateSessionMutation = (options?: Partial<Options<UpdateSessionData>>): UseMutationOptions<UpdateSessionResponse, UpdateSessionError, Options<UpdateSessionData>> => {
-    const mutationOptions: UseMutationOptions<UpdateSessionResponse, UpdateSessionError, Options<UpdateSessionData>> = {
+export const updateEntryMutation = (options?: Partial<Options<UpdateEntryData>>): UseMutationOptions<UpdateEntryResponse, UpdateEntryError, Options<UpdateEntryData>> => {
+    const mutationOptions: UseMutationOptions<UpdateEntryResponse, UpdateEntryError, Options<UpdateEntryData>> = {
         mutationFn: async (fnOptions) => {
-            const { data } = await updateSession({
+            const { data } = await updateEntry({
                 ...options,
                 ...fnOptions,
                 throwOnError: true
@@ -483,3 +503,80 @@ export const getQuestionSeriesOptions = (options: Options<GetQuestionSeriesData>
     },
     queryKey: getQuestionSeriesQueryKey(options)
 });
+
+export const getPushConfigQueryKey = (options?: Options<GetPushConfigData>) => createQueryKey('getPushConfig', options);
+
+/**
+ * Push Config
+ *
+ * The VAPID public key to pass to ``PushManager.subscribe({applicationServerKey})``.
+ */
+export const getPushConfigOptions = (options?: Options<GetPushConfigData>) => queryOptions<GetPushConfigResponse, GetPushConfigError, GetPushConfigResponse, ReturnType<typeof getPushConfigQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getPushConfig({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getPushConfigQueryKey(options)
+});
+
+/**
+ * Create Push Subscription
+ *
+ * Register (or refresh, keyed by endpoint) a browser push subscription.
+ */
+export const createPushSubscriptionMutation = (options?: Partial<Options<CreatePushSubscriptionData>>): UseMutationOptions<CreatePushSubscriptionResponse, CreatePushSubscriptionError, Options<CreatePushSubscriptionData>> => {
+    const mutationOptions: UseMutationOptions<CreatePushSubscriptionResponse, CreatePushSubscriptionError, Options<CreatePushSubscriptionData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await createPushSubscription({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Delete Push Subscription
+ *
+ * Remove a subscription by endpoint (idempotent). POST because DELETE bodies are poorly supported.
+ */
+export const deletePushSubscriptionMutation = (options?: Partial<Options<DeletePushSubscriptionData>>): UseMutationOptions<DeletePushSubscriptionResponse, DeletePushSubscriptionError, Options<DeletePushSubscriptionData>> => {
+    const mutationOptions: UseMutationOptions<DeletePushSubscriptionResponse, DeletePushSubscriptionError, Options<DeletePushSubscriptionData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await deletePushSubscription({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Send Test Push
+ *
+ * Send a test notification to every subscription.
+ */
+export const sendTestPushMutation = (options?: Partial<Options<SendTestPushData>>): UseMutationOptions<SendTestPushResponse, SendTestPushError, Options<SendTestPushData>> => {
+    const mutationOptions: UseMutationOptions<SendTestPushResponse, SendTestPushError, Options<SendTestPushData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await sendTestPush({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};

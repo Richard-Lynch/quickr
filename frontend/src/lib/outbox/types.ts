@@ -36,7 +36,7 @@ export interface OutboxItem<P = unknown> {
 
 export interface OutboxRequest {
   method: 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-  /** Same-origin path, e.g. `/api/v1/topics/{ref}/sessions`. */
+  /** Same-origin path, e.g. `/api/v1/topics/{ref}/entries`. */
   url: string;
   /** JSON-serialisable body. */
   body?: unknown;

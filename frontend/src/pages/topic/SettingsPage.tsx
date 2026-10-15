@@ -173,8 +173,7 @@ function Lifecycle({ topic }: { topic: TopicDetail }) {
     <Card className="flex flex-col gap-4 p-4 sm:p-5">
       <SectionTitle>Lifecycle</SectionTitle>
       <p className="text-sm text-muted">
-        Created {formatDateTime(topic.created_at)} ·{' '}
-        {plural(topic.session_count, 'entry', 'entries')}
+        Created {formatDateTime(topic.created_at)} · {plural(topic.entry_count, 'entry', 'entries')}
         {topic.archived_at ? ` · archived ${formatDateTime(topic.archived_at)}` : ''}
       </p>
       {archived ? (
@@ -215,7 +214,7 @@ function Lifecycle({ topic }: { topic: TopicDetail }) {
         body={
           <p>
             This permanently deletes <strong className="text-ink">{topic.name}</strong>, all{' '}
-            {plural(topic.session_count, 'entry', 'entries')} and every version. There is no undo.
+            {plural(topic.entry_count, 'entry', 'entries')} and every version. There is no undo.
           </p>
         }
         confirmLabel="Delete topic"

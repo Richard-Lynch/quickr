@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  answerValuesFromSession,
-  archivedValuesInSession,
+  answerValuesFromEntry,
+  archivedValuesInEntry,
   buildAnswerSchema,
   compactAnswers,
   inputHints,
@@ -52,6 +52,9 @@ const mood: Question = {
     { value: 'meh', label: 'Meh', archived: false },
     { value: 'awful', label: 'Awful', archived: true },
   ],
+  multiple: false,
+  min_selected: null,
+  max_selected: null,
 };
 const all = [hours, wakeups, note, mood];
 
@@ -122,13 +125,13 @@ describe('helpers', () => {
     expect(parseNumberInput('')).toBeNull();
   });
 
-  it('round-trips session answers into form values', () => {
-    const values = answerValuesFromSession(all, [
+  it('round-trips entry answers into form values', () => {
+    const values = answerValuesFromEntry(all, [
       { key: 'hours', type: 'double', value: 6.5 },
       { key: 'mood', type: 'enum', value: 'awful' },
     ]);
     expect(values).toEqual({ hours: '6.5', wakeups: '', note: '', mood: 'awful' });
-    expect(archivedValuesInSession(all, [{ key: 'mood', type: 'enum', value: 'awful' }])).toEqual({
+    expect(archivedValuesInEntry(all, [{ key: 'mood', type: 'enum', value: 'awful' }])).toEqual({
       mood: 'awful',
     });
   });

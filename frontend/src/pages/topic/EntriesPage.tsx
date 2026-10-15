@@ -5,18 +5,19 @@ import { Link, useNavigate } from 'react-router';
 import { errorMessage } from '../../api/errors';
 import {
   getTopicStatsOptions,
-  listSessionsInfiniteOptions,
+  listEntriesInfiniteOptions,
   listTopicVersionsOptions,
 } from '../../client/@tanstack/react-query.gen';
-import type { SessionOut, TopicDetail, TopicVersionOut } from '../../client';
+import type { EntryOut, TopicDetail, TopicVersionOut } from '../../client';
 import { FilterBar } from '../../components/FilterBar';
 import { Button, buttonClass, ButtonLink } from '../../components/ui/Button';
 import { Badge, Banner, Card, EmptyState, VersionTag } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
 import { Skeleton } from '../../components/ui/Spinner';
 import { formatDateTime, formatRelative } from '../../lib/dates';
-import { csvHref, filterQuery, useSessionFilters } from '../../lib/filters';
-import { formatNumber, plural } from '../../lib/format';
+import { csvHref, filterQuery, useEntryFilters } from '../../lib/filters';
+import { formatAnswer } from '../../lib/answerDisplay';
+import { plural } from '../../lib/format';
 import { isEntryCreate, type EntryCreatePayload } from '../../lib/outbox/kinds';
 import type { OutboxItem } from '../../lib/outbox/types';
 import { useOutbox } from '../../lib/outbox/useOutbox';
@@ -47,31 +48,20 @@ function columnsFor(
   return [...cols.values()];
 }
 
-function display(col: Column, s: SessionOut): string | null {
+function display(col: Column, s: EntryOut): string | null {
   const a = s.answers.find((x) => x.key === col.key);
-  if (!a) return null;
-  const q = col.question;
-  switch (q.type) {
-    case 'int':
-    case 'double':
-      return typeof a.value === 'number'
-        ? `${formatNumber(a.value, q.type === 'double' ? (q.decimals ?? 3) : 0)}${q.unit ? ` ${q.unit}` : ''}`
-        : a.value;
-    case 'enum':
-      return q.options.find((o) => o.value === a.value)?.label ?? String(a.value);
-    case 'str':
-      return String(a.value);
-  }
+  return a ? formatAnswer(col.question, a) : null;
 }
 
-/** A queued (not yet synced) entry, shaped like a session so it renders the same way. */
-function pendingAsSession(item: OutboxItem<EntryCreatePayload>, topic: TopicDetail): SessionOut {
+/** A queued (not yet synced) entry, shaped like a stored one so it renders the same way. */
+function pendingAsEntry(item: OutboxItem<EntryCreatePayload>, topic: TopicDetail): EntryOut {
   const b = item.payload.body;
   const types = new Map(topic.questions.map((q) => [q.key, q.type]));
   const answers = Object.entries(b.answers).flatMap(([key, value]) => {
     const type = types.get(key);
-    return type && value !== null && value !== undefined ? [{ key, type, value }] : [];
-  }) as SessionOut['answers'];
+    if (!type || value === null || value === undefined) return [];
+    return [{ key, type: type === 'enum' && Array.isArray(value) ? 'enum_list' : type, value }];
+  }) as EntryOut['answers'];
   return {
     id: item.id,
     topic_id: topic.id,
@@ -87,11 +77,11 @@ function pendingAsSession(item: OutboxItem<EntryCreatePayload>, topic: TopicDeta
   };
 }
 
-function AnswerGrid({ columns, session }: { columns: Column[]; session: SessionOut }) {
+function AnswerGrid({ columns, entry }: { columns: Column[]; entry: EntryOut }) {
   return (
     <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
       {columns.map((c) => {
-        const v = display(c, session);
+        const v = display(c, entry);
         if (v === null) return null;
         return (
           <div key={c.key} className={c.question.type === 'str' ? 'col-span-2' : undefined}>
@@ -124,7 +114,7 @@ function PendingEntries({ topic, columns }: { topic: TopicDetail; columns: Colum
   return (
     <ul className="flex flex-col gap-3" aria-label="Not yet synced">
       {mine.map((item) => {
-        const s = pendingAsSession(item, topic);
+        const s = pendingAsEntry(item, topic);
         const failed = item.status === 'failed';
         return (
           <li key={item.id}>
@@ -158,7 +148,7 @@ function PendingEntries({ topic, columns }: { topic: TopicDetail; columns: Colum
                   </Badge>
                 )}
               </div>
-              <AnswerGrid columns={columns} session={s} />
+              <AnswerGrid columns={columns} entry={s} />
               {failed && item.last_error ? (
                 <p className="mt-3 border-t border-dashed border-danger/30 pt-2 text-sm text-danger">
                   {item.last_error.message}
@@ -172,15 +162,15 @@ function PendingEntries({ topic, columns }: { topic: TopicDetail; columns: Colum
   );
 }
 
-export function SessionsPage() {
+export function EntriesPage() {
   const topic = useTopic();
   const navigate = useNavigate();
-  const [filters, setFilters] = useSessionFilters();
+  const [filters, setFilters] = useEntryFilters();
   const fq = filterQuery(filters);
   const versions = useQuery(listTopicVersionsOptions({ path: { ref: topic.slug } }));
   const stats = useQuery(getTopicStatsOptions({ path: { ref: topic.slug } }));
-  const sessions = useInfiniteQuery({
-    ...listSessionsInfiniteOptions({
+  const entries = useInfiniteQuery({
+    ...listEntriesInfiniteOptions({
       path: { ref: topic.slug },
       query: { ...fq, limit: PAGE, order: '-captured_at' },
     }),
@@ -193,14 +183,14 @@ export function SessionsPage() {
     () => columnsFor(topic.questions, versions.data),
     [topic.questions, versions.data],
   );
-  const items = sessions.data?.pages.flatMap((p) => p.items) ?? [];
-  const total = sessions.data?.pages[0]?.total ?? 0;
+  const items = entries.data?.pages.flatMap((p) => p.items) ?? [];
+  const total = entries.data?.pages[0]?.total ?? 0;
   const outbox = useOutbox();
   const queuedHere = outbox.items.filter(
     (i) => isEntryCreate(i) && i.payload.topic.id === topic.id,
   ).length;
   const base = `/t/${topic.slug}`;
-  const open = (s: SessionOut) => void navigate(`${base}/sessions/${s.id}`);
+  const open = (s: EntryOut) => void navigate(`${base}/entries/${s.id}`);
 
   return (
     <>
@@ -222,16 +212,16 @@ export function SessionsPage() {
       </div>
 
       <p className="-mt-2 text-sm text-muted" aria-live="polite">
-        {sessions.isSuccess
+        {entries.isSuccess
           ? `${plural(total, 'entry', 'entries')}${queuedHere ? ` · ${queuedHere} not synced yet` : ''}`
           : ' '}
       </p>
 
       <PendingEntries topic={topic} columns={columns} />
 
-      {sessions.isError ? (
-        <Banner title="Could not load entries">{errorMessage(sessions.error)}</Banner>
-      ) : sessions.isPending ? (
+      {entries.isError ? (
+        <Banner title="Could not load entries">{errorMessage(entries.error)}</Banner>
+      ) : entries.isPending ? (
         <div className="flex flex-col gap-3">
           {Array.from({ length: 4 }, (_, i) => (
             <Skeleton key={i} className="h-28 rounded-card" />
@@ -239,17 +229,17 @@ export function SessionsPage() {
         </div>
       ) : items.length === 0 && queuedHere > 0 ? null : items.length === 0 ? (
         <EmptyState
-          title={topic.session_count === 0 ? 'No entries yet' : 'No entries match'}
+          title={topic.entry_count === 0 ? 'No entries yet' : 'No entries match'}
           action={
             topic.status === 'active' ? (
               <ButtonLink to={`${base}/record`} variant="primary" icon={<Icon name="plus" />}>
-                Record one
+                Log one
               </ButtonLink>
             ) : null
           }
         >
-          {topic.session_count === 0
-            ? 'Entries you record show up here.'
+          {topic.entry_count === 0
+            ? 'Entries you log show up here.'
             : 'Try a wider date range or clear the filters.'}
         </EmptyState>
       ) : (
@@ -261,7 +251,7 @@ export function SessionsPage() {
                 <Card className="relative p-4 active:scale-[0.99]">
                   <div className="mb-3 flex items-center gap-2">
                     <Link
-                      to={`${base}/sessions/${s.id}`}
+                      to={`${base}/entries/${s.id}`}
                       className="min-w-0 flex-1 truncate font-semibold after:absolute after:inset-0"
                     >
                       {formatDateTime(s.captured_at)}
@@ -271,7 +261,7 @@ export function SessionsPage() {
                     ) : null}
                     <Icon name="chevronRight" className="size-4 text-muted" />
                   </div>
-                  <AnswerGrid columns={columns} session={s} />
+                  <AnswerGrid columns={columns} entry={s} />
                   {s.notes ? (
                     <p className="mt-3 line-clamp-2 border-t border-dashed border-line pt-2 text-sm text-ink-soft">
                       {s.notes}
@@ -345,7 +335,7 @@ export function SessionsPage() {
                     <td className="px-3 py-3 font-mono text-muted">{s.version}</td>
                     <td className="pr-3">
                       <Link
-                        to={`${base}/sessions/${s.id}`}
+                        to={`${base}/entries/${s.id}`}
                         onClick={(e) => e.stopPropagation()}
                         className="grid size-8 place-items-center rounded-full text-muted hover:bg-surface hover:text-ink"
                         aria-label={`Edit entry from ${formatDateTime(s.captured_at)}`}
@@ -359,11 +349,11 @@ export function SessionsPage() {
             </table>
           </Card>
 
-          {sessions.hasNextPage ? (
+          {entries.hasNextPage ? (
             <div className="flex justify-center">
               <Button
-                onClick={() => void sessions.fetchNextPage()}
-                loading={sessions.isFetchingNextPage}
+                onClick={() => void entries.fetchNextPage()}
+                loading={entries.isFetchingNextPage}
               >
                 Load more
               </Button>
