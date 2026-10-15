@@ -37,7 +37,7 @@ export function OptionsEditor({ index }: { index: number }) {
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between">
         <span className="text-sm font-semibold text-ink-soft">Options</span>
-        <span className="text-xs text-muted">≤ 6 render as chips, more as a dropdown</span>
+        <span className="text-xs text-muted">≤ 6 show as chips (multi-select: always)</span>
       </div>
       <ul className="flex flex-col gap-2">
         {fields.map((f, i) => {

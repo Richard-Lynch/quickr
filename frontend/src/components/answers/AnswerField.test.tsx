@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
 
+import type { AnswerInput } from '../../lib/answerSchema';
 import type { Question } from '../../lib/questions';
 import { AnswerField } from './AnswerField';
 
@@ -33,12 +34,12 @@ const water: Question = {
   unit: 'glasses',
 };
 
-function Harness({ question, initial = '' }: { question: Question; initial?: string }) {
-  const [value, setValue] = useState(initial);
+function Harness({ question, initial = '' }: { question: Question; initial?: AnswerInput }) {
+  const [value, setValue] = useState<AnswerInput>(initial);
   return (
     <>
       <AnswerField question={question} value={value} onChange={setValue} />
-      <output data-testid="value">{value}</output>
+      <output data-testid="value">{Array.isArray(value) ? value.join(',') : value}</output>
     </>
   );
 }
@@ -58,7 +59,9 @@ describe('AnswerField', () => {
   });
 
   it('keeps an archived value selectable when editing an entry that holds it', () => {
-    render(<AnswerField question={mood} value="old" onChange={() => undefined} keepValue="old" />);
+    render(
+      <AnswerField question={mood} value="old" onChange={() => undefined} keepValues={['old']} />,
+    );
     expect(screen.getByRole('radio', { name: /Old \(retired\)/ })).toHaveAttribute(
       'aria-checked',
       'true',

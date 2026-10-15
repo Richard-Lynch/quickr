@@ -15,6 +15,7 @@ import {
 import { deleteEntry } from '../client/sdk.gen';
 import type { EntryOut, EntryUpdate, TopicDetail, TopicSummary } from '../client';
 import { useToast } from '../components/ui/Toast';
+import type { ScheduleInput, ScheduleOutput } from '../lib/schedule';
 import { scheduleUndoable, UNDO_WINDOW_MS } from '../lib/undo';
 import {
   cancelOperations,
@@ -155,6 +156,66 @@ export function useSetTopicArchived() {
     }
   };
   return { run, isPending: archive.isPending || unarchive.isPending };
+}
+
+/**
+ * Schedule changes show immediately (the schedule text, the "Due now" section loses a
+ * topic whose schedule was removed); the server's due status replaces ours on success.
+ */
+export function useUpdateTopicSchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    ...updateTopicMutation(),
+    onMutate: async (vars): Promise<Ctx> => {
+      await cancelOperations(qc, TOPIC_OPS);
+      const snap = snapshotOperations(qc, TOPIC_OPS);
+      const { schedule } = vars.body;
+      if (schedule !== undefined) {
+        patchTopics(qc, topicIs({ slug: vars.path.ref, id: vars.path.ref }), (t) => ({
+          schedule: schedule === null ? null : scheduleOutputOf(schedule),
+          // A new/changed schedule is never due right away (see README "Schedules").
+          due:
+            schedule === null
+              ? null
+              : t.due
+                ? { ...t.due, is_due: false, due_since: null }
+                : { is_due: false, due_since: null, next_due_at: null, last_entry_at: null },
+        }));
+      }
+      return { snap };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx) restoreSnapshot(qc, ctx.snap);
+    },
+    onSuccess: (updated) => {
+      setTopicDetail(qc, updated);
+      patchTopics(qc, topicIs(updated), () => ({
+        schedule: updated.schedule,
+        schedule_updated_at: updated.schedule_updated_at,
+        due: updated.due,
+      }));
+    },
+    onSettled: () => invalidateOperations(qc, TOPIC_OPS),
+  });
+}
+
+/** Fill the defaults the server would (for the optimistic copy only). */
+function scheduleOutputOf(s: ScheduleInput): ScheduleOutput {
+  if ('every_minutes' in s) {
+    return {
+      kind: 'interval',
+      every_minutes: s.every_minutes,
+      timezone: s.timezone,
+      notify: s.notify ?? true,
+    };
+  }
+  return {
+    kind: 'daily',
+    times: [...s.times].sort(),
+    days: [...(s.days ?? [1, 2, 3, 4, 5, 6, 7])].sort((a, b) => a - b),
+    timezone: s.timezone,
+    notify: s.notify ?? true,
+  };
 }
 
 /**

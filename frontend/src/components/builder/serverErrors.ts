@@ -1,6 +1,7 @@
 import type { FieldPath } from 'react-hook-form';
 
 import type { TopicDraft } from '../../lib/builder';
+import { scheduleFieldFor } from '../../lib/schedule';
 
 const TOP = new Set(['name', 'slug', 'description', 'change_note']);
 
@@ -11,6 +12,14 @@ const TOP = new Set(['name', 'slug', 'description', 'change_note']);
  */
 export function builderFieldFor(path: string, draft: TopicDraft): FieldPath<TopicDraft> | null {
   if (TOP.has(path)) return path as FieldPath<TopicDraft>;
+  if (path === 'schedule' || path.startsWith('schedule.')) {
+    const f = scheduleFieldFor(path);
+    if (!f) return null;
+    const t = /^schedule\.times\.(\d+)\.value$/.exec(f);
+    // A time index the draft doesn't have (shouldn't happen) lights up the list.
+    if (t && !draft.schedule.times[Number(t[1])]) return 'schedule.times';
+    return f as FieldPath<TopicDraft>;
+  }
   if (path === 'questions') return 'questions';
   const m = /^questions\.(\d+)(?:\.(.+))?$/.exec(path);
   if (!m) return null;
