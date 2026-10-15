@@ -22,13 +22,24 @@ services:
     environment:
       QUICKR_DATABASE_URL: postgresql+asyncpg://quickr:quickr@db:5432/quickr
       QUICKR_CORS_ORIGINS: '["http://localhost:8080","http://localhost:5180"]'
+      # Web Push. Without keys, a pair is generated once and stored in the database.
+      QUICKR_VAPID_PRIVATE_KEY: ${QUICKR_VAPID_PRIVATE_KEY:-}
+      QUICKR_VAPID_PUBLIC_KEY: ${QUICKR_VAPID_PUBLIC_KEY:-}
+      QUICKR_VAPID_SUBJECT: ${QUICKR_VAPID_SUBJECT:-mailto:admin@localhost}
+      QUICKR_SCHEDULER_ENABLED: ${QUICKR_SCHEDULER_ENABLED:-true}
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "${QUICKR_API_PORT:-8100}:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/v1/health')",
+        ]
       interval: 5s
       timeout: 3s
       retries: 20

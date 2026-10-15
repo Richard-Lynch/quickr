@@ -21,14 +21,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_engine, get_sessionmaker
 from app.models import Channel, Topic
-from app.schemas.api import EntryCreate, TopicCreate
+from app.schemas.api import DailySchedule, EntryCreate, IntervalSchedule, Schedule, TopicCreate
 from app.schemas.questions import AnswerValue, Question
 from app.services import entries as entry_svc
 from app.services import topics as topic_svc
 
 _questions: TypeAdapter[list[Question]] = TypeAdapter(list[Question])
+_schedule: TypeAdapter[DailySchedule | IntervalSchedule] = TypeAdapter(Schedule)
 
 Answers = dict[str, AnswerValue | None]
+TIMEZONE = "Europe/London"
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,7 @@ class Demo:
     questions: list[dict[str, Any]]
     # (rng, day) -> list of (hour offset within the day, answers, notes)
     entries: Callable[[random.Random, datetime], list[tuple[float, Answers, str]]]
+    schedule: dict[str, Any] | None = None
 
 
 def _sleep(rng: random.Random, _day: datetime) -> list[tuple[float, Answers, str]]:
@@ -46,7 +49,17 @@ def _sleep(rng: random.Random, _day: datetime) -> list[tuple[float, Answers, str
     wakeups = max(0, int(rng.gauss(1.2, 1.0)))
     quality = "great" if hours >= 8 and wakeups == 0 else "poor" if hours < 6 or wakeups >= 3 else "ok"
     dream = rng.choice([None, None, None, "Flying over the city", "Late for an exam", "Back at school"])
-    return [(7.5, {"hours": hours, "wakeups": wakeups, "quality": quality, "dream": dream}, "")]
+    factors = rng.sample(
+        ["caffeine", "screens", "stress", "alcohol", "late_meal"], k=rng.choice([0, 1, 1, 2, 3])
+    )
+    answers: Answers = {
+        "hours": hours,
+        "wakeups": wakeups,
+        "quality": quality,
+        "factors": factors,
+        "dream": dream,
+    }
+    return [(7.5, answers, "")]
 
 
 def _workout(rng: random.Random, day: datetime) -> list[tuple[float, Answers, str]]:
@@ -65,7 +78,7 @@ def _workout(rng: random.Random, day: datetime) -> list[tuple[float, Answers, st
 
 def _mood(rng: random.Random, _day: datetime) -> list[tuple[float, Answers, str]]:
     out: list[tuple[float, Answers, str]] = []
-    for hour in (9.0, 21.0) if rng.random() < 0.6 else (13.0,):
+    for hour in (8.0, 21.0) if rng.random() < 0.6 else (13.0,):
         mood = min(5, max(1, round(rng.gauss(3.6, 0.9))))
         energy = "high" if mood >= 4 and rng.random() < 0.6 else "low" if mood <= 2 else "medium"
         note = rng.choice([None, None, "Busy day at work", "Coffee with a friend", "Tired"])
@@ -99,9 +112,25 @@ DEMOS = [
                     {"value": "great", "label": "Great"},
                 ],
             },
+            {
+                "key": "factors",
+                "label": "What affected your sleep?",
+                "type": "enum",
+                "multiple": True,
+                "required": False,
+                "max_selected": 3,
+                "options": [
+                    {"value": "caffeine", "label": "Caffeine"},
+                    {"value": "screens", "label": "Screens before bed"},
+                    {"value": "stress", "label": "Stress"},
+                    {"value": "alcohol", "label": "Alcohol"},
+                    {"value": "late_meal", "label": "Late meal"},
+                ],
+            },
             {"key": "dream", "label": "Dreams", "type": "str", "required": False, "multiline": True},
         ],
         entries=_sleep,
+        schedule={"kind": "daily", "times": ["08:00"], "timezone": TIMEZONE},
     ),
     Demo(
         slug="workout",
@@ -138,6 +167,8 @@ DEMOS = [
             },
         ],
         entries=_workout,
+        # Every other day; no reminders.
+        schedule={"kind": "interval", "every_minutes": 48 * 60, "timezone": TIMEZONE, "notify": False},
     ),
     Demo(
         slug="mood-check-in",
@@ -158,6 +189,7 @@ DEMOS = [
             {"key": "note", "label": "What's going on?", "type": "str", "required": False, "max_length": 280},
         ],
         entries=_mood,
+        schedule={"kind": "daily", "times": ["08:00", "21:00"], "timezone": TIMEZONE},
     ),
 ]
 
@@ -178,6 +210,7 @@ async def seed(db: AsyncSession, *, days: int = 30, now: datetime | None = None)
                 slug=demo.slug,
                 description=demo.description,
                 questions=_questions.validate_python(demo.questions),
+                schedule=_schedule.validate_python(demo.schedule) if demo.schedule else None,
             ),
         )
         rng = random.Random(demo.slug)
