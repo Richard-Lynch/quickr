@@ -1,0 +1,277 @@
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { Link, useNavigate } from 'react-router';
+
+import { errorMessage } from '../../api/errors';
+import {
+  getTopicStatsOptions,
+  listSessionsInfiniteOptions,
+  listTopicVersionsOptions,
+} from '../../client/@tanstack/react-query.gen';
+import type { SessionOut, TopicVersionOut } from '../../client';
+import { FilterBar } from '../../components/FilterBar';
+import { Button, buttonClass, ButtonLink } from '../../components/ui/Button';
+import { Badge, Banner, Card, EmptyState, VersionTag } from '../../components/ui/Card';
+import { Icon } from '../../components/ui/Icon';
+import { Skeleton } from '../../components/ui/Spinner';
+import { formatDateTime, formatRelative } from '../../lib/dates';
+import { csvHref, filterQuery, useSessionFilters } from '../../lib/filters';
+import { formatNumber, plural } from '../../lib/format';
+import type { Question } from '../../lib/questions';
+import { useTopic } from './TopicLayout';
+
+const PAGE = 25;
+
+interface Column {
+  key: string;
+  label: string;
+  question: Question;
+}
+
+/** Current questions first, then historic keys (latest definition wins). */
+function columnsFor(
+  current: readonly Question[],
+  versions: readonly TopicVersionOut[] | undefined,
+): Column[] {
+  const cols = new Map<string, Column>();
+  for (const q of current) cols.set(q.key, { key: q.key, label: q.label, question: q });
+  const sorted = [...(versions ?? [])].sort((a, b) => b.version - a.version);
+  for (const v of sorted) {
+    for (const q of v.questions) {
+      if (!cols.has(q.key)) cols.set(q.key, { key: q.key, label: q.label, question: q });
+    }
+  }
+  return [...cols.values()];
+}
+
+function display(col: Column, s: SessionOut): string | null {
+  const a = s.answers.find((x) => x.key === col.key);
+  if (!a) return null;
+  const q = col.question;
+  switch (q.type) {
+    case 'int':
+    case 'double':
+      return typeof a.value === 'number'
+        ? `${formatNumber(a.value, q.type === 'double' ? (q.decimals ?? 3) : 0)}${q.unit ? ` ${q.unit}` : ''}`
+        : a.value;
+    case 'enum':
+      return q.options.find((o) => o.value === a.value)?.label ?? String(a.value);
+    case 'str':
+      return String(a.value);
+  }
+}
+
+export function SessionsPage() {
+  const topic = useTopic();
+  const navigate = useNavigate();
+  const [filters, setFilters] = useSessionFilters();
+  const fq = filterQuery(filters);
+  const versions = useQuery(listTopicVersionsOptions({ path: { ref: topic.slug } }));
+  const stats = useQuery(getTopicStatsOptions({ path: { ref: topic.slug } }));
+  const sessions = useInfiniteQuery({
+    ...listSessionsInfiniteOptions({
+      path: { ref: topic.slug },
+      query: { ...fq, limit: PAGE, order: '-captured_at' },
+    }),
+    initialPageParam: 0,
+    getNextPageParam: (last) =>
+      last.offset + last.items.length < last.total ? last.offset + last.items.length : undefined,
+  });
+
+  const columns = useMemo(
+    () => columnsFor(topic.questions, versions.data),
+    [topic.questions, versions.data],
+  );
+  const items = sessions.data?.pages.flatMap((p) => p.items) ?? [];
+  const total = sessions.data?.pages[0]?.total ?? 0;
+  const base = `/t/${topic.slug}`;
+  const open = (s: SessionOut) => void navigate(`${base}/sessions/${s.id}`);
+
+  return (
+    <>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <FilterBar
+          filters={filters}
+          onChange={setFilters}
+          versions={versions.data?.map((v) => v.version).sort((a, b) => b - a) ?? []}
+          sources={stats.data?.sources.map((s) => s.value) ?? []}
+        />
+        <a
+          href={csvHref(topic.slug, filters)}
+          download
+          className={buttonClass('secondary', 'sm', 'self-start')}
+        >
+          <Icon name="download" className="size-4" />
+          Export CSV
+        </a>
+      </div>
+
+      <p className="-mt-2 text-sm text-muted" aria-live="polite">
+        {sessions.isSuccess ? plural(total, 'entry', 'entries') : ' '}
+      </p>
+
+      {sessions.isError ? (
+        <Banner title="Could not load entries">{errorMessage(sessions.error)}</Banner>
+      ) : sessions.isPending ? (
+        <div className="flex flex-col gap-3">
+          {Array.from({ length: 4 }, (_, i) => (
+            <Skeleton key={i} className="h-28 rounded-card" />
+          ))}
+        </div>
+      ) : items.length === 0 ? (
+        <EmptyState
+          title={topic.session_count === 0 ? 'No entries yet' : 'No entries match'}
+          action={
+            topic.status === 'active' ? (
+              <ButtonLink to={`${base}/record`} variant="primary" icon={<Icon name="plus" />}>
+                Record one
+              </ButtonLink>
+            ) : null
+          }
+        >
+          {topic.session_count === 0
+            ? 'Entries you record show up here.'
+            : 'Try a wider date range or clear the filters.'}
+        </EmptyState>
+      ) : (
+        <>
+          {/* phones: cards */}
+          <ul className="flex flex-col gap-3 md:hidden">
+            {items.map((s) => (
+              <li key={s.id}>
+                <Card className="relative p-4 active:scale-[0.99]">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Link
+                      to={`${base}/sessions/${s.id}`}
+                      className="min-w-0 flex-1 truncate font-semibold after:absolute after:inset-0"
+                    >
+                      {formatDateTime(s.captured_at)}
+                    </Link>
+                    {s.version !== topic.current_version ? (
+                      <VersionTag version={s.version} />
+                    ) : null}
+                    <Icon name="chevronRight" className="size-4 text-muted" />
+                  </div>
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
+                    {columns.map((c) => {
+                      const v = display(c, s);
+                      if (v === null) return null;
+                      return (
+                        <div
+                          key={c.key}
+                          className={c.question.type === 'str' ? 'col-span-2' : undefined}
+                        >
+                          <dt className="truncate text-xs text-muted">{c.label}</dt>
+                          <dd
+                            className={
+                              c.question.type === 'str'
+                                ? 'line-clamp-2 text-sm'
+                                : 'font-mono text-[0.95rem] font-semibold tabular'
+                            }
+                          >
+                            {v}
+                          </dd>
+                        </div>
+                      );
+                    })}
+                  </dl>
+                  {s.notes ? (
+                    <p className="mt-3 line-clamp-2 border-t border-dashed border-line pt-2 text-sm text-ink-soft">
+                      {s.notes}
+                    </p>
+                  ) : null}
+                  <div className="mt-3 flex items-center gap-2 text-xs text-muted">
+                    <Badge>{s.source}</Badge>
+                    <span>{formatRelative(s.captured_at)}</span>
+                  </div>
+                </Card>
+              </li>
+            ))}
+          </ul>
+
+          {/* tablet / desktop: table */}
+          <Card className="hidden overflow-x-auto md:block">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-line text-xs tracking-wide text-muted uppercase">
+                <tr>
+                  <th scope="col" className="px-4 py-3 font-semibold whitespace-nowrap">
+                    Captured
+                  </th>
+                  {columns.map((c) => (
+                    <th
+                      key={c.key}
+                      scope="col"
+                      className="max-w-48 truncate px-3 py-3 font-semibold"
+                      title={c.label}
+                    >
+                      {c.label}
+                    </th>
+                  ))}
+                  <th scope="col" className="px-3 py-3 font-semibold">
+                    Source
+                  </th>
+                  <th scope="col" className="px-3 py-3 font-semibold">
+                    v
+                  </th>
+                  <th scope="col" className="w-10">
+                    <span className="sr-only">Edit</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {items.map((s) => (
+                  <tr
+                    key={s.id}
+                    className="cursor-pointer transition-colors hover:bg-sunken/60"
+                    onClick={() => open(s)}
+                  >
+                    <td className="px-4 py-3 whitespace-nowrap">{formatDateTime(s.captured_at)}</td>
+                    {columns.map((c) => {
+                      const v = display(c, s);
+                      return (
+                        <td
+                          key={c.key}
+                          className={
+                            c.question.type === 'str'
+                              ? 'max-w-56 truncate px-3 py-3'
+                              : 'px-3 py-3 font-mono font-semibold whitespace-nowrap tabular'
+                          }
+                          title={v ?? undefined}
+                        >
+                          {v ?? <span className="text-muted/60">—</span>}
+                        </td>
+                      );
+                    })}
+                    <td className="px-3 py-3 text-muted">{s.source}</td>
+                    <td className="px-3 py-3 font-mono text-muted">{s.version}</td>
+                    <td className="pr-3">
+                      <Link
+                        to={`${base}/sessions/${s.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="grid size-8 place-items-center rounded-full text-muted hover:bg-surface hover:text-ink"
+                        aria-label={`Edit entry from ${formatDateTime(s.captured_at)}`}
+                      >
+                        <Icon name="edit" className="size-4" />
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+
+          {sessions.hasNextPage ? (
+            <div className="flex justify-center">
+              <Button
+                onClick={() => void sessions.fetchNextPage()}
+                loading={sessions.isFetchingNextPage}
+              >
+                Load more
+              </Button>
+            </div>
+          ) : null}
+        </>
+      )}
+    </>
+  );
+}
