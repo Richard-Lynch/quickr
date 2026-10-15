@@ -111,7 +111,7 @@ describe('buildAnswerSchema', () => {
     expect(errors(buildAnswerSchema([mood]).safeParse({ mood: 'nope' }))).toEqual({
       mood: 'Pick one of the options',
     });
-    const allowed = buildAnswerSchema([mood], { allowArchived: { mood: 'awful' } });
+    const allowed = buildAnswerSchema([mood], { allowArchived: { mood: ['awful'] } });
     expect(allowed.safeParse({ mood: 'awful' }).data).toEqual({ mood: 'awful' });
   });
 });
@@ -132,7 +132,7 @@ describe('helpers', () => {
     ]);
     expect(values).toEqual({ hours: '6.5', wakeups: '', note: '', mood: 'awful' });
     expect(archivedValuesInEntry(all, [{ key: 'mood', type: 'enum', value: 'awful' }])).toEqual({
-      mood: 'awful',
+      mood: ['awful'],
     });
   });
 
@@ -156,7 +156,7 @@ describe('helpers', () => {
   it('hides archived options except the value being kept', () => {
     const h = inputHints(mood);
     expect(h.kind === 'chips' && h.options.map((o) => o.value)).toEqual(['good', 'meh']);
-    const kept = inputHints(mood, 'awful');
+    const kept = inputHints(mood, ['awful']);
     expect(kept.kind === 'chips' && kept.options.map((o) => o.value)).toEqual([
       'good',
       'meh',

@@ -1,26 +1,28 @@
 /**
  * Dynamic zod schema for answering a topic version's questions.
  *
- * Form state is always strings (what inputs produce; '' means "left blank").
- * The schema validates the same rules the backend enforces in
- * `services/answers.py` and transforms into the API's answer map
- * (`number | string | null` per key).
+ * Form state is what inputs produce: a string per question ('' = left blank), or a
+ * `string[]` of option values for multi-select enums ([] = nothing picked). The schema
+ * validates the same rules the backend enforces in `services/answers.py` and transforms
+ * into the API's answer map (`number | string | string[] | null` per key).
  */
 import { z } from 'zod';
 
 import type { EntryOut } from '../client';
-import { activeOptions, type Question } from './questions';
+import { activeOptions, isMultiEnum, type EnumQuestionOutput, type Question } from './questions';
 
-export type AnswerValue = number | string | null;
-export type AnswerFormValues = Record<string, string>;
+export type AnswerValue = number | string | string[] | null;
+/** Raw input for one question. */
+export type AnswerInput = string | string[];
+export type AnswerFormValues = Record<string, AnswerInput>;
 export type AnswerMap = Record<string, AnswerValue>;
 
 export interface AnswerSchemaOptions {
   /**
-   * key -> archived enum value that is still accepted (editing an entry that
-   * already holds it). Mirrors `allowed_archived` on the backend.
+   * key -> archived enum values that are still accepted (editing an entry that already
+   * holds them). Mirrors `allowed_archived` on the backend.
    */
-  allowArchived?: Readonly<Record<string, string>>;
+  allowArchived?: Readonly<Record<string, readonly string[]>>;
 }
 
 const INT_RE = /^[+-]?\d+$/;
@@ -33,11 +35,7 @@ export function parseNumberInput(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function fmtBound(n: number): string {
-  return String(n);
-}
-
-type Ctx = z.core.$RefinementCtx<string | undefined>;
+type Ctx = z.core.$RefinementCtx<AnswerInput | undefined>;
 
 function issue(ctx: Ctx, message: string): typeof z.NEVER {
   ctx.addIssue({ code: 'custom', message });
@@ -52,20 +50,68 @@ function checkRange(
   unit: string | null,
 ): number {
   const u = unit ? ` ${unit}` : '';
-  if (min !== null && n < min) return issue(ctx, `Must be at least ${fmtBound(min)}${u}`);
-  if (max !== null && n > max) return issue(ctx, `Must be at most ${fmtBound(max)}${u}`);
+  if (min !== null && n < min) return issue(ctx, `Must be at least ${String(min)}${u}`);
+  if (max !== null && n > max) return issue(ctx, `Must be at most ${String(max)}${u}`);
   return n;
+}
+
+const options = (n: number) => `${n} option${n === 1 ? '' : 's'}`;
+
+/** Selection limits of a multi-select question as the server applies them. */
+export function selectionBounds(q: EnumQuestionOutput): { min: number; max: number | null } {
+  return {
+    min: Math.max(q.required ? 1 : 0, q.min_selected ?? 0),
+    max: q.max_selected ?? null,
+  };
+}
+
+/** "Pick 1–3", "Pick at least 2", "Pick any" — shown next to multi-select chips. */
+export function selectionHint(q: EnumQuestionOutput): string {
+  const { min, max } = selectionBounds(q);
+  if (max !== null && min === max) return `Pick ${String(min)}`;
+  if (max !== null && min > 0) return `Pick ${String(min)}–${String(max)}`;
+  if (max !== null) return `Pick up to ${String(max)}`;
+  if (min > 1) return `Pick at least ${String(min)}`;
+  return 'Pick any';
+}
+
+function parseMulti(
+  q: EnumQuestionOutput,
+  raw: AnswerInput | undefined,
+  allowed: readonly string[],
+  ctx: Ctx,
+): AnswerValue {
+  const picked = (Array.isArray(raw) ? raw : raw ? [raw] : []).map((v) => v.trim()).filter(Boolean);
+  const unique = [...new Set(picked)];
+  if (unique.length === 0) {
+    if (q.required) return issue(ctx, 'Pick at least one');
+    return null;
+  }
+  for (const v of unique) {
+    const option = q.options.find((o) => o.value === v);
+    if (!option) return issue(ctx, 'Pick from the options');
+    if (option.archived && !allowed.includes(v))
+      return issue(ctx, `“${option.label}” has been retired`);
+  }
+  const { min, max } = selectionBounds(q);
+  if (unique.length < min) return issue(ctx, `Pick at least ${options(min)}`);
+  if (max !== null && unique.length > max) return issue(ctx, `Pick at most ${options(max)}`);
+  // Option order, like the server stores it.
+  const order = new Map(q.options.map((o, i) => [o.value, i]));
+  return unique.sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
 }
 
 export function answerFieldSchema(
   q: Question,
   opts: AnswerSchemaOptions = {},
-): z.ZodType<AnswerValue, string | undefined> {
+): z.ZodType<AnswerValue, AnswerInput | undefined> {
+  const allowed = opts.allowArchived?.[q.key] ?? [];
   return z
-    .string()
+    .union([z.string(), z.array(z.string())])
     .optional()
     .transform((raw, ctx): AnswerValue => {
-      const value = (raw ?? '').trim();
+      if (q.type === 'enum' && q.multiple) return parseMulti(q, raw, allowed, ctx);
+      const value = (Array.isArray(raw) ? (raw[0] ?? '') : (raw ?? '')).trim();
       if (value === '') {
         if (q.required) return issue(ctx, 'Required');
         return null;
@@ -92,7 +138,7 @@ export function answerFieldSchema(
         case 'enum': {
           const option = q.options.find((o) => o.value === value);
           if (!option) return issue(ctx, 'Pick one of the options');
-          if (option.archived && opts.allowArchived?.[q.key] !== value) {
+          if (option.archived && !allowed.includes(value)) {
             return issue(ctx, 'That option has been retired');
           }
           return value;
@@ -106,16 +152,37 @@ export function buildAnswerSchema(
   questions: readonly Question[],
   opts: AnswerSchemaOptions = {},
 ): z.ZodType<AnswerMap, AnswerFormValues> {
-  const shape: Record<string, z.ZodType<AnswerValue, string | undefined>> = {};
+  const shape: Record<string, z.ZodType<AnswerValue, AnswerInput | undefined>> = {};
   for (const q of questions) shape[q.key] = answerFieldSchema(q, opts);
   // Fields tolerate `undefined` (unregistered inputs), but forms always supply
-  // strings — expose the stricter input type so it lines up with RHF values.
+  // values — expose the stricter input type so it lines up with RHF values.
   return z.object(shape) as unknown as z.ZodType<AnswerMap, AnswerFormValues>;
+}
+
+/** The blank input for one question. */
+export function emptyInput(q: Question): AnswerInput {
+  return isMultiEnum(q) ? [] : '';
+}
+
+/** Whether an input holds anything. */
+export function hasInput(v: AnswerInput | undefined): boolean {
+  return Array.isArray(v) ? v.length > 0 : (v ?? '').trim() !== '';
 }
 
 /** Blank form state for a set of questions. */
 export function emptyAnswerValues(questions: readonly Question[]): AnswerFormValues {
-  return Object.fromEntries(questions.map((q) => [q.key, '']));
+  return Object.fromEntries(questions.map((q) => [q.key, emptyInput(q)]));
+}
+
+/** Form input for one question from a stored or request-shaped value. */
+export function inputFromValue(q: Question, v: unknown): AnswerInput {
+  if (isMultiEnum(q)) {
+    if (Array.isArray(v)) return v.filter((x): x is string => typeof x === 'string');
+    // An old single-select answer, from before the question became multi-select.
+    return typeof v === 'string' && v ? [v] : [];
+  }
+  if (Array.isArray(v)) return typeof v[0] === 'string' ? v[0] : '';
+  return typeof v === 'number' || typeof v === 'string' ? String(v) : '';
 }
 
 /** Form state pre-filled from an existing entry's answers. */
@@ -124,12 +191,7 @@ export function answerValuesFromEntry(
   answers: EntryOut['answers'],
 ): AnswerFormValues {
   const byKey = new Map(answers.map((a) => [a.key, a.value]));
-  return Object.fromEntries(
-    questions.map((q) => {
-      const v = byKey.get(q.key);
-      return [q.key, v === undefined ? '' : String(v)];
-    }),
-  );
+  return Object.fromEntries(questions.map((q) => [q.key, inputFromValue(q, byKey.get(q.key))]));
 }
 
 /** Form state pre-filled from a request-shaped answer map (`{ key: value }`). */
@@ -137,33 +199,44 @@ export function answerValuesFromMap(
   questions: readonly Question[],
   answers: Readonly<Record<string, unknown>>,
 ): AnswerFormValues {
-  return Object.fromEntries(
-    questions.map((q) => {
-      const v = answers[q.key];
-      return [
-        q.key,
-        typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean' ? String(v) : '',
-      ];
-    }),
-  );
+  return Object.fromEntries(questions.map((q) => [q.key, inputFromValue(q, answers[q.key])]));
+}
+
+/**
+ * Like `answerValuesFromEntry`, but only keeps values that are still valid to log *now*
+ * ("Same as last time"): archived options and out-of-range numbers are dropped.
+ */
+export function reusableValuesFromEntry(
+  questions: readonly Question[],
+  answers: EntryOut['answers'],
+): AnswerFormValues {
+  const values = answerValuesFromEntry(questions, answers);
+  for (const q of questions) {
+    const v = values[q.key];
+    if (v === undefined) continue;
+    if (q.type === 'enum') {
+      const active = new Set(activeOptions(q).map((o) => o.value));
+      values[q.key] = Array.isArray(v) ? v.filter((x) => active.has(x)) : active.has(v) ? v : '';
+    } else if (!answerFieldSchema(q).safeParse(v).success) {
+      values[q.key] = emptyInput(q);
+    }
+  }
+  return values;
 }
 
 /** Archived enum values an entry already holds — still valid when editing it. */
 export function archivedValuesInEntry(
   questions: readonly Question[],
   answers: EntryOut['answers'],
-): Record<string, string> {
-  const out: Record<string, string> = {};
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
   for (const q of questions) {
     if (q.type !== 'enum') continue;
     const a = answers.find((x) => x.key === q.key);
-    if (
-      a &&
-      typeof a.value === 'string' &&
-      q.options.some((o) => o.value === a.value && o.archived)
-    ) {
-      out[q.key] = a.value;
-    }
+    if (!a) continue;
+    const held = Array.isArray(a.value) ? a.value : typeof a.value === 'string' ? [a.value] : [];
+    const archived = held.filter((v) => q.options.some((o) => o.value === v && o.archived));
+    if (archived.length > 0) out[q.key] = archived;
   }
   return out;
 }
@@ -171,6 +244,11 @@ export function archivedValuesInEntry(
 /** Drop unanswered (null) values — the API treats absent and null identically on create. */
 export function compactAnswers(answers: AnswerMap): AnswerMap {
   return Object.fromEntries(Object.entries(answers).filter(([, v]) => v !== null));
+}
+
+export interface ChipOption {
+  value: string;
+  label: string;
 }
 
 export type InputHints =
@@ -182,14 +260,15 @@ export type InputHints =
       max?: number;
     }
   | { kind: 'text'; multiline: boolean; maxLength: number }
-  | { kind: 'chips'; options: { value: string; label: string }[] }
-  | { kind: 'select'; options: { value: string; label: string }[] };
+  | { kind: 'chips'; options: ChipOption[] }
+  | { kind: 'multi'; options: ChipOption[] }
+  | { kind: 'select'; options: ChipOption[] };
 
 /** Max number of options rendered as tappable chips; more use a select. */
 export const CHIP_LIMIT = 6;
 
 /** How a question should be rendered as an input. */
-export function inputHints(q: Question, keepValue?: string): InputHints {
+export function inputHints(q: Question, keep: readonly string[] = []): InputHints {
   switch (q.type) {
     case 'int':
     case 'double': {
@@ -207,12 +286,14 @@ export function inputHints(q: Question, keepValue?: string): InputHints {
     case 'str':
       return { kind: 'text', multiline: q.multiline, maxLength: q.max_length };
     case 'enum': {
-      const options = q.options
-        .filter((o) => !o.archived || o.value === keepValue)
+      const opts = q.options
+        .filter((o) => !o.archived || keep.includes(o.value))
         .map((o) => ({ value: o.value, label: o.archived ? `${o.label} (retired)` : o.label }));
+      // Multi-select is always chips (a <select multiple> is miserable on phones).
+      if (q.multiple) return { kind: 'multi', options: opts };
       return activeOptions(q).length <= CHIP_LIMIT
-        ? { kind: 'chips', options }
-        : { kind: 'select', options };
+        ? { kind: 'chips', options: opts }
+        : { kind: 'select', options: opts };
     }
   }
 }

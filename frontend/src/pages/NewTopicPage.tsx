@@ -1,23 +1,25 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router';
 
 import { applyFieldErrors, mapApiError, type FieldError } from '../api/errors';
+import { useLimits } from '../api/limits';
 import { invalidateOperations } from '../api/queryClient';
 import { createTopicMutation, getTopicQueryKey } from '../client/@tanstack/react-query.gen';
 import { Page, StickyActions, TopBar } from '../components/AppShell';
 import { builderFieldFor } from '../components/builder/serverErrors';
 import { TopicBuilder } from '../components/builder/TopicBuilder';
 import { TopicMetaFields } from '../components/builder/TopicMetaFields';
+import { ScheduleEditor } from '../components/schedule/ScheduleEditor';
 import { Button } from '../components/ui/Button';
 import { Banner, Card } from '../components/ui/Card';
 import { Icon } from '../components/ui/Icon';
 import { useToast } from '../components/ui/Toast';
 import {
   emptyTopicDraft,
-  topicDraftSchema,
+  makeTopicDraftSchema,
   type TopicDraft,
   type TopicDraftOutput,
 } from '../lib/builder';
@@ -31,8 +33,10 @@ export function NewTopicPage() {
   const { toast } = useToast();
   const [banner, setBanner] = useState<{ message: string; extra: FieldError[] } | null>(null);
   const create = useMutation(createTopicMutation());
+  const limits = useLimits();
+  const schema = useMemo(() => makeTopicDraftSchema(limits), [limits]);
   const form = useForm<TopicDraft, unknown, TopicDraftOutput>({
-    resolver: zodResolver(topicDraftSchema),
+    resolver: zodResolver(schema),
     defaultValues: emptyTopicDraft(),
     mode: 'onSubmit',
     reValidateMode: 'onChange',
@@ -93,6 +97,16 @@ export function NewTopicPage() {
                 <TopicMetaFields />
               </Card>
             </>
+          }
+          footer={
+            <section className="flex flex-col gap-3" aria-label="Schedule">
+              <h2 className="font-display text-lg font-semibold tracking-tight">
+                Schedule <span className="text-sm font-normal text-muted">optional</span>
+              </h2>
+              <Card className="p-4 sm:p-5">
+                <ScheduleEditor />
+              </Card>
+            </section>
           }
           actions={
             <StickyActions>

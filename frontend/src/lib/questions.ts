@@ -22,7 +22,7 @@ export const TYPE_META: Record<QuestionType, { label: string; short: string; hin
   int: { label: 'Whole number', short: 'Int', hint: 'Counts, steps, ratings 1–10' },
   double: { label: 'Decimal number', short: 'Dec', hint: 'Weights, hours, temperatures' },
   str: { label: 'Text', short: 'Text', hint: 'Notes, names, free answers' },
-  enum: { label: 'Choice', short: 'Pick', hint: 'One option from a list' },
+  enum: { label: 'Choice', short: 'Pick', hint: 'One or several options from a list' },
 };
 
 /** Mirrors the backend KEY_PATTERN — used for question keys and enum option values. */
@@ -36,6 +36,11 @@ export function activeOptions(q: EnumQuestionOutput): EnumQuestionOutput['option
 
 export function isNumeric(q: Question): q is NumericQuestion {
   return q.type === 'int' || q.type === 'double';
+}
+
+/** Multi-select enum: answers are lists of option values. */
+export function isMultiEnum(q: Question): q is EnumQuestionOutput & { multiple: true } {
+  return q.type === 'enum' && q.multiple;
 }
 
 export function unitSuffix(q: Question): string {

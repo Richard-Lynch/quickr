@@ -8,13 +8,18 @@ import {
   previewQuestion,
   slugify,
   toSnakeKey,
-  topicDraftSchema,
+  makeTopicDraftSchema,
+  makeVersionDraftSchema,
   uniqueKey,
-  versionDraftSchema,
   withLabel,
   type DraftQuestion,
 } from './builder';
 import type { Question } from './questions';
+import { emptyScheduleDraft } from './schedule';
+
+const topicDraftSchema = makeTopicDraftSchema();
+const versionDraftSchema = makeVersionDraftSchema();
+const schedule = emptyScheduleDraft('UTC');
 
 function draft(type: DraftQuestion['type'], patch: Partial<DraftQuestion> = {}): DraftQuestion {
   return { ...newDraftQuestion(type), key: 'q', label: 'Q', ...patch };
@@ -89,7 +94,7 @@ describe('convertDraftQuestion', () => {
 
   it('validates key format and label presence', () => {
     expect(issuesOf(draft('int', { key: 'Bad Key', label: ' ' }))).toEqual({
-      key: 'Use lower_snake_case: a–z, 0–9, _ (start with a letter)',
+      key: 'Use lower_snake_case: a–z, 0–9, _ (start with a letter, max 63)',
       label: 'Required',
     });
   });
@@ -113,7 +118,8 @@ describe('convertDraftQuestion', () => {
     });
     expect(issuesOf(draft('enum', { options: [a, { ...newDraftOption('A'), uid: 'x' }] }))).toEqual(
       {
-        'options.1.value': 'Duplicate value',
+        'options.1.value': 'Another option has this value',
+        'options.1.label': 'Another option has this label',
       },
     );
   });
@@ -127,6 +133,7 @@ describe('topicDraftSchema', () => {
       slugEdited: false,
       description: '',
       change_note: '',
+      schedule,
       questions: [draft('int', { key: 'hours' })],
     });
     expect(r.success).toBe(true);
@@ -141,6 +148,7 @@ describe('topicDraftSchema', () => {
       slugEdited: true,
       description: '',
       change_note: '',
+      schedule,
       questions: [draft('int', { key: 'a' }), draft('str', { key: 'a' })],
     });
     expect(dup.success).toBe(false);
@@ -154,6 +162,7 @@ describe('topicDraftSchema', () => {
       slugEdited: false,
       description: '',
       change_note: '',
+      schedule,
       questions: [],
     });
     expect(none.error?.issues.map((i) => i.path.join('.'))).toEqual(['name', 'questions']);
@@ -167,6 +176,7 @@ describe('topicDraftSchema', () => {
       description: '',
       questions: [draft('int')],
       change_note: ' hi ',
+      schedule,
     });
     expect(r.data?.change_note).toBe('hi');
   });

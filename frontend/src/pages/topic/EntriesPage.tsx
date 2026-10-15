@@ -16,7 +16,7 @@ import { Icon } from '../../components/ui/Icon';
 import { Skeleton } from '../../components/ui/Spinner';
 import { formatDateTime, formatRelative } from '../../lib/dates';
 import { csvHref, filterQuery, useEntryFilters } from '../../lib/filters';
-import { formatAnswer } from '../../lib/answerDisplay';
+import { answerLabels, formatAnswer } from '../../lib/answerDisplay';
 import { plural } from '../../lib/format';
 import { isEntryCreate, type EntryCreatePayload } from '../../lib/outbox/kinds';
 import type { OutboxItem } from '../../lib/outbox/types';
@@ -83,6 +83,21 @@ function AnswerGrid({ columns, entry }: { columns: Column[]; entry: EntryOut }) 
       {columns.map((c) => {
         const v = display(c, entry);
         if (v === null) return null;
+        const a = entry.answers.find((x) => x.key === c.key);
+        if (a && Array.isArray(a.value)) {
+          return (
+            <div key={c.key} className="col-span-2">
+              <dt className="truncate text-xs text-muted">{c.label}</dt>
+              <dd className="mt-0.5 flex flex-wrap gap-1">
+                {answerLabels(c.question, a).map((l) => (
+                  <Badge key={l} tone="accent">
+                    {l}
+                  </Badge>
+                ))}
+              </dd>
+            </div>
+          );
+        }
         return (
           <div key={c.key} className={c.question.type === 'str' ? 'col-span-2' : undefined}>
             <dt className="truncate text-xs text-muted">{c.label}</dt>

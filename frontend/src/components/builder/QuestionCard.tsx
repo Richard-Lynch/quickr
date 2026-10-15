@@ -272,7 +272,49 @@ export function QuestionCard({ index, count, expanded, onToggle, onMove, onRemov
             </>
           ) : null}
 
-          {q.type === 'enum' ? <OptionsEditor index={index} /> : null}
+          {q.type === 'enum' ? (
+            <>
+              <OptionsEditor index={index} />
+              <div className="flex flex-col gap-3 rounded-xl border border-dashed border-line p-3">
+                <Checkbox
+                  label="Allow multiple selections"
+                  hint={
+                    q.publishedMultiple
+                      ? 'Published as multi-select — can’t go back to single-select'
+                      : q.locked && q.multiple
+                        ? 'Existing answers will count as one-option selections'
+                        : 'Answers become a list, e.g. symptoms or tags'
+                  }
+                  disabled={q.publishedMultiple && q.multiple}
+                  aria-invalid={err('multiple') ? true : undefined}
+                  {...register(`${base}.multiple`, {
+                    deps: [`${base}.min_selected`, `${base}.max_selected`],
+                  })}
+                />
+                {err('multiple') ? (
+                  <p role="alert" className="text-sm font-medium text-danger">
+                    {err('multiple')}
+                  </p>
+                ) : null}
+                {q.multiple ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <NumField
+                      label="Min selections"
+                      error={err('min_selected')}
+                      inputMode="numeric"
+                      {...register(`${base}.min_selected`, { deps: [`${base}.max_selected`] })}
+                    />
+                    <NumField
+                      label="Max selections"
+                      error={err('max_selected')}
+                      inputMode="numeric"
+                      {...register(`${base}.max_selected`, { deps: [`${base}.min_selected`] })}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </>
+          ) : null}
         </div>
       ) : null}
     </div>

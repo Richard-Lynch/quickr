@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useFormContext, useWatch } from 'react-hook-form';
 
-import { buildAnswerSchema } from '../../lib/answerSchema';
+import { buildAnswerSchema, emptyInput, type AnswerFormValues } from '../../lib/answerSchema';
 import { previewQuestion, type TopicDraft } from '../../lib/builder';
 import { AnswerField } from '../answers/AnswerField';
 import { Card } from '../ui/Card';
@@ -12,7 +12,7 @@ export function FormPreview() {
   const drafts = useWatch({ control, name: 'questions' });
   const name = useWatch({ control, name: 'name' });
   const questions = useMemo(() => drafts.map((d, i) => previewQuestion(d, i)), [drafts]);
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<AnswerFormValues>({});
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const errors = useMemo(() => {
     const r = buildAnswerSchema(questions).safeParse(values);
@@ -34,7 +34,7 @@ export function FormPreview() {
             <div key={k} className="p-4">
               <AnswerField
                 question={q}
-                value={values[q.key] ?? ''}
+                value={values[q.key] ?? emptyInput(q)}
                 onChange={(v) => setValues((s) => ({ ...s, [q.key]: v }))}
                 onBlur={() => setTouched((t) => new Set(t).add(q.key))}
                 error={touched.has(q.key) ? errors[q.key] : undefined}

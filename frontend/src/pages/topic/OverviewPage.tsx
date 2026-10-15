@@ -284,7 +284,14 @@ function EnumCard({
     <>
       {top && top.count > 0 ? (
         <p className="text-sm text-muted">
-          Most often <strong className="text-ink">{top.label}</strong> ({formatPercent(top.share)})
+          Most often <strong className="text-ink">{top.label}</strong> ({formatPercent(top.share)}
+          {stats.multiple ? ' of entries' : ''})
+        </p>
+      ) : null}
+      {stats.multiple ? (
+        <p className="-mt-2 flex items-center gap-1.5 text-xs text-muted">
+          <Badge tone="info">multi-select</Badge>
+          Share of entries that picked each option — can add up to more than 100%.
         </p>
       ) : null}
       <EnumBars
@@ -292,7 +299,9 @@ function EnumCard({
         colorFor={colorFor}
       />
       <div>
-        <p className="mb-1 text-xs font-semibold text-ink-soft">Answers per {bucket}</p>
+        <p className="mb-1 text-xs font-semibold text-ink-soft">
+          {stats.multiple ? 'Selections' : 'Answers'} per {bucket}
+        </p>
         {series.isPending ? (
           <Skeleton className="h-40" />
         ) : series.isError ? (

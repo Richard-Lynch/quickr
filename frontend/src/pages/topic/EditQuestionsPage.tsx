@@ -1,10 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router';
 
 import { applyFieldErrors, isConflict, mapApiError, type FieldError } from '../../api/errors';
+import { useLimits } from '../../api/limits';
 import { invalidateTopicData } from '../../api/queryClient';
 import {
   checkTopicVersionMutation,
@@ -25,7 +26,7 @@ import { Sheet } from '../../components/ui/Sheet';
 import { useToast } from '../../components/ui/Toast';
 import {
   draftFromTopic,
-  versionDraftSchema,
+  makeVersionDraftSchema,
   type TopicDraft,
   type VersionDraftOutput,
 } from '../../lib/builder';
@@ -45,8 +46,10 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { toast } = useToast();
+  const limits = useLimits();
+  const schema = useMemo(() => makeVersionDraftSchema(limits), [limits]);
   const form = useForm<TopicDraft, unknown, VersionDraftOutput>({
-    resolver: zodResolver(versionDraftSchema),
+    resolver: zodResolver(schema),
     defaultValues: draftFromTopic(base),
     mode: 'onSubmit',
     reValidateMode: 'onChange',
