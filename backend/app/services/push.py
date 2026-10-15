@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models import AppSetting, PushSubscription
+from app.push_guard import PushEndpointRejected, check_endpoint, ensure_public
 from app.schemas.api import PushPayload, PushSubscriptionIn, PushSubscriptionOut, PushTestResult
 
 log = logging.getLogger(__name__)
@@ -145,10 +146,30 @@ async def unsubscribe(db: AsyncSession, endpoint: str) -> None:
 # --- delivery ----------------------------------------------------------------
 
 
+class _NoRedirectSession(requests.Session):
+    """A session that never follows redirects (a 3xx is a delivery failure)."""
+
+    def request(self, *args: Any, **kwargs: Any) -> requests.Response:
+        kwargs["allow_redirects"] = False
+        return super().request(*args, **kwargs)
+
+
 def deliver(
     subscription: dict[str, Any], data: str, private_key: str, claims: dict[str, str | int], ttl: int
 ) -> None:
-    """Send one push message (blocking). Raises PushGone or PushFailed."""
+    """Send one push message (blocking). Raises PushGone or PushFailed.
+
+    The endpoint is re-validated (allowlist + public address) right before
+    sending, and redirects are never followed.
+    """
+    try:
+        host = check_endpoint(subscription["endpoint"])
+    except PushEndpointRejected as exc:
+        raise PushGone(f"endpoint no longer allowed: {exc}") from exc  # will never work: drop it
+    try:
+        ensure_public(host)
+    except PushEndpointRejected as exc:
+        raise PushFailed(str(exc)) from exc
     try:
         webpush(
             subscription_info=subscription,
@@ -157,6 +178,7 @@ def deliver(
             vapid_claims=dict(claims),  # webpush adds aud/exp in place
             timeout=SEND_TIMEOUT_SECONDS,
             ttl=ttl,
+            requests_session=_NoRedirectSession(),
         )
     except WebPushException as exc:
         status = getattr(exc.response, "status_code", None)

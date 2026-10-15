@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+import socket
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -11,24 +13,26 @@ from typing import Any
 
 import httpx
 import pytest
+import requests
 from py_vapid import Vapid
 from pywebpush import WebPushException
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import push_guard
 from app.config import Settings
 from app.db import get_engine, get_sessionmaker
 from app.models import PushSubscription, Topic
 from app.services import push as push_svc
 from app.services import scheduler
-from tests.helpers import make_topic, record
+from tests.helpers import backdate_schedule, make_topic, record
 
 QUESTIONS = [{"key": "n", "label": "N", "type": "int"}]
 
 
 def sub(n: int) -> dict[str, Any]:
     return {
-        "endpoint": f"https://push.example.com/send/{n}",
+        "endpoint": f"https://fcm.googleapis.com/fcm/send/{n}",
         "keys": {"p256dh": f"p256dh-{n}", "auth": f"auth-{n}"},
         "user_agent": "pytest",
     }
@@ -124,7 +128,7 @@ async def test_subscribe_upserts_by_endpoint(client: httpx.AsyncClient) -> None:
 
 async def test_subscription_validation(client: httpx.AsyncClient) -> None:
     for body, loc in [
-        ({**sub(1), "endpoint": "http://insecure.example.com/x"}, ["body", "endpoint"]),
+        ({**sub(1), "endpoint": "http://fcm.googleapis.com/x"}, ["body", "endpoint"]),
         ({**sub(1), "endpoint": "not a url"}, ["body", "endpoint"]),
         ({**sub(1), "keys": {"p256dh": "", "auth": "a"}}, ["body", "keys", "p256dh"]),
         ({"endpoint": sub(1)["endpoint"]}, ["body", "keys"]),
@@ -146,8 +150,8 @@ async def test_unsubscribe_is_idempotent(client: httpx.AsyncClient) -> None:
 async def test_send_test_push(client: httpx.AsyncClient, outbox: list[Sent]) -> None:
     assert (await client.post("/push/test")).json() == {"sent": 0, "failed": 0}
     await client.post("/push/subscriptions", json=sub(1))
-    await client.post("/push/subscriptions", json={**sub(2), "endpoint": "https://push.example.com/gone"})
-    await client.post("/push/subscriptions", json={**sub(3), "endpoint": "https://push.example.com/fail"})
+    await client.post("/push/subscriptions", json={**sub(2), "endpoint": "https://fcm.googleapis.com/gone"})
+    await client.post("/push/subscriptions", json={**sub(3), "endpoint": "https://fcm.googleapis.com/fail"})
     r = await client.post("/push/test")
     assert r.status_code == 200
     assert r.json() == {"sent": 1, "failed": 2}
@@ -159,14 +163,14 @@ async def test_send_test_push(client: httpx.AsyncClient, outbox: list[Sent]) -> 
         "tag": "test",
         "topic_slug": None,
     }
-    assert outbox[0].claims == {"sub": "mailto:admin@localhost"}
+    assert outbox[0].claims == {"sub": "https://github.com/Richard-Lynch/quickr"}
     public = (await client.get("/push/config")).json()["public_key"]
     assert push_svc._public_from_private(outbox[0].private_key) == public
 
     async with get_sessionmaker()() as db:
         rows = {s.endpoint: s for s in (await db.execute(select(PushSubscription))).scalars()}
-    assert "https://push.example.com/gone" not in rows  # 404/410 -> deleted
-    assert rows["https://push.example.com/fail"].failure_count == 1
+    assert "https://fcm.googleapis.com/gone" not in rows  # 404/410 -> deleted
+    assert rows["https://fcm.googleapis.com/fail"].failure_count == 1
     assert rows[sub(1)["endpoint"]].last_success_at is not None
 
 
@@ -189,12 +193,14 @@ def test_deliver_maps_push_service_errors(
         raise WebPushException("failed", response=_Response(status))
 
     monkeypatch.setattr(push_svc, "webpush", fake_webpush)
+    monkeypatch.setattr(push_svc, "ensure_public", lambda host: None)
     claims: dict[str, str | int] = {"sub": "mailto:a@b"}
     with pytest.raises(error):
-        push_svc.deliver({"endpoint": "https://x"}, "{}", "key", claims, 60)
+        push_svc.deliver({"endpoint": "https://fcm.googleapis.com/x"}, "{}", "key", claims, 60)
     assert calls[0]["ttl"] == 60
     assert calls[0]["vapid_claims"] == claims
     assert calls[0]["vapid_claims"] is not claims  # pywebpush mutates claims; never share them
+    assert isinstance(calls[0]["requests_session"], push_svc._NoRedirectSession)
 
 
 # --- scheduler -----------------------------------------------------------------------
@@ -211,6 +217,7 @@ async def test_tick_notifies_once_per_due_slot(client: httpx.AsyncClient, outbox
     t = await make_topic(
         client, "Water", QUESTIONS, schedule={"kind": "interval", "every_minutes": 60, "timezone": "UTC"}
     )
+    await backdate_schedule("water", datetime.now(UTC) - timedelta(days=1))
     last = datetime.now(UTC) - timedelta(minutes=30)
     await record(client, "water", {"n": 1}, captured_at=last.isoformat())
     before = (await client.get("/topics/water")).json()
@@ -252,6 +259,7 @@ async def test_tick_overdue_message_and_daily_slots(client: httpx.AsyncClient, o
         client, "Meds", QUESTIONS, schedule={"kind": "daily", "times": ["08:00", "20:00"], "timezone": "UTC"}
     )
     day = datetime(2026, 6, 1, tzinfo=UTC)
+    await backdate_schedule("meds", day - timedelta(days=1))
     assert await _tick(day.replace(hour=11)) == 1  # first tick long after the slot
     assert outbox[-1].payload["body"] == "Overdue since 08:00"
     assert await _tick(day.replace(hour=12)) == 0
@@ -288,7 +296,7 @@ async def test_tick_without_subscriptions_still_marks_slot(
 
 
 async def test_tick_removes_gone_subscriptions(client: httpx.AsyncClient, outbox: list[Sent]) -> None:
-    await client.post("/push/subscriptions", json={**sub(1), "endpoint": "https://push.example.com/gone"})
+    await client.post("/push/subscriptions", json={**sub(1), "endpoint": "https://fcm.googleapis.com/gone"})
     await client.post("/push/subscriptions", json=sub(2))
     await make_topic(
         client, "Loud", QUESTIONS, schedule={"kind": "interval", "every_minutes": 15, "timezone": "UTC"}
@@ -362,3 +370,144 @@ async def test_lifespan_starts_and_stops_scheduler(monkeypatch: pytest.MonkeyPat
     async with scheduler.lifespan(None):
         await asyncio.sleep(0)
     assert not started.is_set()
+
+
+# --- SSRF guard -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://fcm.googleapis.com/fcm/send/abc",
+        "https://FCM.googleapis.com./fcm/send/abc",  # case + trailing dot
+        "https://updates.push.services.mozilla.com/wpush/v2/abc",
+        "https://web.push.apple.com/QK1x",
+        "https://wns2-par02p.notify.windows.com/w/?token=abc",
+        "https://fcm.googleapis.com:443/fcm/send/abc",
+    ],
+)
+def test_allowlist_accepts_push_services(endpoint: str) -> None:
+    assert push_guard.check_endpoint(endpoint)
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "message"),
+    [
+        ("https://evil.example.com/x", "is not a known push service"),
+        ("https://fcm.googleapis.com.evil.com/x", "is not a known push service"),
+        ("https://notfcm.googleapis.com/x", "is not a known push service"),
+        ("https://storage.googleapis.com/x", "is not a known push service"),
+        ("https://localhost/x", "is not a known push service"),
+        ("https://127.0.0.1/x", "is not a known push service"),
+        ("https://[::1]/x", "is not a known push service"),
+        ("https://fcm.googleapis.com:8443/x", "custom port"),
+        ("https://user:pw@fcm.googleapis.com/x", "credentials"),
+        ("http://fcm.googleapis.com/x", "https://"),
+        ("https://fcm.googleapis.com:99999/x", "valid https:// URL"),
+    ],
+)
+def test_allowlist_rejects(endpoint: str, message: str) -> None:
+    with pytest.raises(push_guard.PushEndpointRejected, match=re.escape(message)):
+        push_guard.check_endpoint(endpoint)
+
+
+async def test_subscribe_rejects_unknown_hosts(client: httpx.AsyncClient) -> None:
+    r = await client.post(
+        "/push/subscriptions", json={**sub(1), "endpoint": "https://169.254.169.254/latest"}
+    )
+    assert r.status_code == 422
+    assert r.json()["errors"] == [
+        {
+            "loc": ["body", "endpoint"],
+            "message": "host '169.254.169.254' is not a known push service "
+            "(set QUICKR_PUSH_ALLOWED_HOSTS to allow it)",
+        }
+    ]
+
+
+def test_allowlist_is_extendable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        push_guard, "get_settings", lambda: Settings(push_allowed_hosts=["Push.Example.org."])
+    )
+    assert push_guard.check_endpoint("https://a.push.example.org/x") == "a.push.example.org"
+    assert push_guard.check_endpoint("https://fcm.googleapis.com/x")  # defaults still apply
+    with pytest.raises(push_guard.PushEndpointRejected):
+        push_guard.check_endpoint("https://example.org/x")
+
+
+def _resolve_to(monkeypatch: pytest.MonkeyPatch, *addresses: str) -> None:
+    def fake_getaddrinfo(host: str, port: int, *args: Any, **kwargs: Any) -> list[Any]:
+        return [
+            (socket.AF_INET6 if ":" in a else socket.AF_INET, socket.SOCK_STREAM, 6, "", (a, port))
+            for a in addresses
+        ]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
+
+@pytest.mark.parametrize(
+    "addresses",
+    [
+        ("127.0.0.1",),
+        ("10.1.2.3",),
+        ("172.16.0.5",),
+        ("192.168.1.10",),
+        ("169.254.169.254",),
+        ("100.64.0.1",),  # carrier-grade NAT
+        ("0.0.0.0",),
+        ("::1",),
+        ("fd00::1",),
+        ("fe80::1%en0",),
+        ("::ffff:127.0.0.1",),
+        ("142.250.1.1", "10.0.0.1"),  # any private address taints the host
+    ],
+)
+def test_ensure_public_refuses_private_addresses(
+    monkeypatch: pytest.MonkeyPatch, addresses: tuple[str, ...]
+) -> None:
+    _resolve_to(monkeypatch, *addresses)
+    with pytest.raises(push_guard.PushEndpointRejected, match="non-public address"):
+        push_guard.ensure_public("fcm.googleapis.com")
+
+
+def test_ensure_public_accepts_global_and_handles_dns_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    _resolve_to(monkeypatch, "142.250.1.1", "2a00:1450:4009::200a")
+    push_guard.ensure_public("fcm.googleapis.com")
+
+    def broken(*args: Any, **kwargs: Any) -> list[Any]:
+        raise socket.gaierror("nope")
+
+    monkeypatch.setattr(socket, "getaddrinfo", broken)
+    with pytest.raises(push_guard.PushEndpointRejected, match="cannot resolve"):
+        push_guard.ensure_public("fcm.googleapis.com")
+
+
+def test_deliver_refuses_private_ip_without_sending(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[Any] = []
+    monkeypatch.setattr(push_svc, "webpush", lambda **kw: sent.append(kw))
+    _resolve_to(monkeypatch, "10.0.0.5")
+    with pytest.raises(push_svc.PushFailed, match="non-public"):
+        push_svc.deliver({"endpoint": "https://fcm.googleapis.com/x"}, "{}", "key", {"sub": "mailto:a@b"}, 60)
+    assert sent == []
+
+
+def test_deliver_drops_endpoints_no_longer_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[Any] = []
+    monkeypatch.setattr(push_svc, "webpush", lambda **kw: sent.append(kw))
+    with pytest.raises(push_svc.PushGone, match="no longer allowed"):
+        push_svc.deliver({"endpoint": "https://internal.local/x"}, "{}", "key", {"sub": "mailto:a@b"}, 60)
+    assert sent == []
+
+
+def test_no_redirect_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[dict[str, Any]] = []
+
+    def fake_request(self: requests.Session, *args: Any, **kwargs: Any) -> Any:
+        seen.append(kwargs)
+        return "response"
+
+    monkeypatch.setattr(requests.Session, "request", fake_request)
+    session = push_svc._NoRedirectSession()
+    result: Any = session.post("https://fcm.googleapis.com/x", data=b"", allow_redirects=True)
+    assert result == "response"
+    assert seen[0]["allow_redirects"] is False

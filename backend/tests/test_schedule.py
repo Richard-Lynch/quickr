@@ -16,7 +16,7 @@ from app.services.schedule import compute_due, daily_slots, due_message, parse_s
 schedule_adapter: TypeAdapter[DailySchedule | IntervalSchedule] = TypeAdapter(Schedule)
 
 LONDON = ZoneInfo("Europe/London")
-CREATED = datetime(2026, 1, 1, tzinfo=UTC)
+SINCE = datetime(2026, 1, 1, tzinfo=UTC)  # default: schedule set long ago
 
 
 def daily(times: list[str], days: list[int] | None = None, tz: str = "UTC", **kw: Any) -> DailySchedule:
@@ -43,7 +43,7 @@ def local(*args: int, tz: ZoneInfo = LONDON) -> datetime:
 
 
 def due(s: DailySchedule | IntervalSchedule, now: datetime, last: datetime | None, **kw: Any) -> Any:
-    return compute_due(s, now=now, last_entry_at=last, created_at=kw.pop("created", CREATED), **kw)
+    return compute_due(s, now=now, last_entry_at=last, schedule_since=kw.pop("since", SINCE), **kw)
 
 
 # --- validation ----------------------------------------------------------------
@@ -78,6 +78,7 @@ def test_daily_defaults_and_normalisation() -> None:
         ({"times": ["08:00"], "days": [0], "timezone": "UTC"}, ["schedule", "days", 0]),
         ({"times": ["08:00"], "days": [1, 8], "timezone": "UTC"}, ["schedule", "days", 1]),
         ({"times": ["08:00"], "days": [2, 2], "timezone": "UTC"}, ["schedule", "days", 1]),
+        ({"times": ["08:00"], "days": ["1"], "timezone": "UTC"}, ["schedule", "days", 0]),
         ({"times": ["08:00"], "timezone": "Mars/Olympus"}, ["schedule", "timezone"]),
         ({"times": ["08:00"], "timezone": ""}, ["schedule", "timezone"]),
         ({"times": ["08:00"]}, ["schedule", "timezone"]),
@@ -106,6 +107,9 @@ def test_daily_validation_messages() -> None:
     [
         ({"every_minutes": 14, "timezone": "UTC"}, ["schedule", "every_minutes"]),
         ({"every_minutes": 129_601, "timezone": "UTC"}, ["schedule", "every_minutes"]),
+        ({"every_minutes": "60", "timezone": "UTC"}, ["schedule", "every_minutes"]),
+        ({"every_minutes": 60.0, "timezone": "UTC"}, ["schedule", "every_minutes"]),
+        ({"every_minutes": 60, "timezone": "UTC", "notify": "true"}, ["schedule", "notify"]),
         ({"every_minutes": 60, "timezone": "Bad/Zone"}, ["schedule", "timezone"]),
         ({"every_minutes": 60, "timezone": "UTC", "times": ["08:00"]}, ["schedule", "times"]),
     ],
@@ -262,10 +266,27 @@ def test_slot_exactly_now_is_current() -> None:
 # --- interval ------------------------------------------------------------------------
 
 
-def test_interval_never_logged_is_due_since_creation() -> None:
-    now = utc(2026, 5, 2, 9)
-    st = due(interval(60), now, last=None, created=utc(2026, 5, 1))
-    assert (st.is_due, st.due_since, st.next_due_at, st.last_entry_at) == (True, utc(2026, 5, 1), now, None)
+def test_interval_never_logged_is_due_one_interval_after_schedule_set() -> None:
+    since = utc(2026, 5, 2, 8)
+    st = due(interval(60), utc(2026, 5, 2, 8, 59), last=None, since=since)
+    assert (st.is_due, st.due_since, st.next_due_at, st.last_entry_at) == (
+        False,
+        None,
+        utc(2026, 5, 2, 9),
+        None,
+    )
+    st = due(interval(60), utc(2026, 5, 2, 9), last=None, since=since)
+    assert (st.is_due, st.due_since, st.next_due_at) == (True, utc(2026, 5, 2, 9), utc(2026, 5, 2, 9))
+
+
+def test_interval_counts_from_schedule_change_not_older_entries() -> None:
+    since = utc(2026, 5, 2, 8)
+    old_entry = utc(2026, 4, 1)
+    st = due(interval(60), utc(2026, 5, 2, 8, 30), last=old_entry, since=since)
+    assert (st.is_due, st.next_due_at, st.last_entry_at) == (False, utc(2026, 5, 2, 9), old_entry)
+    # Entries after the change count as usual.
+    st = due(interval(60), utc(2026, 5, 2, 10), last=utc(2026, 5, 2, 8, 30), since=since)
+    assert (st.is_due, st.due_since) == (True, utc(2026, 5, 2, 9, 30))
 
 
 def test_interval_due_after_every_minutes() -> None:
@@ -297,3 +318,46 @@ def test_due_message() -> None:
     assert due_message(s, since, since + timedelta(hours=3)) == "Overdue since 08:00"
     assert due_message(s, since, since + timedelta(days=1)) == "Overdue since Mon 08:00"
     assert due_message(s, since, since + timedelta(days=9)) == "Overdue since 06 Jul"
+
+
+# --- reference point & next_due_at ------------------------------------------------
+
+
+def test_daily_slots_before_schedule_set_are_ignored() -> None:
+    s = daily(["08:00", "21:00"])
+    since = utc(2026, 5, 2, 9)  # schedule set after this morning's slot
+    st = due(s, utc(2026, 5, 2, 10), last=None, since=since)
+    assert (st.is_due, st.due_since, st.next_due_at) == (False, None, utc(2026, 5, 2, 21))
+    # The first slot after the change counts.
+    st = due(s, utc(2026, 5, 2, 21, 5), last=None, since=since)
+    assert (st.is_due, st.due_since) == (True, utc(2026, 5, 2, 21))
+
+
+def test_daily_slot_exactly_at_schedule_set_counts() -> None:
+    st = due(daily(["08:00"]), utc(2026, 5, 2, 8, 30), last=None, since=utc(2026, 5, 2, 8))
+    assert (st.is_due, st.due_since) == (True, utc(2026, 5, 2, 8))
+
+
+def test_daily_weekly_slot_before_change_ignored() -> None:
+    s = daily(["08:00"], days=[1])  # Mondays
+    # Changed on Tuesday: last Monday's slot does not count until next Monday.
+    st = due(s, utc(2026, 5, 7, 12), last=None, since=utc(2026, 5, 5, 12))
+    assert (st.is_due, st.next_due_at) == (False, utc(2026, 5, 11, 8))
+
+
+def test_next_due_skips_slot_already_satisfied_early() -> None:
+    s = daily(["08:00", "21:00"])
+    # Logged 07:30 for the 08:00 slot: at 07:45 the next due slot is 21:00, not 08:00.
+    st = due(s, utc(2026, 5, 2, 7, 45), last=utc(2026, 5, 2, 7, 30))
+    assert (st.is_due, st.next_due_at) == (False, utc(2026, 5, 2, 21))
+    # Without the early entry, 08:00 is next (and last night's 21:00 slot is overdue).
+    st = due(s, utc(2026, 5, 2, 7, 45), last=None)
+    assert (st.is_due, st.due_since, st.next_due_at) == (True, utc(2026, 5, 1, 21), utc(2026, 5, 2, 8))
+
+
+def test_next_due_with_single_daily_time() -> None:
+    s = daily(["08:00"])
+    st = due(s, utc(2026, 5, 2, 7, 0), last=utc(2026, 5, 2, 6, 30))  # 1.5h early: within 2h
+    assert st.next_due_at == utc(2026, 5, 3, 8)
+    st = due(s, utc(2026, 5, 2, 5, 0), last=utc(2026, 5, 2, 4, 0))  # 4h early: too early
+    assert st.next_due_at == utc(2026, 5, 2, 8)

@@ -293,3 +293,24 @@ def test_stored_configs_skip_newer_checks() -> None:
     # Core invariants are still enforced.
     with pytest.raises(ValidationError):
         parse_questions([{"type": "int", "key": "a", "label": "A", "min": 2, "max": 1}])
+
+
+@pytest.mark.parametrize(
+    ("payload", "field"),
+    [
+        ({"type": "double", "decimals": "2"}, "decimals"),
+        ({"type": "double", "decimals": 2.0}, "decimals"),
+        ({"type": "str", "min_length": "1"}, "min_length"),
+        ({"type": "str", "max_length": True}, "max_length"),
+        ({"type": "int", "required": "true"}, "required"),
+        ({"type": "int", "required": 1}, "required"),
+        ({"type": "str", "multiline": "yes"}, "multiline"),
+        ({"type": "enum", "options": opts("a"), "multiple": "true"}, "multiple"),
+        ({"type": "enum", "options": opts("a", "b"), "multiple": True, "min_selected": "1"}, "min_selected"),
+        ({"type": "enum", "options": opts("a", "b"), "multiple": True, "max_selected": 1.0}, "max_selected"),
+        ({"type": "enum", "options": [{"value": "a", "label": "A", "archived": "false"}]}, "options"),
+    ],
+)
+def test_config_types_are_strict(payload: dict[str, Any], field: str) -> None:
+    loc, _ = problems(payload)[0]
+    assert loc[:3] == ["questions", 0, field], loc

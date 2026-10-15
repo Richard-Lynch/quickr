@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -10,7 +11,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from app.mcp_server import mcp
-from tests.helpers import sleep_questions
+from tests.helpers import backdate_schedule, sleep_questions
 
 
 @pytest.fixture
@@ -192,8 +193,10 @@ async def test_schedules_and_due_topics(mcp_client: Client[Any]) -> None:
     interval = {"kind": "interval", "every_minutes": 60, "timezone": "UTC"}
     t = await call(mcp_client, "create_topic", name="Water", questions=sleep_questions(), schedule=interval)
     assert t["schedule"]["every_minutes"] == 60
-    assert t["due"]["is_due"] is True
+    assert t["due"]["is_due"] is False  # due one interval after the schedule was set
     await call(mcp_client, "create_topic", name="Plain", questions=sleep_questions())
+    assert (await call(mcp_client, "list_due_topics"))["items"] == []
+    await backdate_schedule("water", datetime.now(UTC) - timedelta(hours=2))
 
     due = await call(mcp_client, "list_due_topics")
     assert [x["slug"] for x in due["items"]] == ["water"]

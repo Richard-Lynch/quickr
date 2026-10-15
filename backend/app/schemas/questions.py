@@ -20,6 +20,7 @@ from typing import Annotated, Any, Literal, Self
 from pydantic import (
     AfterValidator,
     Field,
+    StrictBool,
     StrictFloat,
     StrictInt,
     StrictStr,
@@ -93,7 +94,7 @@ class QuestionBase(StrictModel):
     key: QuestionKey
     label: Label
     help_text: HelpText = None
-    required: bool = True
+    required: StrictBool = True
 
 
 class IntQuestion(QuestionBase):
@@ -119,7 +120,7 @@ class DoubleQuestion(QuestionBase):
     min: StrictFloat | StrictInt | None = Field(default=None, description="Inclusive lower bound.")
     max: StrictFloat | StrictInt | None = Field(default=None, description="Inclusive upper bound.")
     decimals: Annotated[
-        int | None,
+        StrictInt | None,
         Field(default=None, ge=0, le=MAX_DECIMALS, description="Display/input precision hint."),
     ] = None
     unit: Unit = None
@@ -137,9 +138,9 @@ class DoubleQuestion(QuestionBase):
 
 class StrQuestion(QuestionBase):
     type: Literal["str"] = "str"
-    min_length: Annotated[int, Field(ge=0, le=MAX_STR_LENGTH)] = 0
-    max_length: Annotated[int, Field(ge=1, le=MAX_STR_LENGTH)] = 500
-    multiline: bool = False
+    min_length: Annotated[StrictInt, Field(ge=0, le=MAX_STR_LENGTH)] = 0
+    max_length: Annotated[StrictInt, Field(ge=1, le=MAX_STR_LENGTH)] = 500
+    multiline: StrictBool = False
 
     @model_validator(mode="after")
     def _check_lengths(self) -> Self:
@@ -151,7 +152,7 @@ class StrQuestion(QuestionBase):
 class EnumOption(StrictModel):
     value: QuestionKey
     label: Label
-    archived: bool = Field(
+    archived: StrictBool = Field(
         default=False,
         description="Archived options remain valid for historic data but are hidden from new entries.",
     )
@@ -160,14 +161,14 @@ class EnumOption(StrictModel):
 class EnumQuestion(QuestionBase):
     type: Literal["enum"] = "enum"
     options: Annotated[list[EnumOption], Field(min_length=1, max_length=MAX_ENUM_OPTIONS)]
-    multiple: bool = Field(
+    multiple: StrictBool = Field(
         default=False,
         description="Allow selecting several options; the answer is then a list of option values.",
     )
-    min_selected: int | None = Field(
+    min_selected: StrictInt | None = Field(
         default=None, ge=1, description="Multi-select only: fewest options an answer may select."
     )
-    max_selected: int | None = Field(
+    max_selected: StrictInt | None = Field(
         default=None, ge=1, description="Multi-select only: most options an answer may select."
     )
 

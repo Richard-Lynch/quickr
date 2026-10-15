@@ -6,14 +6,22 @@ import re
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Annotated, Literal, Self
-from urllib.parse import urlsplit
 from uuid import UUID
 from zoneinfo import available_timezones
 
-from pydantic import AfterValidator, AwareDatetime, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    Field,
+    StrictBool,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 from pydantic_core import PydanticCustomError
 
 from app.models import Channel, TopicStatus
+from app.push_guard import PushEndpointRejected, check_endpoint
 from app.schemas.base import FieldIssue, Problem, StrictModel, field_error
 from app.schemas.limits import (
     CAPTURED_AT_MAX_FUTURE_HOURS,
@@ -121,8 +129,8 @@ Timezone = Annotated[
 TimeOfDay = Annotated[
     str, AfterValidator(_check_time), Field(json_schema_extra={"pattern": TIME_PATTERN}, examples=["08:00"])
 ]
-IsoWeekday = Annotated[int, Field(ge=1, le=7, description="ISO weekday: 1 = Monday ... 7 = Sunday.")]
-Notify = Annotated[bool, Field(description="Send a push notification when the topic becomes due.")]
+IsoWeekday = Annotated[StrictInt, Field(ge=1, le=7, description="ISO weekday: 1 = Monday ... 7 = Sunday.")]
+Notify = Annotated[StrictBool, Field(description="Send a push notification when the topic becomes due.")]
 
 
 class DailySchedule(StrictModel):
@@ -154,7 +162,7 @@ class IntervalSchedule(StrictModel):
     """Due ``every_minutes`` after the latest entry."""
 
     kind: Literal["interval"] = "interval"
-    every_minutes: Annotated[int, Field(ge=INTERVAL_MIN_MINUTES, le=INTERVAL_MAX_MINUTES)]
+    every_minutes: Annotated[StrictInt, Field(ge=INTERVAL_MIN_MINUTES, le=INTERVAL_MAX_MINUTES)]
     timezone: Timezone
     notify: Notify = True
 
@@ -210,6 +218,9 @@ class TopicSummary(StrictModel):
     updated_at: datetime
     archived_at: datetime | None
     schedule: Schedule | None
+    schedule_updated_at: datetime | None = Field(
+        description="When the schedule was last set or changed; due status ignores anything before it."
+    )
     due: DueStatus | None = Field(description="Null when the topic has no schedule.")
 
 
@@ -245,7 +256,7 @@ StatusFilter = Literal["active", "archived", "all"]
 
 class VersionDraft(StrictModel):
     questions: QuestionList
-    base_version: int | None = Field(
+    base_version: StrictInt | None = Field(
         default=None,
         ge=1,
         description="Optional: the version this draft was based on. When given and stale, the dry run "
@@ -254,7 +265,7 @@ class VersionDraft(StrictModel):
 
 
 class VersionCreate(VersionDraft):
-    base_version: int = Field(
+    base_version: StrictInt = Field(
         ge=1,
         description="The version this edit was based on. Must equal the topic's current version "
         "(optimistic concurrency); otherwise 409.",
@@ -382,7 +393,7 @@ class EntryCreate(StrictModel):
     captured_at: CapturedAt = None
     notes: Notes = ""
     meta: Meta = {}
-    version: int | None = Field(
+    version: StrictInt | None = Field(
         default=None,
         ge=1,
         description="Topic version the answers were written against. Defaults to current.",
@@ -579,9 +590,10 @@ class Limits(StrictModel):
 
 
 def _check_endpoint(v: str) -> str:
-    parts = urlsplit(v)
-    if parts.scheme != "https" or not parts.netloc:
-        raise PydanticCustomError("push_endpoint", "must be an https:// URL from the browser's push service")
+    try:
+        check_endpoint(v)
+    except PushEndpointRejected as exc:
+        raise PydanticCustomError("push_endpoint", str(exc).replace("{", "{{").replace("}", "}}")) from None
     return v
 
 
