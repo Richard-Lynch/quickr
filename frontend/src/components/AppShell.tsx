@@ -57,7 +57,7 @@ export function AppShell() {
  * Where "back" goes when there is no in-app history to pop (opened from a notification
  * or the Home Screen straight into a deep link — standalone iOS has no browser back).
  */
-function canGoBack(): boolean {
+export function canGoBack(): boolean {
   const state: unknown = window.history.state;
   return (
     typeof state === 'object' &&

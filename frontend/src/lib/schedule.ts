@@ -231,7 +231,7 @@ export const FRESH_DUE_MS = 30 * 60_000;
 /** "Due in 25 min" shows for slots this close; further away it's "Next 21:00". */
 export const SOON_MS = 60 * 60_000;
 
-const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
+const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 const weekdayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'short' });
 const dateFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
 
@@ -258,11 +258,21 @@ function minutesText(ms: number): string {
   return m >= 60 ? `${String(Math.round(m / 60))} h` : `${String(m)} min`;
 }
 
+/**
+ * Due right now: the server says so, or the next slot has passed since it last looked
+ * (the list is only refetched every minute, and not at all offline).
+ */
+export function isDueNow(due: DueStatus | null | undefined, now: Date = new Date()): boolean {
+  if (!due) return false;
+  if (due.is_due) return true;
+  return due.next_due_at !== null && Date.parse(due.next_due_at) <= now.getTime();
+}
+
 /** How a topic's due status reads on a tile. */
 export function dueView(due: DueStatus | null | undefined, now: Date = new Date()): DueView {
   if (!due) return { tone: 'none', label: '' };
-  if (due.is_due) {
-    const since = due.due_since;
+  if (isDueNow(due, now)) {
+    const since = due.is_due ? due.due_since : due.next_due_at;
     if (!since) return { tone: 'due', label: 'Due now' };
     const age = now.getTime() - Date.parse(since);
     return age < FRESH_DUE_MS
@@ -272,7 +282,13 @@ export function dueView(due: DueStatus | null | undefined, now: Date = new Date(
   if (!due.next_due_at) return { tone: 'none', label: '' };
   const wait = Date.parse(due.next_due_at) - now.getTime();
   if (wait <= SOON_MS) return { tone: 'soon', label: `Due in ${minutesText(wait)}` };
-  return { tone: 'later', label: `Next ${formatWhen(due.next_due_at, now)}` };
+  const when = formatWhen(due.next_due_at, now);
+  // "Next 9:00 PM" today; "Tomorrow 8:00 AM" / "Mon 8:00 AM" / "12 Oct" further out.
+  const today = /^\d/.test(when);
+  return {
+    tone: 'later',
+    label: today ? `Next ${when}` : when.charAt(0).toUpperCase() + when.slice(1),
+  };
 }
 
 /**

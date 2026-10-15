@@ -5,6 +5,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router/dom';
 
+import { connectDueBadge } from './api/dueBadge';
 import { connectOutboxEffects } from './api/outboxEffects';
 import { persistOptions } from './api/persist';
 import { createQueryClient } from './api/queryClient';
@@ -23,6 +24,7 @@ captureInstallPrompt();
 
 const queryClient = createQueryClient();
 connectOutboxEffects(queryClient, outbox);
+connectDueBadge(queryClient);
 
 // Notification clicks: the SW asks an open window to route in-app (keeps SPA state and
 // goes through the unsaved-changes guard).

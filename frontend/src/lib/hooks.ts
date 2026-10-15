@@ -9,6 +9,24 @@ export function useDebounced<T>(value: T, delay = 250): T {
   return debounced;
 }
 
+/** The current time, re-rendering every `intervalMs` (for "Due in 25 min" labels). */
+export function useNow(intervalMs = 30_000): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const tick = () => setNow(new Date());
+    const t = window.setInterval(tick, intervalMs);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') tick();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(t);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [intervalMs]);
+  return now;
+}
+
 /** `min-width` media query match (defaults to Tailwind's `md`). */
 export function useMediaQuery(query = '(min-width: 48rem)'): boolean {
   const [matches, setMatches] = useState(

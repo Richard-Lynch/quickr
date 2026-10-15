@@ -47,14 +47,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div
         aria-live="polite"
-        className="pointer-events-none fixed inset-x-0 top-0 z-50 flex flex-col items-center gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:top-auto sm:right-4 sm:bottom-4 sm:left-auto sm:items-end sm:px-0"
+        className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] z-50 flex flex-col items-center gap-2 px-3 sm:right-4 sm:bottom-4 sm:left-auto sm:items-end sm:px-0"
       >
         {items.map((t) => (
           <div
             key={t.id}
             role="status"
             className={cn(
-              'pointer-events-auto flex w-full max-w-sm animate-rise items-start gap-3 rounded-2xl border border-line bg-ink px-4 py-3 text-paper shadow-float',
+              'pointer-events-auto flex w-full max-w-sm animate-rise items-center gap-3 rounded-2xl border border-line bg-ink px-4 py-3 text-paper shadow-float',
             )}
           >
             <span
@@ -76,7 +76,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             {t.action ? (
               <button
                 type="button"
-                className="-my-1 h-8 shrink-0 rounded-full bg-paper/15 px-3 text-sm font-semibold hover:bg-paper/25"
+                className="-my-2 h-11 shrink-0 rounded-full bg-paper/15 px-4 text-sm font-semibold hover:bg-paper/25"
                 onClick={() => {
                   t.action?.onClick();
                   dismiss(t.id);
@@ -88,7 +88,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             <button
               type="button"
               aria-label="Dismiss"
-              className="-my-1 -mr-1 grid size-8 shrink-0 place-items-center rounded-full opacity-60 hover:opacity-100"
+              className="-my-2 -mr-2 grid size-11 shrink-0 place-items-center rounded-full opacity-60 hover:opacity-100"
               onClick={() => dismiss(t.id)}
             >
               <Icon name="x" className="size-4" />

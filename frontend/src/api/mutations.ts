@@ -30,7 +30,7 @@ import { errorMessage } from './errors';
 import {
   invalidateOperations,
   invalidateEntryData,
-  SESSION_DATA_OPS,
+  ENTRY_DATA_OPS,
   type OperationId,
 } from './queryClient';
 
@@ -59,15 +59,15 @@ export function applyEntryUpdate(s: EntryOut, body: EntryUpdate): EntryOut {
   };
 }
 
-const SESSION_OPS: readonly OperationId[] = ['listEntries', 'getEntry'];
+const ENTRY_OPS: readonly OperationId[] = ['listEntries', 'getEntry'];
 
 export function useUpdateEntry() {
   const qc = useQueryClient();
   return useMutation({
     ...updateEntryMutation(),
     onMutate: async (vars): Promise<Ctx> => {
-      await cancelOperations(qc, SESSION_OPS);
-      const snap = snapshotOperations(qc, SESSION_OPS);
+      await cancelOperations(qc, ENTRY_OPS);
+      const snap = snapshotOperations(qc, ENTRY_OPS);
       patchEntries(qc, (s) => (s.id === vars.path.entry_id ? applyEntryUpdate(s, vars.body) : s));
       return { snap };
     },
@@ -91,8 +91,8 @@ export function useDeleteEntryWithUndo() {
   const qc = useQueryClient();
   const { toast } = useToast();
   return (entry: EntryOut, topic: Pick<TopicSummary, 'id' | 'slug'>) => {
-    void cancelOperations(qc, SESSION_DATA_OPS);
-    const snap = snapshotOperations(qc, [...SESSION_DATA_OPS, 'getEntry']);
+    void cancelOperations(qc, ENTRY_DATA_OPS);
+    const snap = snapshotOperations(qc, [...ENTRY_DATA_OPS, 'getEntry']);
     patchEntries(qc, (s) => (s.id === entry.id ? null : s));
     patchTopics(qc, topicIs(topic), (t) => ({ entry_count: Math.max(0, t.entry_count - 1) }));
 
