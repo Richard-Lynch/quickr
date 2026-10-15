@@ -370,16 +370,6 @@ export type FieldIssue = {
 };
 
 /**
- * HTTPValidationError
- */
-export type HttpValidationError = {
-    /**
-     * Detail
-     */
-    detail?: Array<ValidationError>;
-};
-
-/**
  * HistogramBin
  */
 export type HistogramBin = {
@@ -1206,34 +1196,6 @@ export type TopicVersionOut = {
 };
 
 /**
- * ValidationError
- */
-export type ValidationError = {
-    /**
-     * Location
-     */
-    loc: Array<string | number>;
-    /**
-     * Message
-     */
-    msg: string;
-    /**
-     * Error Type
-     */
-    type: string;
-    /**
-     * Input
-     */
-    input?: unknown;
-    /**
-     * Context
-     */
-    ctx?: {
-        [key: string]: unknown;
-    };
-};
-
-/**
  * ValueCount
  */
 export type ValueCount = {
@@ -1275,6 +1237,12 @@ export type VersionDraft = {
      * Questions
      */
     questions: Array<IntQuestionInput | DoubleQuestionInput | StrQuestionInput | EnumQuestionInput>;
+    /**
+     * Base Version
+     *
+     * Optional: the version this draft was based on. When given and stale, the dry run fails with 409 just as publishing would.
+     */
+    base_version?: number | null;
 };
 
 export type HealthData = {
@@ -1297,6 +1265,10 @@ export type HealthErrors = {
      * Conflict
      */
     409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
 };
 
 export type HealthError = HealthErrors[keyof HealthErrors];
@@ -1334,6 +1306,10 @@ export type ListQuestionTypesErrors = {
      * Conflict
      */
     409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
 };
 
 export type ListQuestionTypesError = ListQuestionTypesErrors[keyof ListQuestionTypesErrors];
@@ -1393,9 +1369,9 @@ export type ListTopicsErrors = {
      */
     409: Problem;
     /**
-     * Validation Error
+     * Unprocessable Content
      */
-    422: HttpValidationError;
+    422: Problem;
 };
 
 export type ListTopicsError = ListTopicsErrors[keyof ListTopicsErrors];
@@ -1430,9 +1406,9 @@ export type CreateTopicErrors = {
      */
     409: Problem;
     /**
-     * Validation Error
+     * Unprocessable Content
      */
-    422: HttpValidationError;
+    422: Problem;
 };
 
 export type CreateTopicError = CreateTopicErrors[keyof CreateTopicErrors];
@@ -1474,9 +1450,9 @@ export type DeleteTopicErrors = {
      */
     409: Problem;
     /**
-     * Validation Error
+     * Unprocessable Content
      */
-    422: HttpValidationError;
+    422: Problem;
 };
 
 export type DeleteTopicError = DeleteTopicErrors[keyof DeleteTopicErrors];
@@ -1518,9 +1494,9 @@ export type GetTopicErrors = {
      */
     409: Problem;
     /**
-     * Validation Error
+     * Unprocessable Content
      */
-    422: HttpValidationError;
+    422: Problem;
 };
 
 export type GetTopicError = GetTopicErrors[keyof GetTopicErrors];
@@ -1562,9 +1538,9 @@ export type UpdateTopicErrors = {
      */
     409: Problem;
     /**
-     * Validation Error
+     * Unprocessable Content
      */
-    422: HttpValidationError;
+    422: Problem;
 };
 
 export type UpdateTopicError = UpdateTopicErrors[keyof UpdateTopicErrors];
@@ -1606,9 +1582,9 @@ export type ArchiveTopicErrors = {
      */
     409: Problem;
     /**
-     * Validation Error
+     * Unprocessable Content
      */
-    422: HttpValidationError;
+    422: Problem;
 };
 
 export type ArchiveTopicError = ArchiveTopicErrors[keyof ArchiveTopicErrors];
@@ -1650,9 +1626,9 @@ export type UnarchiveTopicErrors = {
      */
     409: Problem;
     /**
-     * Validation Error
+     * Unprocessable Content
      */
-    422: HttpValidationError;
+    422: Problem;
 };
 
 export type UnarchiveTopicError = UnarchiveTopicErrors[keyof UnarchiveTopicErrors];
@@ -1694,9 +1670,9 @@ export type ListTopicVersionsErrors = {
      */
     409: Problem;
     /**
-     * Validation Error
+     * Unprocessable Content
      */
-    422: HttpValidationError;
+    422: Problem;
 };
 
 export type ListTopicVersionsError = ListTopicVersionsErrors[keyof ListTopicVersionsErrors];
@@ -1784,9 +1760,9 @@ export type CheckTopicVersionErrors = {
      */
     409: Problem;
     /**
-     * Validation Error
+     * Unprocessable Content
      */
-    422: HttpValidationError;
+    422: Problem;
 };
 
 export type CheckTopicVersionError = CheckTopicVersionErrors[keyof CheckTopicVersionErrors];
@@ -1865,9 +1841,9 @@ export type ListSessionsErrors = {
      */
     409: Problem;
     /**
-     * Validation Error
+     * Unprocessable Content
      */
-    422: HttpValidationError;
+    422: Problem;
 };
 
 export type ListSessionsError = ListSessionsErrors[keyof ListSessionsErrors];
@@ -1986,9 +1962,9 @@ export type ExportSessionsCsvErrors = {
      */
     409: Problem;
     /**
-     * Validation Error
+     * Unprocessable Content
      */
-    422: HttpValidationError;
+    422: Problem;
 };
 
 export type ExportSessionsCsvError = ExportSessionsCsvErrors[keyof ExportSessionsCsvErrors];
@@ -2028,9 +2004,9 @@ export type DeleteSessionErrors = {
      */
     409: Problem;
     /**
-     * Validation Error
+     * Unprocessable Content
      */
-    422: HttpValidationError;
+    422: Problem;
 };
 
 export type DeleteSessionError = DeleteSessionErrors[keyof DeleteSessionErrors];
@@ -2070,9 +2046,9 @@ export type GetSessionErrors = {
      */
     409: Problem;
     /**
-     * Validation Error
+     * Unprocessable Content
      */
-    422: HttpValidationError;
+    422: Problem;
 };
 
 export type GetSessionError = GetSessionErrors[keyof GetSessionErrors];
@@ -2181,9 +2157,9 @@ export type GetTopicStatsErrors = {
      */
     409: Problem;
     /**
-     * Validation Error
+     * Unprocessable Content
      */
-    422: HttpValidationError;
+    422: Problem;
 };
 
 export type GetTopicStatsError = GetTopicStatsErrors[keyof GetTopicStatsErrors];
@@ -2264,9 +2240,9 @@ export type GetQuestionSeriesErrors = {
      */
     409: Problem;
     /**
-     * Validation Error
+     * Unprocessable Content
      */
-    422: HttpValidationError;
+    422: Problem;
 };
 
 export type GetQuestionSeriesError = GetQuestionSeriesErrors[keyof GetQuestionSeriesErrors];

@@ -115,6 +115,12 @@ StatusFilter = Literal["active", "archived", "all"]
 
 class VersionDraft(StrictModel):
     questions: QuestionList
+    base_version: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional: the version this draft was based on. When given and stale, the dry run "
+        "fails with 409 just as publishing would.",
+    )
 
 
 class VersionCreate(VersionDraft):

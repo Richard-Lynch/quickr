@@ -3,15 +3,15 @@
  * a banner message plus field errors keyed by dotted path.
  *
  * Sources:
- * - `Problem` envelope `{code, detail, errors: [{loc, message}]}` (domain errors)
- * - FastAPI `HTTPValidationError` `{detail: [{loc, msg, type}]}` (request-shape 422s)
+ * - `Problem` envelope `{code, detail, errors: [{loc, message}]}` (every API 4xx,
+ *   including request-shape 422s)
  * - `ZodError` from the generated SDK's request/response validators
  * - network failures / anything else
  */
 import { z } from 'zod';
 
-import type { HttpValidationError, Problem } from '../client';
-import { zHttpValidationError, zProblem } from '../client/zod.gen';
+import type { Problem } from '../client';
+import { zProblem } from '../client/zod.gen';
 
 export interface FieldError {
   /** Dotted path relative to the request body, e.g. `questions.0.min` or `answers.mood`. */
@@ -55,43 +55,30 @@ function isProblem(e: unknown): e is Problem {
   return zProblem.safeParse(e).success;
 }
 
-function isHttpValidationError(e: unknown): e is Required<HttpValidationError> {
-  const r = zHttpValidationError.safeParse(e);
-  return r.success && Array.isArray(r.data.detail);
-}
-
 const FRIENDLY_CODES: Record<string, string> = {
   conflict: 'Conflict',
   not_found: 'Not found',
   topic_archived: 'This topic is archived',
   invalid_answers: 'Some answers need attention',
   incompatible_version: 'This change is not allowed',
+  invalid_request: 'Some fields need attention',
 };
 
 export function mapApiError(error: unknown): MappedError {
   if (isProblem(error)) {
-    return {
-      code: error.code,
-      message: cleanMessage(error.detail) || FRIENDLY_CODES[error.code] || 'Request failed',
-      fieldErrors: error.errors.map((i) => ({
-        path: locToPath(i.loc),
-        message: cleanMessage(i.message),
-      })),
-    };
-  }
-  if (isHttpValidationError(error)) {
-    const fieldErrors = error.detail.map((d) => ({
-      path: locToPath(d.loc),
-      message: cleanMessage(d.msg),
+    const fieldErrors = error.errors.map((i) => ({
+      path: locToPath(i.loc),
+      message: cleanMessage(i.message),
     }));
-    return {
-      code: 'validation_error',
-      message:
-        fieldErrors.length === 1 && fieldErrors[0]
-          ? `${fieldErrors[0].path ? `${fieldErrors[0].path}: ` : ''}${fieldErrors[0].message}`
-          : 'Some fields need attention',
-      fieldErrors,
-    };
+    const only = fieldErrors.length === 1 ? fieldErrors[0] : undefined;
+    // Request-shape errors carry a generic detail; the single field issue is more useful.
+    let message = cleanMessage(error.detail) || FRIENDLY_CODES[error.code] || 'Request failed';
+    if (error.code === 'invalid_request') {
+      message = only
+        ? `${only.path ? `${only.path}: ` : ''}${only.message}`
+        : 'Some fields need attention';
+    }
+    return { code: error.code, message, fieldErrors };
   }
   if (error instanceof z.ZodError) {
     return {

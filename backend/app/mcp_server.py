@@ -155,10 +155,14 @@ async def list_topic_versions(ref: TopicRef) -> list[TopicVersionOut]:
 
 
 @mcp.tool
-async def check_topic_version(ref: TopicRef, questions: QuestionList) -> CompatibilityReport:
+async def check_topic_version(
+    ref: TopicRef,
+    questions: QuestionList,
+    base_version: Annotated[int | None, Field(ge=1, description="Fail if the topic moved past this.")] = None,
+) -> CompatibilityReport:
     """Dry-run a new question list: returns changes, warnings and blocking errors."""
     async with _db() as db:
-        return await topic_svc.check_version(db, ref, questions)
+        return await topic_svc.check_version(db, ref, questions, base_version)
 
 
 @mcp.tool

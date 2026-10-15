@@ -228,7 +228,7 @@ async def create_topic(db: AsyncSession, body: TopicCreate) -> TopicDetail:
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()
-        raise Conflict(f"slug '{topic.slug}' is already in use") from exc
+        raise _slug_conflict(topic.slug) from exc
     return await topic_detail(db, topic.id)
 
 
@@ -244,7 +244,7 @@ async def update_topic(db: AsyncSession, ref: str, body: TopicUpdate) -> TopicDe
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()
-        raise Conflict(f"slug '{body.slug}' is already in use") from exc
+        raise _slug_conflict(body.slug or topic.slug) from exc
     return await topic_detail(db, topic.id)
 
 
@@ -275,8 +275,27 @@ async def _history(db: AsyncSession, topic: Topic) -> list[list[Question]]:
     return [parse_questions(r) for r in rows]
 
 
-async def check_version(db: AsyncSession, ref: str, questions: list[Question]) -> CompatibilityReport:
+def _slug_conflict(slug: str) -> Conflict:
+    return Conflict(
+        f"slug '{slug}' is already in use",
+        [FieldIssue(loc=["slug"], message="already in use by another topic")],
+    )
+
+
+def _stale(topic: Topic, base_version: int) -> Conflict:
+    return Conflict(
+        f"topic is at version {topic.current_version}, but this edit was based on "
+        f"version {base_version}; reload and re-apply your changes",
+        [FieldIssue(loc=["base_version"], message=f"current version is {topic.current_version}")],
+    )
+
+
+async def check_version(
+    db: AsyncSession, ref: str, questions: list[Question], base_version: int | None = None
+) -> CompatibilityReport:
     topic = await resolve_topic(db, ref)
+    if base_version is not None and base_version != topic.current_version:
+        raise _stale(topic, base_version)
     return check_compatibility(await _history(db, topic), _validated_set(questions))
 
 
@@ -286,10 +305,7 @@ async def publish_version(db: AsyncSession, ref: str, body: VersionCreate) -> To
     await db.execute(select(Topic.id).where(Topic.id == topic.id).with_for_update())
     await db.refresh(topic)
     if body.base_version != topic.current_version:
-        raise Conflict(
-            f"topic is at version {topic.current_version}, but this edit was based on "
-            f"version {body.base_version}; reload and re-apply your changes"
-        )
+        raise _stale(topic, body.base_version)
     questions = _validated_set(body.questions)
     report = check_compatibility(await _history(db, topic), questions)
     if not report.ok:

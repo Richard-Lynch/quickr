@@ -507,24 +507,6 @@ export const zTopicVersionOut = z.object({
 });
 
 /**
- * ValidationError
- */
-export const zValidationError = z.object({
-    loc: z.array(z.union([z.string(), z.int()])),
-    msg: z.string(),
-    type: z.string(),
-    input: z.unknown().optional(),
-    ctx: z.record(z.string(), z.unknown()).optional()
-});
-
-/**
- * HTTPValidationError
- */
-export const zHttpValidationError = z.object({
-    detail: z.array(zValidationError).optional()
-});
-
-/**
  * ValueCount
  */
 export const zValueCount = z.object({
@@ -585,7 +567,8 @@ export const zVersionDraft = z.object({
         zDoubleQuestionInput,
         zStrQuestionInput,
         zEnumQuestionInput
-    ])).min(1).max(100)
+    ])).min(1).max(100),
+    base_version: z.int().gte(1).nullish()
 });
 
 /**

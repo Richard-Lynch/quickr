@@ -38,23 +38,27 @@ describe('mapApiError', () => {
     });
   });
 
-  it('maps FastAPI HTTPValidationError', () => {
+  it('maps request-shape 422s (invalid_request Problems)', () => {
     const m = mapApiError({
-      detail: [
-        {
-          type: 'value_error',
-          loc: ['body', 'questions', 0, 'int'],
-          msg: 'Value error, min must be <= max',
-        },
-        { type: 'missing', loc: ['body', 'name'], msg: 'Field required' },
+      code: 'invalid_request',
+      detail: 'request validation failed',
+      errors: [
+        { loc: ['body', 'questions', 0, 'int'], message: 'Value error, min must be <= max' },
+        { loc: ['body', 'name'], message: 'Field required' },
       ],
     });
-    expect(m.code).toBe('validation_error');
+    expect(m.code).toBe('invalid_request');
     expect(m.message).toBe('Some fields need attention');
     expect(m.fieldErrors).toEqual([
       { path: 'questions.0', message: 'Min must be <= max' },
       { path: 'name', message: 'Field required' },
     ]);
+    const single = mapApiError({
+      code: 'invalid_request',
+      detail: 'request validation failed',
+      errors: [{ loc: ['query', 'limit'], message: 'Input should be greater than or equal to 1' }],
+    });
+    expect(single.message).toBe('limit: Input should be greater than or equal to 1');
   });
 
   it('maps client-side ZodErrors from the SDK validators', () => {

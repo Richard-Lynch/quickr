@@ -147,3 +147,15 @@ async def test_restore_removed_question(client: httpx.AsyncClient) -> None:
     r = await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 2})
     assert r.status_code == 201
     assert r.json()["current_version"] == 3
+
+
+async def test_check_with_stale_base_version_conflicts(client: httpx.AsyncClient) -> None:
+    await make_topic(client)
+    body = {"questions": v2_questions(), "base_version": 1}
+    r = await client.post("/topics/sleep-log/versions/check", json=body)
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    assert (await client.post("/topics/sleep-log/versions", json=body)).status_code == 201
+    r = await client.post("/topics/sleep-log/versions/check", json=body)
+    assert r.status_code == 409
+    assert r.json()["errors"] == [{"loc": ["base_version"], "message": "current version is 2"}]

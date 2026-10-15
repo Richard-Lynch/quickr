@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
@@ -9,7 +10,7 @@ from app.api.routes import router
 from app.config import get_settings
 from app.errors import DomainError
 from app.mcp_server import mcp
-from app.schemas.api import Problem
+from app.schemas.api import FieldIssue, Problem
 
 
 def _operation_id(route: APIRoute) -> str:
@@ -31,6 +32,18 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(RequestValidationError)
+    async def _request_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+        issues = [
+            FieldIssue(
+                loc=[p for p in err.get("loc", ()) if isinstance(p, str | int)],
+                message=str(err.get("msg", "")),
+            )
+            for err in exc.errors()
+        ]
+        body = Problem(code="invalid_request", detail="request validation failed", errors=issues)
+        return JSONResponse(status_code=422, content=body.model_dump(mode="json"))
 
     @app.exception_handler(DomainError)
     async def _domain_error(_: Request, exc: DomainError) -> JSONResponse:

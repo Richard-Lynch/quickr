@@ -90,7 +90,7 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
       try {
         const report = await check.mutateAsync({
           path: { ref: base.slug },
-          body: { questions: draft.questions },
+          body: { questions: draft.questions, base_version: base.current_version },
         });
         // Light up questions with blocking issues.
         const drafts = form.getValues('questions');
@@ -99,12 +99,6 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
           const idx = drafts.findIndex((d) => d.key === i.question_key);
           if (idx >= 0)
             form.setError(`questions.${idx}.key`, { type: 'compat', message: i.message });
-        }
-        // The check diffs against the *current* version; if that moved on since
-        // this draft was loaded, publishing would 409 anyway — say so now.
-        if (report.next_version !== base.current_version + 1) {
-          setConflict(true);
-          return;
         }
         setReview({ report, draft });
       } catch (err) {
