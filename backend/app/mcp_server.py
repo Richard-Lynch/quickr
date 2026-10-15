@@ -26,14 +26,14 @@ from app.schemas.api import (
     AnswerMap,
     Bucket,
     CompatibilityReport,
+    EntryCreate,
+    EntryFilters,
+    EntryOut,
+    EntryPage,
+    EntryUpdate,
     Meta,
     QuestionList,
     QuestionSeries,
-    SessionCreate,
-    SessionFilters,
-    SessionOut,
-    SessionPage,
-    SessionUpdate,
     StatusFilter,
     TopicCreate,
     TopicDetail,
@@ -43,17 +43,17 @@ from app.schemas.api import (
     TopicVersionOut,
     VersionCreate,
 )
-from app.services import sessions as session_svc
+from app.services import entries as entry_svc
 from app.services import stats as stats_svc
 from app.services import topics as topic_svc
 
 INSTRUCTIONS = """\
-quickR records structured answers ("sessions") against config-driven "topics".
+quickR records structured answers ("entries") against config-driven "topics".
 A topic has an ordered list of questions; each question has a stable `key` and a
 `type` of int | double | str | enum with constraints (min/max, length, options).
 
 Typical flow: `list_topics` (or `get_topic` by slug) to discover the question
-keys and constraints, then `record_session` with `answers` as {key: value}.
+keys and constraints, then `record_entry` with `answers` as {key: value}.
 To change questions, call `check_topic_version` with the full new question list,
 then `publish_topic_version` with `base_version` = the topic's current_version.
 Question types can never change for a key and enum options can only be archived.
@@ -142,7 +142,7 @@ async def update_topic(
 
 @mcp.tool
 async def set_topic_archived(ref: TopicRef, archived: bool) -> TopicDetail:
-    """Archive (blocks new sessions, hidden from default listings) or unarchive a topic."""
+    """Archive (blocks new entries, hidden from default listings) or unarchive a topic."""
     async with _db() as db:
         return await topic_svc.set_archived(db, ref, archived=archived)
 
@@ -180,56 +180,56 @@ async def publish_topic_version(
 
 
 @mcp.tool
-async def record_session(
+async def record_entry(
     ref: TopicRef,
     answers: AnswerMap,
     source: Annotated[str, Field(min_length=1, max_length=100)] = "mcp",
     captured_at: Annotated[AwareDatetime | None, Field(description="Defaults to now.")] = None,
     notes: str = "",
     meta: Meta | None = None,
-) -> SessionOut:
+) -> EntryOut:
     """Record one set of answers for a topic against its current version."""
     async with _db() as db:
-        body = SessionCreate(
+        body = EntryCreate(
             answers=answers, source=source, captured_at=captured_at, notes=notes, meta=meta or {}
         )
-        return await session_svc.create_session(db, ref, body, Channel.mcp)
+        return await entry_svc.create_entry(db, ref, body, Channel.mcp)
 
 
 @mcp.tool
-async def list_sessions(
+async def list_entries(
     ref: TopicRef,
     captured_from: AwareDatetime | None = None,
     captured_to: AwareDatetime | None = None,
     source: str | None = None,
     limit: Annotated[int, Field(ge=1, le=500)] = 50,
     offset: Annotated[int, Field(ge=0)] = 0,
-) -> SessionPage:
-    """List sessions for a topic, newest first."""
+) -> EntryPage:
+    """List entries for a topic, newest first."""
     async with _db() as db:
-        filters = SessionFilters(captured_from=captured_from, captured_to=captured_to, source=source)
-        return await session_svc.list_sessions(db, ref, filters, limit=limit, offset=offset)
+        filters = EntryFilters(captured_from=captured_from, captured_to=captured_to, source=source)
+        return await entry_svc.list_entries(db, ref, filters, limit=limit, offset=offset)
 
 
 @mcp.tool
-async def update_session(
-    session_id: UUID,
+async def update_entry(
+    entry_id: UUID,
     answers: AnswerMap | None = None,
     captured_at: AwareDatetime | None = None,
     notes: str | None = None,
-) -> SessionOut:
-    """Correct a session. `answers` merges; a null value clears that answer."""
+) -> EntryOut:
+    """Correct an entry. `answers` merges; a null value clears that answer."""
     async with _db() as db:
-        return await session_svc.update_session(
-            db, session_id, SessionUpdate(answers=answers, captured_at=captured_at, notes=notes)
+        return await entry_svc.update_entry(
+            db, entry_id, EntryUpdate(answers=answers, captured_at=captured_at, notes=notes)
         )
 
 
 @mcp.tool
-async def delete_session(session_id: UUID) -> str:
-    """Permanently delete a session."""
+async def delete_entry(entry_id: UUID) -> str:
+    """Permanently delete an entry."""
     async with _db() as db:
-        await session_svc.delete_session(db, session_id)
+        await entry_svc.delete_entry(db, entry_id)
         return "deleted"
 
 
@@ -242,7 +242,7 @@ async def topic_stats(
     """Aggregate answers per question (numeric summary/histogram, enum counts, text samples)."""
     async with _db() as db:
         return await stats_svc.topic_stats(
-            db, ref, SessionFilters(captured_from=captured_from, captured_to=captured_to)
+            db, ref, EntryFilters(captured_from=captured_from, captured_to=captured_to)
         )
 
 
@@ -255,4 +255,4 @@ async def question_series(
 ) -> QuestionSeries:
     """Time series of one question bucketed by day/week/month."""
     async with _db() as db:
-        return await stats_svc.question_series(db, ref, key, SessionFilters(), bucket=bucket, tz=tz)
+        return await stats_svc.question_series(db, ref, key, EntryFilters(), bucket=bucket, tz=tz)

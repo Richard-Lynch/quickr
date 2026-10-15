@@ -42,7 +42,7 @@ async def make_topic(
 async def record(
     client: httpx.AsyncClient, ref: str, answers: dict[str, Any], **extra: Any
 ) -> dict[str, Any]:
-    r = await client.post(f"/topics/{ref}/sessions", json={"answers": answers, **extra})
+    r = await client.post(f"/topics/{ref}/entries", json={"answers": answers, **extra})
     assert r.status_code == 201, r.text
     body: dict[str, Any] = r.json()
     return body

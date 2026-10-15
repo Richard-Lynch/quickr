@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import Conflict, DomainError, IncompatibleVersion, NotFound
-from app.models import Session, Topic, TopicStatus, TopicVersion
+from app.models import Entry, Topic, TopicStatus, TopicVersion
 from app.schemas.api import (
     CompatibilityReport,
     FieldIssue,
@@ -84,14 +84,14 @@ async def get_version(db: AsyncSession, topic: Topic, version: int | None = None
     return row
 
 
-def _session_stats_subquery() -> Any:
+def _entry_stats_subquery() -> Any:
     return (
         select(
-            Session.topic_id.label("topic_id"),
-            func.count(Session.id).label("session_count"),
-            func.max(Session.captured_at).label("last_captured_at"),
+            Entry.topic_id.label("topic_id"),
+            func.count(Entry.id).label("entry_count"),
+            func.max(Entry.captured_at).label("last_captured_at"),
         )
-        .group_by(Session.topic_id)
+        .group_by(Entry.topic_id)
         .subquery()
     )
 
@@ -99,7 +99,7 @@ def _session_stats_subquery() -> Any:
 async def _summaries(db: AsyncSession, stmt: Select[Any]) -> list[tuple[TopicSummary, list[Question]]]:
     rows = (await db.execute(stmt)).all()
     out: list[tuple[TopicSummary, list[Question]]] = []
-    for topic, questions_raw, session_count, last_captured in rows:
+    for topic, questions_raw, entry_count, last_captured in rows:
         questions = parse_questions(questions_raw)
         out.append(
             (
@@ -111,7 +111,7 @@ async def _summaries(db: AsyncSession, stmt: Select[Any]) -> list[tuple[TopicSum
                     status=topic.status,
                     current_version=topic.current_version,
                     question_count=len(questions),
-                    session_count=session_count or 0,
+                    entry_count=entry_count or 0,
                     last_captured_at=last_captured,
                     created_at=topic.created_at,
                     updated_at=topic.updated_at,
@@ -124,12 +124,12 @@ async def _summaries(db: AsyncSession, stmt: Select[Any]) -> list[tuple[TopicSum
 
 
 def _base_select() -> tuple[Select[Any], Any]:
-    stats = _session_stats_subquery()
+    stats = _entry_stats_subquery()
     stmt = (
         select(
             Topic,
             TopicVersion.questions,
-            stats.c.session_count,
+            stats.c.entry_count,
             stats.c.last_captured_at,
         )
         .join(
@@ -334,9 +334,9 @@ async def publish_version(db: AsyncSession, ref: str, body: VersionCreate) -> To
 async def list_versions(db: AsyncSession, ref: str) -> list[TopicVersionOut]:
     topic = await resolve_topic(db, ref)
     counts = (
-        select(Session.version, func.count(Session.id).label("n"))
-        .where(Session.topic_id == topic.id)
-        .group_by(Session.version)
+        select(Entry.version, func.count(Entry.id).label("n"))
+        .where(Entry.topic_id == topic.id)
+        .group_by(Entry.version)
         .subquery()
     )
     rows = (
@@ -353,7 +353,7 @@ async def list_versions(db: AsyncSession, ref: str) -> list[TopicVersionOut]:
             questions=parse_questions(v.questions),
             change_note=v.change_note,
             created_at=v.created_at,
-            session_count=n or 0,
+            entry_count=n or 0,
         )
         for v, n in rows
     ]

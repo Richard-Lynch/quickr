@@ -1,4 +1,4 @@
-"""Seed demo topics with ~30 days of sessions, via the service layer.
+"""Seed demo topics with ~30 days of entries, via the service layer.
 
 Idempotent: topics whose slug already exists are skipped untouched.
 
@@ -21,9 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_engine, get_sessionmaker
 from app.models import Channel, Topic
-from app.schemas.api import SessionCreate, TopicCreate
+from app.schemas.api import EntryCreate, TopicCreate
 from app.schemas.questions import AnswerValue, Question
-from app.services import sessions as session_svc
+from app.services import entries as entry_svc
 from app.services import topics as topic_svc
 
 _questions: TypeAdapter[list[Question]] = TypeAdapter(list[Question])
@@ -38,7 +38,7 @@ class Demo:
     description: str
     questions: list[dict[str, Any]]
     # (rng, day) -> list of (hour offset within the day, answers, notes)
-    sessions: Callable[[random.Random, datetime], list[tuple[float, Answers, str]]]
+    entries: Callable[[random.Random, datetime], list[tuple[float, Answers, str]]]
 
 
 def _sleep(rng: random.Random, _day: datetime) -> list[tuple[float, Answers, str]]:
@@ -101,12 +101,12 @@ DEMOS = [
             },
             {"key": "dream", "label": "Dreams", "type": "str", "required": False, "multiline": True},
         ],
-        sessions=_sleep,
+        entries=_sleep,
     ),
     Demo(
         slug="workout",
         name="Workout",
-        description="Training sessions: type, duration and effort.",
+        description="Training entries: type, duration and effort.",
         questions=[
             {
                 "key": "kind",
@@ -137,7 +137,7 @@ DEMOS = [
                 "max": 10,
             },
         ],
-        sessions=_workout,
+        entries=_workout,
     ),
     Demo(
         slug="mood-check-in",
@@ -157,7 +157,7 @@ DEMOS = [
             },
             {"key": "note", "label": "What's going on?", "type": "str", "required": False, "max_length": 280},
         ],
-        sessions=_mood,
+        entries=_mood,
     ),
 ]
 
@@ -183,12 +183,12 @@ async def seed(db: AsyncSession, *, days: int = 30, now: datetime | None = None)
         rng = random.Random(demo.slug)
         for d in range(days):
             day = start + timedelta(days=d + 1)
-            for hour, answers, notes in demo.sessions(rng, day):
+            for hour, answers, notes in demo.entries(rng, day):
                 captured = day + timedelta(hours=hour, minutes=rng.randint(-20, 20))
                 if captured > now:
                     continue
-                body = SessionCreate(answers=answers, source="seed", captured_at=captured, notes=notes)
-                await session_svc.create_session(db, demo.slug, body, Channel.api)
+                body = EntryCreate(answers=answers, source="seed", captured_at=captured, notes=notes)
+                await entry_svc.create_entry(db, demo.slug, body, Channel.api)
         created.append(demo.slug)
     return created
 

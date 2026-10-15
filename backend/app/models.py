@@ -1,7 +1,7 @@
 """SQLAlchemy ORM models.
 
 Topic versions are immutable snapshots of a topic's question config. Every
-session is pinned to the version it was recorded against, so historic answers
+entry is pinned to the version it was recorded against, so historic answers
 always remain interpretable even as a topic evolves.
 """
 
@@ -40,7 +40,7 @@ class TopicStatus(enum.StrEnum):
 
 
 class Channel(enum.StrEnum):
-    """How a session reached the system. Set server-side."""
+    """How an entry reached the system. Set server-side."""
 
     ui = "ui"
     api = "api"
@@ -87,17 +87,17 @@ class TopicVersion(Base):
     __table_args__ = (UniqueConstraint("topic_id", "version", name="uq_topic_version"),)
 
 
-class Session(Base):
+class Entry(Base):
     """A single set of answers recorded against one topic version."""
 
-    __tablename__ = "sessions"
+    __tablename__ = "entries"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     topic_id: Mapped[UUID] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"))
     topic_version_id: Mapped[UUID] = mapped_column(ForeignKey("topic_versions.id", ondelete="CASCADE"))
     version: Mapped[int] = mapped_column(Integer)
     source: Mapped[str] = mapped_column(String(100))
-    channel: Mapped[Channel] = mapped_column(Enum(Channel, name="session_channel", native_enum=True))
+    channel: Mapped[Channel] = mapped_column(Enum(Channel, name="entry_channel", native_enum=True))
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str] = mapped_column(Text, default="")
     meta: Mapped[dict[str, str]] = mapped_column(JSONB, default=dict)
@@ -107,10 +107,10 @@ class Session(Base):
     )
 
     answers: Mapped[list[Answer]] = relationship(
-        back_populates="session", cascade="all, delete-orphan", lazy="selectin", order_by="Answer.position"
+        back_populates="entry", cascade="all, delete-orphan", lazy="selectin", order_by="Answer.position"
     )
 
-    __table_args__ = (Index("ix_sessions_topic_captured", "topic_id", "captured_at"),)
+    __table_args__ = (Index("ix_entries_topic_captured", "topic_id", "captured_at"),)
 
 
 class Answer(Base):
@@ -119,7 +119,7 @@ class Answer(Base):
     __tablename__ = "answers"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    session_id: Mapped[UUID] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"))
+    entry_id: Mapped[UUID] = mapped_column(ForeignKey("entries.id", ondelete="CASCADE"))
     topic_id: Mapped[UUID] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"))
     question_key: Mapped[str] = mapped_column(String(64))
     question_type: Mapped[str] = mapped_column(String(16))
@@ -128,10 +128,10 @@ class Answer(Base):
     value_double: Mapped[float | None] = mapped_column(Double, default=None)
     value_str: Mapped[str | None] = mapped_column(Text, default=None)
 
-    session: Mapped[Session] = relationship(back_populates="answers")
+    entry: Mapped[Entry] = relationship(back_populates="answers")
 
     __table_args__ = (
-        UniqueConstraint("session_id", "question_key", name="uq_answer_session_key"),
+        UniqueConstraint("entry_id", "question_key", name="uq_answer_entry_key"),
         Index("ix_answers_topic_key", "topic_id", "question_key"),
         CheckConstraint(
             "(question_type = 'int' AND value_int IS NOT NULL AND value_double IS NULL AND value_str IS NULL)"

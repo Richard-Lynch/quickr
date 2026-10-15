@@ -77,7 +77,7 @@ class TopicSummary(StrictModel):
     status: TopicStatus
     current_version: int
     question_count: int
-    session_count: int
+    entry_count: int
     last_captured_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -137,7 +137,7 @@ class TopicVersionOut(StrictModel):
     questions: list[Question]
     change_note: str
     created_at: datetime
-    session_count: int
+    entry_count: int
 
 
 IssueLevel = Literal["error", "warning", "info"]
@@ -164,7 +164,7 @@ class CompatibilityReport(StrictModel):
 
 
 # ---------------------------------------------------------------------------
-# Sessions & answers
+# Entries & answers
 # ---------------------------------------------------------------------------
 
 
@@ -204,7 +204,7 @@ AnswerMap = Annotated[
 ]
 
 
-class SessionCreate(StrictModel):
+class EntryCreate(StrictModel):
     answers: AnswerMap
     source: Source | None = Field(default=None, description="Defaults to the channel name.")
     captured_at: AwareDatetime | None = Field(
@@ -220,7 +220,7 @@ class SessionCreate(StrictModel):
     )
 
 
-class SessionUpdate(StrictModel):
+class EntryUpdate(StrictModel):
     """Partial update. ``answers`` merges into existing answers; a null value clears an answer."""
 
     answers: AnswerMap | None = None
@@ -230,7 +230,7 @@ class SessionUpdate(StrictModel):
     meta: Meta | None = None
 
 
-class SessionOut(StrictModel):
+class EntryOut(StrictModel):
     id: UUID
     topic_id: UUID
     version: int
@@ -244,14 +244,14 @@ class SessionOut(StrictModel):
     answers: list[AnswerOut]
 
 
-class SessionPage(StrictModel):
-    items: list[SessionOut]
+class EntryPage(StrictModel):
+    items: list[EntryOut]
     total: int
     limit: int
     offset: int
 
 
-SessionOrder = Literal["captured_at", "-captured_at", "created_at", "-created_at"]
+EntryOrder = Literal["captured_at", "-captured_at", "created_at", "-created_at"]
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +286,7 @@ class ValueCount(StrictModel):
 
 
 class RecentText(StrictModel):
-    session_id: UUID
+    entry_id: UUID
     value: str
     captured_at: datetime
 
@@ -307,7 +307,7 @@ class EnumOptionCount(StrictModel):
     label: str
     archived: bool
     count: int
-    share: float = Field(description="Fraction of answered sessions (0-1).")
+    share: float = Field(description="Fraction of answered entries (0-1).")
 
 
 class EnumStats(StrictModel):
@@ -324,7 +324,7 @@ QuestionStats = Annotated[NumericStats | StrStats | EnumStats, Field(discriminat
 
 class TopicStats(StrictModel):
     topic_id: UUID
-    session_count: int
+    entry_count: int
     first_captured_at: datetime | None
     last_captured_at: datetime | None
     sources: list[ValueCount]
@@ -352,7 +352,7 @@ class QuestionSeries(StrictModel):
     points: list[SeriesPoint]
 
 
-class SessionFilters(StrictModel):
+class EntryFilters(StrictModel):
     captured_from: AwareDatetime | None = None
     captured_to: AwareDatetime | None = None
     version: int | None = None

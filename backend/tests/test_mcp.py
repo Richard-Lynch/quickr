@@ -37,17 +37,17 @@ async def test_lists_tools_with_schemas(mcp_client: Client[Any]) -> None:
         "list_topic_versions",
         "check_topic_version",
         "publish_topic_version",
-        "record_session",
-        "list_sessions",
-        "update_session",
-        "delete_session",
+        "record_entry",
+        "list_entries",
+        "update_entry",
+        "delete_entry",
         "topic_stats",
         "question_series",
     }
     for tool in tools.values():
         assert tool.description
         assert tool.input_schema["type"] == "object"
-    assert set(tools["record_session"].input_schema["required"]) == {"ref", "answers"}
+    assert set(tools["record_entry"].input_schema["required"]) == {"ref", "answers"}
     assert tools["create_topic"].output_schema is not None
     assert "questions" in tools["create_topic"].output_schema["properties"]
 
@@ -60,7 +60,7 @@ async def test_create_record_stats_publish(mcp_client: Client[Any]) -> None:
 
     s1 = await call(
         mcp_client,
-        "record_session",
+        "record_entry",
         ref="sleep-log",
         answers={"hours": 7.5, "wakeups": 1, "quality": "ok"},
         captured_at="2026-05-01T08:00:00Z",
@@ -69,7 +69,7 @@ async def test_create_record_stats_publish(mcp_client: Client[Any]) -> None:
     assert s1["answers"][0] == {"key": "hours", "type": "double", "value": 7.5}
     s2 = await call(
         mcp_client,
-        "record_session",
+        "record_entry",
         ref=topic["id"],
         answers={"hours": 6.5, "wakeups": 3, "quality": "poor"},
         source="claude",
@@ -78,14 +78,14 @@ async def test_create_record_stats_publish(mcp_client: Client[Any]) -> None:
     assert (s2["source"], s2["meta"]) == ("claude", {"conversation": "abc"})
 
     stats = await call(mcp_client, "topic_stats", ref="sleep-log")
-    assert stats["session_count"] == 2
+    assert stats["entry_count"] == 2
     by_key = {q["key"]: q for q in stats["questions"]}
     assert by_key["hours"]["mean"] == 7.0
     assert by_key["hours"]["type"] == "double"
     assert {o["value"]: o["count"] for o in by_key["quality"]["options"]} == {"poor": 1, "ok": 1, "great": 0}
 
     stats = await call(mcp_client, "topic_stats", ref="sleep-log", captured_to="2026-05-02T00:00:00Z")
-    assert stats["session_count"] == 1
+    assert stats["entry_count"] == 1
 
     new_qs = [*sleep_questions(), {"key": "nap", "label": "Nap", "type": "int", "required": False}]
     report = await call(mcp_client, "check_topic_version", ref="sleep-log", questions=new_qs)
@@ -106,28 +106,28 @@ async def test_create_record_stats_publish(mcp_client: Client[Any]) -> None:
     versions = await mcp_client.call_tool("list_topic_versions", {"ref": "sleep-log"})
     assert [v["version"] for v in versions.structured_content["result"]] == [2, 1]  # type: ignore[index]
 
-    page = await call(mcp_client, "list_sessions", ref="sleep-log")
+    page = await call(mcp_client, "list_entries", ref="sleep-log")
     assert page["total"] == 2
 
-    updated = await call(mcp_client, "update_session", session_id=s1["id"], answers={"wakeups": 2})
+    updated = await call(mcp_client, "update_entry", entry_id=s1["id"], answers={"wakeups": 2})
     assert {a["key"]: a["value"] for a in updated["answers"]}["wakeups"] == 2
     assert updated["version"] == 1
 
     series = await call(mcp_client, "question_series", ref="sleep-log", key="hours", bucket="month")
     assert sum(p["count"] for p in series["points"]) == 2
 
-    deleted = await mcp_client.call_tool("delete_session", {"session_id": s2["id"]})
+    deleted = await mcp_client.call_tool("delete_entry", {"entry_id": s2["id"]})
     assert deleted.data == "deleted"
 
     listed = await call(mcp_client, "list_topics", query="sleep")
     assert [t["slug"] for t in listed["items"]] == ["sleep-log"]
 
 
-async def test_record_session_errors_include_field_details(mcp_client: Client[Any]) -> None:
+async def test_record_entry_errors_include_field_details(mcp_client: Client[Any]) -> None:
     await call(mcp_client, "create_topic", name="Sleep log", questions=sleep_questions())
     with pytest.raises(ToolError) as exc:
         await mcp_client.call_tool(
-            "record_session", {"ref": "sleep-log", "answers": {"hours": 30, "quality": "superb", "ghost": 1}}
+            "record_entry", {"ref": "sleep-log", "answers": {"hours": 30, "quality": "superb", "ghost": 1}}
         )
     msg = str(exc.value)
     assert msg.startswith("one or more answers are invalid: ")
@@ -137,7 +137,7 @@ async def test_record_session_errors_include_field_details(mcp_client: Client[An
     assert "answers.quality: must be one of: great, ok, poor" in msg
 
     result = await mcp_client.call_tool(
-        "record_session", {"ref": "sleep-log", "answers": {}}, raise_on_error=False
+        "record_entry", {"ref": "sleep-log", "answers": {}}, raise_on_error=False
     )
     assert result.is_error
 
@@ -164,7 +164,7 @@ async def test_domain_errors_are_surfaced(mcp_client: Client[Any]) -> None:
     await call(mcp_client, "set_topic_archived", ref="sleep-log", archived=True)
     with pytest.raises(ToolError, match="archived"):
         await mcp_client.call_tool(
-            "record_session", {"ref": "sleep-log", "answers": {"hours": 1, "wakeups": 0, "quality": "ok"}}
+            "record_entry", {"ref": "sleep-log", "answers": {"hours": 1, "wakeups": 0, "quality": "ok"}}
         )
 
 

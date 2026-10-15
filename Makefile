@@ -33,7 +33,7 @@ web: ## Run the Vite dev server on :5180
 	$(FRONTEND) pnpm dev
 
 .PHONY: seed
-seed: ## Load demo topics and sessions
+seed: ## Load demo topics and entries
 	$(BACKEND) uv run python scripts/seed.py
 
 .PHONY: openapi

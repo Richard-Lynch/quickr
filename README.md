@@ -1,15 +1,15 @@
 # quickR
 
 Config-driven data capture. Create **topics**, give each an ordered set of typed
-**questions**, and record **sessions** (one set of answers) from your phone, the
+**questions**, and record **entries** (one set of answers) from your phone, the
 API, or an MCP client. Then browse, edit, aggregate and export the results.
 
 - **Question types:** `int` (min/max, unit), `double` (min/max, decimals, unit),
   `str` (min/max length, multiline), `enum` (options configured up front,
   archivable).
-- **Every session records** its `source`, `captured_at`, `channel` (ui/api/mcp),
+- **Every entry records** its `source`, `captured_at`, `channel` (ui/api/mcp),
   the topic `version`, `notes` and free-form `meta`.
-- **Safe evolution:** topics are versioned. Each session is pinned to the
+- **Safe evolution:** topics are versioned. Each entry is pinned to the
   version it was recorded against, so historic answers always stay
   interpretable.
 
@@ -60,7 +60,7 @@ you publish a new version (`POST /topics/{ref}/versions`):
 | Labels, help text, units, required flag, order | ✅                                                                 |
 | Add / remove a question                        | ✅ removed questions keep their data and still appear in stats/CSV |
 | Re-add a removed key with the **same** type    | ✅ (`restored`)                                                    |
-| Tighten or loosen min/max/length               | ✅ with a warning (old sessions remain valid for their version)    |
+| Tighten or loosen min/max/length               | ✅ with a warning (old entries remain valid for their version)    |
 | Add an enum option, archive / unarchive one    | ✅                                                                 |
 | Change a key's type (even a historic key)      | ❌ use a new key                                                   |
 | Remove an enum option                          | ❌ archive it instead                                              |
@@ -77,8 +77,8 @@ the topic's current version (optimistic concurrency, `409` otherwise).
 | `POST /api/v1/topics` · `GET/PATCH/DELETE /api/v1/topics/{ref}`                       | CRUD (`ref` = slug or UUID; delete requires archived) |
 | `POST /api/v1/topics/{ref}/archive` · `/unarchive`                                    | archive management                                    |
 | `GET /api/v1/topics/{ref}/versions` · `POST .../versions/check` · `POST .../versions` | version history, dry-run, publish                     |
-| `GET/POST /api/v1/topics/{ref}/sessions` · `GET .../sessions.csv`                     | list/record/export sessions                           |
-| `GET/PATCH/DELETE /api/v1/sessions/{id}`                                              | view/correct/delete a session                         |
+| `GET/POST /api/v1/topics/{ref}/entries` · `GET .../entries.csv`                     | list/record/export entries                           |
+| `GET/PATCH/DELETE /api/v1/entries/{id}`                                              | view/correct/delete an entry                         |
 | `GET /api/v1/topics/{ref}/stats` · `GET .../questions/{key}/series`                   | aggregation and time series                           |
 | `GET /api/v1/question-types`                                                          | JSON schema for every question type                   |
 
@@ -90,8 +90,8 @@ Domain errors use one envelope: `{code, detail, errors: [{loc, message}]}`.
 Point any MCP client at `http://<host>/mcp/` (streamable HTTP). Tools:
 `list_topics`, `get_topic`, `create_topic`, `update_topic`,
 `set_topic_archived`, `list_topic_versions`, `check_topic_version`,
-`publish_topic_version`, `record_session`, `list_sessions`, `update_session`,
-`delete_session`, `topic_stats`, `question_series`.
+`publish_topic_version`, `record_entry`, `list_entries`, `update_entry`,
+`delete_entry`, `topic_stats`, `question_series`.
 
 ```bash
 claude mcp add --transport http quickr http://localhost:8100/mcp/

@@ -77,7 +77,7 @@ def validate_answers(
     """Return typed answers or raise InvalidAnswers with every problem found.
 
     ``allowed_archived`` maps question key -> an archived enum value that is
-    permitted anyway (used when editing a session that already holds it).
+    permitted anyway (used when editing an entry that already holds it).
     """
     by_key = {q.key: q for q in questions}
     issues: list[FieldIssue] = []

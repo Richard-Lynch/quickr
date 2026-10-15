@@ -1,4 +1,4 @@
-"""Aggregation across sessions. Numeric work is pushed into Postgres."""
+"""Aggregation across entries. Numeric work is pushed into Postgres."""
 
 from __future__ import annotations
 
@@ -10,9 +10,10 @@ from sqlalchemy import Double, Select, cast, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import DomainError, NotFound
-from app.models import Answer, Session
+from app.models import Answer, Entry
 from app.schemas.api import (
     Bucket,
+    EntryFilters,
     EnumOptionCount,
     EnumStats,
     HistogramBin,
@@ -21,26 +22,25 @@ from app.schemas.api import (
     QuestionStats,
     RecentText,
     SeriesPoint,
-    SessionFilters,
     StrStats,
     TopicStats,
     ValueCount,
 )
 from app.schemas.questions import EnumQuestion, Question
-from app.services.sessions import apply_filters
+from app.services.entries import apply_filters
 from app.services.topics import all_questions_by_key, get_version, parse_questions, resolve_topic
 
 HISTOGRAM_BINS = 10
 
 
-def _answers_for(topic_id: Any, key: str, filters: SessionFilters, *cols: Any) -> Select[Any]:
-    stmt = select(*cols).select_from(Answer).join(Session, Session.id == Answer.session_id)
+def _answers_for(topic_id: Any, key: str, filters: EntryFilters, *cols: Any) -> Select[Any]:
+    stmt = select(*cols).select_from(Answer).join(Entry, Entry.id == Answer.entry_id)
     stmt = apply_filters(stmt, topic_id, filters)
     return stmt.where(Answer.question_key == key)
 
 
 async def _numeric(
-    db: AsyncSession, topic_id: Any, q: Question, filters: SessionFilters, total: int
+    db: AsyncSession, topic_id: Any, q: Question, filters: EntryFilters, total: int
 ) -> NumericStats:
     v = func.coalesce(cast(Answer.value_int, Double), Answer.value_double)
     row = (
@@ -100,7 +100,7 @@ def _f(v: object) -> float | None:
 
 
 async def _value_counts(
-    db: AsyncSession, topic_id: Any, key: str, filters: SessionFilters, limit: int | None
+    db: AsyncSession, topic_id: Any, key: str, filters: EntryFilters, limit: int | None
 ) -> list[ValueCount]:
     n = func.count().label("n")
     stmt = (
@@ -113,9 +113,7 @@ async def _value_counts(
     return [ValueCount(value=v, count=c) for v, c in (await db.execute(stmt)).all() if v is not None]
 
 
-async def _text(
-    db: AsyncSession, topic_id: Any, q: Question, filters: SessionFilters, total: int
-) -> StrStats:
+async def _text(db: AsyncSession, topic_id: Any, q: Question, filters: EntryFilters, total: int) -> StrStats:
     count, distinct = (
         await db.execute(
             _answers_for(topic_id, q.key, filters, func.count(), func.count(Answer.value_str.distinct()))
@@ -123,8 +121,8 @@ async def _text(
     ).one()
     recent_rows = (
         await db.execute(
-            _answers_for(topic_id, q.key, filters, Session.id, Answer.value_str, Session.captured_at)
-            .order_by(Session.captured_at.desc())
+            _answers_for(topic_id, q.key, filters, Entry.id, Answer.value_str, Entry.captured_at)
+            .order_by(Entry.captured_at.desc())
             .limit(10)
         )
     ).all()
@@ -136,12 +134,12 @@ async def _text(
         missing=max(total - count, 0),
         distinct=distinct,
         top=[vc for vc in await _value_counts(db, topic_id, q.key, filters, 10) if vc.count > 1],
-        recent=[RecentText(session_id=i, value=v or "", captured_at=t) for i, v, t in recent_rows],
+        recent=[RecentText(entry_id=i, value=v or "", captured_at=t) for i, v, t in recent_rows],
     )
 
 
 async def _enum(
-    db: AsyncSession, topic_id: Any, q: EnumQuestion, filters: SessionFilters, total: int
+    db: AsyncSession, topic_id: Any, q: EnumQuestion, filters: EntryFilters, total: int
 ) -> EnumStats:
     counts = {vc.value: vc.count for vc in await _value_counts(db, topic_id, q.key, filters, None)}
     answered = sum(counts.values())
@@ -164,12 +162,12 @@ async def _enum(
     )
 
 
-async def topic_stats(db: AsyncSession, ref: str, filters: SessionFilters) -> TopicStats:
+async def topic_stats(db: AsyncSession, ref: str, filters: EntryFilters) -> TopicStats:
     topic = await resolve_topic(db, ref)
     total, first, last = (
         await db.execute(
             apply_filters(
-                select(func.count(Session.id), func.min(Session.captured_at), func.max(Session.captured_at)),
+                select(func.count(Entry.id), func.min(Entry.captured_at), func.max(Entry.captured_at)),
                 topic.id,
                 filters,
             )
@@ -200,14 +198,14 @@ async def topic_stats(db: AsyncSession, ref: str, filters: SessionFilters) -> To
     source_n = func.count().label("n")
     sources = (
         await db.execute(
-            apply_filters(select(Session.source, source_n), topic.id, filters)
-            .group_by(Session.source)
+            apply_filters(select(Entry.source, source_n), topic.id, filters)
+            .group_by(Entry.source)
             .order_by(source_n.desc())
         )
     ).all()
     return TopicStats(
         topic_id=topic.id,
-        session_count=total,
+        entry_count=total,
         first_captured_at=first,
         last_captured_at=last,
         sources=[ValueCount(value=s, count=n) for s, n in sources],
@@ -219,7 +217,7 @@ async def question_series(
     db: AsyncSession,
     ref: str,
     key: str,
-    filters: SessionFilters,
+    filters: EntryFilters,
     bucket: Bucket = "day",
     tz: str = "UTC",
 ) -> QuestionSeries:
@@ -233,7 +231,7 @@ async def question_series(
     except (ZoneInfoNotFoundError, ValueError) as exc:
         raise DomainError(f"unknown timezone '{tz}'") from exc
     # Truncate in the caller's local time, then convert back to an aware timestamp.
-    start = func.timezone(tz, func.date_trunc(bucket, func.timezone(tz, Session.captured_at))).label("start")
+    start = func.timezone(tz, func.date_trunc(bucket, func.timezone(tz, Entry.captured_at))).label("start")
     points: dict[datetime, SeriesPoint] = {}
     if q.type in ("int", "double"):
         v = func.coalesce(cast(Answer.value_int, Double), Answer.value_double)

@@ -1,4 +1,4 @@
-"""Version check/publish over HTTP, and sessions pinned to versions."""
+"""Version check/publish over HTTP, and entries pinned to versions."""
 
 from __future__ import annotations
 
@@ -95,14 +95,14 @@ async def test_incompatible_publish_is_problem(client: httpx.AsyncClient) -> Non
     assert r.json()["detail"] == "no changes to publish"
 
 
-async def test_sessions_pinned_to_versions(client: httpx.AsyncClient) -> None:
+async def test_entries_pinned_to_versions(client: httpx.AsyncClient) -> None:
     await make_topic(client)
     s1 = await record(client, "sleep-log", ANSWERS)
     assert s1["version"] == 1
     await client.post("/topics/sleep-log/versions", json={"questions": v2_questions(), "base_version": 1})
 
-    # New sessions default to the current version and use its rules.
-    r = await client.post("/topics/sleep-log/sessions", json={"answers": ANSWERS})
+    # New entries default to the current version and use its rules.
+    r = await client.post("/topics/sleep-log/entries", json={"answers": ANSWERS})
     assert r.status_code == 422
     errors = {tuple(e["loc"]): e["message"] for e in r.json()["errors"]}
     assert errors[("answers", "wakeups")] == "unknown question"
@@ -115,26 +115,26 @@ async def test_sessions_pinned_to_versions(client: httpx.AsyncClient) -> None:
     s3 = await record(client, "sleep-log", {**ANSWERS, "hours": 20}, version=1)
     assert s3["version"] == 1
     r = await client.post(
-        "/topics/sleep-log/sessions", json={"answers": {**ANSWERS, "hours": 20}, "version": 2}
+        "/topics/sleep-log/entries", json={"answers": {**ANSWERS, "hours": 20}, "version": 2}
     )
     assert r.status_code == 422
-    r = await client.post("/topics/sleep-log/sessions", json={"answers": ANSWERS, "version": 9})
+    r = await client.post("/topics/sleep-log/entries", json={"answers": ANSWERS, "version": 9})
     assert r.status_code == 404
 
-    # The old session keeps its version and answers.
-    old = (await client.get(f"/sessions/{s1['id']}")).json()
+    # The old entry keeps its version and answers.
+    old = (await client.get(f"/entries/{s1['id']}")).json()
     assert old["version"] == 1
     assert {a["key"] for a in old["answers"]} == {"hours", "wakeups", "quality"}
 
-    # Editing an old session validates against its own version.
-    r = await client.patch(f"/sessions/{s1['id']}", json={"answers": {"wakeups": 3}})
+    # Editing an old entry validates against its own version.
+    r = await client.patch(f"/entries/{s1['id']}", json={"answers": {"wakeups": 3}})
     assert r.status_code == 200, r.text
     assert r.json()["version"] == 1
 
     versions = (await client.get("/topics/sleep-log/versions")).json()
-    assert {v["version"]: v["session_count"] for v in versions} == {2: 1, 1: 2}
+    assert {v["version"]: v["entry_count"] for v in versions} == {2: 1, 1: 2}
 
-    by_version = (await client.get("/topics/sleep-log/sessions", params={"version": 1})).json()
+    by_version = (await client.get("/topics/sleep-log/entries", params={"version": 1})).json()
     assert by_version["total"] == 2
 
 

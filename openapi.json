@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "quickR API",
-    "description": "Config-driven topics, questions and answer sessions.",
+    "description": "Config-driven topics, questions and answer entries.",
     "version": "1.0.0"
   },
   "paths": {
@@ -985,13 +985,13 @@
         }
       }
     },
-    "/api/v1/topics/{ref}/sessions": {
+    "/api/v1/topics/{ref}/entries": {
       "get": {
         "tags": [
-          "sessions"
+          "entries"
         ],
-        "summary": "List Sessions",
-        "operationId": "listSessions",
+        "summary": "List Entries",
+        "operationId": "listEntries",
         "parameters": [
           {
             "name": "ref",
@@ -1141,7 +1141,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionPage"
+                  "$ref": "#/components/schemas/EntryPage"
                 }
               }
             }
@@ -1190,10 +1190,10 @@
       },
       "post": {
         "tags": [
-          "sessions"
+          "entries"
         ],
-        "summary": "Create Session",
-        "operationId": "createSession",
+        "summary": "Create Entry",
+        "operationId": "createEntry",
         "parameters": [
           {
             "name": "ref",
@@ -1233,7 +1233,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SessionCreate"
+                "$ref": "#/components/schemas/EntryCreate"
               }
             }
           }
@@ -1244,7 +1244,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionOut"
+                  "$ref": "#/components/schemas/EntryOut"
                 }
               }
             }
@@ -1292,13 +1292,13 @@
         }
       }
     },
-    "/api/v1/topics/{ref}/sessions.csv": {
+    "/api/v1/topics/{ref}/entries.csv": {
       "get": {
         "tags": [
-          "sessions"
+          "entries"
         ],
-        "summary": "Export Sessions",
-        "operationId": "exportSessionsCsv",
+        "summary": "Export Entries",
+        "operationId": "exportEntriesCsv",
         "parameters": [
           {
             "name": "ref",
@@ -1457,22 +1457,22 @@
         }
       }
     },
-    "/api/v1/sessions/{session_id}": {
+    "/api/v1/entries/{entry_id}": {
       "get": {
         "tags": [
-          "sessions"
+          "entries"
         ],
-        "summary": "Get Session",
-        "operationId": "getSession",
+        "summary": "Get Entry",
+        "operationId": "getEntry",
         "parameters": [
           {
-            "name": "session_id",
+            "name": "entry_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid",
-              "title": "Session Id"
+              "title": "Entry Id"
             }
           }
         ],
@@ -1482,7 +1482,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionOut"
+                  "$ref": "#/components/schemas/EntryOut"
                 }
               }
             }
@@ -1531,19 +1531,19 @@
       },
       "patch": {
         "tags": [
-          "sessions"
+          "entries"
         ],
-        "summary": "Update Session",
-        "operationId": "updateSession",
+        "summary": "Update Entry",
+        "operationId": "updateEntry",
         "parameters": [
           {
-            "name": "session_id",
+            "name": "entry_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid",
-              "title": "Session Id"
+              "title": "Entry Id"
             }
           }
         ],
@@ -1552,7 +1552,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SessionUpdate"
+                "$ref": "#/components/schemas/EntryUpdate"
               }
             }
           }
@@ -1563,7 +1563,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionOut"
+                  "$ref": "#/components/schemas/EntryOut"
                 }
               }
             }
@@ -1612,19 +1612,19 @@
       },
       "delete": {
         "tags": [
-          "sessions"
+          "entries"
         ],
-        "summary": "Delete Session",
-        "operationId": "deleteSession",
+        "summary": "Delete Entry",
+        "operationId": "deleteEntry",
         "parameters": [
           {
-            "name": "session_id",
+            "name": "entry_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid",
-              "title": "Session Id"
+              "title": "Entry Id"
             }
           }
         ],
@@ -2053,7 +2053,7 @@
           "mcp"
         ],
         "title": "Channel",
-        "description": "How a session reached the system. Set server-side."
+        "description": "How an entry reached the system. Set server-side."
       },
       "CompatibilityIssue": {
         "properties": {
@@ -2370,6 +2370,348 @@
         ],
         "title": "DoubleQuestion"
       },
+      "EntryCreate": {
+        "properties": {
+          "answers": {
+            "patternProperties": {
+              "^[a-z][a-z0-9_]{0,62}$": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "propertyNames": {
+              "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+              "examples": [
+                "hours_slept"
+              ]
+            },
+            "type": "object",
+            "title": "Answers",
+            "description": "Map of question key -> value. int questions take integers, double questions numbers, str questions strings, enum questions an option value. null/absent = unanswered.",
+            "examples": [
+              {
+                "hours_slept": 7.5,
+                "quality": "good"
+              }
+            ]
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1,
+                "description": "Free-form origin of the data, e.g. 'iphone', 'garmin-sync', 'claude'."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source",
+            "description": "Defaults to the channel name."
+          },
+          "captured_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured At",
+            "description": "When the observation happened (timezone-aware). Defaults to now."
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 5000,
+            "title": "Notes",
+            "default": ""
+          },
+          "meta": {
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "propertyNames": {
+              "maxLength": 64
+            },
+            "type": "object",
+            "maxProperties": 50,
+            "title": "Meta",
+            "description": "Arbitrary string key/value metadata.",
+            "default": {}
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version",
+            "description": "Topic version the answers were written against. Defaults to current."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "answers"
+        ],
+        "title": "EntryCreate"
+      },
+      "EntryOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "topic_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Topic Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "channel": {
+            "$ref": "#/components/schemas/Channel"
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Captured At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "notes": {
+            "type": "string",
+            "title": "Notes"
+          },
+          "meta": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Meta"
+          },
+          "answers": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/IntAnswer"
+                },
+                {
+                  "$ref": "#/components/schemas/DoubleAnswer"
+                },
+                {
+                  "$ref": "#/components/schemas/StrAnswer"
+                },
+                {
+                  "$ref": "#/components/schemas/EnumAnswer"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "type",
+                "mapping": {
+                  "double": "#/components/schemas/DoubleAnswer",
+                  "enum": "#/components/schemas/EnumAnswer",
+                  "int": "#/components/schemas/IntAnswer",
+                  "str": "#/components/schemas/StrAnswer"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Answers"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "topic_id",
+          "version",
+          "source",
+          "channel",
+          "captured_at",
+          "created_at",
+          "updated_at",
+          "notes",
+          "meta",
+          "answers"
+        ],
+        "title": "EntryOut"
+      },
+      "EntryPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EntryOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "EntryPage"
+      },
+      "EntryUpdate": {
+        "properties": {
+          "answers": {
+            "anyOf": [
+              {
+                "patternProperties": {
+                  "^[a-z][a-z0-9_]{0,62}$": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "propertyNames": {
+                  "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+                  "examples": [
+                    "hours_slept"
+                  ]
+                },
+                "type": "object",
+                "description": "Map of question key -> value. int questions take integers, double questions numbers, str questions strings, enum questions an option value. null/absent = unanswered.",
+                "examples": [
+                  {
+                    "hours_slept": 7.5,
+                    "quality": "good"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answers"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1,
+                "description": "Free-form origin of the data, e.g. 'iphone', 'garmin-sync', 'claude'."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "captured_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured At"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "propertyNames": {
+                  "maxLength": 64
+                },
+                "type": "object",
+                "maxProperties": 50,
+                "description": "Arbitrary string key/value metadata."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "EntryUpdate",
+        "description": "Partial update. ``answers`` merges into existing answers; a null value clears an answer."
+      },
       "EnumAnswer": {
         "properties": {
           "key": {
@@ -2482,7 +2824,7 @@
           "share": {
             "type": "number",
             "title": "Share",
-            "description": "Fraction of answered sessions (0-1)."
+            "description": "Fraction of answered entries (0-1)."
           }
         },
         "additionalProperties": false,
@@ -3176,10 +3518,10 @@
       },
       "RecentText": {
         "properties": {
-          "session_id": {
+          "entry_id": {
             "type": "string",
             "format": "uuid",
-            "title": "Session Id"
+            "title": "Entry Id"
           },
           "value": {
             "type": "string",
@@ -3194,7 +3536,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "session_id",
+          "entry_id",
           "value",
           "captured_at"
         ],
@@ -3264,348 +3606,6 @@
           "option_counts"
         ],
         "title": "SeriesPoint"
-      },
-      "SessionCreate": {
-        "properties": {
-          "answers": {
-            "patternProperties": {
-              "^[a-z][a-z0-9_]{0,62}$": {
-                "anyOf": [
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              }
-            },
-            "propertyNames": {
-              "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
-              "examples": [
-                "hours_slept"
-              ]
-            },
-            "type": "object",
-            "title": "Answers",
-            "description": "Map of question key -> value. int questions take integers, double questions numbers, str questions strings, enum questions an option value. null/absent = unanswered.",
-            "examples": [
-              {
-                "hours_slept": 7.5,
-                "quality": "good"
-              }
-            ]
-          },
-          "source": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 100,
-                "minLength": 1,
-                "description": "Free-form origin of the data, e.g. 'iphone', 'garmin-sync', 'claude'."
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source",
-            "description": "Defaults to the channel name."
-          },
-          "captured_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Captured At",
-            "description": "When the observation happened (timezone-aware). Defaults to now."
-          },
-          "notes": {
-            "type": "string",
-            "maxLength": 5000,
-            "title": "Notes",
-            "default": ""
-          },
-          "meta": {
-            "additionalProperties": {
-              "type": "string",
-              "maxLength": 500
-            },
-            "propertyNames": {
-              "maxLength": 64
-            },
-            "type": "object",
-            "maxProperties": 50,
-            "title": "Meta",
-            "description": "Arbitrary string key/value metadata.",
-            "default": {}
-          },
-          "version": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Version",
-            "description": "Topic version the answers were written against. Defaults to current."
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "answers"
-        ],
-        "title": "SessionCreate"
-      },
-      "SessionOut": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Id"
-          },
-          "topic_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Topic Id"
-          },
-          "version": {
-            "type": "integer",
-            "title": "Version"
-          },
-          "source": {
-            "type": "string",
-            "title": "Source"
-          },
-          "channel": {
-            "$ref": "#/components/schemas/Channel"
-          },
-          "captured_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Captured At"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Updated At"
-          },
-          "notes": {
-            "type": "string",
-            "title": "Notes"
-          },
-          "meta": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object",
-            "title": "Meta"
-          },
-          "answers": {
-            "items": {
-              "oneOf": [
-                {
-                  "$ref": "#/components/schemas/IntAnswer"
-                },
-                {
-                  "$ref": "#/components/schemas/DoubleAnswer"
-                },
-                {
-                  "$ref": "#/components/schemas/StrAnswer"
-                },
-                {
-                  "$ref": "#/components/schemas/EnumAnswer"
-                }
-              ],
-              "discriminator": {
-                "propertyName": "type",
-                "mapping": {
-                  "double": "#/components/schemas/DoubleAnswer",
-                  "enum": "#/components/schemas/EnumAnswer",
-                  "int": "#/components/schemas/IntAnswer",
-                  "str": "#/components/schemas/StrAnswer"
-                }
-              }
-            },
-            "type": "array",
-            "title": "Answers"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "id",
-          "topic_id",
-          "version",
-          "source",
-          "channel",
-          "captured_at",
-          "created_at",
-          "updated_at",
-          "notes",
-          "meta",
-          "answers"
-        ],
-        "title": "SessionOut"
-      },
-      "SessionPage": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/SessionOut"
-            },
-            "type": "array",
-            "title": "Items"
-          },
-          "total": {
-            "type": "integer",
-            "title": "Total"
-          },
-          "limit": {
-            "type": "integer",
-            "title": "Limit"
-          },
-          "offset": {
-            "type": "integer",
-            "title": "Offset"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "items",
-          "total",
-          "limit",
-          "offset"
-        ],
-        "title": "SessionPage"
-      },
-      "SessionUpdate": {
-        "properties": {
-          "answers": {
-            "anyOf": [
-              {
-                "patternProperties": {
-                  "^[a-z][a-z0-9_]{0,62}$": {
-                    "anyOf": [
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  }
-                },
-                "propertyNames": {
-                  "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
-                  "examples": [
-                    "hours_slept"
-                  ]
-                },
-                "type": "object",
-                "description": "Map of question key -> value. int questions take integers, double questions numbers, str questions strings, enum questions an option value. null/absent = unanswered.",
-                "examples": [
-                  {
-                    "hours_slept": 7.5,
-                    "quality": "good"
-                  }
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Answers"
-          },
-          "source": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 100,
-                "minLength": 1,
-                "description": "Free-form origin of the data, e.g. 'iphone', 'garmin-sync', 'claude'."
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source"
-          },
-          "captured_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Captured At"
-          },
-          "notes": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 5000
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notes"
-          },
-          "meta": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "type": "string",
-                  "maxLength": 500
-                },
-                "propertyNames": {
-                  "maxLength": 64
-                },
-                "type": "object",
-                "maxProperties": 50,
-                "description": "Arbitrary string key/value metadata."
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Meta"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "SessionUpdate",
-        "description": "Partial update. ``answers`` merges into existing answers; a null value clears an answer."
       },
       "StrAnswer": {
         "properties": {
@@ -3931,9 +3931,9 @@
             "type": "integer",
             "title": "Question Count"
           },
-          "session_count": {
+          "entry_count": {
             "type": "integer",
-            "title": "Session Count"
+            "title": "Entry Count"
           },
           "last_captured_at": {
             "anyOf": [
@@ -4009,7 +4009,7 @@
           "status",
           "current_version",
           "question_count",
-          "session_count",
+          "entry_count",
           "last_captured_at",
           "created_at",
           "updated_at",
@@ -4057,9 +4057,9 @@
             "format": "uuid",
             "title": "Topic Id"
           },
-          "session_count": {
+          "entry_count": {
             "type": "integer",
-            "title": "Session Count"
+            "title": "Entry Count"
           },
           "first_captured_at": {
             "anyOf": [
@@ -4124,7 +4124,7 @@
         "type": "object",
         "required": [
           "topic_id",
-          "session_count",
+          "entry_count",
           "first_captured_at",
           "last_captured_at",
           "sources",
@@ -4170,9 +4170,9 @@
             "type": "integer",
             "title": "Question Count"
           },
-          "session_count": {
+          "entry_count": {
             "type": "integer",
-            "title": "Session Count"
+            "title": "Entry Count"
           },
           "last_captured_at": {
             "anyOf": [
@@ -4219,7 +4219,7 @@
           "status",
           "current_version",
           "question_count",
-          "session_count",
+          "entry_count",
           "last_captured_at",
           "created_at",
           "updated_at",
@@ -4319,9 +4319,9 @@
             "format": "date-time",
             "title": "Created At"
           },
-          "session_count": {
+          "entry_count": {
             "type": "integer",
-            "title": "Session Count"
+            "title": "Entry Count"
           }
         },
         "additionalProperties": false,
@@ -4331,7 +4331,7 @@
           "questions",
           "change_note",
           "created_at",
-          "session_count"
+          "entry_count"
         ],
         "title": "TopicVersionOut"
       },

@@ -15,15 +15,15 @@ from app.models import Channel
 from app.schemas.api import (
     Bucket,
     CompatibilityReport,
+    EntryCreate,
+    EntryFilters,
+    EntryOrder,
+    EntryOut,
+    EntryPage,
+    EntryUpdate,
     Problem,
     QuestionSeries,
     QuestionTypeInfo,
-    SessionCreate,
-    SessionFilters,
-    SessionOrder,
-    SessionOut,
-    SessionPage,
-    SessionUpdate,
     StatusFilter,
     TopicCreate,
     TopicDetail,
@@ -36,7 +36,7 @@ from app.schemas.api import (
     VersionDraft,
 )
 from app.schemas.questions import DoubleQuestion, EnumQuestion, IntQuestion, StrQuestion
-from app.services import sessions as session_svc
+from app.services import entries as entry_svc
 from app.services import stats as stats_svc
 from app.services import topics as topic_svc
 
@@ -58,14 +58,14 @@ ERRORS: dict[int | str, dict[str, object]] = {
 router = APIRouter(responses=ERRORS)
 
 
-def session_filters(
+def entry_filters(
     captured_from: Annotated[AwareDatetime | None, Query(description="Inclusive lower bound.")] = None,
     captured_to: Annotated[AwareDatetime | None, Query(description="Exclusive upper bound.")] = None,
     version: Annotated[int | None, Query(ge=1)] = None,
     source: Annotated[str | None, Query(max_length=100)] = None,
     channel: Channel | None = None,
-) -> SessionFilters:
-    return SessionFilters(
+) -> EntryFilters:
+    return EntryFilters(
         captured_from=captured_from,
         captured_to=captured_to,
         version=version,
@@ -74,7 +74,7 @@ def session_filters(
     )
 
 
-Filters = Annotated[SessionFilters, Depends(session_filters)]
+Filters = Annotated[EntryFilters, Depends(entry_filters)]
 
 
 # --- meta -------------------------------------------------------------------
@@ -181,42 +181,40 @@ async def publish_version(db: Db, ref: TopicRef, body: VersionCreate) -> TopicDe
     return await topic_svc.publish_version(db, ref, body)
 
 
-# --- sessions ---------------------------------------------------------------
+# --- entries ---------------------------------------------------------------
 
 
-@router.get("/topics/{ref}/sessions", tags=["sessions"], operation_id="listSessions")
-async def list_sessions(
+@router.get("/topics/{ref}/entries", tags=["entries"], operation_id="listEntries")
+async def list_entries(
     db: Db,
     ref: TopicRef,
     filters: Filters,
-    order: SessionOrder = "-captured_at",
+    order: EntryOrder = "-captured_at",
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
-) -> SessionPage:
-    return await session_svc.list_sessions(db, ref, filters, order=order, limit=limit, offset=offset)
+) -> EntryPage:
+    return await entry_svc.list_entries(db, ref, filters, order=order, limit=limit, offset=offset)
 
 
 @router.post(
-    "/topics/{ref}/sessions",
-    tags=["sessions"],
-    operation_id="createSession",
+    "/topics/{ref}/entries",
+    tags=["entries"],
+    operation_id="createEntry",
     status_code=status.HTTP_201_CREATED,
 )
-async def create_session(
-    db: Db, ref: TopicRef, body: SessionCreate, channel: ChannelHeader = None
-) -> SessionOut:
-    return await session_svc.create_session(db, ref, body, channel or Channel.api)
+async def create_entry(db: Db, ref: TopicRef, body: EntryCreate, channel: ChannelHeader = None) -> EntryOut:
+    return await entry_svc.create_entry(db, ref, body, channel or Channel.api)
 
 
 @router.get(
-    "/topics/{ref}/sessions.csv",
-    tags=["sessions"],
-    operation_id="exportSessionsCsv",
+    "/topics/{ref}/entries.csv",
+    tags=["entries"],
+    operation_id="exportEntriesCsv",
     response_class=StreamingResponse,
     responses={200: {"content": {"text/csv": {"schema": {"type": "string"}}}}},
 )
-async def export_sessions(db: Db, ref: TopicRef, filters: Filters) -> StreamingResponse:
-    gen = await session_svc.export_csv(db, ref, filters)
+async def export_entries(db: Db, ref: TopicRef, filters: Filters) -> StreamingResponse:
+    gen = await entry_svc.export_csv(db, ref, filters)
     stamp = datetime.now().strftime("%Y%m%d")
     return StreamingResponse(
         gen,
@@ -225,28 +223,28 @@ async def export_sessions(db: Db, ref: TopicRef, filters: Filters) -> StreamingR
     )
 
 
-@router.get("/sessions/{session_id}", tags=["sessions"], operation_id="getSession")
-async def get_session(db: Db, session_id: UUID) -> SessionOut:
-    return await session_svc.get_session(db, session_id)
+@router.get("/entries/{entry_id}", tags=["entries"], operation_id="getEntry")
+async def get_entry(db: Db, entry_id: UUID) -> EntryOut:
+    return await entry_svc.get_entry(db, entry_id)
 
 
 @router.patch(
-    "/sessions/{session_id}",
-    tags=["sessions"],
-    operation_id="updateSession",
+    "/entries/{entry_id}",
+    tags=["entries"],
+    operation_id="updateEntry",
 )
-async def update_session(db: Db, session_id: UUID, body: SessionUpdate) -> SessionOut:
-    return await session_svc.update_session(db, session_id, body)
+async def update_entry(db: Db, entry_id: UUID, body: EntryUpdate) -> EntryOut:
+    return await entry_svc.update_entry(db, entry_id, body)
 
 
 @router.delete(
-    "/sessions/{session_id}",
-    tags=["sessions"],
-    operation_id="deleteSession",
+    "/entries/{entry_id}",
+    tags=["entries"],
+    operation_id="deleteEntry",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-async def delete_session(db: Db, session_id: UUID) -> Response:
-    await session_svc.delete_session(db, session_id)
+async def delete_entry(db: Db, entry_id: UUID) -> Response:
+    await entry_svc.delete_entry(db, entry_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
