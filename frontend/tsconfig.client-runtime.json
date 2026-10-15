@@ -1,0 +1,31 @@
+{
+  // The static fetch-client runtime that @hey-api/openapi-ts copies into
+  // src/client/{client,core}. It is not written for `exactOptionalPropertyTypes`
+  // (it forwards `undefined` into optional props in ~12 places), so it is the one
+  // place that flag is relaxed. Everything else in src/client (types, zod schemas,
+  // SDK, TanStack Query options) is checked under the full strict app config.
+  // The app consumes this project through its emitted declarations.
+  "compilerOptions": {
+    "composite": true,
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "outDir": "./node_modules/.tmp/client-runtime",
+    "rootDir": "./src/client",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.client-runtime.tsbuildinfo",
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": [],
+    "moduleDetection": "force",
+    "skipLibCheck": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": ["src/client/client", "src/client/core"]
+}
