@@ -67,3 +67,7 @@ up: ## Build and run the full stack in docker (web on :8080)
 .PHONY: down
 down: ## Stop the docker stack
 	docker compose down
+
+.PHONY: seed-docker
+seed-docker: ## Load demo data into the docker stack
+	docker compose exec backend python scripts/seed.py
