@@ -6,7 +6,12 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom/vitest"],
+    "types": [
+      "vite/client",
+      "vite-plugin-pwa/react",
+      "vitest/globals",
+      "@testing-library/jest-dom/vitest"
+    ],
     "allowImportingTsExtensions": true,
     "moduleDetection": "force",
     "noEmit": true,
@@ -25,6 +30,6 @@
     "noUncheckedSideEffectImports": true
   },
   "include": ["src"],
-  "exclude": ["src/client/client", "src/client/core"],
+  "exclude": ["src/client/client", "src/client/core", "src/sw.ts"],
   "references": [{ "path": "./tsconfig.client-runtime.json" }]
 }
