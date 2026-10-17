@@ -22,7 +22,7 @@ branch.
 |                     |                                                                                                                           |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Active milestone    | **M0: backend foundations and specs** (branch `ios/m0-foundations`)                                                       |
-| Running             | WP feed, WP vectors, WP specs (sub-agents, each in its own worktree)                                                      |
+| Running             | WP scaffold (sub-agent). vectors, specs and feed are merged.                                                      |
 | Waiting on the user | Xcode install (via `xcodes`); Apple enrollment activation and the Team ID; iPhone model and iOS version; answers to Q1–Q4 |
 | Next up             | Integrate the M0 work packages, with a Codex review each → `ios/` scaffolding once Xcode lands → M0 PR                    |
 
@@ -89,10 +89,9 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
         TABLES
   - [x] PWA: `entry_deleted` handling in the outbox and its effects, with tests
   - [x] `openapi.json` and the TS client regenerated
-- [ ] Gate: `make check` green (the sub-agent's report and an orchestrator
-      re-run)
-- [~] Codex review: round 1 found 4 Majors + 1 Minor, fixed in bc6f4c1, c13d3ac and e6d94cc (gate re-run: 368 pytest, 151 vitest). Round 2: the 4 fixes are resolved. Open: the epoch precondition must be atomic with the write (fix in progress). Declined: a forward migration for the in-place edit, since that revision was never merged or deployed.
-- [ ] Merged into `ios/m0-foundations`
+- [x] Gate: `make check` green (orchestrator re-runs: 368, then 401 pytest after integration)
+- [x] Codex review: 3 rounds plus a final check, all Majors resolved (bc6f4c1, c13d3ac, e6d94cc, 47fa746, 1c5b240, 238d4cb). Declined: a forward migration for the in-place migration edit (never merged or deployed).
+- [x] Merged into `ios/m0-foundations` (5239b20)
 
 ### WP vectors: `ios/m0-vectors` (worktree `../ios-m0-vectors`)
 
@@ -105,7 +104,7 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
   - [x] `make vectors`, and `shared/fixtures/README.md`
 - [x] Gate: `make check` green (orchestrator re-run: 324 pytest and 365 vitest passed)
 - [x] Codex review: round 1 found 2 Majors, both fixed (0e2843f, f958671). Round 2 approved.
-- [x] Merged into `ios/m0-foundations` (98584b1). Still to do: **regenerate the fixtures** once the feed WP merges.
+- [x] Merged into `ios/m0-foundations` (98584b1). Fixtures regenerated after the feed merge (42672c0): added `/changes` bootstrap and deletion fixtures and the `entry_deleted` problem body.
 
 ### WP specs: `ios/m0-specs` (worktree `../ios-m0-specs`)
 
@@ -127,35 +126,41 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
       `swift test` on push, the full build on a ready PR or a manual dispatch
 - [ ] Local smoke test: `make ios-gen` and a simulator build of an empty app
 
-### Contract reconciliation (specs ↔ feed), checked at integration
+### Contract reconciliation (specs ↔ feed), checked at integration: all M0 items confirmed by the feed WP and Codex, and the specs were aligned (tagged-union page, query-param `expected_revision`, incremental topic-delete cascade).
 
 These are the server details the specs assume. Each one must be confirmed in the feed WP's code
 (or fixed, or the spec changed) before M0 merges.
 
-- [ ] Every `/changes` page carries `server_id`, `epoch`, `head`, `next`, `has_more` and
+- [x] Every `/changes` page carries `server_id`, `epoch`, `head`, `next`, `has_more` and
   `server_time`.
-- [ ] `server_id` survives a restore. A restore or reset rotates only `epoch`.
-- [ ] Feed rows are topics, versions (with `topic_id`) and entries. `deleted[]` items are
+- [x] `server_id` survives a restore. A restore or reset rotates only `epoch`.
+- [x] Feed rows are topics, versions (with `topic_id`) and entries. `deleted[]` items are
   `{kind: entry|topic|version, id, topic_id}`.
-- [ ] `revision` exists on entries and topics, starts at 1 and only ever increases. It is returned by
+- [x] `revision` exists on entries and topics, starts at 1 and only ever increases. It is returned by
   POST, PATCH, archive and unarchive.
-- [ ] Deleting a topic writes the topic, its entries and its versions to `deleted_ids`, and emits a
+- [x] Deleting a topic writes the topic, its entries and its versions to `deleted_ids`, and emits a
   deletion for each.
-- [ ] The backfill emits topics, then versions, then entries.
-- [ ] Error codes:
+- [x] The backfill emits topics, then versions, then entries.
+- [x] Error codes:
   - 409 `entry_deleted`: POST reuses a deleted id;
   - 409 `stale_revision`: `expected_revision` doesn't match;
   - 404: PATCH or GET of a deleted entry;
   - 204: DELETE of an id that is absent or already deleted.
-- [ ] The `X-QuickR-Server-Id` header is on every `/api/v1` response, including errors and
+- [x] The `X-QuickR-Server-Id` header is on every `/api/v1` response, including errors and
   `/health`.
 - [ ] (M3) `due_since` in push payloads is UTC truncated to whole seconds.
 - [ ] (M3) `quicklog-vectors.json` gains category-id cases, so Python and Swift produce identical
   `quickr.t.{id}.{hash}`.
 
+### Backlog from M0 reviews (non-blocking)
+
+- [ ] Feed: an ASGI disconnect/send-error test proving the CSV snapshot transaction closes and the connection is returned; a >500-row CSV with a mutation between pages.
+- [ ] Feed: a dedicated regression test for the commit-time retry in `@writer`.
+- [ ] Specs/fixtures: `quicklog-vectors.json` gains category-id cases (M3).
+
 ### M0 integration and PR
 
-- [ ] All WPs merged; `make check` green on `ios/m0-foundations`
+- [~] All WPs merged (vectors, specs, feed; scaffold in progress); `make check` green on `ios/m0-foundations` (401 pytest, 532 vitest, alembic check)
 - [ ] Concurrency, feed and downgrade tests listed in the PR
 - [ ] Codex review of the whole milestone diff, plus a Claude code-review
       sub-agent
