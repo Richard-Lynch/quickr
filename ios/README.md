@@ -99,6 +99,109 @@ The test plans reference targets by XcodeGen's deterministic ids. If a test
 target is renamed or added, regenerate and update the `identifier` in the
 `.xctestplan` from `project.pbxproj`.
 
+## Integration tests
+
+`make ios-integration` runs the sync integration suite (gate G4 in
+`docs/ios/specs/sync-protocol.md` §13.2) against real backends built from **this
+worktree's** `backend/`. It needs docker, `curl` and `python3`. It brings the
+stacks up, runs `ios/scripts/integration-smoke.sh` (the harness checking itself
+with curl), then `swift test --filter QuickrDataIntegrationTests`, and tears
+everything down on exit, pass or fail (`QUICKR_IT_KEEP=1` keeps the stacks up).
+Until that target exists it says so and stops after the smoke test.
+
+| Target                      | Does                                                                      |
+| --------------------------- | ------------------------------------------------------------------------- |
+| `make ios-integration`      | Up, smoke, integration tests, down                                        |
+| `make ios-integration-up`   | Start (or restart clean) the stacks and write `ios/build/integration.env` |
+| `make ios-integration-down` | Stop them and delete their data                                           |
+| `make ios-sim-clone`        | Print the UDID of this worktree's own simulator, creating it on first use |
+
+**What runs.** Compose project `quickr-it-<worktree dir>-<hash of its path>`,
+from `docker-compose.integration.yml`. One throwaway Postgres (tmpfs) holds two
+databases. Two backends run from the same image: **server a** and **server b**.
+Each one has its own database, so the `server_id` and epoch differ.
+`backend/tools/faultproxy.py` runs in front of them and routes to server a by
+default. Every port is bound to 127.0.0.1.
+
+**Ports.** Each worktree gets a block of 4 ports in 21000–22999, chosen by a
+hash of its path: proxy, proxy control, server a, server b. If any port in the
+block is busy, the next block is used. Ports and project names never collide
+with the dev stack (:8100, :5433, :8080), and two worktrees can run at once.
+
+**`ios/build/integration.env`** holds plain `KEY=value` lines, one per line,
+with no quoting. It is sourceable from a shell. `make ios-integration` exports
+these variables to `swift test`:
+
+| Variable                                | Value                                                                                                                             |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `QUICKR_IT_BASE_URL`                    | The proxy, e.g. `http://127.0.0.1:21028`. The app's server URL in tests. API paths start with `/api/v1`                           |
+| `QUICKR_IT_BASE_URL_2`                  | Server b, directly (a different server)                                                                                           |
+| `QUICKR_IT_DIRECT_URL`                  | Server a, directly (to check server state without going through the proxy rules)                                                  |
+| `QUICKR_IT_PROXY_CONTROL_URL`           | The proxy's control API                                                                                                           |
+| `QUICKR_IT_SERVER_ID` / `_2`            | `X-QuickR-Server-Id` of server a / b                                                                                              |
+| `QUICKR_IT_ROTATE_EPOCH`                | Script path. Run it with `a` or `b` to rotate that server's epoch (S9, outbox 38)                                                 |
+| `QUICKR_IT_PROJECT`, `QUICKR_IT_PORT_*` | Compose project name and raw ports                                                                                                |
+| `QUICKR_IT_REQUIRED=1`                  | Set only by `make ios-integration`. When it is set, integration tests must **fail**, not skip, if the variables above are missing |
+
+Plain `swift test` doesn't set these variables, so the integration tests skip
+themselves there. Tests that run on a simulator through `xcodebuild` would need
+the variables passed as `TEST_RUNNER_<name>`. Host `swift test` is the intended
+runner.
+
+**Fault proxy control API** (JSON, at `QUICKR_IT_PROXY_CONTROL_URL`):
+
+| Request                                            | Effect                                                                                                                             |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /reset`                                      | Remove all rules (releasing held requests), clear the log, route back to server a. Call it in every test's setup                   |
+| `POST /rules` (rule)                               | Add a rule, `201` with the rule (including its `id`); `400 {"error"}` if invalid                                                   |
+| `GET /rules`, `GET /rules/{id}`                    | List the rules, or get one. Each rule shows `hits`, `waiting` (held right now), `exhausted` and `released`                         |
+| `DELETE /rules`, `DELETE /rules/{id}`              | Remove the rules, or one (releasing its held requests)                                                                             |
+| `POST /rules/{id}/release`                         | Let the rule's held requests (and any later ones) go to the server; returns `released_now`                                         |
+| `GET /log`, `DELETE /log`                          | Get the log of every proxied request, or clear it (see below)                                                                      |
+| `GET /upstream`, `PUT /upstream {"name":"a"\|"b"}` | Show the server the proxy routes to, or switch it. Switching to `b` makes "the URL now reaches a different server" (S8, outbox 49) |
+| `GET /health`                                      | `{"ok": true}`                                                                                                                     |
+
+A rule is
+`{"action": ..., "method": "*", "path": "*", "sticky": false, "times": 1, ...}`.
+`method` is matched case-insensitively. `path` is an `fnmatch` glob against the
+path without its query string (`*` also matches `/`), e.g.
+`/api/v1/topics/*/entries`. The first rule that matches and is not exhausted
+applies. A rule applies `times` times (one-shot by default), or forever when
+`sticky` is true. The actions are:
+
+| `action`         | Behaviour                                                                                                                                                                                                                           | Extra fields                                                                                                      |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `pass`           | Forward unchanged (a counted no-op)                                                                                                                                                                                                 |                                                                                                                   |
+| `drop_response`  | Forward, wait for the server's full answer (it has committed), then reset the client connection. Outbox 59, "maybe delivered"                                                                                                       |                                                                                                                   |
+| `drop_request`   | Reset the connection without forwarding                                                                                                                                                                                             |                                                                                                                   |
+| `garble`         | Forward, then corrupt a **2xx** body. `Content-Length` stays correct, so the HTTP is valid and only the body is bad                                                                                                                 | `garble`: `truncate` (default), `drop_field` (removes top-level `field`, default `revision`), `not_json`, `empty` |
+| `captive`        | `200 text/html` captive-portal page, without forwarding                                                                                                                                                                             | `body`, `content_type`                                                                                            |
+| `status`         | Answer `status` (default 503) without forwarding                                                                                                                                                                                    | `status`, `retry_after`, `body`, `content_type`                                                                   |
+| `strip_identity` | Forward, then remove `X-QuickR-Server-Id` and `X-QuickR-Epoch`                                                                                                                                                                      |                                                                                                                   |
+| `delay`          | Sleep `delay_ms`, then forward                                                                                                                                                                                                      | `delay_ms`, `phase`: `request` (before the server sees it, the default) or `response` (after it commits)          |
+| `hold`           | Park the request **before** it reaches the server until `POST /rules/{id}/release`. The request still reaches the server after the client has given up. This is the deterministic "POST delayed in the network" of outbox 12 and 51 | Poll `GET /rules/{id}` until `waiting` ≥ 1                                                                        |
+
+Each **log** entry is
+`{"seq", "at", "method", "path" (with query), "rule", "action", "upstream" ("a"/"b", or null if never forwarded), "upstream_status" (the server's status, or null), "status" (what the client got, or null), "state"}`.
+`state` is one of `in_flight`, `held`, `responded`, `dropped` or `client_gone`.
+To count what really reached the server (for example outbox 32: exactly 3
+PATCHes), filter on `upstream_status != null`.
+
+**Simulators.** Parallel worktrees must not share a simulator: one worktree's
+`ios-test` would erase or relaunch the app under another one's UI test. Each WP
+should use its own device:
+
+```sh
+make ios-test IOS_SIM_MIN="$(ios/scripts/sim-clone.sh)"
+make ios-uitest IOS_SIM="$(ios/scripts/sim-clone.sh 'quickR iOS27')"
+ios/scripts/sim-clone.sh --delete               # when the worktree is done
+```
+
+The clone is named `<source> <worktree dir>`, so running the script again finds
+the same device. If the source simulator is shut down, the script copies it with
+`simctl clone`. If it is booted (in use), the script never touches it and
+creates a fresh device with the same device type and runtime instead.
+
 ## CI
 
 `.github/workflows/ios.yml` runs on `macos-26` with Xcode 26.6 pinned through
