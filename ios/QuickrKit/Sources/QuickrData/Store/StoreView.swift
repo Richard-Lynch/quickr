@@ -94,7 +94,9 @@ public enum StoreView {
         -> [ViewEntry]
     {
         guard try topicExists(db, topicId) else { return [] }
-        let overlaid = try overlays(db, topicId: topicId)
+        let book = QuestionBook(db)
+        let questions = { (row: Row) in book.questions(row["topic_id"], row["version"]) }
+        let overlaid = try overlays(db, topicId: topicId, book: book)
             .filter { countedOnly ? $0.isCounted : $0.isVisible }
             .compactMap(\.viewEntry)
         let server = try Row.fetchAll(
@@ -104,7 +106,7 @@ public enum StoreView {
                 ORDER BY captured_at DESC, id DESC \(limit == nil ? "" : "LIMIT ?")
                 """,
             arguments: StatementArguments([topicId] + (limit.map { [$0] } ?? []))
-        ).map { ViewEntry(entry: try Entry(serverRow: $0), syncState: .synced) }
+        ).map { row in ViewEntry(entry: try Entry(serverRow: row, questions: questions(row)), syncState: .synced) }
         let merged = (server + overlaid).sorted {
             ($0.entry.capturedAt, $0.id.wireString) > ($1.entry.capturedAt, $1.id.wireString)
         }
@@ -113,10 +115,12 @@ public enum StoreView {
 
     public static func entry(_ db: Database, id: String) throws -> ViewEntry? {
         if try ServerLayer.isTombstoned(db, kind: .entry, id: id) { return nil }
-        let server = try Row.fetchOne(db, sql: "SELECT * FROM entry WHERE id = ?", arguments: [id])
-            .map(Entry.init(serverRow:))
+        let book = QuestionBook(db)
+        let server = try Row.fetchOne(db, sql: "SELECT * FROM entry WHERE id = ?", arguments: [id]).map { row in
+            try Entry(serverRow: row, questions: book.questions(row["topic_id"], row["version"]))
+        }
         let overlay = try EntryOverlay.resolve(
-            server: server, items: OutboxStorage.items(db, entityKind: .entry, entityId: id))
+            server: server, items: OutboxStorage.items(db, entityKind: .entry, entityId: id), questions: book.lookup)
         guard let viewEntry = overlay.viewEntry, try topicExists(db, viewEntry.entry.topicId.wireString) else {
             return nil
         }
@@ -162,7 +166,8 @@ public enum StoreView {
 
     /// The resolved overlays of every entry entity with outbox items (in one topic, or all),
     /// tombstoned ids and entities whose topic isn't in the server layer removed.
-    static func overlays(_ db: Database, topicId: String?) throws -> [EntryOverlay] {
+    static func overlays(_ db: Database, topicId: String?, book: QuestionBook? = nil) throws -> [EntryOverlay] {
+        let book = book ?? QuestionBook(db)
         let items = try topicId.map { try OutboxStorage.items(db, topicId: $0) } ?? OutboxStorage.items(db)
         let byEntity = Dictionary(grouping: items.filter { $0.entityKind == .entry }, by: \.entityId)
         guard !byEntity.isEmpty else { return [] }
@@ -171,7 +176,12 @@ public enum StoreView {
         let servers = Dictionary(
             uniqueKeysWithValues: try Row.fetchAll(
                 db, sql: "SELECT * FROM entry WHERE id IN (\(marks))", arguments: StatementArguments(ids)
-            ).map { row in (row["id"] as String, try Entry(serverRow: row)) })
+            ).map { row in
+                (
+                    row["id"] as String,
+                    try Entry(serverRow: row, questions: book.questions(row["topic_id"], row["version"]))
+                )
+            })
         let tombstoned = Set(
             try String.fetchAll(
                 db, sql: "SELECT id FROM tombstone WHERE kind = 'entry' AND id IN (\(marks))",
@@ -179,7 +189,7 @@ public enum StoreView {
         let topics = Set(try String.fetchAll(db, sql: "SELECT id FROM topic"))
         return try byEntity.compactMap { id, items in
             guard !tombstoned.contains(id) else { return nil }
-            let overlay = try EntryOverlay.resolve(server: servers[id], items: items)
+            let overlay = try EntryOverlay.resolve(server: servers[id], items: items, questions: book.lookup)
             guard let entry = overlay.entry, topics.contains(entry.topicId.wireString) else { return nil }
             return overlay
         }
@@ -187,5 +197,29 @@ public enum StoreView {
 
     private static func topicExists(_ db: Database, _ id: String) throws -> Bool {
         try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM topic WHERE id = ?)", arguments: [id]) ?? false
+    }
+}
+
+/// The questions of each `(topic, version)`, read lazily within one read transaction: the
+/// version's own questions, else the topic's current ones, else none.
+final class QuestionBook {
+    private let db: Database
+    private var cache: [String: [Question]] = [:]
+
+    init(_ db: Database) { self.db = db }
+
+    var lookup: QuestionLookup { { [self] topicId, version in questions(topicId.wireString, version) } }
+
+    func questions(_ topicId: String, _ version: Int) -> [Question] {
+        let key = "\(topicId)#\(version)"
+        if let cached = cache[key] { return cached }
+        let json =
+            (try? String.fetchOne(
+                db, sql: "SELECT questions_json FROM topic_version WHERE topic_id = ? AND version = ?",
+                arguments: [topicId, version]))
+            ?? (try? String.fetchOne(db, sql: "SELECT questions_json FROM topic WHERE id = ?", arguments: [topicId]))
+        let questions = json.flatMap { try? StoreJSON.decode([QuestionDTO].self, $0).toDomain() } ?? []
+        cache[key] = questions
+        return questions
     }
 }

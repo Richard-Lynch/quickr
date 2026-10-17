@@ -117,14 +117,62 @@ import Testing
         let back = TopicOverlay.resolve(server: topic, items: [item(2, unarchive), item(1, archive)])
         #expect(back.topic.status == .active && back.topic.archivedAt == nil)
 
-        let failed = TopicOverlay.resolve(server: topic, items: [item(1, archive, .failed)])
+        #expect(archived.pendingChange == .topicArchive && back.pendingChange == .topicUnarchive)
+
+        var failedItem = item(1, archive, .failed)
+        failedItem.lastErrorJSON = #"{"message":"Topic changed elsewhere","status":409}"#
+        let failed = TopicOverlay.resolve(server: topic, items: [failedItem])
         #expect(failed.topic.status == .active)
         #expect(failed.syncState == .failed(.conflict))
+        #expect(failed.pendingChange == .topicArchive)
+        #expect(failed.lastError == OutboxErrorInfo(message: "Topic changed elsewhere", status: 409))
 
-        #expect(TopicOverlay.resolve(server: topic, items: []).syncState == .synced)
+        let none = TopicOverlay.resolve(server: topic, items: [])
+        #expect(none.syncState == .synced && none.pendingChange == nil && none.lastError == nil)
     }
 
     // MARK: - Through the store
+
+    @Test func wholeDoublesStayDoublesThroughEveryPath() async throws {
+        let s = try TestStore()
+        let topic = Make.topic()
+        let stored = Make.entry(topicId: topic.id, answers: ["mood": .int(3), "weight": .double(7.0)])
+        try s.write { (db: Database) throws in
+            _ = try ServerLayer.upsert(db, topic: topic)
+            _ = try ServerLayer.upsert(db, entry: stored)
+        }
+        #expect(
+            try await s.store.entries.entry(id: stored.id)?.entry.answers == ["mood": .int(3), "weight": .double(7)])
+
+        let createId = UUID()
+        try s.enqueue(
+            Make.createPayload(topic: topic, answers: ["mood": .int(2), "weight": .double(70)]), id: createId)
+        #expect(
+            try await s.store.entries.entry(id: createId)?.entry.answers == ["mood": .int(2), "weight": .double(70)])
+
+        try s.enqueue(
+            .entryUpdate(
+                entryId: stored.id.wireString, topicId: topic.id.wireString,
+                patch: EntryUpdateDTO(answers: ["weight": .double(8), "mood": .double(4)])))
+        #expect(
+            try await s.store.entries.entry(id: stored.id)?.entry.answers == ["mood": .int(4), "weight": .double(8)])
+    }
+
+    @Test func failedEntriesCarryTheirLastError() async throws {
+        let s = try TestStore()
+        let topic = Make.topic()
+        try s.write { (db: Database) throws in _ = try ServerLayer.upsert(db, topic: topic) }
+        let item = try s.enqueue(Make.createPayload(topic: topic))
+        try s.setState(item, .failed, reason: .rejected)
+        try s.write { (db: Database) throws in
+            try db.execute(
+                sql: "UPDATE outbox_item SET last_error_json = ? WHERE id = ?",
+                arguments: [#"{"message":"Answer out of range","status":422}"#, item.id])
+        }
+        let view = try #require(try await s.store.entries.entries(topicId: topic.id, limit: nil).first)
+        #expect(view.syncState == .failed(.rejected))
+        #expect(view.lastError == OutboxErrorInfo(message: "Answer out of range", status: 422))
+    }
 
     @Test func orphanEntriesAndQueuedCreatesWaitForTheirTopic() async throws {
         let s = try TestStore()
@@ -139,7 +187,7 @@ import Testing
         try s.write { (db: Database) throws in _ = try ServerLayer.upsert(db, topic: topic) }
         #expect(
             Set(try await s.store.entries.entries(topicId: topic.id, limit: nil).map(\.id)) == [orphan.id, createId])
-        #expect(try await s.store.topics.topic(id: topic.id)?.entryCount == 2)
+        #expect(try await s.store.topics.topic(id: topic.id)?.topic.entryCount == 2)
     }
 
     @Test func aTombstonedIdNeverAppearsWhateverTheOverlayHolds() async throws {
@@ -153,7 +201,7 @@ import Testing
         try s.enqueue(Make.createPayload(topic: topic), id: entry.id)
         #expect(try await s.store.entries.entry(id: entry.id) == nil)
         #expect(try await s.store.entries.entries(topicId: topic.id, limit: nil).isEmpty)
-        #expect(try await s.store.topics.topic(id: topic.id)?.entryCount == 0)
+        #expect(try await s.store.topics.topic(id: topic.id)?.topic.entryCount == 0)
     }
 
     @Test func entriesMergeServerAndOverlayRowsByCapturedAt() async throws {
@@ -189,7 +237,7 @@ import Testing
         try s.write { (db: Database) throws in for t in [b, a] { _ = try ServerLayer.upsert(db, topic: t) } }
         let failed = try s.enqueue(.topicArchive(topicId: b.id.wireString))
         try s.setState(failed, .failed, reason: .conflict)
-        let topics = try await s.store.topics.viewTopics()
+        let topics = try await s.store.topics.topics()
         #expect(topics.map(\.topic.name) == ["Alpha", "beta"])
         #expect(topics.map(\.syncState) == [.synced, .failed(.conflict)])
         #expect(try await s.store.topics.topic(slug: "alpha")?.id == a.id)

@@ -14,6 +14,7 @@ enum Make {
         Question(
             key: "where", label: "Where", required: false,
             kind: .choice(.init(options: [.init(value: "home", label: "Home"), .init(value: "work", label: "Work")]))),
+        Question(key: "weight", label: "Weight", required: false, kind: .double(.init(decimals: 1))),
     ]
 
     static func topic(

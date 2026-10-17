@@ -18,7 +18,7 @@ import Testing
             #expect(try ServerLayer.upsert(db, entry: entry) == .applied)
             #expect(try ServerLayer.insert(db, version: Make.version(), id: UUID(), topicId: topic.id) == .applied)
         }
-        let stored = try #require(try await s.store.topics.topic(id: topic.id))
+        let stored = try #require(try await s.store.topics.topic(id: topic.id)?.topic)
         var expected = topic
         expected.entryCount = 1
         expected.lastCapturedAt = entry.capturedAt

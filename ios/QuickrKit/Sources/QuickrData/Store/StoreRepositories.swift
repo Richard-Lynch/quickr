@@ -10,21 +10,16 @@ public struct GRDBTopicRepository: TopicRepository {
 
     public init(reader: any DatabaseReader) { self.reader = reader }
 
-    public func topics() async throws -> [Topic] { try await viewTopics().map(\.topic) }
-
-    public func topic(id: UUID) async throws -> Topic? { try await viewTopic(id: id)?.topic }
-
-    public func topic(slug: String) async throws -> Topic? {
-        try await reader.read { db in try StoreView.topic(db, slug: slug)?.topic }
-    }
-
-    /// The topics with their sync flags (failed archive items flag the topic, §3.2).
-    public func viewTopics() async throws -> [ViewTopic] {
+    public func topics() async throws -> [ViewTopic] {
         try await reader.read { db in try StoreView.topics(db) }
     }
 
-    public func viewTopic(id: UUID) async throws -> ViewTopic? {
+    public func topic(id: UUID) async throws -> ViewTopic? {
         try await reader.read { db in try StoreView.topic(db, id: id.wireString) }
+    }
+
+    public func topic(slug: String) async throws -> ViewTopic? {
+        try await reader.read { db in try StoreView.topic(db, slug: slug) }
     }
 }
 

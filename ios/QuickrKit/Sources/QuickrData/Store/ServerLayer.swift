@@ -193,7 +193,9 @@ extension Topic {
 }
 
 extension Entry {
-    init(serverRow row: Row) throws {
+    /// An `entry` row. `answers_json` is request-shaped, so answers are normalized for `questions`
+    /// (the entry's version's), keeping `7.0` a double.
+    init(serverRow row: Row, questions: [Question]) throws {
         let id: String = row["id"]
         let channel: String = row["channel"]
         guard let channel = Channel(rawValue: channel) else { throw StoreError.corruptRow("entry \(id) channel") }
@@ -203,7 +205,8 @@ extension Entry {
             capturedAt: Date(unixSeconds: row["captured_at"]), createdAt: Date(unixSeconds: row["created_at"]),
             updatedAt: Date(unixSeconds: row["updated_at"]), notes: row["notes"],
             meta: try StoreJSON.decode([String: String].self, row["meta_json"]),
-            answers: try StoreJSON.decode([String: WireAnswer].self, row["answers_json"]).mapValues(\.value))
+            answers: try StoreJSON.decode([String: WireAnswer].self, row["answers_json"]).mapValues(\.value)
+                .normalized(for: questions))
     }
 }
 

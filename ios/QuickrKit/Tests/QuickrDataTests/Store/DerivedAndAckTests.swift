@@ -34,7 +34,7 @@ import Testing
         derived = try s.read { db in try StoreView.derived(db) }
         #expect(
             derived[topic.id.wireString] == .init(entryCount: 2, lastCapturedAt: Make.t0.addingTimeInterval(45 * 60)))
-        let viewTopic = try #require(try await s.store.topics.topic(id: topic.id))
+        let viewTopic = try #require(try await s.store.topics.topic(id: topic.id)?.topic)
         #expect(viewTopic.entryCount == 2)
         #expect(viewTopic.due == nil)
         // The create is pinned to version 1 (Make.createPayload); b is v2.
@@ -57,7 +57,7 @@ import Testing
             _ = try ServerLayer.upsert(db, entry: only)
         }
         try s.enqueue(.entryDelete(entryId: only.id.wireString, topicId: topic.id.wireString))
-        let viewTopic = try #require(try await s.store.topics.topic(id: topic.id))
+        let viewTopic = try #require(try await s.store.topics.topic(id: topic.id)?.topic)
         #expect(viewTopic.entryCount == 0)
         #expect(viewTopic.lastCapturedAt == nil)
         #expect(try await s.store.entries.latestEntry(topicId: topic.id) == nil)
@@ -199,7 +199,7 @@ import Testing
             #expect(try ServerLayer.isTombstoned(db, kind: .entry, id: f.entry.id.wireString))
             #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM entry") == 0)
         }
-        #expect(try await f.s.store.topics.topic(id: f.topic.id)?.entryCount == 0)
+        #expect(try await f.s.store.topics.topic(id: f.topic.id)?.topic.entryCount == 0)
     }
 
     @Test func aTopicAck() async throws {
@@ -209,7 +209,7 @@ import Testing
         archived.revision = 2
         let outcome = try await f.s.store.ack(itemId: f.item.id, sender: f.sender, effect: .topic(archived))
         #expect(outcome == .acked(.applied))
-        #expect(try await f.s.store.topics.topic(id: f.topic.id)?.status == .archived)
+        #expect(try await f.s.store.topics.topic(id: f.topic.id)?.topic.status == .archived)
     }
 
     enum Break: String, CaseIterable, Sendable {
