@@ -175,7 +175,7 @@ import Testing
         let env = try Env()
         defer { env.dir.cleanup() }
         _ = try await env.partitions.createStore(serverId: "s", baseURL: "u")
-        try await env.retire("s")
+        let token = try #require(try await env.retire("s").intent.pendingToken)
 
         let widget = try env.otherProcess()
         let opened = try await widget.openStore(serverId: "s", role: .extension)
@@ -195,8 +195,8 @@ import Testing
         #expect(try await env.partitions.registry.retiredFiles().count == 1)
         #expect(
             try await env.partitions.registry.completeReset(
-                serverId: "s", fromGen: 1, toGen: 2, retiredAtWall: Date(), retiredAt: env.clock.now())
-                == .alreadyAdvanced)
+                serverId: "s", fromGen: 1, toGen: 2, token: token, retiredAtWall: Date(),
+                retiredAt: env.clock.now()) == .alreadyAdvanced)
     }
 
     @Test func recoveryRepairsARegistryPointingAtARetiredFile() async throws {
@@ -280,7 +280,7 @@ import Testing
         // A resumes: step 6 for the generations it inspected.
         let completion = try await env.partitions.registry.completeReset(
             serverId: "s", fromGen: inspectedByA.storeGen, toGen: try #require(inspectedByA.pendingGen),
-            retiredAtWall: Date(), retiredAt: env.clock.now())
+            token: try #require(inspectedByA.pendingToken), retiredAtWall: Date(), retiredAt: env.clock.now())
         #expect(completion == .superseded)
         await #expect(throws: StoreError.registryChanged("s")) { try await env.partitions.completeReset(firstIntent) }
         // Nor can it abort the newer intent.
@@ -309,5 +309,33 @@ import Testing
             try await env.partitions.persistResetIntent(store: g1, confirmedCount: 5, confirmedMaxSeq: 5)
         }
         #expect(try await env.partitions.registry.repository.server(id: "s")?.pendingConfirmedCount == 0)
+    }
+
+    @Test func aStaleAbortOrCompletionNeverTouchesAReplacementAttempt() async throws {
+        // A aborts g1→g2 late: B already aborted it and persisted a fresh g1→g2 attempt.
+        let env = try Env()
+        defer { env.dir.cleanup() }
+        let g1 = try await env.partitions.createStore(serverId: "s", baseURL: "u")
+        let first = try await env.partitions.persistResetIntent(store: g1, confirmedCount: 0, confirmedMaxSeq: 0)
+        #expect(try await env.partitions.abortReset(first))
+        _ = try await g1.outbox.enqueue(NewOutboxItem(payload: Make.createPayload(topic: Make.topic()), origin: .app))
+        let replacement = try await env.partitions.persistResetIntent(store: g1, confirmedCount: 1, confirmedMaxSeq: 1)
+        #expect(replacement.pendingGen == first.pendingGen)
+        #expect(replacement.pendingToken != nil && replacement.pendingToken != first.pendingToken)
+
+        // The stale abort is a no-op, and so is a stale completion.
+        #expect(try await !env.partitions.abortReset(first))
+        await #expect(throws: StoreError.registryChanged("s")) { try await env.partitions.completeReset(first) }
+        let server = try #require(try await env.partitions.registry.repository.server(id: "s"))
+        #expect(server == replacement)
+
+        // The replacement still runs to completion with its own token.
+        let pair = try #require(try await g1.leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(1)))
+        #expect(
+            try await g1.retire(confirmedCount: 1, confirmedMaxSeq: 1, sync: pair.sync, flush: pair.flush) == .retired)
+        _ = try await g1.leases.release(pair.flush)
+        _ = try await g1.leases.release(pair.sync)
+        #expect(try await env.partitions.completeReset(replacement).storeGen == 2)
+        #expect(try await env.partitions.registry.repository.server(id: "s")?.pendingToken == nil)
     }
 }
