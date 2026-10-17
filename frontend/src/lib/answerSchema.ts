@@ -10,6 +10,7 @@ import { z } from 'zod';
 
 import type { EntryOut } from '../client';
 import { activeOptions, isMultiEnum, type EnumQuestionOutput, type Question } from './questions';
+import { charCount } from './text';
 
 export type AnswerValue = number | string | string[] | null;
 /** Raw input for one question. */
@@ -129,10 +130,12 @@ export function answerFieldSchema(
           return checkRange(ctx, n, q.min, q.max, q.unit);
         }
         case 'str': {
-          if (value.length < q.min_length)
-            return issue(ctx, `At least ${q.min_length} characters (${value.length} so far)`);
-          if (value.length > q.max_length)
-            return issue(ctx, `At most ${q.max_length} characters (${value.length} entered)`);
+          // Code points, like the server (and iOS): an emoji is one character.
+          const count = charCount(value);
+          if (count < q.min_length)
+            return issue(ctx, `At least ${q.min_length} characters (${count} so far)`);
+          if (count > q.max_length)
+            return issue(ctx, `At most ${q.max_length} characters (${count} entered)`);
           return value;
         }
         case 'enum': {

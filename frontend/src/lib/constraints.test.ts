@@ -62,6 +62,14 @@ describe('question constraints', () => {
     });
   });
 
+  it('counts label lengths in code points', () => {
+    const tight: Limits = { ...L, max_label_length: 2 };
+    expect(issuesOf(draft('int', { label: '😀😀' }), tight)).toEqual({});
+    expect(issuesOf(draft('int', { label: '😀😀😀' }), tight)).toEqual({
+      label: 'At most 2 characters (3 now)',
+    });
+  });
+
   it('uses the server key pattern', () => {
     expect(issuesOf(draft('int', { key: 'a'.repeat(64) }))).toHaveProperty('key');
     expect(issuesOf(draft('int', { key: 'a'.repeat(63) }))).toEqual({});
@@ -207,6 +215,12 @@ describe('question list + topic constraints', () => {
     });
     const paths = r.error?.issues.map((i) => i.path.join('.'));
     expect(paths).toEqual(expect.arrayContaining(['name', 'slug', 'description']));
+    const emoji = makeTopicDraftSchema({ ...L, max_topic_name_length: 3 }).safeParse({
+      ...emptyTopicDraft(),
+      name: '😀😀😀',
+      questions: [draft('int')],
+    });
+    expect(emoji.error?.issues.map((i) => i.path.join('.')) ?? []).not.toContain('name');
     const meta = makeTopicMetaSchema(L).safeParse({
       name: 'x',
       slug: 'a'.repeat(65),

@@ -104,6 +104,18 @@ describe('buildAnswerSchema', () => {
     });
   });
 
+  it('counts characters as code points, like the server: an emoji is one', () => {
+    expect(errors(buildAnswerSchema([note]).safeParse({ note: '😀😀' }))).toEqual({
+      note: 'At least 3 characters (2 so far)',
+    });
+    expect(buildAnswerSchema([note]).safeParse({ note: '😀😀😀' }).data).toEqual({
+      note: '😀😀😀',
+    });
+    expect(errors(buildAnswerSchema([note]).safeParse({ note: '😀'.repeat(11) }))).toEqual({
+      note: 'At most 10 characters (11 entered)',
+    });
+  });
+
   it('rejects archived and unknown enum values unless explicitly allowed', () => {
     expect(errors(buildAnswerSchema([mood]).safeParse({ mood: 'awful' }))).toEqual({
       mood: 'That option has been retired',
