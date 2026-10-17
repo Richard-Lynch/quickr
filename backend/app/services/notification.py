@@ -20,7 +20,7 @@ import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import ROUND_HALF_UP, Decimal, localcontext
+from decimal import Decimal
 from typing import Literal
 
 from app.errors import InvalidAnswers
@@ -39,7 +39,6 @@ ACTION_SCHEME = "q1"
 CATEGORY_HASH_PREFIX = "quickr-cat-v1"
 _RECORD_SEPARATOR = "\u001e"
 _UNIT_SEPARATOR = "\u001f"
-_DOUBLE_DIGITS = 310  # a finite double has at most 309 integer digits
 
 type ActionKind = Literal["log", "input", "open"]
 
@@ -97,11 +96,11 @@ def descriptor(
 
 
 def last_value(q: IntQuestion | DoubleQuestion, last: object) -> int | float | None:
-    """``last`` when the question would still accept it, else None.
+    """``last`` when the server would still accept it as an answer to ``q`` (a number,
+    finite, within the bounds, and whole for an int question), else None.
 
-    Accepted means the server would store it as an answer to ``q`` (type and bounds), and,
-    for a double with ``decimals``, it has at most that many fraction digits (what the
-    client's number input allows), so formatting it never rounds.
+    ``decimals`` is a display hint, not a rule: a double with more fraction digits is kept,
+    and its action logs it exactly.
     """
     if isinstance(last, bool) or not isinstance(last, int | float):
         return None
@@ -109,39 +108,22 @@ def last_value(q: IntQuestion | DoubleQuestion, last: object) -> int | float | N
         (typed,) = validate_answers([q], {q.key: last})
     except InvalidAnswers:
         return None
-    if isinstance(q, IntQuestion):
-        return typed.value_int
-    value = typed.value_double
-    assert value is not None
-    if q.decimals is not None and _fraction_digits(value) > q.decimals:
-        return None
-    return value
+    return typed.value_int if isinstance(q, IntQuestion) else typed.value_double
 
 
-def _fraction_digits(x: float) -> int:
-    exponent = Decimal(repr(x)).normalize().as_tuple().exponent
-    assert isinstance(exponent, int)
-    return max(0, -exponent)
+def fmt(kind: Literal["int", "double"], x: int | float) -> str:
+    """A number as action titles and identifiers show it (§4.4).
 
-
-def fmt(kind: Literal["int", "double"], decimals: int | None, x: int | float) -> str:
-    """A number as action titles and identifiers show it (§4.4). Always ``.``, no grouping.
-
-    int: base 10. double with ``decimals``: fixed-point with that many places, rounding the
-    shortest round-trip decimal half away from zero. double without: the shortest
-    round-trip decimal, positional (no exponent), no trailing zeros or dot. Never "-0".
+    int: base 10. double: the shortest decimal that round-trips to the same binary64 value
+    (what JS ``String(x)`` and Python ``repr`` pick), written positionally (no exponent),
+    with no trailing zeros or dot, and never "-0". Always ``.``, no grouping, no rounding.
     """
     if kind == "int":
         return str(int(x))
-    d = Decimal(repr(float(x)))
-    if decimals is not None:
-        with localcontext(prec=_DOUBLE_DIGITS + decimals):  # never runs out of digits
-            text = format(d.quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP), "f")
-    else:
-        text = format(d, "f")
-        if "." in text:
-            text = text.rstrip("0").rstrip(".")
-    return text.removeprefix("-") if Decimal(text) == 0 else text
+    text = format(Decimal(repr(float(x))), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return "0" if text == "-0" else text
 
 
 # --- actions and the category -------------------------------------------------------------
@@ -182,7 +164,7 @@ def actions(server_id: str, topic_id: str, version: int, quick_log: QuickLogDesc
         return rendered
     rendered = []
     if quick_log.last_value is not None:
-        shown = fmt(quick_log.type, quick_log.decimals, quick_log.last_value)
+        shown = fmt(quick_log.type, quick_log.last_value)
         title = f"✓ {shown} {quick_log.unit}" if quick_log.unit else f"✓ {shown}"
         rendered.append(Action("log", ident("n", shown), title))
     placeholder = f"Value in {quick_log.unit}" if quick_log.unit else "Value"

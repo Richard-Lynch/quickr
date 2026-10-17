@@ -71,8 +71,10 @@ produce byte-identical descriptors, actions and category ids.
   `text_input_placeholder` for `kind: "input"`. `kind` is `log`, `input`, or
   `open` (the "More…" action, identifier `…|m|`). `hash_input` is already
   NFC-normalised, with U+001E and U+001F separators.
-- `fmt[]`: `{kind, decimals, value, expected}`: how numbers appear in action
-  titles and identifiers.
+- `fmt[]`: `{kind, value, bits, expected}`: how numbers appear in action
+  titles and identifiers: the shortest round-trip decimal, positional, never
+  rounded to `decimals`. Doubles carry `bits` (IEEE 754, big-endian hex), so a
+  port can build the exact value without trusting its JSON parser.
 
 ## `api/*.json`
 

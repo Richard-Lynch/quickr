@@ -20,11 +20,11 @@ import requests
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from pywebpush import WebPushException
-from sqlalchemy import func, select, text, update
+from sqlalchemy import event, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
-from app.db import get_sessionmaker
+from app.db import get_engine, get_sessionmaker
 from app.models import ApnsDevice, PushSlotDelivery, PushSubscription, Topic
 from app.schemas.api import QuickLogDescriptor
 from app.schemas.questions import DoubleQuestion, EnumOption, EnumQuestion, StrQuestion
@@ -225,11 +225,20 @@ async def test_payload_for_a_topic_that_cant_be_logged_from_a_notification(fake_
     }
 
 
-async def test_worst_case_payloads_fit_in_4096_bytes(fake_apns: FakeApns) -> None:
+@pytest.mark.parametrize(
+    ("char", "encoded"),
+    [
+        ("🌊", 4),  # 4 bytes in UTF-8
+        ("\u0001", 6),  # JSON escapes control characters: \u0001
+    ],
+)
+async def test_worst_case_payloads_fit_in_4096_bytes(fake_apns: FakeApns, char: str, encoded: int) -> None:
     """notifications.md §2.2: a 200-character name, 4 options with 63-character values and
-    200-character multi-byte labels, a 64-character key, a 32-character unit."""
+    200-character labels, a 64-character key, a 32-character unit, every character as wide
+    as JSON can make it."""
+    assert len(json.dumps(char, ensure_ascii=False).encode()) == encoded + 2
     key = "k" * 64  # one more than a key can have
-    label = "🌊" * 200  # the longest label, 4 bytes a character
+    label = char * 200  # the longest label
     options = [EnumOption(value=f"v{i}".ljust(63, "v"), label=label) for i in range(6)]
     widest = [
         EnumQuestion.model_construct(key=key, label=label, type="enum", options=options[:n], multiple=False)
@@ -239,7 +248,7 @@ async def test_worst_case_payloads_fit_in_4096_bytes(fake_apns: FakeApns) -> Non
         key=key,
         label=label,
         type="double",
-        unit="🌊" * 32,
+        unit=char * 32,
         min=-1.7976931348623157e308,
         max=None,
         decimals=10,
@@ -250,17 +259,17 @@ async def test_worst_case_payloads_fit_in_4096_bytes(fake_apns: FakeApns) -> Non
         assert quick_log is not None
         worst = _due(
             quick_log,
-            title="🌊" * 200,
+            title=char * 200,
             body="Overdue since Wed 23:59",
             url="/t/" + "a" * 64 + "/record",
             topic_slug="a" * 64,
         )
         body = await _render(fake_apns, worst)
-        assert body["aps"]["alert"]["title"] == "🌊" * 119 + "…"
-        assert body["quickr"]["quick_log"]["label"] == "🌊" * 63 + "…"
+        assert body["aps"]["alert"]["title"] == char * 119 + "…"
+        assert body["quickr"]["quick_log"]["label"] == char * 63 + "…"
         assert "badge" not in body["aps"]
     enum_4 = fake_apns.sent[0]
-    assert [o["label"] for o in enum_4.body["quickr"]["quick_log"]["options"]] == ["🌊" * 63 + "…"] * 4
+    assert [o["label"] for o in enum_4.body["quickr"]["quick_log"]["options"]] == [char * 63 + "…"] * 4
     assert max(sent.size for sent in fake_apns.sent) == enum_4.size  # 4 options is the widest
 
 
@@ -751,10 +760,18 @@ async def test_tick_budget_bounds_delivery(
     monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 0.25)
     later = datetime.now(UTC) + timedelta(hours=1)
     loop = asyncio.get_running_loop()
+    started: list[float] = []
+    real_progress = scheduler._slot_progress
 
-    started = loop.time()
+    async def last_read(db: AsyncSession) -> Any:  # the budget starts once the reads are done
+        try:
+            return await real_progress(db)
+        finally:
+            started.append(loop.time())
+
+    monkeypatch.setattr(scheduler, "_slot_progress", last_read)
     assert await _tick(later) == 0
-    assert loop.time() - started < 0.29  # stopped at the budget, not after the third batch
+    assert loop.time() - started[0] < 0.29  # stopped at the budget, not after the third batch
     assert len(fake_apns.sent) == 16
     assert fake_apns.max_in_flight == push_svc.MAX_CONCURRENT_SENDS
     devices = await _devices()
@@ -769,6 +786,68 @@ async def test_tick_budget_bounds_delivery(
     async with get_sessionmaker()() as db:
         assert (await db.scalar(select(func.count()).select_from(PushSlotDelivery))) == 0
     assert await _tick(later) == 0
+
+
+async def test_slow_preparation_never_eats_the_delivery_budget(
+    client: httpx.AsyncClient, fake_apns: FakeApns, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reading descriptors (rankings, last values) for many topics can take longer than the
+    whole budget: the budget only starts after them, so every tick still delivers."""
+    await client.post("/push/apns/devices", json=device(1))
+    for name in ("Water", "Meds", "Walk"):
+        await make_topic(client, name, QUESTIONS, schedule=INTERVAL)
+    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 0.05)
+    real = scheduler.prepare_quick_logs
+
+    async def slow(db: AsyncSession, questions: dict[UUID, list[Any]]) -> dict[UUID, Any]:
+        await asyncio.sleep(0.2)  # four budgets
+        return await real(db, questions)
+
+    monkeypatch.setattr(scheduler, "prepare_quick_logs", slow)
+    assert await _tick(datetime.now(UTC) + timedelta(hours=1)) == 3
+    assert len(fake_apns.sent) == 3
+    assert all(s.body["quickr"]["quick_log"] is not None for s in fake_apns.sent)
+
+
+async def test_preparation_reads_in_at_most_two_queries(
+    client: httpx.AsyncClient, fake_apns: FakeApns
+) -> None:
+    six = [
+        {
+            "key": "mood",
+            "label": "Mood",
+            "type": "enum",
+            "options": [{"value": f"o{i}", "label": f"O{i}"} for i in range(6)],
+        }
+    ]
+    four = [{**six[0], "options": six[0]["options"][:4]}]
+    for i in range(3):
+        await make_topic(client, f"Six {i}", six, schedule=INTERVAL)
+        await make_topic(client, f"Four {i}", four, schedule=INTERVAL)
+        await make_topic(client, f"Number {i}", QUESTIONS, schedule=INTERVAL)
+        await record(client, f"six-{i}", {"mood": f"o{5 - i}"})
+        await record(client, f"number-{i}", {"n": i})
+    statements: list[str] = []
+    engine = get_engine().sync_engine
+
+    def count(conn: Any, cursor: Any, statement: str, *_: Any) -> None:
+        if "FROM answers" in statement:
+            statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", count)
+    try:
+        async with get_sessionmaker()() as db:
+            questions = await scheduler._questions(
+                db, [(t.id, 1) for t in (await db.execute(select(Topic))).scalars()]
+            )
+            slugs = {t.id: t.slug for t in (await db.execute(select(Topic))).scalars()}
+            quick_logs = await scheduler.prepare_quick_logs(db, questions)
+    finally:
+        event.remove(engine, "before_cursor_execute", count)
+    assert len(statements) == 2  # one ranking (the 6-option enums only), one latest-value
+    by_slug = {slugs[topic_id]: q for topic_id, q in quick_logs.items()}
+    assert [o.value for o in by_slug["six-2"].options] == ["o3", "o0", "o1"]  # type: ignore[union-attr]
+    assert by_slug["number-2"].last_value == 2  # type: ignore[union-attr]
 
 
 async def test_repeated_short_ticks_reach_every_target_once_and_every_topic(

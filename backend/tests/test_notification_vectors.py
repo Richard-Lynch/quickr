@@ -10,6 +10,8 @@ descriptors, actions and ids from these inputs (spec test N1). ``QUICKR_UPDATE_V
 from __future__ import annotations
 
 import dataclasses
+import math
+import struct
 from typing import Any, Literal
 
 from pydantic import TypeAdapter
@@ -19,7 +21,7 @@ from app.services import notification
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
 
 PATH = FIXTURES_DIR / "notification-vectors.json"
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
 
 SERVER_ID = "0b9e0000-0000-4000-8000-0000000000aa"
 TOPIC_ID = "6f1c0000-0000-4000-8000-000000000001"
@@ -96,7 +98,9 @@ CASES: dict[str, tuple[list[dict[str, Any]], dict[str, int], Any, int]] = {
         3,
     ),
     "double-last-padded": ([num("double", decimals=2, unit="kg")], {}, 70, 1),
-    "double-last-too-precise": ([num("double", decimals=1)], {}, 7.25, 1),
+    "double-last-more-digits-than-decimals": ([num("double", decimals=1)], {}, 7.25, 1),
+    "double-last-midpoint": ([num("double", decimals=2, unit="€")], {}, 2.675, 1),
+    "double-last-subnormal": ([num("double")], {}, 5e-324, 1),
     "double-decimals-0": ([num("double", decimals=0)], {}, 8.0, 1),
     "double-null-unit-null-decimals": ([num("double")], {}, 0.1 + 0.2, 1),
     "double-null-decimals-tiny": ([num("double")], {}, 1.5e-7, 1),
@@ -107,29 +111,59 @@ CASES: dict[str, tuple[list[dict[str, Any]], dict[str, int], Any, int]] = {
     "double-truncated-label": ([num("double", label=LONG, unit="µ" * 32)], {}, 1.25, 1),
 }
 
-FMT: list[tuple[Literal["int", "double"], int | None, int | float]] = [
-    ("int", None, 0),
-    ("int", None, -42),
-    ("int", None, 2**63 - 1),
-    ("double", 0, 8.0),
-    ("double", 0, 0.5),
-    ("double", 0, -0.5),
-    ("double", 1, 7.5),
-    ("double", 1, 7),
-    ("double", 1, -0.04),
-    ("double", 2, 0.125),
-    ("double", 2, 2.675),
-    ("double", 3, 1e-7),
-    ("double", 10, 1e21),
-    ("double", None, 7.0),
-    ("double", None, -0.0),
-    ("double", None, 0.1 + 0.2),
-    ("double", None, 1.5e-7),
-    ("double", None, 5e-324),
-    ("double", None, 1e21),
-    ("double", None, 1.7976931348623157e308),
-    ("double", None, -123.456),
+FMT: list[tuple[Literal["int", "double"], int | float]] = [
+    ("int", 0),
+    ("int", -42),
+    ("int", 2**53 + 1),
+    ("int", 2**63 - 1),
+    ("int", -(2**63)),
+    # Whole, signed zero, everyday values.
+    ("double", 0.0),
+    ("double", -0.0),
+    ("double", 7.0),
+    ("double", 7.5),
+    ("double", 100.0),
+    ("double", -123.456),
+    ("double", 0.1),
+    ("double", 0.1 + 0.2),
+    ("double", 1 / 3),
+    ("double", 2 / 3),
+    # Near decimal rounding midpoints: never rounded, always the shortest round-trip form.
+    ("double", 0.125),
+    ("double", 2.675),
+    ("double", math.nextafter(2.675, math.inf)),
+    ("double", math.nextafter(2.675, -math.inf)),
+    ("double", 1.005),
+    ("double", 0.615),
+    ("double", 8.345),
+    ("double", 4.35),
+    ("double", 123456789.125),
+    ("double", 1e15 + 0.3),
+    # Integers at the edge of binary64 precision.
+    ("double", float(2**53)),
+    ("double", float(2**53 + 2)),
+    ("double", 9007199254740993.0),  # rounds to 2**53
+    # Very large and very small magnitudes, subnormals.
+    ("double", 1e16),
+    ("double", 1e21),
+    ("double", 1e22),
+    ("double", 1e23),
+    ("double", -1e300),
+    ("double", 1.7976931348623157e308),
+    ("double", 1e-7),
+    ("double", 1.5e-7),
+    ("double", 1e-10),
+    ("double", 2.2250738585072014e-308),  # smallest normal
+    ("double", 2.225073858507201e-308),  # largest subnormal
+    ("double", 5e-324),  # smallest subnormal
+    ("double", -5e-324),
 ]
+
+
+def fmt_case(kind: Literal["int", "double"], value: int | float) -> dict[str, Any]:
+    """A ``fmt`` vector; doubles also carry their exact bits, independent of JSON parsing."""
+    bits = {"bits": struct.pack(">d", value).hex()} if kind == "double" else {}
+    return {"kind": kind, "value": value, **bits, "expected": notification.fmt(kind, value)}
 
 
 def action_json(action: notification.Action) -> dict[str, Any]:
@@ -179,9 +213,8 @@ def build() -> dict[str, Any]:
                 "replaced by '…'. An empty unit is null.",
                 "last_value: `last` (the latest numeric answer for the key, by captured_at then entry "
                 "id) when the server would accept it as an answer to the question (type, bounds; a "
-                "whole double counts as an int) and, for a double with decimals, it has at most that "
-                "many fraction digits in its shortest round-trip form; else null. Ints stay ints, "
-                "doubles are JSON doubles.",
+                "whole double counts as an int); else null. decimals is a display hint and never "
+                "drops or rounds it. Ints stay ints, doubles are JSON doubles.",
                 "actions: enum: one {kind: 'log', identifier: q1|server|topic|version|key|o|value, "
                 "title: label} per option, then {kind: 'open', identifier: ...|m|, title: 'More…'} "
                 "when total_options > options.length. Number: when last_value != null, {kind: 'log', "
@@ -195,22 +228,15 @@ def build() -> dict[str, Any]:
                 "U+001F + placeholder for 'input'). hash_input is listed already NFC-normalised.",
                 "body_suffix: appended to the APNs alert body when options are cut: ' · {n} of "
                 "{total} shown, More for all'.",
-                "fmt(kind, decimals, value): int: base 10. double with decimals d: the shortest "
-                "round-trip decimal rounded to d places half away from zero, fixed-point. double "
-                "without: the shortest round-trip decimal, positional (no exponent), no trailing "
-                "zeros or dot. Always '.', no grouping, never '-0'.",
+                "fmt(kind, value): int: base 10. double: the shortest decimal that round-trips to "
+                "the same binary64 value (JS String(x), Python repr), written positionally (no "
+                "exponent), with no trailing zeros or dot; '0' for both zeros. No rounding: decimals "
+                "is not used. Always '.', no grouping. `bits` is the double's IEEE 754 big-endian "
+                "hex, to build it without a JSON parser.",
             ],
         },
         "cases": [case(name, *spec) for name, spec in CASES.items()],
-        "fmt": [
-            {
-                "kind": kind,
-                "decimals": decimals,
-                "value": value,
-                "expected": notification.fmt(kind, decimals, value),
-            }
-            for kind, decimals, value in FMT
-        ],
+        "fmt": [fmt_case(kind, value) for kind, value in FMT],
     }
 
 

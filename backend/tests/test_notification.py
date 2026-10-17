@@ -91,11 +91,8 @@ def test_labels_and_units_are_truncated_to_64_scalars() -> None:
         (IntQuestion(key="n", label="N", type="int"), None, None),
         (DoubleQuestion(key="n", label="N", type="double", decimals=1), 7.5, 7.5),
         (DoubleQuestion(key="n", label="N", type="double", decimals=1), 7, 7.0),
-        (
-            DoubleQuestion(key="n", label="N", type="double", decimals=1),
-            7.25,
-            None,
-        ),  # more digits than allowed
+        # decimals is a display hint, not a rule: the exact value is kept.
+        (DoubleQuestion(key="n", label="N", type="double", decimals=1), 7.25, 7.25),
         (DoubleQuestion(key="n", label="N", type="double", decimals=0), 100.0, 100.0),
         (DoubleQuestion(key="n", label="N", type="double"), 7.25, 7.25),
         (DoubleQuestion(key="n", label="N", type="double", max=5), 7.25, None),
@@ -114,29 +111,26 @@ def test_last_value_is_kept_only_while_the_question_accepts_it(
 
 
 @pytest.mark.parametrize(
-    ("kind", "decimals", "x", "expected"),
+    ("kind", "x", "expected"),
     [
-        ("int", None, 7, "7"),
-        ("int", None, -12345678, "-12345678"),
-        ("int", None, 2**63 - 1, "9223372036854775807"),
-        ("double", 1, 7.5, "7.5"),
-        ("double", 1, 7, "7.0"),
-        ("double", 0, 8.0, "8"),
-        ("double", 2, 0.125, "0.13"),  # half away from zero, on the shortest decimal
-        ("double", 2, -0.125, "-0.13"),
-        ("double", 2, 2.675, "2.68"),  # binary 2.67499…: the shortest decimal decides
-        ("double", 1, -0.04, "0.0"),  # never "-0"
-        ("double", 10, 1e21, "1000000000000000000000.0000000000"),
-        ("double", None, 7.0, "7"),
-        ("double", None, 7.25, "7.25"),
-        ("double", None, -0.0, "0"),
-        ("double", None, 0.1 + 0.2, "0.30000000000000004"),
-        ("double", None, 1.5e-7, "0.00000015"),
-        ("double", None, 1e21, "1000000000000000000000"),
+        ("int", 7, "7"),
+        ("int", -12345678, "-12345678"),
+        ("int", 2**63 - 1, "9223372036854775807"),
+        ("double", 7.5, "7.5"),
+        ("double", 7, "7"),
+        ("double", 7.0, "7"),
+        ("double", 7.25, "7.25"),  # never rounded to the question's decimals
+        ("double", 2.675, "2.675"),  # binary 2.67499…; the shortest round-trip decimal
+        ("double", -0.0, "0"),
+        ("double", 0.1 + 0.2, "0.30000000000000004"),
+        ("double", 1.5e-7, "0.00000015"),
+        ("double", 1e21, "1000000000000000000000"),
+        ("double", 1e23, "100000000000000000000000"),  # shortest, not the exact 99999999999999991611392
+        ("double", 5e-324, "0." + "0" * 323 + "5"),
     ],
 )
-def test_fmt(kind: Any, decimals: int | None, x: float, expected: str) -> None:
-    assert notification.fmt(kind, decimals, x) == expected
+def test_fmt(kind: Any, x: float, expected: str) -> None:
+    assert notification.fmt(kind, x) == expected
 
 
 def number(last: float | None, unit: str | None = "h") -> QuickLogNumber:
@@ -180,9 +174,9 @@ def test_category_id_changes_with_any_part_of_the_actions() -> None:
         category(number(7.0)),
         category(number(None)),
         category(number(7.5, unit="hours")),
-        category(base.model_copy(update={"decimals": 2})),  # "7.50"
     ]
     assert len({cid, *others}) == len(others) + 1
+    assert category(base.model_copy(update={"decimals": 2})) == cid  # decimals: display only
 
     def chips(*labels: str) -> QuickLogEnum:
         options = [QuickLogOption(value=f"o{i}", label=label) for i, label in enumerate(labels)]
@@ -344,9 +338,9 @@ async def test_scheduler_uses_the_latest_value_by_captured_at(
     assert isinstance(n.quick_log, QuickLogNumber)
     assert (n.quick_log.type, n.quick_log.last_value, n.quick_log.unit) == ("double", 6.5, "h")
 
-    # A newer version allows no decimals: 6.5 doesn't fit any more.
+    # A newer version caps it at 6: 6.5 isn't a valid answer any more.
     r = await client.post(
-        "/topics/sleep/versions", json={"questions": [{**hours, "decimals": 0}], "base_version": 1}
+        "/topics/sleep/versions", json={"questions": [{**hours, "max": 6}], "base_version": 1}
     )
     assert r.status_code == 201, r.text
     await _forget_notified()
