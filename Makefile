@@ -72,7 +72,7 @@ check: check-backend check-frontend ## Run every check CI runs (except the docke
 
 .PHONY: check-backend
 check-backend: ## Backend: lint, types, openapi.json freshness, pytest, migrations match models
-	$(BACKEND) uv run ruff check . && uv run ruff format --check . && uv run mypy app scripts tests
+	$(BACKEND) uv run ruff check . && uv run ruff format --check . && uv run mypy app scripts tools tests
 	@$(MAKE) --no-print-directory check-openapi
 	$(BACKEND) uv run pytest -q
 	@$(MAKE) --no-print-directory check-migrations
