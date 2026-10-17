@@ -1,6 +1,6 @@
 # quickR iOS: delivery plan
 
-**Status: v2**, 2026-10-17. This version revises draft v1 after two adversarial
+**Status: v3**, 2026-10-17. v2 revised draft v1 after two adversarial
 reviews, [Codex](reviews/plan-v1-codex.md) and
 [Fable](reviews/plan-v1-fable.md). §12 maps each finding to how it was resolved.
 
@@ -63,7 +63,7 @@ decision that changed after review.
 | Repeat-last **(v2)**          | Re-logs the latest entry's answers if they still validate against the current version; otherwise it opens the record screen prefilled. With no previous entry, it opens the record screen. If the topic is archived, it shows a dialog.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | UI                            | `@Observable` screen models over GRDB `ValueObservation`, reconciled whenever the app becomes active. `NavigationStack` with a typed `Route`, plus a URL parser for the PWA's paths. A schema-driven form engine using `FocusState`. Swift Charts. System navigation, lists and sheets, with brand tokens and fonts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Headers                       | `X-QuickR-Channel: ios` (a new enum value). `source` is `ios`, `ios.widget`, `ios.notification` or `ios.siri`. `CF-Access-Client-Id` and `-Secret` come from the shared Keychain (`AfterFirstUnlock`) and are sent only when configured.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Server identity **(v2)**      | The local store is **partitioned per server**: one DB file per server URL and epoch. Changing the server URL switches stores and unregisters the old server's APNs registration. Queued data never goes to a different server.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Server identity **(v2)**      | The local store is **partitioned per server**: one DB file per **server id** (a stable random id the server reports). An epoch change rebuilds that store's server layer in place, keeping its outbox. Changing the server URL switches stores and unregisters the old server's APNs registration. Queued data never goes to a different server.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Dependencies                  | GRDB.<br>Tools: xcodegen (downloaded as a release binary in CI), swift-format, ffmpeg, rsvg-convert, fonttools (via uvx).<br>Backend: `httpx[http2]` and an explicit `pyjwt[crypto]`.<br>**(v2) Cut:** snapshot testing, Access JWT verification, chart screenshot comparison.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 ## 3. Repository layout
@@ -179,6 +179,87 @@ PR and become the reference the tests are built from.
   - **Local fallback:** use the same identifiers, plus explicit rules for
     cancelling pending local notifications when a push arrives or an entry is
     logged. A local fallback can then be added later without a redesign.
+
+## 6a. Binding protocol rules (v3, from Codex round 2)
+
+The M0 specs must encode these rules, and the M0 and M1 tests must prove them. Each rule names the
+Codex round-2 finding it answers ([review](reviews/plan-v2-codex.md)).
+
+**Server: one write order (§2 feed)**
+
+1. **One write order.** Every mutating service transaction (entries, topics, versions, deletes,
+   archive) takes the feed advisory lock **as its first statement**, before any row or foreign-key
+   lock.
+   - The lock key differs from the scheduler's `0x716B7201`.
+   - The scheduler never takes the feed lock, so the two can't deadlock.
+   - Deadlocks and serialization failures are retried automatically up to 3 times.
+   - Since every writer takes the same lock first, writes are serialized, and seq order equals
+     commit order. For a single user the lock contention is negligible.
+2. **Deletes reserve the id.**
+   - `DELETE /entries/{id}` atomically inserts the id into `deleted_ids` even if the entry doesn't
+     exist (or doesn't exist yet), and returns 204.
+   - `create_entry` checks `deleted_ids` while holding the same lock. So a delayed POST that arrives
+     after its undo-DELETE can never create the entry.
+   - For a create, `entry_deleted` means "retire it": remove the optimistic overlay and never
+     materialise the entry.
+   - The PWA's `outboxEffects` rolls back on `entry_deleted`, in B4. Older cached PWA builds show
+     it as a failed item the user can discard. This is acceptable and documented.
+3. **Deleting a topic** tombstones its child entries and versions in the service: an
+   `INSERT … SELECT` into `deleted_ids` runs before the foreign-key cascade, and the change_log
+   gets a topic delete row.
+   - Entry mutations do **not** log topic changes. Clients **must recompute** `entry_count`,
+     `last_captured_at` and due state locally from entries.
+   - The feed logs topic rows only when the topic's own fields change.
+4. **Feed pages** are materialised in one REPEATABLE READ snapshot.
+   - Within a page, an entity's latest seq wins.
+   - An entity that has vanished is emitted as a deletion only if it is in `deleted_ids`. Otherwise
+     it is skipped, because its own delete row follows later.
+   - The `next` cursor is the highest seq in the page. `limit` is capped at 500.
+5. **Restore detection.**
+   - The server returns `head` (its highest seq). A client whose cursor is greater than `head`
+     treats that as an epoch mismatch.
+   - Restore and reset docs include `make rotate-epoch`.
+6. **Stale writers.**
+   - `entry` and `topic` rows carry a `revision` integer.
+   - PATCH, archive and unarchive accept an optional `expected_revision`. A mismatch returns 409
+     `stale_revision`. The client then refetches the entity and replays its own newer queued
+     operations in order.
+   - The PWA doesn't send `expected_revision`, so its behaviour is unchanged.
+
+**Client: the store and notifications**
+
+7. **Acknowledging a sent operation is atomic.** One GRDB transaction upserts the server row and
+   removes the outbox item, so an operation can never show twice in the overlay.
+8. **Notifications carry their origin.**
+   - Every payload and every action identifier includes `server_id`.
+   - An action handler only writes to the store that has that `server_id`. If that store no longer
+     exists, the action is dropped and a local notification explains why.
+   - Every outbox item belongs to its store file, so items never move between servers.
+9. **Registering notification categories is serialised.**
+   - Each process holds a GRDB IMMEDIATE write transaction on `notification_category` while it
+     reads the whole table and calls `setNotificationCategories` with it.
+   - The table is append-only. Rows are pruned only when older than 7 days and not referenced by
+     any delivered notification.
+   - Category ids hash the **complete ordered action descriptor**: labels, values, kinds and order.
+   - Up to four actions is the *maximum*. Checkpoint D measures how many actually show, and the
+     design must still work when only two show (the banner).
+
+**Delivery, compatibility and coverage**
+
+10. **Reminder delivery** is at-least-once per topic slot overall, and best-effort for each device.
+    There is no per-device retry ledger, which is acceptable for a single user and documented.
+11. **Future local fallback.**
+    - Local notifications use the identifier `due-{topic_id}-{due_since}`.
+    - When the NSE receives a push, it cancels any pending local request for the same topic and
+      slot.
+    - When a local notification fires and a delivered push for the same topic and slot exists, the
+      handler removes the duplicate.
+    - Logging an entry cancels pending and delivered notifications for that topic and slot.
+    - All of this is specified now and built later.
+12. **Coverage and minimum iOS.**
+    - A test asserts that every `operationId` the Swift client uses has a response fixture, and
+      every request it sends has a golden.
+    - The CI Unit plan runs on an **iOS 26.x** simulator, the minimum we deploy to.
 
 ## 7. Milestones
 
@@ -399,7 +480,7 @@ and M4. The order becomes M2b → M5 → M6 → M3 → M4.
 | `make check`           | Today's checks, plus the drift checks for vectors, fixtures and request goldens. No Xcode needed.                                                                                                                                                                                                                                                                                                  | Local and `ci.yml` |
 | `make check-ios`       | `xcodegen generate`, `swift test`, `xcodebuild test` with the Unit and UI plans, a swift-format lint, and an Xcode version check                                                                                                                                                                                                                                                                   | Local              |
 | `make ios-integration` | The sync suite against this worktree's docker stack. **Required** for any milestone that touches sync.                                                                                                                                                                                                                                                                                             | Local              |
-| `ios.yml` **(v2)**     | Checks out the repo and downloads the xcodegen binary.<br>• On push: `swift test` on the host, about 3 min.<br>• On a PR marked ready for review, or a manual dispatch: an `xcodebuild` build plus the Unit plan.<br>• Path filters, and in-progress runs are cancelled.<br>The repo is private, so macOS minutes count at 10× — **we'll confirm your GitHub plan tier and keep an eye on usage**. | GitHub             |
+| `ios.yml` **(v2)**     | Checks out the repo and downloads the xcodegen binary.<br>• On push: `swift test` on the host, about 3 min.<br>• On a PR marked ready for review, or a manual dispatch: an `xcodebuild` build plus the Unit plan.<br>• Path filters, and in-progress runs are cancelled.<br>The repo is private, so macOS minutes count at 10× — the account is on **GitHub Pro** (3,000 min, so about 300 macOS min a month), and usage is checked at each milestone. | GitHub             |
 | Device checklist       | Listed in each milestone's PR                                                                                                                                                                                                                                                                                                                                                                      | Phone              |
 | Reviews                | A code-review sub-agent plus `codex review`, for every milestone                                                                                                                                                                                                                                                                                                                                   | Before the PR      |
 
@@ -523,3 +604,21 @@ Everything else:
 | **Fable M7:** badge                                                                                          | Set on the device only; the payload has no badge                                                                                                                                                                                                    |
 | **Fable minors**                                                                                             | Environment read from `embedded.mobileprovision`; the widget reload budget; plist keys; dev networking; the PWA parity limits listed; `conftest` TABLES                                                                                             |
 | **Fable simplifications**                                                                                    | **Taken:** 3 targets, permanent tombstones (no retention), a trimmed M4, a single flush lock, cutting snapshot tests and JWT verification. **Not taken:** dropping one of the two drift mechanisms, because Codex asked for more contract coverage. |
+
+### v2 → v3 (Codex round 2)
+
+| Round-2 finding | Resolution |
+| --- | --- |
+| A DELETE must reserve an id it hasn't seen; creates and deletes must be serialised | §6a rules 1–2 |
+| Lock ordering and deadlocks with the scheduler lock | §6a rule 1 |
+| Topic cascades and derived topic fields | §6a rule 3 |
+| Materialising pages | §6a rule 4 |
+| **New blocker:** notification provenance across servers | §6a rule 8, plus the store keyed by `server_id` (§2) |
+| Category registration race, and hashing the full descriptor | §6a rule 9 |
+| Expired senders overwriting newer changes | §6a rule 6 |
+| Double overlays on acknowledgement | §6a rule 7 |
+| A restore doesn't rotate the epoch | §6a rule 5 |
+| Partial scheduler delivery | §6a rule 10: best-effort per device, a stated limitation |
+| Rules for deduplicating the local fallback | §6a rule 11 |
+| Minimum-iOS testing and endpoint coverage | §6a rule 12 |
+| GitHub plan tier | Confirmed: Pro (§8) |
