@@ -1,6 +1,7 @@
 # Shared fixtures
 
-Generated from the backend and checked by every platform. **Never edit these by
+Generated from the backend and checked by every platform (the Swift tests in
+`ios/QuickrKit` bundle them as resources). **Never edit these by
 hand.** Run `make vectors` (it needs the test database, like `make check`) and
 commit the result.
 
