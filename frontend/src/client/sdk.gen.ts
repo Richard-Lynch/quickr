@@ -4,8 +4,8 @@ import * as z from 'zod';
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { ArchiveTopicData, ArchiveTopicErrors, ArchiveTopicResponses, CheckTopicVersionData, CheckTopicVersionErrors, CheckTopicVersionResponses, CreateEntryData, CreateEntryErrors, CreateEntryResponses, CreatePushSubscriptionData, CreatePushSubscriptionErrors, CreatePushSubscriptionResponses, CreateTopicData, CreateTopicErrors, CreateTopicResponses, DeleteEntryData, DeleteEntryErrors, DeleteEntryResponses, DeletePushSubscriptionData, DeletePushSubscriptionErrors, DeletePushSubscriptionResponses, DeleteTopicData, DeleteTopicErrors, DeleteTopicResponses, ExportEntriesCsvData, ExportEntriesCsvErrors, ExportEntriesCsvResponses, GetEntryData, GetEntryErrors, GetEntryResponses, GetLimitsData, GetLimitsErrors, GetLimitsResponses, GetPushConfigData, GetPushConfigErrors, GetPushConfigResponses, GetQuestionSeriesData, GetQuestionSeriesErrors, GetQuestionSeriesResponses, GetTopicData, GetTopicErrors, GetTopicResponses, GetTopicStatsData, GetTopicStatsErrors, GetTopicStatsResponses, HealthData, HealthErrors, HealthResponses, ListEntriesData, ListEntriesErrors, ListEntriesResponses, ListQuestionTypesData, ListQuestionTypesErrors, ListQuestionTypesResponses, ListTopicsData, ListTopicsErrors, ListTopicsResponses, ListTopicVersionsData, ListTopicVersionsErrors, ListTopicVersionsResponses, PublishTopicVersionData, PublishTopicVersionErrors, PublishTopicVersionResponses, SendTestPushData, SendTestPushErrors, SendTestPushResponses, UnarchiveTopicData, UnarchiveTopicErrors, UnarchiveTopicResponses, UpdateEntryData, UpdateEntryErrors, UpdateEntryResponses, UpdateTopicData, UpdateTopicErrors, UpdateTopicResponses } from './types.gen';
-import { zArchiveTopicPath, zArchiveTopicResponse, zCheckTopicVersionBody, zCheckTopicVersionPath, zCheckTopicVersionResponse, zCreateEntryBody, zCreateEntryHeaders, zCreateEntryPath, zCreateEntryResponse, zCreatePushSubscriptionBody, zCreatePushSubscriptionResponse, zCreateTopicBody, zCreateTopicResponse, zDeleteEntryPath, zDeleteEntryResponse, zDeletePushSubscriptionBody, zDeletePushSubscriptionResponse, zDeleteTopicPath, zDeleteTopicResponse, zExportEntriesCsvPath, zExportEntriesCsvQuery, zExportEntriesCsvResponse, zGetEntryPath, zGetEntryResponse, zGetLimitsResponse, zGetPushConfigResponse, zGetQuestionSeriesPath, zGetQuestionSeriesQuery, zGetQuestionSeriesResponse, zGetTopicPath, zGetTopicResponse, zGetTopicStatsPath, zGetTopicStatsQuery, zGetTopicStatsResponse, zHealthResponse, zListEntriesPath, zListEntriesQuery, zListEntriesResponse, zListQuestionTypesResponse, zListTopicsQuery, zListTopicsResponse, zListTopicVersionsPath, zListTopicVersionsResponse, zPublishTopicVersionBody, zPublishTopicVersionPath, zPublishTopicVersionResponse, zSendTestPushResponse, zUnarchiveTopicPath, zUnarchiveTopicResponse, zUpdateEntryBody, zUpdateEntryPath, zUpdateEntryResponse, zUpdateTopicBody, zUpdateTopicPath, zUpdateTopicResponse } from './zod.gen';
+import type { ArchiveTopicData, ArchiveTopicErrors, ArchiveTopicResponses, CheckTopicVersionData, CheckTopicVersionErrors, CheckTopicVersionResponses, CreateEntryData, CreateEntryErrors, CreateEntryResponses, CreatePushSubscriptionData, CreatePushSubscriptionErrors, CreatePushSubscriptionResponses, CreateTopicData, CreateTopicErrors, CreateTopicResponses, DeleteEntryData, DeleteEntryErrors, DeleteEntryResponses, DeletePushSubscriptionData, DeletePushSubscriptionErrors, DeletePushSubscriptionResponses, DeleteTopicData, DeleteTopicErrors, DeleteTopicResponses, ExportEntriesCsvData, ExportEntriesCsvErrors, ExportEntriesCsvResponses, GetEntryData, GetEntryErrors, GetEntryResponses, GetLimitsData, GetLimitsErrors, GetLimitsResponses, GetPushConfigData, GetPushConfigErrors, GetPushConfigResponses, GetQuestionSeriesData, GetQuestionSeriesErrors, GetQuestionSeriesResponses, GetTopicData, GetTopicErrors, GetTopicResponses, GetTopicStatsData, GetTopicStatsErrors, GetTopicStatsResponses, HealthData, HealthErrors, HealthResponses, ListChangesData, ListChangesErrors, ListChangesResponses, ListEntriesData, ListEntriesErrors, ListEntriesResponses, ListQuestionTypesData, ListQuestionTypesErrors, ListQuestionTypesResponses, ListTopicsData, ListTopicsErrors, ListTopicsResponses, ListTopicVersionsData, ListTopicVersionsErrors, ListTopicVersionsResponses, PublishTopicVersionData, PublishTopicVersionErrors, PublishTopicVersionResponses, SendTestPushData, SendTestPushErrors, SendTestPushResponses, UnarchiveTopicData, UnarchiveTopicErrors, UnarchiveTopicResponses, UpdateEntryData, UpdateEntryErrors, UpdateEntryResponses, UpdateTopicData, UpdateTopicErrors, UpdateTopicResponses } from './types.gen';
+import { zArchiveTopicPath, zArchiveTopicQuery, zArchiveTopicResponse, zCheckTopicVersionBody, zCheckTopicVersionPath, zCheckTopicVersionResponse, zCreateEntryBody, zCreateEntryHeaders, zCreateEntryPath, zCreateEntryResponse, zCreatePushSubscriptionBody, zCreatePushSubscriptionResponse, zCreateTopicBody, zCreateTopicResponse, zDeleteEntryPath, zDeleteEntryResponse, zDeletePushSubscriptionBody, zDeletePushSubscriptionResponse, zDeleteTopicPath, zDeleteTopicResponse, zExportEntriesCsvPath, zExportEntriesCsvQuery, zExportEntriesCsvResponse, zGetEntryPath, zGetEntryResponse, zGetLimitsResponse, zGetPushConfigResponse, zGetQuestionSeriesPath, zGetQuestionSeriesQuery, zGetQuestionSeriesResponse, zGetTopicPath, zGetTopicResponse, zGetTopicStatsPath, zGetTopicStatsQuery, zGetTopicStatsResponse, zHealthResponse, zListChangesQuery, zListChangesResponse, zListEntriesPath, zListEntriesQuery, zListEntriesResponse, zListQuestionTypesResponse, zListTopicsQuery, zListTopicsResponse, zListTopicVersionsPath, zListTopicVersionsResponse, zPublishTopicVersionBody, zPublishTopicVersionPath, zPublishTopicVersionResponse, zSendTestPushResponse, zUnarchiveTopicPath, zUnarchiveTopicQuery, zUnarchiveTopicResponse, zUpdateEntryBody, zUpdateEntryPath, zUpdateEntryResponse, zUpdateTopicBody, zUpdateTopicPath, zUpdateTopicResponse } from './zod.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -154,7 +154,7 @@ export const archiveTopic = <ThrowOnError extends boolean = false>(options: Opti
     requestValidator: async (data) => await z.object({
         body: z.never().optional(),
         path: zArchiveTopicPath,
-        query: z.never().optional()
+        query: zArchiveTopicQuery.optional()
     }).parseAsync(data),
     responseValidator: async (data) => await zArchiveTopicResponse.parseAsync(data),
     url: '/api/v1/topics/{ref}/archive',
@@ -168,7 +168,7 @@ export const unarchiveTopic = <ThrowOnError extends boolean = false>(options: Op
     requestValidator: async (data) => await z.object({
         body: z.never().optional(),
         path: zUnarchiveTopicPath,
-        query: z.never().optional()
+        query: zUnarchiveTopicQuery.optional()
     }).parseAsync(data),
     responseValidator: async (data) => await zUnarchiveTopicResponse.parseAsync(data),
     url: '/api/v1/topics/{ref}/unarchive',
@@ -276,6 +276,9 @@ export const exportEntriesCsv = <ThrowOnError extends boolean = false>(options: 
 
 /**
  * Delete Entry
+ *
+ * Delete an entry. Idempotent: an unknown id also returns 204 and is reserved, so the
+ * entry can never be created afterwards (a later create gets 409 entry_deleted).
  */
 export const deleteEntry = <ThrowOnError extends boolean = false>(options: Options<DeleteEntryData, ThrowOnError>): RequestResult<DeleteEntryResponses, DeleteEntryErrors, ThrowOnError> => (options.client ?? client).delete<DeleteEntryResponses, DeleteEntryErrors, ThrowOnError>({
     requestValidator: async (data) => await z.object({
@@ -318,6 +321,25 @@ export const updateEntry = <ThrowOnError extends boolean = false>(options: Optio
         'Content-Type': 'application/json',
         ...options.headers
     }
+});
+
+/**
+ * List Changes
+ *
+ * The change feed: every topic, version and entry changed after a cursor, plus deletions.
+ *
+ * Start from ``after=0`` to bootstrap, then follow ``next`` while ``has_more``. When ``epoch``
+ * changes, or the cursor is above ``head``, rebuild from ``after=0``.
+ */
+export const listChanges = <ThrowOnError extends boolean = false>(options?: Options<ListChangesData, ThrowOnError>): RequestResult<ListChangesResponses, ListChangesErrors, ThrowOnError> => (options?.client ?? client).get<ListChangesResponses, ListChangesErrors, ThrowOnError>({
+    requestValidator: async (data) => await z.object({
+        body: z.never().optional(),
+        path: z.never().optional(),
+        query: zListChangesQuery.optional()
+    }).parseAsync(data),
+    responseValidator: async (data) => await zListChangesResponse.parseAsync(data),
+    url: '/api/v1/changes',
+    ...options
 });
 
 /**

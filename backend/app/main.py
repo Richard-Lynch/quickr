@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from fastmcp.utilities.lifespan import combine_lifespans
@@ -28,6 +29,8 @@ def create_app() -> FastAPI:
         lifespan=combine_lifespans(scheduler.lifespan, mcp_app.lifespan),
         generate_unique_id_function=_operation_id,
     )
+    # Feed pages and entry lists are large, repetitive JSON (~10x smaller compressed).
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=get_settings().cors_origins,

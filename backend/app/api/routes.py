@@ -14,6 +14,7 @@ from app.db import get_db
 from app.models import Channel
 from app.schemas.api import (
     Bucket,
+    ChangesPage,
     CompatibilityReport,
     EntryCreate,
     EntryFilters,
@@ -42,6 +43,7 @@ from app.schemas.api import (
     VersionDraft,
 )
 from app.schemas.questions import DoubleQuestion, EnumQuestion, IntQuestion, StrQuestion
+from app.services import changes as changes_svc
 from app.services import entries as entry_svc
 from app.services import push as push_svc
 from app.services import stats as stats_svc
@@ -49,6 +51,13 @@ from app.services import topics as topic_svc
 
 Db = Annotated[AsyncSession, Depends(get_db)]
 TopicRef = Annotated[str, Path(description="Topic UUID or slug.", examples=["sleep-log"])]
+ExpectedRevision = Annotated[
+    int | None,
+    Query(
+        ge=1,
+        description="Optional: the topic revision this change was based on; 409 stale_revision on mismatch.",
+    ),
+]
 ChannelHeader = Annotated[
     Channel | None,
     Header(alias="X-QuickR-Channel", description="Client channel; defaults to 'api'."),
@@ -162,13 +171,13 @@ async def update_topic(db: Db, ref: TopicRef, body: TopicUpdate) -> TopicDetail:
 
 
 @router.post("/topics/{ref}/archive", tags=["topics"], operation_id="archiveTopic")
-async def archive_topic(db: Db, ref: TopicRef) -> TopicDetail:
-    return await topic_svc.set_archived(db, ref, archived=True)
+async def archive_topic(db: Db, ref: TopicRef, expected_revision: ExpectedRevision = None) -> TopicDetail:
+    return await topic_svc.set_archived(db, ref, archived=True, expected_revision=expected_revision)
 
 
 @router.post("/topics/{ref}/unarchive", tags=["topics"], operation_id="unarchiveTopic")
-async def unarchive_topic(db: Db, ref: TopicRef) -> TopicDetail:
-    return await topic_svc.set_archived(db, ref, archived=False)
+async def unarchive_topic(db: Db, ref: TopicRef, expected_revision: ExpectedRevision = None) -> TopicDetail:
+    return await topic_svc.set_archived(db, ref, archived=False, expected_revision=expected_revision)
 
 
 @router.delete(
@@ -267,8 +276,29 @@ async def update_entry(db: Db, entry_id: UUID, body: EntryUpdate) -> EntryOut:
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_entry(db: Db, entry_id: UUID) -> Response:
+    """Delete an entry. Idempotent: an unknown id also returns 204 and is reserved, so the
+    entry can never be created afterwards (a later create gets 409 entry_deleted)."""
     await entry_svc.delete_entry(db, entry_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- sync -------------------------------------------------------------------
+
+
+@router.get("/changes", tags=["sync"], operation_id="listChanges")
+async def list_changes(
+    db: Db,
+    after: Annotated[
+        int, Query(ge=0, description="Cursor: the `next` of the previous page (0 = from the start).")
+    ] = 0,
+    limit: Annotated[int, Query(ge=1, le=changes_svc.MAX_PAGE, description="Change-log rows to read.")] = 500,
+) -> ChangesPage:
+    """The change feed: every topic, version and entry changed after a cursor, plus deletions.
+
+    Start from ``after=0`` to bootstrap, then follow ``next`` while ``has_more``. When ``epoch``
+    changes, or the cursor is above ``head``, rebuild from ``after=0``.
+    """
+    return await changes_svc.list_changes(db, after, limit)
 
 
 # --- aggregation ------------------------------------------------------------

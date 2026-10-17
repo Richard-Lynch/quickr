@@ -4,16 +4,16 @@ import re
 import unicodedata
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import Select, column, func, literal, or_, select
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Select, column, delete, func, literal, or_, select
+from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.errors import Conflict, DomainError, IncompatibleVersion, NotFound
-from app.models import Entry, Topic, TopicStatus, TopicVersion
+from app.errors import Conflict, DomainError, IncompatibleVersion, NotFound, StaleRevision
+from app.models import DeletedId, Entry, FeedKind, FeedOp, Topic, TopicStatus, TopicVersion
 from app.schemas.api import (
     CompatibilityReport,
     DueStatus,
@@ -31,6 +31,7 @@ from app.schemas.api import (
 from app.schemas.base import issues_from
 from app.schemas.questions import Question, QuestionSet
 from app.services.compat import check_compatibility
+from app.services.feed import log_change, tombstone, writer
 from app.services.schedule import compute_due, dump_schedule, parse_schedule
 
 _questions_adapter: TypeAdapter[list[Question]] = TypeAdapter(list[Question])
@@ -126,6 +127,7 @@ async def _summaries(
                     description=topic.description,
                     status=topic.status,
                     current_version=topic.current_version,
+                    revision=topic.revision,
                     question_count=len(questions),
                     entry_count=entry_count or 0,
                     last_captured_at=last_captured,
@@ -160,13 +162,18 @@ def _base_select() -> tuple[Select[Any], Any]:
     return stmt, stats
 
 
-async def topic_detail(db: AsyncSession, topic_id: UUID) -> TopicDetail:
+async def topic_details(db: AsyncSession, topic_ids: list[UUID]) -> dict[UUID, TopicDetail]:
+    """Details of the given topics that exist, by id."""
     stmt, _ = _base_select()
-    rows = await _summaries(db, stmt.where(Topic.id == topic_id))
-    if not rows:
+    rows = await _summaries(db, stmt.where(Topic.id.in_(topic_ids)))
+    return {s.id: TopicDetail(**s.model_dump(), questions=questions) for s, questions in rows}
+
+
+async def topic_detail(db: AsyncSession, topic_id: UUID) -> TopicDetail:
+    detail = (await topic_details(db, [topic_id])).get(topic_id)
+    if detail is None:
         raise NotFound("topic not found")
-    summary, questions = rows[0]
-    return TopicDetail(**summary.model_dump(), questions=questions)
+    return detail
 
 
 def _question_text_matches(pattern: str) -> Any:
@@ -274,9 +281,23 @@ def _sort_in_python(items: list[TopicSummary], sort: TopicSort) -> None:
     items.sort(key=value, reverse=sort.startswith("-"))  # stable: ties keep id order
 
 
+def _check_revision(topic: Topic, expected: int | None) -> None:
+    if expected is not None and expected != topic.revision:
+        raise StaleRevision(
+            f"topic is at revision {topic.revision}, but this change was based on revision {expected}",
+            [FieldIssue(loc=["expected_revision"], message=f"current revision is {topic.revision}")],
+        )
+
+
+async def _log_topic(db: AsyncSession, topic: Topic) -> None:
+    await log_change(db, FeedKind.topic, FeedOp.upsert, topic.id, topic.id)
+
+
+@writer
 async def create_topic(db: AsyncSession, body: TopicCreate) -> TopicDetail:
     questions = _validated_set(body.questions)
     topic = Topic(
+        id=uuid4(),
         slug=body.slug or slugify(body.name),
         name=body.name,
         description=body.description,
@@ -285,24 +306,28 @@ async def create_topic(db: AsyncSession, body: TopicCreate) -> TopicDetail:
         schedule=dump_schedule(body.schedule),
         schedule_updated_at=func.now() if body.schedule is not None else None,
     )
-    topic.versions.append(
-        TopicVersion(
-            version=1,
-            questions=dump_questions(questions),
-            change_note="Initial version",
-        )
+    first = TopicVersion(
+        id=uuid4(),
+        version=1,
+        questions=dump_questions(questions),
+        change_note="Initial version",
     )
+    topic.versions.append(first)
     db.add(topic)
     try:
-        await db.commit()
+        await db.flush()
     except IntegrityError as exc:
-        await db.rollback()
         raise _slug_conflict(topic.slug) from exc
+    await _log_topic(db, topic)
+    await log_change(db, FeedKind.version, FeedOp.upsert, first.id, topic.id)
+    await db.commit()
     return await topic_detail(db, topic.id)
 
 
+@writer
 async def update_topic(db: AsyncSession, ref: str, body: TopicUpdate) -> TopicDetail:
     topic = await resolve_topic(db, ref)
+    _check_revision(topic, body.expected_revision)
     if body.name is not None:
         topic.name = body.name
     if body.slug is not None:
@@ -314,27 +339,48 @@ async def update_topic(db: AsyncSession, ref: str, body: TopicUpdate) -> TopicDe
         if new != topic.schedule:  # an unchanged schedule keeps its reference point
             topic.schedule = new
             topic.schedule_updated_at = func.now() if new is not None else None
+    topic.revision += 1
     try:
-        await db.commit()
+        await db.flush()
     except IntegrityError as exc:
-        await db.rollback()
         raise _slug_conflict(body.slug or topic.slug) from exc
-    return await topic_detail(db, topic.id)
-
-
-async def set_archived(db: AsyncSession, ref: str, archived: bool) -> TopicDetail:
-    topic = await resolve_topic(db, ref)
-    topic.status = TopicStatus.archived if archived else TopicStatus.active
-    topic.archived_at = datetime.now(UTC) if archived else None
+    await _log_topic(db, topic)
     await db.commit()
     return await topic_detail(db, topic.id)
 
 
+@writer
+async def set_archived(
+    db: AsyncSession, ref: str, archived: bool, expected_revision: int | None = None
+) -> TopicDetail:
+    topic = await resolve_topic(db, ref)
+    _check_revision(topic, expected_revision)
+    topic.status = TopicStatus.archived if archived else TopicStatus.active
+    topic.archived_at = func.now() if archived else None
+    topic.revision += 1
+    await _log_topic(db, topic)
+    await db.commit()
+    return await topic_detail(db, topic.id)
+
+
+@writer
 async def delete_topic(db: AsyncSession, ref: str) -> None:
+    """Delete an archived topic. Its versions and entries are tombstoned (before the
+    foreign-key cascade removes them) and the feed gets one topic deletion, which clients
+    apply to every child."""
     topic = await resolve_topic(db, ref)
     if topic.status != TopicStatus.archived:
         raise Conflict("archive the topic before deleting it")
-    await db.delete(topic)
+    for model, kind in ((Entry, FeedKind.entry), (TopicVersion, FeedKind.version)):
+        children = select(model.id, literal(kind, DeletedId.__table__.c.kind.type), model.topic_id).where(
+            model.topic_id == topic.id
+        )
+        await db.execute(
+            insert(DeletedId).from_select(["id", "kind", "topic_id"], children).on_conflict_do_nothing()
+        )
+    await tombstone(db, FeedKind.topic, topic.id, topic.id)
+    await log_change(db, FeedKind.topic, FeedOp.delete, topic.id, topic.id)
+    await db.execute(delete(Topic).where(Topic.id == topic.id))
     await db.commit()
 
 
@@ -373,11 +419,10 @@ async def check_version(
     return check_compatibility(await _history(db, topic), _validated_set(questions))
 
 
+@writer
 async def publish_version(db: AsyncSession, ref: str, body: VersionCreate) -> TopicDetail:
-    # Row lock prevents two concurrent publishes from racing on version numbers.
+    # The feed lock serialises publishes, so version numbers can't race.
     topic = await resolve_topic(db, ref)
-    await db.execute(select(Topic.id).where(Topic.id == topic.id).with_for_update())
-    await db.refresh(topic)
     if body.base_version != topic.current_version:
         raise _stale(topic, body.base_version)
     questions = _validated_set(body.questions)
@@ -390,47 +435,57 @@ async def publish_version(db: AsyncSession, ref: str, body: VersionCreate) -> To
                 if i.level == "error"
             )
         )
-    next_version = topic.current_version + 1
-    db.add(
-        TopicVersion(
-            topic_id=topic.id,
-            version=next_version,
-            questions=dump_questions(questions),
-            change_note=body.change_note,
-        )
+    next_version = TopicVersion(
+        id=uuid4(),
+        topic_id=topic.id,
+        version=topic.current_version + 1,
+        questions=dump_questions(questions),
+        change_note=body.change_note,
     )
-    topic.current_version = next_version
-    topic.updated_at = datetime.now(UTC)
+    db.add(next_version)
+    topic.current_version = next_version.version
+    topic.revision += 1
+    topic.updated_at = func.now()
+    await _log_topic(db, topic)
+    await log_change(db, FeedKind.version, FeedOp.upsert, next_version.id, topic.id)
     await db.commit()
     return await topic_detail(db, topic.id)
 
 
-async def list_versions(db: AsyncSession, ref: str) -> list[TopicVersionOut]:
-    topic = await resolve_topic(db, ref)
-    counts = (
-        select(Entry.version, func.count(Entry.id).label("n"))
-        .where(Entry.topic_id == topic.id)
-        .group_by(Entry.version)
-        .subquery()
+async def _versions(db: AsyncSession, *where: Any) -> list[tuple[TopicVersion, TopicVersionOut]]:
+    entry_count = (
+        select(func.count(Entry.id))
+        .where(Entry.topic_id == TopicVersion.topic_id, Entry.version == TopicVersion.version)
+        .scalar_subquery()
     )
     rows = (
         await db.execute(
-            select(TopicVersion, counts.c.n)
-            .outerjoin(counts, counts.c.version == TopicVersion.version)
-            .where(TopicVersion.topic_id == topic.id)
-            .order_by(TopicVersion.version.desc())
+            select(TopicVersion, entry_count).where(*where).order_by(TopicVersion.version.desc())
         )
     ).all()
     return [
-        TopicVersionOut(
-            version=v.version,
-            questions=parse_questions(v.questions),
-            change_note=v.change_note,
-            created_at=v.created_at,
-            entry_count=n or 0,
+        (
+            v,
+            TopicVersionOut(
+                version=v.version,
+                questions=parse_questions(v.questions),
+                change_note=v.change_note,
+                created_at=v.created_at,
+                entry_count=n or 0,
+            ),
         )
         for v, n in rows
     ]
+
+
+async def list_versions(db: AsyncSession, ref: str) -> list[TopicVersionOut]:
+    topic = await resolve_topic(db, ref)
+    return [out for _, out in await _versions(db, TopicVersion.topic_id == topic.id)]
+
+
+async def versions_by_id(db: AsyncSession, ids: list[UUID]) -> list[tuple[TopicVersion, TopicVersionOut]]:
+    """The given versions that exist, with their output models."""
+    return await _versions(db, TopicVersion.id.in_(ids))
 
 
 async def all_questions_by_key(db: AsyncSession, topic: Topic) -> dict[str, Question]:

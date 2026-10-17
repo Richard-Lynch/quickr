@@ -3,16 +3,14 @@ from __future__ import annotations
 import csv
 import io
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from sqlalchemy import Select, func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import Select, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.errors import Conflict, NotFound, TopicArchived
-from app.models import Answer, Channel, Entry, Topic, TopicStatus
+from app.errors import Conflict, EntryDeleted, NotFound, StaleRevision, TopicArchived
+from app.models import Answer, Channel, Entry, FeedKind, FeedOp, Topic, TopicStatus
 from app.schemas.api import (
     AnswerOut,
     DoubleAnswer,
@@ -29,6 +27,7 @@ from app.schemas.api import (
     StrAnswer,
 )
 from app.services.answers import TypedAnswer, validate_answers
+from app.services.feed import is_deleted, log_change, tombstone, writer
 from app.services.topics import (
     all_questions_by_key,
     get_version,
@@ -60,6 +59,7 @@ def entry_out(s: Entry) -> EntryOut:
         id=s.id,
         topic_id=s.topic_id,
         version=s.version,
+        revision=s.revision,
         source=s.source,
         channel=s.channel,
         captured_at=s.captured_at,
@@ -111,38 +111,39 @@ async def _existing(db: AsyncSession, entry_id: UUID, topic_id: UUID) -> EntryOu
     return await get_entry(db, entry_id)
 
 
+@writer
 async def create_entry(db: AsyncSession, ref: str, body: EntryCreate, channel: Channel) -> EntryOut:
-    """Record an entry. With a client ``id`` this is idempotent (see ``EntryCreate.id``)."""
+    """Record an entry. With a client ``id`` this is idempotent (see ``EntryCreate.id``).
+
+    Runs under the feed lock, so a concurrent submit of the same id waits and then
+    replays, and an id reserved by a delete can never be created (409 ``entry_deleted``).
+    """
     topic = await resolve_topic(db, ref)
-    topic_id = topic.id  # survives a rollback (which expires ORM objects)
-    if body.id is not None and (existing := await _existing(db, body.id, topic_id)) is not None:
-        return existing  # logged before (possibly before the topic was archived)
+    if body.id is not None:
+        if await is_deleted(db, body.id):
+            raise EntryDeleted(f"entry '{body.id}' was deleted and can't be recreated")
+        if (existing := await _existing(db, body.id, topic.id)) is not None:
+            return existing  # logged before (possibly before the topic was archived)
     if topic.status == TopicStatus.archived:
         raise TopicArchived(f"topic '{topic.slug}' is archived; unarchive it to record entries")
     version = await get_version(db, topic, body.version)
     typed = validate_answers(parse_questions(version.questions), body.answers)
     entry = Entry(
+        id=body.id or uuid4(),
         topic_id=topic.id,
         topic_version_id=version.id,
         version=version.version,
         source=body.source or channel.value,
         channel=channel,
-        captured_at=body.captured_at or datetime.now(UTC),
+        captured_at=body.captured_at or func.now(),
         notes=body.notes,
         meta=body.meta,
         answers=_to_rows(topic.id, typed),
     )
-    if body.id is not None:
-        entry.id = body.id
     db.add(entry)
-    try:
-        await db.commit()
-    except IntegrityError:
-        # A concurrent submit of the same id won the race: replay it.
-        await db.rollback()
-        if body.id is None or (existing := await _existing(db, body.id, topic_id)) is None:
-            raise
-        return existing
+    await db.flush()
+    await log_change(db, FeedKind.entry, FeedOp.upsert, entry.id, topic.id)
+    await db.commit()
     return await get_entry(db, entry.id)
 
 
@@ -162,8 +163,15 @@ async def get_entry(db: AsyncSession, entry_id: UUID) -> EntryOut:
     return entry_out(s)
 
 
+@writer
 async def update_entry(db: AsyncSession, entry_id: UUID, body: EntryUpdate) -> EntryOut:
     s = await _load(db, entry_id)
+    if body.expected_revision is not None and body.expected_revision != s.revision:
+        raise StaleRevision(
+            f"entry is at revision {s.revision}, but this change was based on revision "
+            f"{body.expected_revision}",
+            [FieldIssue(loc=["expected_revision"], message=f"current revision is {s.revision}")],
+        )
     topic = (await db.execute(select(Topic).where(Topic.id == s.topic_id))).scalar_one()
     if body.answers is not None:
         version = await get_version(db, topic, s.version)
@@ -184,7 +192,9 @@ async def update_entry(db: AsyncSession, entry_id: UUID, body: EntryUpdate) -> E
         s.notes = body.notes
     if body.meta is not None:
         s.meta = body.meta
-    s.updated_at = datetime.now(UTC)
+    s.revision += 1
+    s.updated_at = func.now()
+    await log_change(db, FeedKind.entry, FeedOp.upsert, s.id, s.topic_id)
     await db.commit()
     return await get_entry(db, s.id)
 
@@ -199,9 +209,15 @@ def _csv_value(v: int | float | str | list[str]) -> int | float | str:
     return ";".join(v) if isinstance(v, list) else v
 
 
+@writer
 async def delete_entry(db: AsyncSession, entry_id: UUID) -> None:
-    s = await _load(db, entry_id)
-    await db.delete(s)
+    """Delete an entry and reserve its id forever. Idempotent: an unknown id is reserved too,
+    so a create that arrives after its own undo (a delayed POST) can never materialise."""
+    topic_id = await db.scalar(select(Entry.topic_id).where(Entry.id == entry_id))
+    await tombstone(db, FeedKind.entry, entry_id, topic_id)
+    if topic_id is not None:
+        await db.execute(delete(Entry).where(Entry.id == entry_id))
+        await log_change(db, FeedKind.entry, FeedOp.delete, entry_id, topic_id)
     await db.commit()
 
 

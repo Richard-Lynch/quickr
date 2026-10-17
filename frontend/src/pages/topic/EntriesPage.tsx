@@ -66,6 +66,7 @@ function pendingAsEntry(item: OutboxItem<EntryCreatePayload>, topic: TopicDetail
     id: item.id,
     topic_id: topic.id,
     version: b.version ?? topic.current_version,
+    revision: 0, // not on the server yet
     source: b.source ?? 'ui',
     channel: 'ui',
     captured_at: b.captured_at ?? item.created_at,

@@ -41,3 +41,15 @@ class IncompatibleVersion(DomainError):
 class TopicArchived(DomainError):
     status_code = 409
     code = "topic_archived"
+
+
+class EntryDeleted(Conflict):
+    """The entry id was deleted (or reserved by a delete) and can never be recreated."""
+
+    code = "entry_deleted"
+
+
+class StaleRevision(Conflict):
+    """``expected_revision`` no longer matches: someone else changed the row first."""
+
+    code = "stale_revision"

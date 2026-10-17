@@ -180,6 +180,16 @@ class DueStatus(StrictModel):
     last_entry_at: datetime | None
 
 
+ExpectedRevision = Annotated[
+    StrictInt | None,
+    Field(
+        ge=1,
+        description="Optional optimistic-concurrency guard: the revision this change was based on. "
+        "When it no longer matches, the change is rejected with 409 stale_revision.",
+    ),
+]
+
+
 # ---------------------------------------------------------------------------
 # Topics
 # ---------------------------------------------------------------------------
@@ -203,6 +213,7 @@ class TopicUpdate(StrictModel):
     slug: Slug | None = None
     description: Description | None = None
     schedule: Schedule | None = None
+    expected_revision: ExpectedRevision = None
 
 
 class TopicSummary(StrictModel):
@@ -212,6 +223,7 @@ class TopicSummary(StrictModel):
     description: str
     status: TopicStatus
     current_version: int
+    revision: int = Field(description="Bumped on every change to the topic's own fields.")
     question_count: int
     entry_count: int
     last_captured_at: datetime | None
@@ -424,12 +436,14 @@ class EntryUpdate(StrictModel):
     captured_at: CapturedAt = None
     notes: Notes | None = None
     meta: Meta | None = None
+    expected_revision: ExpectedRevision = None
 
 
 class EntryOut(StrictModel):
     id: UUID
     topic_id: UUID
     version: int
+    revision: int = Field(description="Bumped on every update.")
     source: str
     channel: Channel
     captured_at: datetime
@@ -667,3 +681,69 @@ class PushPayload(StrictModel):
     url: str
     tag: str
     topic_slug: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Change feed
+# ---------------------------------------------------------------------------
+
+
+class FeedEntry(StrictModel):
+    kind: Literal["entry"] = "entry"
+    seq: int
+    entry: EntryOut
+
+
+class FeedTopic(StrictModel):
+    """A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,
+    ``due``) are not re-sent when entries change: clients recompute them from entries."""
+
+    kind: Literal["topic"] = "topic"
+    seq: int
+    topic: TopicDetail
+
+
+class FeedVersion(StrictModel):
+    """A published question version (immutable; ``version.entry_count`` is as of this page)."""
+
+    kind: Literal["version"] = "version"
+    seq: int
+    id: UUID
+    topic_id: UUID
+    version: TopicVersionOut
+
+
+FeedItem = Annotated[FeedEntry | FeedTopic | FeedVersion, Field(discriminator="kind")]
+
+
+class FeedDeletion(StrictModel):
+    """A permanently deleted id. A topic deletion also deletes all of its versions and entries."""
+
+    kind: Literal["entry", "topic", "version"]
+    seq: int
+    id: UUID
+    topic_id: UUID | None = Field(description="Null for an entry id deleted before it was ever created.")
+    deleted_at: datetime
+
+
+class ChangesPage(StrictModel):
+    """One page of the change feed, read from a single consistent snapshot.
+
+    Each changed entity appears once, in its latest state (``items``) or as a deletion
+    (``deleted``). Apply ``items`` in order (topics, then versions, then entries), then
+    ``deleted`` (entries, then versions, then topics), then store ``next`` as the cursor.
+    """
+
+    items: list[FeedItem]
+    deleted: list[FeedDeletion]
+    next: int = Field(description="Cursor for the next page: the highest seq in this page.")
+    has_more: bool
+    head: int = Field(
+        description="The server's highest seq. A client cursor above it means the database was "
+        "restored or reset: treat it like an epoch change."
+    )
+    epoch: str = Field(
+        description="Changes when the database is restored or reset. On a mismatch, rebuild from after=0."
+    )
+    server_id: str = Field(description="Stable random id of this server (one local store per server).")
+    server_time: datetime

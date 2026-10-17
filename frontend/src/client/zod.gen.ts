@@ -163,7 +163,8 @@ export const zEntryUpdate = z.object({
     source: z.string().min(1).max(100).nullish(),
     captured_at: z.iso.datetime({ offset: true }).nullish(),
     notes: z.string().max(5000).nullish(),
-    meta: z.record(z.string(), z.string().max(500)).nullish()
+    meta: z.record(z.string(), z.string().max(500)).nullish(),
+    expected_revision: z.int().gte(1).nullish()
 });
 
 /**
@@ -258,6 +259,23 @@ export const zEnumStats = z.object({
     count: z.int(),
     missing: z.int(),
     options: z.array(zEnumOptionCount)
+});
+
+/**
+ * FeedDeletion
+ *
+ * A permanently deleted id. A topic deletion also deletes all of its versions and entries.
+ */
+export const zFeedDeletion = z.object({
+    kind: z.enum([
+        'entry',
+        'topic',
+        'version'
+    ]),
+    seq: z.int(),
+    id: z.uuid(),
+    topic_id: z.uuid().nullable(),
+    deleted_at: z.iso.datetime({ offset: true })
 });
 
 /**
@@ -543,6 +561,7 @@ export const zEntryOut = z.object({
     id: z.uuid(),
     topic_id: z.uuid(),
     version: z.int(),
+    revision: z.int(),
     source: z.string(),
     channel: zChannel,
     captured_at: z.iso.datetime({ offset: true }),
@@ -567,6 +586,15 @@ export const zEntryPage = z.object({
     total: z.int(),
     limit: z.int(),
     offset: z.int()
+});
+
+/**
+ * FeedEntry
+ */
+export const zFeedEntry = z.object({
+    kind: z.literal('entry').default('entry'),
+    seq: z.int(),
+    entry: zEntryOut
 });
 
 /**
@@ -631,6 +659,7 @@ export const zTopicDetail = z.object({
     description: z.string(),
     status: zTopicStatus,
     current_version: z.int(),
+    revision: z.int(),
     question_count: z.int(),
     entry_count: z.int(),
     last_captured_at: z.iso.datetime({ offset: true }).nullable(),
@@ -652,6 +681,18 @@ export const zTopicDetail = z.object({
 });
 
 /**
+ * FeedTopic
+ *
+ * A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,
+ * ``due``) are not re-sent when entries change: clients recompute them from entries.
+ */
+export const zFeedTopic = z.object({
+    kind: z.literal('topic').default('topic'),
+    seq: z.int(),
+    topic: zTopicDetail
+});
+
+/**
  * TopicSummary
  */
 export const zTopicSummary = z.object({
@@ -661,6 +702,7 @@ export const zTopicSummary = z.object({
     description: z.string(),
     status: zTopicStatus,
     current_version: z.int(),
+    revision: z.int(),
     question_count: z.int(),
     entry_count: z.int(),
     last_captured_at: z.iso.datetime({ offset: true }).nullable(),
@@ -699,7 +741,8 @@ export const zTopicUpdate = z.object({
     schedule: z.discriminatedUnion('kind', [
         zDailyScheduleInput,
         zIntervalScheduleInput
-    ]).nullish()
+    ]).nullish(),
+    expected_revision: z.int().gte(1).nullish()
 });
 
 /**
@@ -716,6 +759,43 @@ export const zTopicVersionOut = z.object({
     change_note: z.string(),
     created_at: z.iso.datetime({ offset: true }),
     entry_count: z.int()
+});
+
+/**
+ * FeedVersion
+ *
+ * A published question version (immutable; ``version.entry_count`` is as of this page).
+ */
+export const zFeedVersion = z.object({
+    kind: z.literal('version').default('version'),
+    seq: z.int(),
+    id: z.uuid(),
+    topic_id: z.uuid(),
+    version: zTopicVersionOut
+});
+
+/**
+ * ChangesPage
+ *
+ * One page of the change feed, read from a single consistent snapshot.
+ *
+ * Each changed entity appears once, in its latest state (``items``) or as a deletion
+ * (``deleted``). Apply ``items`` in order (topics, then versions, then entries), then
+ * ``deleted`` (entries, then versions, then topics), then store ``next`` as the cursor.
+ */
+export const zChangesPage = z.object({
+    items: z.array(z.union([
+        zFeedEntry,
+        zFeedTopic,
+        zFeedVersion
+    ])),
+    deleted: z.array(zFeedDeletion),
+    next: z.int(),
+    has_more: z.boolean(),
+    head: z.int(),
+    epoch: z.string(),
+    server_id: z.string(),
+    server_time: z.iso.datetime({ offset: true })
 });
 
 /**
@@ -870,6 +950,10 @@ export const zArchiveTopicPath = z.object({
     ref: z.string()
 });
 
+export const zArchiveTopicQuery = z.object({
+    expected_revision: z.int().gte(1).nullish()
+});
+
 /**
  * Successful Response
  */
@@ -877,6 +961,10 @@ export const zArchiveTopicResponse = zTopicDetail;
 
 export const zUnarchiveTopicPath = z.object({
     ref: z.string()
+});
+
+export const zUnarchiveTopicQuery = z.object({
+    expected_revision: z.int().gte(1).nullish()
 });
 
 /**
@@ -1002,6 +1090,16 @@ export const zUpdateEntryPath = z.object({
  * Successful Response
  */
 export const zUpdateEntryResponse = zEntryOut;
+
+export const zListChangesQuery = z.object({
+    after: z.int().gte(0).optional().default(0),
+    limit: z.int().gte(1).lte(500).optional().default(500)
+});
+
+/**
+ * Successful Response
+ */
+export const zListChangesResponse = zChangesPage;
 
 export const zGetTopicStatsPath = z.object({
     ref: z.string()

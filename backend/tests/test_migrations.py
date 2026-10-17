@@ -245,3 +245,46 @@ async def _insert_v1_data_at_head(conn: AsyncConnection, channel: str) -> None:
             " '2026-01-01T08:00:00Z', '', '{}')"
         )
     )
+
+
+async def test_change_feed_backfill(clean_db: None) -> None:
+    """Existing data gets one upsert row per entity, so a fresh client bootstraps from after=0."""
+    from app.db import get_sessionmaker
+    from app.services.changes import list_changes
+
+    before_feed = "e5c6d7e8f9a0"
+    await _alembic(command.downgrade, before_feed)
+    try:
+        async with get_engine().begin() as conn:
+            await _insert_v1_data_at_head(conn, channel="ios")
+        await _alembic(command.upgrade, "head")
+        async with get_engine().connect() as conn:
+            rows = (
+                await conn.execute(text("SELECT seq, kind::text, op::text, entity_id::text FROM change_log"))
+            ).all()
+            assert [tuple(r) for r in rows] == [
+                (1, "topic", "upsert", f"{T}1"),
+                (2, "version", "upsert", f"{T}2"),
+                (3, "entry", "upsert", f"{T}3"),
+            ]
+            revisions = (
+                await conn.execute(
+                    text("SELECT (SELECT revision FROM topics), (SELECT revision FROM entries)")
+                )
+            ).one()
+            assert tuple(revisions) == (1, 1)
+        async with get_sessionmaker()() as db:
+            page = await list_changes(db)
+        assert [i.kind for i in page.items] == ["topic", "version", "entry"]
+        assert (page.next, page.head, page.has_more) == (3, 3, False)
+        first = (page.epoch, page.server_id)
+
+        # A downgrade + upgrade rebuilds the log from seq 1: a new epoch, the same server.
+        await _alembic(command.downgrade, before_feed)
+        await _alembic(command.upgrade, "head")
+        async with get_sessionmaker()() as db:
+            page = await list_changes(db)
+        assert page.epoch != first[0]
+        assert page.server_id == first[1]
+    finally:
+        await _alembic(command.upgrade, "head")

@@ -215,7 +215,8 @@ async def test_delete_entry(client: httpx.AsyncClient) -> None:
     s = await record(client, "sleep-log", ANSWERS)
     assert (await client.delete(f"/entries/{s['id']}")).status_code == 204
     assert (await client.get(f"/entries/{s['id']}")).status_code == 404
-    assert (await client.delete(f"/entries/{s['id']}")).status_code == 404
+    # Idempotent: deleting again is still 204 (the id stays reserved).
+    assert (await client.delete(f"/entries/{s['id']}")).status_code == 204
     assert (await client.patch(f"/entries/{s['id']}", json={"notes": "x"})).status_code == 404
     assert (await client.get("/entries/not-a-uuid")).status_code == 422
 

@@ -174,6 +174,7 @@ describe('due list + badge', () => {
     description: '',
     status: 'active',
     current_version: 1,
+    revision: 1,
     question_count: 1,
     entry_count: 0,
     last_captured_at: null,
