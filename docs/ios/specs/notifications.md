@@ -1,17 +1,18 @@
 # Spec: notifications (APNs, actions, local fallback)
 
-**Status:** M0 draft, 2026-10-17. **Implements:** PLAN.md §2 (Reminders,
-Notification actions), §5 B6–B8, §6, and §6a rules 8–11. **Companion specs:**
-[sync-protocol.md](sync-protocol.md) covers stores and `server_id`, and
-[outbox.md](outbox.md) covers how an action's write is delivered.
+**Status:** M0 draft, revision 2 (after the Codex spec review), 2026-10-17.
+**Implements:** PLAN.md §2 (Reminders, Notification actions), §5 B6–B8, §6, and
+§6a rules 8–11. **Companion specs:** [sync-protocol.md](sync-protocol.md) covers
+stores, `server_id` and preconditions. [outbox.md](outbox.md) covers how an
+action's write is delivered.
 
 ## Purpose
 
 This spec defines everything needed to log from a reminder:
 
-- the push payload and headers the server sends;
+- the push payload and headers;
 - the immutable category and action identifier scheme;
-- how categories are registered safely across processes;
+- how categories are registered and reconciled across processes;
 - what the Notification Service Extension (NSE) and the action handler do;
 - the badge;
 - the APNs token lifecycle;
@@ -19,33 +20,35 @@ This spec defines everything needed to log from a reminder:
 - the rules that keep a future **on-device local-notification fallback**
   compatible without a redesign.
 
-**Normative language.** **MUST**, **MUST NOT**, **SHOULD** and **MAY** are used
-as in RFC 2119. **[server]** marks backend requirements (B6, B7 and B8).
-**[provisional]** marks a default that is waiting for the user's answer in PLAN
-§10.
+**Normative language.** **MUST**, **MUST NOT**, **SHOULD** and **MAY** follow
+RFC 2119. **[server]** marks backend requirements (B6–B8). **[provisional]**
+marks a default that is waiting on the user's answer in PLAN §10. **[PLAN
+change]** marks where this spec intentionally departs from PLAN §6a; the lead
+updates PLAN to match.
 
 ## Glossary
 
 | Term                    | Meaning                                                                                                                                                                                          |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Reminder**            | A `kind: "due"` notification for one topic slot. It is remote (APNs or Web Push) or, later, local.                                                                                               |
-| **Slot**                | `(server_id, topic_id, due_since)`. It identifies a reminder independently of the transport. `due_since` is in canonical form (§11.1).                                                           |
+| **Slot**                | `(server_id, topic_id, due_since)`, with `due_since` in canonical form (§11.1). It identifies a reminder whatever its transport.                                                                 |
 | **Descriptor**          | `quick_log` in the payload: what can be logged from this notification (§2.3).                                                                                                                    |
-| **Action descriptor**   | The ordered list of actions rendered from a descriptor: identifier, title and kind (§4.2).                                                                                                       |
-| **Category**            | A `UNNotificationCategory` with id `quickr.t.{topic_id}.{hash}`. It is immutable once registered.                                                                                                |
-| **NSE**                 | `QuickRNotificationService`, the Notification Service Extension. It runs for pushes with `mutable-content: 1`. Its budget is about 30 s and about 24 MB.                                         |
-| **Handler**             | `UNUserNotificationCenterDelegate.userNotificationCenter(_:didReceive:withCompletionHandler:)` in the **app process**. The system launches the app in the background for non-foreground actions. |
+| **Action descriptor**   | The ordered list of actions rendered from a descriptor: identifier, title and kind (§4).                                                                                                         |
+| **Category**            | A `UNNotificationCategory` with id `quickr.t.{topic_id}.{hash}`. It is immutable.                                                                                                                |
+| **NSE**                 | `QuickRNotificationService`, the Notification Service Extension. It has about 30 s and 24 MB. It **only prepares the notification** and never flushes.                                           |
+| **Handler**             | `userNotificationCenter(_:didReceive:withCompletionHandler:)` in the **app process**. iOS launches the app in the background to run it.                                                          |
 | **Registry**            | The app-global `registry.sqlite` ([sync-protocol.md §8.1](sync-protocol.md#81-files)).                                                                                                           |
-| **Before first unlock** | After a reboot, until the first passcode entry. Files with `completeUntilFirstUserAuthentication` protection and `AfterFirstUnlock` Keychain items can't be read.                                |
+| **Active store**        | The store of the server the user selected, at its current generation.                                                                                                                            |
+| **Before first unlock** | The period after a reboot and before the first passcode entry. Store and registry files (protection `completeUntilFirstUserAuthentication`) and `AfterFirstUnlock` Keychain items can't be read. |
 
 ## 1. Processes and responsibilities
 
-| Process | Notification duties                                                                                                                                                                                            |
-| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| App     | Permission; the APNs token lifecycle (§9); category registration after every sync and pruning (§5); `willPresent` for the foreground; the handler (§7); the badge (§8); local fallback scheduling, later (§11) |
-| NSE     | Category upsert for the incoming push; `categoryIdentifier`; the badge; local-fallback cancellation; an optional 2 s flush (§6)                                                                                |
-| Widgets | None, beyond reading the due state                                                                                                                                                                             |
-| Server  | Payload and headers (§2, §3); scheduler semantics (§3.1)                                                                                                                                                       |
+| Process | Notification duties                                                                                                                                                                                                                   |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App     | Permission. The APNs token lifecycle (§9). Category registration after every sync, plus reconciliation on activation (§5). `willPresent` in the foreground. The handler (§7). The badge (§8). Later, local fallback scheduling (§11). |
+| NSE     | Reconciling categories and upserting the one for the incoming push. Setting `categoryIdentifier`. Setting the badge from the active store. Cancelling local fallbacks. **No network calls and no outbox access.**                     |
+| Widgets | None, apart from reading due state                                                                                                                                                                                                    |
+| Server  | Payload and headers (§2, §3), and scheduler semantics (§3.1)                                                                                                                                                                          |
 
 ## 2. APNs payload contract **[server]**
 
@@ -75,46 +78,45 @@ as in RFC 2119. **[server]** marks backend requirements (B6, B7 and B8).
 }
 ```
 
-| Field                           | Rule                                                                                                                                                    |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `aps.alert.title`               | The topic name, truncated to 120 characters (Unicode scalars, with "…" counted).                                                                        |
-| `aps.alert.body`                | `due_message()` (unchanged: "Time to log" or "Overdue since 08:00").                                                                                    |
-| `aps.sound`                     | `"default"`                                                                                                                                             |
-| `aps.thread-id`                 | `topic-{topic_id}`                                                                                                                                      |
-| `aps.category`                  | The category id from §4, computed by the server with the shared algorithm. It is **omitted** when `quick_log` is null. The NSE may override it (§6).    |
-| `aps.mutable-content`           | Always `1`, so the NSE runs.                                                                                                                            |
-| `aps.relevance-score`           | `0.8`                                                                                                                                                   |
-| `aps.badge`                     | **MUST NOT be present.** The device owns the badge (§8).                                                                                                |
-| `aps.content-available`         | Not set on reminders. A separate optional data-change push (PLAN B7) is `content-available: 1` with no alert and `quickr.kind = "sync"`.                |
-| `quickr.v`                      | `1`. Clients MUST ignore unknown keys. A client that sees `v > 1` treats the payload as display-only: no category and no actions.                       |
-| `quickr.kind`                   | `"due"`, `"test"`, or `"sync"` (silent)                                                                                                                 |
-| `quickr.server_id`              | **Required** (§6a rule 8). The server's `server_id`.                                                                                                    |
-| `quickr.topic_id`, `topic_slug` | The topic. The slug is for display and deep-link fallback only. Handlers key on `topic_id`.                                                             |
-| `quickr.version`                | The topic's `current_version` when the push was built. Actions log against this version, even if a newer one is published later (entries pin versions). |
-| `quickr.due_since`              | The slot, in canonical form (§11.1).                                                                                                                    |
-| `quickr.url`                    | `/t/{slug}/record`, an in-app path, as in Web Push.                                                                                                     |
-| `quickr.quick_log`              | A descriptor (§2.3), or `null` when the topic isn't quick-loggable (this is the Python port of `quickLogFor`, checked against `quicklog-vectors.json`). |
+| Field                           | Rule                                                                                                                                                 |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aps.alert.title`               | The topic name, truncated to 120 characters (Unicode scalars, with "…" counted).                                                                     |
+| `aps.alert.body`                | `due_message()`, unchanged.                                                                                                                          |
+| `aps.sound`                     | `"default"`                                                                                                                                          |
+| `aps.thread-id`                 | `topic-{topic_id}`                                                                                                                                   |
+| `aps.category`                  | The §4 category id, computed by the server with the shared algorithm. Omitted when `quick_log` is null. The NSE may override it (§6).                |
+| `aps.mutable-content`           | Always `1`.                                                                                                                                          |
+| `aps.relevance-score`           | `0.8`                                                                                                                                                |
+| `aps.badge`                     | **MUST NOT be present.** The device owns the badge (§8).                                                                                             |
+| `aps.content-available`         | Not set on reminders. The optional data-change push is `content-available: 1` with no alert and `quickr.kind = "sync"`.                              |
+| `quickr.v`                      | `1`. Clients ignore unknown keys. When `v > 1`, the notification is display-only, with no category.                                                  |
+| `quickr.kind`                   | `"due"`, `"test"` or `"sync"`                                                                                                                        |
+| `quickr.server_id`              | **Required** (§6a rule 8).                                                                                                                           |
+| `quickr.topic_id`, `topic_slug` | The topic. Handlers key on `topic_id`; the slug is for display and fallback links only.                                                              |
+| `quickr.version`                | The topic's `current_version` when the push was built. Actions log against this version.                                                             |
+| `quickr.due_since`              | The slot, in **canonical form: UTC truncated to whole seconds**, for example `2026-10-17T08:00:00Z` (§11.1).                                         |
+| `quickr.url`                    | `/t/{slug}/record`                                                                                                                                   |
+| `quickr.quick_log`              | A descriptor (§2.3), or `null` when the topic isn't quick-loggable. This uses the Python port of `quickLogFor`, verified by `quicklog-vectors.json`. |
 
-**Test push** (`kind: "test"`): it has no `category`, no `quick_log`, the
-collapse id `test` and no `thread-id`. Its title is "quickR" and its body is
-"Test notification".
+**Test push** (`kind: "test"`): it has no `category`, no `quick_log` and no
+`thread-id`. Its collapse id is `test`, its title "quickR" and its body "Test
+notification".
 
 ### 2.2 Size
 
-The whole JSON body MUST be **≤ 4096 bytes**. The server truncates strings
-before serialising:
+The whole JSON body MUST be **≤ 4096 bytes**. The server truncates before
+serialising:
 
 - titles to 120 characters;
-- option labels, the question label and the unit to 64 characters (with "…");
-- the slug is already at most 64.
+- option labels, question labels and units to 64 characters, with "…".
 
-A backend test builds the worst case and asserts ≤ 4096: a 200-character name, 4
-options with 63-character values and 200-character multi-byte labels, a
-64-character key, and a 32-character unit.
+A backend test builds the worst case and asserts the limit: a 200-character
+name, 4 options with 63-character values and 200-character multi-byte labels, a
+64-character key and a 32-character unit.
 
 ### 2.3 `quick_log` descriptor shapes
 
-**Enum** (a single-select enum with 1–6 active options; `multiple` is false):
+**Enum** (a single-select enum with 1–6 active options):
 
 ```json
 {
@@ -130,13 +132,12 @@ options with 63-character values and 200-character multi-byte labels, a
 ```
 
 - `options` holds **at most 4**, in display order.
-  - If there are ≤ 4 active options: all of them, in the question's option
-    order.
-  - If there are 5 or 6: the **4 most-used**, measured by count over the topic's
-    entries for that key. Ties are broken by option order. The 4 are listed
-    most-used first. **[provisional: Q4]**
-- `total_options` is the number of active options, so a client can say "+1 more
-  in the app".
+- With ≤ 4 active options, all of them are listed, in the question's option
+  order.
+- With 5–6 active options, the **4 most-used** are listed, counted per key over
+  the topic's entries. Ties go to option order. They are listed most-used first.
+  **[provisional: Q4]**
+- `total_options` is the number of active options.
 
 **Number** (an int or double question):
 
@@ -153,82 +154,68 @@ options with 63-character values and 200-character multi-byte labels, a
 }
 ```
 
-- `type` is `"int"` or `"double"`.
-- `unit`, `min`, `max` and `decimals` are copied from the question, and are null
-  when unset.
-- `last_value` is the latest entry's answer for `key` (by `captured_at`), or
-  `null`. It is also null when the stored value no longer validates against the
-  current question.
+`last_value` is the latest entry's answer for `key`, by `captured_at`. It is
+`null` when there is none, or when that value no longer validates against the
+current question.
 
 ## 3. APNs request headers **[server]**
 
-| Header             | Value                                                                     |
-| ------------------ | ------------------------------------------------------------------------- |
-| `apns-topic`       | `com.bahumia.quickr`                                                      |
-| `apns-push-type`   | `alert` for due and test pushes; `background` for `kind: "sync"`          |
-| `apns-priority`    | `10` for alerts; `5` for background                                       |
-| `apns-expiration`  | `now + 12 h` (the same TTL as Web Push, `push.py`); `0` for background    |
-| `apns-collapse-id` | `due-{topic_id}` (≤ 64 bytes). `test` for the test push. Absent for sync. |
-| `authorization`    | `bearer <ES256 JWT>`, cached for 50 min (research 03 §1)                  |
+| Header             | Value                                                            |
+| ------------------ | ---------------------------------------------------------------- |
+| `apns-topic`       | `com.bahumia.quickr`                                             |
+| `apns-push-type`   | `alert` for due and test pushes; `background` for `kind: "sync"` |
+| `apns-priority`    | `10` for alerts; `5` for background                              |
+| `apns-expiration`  | `now + 12 h` (the same TTL as Web Push); `0` for background      |
+| `apns-collapse-id` | `due-{topic_id}` (≤ 64 bytes); `test`; absent for sync           |
+| `authorization`    | `bearer <ES256 JWT>`, cached for 50 min                          |
 
-`thread-id` is in the payload (`aps.thread-id`), not in a header. The client
-**does not rely** on the collapse id becoming
-`UNNotificationRequest.identifier`. Every match uses `userInfo.quickr` (§7,
-§11).
+`thread-id` goes in the payload. The client **does not rely** on the collapse id
+becoming `UNNotificationRequest.identifier`. Every match uses `userInfo.quickr`.
 
 ### 3.1 Delivery semantics (§6a rule 10)
 
 Delivery is **at least once per topic slot overall** (send, then mark), and
-**best-effort per device**. There is no per-device retry ledger. On the device:
-
-- duplicates for one slot collapse by collapse id, and by the userInfo-based
-  removal in §6 and §7;
-- a device that missed a push gets no retry;
-- the app's due list and badge are the safety net.
+**best-effort per device**. There is no per-device retry ledger. Duplicates
+collapse by collapse id and by the userInfo-based removal (§6, §7). The app's
+due list and the badge are the safety net.
 
 ## 4. Categories and actions
 
 ### 4.1 Actions per descriptor
 
-| Descriptor                             | Actions, in order                                                                                           |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `enum` with _n_ options (1 ≤ _n_ ≤ 4)  | One `UNNotificationAction` per option. The title is the option label.                                       |
-| `int` or `double`, `last_value ≠ null` | 1. "✓ {formatted last}" (logs `last_value`). 2. "Other value…", which is a `UNTextInputNotificationAction`. |
-| `int` or `double`, `last_value = null` | 1. "Other value…" (text input)                                                                              |
-| `null`                                 | No category, so no actions. Tapping the notification opens `url`.                                           |
+| Descriptor                            | Actions, in order                                                             |
+| ------------------------------------- | ----------------------------------------------------------------------------- |
+| `enum` with _n_ options (1 ≤ _n_ ≤ 4) | One action per option. The title is the label.                                |
+| `int`/`double`, `last_value ≠ null`   | 1. "✓ {fmt(last)}", which logs `last_value`. 2. "Other value…", a text input. |
+| `int`/`double`, `last_value = null`   | 1. "Other value…", a text input.                                              |
+| `null`                                | No category. Tapping opens `url`.                                             |
 
-Every action has these properties:
+All actions have these properties:
 
 - **No `.foreground`.** Logging runs in the background.
 - **No `.destructive`.**
-- **No `.authenticationRequired` [provisional: Q2].** The default lets you log
-  from the Lock Screen without Face ID, in 2 taps. If the user chooses
+- **No `.authenticationRequired`.** **[provisional: Q2]** If the user opts into
   authentication, the app sets `.authenticationRequired` on every log action at
-  registration time. That option is **not** part of the hash (§4.3), so changing
-  it re-registers the same ids in place. That is safe, because the meaning of
-  the actions doesn't change.
+  registration. That flag is not part of the hash (§4.3). Changing it
+  re-registers the same ids, which is safe because their meaning is unchanged.
 
-The text input action is configured like this:
+The text input action uses:
 
-- `textInputButtonTitle` is "Log";
-- `textInputPlaceholder` is "Value in {unit}", or "Value" when there is no unit;
-- the keyboard type can't be set, so parsing is lenient (§7.3).
+- `textInputButtonTitle`: "Log";
+- `textInputPlaceholder`: "Value in {unit}", or "Value".
 
-The **default action** (tapping the body) opens `url`, which is the record
-screen. No "Open" action is added (PLAN §2).
+The **default action** (tapping the body) opens `url`. There is no separate
+"Open" action.
 
-**Two or four visible actions** (§6a rule 9). iOS shows up to 4 actions when a
-notification is expanded, and only the **first 2** in some presentations, such
-as a compact banner or a constrained Lock Screen context. The design guarantees
-that the first two actions are the most useful ones:
+**Two or four visible actions** (§6a rule 9). The first two actions are always
+the most useful ones:
 
-- for enums, the two most-used options (with 5–6 options), or the first two in
-  option order;
-- for numbers, "✓ last" and "Other value…".
+- for enums: the two most-used options (with 5–6 options), or the first two
+  (with fewer);
+- for numbers: "✓ last" and "Other value…".
 
-Anything else is one tap away through the body, which opens the record screen.
-Checkpoint D measures the actual counts. The protocol doesn't change with the
-result.
+Everything else is one tap away via the body. Checkpoint D counts how many
+actions iOS actually shows.
 
 ### 4.2 Action identifier scheme (§6a rule 8)
 
@@ -236,23 +223,14 @@ result.
 q1|{server_id}|{topic_id}|{version}|{key}|{k}|{value}
 ```
 
-| Part                    | Rule                                                                                             |
-| ----------------------- | ------------------------------------------------------------------------------------------------ |
-| `q1`                    | The scheme version                                                                               |
-| `server_id`, `topic_id` | Lowercase canonical UUIDs                                                                        |
-| `version`               | A decimal integer, from `quickr.version`                                                         |
-| `key`                   | The question key (`^[a-z][a-z0-9_]{0,62}$`, so it never contains `\|`)                           |
-| `k`                     | `o` for an enum option, `n` for a fixed number, `i` for number text input                        |
-| `value`                 | For `o`: the option value (a key pattern). For `n`: the canonical number (§4.4). For `i`: empty. |
-
-Examples:
-
-- `q1|0b9e…|6f1c…|3|mood|o|good`
-- `q1|0b9e…|6f1c…|7|hours|n|7.5`
-- `q1|0b9e…|6f1c…|7|hours|i|`
-
-The identifiers are unique across all categories, as Apple requires, because
-they include the topic and the server.
+| Part                    | Rule                                                                      |
+| ----------------------- | ------------------------------------------------------------------------- |
+| `q1`                    | The scheme version                                                        |
+| `server_id`, `topic_id` | Lowercase canonical UUIDs                                                 |
+| `version`               | A decimal integer, `quickr.version`                                       |
+| `key`                   | The question key (`^[a-z][a-z0-9_]{0,62}$`)                               |
+| `k`                     | `o` for an enum option, `n` for a fixed number, `i` for number text input |
+| `value`                 | `o`: the option value. `n`: `fmt(last_value)` (§4.4). `i`: empty.         |
 
 ### 4.3 Category id and hash (§6a rule 9)
 
@@ -264,112 +242,120 @@ H = "quickr-cat-v1"
         + (kind == "input" ? "\u001F" + textInputButtonTitle + "\u001F" + textInputPlaceholder : "")
 ```
 
-- `kind` is `log` or `input`. Strings are NFC-normalised UTF-8. The hex is
-  lowercase.
-- The hash covers the **complete ordered action descriptor**: identifiers (which
-  include the server, topic, version, key and value), titles, kinds and order.
-  Any change, such as a new version, a renamed option, a new last value or a
-  reordering, gives a new category id. **A category is never changed in place**,
-  except for the authentication option in §4.1.
-- The server (B7, in Python) and the client (in Swift) MUST produce identical
-  ids. `shared/fixtures/quicklog-vectors.json` gains cases of the form
-  `{server_id, topic_id, version, descriptor} → {actions, category_id}`
-  covering:
-  - enum with 1, 4 and 6 options;
+- `kind` is `log` or `input`. Strings are NFC-normalised and UTF-8 encoded. Hex
+  is lowercase.
+- The hash covers the **complete ordered action descriptor**. A change of
+  version, label, last value or order produces a new id, so **a category is
+  never changed in place**. The one exception is the authentication flag (§4.1).
+- Python (B7) and Swift MUST produce identical ids. The **category-id vectors**
+  are added to `shared/fixtures/quicklog-vectors.json` **in M3, together with
+  B7**. They cover:
+  - enums with 1, 4 and 6 options;
   - int and double, with and without `last_value`;
   - a null unit and null decimals;
   - non-ASCII labels;
   - truncation.
 
-### 4.4 Title and number formatting (part of the hash, so it is normative)
+  Until then the algorithm here is the contract. The M0 vectors don't include
+  category ids.
 
-- An enum title is the option label exactly as it appears in the payload
-  (already truncated by the server).
-- "✓ {formatted last}" is `"✓ " + fmt(last_value) + (unit ? " " + unit : "")`.
+### 4.4 Title and number formatting (normative, part of the hash)
+
+- An enum title is the payload label, exactly as given.
+- The number action title is
+  `"✓ " + fmt(last_value) + (unit ? " " + unit : "")`.
 - `fmt(x)`:
-  - for `int`, the integer in base 10 with no grouping;
-  - for `double` with `decimals = d`, fixed-point with `d` places, rounded half
+  - for `int`: base 10, with no grouping;
+  - for `double` with `decimals = d`: fixed-point with `d` places, rounding half
     away from zero;
-  - for `double` with `decimals = null`, the shortest round-trip decimal without
-    an exponent, with no trailing zeros, and no trailing `.` (for example `7.5`,
-    `12`, `0.001`).
-- The `n` identifier value uses the same `fmt`, so the logged value is exactly
-  the value shown.
-- Formatting is locale-independent: the decimal separator is always `.`.
+  - for `double` with `decimals = null`: the shortest round-trip decimal, with
+    no exponent and no trailing zeros or dot.
+- The decimal separator is always `.`. The `n` identifier value uses the same
+  `fmt`.
 
 ## 5. Category registration
 
-### 5.1 Table (in the registry, app-global)
+**[PLAN change]** Rule 9 pruning is deferred (§5.1).
+
+### 5.1 Table (registry, app-global, append-only)
 
 ```sql
 CREATE TABLE notification_category (
-  id               TEXT PRIMARY KEY,     -- quickr.t.{topic_id}.{hash}
-  server_id        TEXT NOT NULL,
-  topic_id         TEXT NOT NULL,
-  actions_json     TEXT NOT NULL,        -- the rendered action descriptor (ids, titles, kinds, input texts)
-  created_at       REAL NOT NULL,
-  last_used_at     REAL NOT NULL,        -- bumped when a push or sync references it
-  prunable         INTEGER NOT NULL DEFAULT 0   -- set by topic tombstones / server removal
+  id            TEXT PRIMARY KEY,   -- quickr.t.{topic_id}.{hash}
+  server_id     TEXT NOT NULL,
+  topic_id      TEXT NOT NULL,
+  actions_json  TEXT NOT NULL,      -- the rendered action descriptor
+  created_at    REAL NOT NULL
 );
 ```
 
-The table is **append-only**: rows are inserted, never updated (except
-`last_used_at` and `prunable`), and only deleted by pruning. It lives in the
-registry, because `setNotificationCategories` replaces the **whole app's**
-category set across all servers.
+- **The table is append-only, and v1 never prunes it.** Rows are only ever
+  inserted. PLAN rule 9's "prune after 7 days" is deferred until growth has been
+  measured. Expected growth is at most one row per topic per version and per
+  distinct number last value. That is a few hundred rows a year at single-user
+  scale.
+- The table lives in the registry because `setNotificationCategories` replaces
+  the **whole app's** set, for all servers.
 
-### 5.2 Serialised registration procedure
-
-Every process that registers MUST do this, and MUST NOT call
-`setNotificationCategories` in any other way:
+### 5.2 Registration procedure
 
 ```
 register(newRows):
-  TX IMMEDIATE on registry:                       // the cross-process mutex (§6a rule 9)
-    INSERT OR IGNORE newRows; bump last_used_at for referenced ids
-    if caller is the app: prune()                 // §5.3
-    rows = SELECT * FROM notification_category
-    center.setNotificationCategories(build(rows)) // called INSIDE the transaction
+  TX IMMEDIATE on registry:                         // registry write lock = the cross-process mutex
+    INSERT OR IGNORE newRows
+    rows = SELECT * FROM notification_category      // the full union
+    center.setNotificationCategories(build(rows))   // synchronous call; no await inside the TX
   COMMIT
 ```
 
-Because the call to `setNotificationCategories` happens while the `IMMEDIATE`
-transaction is held, two processes can't interleave a read of the whole set with
-a replace. This closes the {A} / {A,B} / {A} race. A process that crashes
-mid-procedure leaves the table as the source of truth, and the next registration
-repairs the set.
+- **Always the union.** Every call registers every row ever inserted, so no
+  process can register a set that is missing another process's category.
+- **No awaits inside transactions.** `getDeliveredNotifications`,
+  `getNotificationCategories` and `getNotificationSettings` are asynchronous.
+  They are called **outside** any SQLite transaction, and their results are
+  snapshotted before the transaction starts (sync-protocol.md §5.2 rule 3).
+- `setNotificationCategories` is called while the registry write transaction is
+  held, so two processes' calls don't interleave. Apple doesn't document a
+  barrier proving the system has applied one replacement before the next
+  arrives. Reconciliation (§5.3) covers that gap, and checkpoint D tests it.
 
-The callers are:
+**Callers:**
 
-- **the app**, after every sync that changed topics, versions or entries (the
-  last values), at launch, after a server switch, and after a reset. It
-  registers the current descriptor of every quick-loggable active topic in the
-  active store, as computed **locally** with the same rules as the server (top-4
-  counts come from the local view);
-- **the NSE**, for the incoming push (§6).
+- **The app**, at launch, after every sync that changed topics, versions or
+  entries, after a server switch, and after a reset. It inserts the current
+  descriptor of every quick-loggable active topic in the active store, computed
+  locally with the server's rules.
+- **The NSE**, for the incoming push (§6).
 
-Registering before notification permission is granted is allowed and harmless.
+Registering before notification permission has been granted is allowed.
 
-### 5.3 Retention and pruning (app only)
+### 5.3 Reconciliation
 
-A row is deleted only if **all** of these hold:
+These run **on every app activation** and **at the start of every NSE run**:
 
-1. `created_at < now − 7 days`, or `prunable = 1`;
-2. its id is not the `categoryIdentifier` of any **delivered** notification
-   (`getDeliveredNotifications`, read inside the transaction);
-3. it is not the current descriptor of any topic in any store that the app just
-   registered.
+```
+reconcile():
+  registered = await center.notificationCategories()   // outside any transaction
+  ids = SELECT id FROM notification_category            // short read transaction
+  if ids ⊄ registered.ids: register([])                 // re-register the full union
+```
 
-Rule 2 applies **even when `prunable = 1`**. A delivered notification always
-keeps its actions until it is dismissed or removed. Its handler then drops the
-action safely (§7.1).
+Reconciliation repairs a replacement that lost a race, a crash between the
+insert and the call, and any loss on reboot.
+
+### 5.4 Device test (checkpoint D)
+
+Run concurrent replacement on a device, 100 times: the NSE registers {A, B}
+while the app registers {A, C}, overlapping in time. Then check
+`notificationCategories()` reports A, B and C, either immediately or after one
+reconcile. If not, report it as part of the checkpoint D go/no-go.
 
 ## 6. NSE flow
 
-Budget: finish within **5 s** of the target. The system allows about 30 s, and
-`serviceExtensionTimeWillExpire` delivers the best content prepared so far.
-Memory is capped at 24 MB, so the NSE MUST NOT load images or open more than one
-store.
+The NSE has a target budget of **3 s**. Its hard limit is about 30 s, and
+`serviceExtensionTimeWillExpire` delivers the best content prepared so far. Its
+memory limit is 24 MB. The NSE never makes network calls and never writes the
+outbox.
 
 ```
 didReceive(request):
@@ -377,38 +363,33 @@ didReceive(request):
   q = best.userInfo["quickr"]
   if q == nil or q.v != 1 or q.kind != "due": return deliver(best)              // test push, unknown → untouched
   cancelLocalFallback(q.server_id, q.topic_id, q.due_since)                     // §11.2 L1 (no store needed)
-  if !protectedDataAvailable (open of registry fails with a file-protection error):
+  if !protectedDataAvailable (the registry can't be opened because of file protection):
       return deliver(best)                                                      // BEFORE FIRST UNLOCK: untouched
+  await reconcile()                                                             // §5.3, outside transactions
   if registry has no server q.server_id:
       best.categoryIdentifier = ""                                              // actions could only be dropped
       return deliver(best)
   if q.quick_log != nil:
-      actions = render(q)                                                       // §4.1–4.4
-      cid = categoryId(q.topic_id, actions)
+      actions = render(q); cid = categoryId(q.topic_id, actions)                // §4
       if cid != best.categoryIdentifier: log("category drift", server: …, client: cid)
       register([row(cid, actions)])                                             // §5.2
       best.categoryIdentifier = cid
-  store = open(q.server_id)                                                     // read-only use, plus an optional flush
-  if store.view says slot (topic_id, due_since) is already satisfied by a local entry:
-      best.body = "Already logged on this iPhone · syncing"; best.categoryIdentifier = ""
-  best.badge = dueCount(store.view ∪ {q.topic_id is due})                       // §8
-  removeDelivered(where userInfo.quickr matches (server_id, topic_id) and due_since < q.due_since)
-  optionally flush(budget: 2 s, in parallel; never delays deliver beyond 2 s)  // outbox.md §10
+  if q.server_id == registry.active.server_id and the active store opens:
+      if the view shows slot (topic_id, due_since) already satisfied by a local entry:
+          best.body = "Already logged on this iPhone · syncing"; best.categoryIdentifier = ""
+      best.badge = dueCount(activeStore.view)                                   // §8: actual derived state only
+  // else: badge untouched
+  remove delivered notifications matching (server_id, topic_id) with an older due_since   // snapshot outside TX
   deliver(best)
 ```
 
-Notes:
-
-- **Before first unlock**, the content is delivered untouched (PLAN §6). If the
-  server's `aps.category` is already registered from earlier, iOS may still show
-  its actions. Tapping one reaches the handler, which can't open the store
-  either, and falls back as described in §7.1 step 3. Checkpoint D verifies what
-  is shown.
-- `register` in the NSE is a common practice, but Apple doesn't document that a
-  category registered there takes effect before display. The app's registration
-  after every sync is the primary path, and the NSE upsert is the backstop for
-  topics the device hasn't synced yet. Checkpoint D measures this (PLAN D).
-- The NSE never deletes notification categories and never prunes.
+- **Before first unlock**, the content is left untouched (PLAN §6). If the
+  server's category is still registered from before, iOS may show its actions.
+  The handler then fails gracefully (§7.1, step 3). Checkpoint D checks this
+  (open question 3).
+- Registering a category from the NSE is common practice but isn't documented as
+  taking effect before display. The app's registration after sync is the primary
+  path, and the NSE upsert plus reconciliation is the backstop.
 
 ## 7. Action handler
 
@@ -418,11 +399,10 @@ Notes:
 didReceive(response, completion):
   beginBackgroundTask
   q = response.notification.request.content.userInfo["quickr"]
-  switch response.actionIdentifier:
-    case UNNotificationDefaultActionIdentifier: route(q.url); return completion()     // opens the app
-    case UNNotificationDismissActionIdentifier: return completion()
-  a = parse(response.actionIdentifier)            // §4.2; failure → fail("Couldn't log")
-  1. VALIDATE against userInfo (never against current local state alone):
+  default action → route(q.url); completion(); return
+  dismiss action → completion(); return
+  a = parse(response.actionIdentifier)              // §4.2; failure → fail("Couldn't log")
+  1. VALIDATE against userInfo:
        a.server_id == q.server_id, a.topic_id == q.topic_id, a.version == q.version, a.key == q.quick_log.key
        k=o: a.value ∈ q.quick_log.options[].value
        k=n: q.quick_log.last_value != nil and fmt(last_value) == a.value
@@ -430,236 +410,221 @@ didReceive(response, completion):
      any mismatch → fail("Couldn't log — open quickR to log")
   2. STORE: registry.lookup(a.server_id)
        none → fail("This reminder came from a server you've removed from quickR")      // §6a rule 8
-  3. OPEN that store (it may be inactive)
-       protected data unavailable → fail("Unlock your iPhone, then tap to log", url=q.url)
-  4. PRECONDITIONS from the store's view:
-       topic tombstoned → fail("{topic} was deleted")
-       topic archived   → fail("{topic} is archived")
-  5. ONE IMMEDIATE TRANSACTION (outbox.md §8, origin = notification):
+  3. OPEN that server's current-generation store (it may be inactive)
+       protected data unavailable → fail("Unlock your iPhone, then tap to log", url = q.url)
+  4. PRECONDITIONS from that store's view:
+       topic tombstoned → fail("{topic} was deleted"); topic archived → fail("{topic} is archived")
+  5. ONE IMMEDIATE TRANSACTION (check retired; if retired, reopen and retry once):
        enqueue entry.create { id: new uuid, topic: {id, slug, name}, body: {
            answers: {key: value}, version: q.version, captured_at: device now (RFC 3339 with offset),
-           source: "ios.notification", notes: "", meta: {} } }
-       recompute derived fields                                                         // sync-protocol §3.2
+           source: "ios.notification", notes: "", meta: {} } }  (outbox.md §8)
+       recompute derived fields
   6. post Darwin db-changed
-  7. REMOVE delivered notifications whose userInfo.quickr.server_id == a.server_id and topic_id == a.topic_id
-     cancel pending local requests "due-{topic_id}-*" whose slot is now satisfied        // §11.2 L4
-  8. BADGE: setBadgeCount(dueCount(view))                                                // §8
-  9. WidgetCenter.reloadTimelines(ofKind:) only if the due state or last value changed
- 10. FLUSH (outbox.md §10): forced, budget 5 s, only if the store is the active one
+  7. REMOVE delivered notifications whose userInfo.quickr has (a.server_id, a.topic_id)
+     cancel pending local requests "due-{topic_id}-{S}" for slots S now satisfied      // §11.2 L4
+  8. BADGE: if the store is the active store: setBadgeCount(dueCount(view)); otherwise leave it   // §8
+  9. Reload widget timelines only if the due state or last value changed
+ 10. FLUSH (outbox.md §10): only if the store is the active store; forced; 5 s budget
  11. completion(); endBackgroundTask
 ```
 
-Where:
-
-- `fail(msg)` posts a local notification with the identifier
-  `quickr.err.{topic_id}`, `thread-id: topic-{topic_id}`, and no category.
+- `fail(msg)` posts a local notification with identifier
+  `quickr.err.{topic_id}`, `thread-id: topic-{topic_id}` and no category.
   Tapping it opens `q.url`. Nothing is written.
-- **Durability never depends on the network.** Step 5 commits before any request
-  is made.
-- `version` comes from the payload, not from the current local version. A
-  notification that is still on screen after a publish logs against the version
-  it was sent with, which is valid because entries pin versions (PLAN M3
-  validation 5).
-- **Q2 [provisional]:** logging works from the Lock Screen without
-  authentication. The store and the Keychain are readable after first unlock
-  (`AfterFirstUnlock`, and `completeUntilFirstUserAuthentication`).
+- Durability never depends on the network: step 5 commits before any request.
+- `version` comes from the payload, so it is still valid after a later publish.
+- **[provisional: Q2]** Logging from the Lock Screen needs no authentication.
 
-### 7.2 Foreground behaviour (`willPresent`)
+### 7.2 Foreground (`willPresent`)
 
-- A reminder for a topic whose slot is already satisfied in the view is
-  presented with `[]`, which suppresses it, and is then removed.
-- A local fallback reminder whose slot already has a delivered remote reminder
-  is also suppressed (§11.2 L2).
-- Otherwise the reminder is presented with `[.banner, .list, .sound]`.
+- A reminder whose slot is already satisfied in the active store's view is
+  suppressed (`[]`) and removed.
+- A local fallback reminder for a slot that already has a delivered remote
+  reminder is suppressed too (§11.2 L2).
+- Anything else is shown with `[.banner, .list, .sound]`.
 
 ### 7.3 Number text input
 
-The input goes through these steps:
-
-1. Trim whitespace. Strip a trailing unit that matches `unit`, ignoring case.
-2. Accept either `,` or `.` as the decimal separator (only one, and no
-   grouping).
-3. Parse the result. It must be finite.
-4. Validate it with the question's rules from the descriptor:
+1. Trim the text, and strip a trailing unit (case-insensitive).
+2. Accept `,` or `.` as the decimal separator; only one is allowed, and grouping
+   separators are rejected.
+3. The parsed value must be finite.
+4. Validate it as `parseQuickNumber` does:
    - `int` requires an integer;
-   - `min ≤ x ≤ max` when those are set;
-   - for a `double` with `decimals = d`, the value must have at most `d`
-     fraction digits.
-
-   These are the same messages as `parseQuickNumber` and `answerSchema` (ported
-   in M1).
-
-5. If the input is valid, log `x` as in §7.1.
-6. If it is invalid, write nothing. Post a local notification:
+   - `min ≤ x ≤ max`;
+   - at most `decimals` fraction digits.
+5. If the value is invalid, write nothing. Post a local notification:
    - title "Couldn't log {topic}";
    - body "“{raw}” isn't a valid value — tap to fix";
    - identifier `quickr.fix.{topic_id}`;
    - userInfo
      `{quickr: {v: 1, kind: "fix", server_id, topic_id, url, prefill: {key: raw}}}`.
 
-   Tapping it opens the record screen with the raw text in the field and the
-   validation message showing.
+   Tapping it opens the record screen with the raw text and the validation
+   message.
 
 ## 8. Badge
 
-- The badge is set **only on the device**. The payload has no `badge` (PLAN §2).
-- Its value is the number of view topics in the active store with
-  `status = active` and `due.is_due`. This is the PWA's `dueCount` semantics,
-  computed with `device_now + skew`.
-- These set it:
-  - the NSE, through `content.badge` (§6);
-  - the app, with `setBadgeCount` after every recompute of derived fields (sync,
-    enqueue, ack and activation);
-  - the handler (§7.1 step 8).
-- Inactive stores never contribute.
+- The badge is set **only on the device**. The payload never carries `badge`.
+- **Value:** the number of topics in the **active store's** view with
+  `status = active` and `due.is_due`, computed with `device_now + skew`. This is
+  the PWA's `dueCount`. It is **never forced**. An incoming reminder's topic
+  counts only if the active store's derived state says it is due. Inactive
+  stores never contribute.
+- **Writers:**
+  - the NSE, through `content.badge`, only when the payload's server is the
+    active one and the active store opens;
+  - the app, through `setBadgeCount` after every recompute of derived fields;
+  - the handler, only when it wrote into the active store.
+- **If the active store can't be opened** (before first unlock, or during a
+  reset), the badge is **not updated**.
 
 ## 9. APNs token lifecycle
 
-### 9.1 Environment
+### 9.1 Environment (explicit; never guessed)
 
-The environment is read from `embedded.mobileprovision`, never from `#if DEBUG`:
-
-1. Load
+1. Look for
    `Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision")`.
-2. If it is absent, the build is App Store distribution: the environment is
-   **`production`**.
-3. Otherwise, extract the XML plist (the bytes from `<?xml` to `</plist>` inside
-   the CMS envelope; there is no need to verify the signature) and read
-   `Entitlements["aps-environment"]`:
-   - `development` gives **`sandbox`**;
-   - `production` gives **`production`**.
-4. On the simulator, the environment is `sandbox`.
+   - **File absent:** this is an App Store or TestFlight distribution build,
+     which Apple strips of the profile. The environment is `production`. This is
+     the only inferred case, and it is documented behaviour.
+2. File present: extract the XML plist, meaning the bytes from `<?xml` through
+   the first `</plist>` inside the CMS envelope. Parse it with
+   `PropertyListSerialization` and read `Entitlements["aps-environment"]`.
+   - `development` → `sandbox`.
+   - `production` → `production`.
+   - **Any failure is an explicit error:** the markers aren't found, the plist
+     doesn't parse, the `Entitlements` dictionary is missing, the key is
+     missing, or the value is anything else. The client then:
+     - **does not register**;
+     - logs the error;
+     - shows "Push setup error: the provisioning profile has no valid APNs
+       environment" in Settings ▸ Notifications.
+3. Simulator → `sandbox`. This is decided at compile time with
+   `targetEnvironment(simulator)`.
 
 ### 9.2 Registration rules
 
-All registration runs **in the app process only**, against the **active**
-store's server. **[server]** The endpoints are named as in research 03 §1. The
-final paths come from B6's OpenAPI.
+All registration runs in the **app process only**. Every call is a mutation and
+**carries `X-QuickR-Expect-Server-Id` and `X-QuickR-Expect-Epoch`**
+([sync-protocol.md §1.4](sync-protocol.md#14-identity-and-epoch-what-the-client-sends-and-checks)).
+**[server]** Endpoint names follow research 03 §1. The final paths come from B6.
 
-| Event                                                                                                                                                                    | Action                                                                                                                                                                                                              |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Permission granted (from the explainer in onboarding or Settings)                                                                                                        | Call `registerForRemoteNotifications()`                                                                                                                                                                             |
-| Every cold launch, and every `scenePhase → active` that is more than 24 h after the last registration, with `authorizationStatus ∈ {authorized, provisional, ephemeral}` | Call `registerForRemoteNotifications()`. Then `didRegister(token)` sends `POST /push/apns/devices {token: lowercase hex, environment, app_version, device_name}`. This is an upsert, and it resets `failure_count`. |
-| `didRegister` with a token **different** from `registry.apns_token`                                                                                                      | Register the new token. Then `POST /push/apns/devices/delete {token: old}`, best-effort. Store the new token.                                                                                                       |
-| `authorizationStatus` becomes `denied` (checked on every activation)                                                                                                     | Send `POST /push/apns/devices/delete {token}` and set `registry.apns_registered = false`. When permission comes back, register again.                                                                               |
-| Server switch                                                                                                                                                            | [sync-protocol.md §8.4](sync-protocol.md#84-switching-servers): delete on the old server (queued in `pending_unregister` if it fails), then register on the new one                                                 |
-| Registration request fails                                                                                                                                               | Retry with the outbox backoff at the next activation. Registration is not an outbox item, because it is idempotent and has no undo.                                                                                 |
-| APNs 410 / `BadDeviceToken` (server side)                                                                                                                                | The server deletes the device. The next launch registers it again, which also fixes a token sent with the wrong environment.                                                                                        |
-| "Test this device" (Settings)                                                                                                                                            | `POST /push/apns/devices/test {token}`. This is online-only.                                                                                                                                                        |
+| Event                                                                                                                                           | Action                                                                                                                                                                                                       |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Permission granted                                                                                                                              | `registerForRemoteNotifications()`                                                                                                                                                                           |
+| Cold launch, or `scenePhase → active` more than 24 h after the last registration, while authorized (`authorized`, `provisional` or `ephemeral`) | `registerForRemoteNotifications()`. Then `didRegister(token)` sends `POST /push/apns/devices {token (lowercase hex), environment, app_version, device_name}`. This is an upsert.                             |
+| `didRegister` returns a token that differs from `registry.apns_token`                                                                           | Register the new token, then `POST /push/apns/devices/delete {old}`. Store the new token.                                                                                                                    |
+| `authorizationStatus` becomes `denied`, checked on every activation                                                                             | `POST /push/apns/devices/delete {token}` and `apns_registered = false`. Register again when permission returns.                                                                                              |
+| Server switch                                                                                                                                   | Delete the token on the old server, using **the old store's** server id and epoch. Then register on the new server ([sync-protocol.md §8.4](sync-protocol.md#84-switching-servers)).                         |
+| 409 `epoch_mismatch` for the **active** store                                                                                                   | The coordinator rebuilds (sync-protocol.md §7), then the call is retried.                                                                                                                                    |
+| 409 `epoch_mismatch` while unregistering from an **inactive or old** server                                                                     | The device registration belongs to the server, not to an epoch. Retry **once** with `X-QuickR-Expect-Epoch` set to the epoch from the response's `X-QuickR-Epoch` header. `Expect-Server-Id` stays the same. |
+| 409 `server_mismatch`                                                                                                                           | Never retried against that URL. For the active store: identity mismatch (sync-protocol.md §8.3). For a pending unregistration: drop it, because the old server is gone from that URL.                        |
+| A failed call (network error or 5xx)                                                                                                            | Retry at the next activation with the outbox backoff. Pending unregistrations live in `registry.pending_unregister` and are retried for up to 30 days.                                                       |
+| APNs 410, or `BadDeviceToken` on the server side                                                                                                | The server deletes the device. The next launch registers again.                                                                                                                                              |
+| "Test this device"                                                                                                                              | `POST /push/apns/devices/test {token}`. Online only.                                                                                                                                                         |
+| Environment error (§9.1)                                                                                                                        | Nothing is registered. Settings shows the error.                                                                                                                                                             |
 
 ## 10. Web Push compatibility **[server]** (B7, B8)
 
-- `PushPayload` keeps `title`, `body`, `url`, `tag` and `topic_slug` unchanged.
-  It **gains optional fields**: `v`, `kind`, `server_id`, `topic_id`, `version`,
-  `due_since` and `quick_log`. These have the same shapes as §2.
+- `PushPayload` keeps `title`, `body`, `url`, `tag` and `topic_slug`. It
+  **gains** `v`, `kind`, `server_id`, `topic_id`, `version`, `due_since`
+  (canonical form) and `quick_log`, with the §2 shapes.
 - `tag` stays `due-{topic_id}`.
-- The old `parsePushPayload` ignores unknown keys, so cached PWA builds keep
-  working.
-- **Chromium actions (B8)** follow these rules:
-  - An enum descriptor gets
-    `actions = options.slice(0, Notification.maxActions).map(o => ({action: "log|o|" + o.value, title: o.label}))`.
-  - A number descriptor with `last_value ≠ null` and `maxActions ≥ 1` gets
-    `[{action: "log|n|" + fmt(last_value), title: "✓ …"}]`.
-  - There is no text input on the web.
-  - These web action ids don't need `server_id`, because the service worker is
-    bound to its origin's server.
+- **Chromium actions (B8):**
+  - An enum shows the first `Notification.maxActions` options, as
+    `{action: "log|o|" + value, title: label}`.
+  - A number with `last_value` shows
+    `{action: "log|n|" + fmt(last), title: "✓ …"}`.
+  - There is no text input.
   - `notificationclick` validates the action against
-    `notification.data.quick_log`. It then enqueues `entry.create` (with
-    `version` from the payload) into the IndexedDB outbox, flushes, and
-    registers Background Sync.
-- Safari and iOS web push don't support actions. Those clients are unchanged,
-  and log in 2 taps.
+    `notification.data.quick_log`, then enqueues `entry.create` into the
+    IndexedDB outbox and flushes.
+  - The PWA may send the Expect headers. They are optional for it.
+- Safari and iOS web push have no actions, so those platforms are unchanged.
 
 ## 11. Local-fallback compatibility (§6a rule 11)
 
-A local fallback is **not built in v1**. These rules are binding now, so it can
-be added later without changing identifiers, payloads or handlers.
+The fallback is **not built in v1**. These rules are binding now.
 
 ### 11.1 Identifiers and canonical slot
 
-- `due_since` canonical form: an RFC 3339 **UTC** timestamp, **truncated to
-  whole seconds**, with the suffix `Z`, for example `2026-10-17T08:00:00Z`.
-  - The server MUST emit it in this form in `quickr.due_since`.
-  - Interval schedules can produce sub-second instants
-    (`last entry + interval`), so both sides truncate.
-- A local reminder's request identifier is `due-{topic_id}-{due_since}`.
-- A local reminder's content is the same as a push: the same title, body,
-  category (computed locally, §4), `thread-id` and `userInfo.quickr`. It adds
-  `quickr.origin = "local"`, where a push has `"remote"` or omits it.
-- **Every match uses the slot key from `userInfo.quickr`**:
-  `(server_id, topic_id, due_since)`. Request identifiers are used only to
-  cancel **pending local** requests, which we name ourselves.
+- **Canonical `due_since`:** RFC 3339 **UTC**, **truncated to whole seconds**,
+  with a `Z` suffix. The server MUST emit `quickr.due_since` in this form. Both
+  sides truncate, because interval schedules can produce sub-second instants.
+- **Local request identifier:** `due-{topic_id}-{due_since}`.
+- **Local content:** the same as the push. The category is computed locally. The
+  payload adds `quickr.origin = "local"`.
+- **Matching** always uses the slot key from `userInfo.quickr`. A request
+  identifier is used only to cancel our own **pending local** requests.
 
 ### 11.2 Cancellation and de-duplication rules
 
-| #   | Situation                                                                                       | Rule                                                                                                                                                                                                                                                                             |
-| --- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| L1  | A push for slot S arrives, so the NSE runs                                                      | `removePendingNotificationRequests(["due-{topic}-{S}"])`, and remove any **delivered local** notification with the slot key S. This needs no store, so it also runs before first unlock.                                                                                         |
-| L2  | A local reminder for S fires while a remote reminder for S has been delivered                   | In the foreground, `willPresent` suppresses the local one and removes it. In the background, no code runs. The next NSE run or app activation **de-duplicates**: for each slot key with both a local and a remote reminder delivered, it removes the local one.                  |
-| L3  | A local reminder fired first, then the push arrives                                             | Same as L1: the NSE removes the delivered local reminder. The collapse id isn't relied on.                                                                                                                                                                                       |
-| L4  | An entry is logged in any process (app, widget, action, Siri)                                   | After commit: remove **delivered** notifications (remote and local) for that `(server_id, topic_id)`, and cancel **pending** local requests `due-{topic}-{S}` for every slot S that the new derived `due` shows as satisfied. The fallback scheduler then re-arms the next slot. |
-| L5  | A reminder is satisfied elsewhere (a pull brings a web or MCP entry)                            | After each page, for topics whose `due.is_due` became false, apply L4.                                                                                                                                                                                                           |
-| L6  | A push arrives for a slot the device has already satisfied locally (offline log not yet synced) | The NSE changes the body to "Already logged on this iPhone · syncing" and clears the category (§6). Alerts can't be suppressed without the filtering entitlement, which v1 doesn't request.                                                                                      |
-| L7  | A topic is archived, tombstoned or unscheduled, or its schedule is edited                       | Cancel all pending `due-{topic}-*`. On a tombstone or archive, also remove delivered reminders for the topic.                                                                                                                                                                    |
-| L8  | Server switch or local reset                                                                    | Cancel pending local reminders and remove delivered reminders whose `server_id` is not the active store's ([sync-protocol.md §8.4](sync-protocol.md#84-switching-servers)).                                                                                                      |
-| L9  | Budget                                                                                          | The fallback schedules at most **one pending request per topic**, for the next slot. This keeps it well within iOS's limit of 64 pending requests.                                                                                                                               |
+| #   | Situation                                                                           | Rule                                                                                                                                                                                    |
+| --- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| L1  | A push for slot S arrives (the NSE runs)                                            | `removePendingNotificationRequests(["due-{topic}-{S}"])`, and remove delivered local reminders with slot key S. No store is needed, so this also runs before first unlock.              |
+| L2  | A local reminder for S fires after a remote one for S was delivered                 | In the foreground, `willPresent` suppresses it and removes it. In the background, the next NSE run or app activation de-duplicates and keeps the remote one.                            |
+| L3  | The local reminder fired first, then the push arrives                               | L1 removes the delivered local reminder.                                                                                                                                                |
+| L4  | An entry is logged in any process                                                   | After commit: remove delivered reminders for `(server_id, topic_id)`, and cancel pending `due-{topic}-{S}` for every slot S that is now satisfied. The scheduler re-arms the next slot. |
+| L5  | The slot is satisfied elsewhere (a pull brings an entry)                            | After each page, apply L4 to every topic whose `due.is_due` became false.                                                                                                               |
+| L6  | A push arrives for a slot that is satisfied locally (an offline log not yet synced) | The NSE changes the body to "Already logged on this iPhone · syncing" and clears the category. v1 doesn't use the filtering entitlement.                                                |
+| L7  | A topic is archived, tombstoned or unscheduled, or its schedule is edited           | Cancel all pending `due-{topic}-*`. On tombstone or archive, also remove that topic's delivered reminders.                                                                              |
+| L8  | Server switch or local reset                                                        | Cancel pending local reminders and remove delivered reminders whose `server_id` is not the active one.                                                                                  |
+| L9  | Budget                                                                              | At most one pending request per topic, for the next slot. This stays well under iOS's limit of 64.                                                                                      |
 
-Due computation for the fallback is the Swift port of `schedule.py`, which uses
-the same vectors and `device_now + skew`. That is why the slot keys from the
-server and the device agree.
+The fallback's due computation is the Swift port of `schedule.py`, which uses
+the same vectors and `device_now + skew`.
 
-## 12. Tests (minimum, in M1 and M3)
+## 12. Tests
 
-| #           | Test                                                                                                                      | Proves       |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| N1          | The vectors give byte-identical action descriptors and category ids from Python and Swift                                 | §4.3, §4.4   |
-| N2          | The worst-case payload is ≤ 4096 bytes and has no `aps.badge`                                                             | §2.2         |
-| N3          | Parsing an action id round-trips, and fails on a tampered value (the value isn't in the options, or `last` doesn't match) | §4.2, §7.1   |
-| N4          | Two processes (MP) register {A} and {A,B} at the same time 100 times. The final set always ⊇ the table.                   | §5.2         |
-| N5          | Pruning never removes a category referenced by a delivered notification (fake center), even when it is `prunable`         | §5.3         |
-| N6          | The handler with an unknown `server_id` writes nothing and posts the explanatory local notification                       | §7.1, rule 8 |
-| N7          | The handler for an inactive store writes into that store, not the active one                                              | §6a rule 8   |
-| N8          | Text input "7,5 h" with unit "h" and decimals 1 logs 7.5. "abc" posts the tap-to-fix notification and writes nothing.     | §7.3         |
-| N9          | The handler logs against `q.version` after a newer version is published locally                                           | §7.1         |
-| N10         | L1–L4 with a fake center: both arrival orders leave one reminder, and logging clears pending and delivered                | §11.2        |
-| N11         | The environment parser: an absent file gives production, development gives sandbox, production gives production           | §9.1         |
-| N12         | A token change registers the new token and deletes the old one. Denying permission deletes the token.                     | §9.2         |
-| Device (M3) | The PLAN M3 checklist, plus counting the visible actions (2 or 4), plus a Lock Screen log before first unlock             | Checkpoint D |
+| #   | Test                                                                                                                                                                                                                                                                 | Proves       |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| N1  | (M3, with B7) Python and Swift produce byte-identical action descriptors and category ids from the vectors.                                                                                                                                                          | §4.3, §4.4   |
+| N2  | The worst-case payload is ≤ 4096 bytes, has no `aps.badge`, and has `due_since` in canonical form.                                                                                                                                                                   | §2           |
+| N3  | Action ids round-trip, and a tampered value is rejected.                                                                                                                                                                                                             | §4.2, §7.1   |
+| N4  | Two processes (MP) insert and register at the same time, 100 times. The table holds the union, and the last `setNotificationCategories` call in each process received the full union.                                                                                | §5.2         |
+| N5  | Reconciliation with a fake center that is missing a category re-registers the union. When nothing is missing, it makes no call.                                                                                                                                      | §5.3         |
+| N6  | No transaction is open across `getDeliveredNotifications` or `notificationCategories()`. Asserted with a GRDB transaction observer in tests.                                                                                                                         | §5.2         |
+| N7  | The handler drops an action with an unknown `server_id` and posts the explanatory notification.                                                                                                                                                                      | §7.1, rule 8 |
+| N8  | The handler writes into an inactive store, and **the badge does not change**.                                                                                                                                                                                        | §7.1, §8     |
+| N9  | The NSE with a push from an inactive server leaves the badge unset. A push for an active-store topic that is satisfied locally is **not** counted.                                                                                                                   | §6, §8       |
+| N10 | Text input "7,5 h" logs 7.5. Input "abc" gets the tap-to-fix notification and nothing is written.                                                                                                                                                                    | §7.3         |
+| N11 | The environment parser: file absent → production; `development` → sandbox; `production` → production. **Garbage bytes, a missing `</plist>`, a missing `Entitlements`, a missing key, or the value `"staging"` each produce an explicit error and no registration.** | §9.1         |
+| N12 | Token rotation registers the new token and deletes the old. Denying permission deletes the token. Every call carries both Expect headers.                                                                                                                            | §9.2         |
+| N13 | Unregistering from an old server whose epoch rotated gets `epoch_mismatch`, retries once with the header's epoch, and succeeds. `server_mismatch` drops the pending unregistration.                                                                                  | §9.2         |
+| N14 | The handler logs against `q.version` after a newer version has been published.                                                                                                                                                                                       | §7.1         |
+| N15 | L1–L4 with a fake center: both arrival orders leave one reminder, and logging clears pending and delivered reminders.                                                                                                                                                | §11.2        |
+| D1  | **Checkpoint D (device):** concurrent replacement as in §5.4; the visible action count (2 or 4); Lock Screen logging before first unlock; a category registered by the NSE takes effect before display.                                                              | §5.4, §6     |
 
 ## Open questions
 
 1. **Q2 [provisional]: authentication for Lock Screen logging.** The default is
-   no authentication (§4.1, §7.1). The user's answer is still needed.
-2. **Q4 [provisional]: 5–6 options.** The default shows the 4 most-used,
-   most-used first (§2.3). The user's answer is still needed.
-3. **Before first unlock.** §6 leaves the content untouched, as PLAN §6 says. If
-   iOS still shows actions from a category registered earlier, those actions
-   fail gracefully (§7.1 step 3). The alternative is for the NSE to clear
-   `categoryIdentifier` when protected data is unavailable, which hides actions
-   that can't work. Decide at checkpoint D, once it is known whether categories
-   persist across reboot.
-4. **A confirmation after a notification log.** Should a successful action post
-   a quiet "Logged ✓ · Undo" notification? The default is no: only errors
-   notify.
-   [outbox.md §9.1](outbox.md#91-undo-a-log-the-toast-after-quick-log-a-notification-action-a-widget-or-siri)
-   already supports Undo until the next activation.
+   no authentication.
+2. **Q4 [provisional]: topics with 5–6 options.** The default is the 4
+   most-used, most-used first.
+3. **Before first unlock.** Should the content stay untouched, which is the PLAN
+   default, or should the NSE clear `categoryIdentifier` so that no action can
+   fail? Decide at checkpoint D, once we know whether categories survive a
+   reboot.
+4. **A confirmation after a notification log.** Should the handler post a quiet
+   "Logged ✓ · Undo"? The default is no: errors only.
+5. **Category growth.** v1 never prunes (§5.1). Measure the row count after M3
+   and M4, and add pruning only if needed. That would restore rule 9's 7-day
+   retention, computed from a snapshot of delivered notifications taken outside
+   the transaction.
 
 ## Traceability
 
-| Source                                                                                              | Where it is addressed                    |
-| --------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| PLAN §2 Reminders: collapse id, thread-id, userInfo removal, no badge                               | §2, §3, §7.1 step 7, §8                  |
-| PLAN §2 Notification actions: ≤ 4, number actions, immutable categories, table                      | §4, §5                                   |
-| PLAN §6 notifications spec list                                                                     | §2–§11                                   |
-| §6a rule 8, `server_id` in payloads and action ids; drop when the store is gone                     | §2.1, §4.2, §7.1 step 2                  |
-| §6a rule 9, serialised registration, append-only, 7-day pruning, full-descriptor hash, works with 2 | §4.1, §4.3, §5                           |
-| §6a rule 10, at least once overall, best-effort per device                                          | §3.1                                     |
-| §6a rule 11, local fallback identifiers and cancellation                                            | §11                                      |
-| Codex v1 M5, category meaning across versions                                                       | §4.3 (immutable, versioned), §7.1 step 1 |
-| Codex v1 M7 and v2 #5 (fallback dedupe; registration race)                                          | §11.2, §5.2                              |
-| Codex v2 #4, notification provenance                                                                | §2.1, §4.2, §7.1                         |
-| Fable B2, 4-action ceiling                                                                          | §4.1                                     |
-| Fable M7, badge has no data source                                                                  | §8                                       |
-| Fable minors: environment from `embedded.mobileprovision`; collapse-id lore                         | §9.1, §3                                 |
-| Codex v1 "missing": token rotation, unregistering, stale actions                                    | §9.2, §7.1                               |
-| Fable "missing": NSE limits and behaviour before first unlock                                       | §6                                       |
+| Source                                                                                | Where it is addressed                                     |
+| ------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| PLAN §2 Reminders and Notification actions                                            | §2–§5, §7, §8                                             |
+| §6a rule 8 (`server_id` in payloads and action ids)                                   | §2.1, §4.2, §7.1                                          |
+| §6a rule 9 (serialised registration, full-descriptor hash, works with only 2 actions) | §4, §5. **Pruning deferred: a PLAN change**               |
+| §6a rule 10 (delivery semantics)                                                      | §3.1                                                      |
+| §6a rule 11 (local fallback)                                                          | §11                                                       |
+| Codex spec review M8 (registration not established, awaits inside a transaction)      | §5.2 (union, no awaits), §5.3 reconciliation, §5.4 and D1 |
+| Codex spec review M9 (inactive reminders corrupt the badge)                           | §6, §7.1 step 8, §8, N8, N9                               |
+| Codex spec review M10 (N11 environment failures)                                      | §9.1, N11                                                 |
+| Codex spec review B3 (APNs registration preconditions)                                | §9.2, N12, N13                                            |
+| Codex spec review simplification (no NSE flush)                                       | Glossary, §1, §6                                          |
+| Codex v1 M5, M7; v2 #4, #5; Fable B2, M7 and minors                                   | §4, §5, §8, §9, §11                                       |
