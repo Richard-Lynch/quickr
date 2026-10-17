@@ -11,13 +11,25 @@ DERIVED="$BUILD_DIR/dd"
 SPM_DIR="$BUILD_DIR/spm"
 APP_PATH="$DERIVED/Build/Products/Debug-iphonesimulator/QuickR.app"
 
+# The one tracked lockfile (PLAN §2), present once QuickrKit has remote dependencies. Host
+# SwiftPM reads it directly; Xcode 27 also seeds from a local package's lockfile, and gen.sh
+# copies it into the generated workspace as well. Both sides run with "only use versions from
+# the resolved file", so a stale pin fails the build. `make ios-resolve` updates it.
+RESOLVED="$IOS_DIR/QuickrKit/Package.resolved"
+WORKSPACE_RESOLVED="$PROJECT/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+
 die() { echo "ios: $*" >&2; exit 1; }
 warn() { echo "ios: warning: $*" >&2; }
 
-# Full Xcode and xcodegen. The CLT ship an `xcodebuild` stub that errors, so run `-version`.
-require_xcode() {
+# Full Xcode. The CLT ship an `xcodebuild` stub that errors, so run `-version`.
+require_xcodebuild() {
   xcodebuild -version >/dev/null 2>&1 || die "full Xcode not found (xcode-select -p = $(xcode-select -p 2>/dev/null || echo none)).
   Install Xcode 27.x, then: sudo xcode-select -s /Applications/Xcode-27.x.app && sudo xcodebuild -runFirstLaunch"
+}
+
+# Full Xcode and xcodegen: the guard every `make ios-*` target runs.
+require_xcode() {
+  require_xcodebuild
   command -v xcodegen >/dev/null || die "xcodegen not found: brew install xcodegen"
 }
 
@@ -37,13 +49,23 @@ sim_boot() {
 }
 
 # xcodebuild against the generated project, with shared DerivedData and SPM checkout dirs.
-# Output goes through xcbeautify when it is installed.
+# Packages resolve only to the tracked pins when there are any. Output goes through
+# xcbeautify when it is installed.
 xcb() {
   local args=(-project "$PROJECT" -scheme "$SCHEME" -derivedDataPath "$DERIVED"
-    -clonedSourcePackagesDirPath "$SPM_DIR" "$@")
+    -clonedSourcePackagesDirPath "$SPM_DIR")
+  [[ -f "$RESOLVED" ]] && args+=(-onlyUsePackageVersionsFromResolvedFile)
+  args+=("$@")
   if command -v xcbeautify >/dev/null; then
     xcodebuild "${args[@]}" 2>&1 | xcbeautify --quiet
   else
     xcodebuild "${args[@]}"
   fi
+}
+
+# `swift test` for QuickrKit on the host, held to the tracked pins when there are any.
+swift_test() {
+  local flags=()
+  [[ -f "$RESOLVED" ]] && flags+=(--only-use-versions-from-resolved-file)
+  swift test --package-path "$IOS_DIR/QuickrKit" ${flags[@]+"${flags[@]}"} "$@"
 }

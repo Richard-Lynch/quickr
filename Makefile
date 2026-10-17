@@ -89,6 +89,7 @@ seed-docker: ## Load demo data into the docker stack
 IOS_SIM_MIN ?= quickR iOS-26-0
 IOS_SIM_CUR ?= quickR iOS27
 IOS_SIM ?= $(IOS_SIM_MIN)
+# Preferred model for ios-check-ci, which requires an iOS 26.x runtime whatever the model.
 IOS_SIM_CI ?= iPhone 17
 IOS_SCRIPTS := ios/scripts
 
@@ -103,7 +104,11 @@ ios-build: ios-gen ## iOS: simulator Debug build (IOS_SIM=name or UDID)
 .PHONY: ios-core-test
 ios-core-test: ## iOS: swift test for ios/QuickrKit on the Mac
 	@$(IOS_SCRIPTS)/require-xcode.sh
-	swift test --package-path ios/QuickrKit
+	@$(IOS_SCRIPTS)/swift-test.sh
+
+.PHONY: ios-resolve
+ios-resolve: ## iOS: update package pins in ios/QuickrKit/Package.resolved and check Xcode matches
+	@$(IOS_SCRIPTS)/resolve.sh
 
 .PHONY: ios-test
 ios-test: ios-gen ## iOS: Unit test plan on the iOS 26.0 simulator
@@ -114,8 +119,8 @@ ios-uitest: ios-gen ## iOS: UI test plan (IOS_SIM=name or UDID)
 	@$(IOS_SCRIPTS)/test.sh UI "$(IOS_SIM)"
 
 .PHONY: ios-lint
-ios-lint: ## iOS: swift-format lint
-	@$(IOS_SCRIPTS)/lint.sh
+ios-lint: ## iOS: swift-format lint (skips with a warning if swift-format is missing)
+	@$(IOS_SCRIPTS)/lint.sh --optional
 
 .PHONY: ios-fmt
 ios-fmt: ## iOS: swift-format in place
@@ -127,7 +132,7 @@ check-ios: ## iOS gate: gen, swift test, Unit + UI plans on iOS 26.0 and 27.0, l
 	@$(IOS_SCRIPTS)/check-ios.sh "$(IOS_SIM_MIN)" "$(IOS_SIM_CUR)"
 
 .PHONY: ios-check-ci
-ios-check-ci: ## iOS: what CI runs on a ready PR (gen, build + Unit plan, no signing; IOS_SIM_CI)
+ios-check-ci: ## iOS: what CI runs on a ready PR (gen, build + Unit plan on iOS 26.x, no signing)
 	@$(IOS_SCRIPTS)/check-ci.sh "$(IOS_SIM_CI)"
 
 .PHONY: ios-sim-run

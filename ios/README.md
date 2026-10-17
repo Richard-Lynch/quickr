@@ -27,20 +27,21 @@ copy `Local.xcconfig.example` to `Local.xcconfig` (gitignored) and set
 Run from the repo root. `IOS_SIM` (default `quickR iOS-26-0`) takes a simulator
 name or UDID.
 
-| Target                      | Does                                                                                                      |
-| --------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `make ios-gen`              | Generate `ios/quickR.xcodeproj`, the Info.plists and entitlements from `project.yml`                      |
-| `make ios-build`            | Simulator Debug build                                                                                     |
-| `make ios-core-test`        | `swift test` for `QuickrKit` on the Mac (fast; Core and Data only)                                        |
-| `make ios-test`             | Unit test plan on the iOS 26.0 simulator                                                                  |
-| `make ios-uitest`           | UI test plan on `IOS_SIM`                                                                                 |
-| `make check-ios`            | The local gate: gen, swift test, Unit and UI plans on **both** simulators, lint, Xcode version            |
-| `make ios-check-ci`         | What CI runs on a ready PR: gen, build and Unit plan with signing off (`IOS_SIM_CI`, default `iPhone 17`) |
-| `make ios-sim-run`          | Build, install and launch; `URL=quickr://...` then opens a link                                           |
-| `make ios-shots`            | Clean status bar, light and dark screenshots into `IOS_SHOTS` (default `docs/ios/demo/m0`)                |
-| `make ios-demo-record`      | Record a launch and convert it to `IOS_GIF`                                                               |
-| `make ios-lint` / `ios-fmt` | swift-format lint / format in place (config in `ios/.swift-format`)                                       |
-| `make ios-clean`            | Remove the generated project and all build output                                                         |
+| Target                      | Does                                                                                                                                                                                          |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make ios-gen`              | Generate `ios/quickR.xcodeproj`, the Info.plists and entitlements from `project.yml`                                                                                                          |
+| `make ios-build`            | Simulator Debug build                                                                                                                                                                         |
+| `make ios-core-test`        | `swift test` for `QuickrKit` on the Mac (fast; Core and Data only)                                                                                                                            |
+| `make ios-test`             | Unit test plan on the iOS 26.0 simulator                                                                                                                                                      |
+| `make ios-uitest`           | UI test plan on `IOS_SIM`                                                                                                                                                                     |
+| `make check-ios`            | The local gate: gen, swift test, Unit and UI plans on **both** simulators, lint, Xcode version                                                                                                |
+| `make ios-check-ci`         | What CI runs on a ready PR: gen, build and Unit plan with signing off, on an iPhone with an **iOS 26.x** runtime (fails if none; `IOS_SIM_CI` picks the preferred model, default `iPhone 17`) |
+| `make ios-sim-run`          | Build, install and launch; `URL=quickr://...` then opens a link                                                                                                                               |
+| `make ios-shots`            | Clean status bar, light and dark screenshots into `IOS_SHOTS` (default `docs/ios/demo/m0`)                                                                                                    |
+| `make ios-demo-record`      | Record a launch and convert it to `IOS_GIF`                                                                                                                                                   |
+| `make ios-lint` / `ios-fmt` | swift-format lint / format in place (config in `ios/.swift-format`). `check-ios` fails without swift-format; `ios-lint` only warns                                                            |
+| `make ios-resolve`          | Update the package pins (see below)                                                                                                                                                           |
+| `make ios-clean`            | Remove the generated project and all build output                                                                                                                                             |
 
 Override the simulators with `IOS_SIM_MIN=... IOS_SIM_CUR=...`. Build output
 goes to `ios/build/` (DerivedData in `build/dd`, package checkouts in
@@ -50,6 +51,25 @@ with `xcrun xcresulttool get test-results summary --path ...`).
 `simctl openurl` with the `quickr://` scheme shows a system "Open in quickR?"
 alert, which stays on screen until tapped. Reboot the simulator (or tap it)
 before taking screenshots.
+
+## Package versions
+
+Once `QuickrKit` has remote dependencies (GRDB in M1), **one** lockfile is tracked:
+`ios/QuickrKit/Package.resolved`. Host SwiftPM (`swift test`) and Xcode both resolve from it:
+
+- Xcode 27 seeds its resolution from a local package's lockfile. Verified with a GRDB probe: it
+  checked out the pinned older version, not the newest match.
+- `make ios-gen` also copies it into the generated, gitignored
+  `quickR.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`.
+- Builds run with `-onlyUsePackageVersionsFromResolvedFile` and `swift test` with
+  `--only-use-versions-from-resolved-file`, so a pin that no longer satisfies `Package.swift`
+  fails the build instead of silently moving.
+- After the Xcode runs, `check-ios` and `ios-check-ci` check that Xcode's workspace pins still
+  match the tracked file (`scripts/resolved-check.sh`).
+
+To add or bump a dependency, edit `QuickrKit/Package.swift`, run `make ios-resolve` (it runs
+`swift package update`, regenerates, and checks that Xcode resolves to the same pins), then
+commit `ios/QuickrKit/Package.resolved`.
 
 ## Layout
 
@@ -84,7 +104,8 @@ target is renamed or added, regenerate and update the `identifier` in the
 `.github/workflows/ios.yml` runs on `macos-26` with Xcode 26.6 pinned through
 `DEVELOPER_DIR`, and downloads a pinned, checksummed xcodegen release. A push
 runs `swift test`; a non-draft PR or a manual dispatch runs `make ios-check-ci`
-(Unit plan on the oldest iOS 26.x "iPhone 17" simulator on the runner).
+(Unit plan on an "iPhone 17" simulator with an iOS 26.x runtime, the oldest one available;
+`ios/scripts/sim-ios26.sh` fails the job if the runner has none).
 
 ## Interactive loop
 

@@ -6,10 +6,11 @@ require_xcode
 here="$(dirname "$0")"
 "$here/check-xcode-version.sh"
 "$here/gen.sh"
-swift test --package-path "$IOS_DIR/QuickrKit"
+swift_test
 for sim in "$1" "$2"; do
   "$here/test.sh" Unit "$sim"
   "$here/test.sh" UI "$sim"
 done
+"$here/resolved-check.sh"
 "$here/lint.sh"
 echo "ios: check-ios passed"

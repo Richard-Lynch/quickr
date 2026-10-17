@@ -14,10 +14,14 @@ xcrun simctl install "$udid" "$APP_PATH"
 xcrun simctl terminate "$udid" "$BUNDLE_ID" 2>/dev/null || true
 xcrun simctl io "$udid" recordVideo --codec=h264 --mask=black --force "$mp4" &
 rec=$!
+# SIGINT finalises the mp4. Stop the recorder on every exit path, keeping the exit status.
+stop_recorder() { kill -INT "$rec" 2>/dev/null || true; wait "$rec" 2>/dev/null || true; }
+trap 'status=$?; stop_recorder; exit "$status"' EXIT
 sleep 2
 xcrun simctl launch "$udid" "$BUNDLE_ID" >/dev/null
 sleep "$seconds"
-kill -INT "$rec"; wait "$rec" || true
+stop_recorder
+trap - EXIT
 ffmpeg -loglevel error -y -i "$mp4" \
   -vf "fps=15,scale=360:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" "$gif"
 echo "ios: wrote $gif"
