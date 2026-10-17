@@ -50,7 +50,6 @@ infeasible, the plan must say so explicitly.
 
 ## Environment facts (2026-10-17)
 
-- This Mac has **only Command Line Tools: no Xcode** and no signing identities.
-  Xcode must be installed (by the user) before any iOS build.
+- This Mac (M4 Pro) runs **macOS 15.6.1 Sequoia** with **only Command Line Tools: no Xcode** and no signing identities. Current Xcode (27.x) needs macOS Tahoe 26.6+, so the user must upgrade macOS, then install Xcode, before any device build.
 - The Docker stack runs locally: web on :8080, API on :8100, Postgres on :5433.
 - `codex` CLI 0.163.0 is available, and is used for the adversarial plan review.
