@@ -765,9 +765,20 @@ async def test_tick_budget_bounds_delivery(
     fake_apns.allow(16)  # two batches answered; the third stalls past the budget
     monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", BUDGET)
     later = datetime.now(UTC) + timedelta(hours=1)
+    loop = asyncio.get_running_loop()
+    started: list[float] = []
+    real_progress = scheduler._slot_progress
 
+    async def last_read(db: AsyncSession) -> Any:  # the budget starts once the reads are done
+        try:
+            return await real_progress(db)
+        finally:
+            started.append(loop.time())
+
+    monkeypatch.setattr(scheduler, "_slot_progress", last_read)
     async with asyncio.timeout(BUDGET + 5):  # stopped at the budget, not waiting on the third batch
         assert await _tick(later) == 0
+    assert loop.time() - started[0] >= BUDGET  # the whole budget, counted from the reads
     assert len(fake_apns.sent) == 16
     assert fake_apns.max_in_flight == push_svc.MAX_CONCURRENT_SENDS
     devices = await _devices()

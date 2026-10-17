@@ -67,6 +67,16 @@ async def _ensure_database(url: str) -> None:
         await admin.dispose()
 
 
+async def _drop_database(url: str) -> None:
+    u = make_url(url)
+    admin = create_async_engine(u.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    try:
+        async with admin.connect() as conn:
+            await conn.execute(text(f'DROP DATABASE IF EXISTS "{u.database}" WITH (FORCE)'))
+    finally:
+        await admin.dispose()
+
+
 def alembic_config() -> Config:
     cfg = Config(str(BACKEND_DIR / "alembic.ini"))
     cfg.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
@@ -85,15 +95,17 @@ def migrated_db() -> str:
 @pytest.fixture
 async def peer_engine(migrated_db: str) -> AsyncIterator[AsyncEngine]:
     """A second, empty database on the same server, as another worktree's test database or
-    another quickR instance would be. A lock wait there fails after 5 s instead of hanging."""
+    another quickR instance would be, dropped afterwards. A lock wait there fails after 5 s
+    instead of hanging."""
     url = make_url(migrated_db)
-    peer = url.set(database=f"{url.database}_peer")
-    await _ensure_database(peer.render_as_string(hide_password=False))
+    peer = url.set(database=f"{url.database}_peer").render_as_string(hide_password=False)
+    await _ensure_database(peer)
     engine = create_async_engine(peer, connect_args={"server_settings": {"lock_timeout": "5s"}})
     try:
         yield engine
     finally:
         await engine.dispose()
+        await _drop_database(peer)
 
 
 @pytest.fixture
