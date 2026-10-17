@@ -227,8 +227,10 @@ public struct APIResponse<Success: Sendable>: Sendable {
     public var expected: ServerIdentity?
     /// The raw response body (empty when no response arrived).
     public var body: Data
-    /// Whether the body may be read as quickR's: both identity headers present and no mismatch.
-    /// `message` and `errorInfo` ignore an untrusted body (sync-protocol.md §1.4 provenance).
+    /// Whether the body may be read as quickR's: both identity headers present and no mismatch
+    /// with the expected identity. At bootstrap there is no expected identity, so complete
+    /// headers alone establish provenance (the caller adopts them). `message` and `errorInfo`
+    /// ignore an untrusted body (sync-protocol.md §1.4 provenance).
     public var bodyIsTrusted: Bool
 
     public init(

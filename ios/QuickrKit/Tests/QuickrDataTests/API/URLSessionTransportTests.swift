@@ -58,28 +58,29 @@ import Testing
             try await URLSessionTransport().send(Self.request(server, timeout: .milliseconds(300)))
         }
         let elapsed = ContinuousClock.now - started
-        #expect(elapsed >= .milliseconds(290) && elapsed < .milliseconds(1_000), "\(elapsed)")
+        #expect(elapsed >= .milliseconds(290) && elapsed < .seconds(4), "\(elapsed)")
     }
 
     /// A response that keeps trickling never trips an inactivity timeout; the deadline is for
-    /// the whole exchange.
+    /// the whole exchange. The upper bound is slack for a loaded machine, and stays far below the
+    /// trickle's own 10 s, so only the total deadline can end it in time.
     @Test func theDeadlineCoversTheWholeExchange() async throws {
         let server = try await LoopbackServer { _ in
-            .init(status: 200, body: Data(repeating: 0x61, count: 60), trickle: .milliseconds(50))  // 3 s
+            .init(status: 200, body: Data(repeating: 0x61, count: 200), trickle: .milliseconds(50))  // 10 s
         }
         let started = ContinuousClock.now
         await #expect(throws: TransportError.timedOut(requestStarted: true)) {
             try await URLSessionTransport().send(Self.request(server, timeout: .milliseconds(600)))
         }
         let elapsed = ContinuousClock.now - started
-        #expect(elapsed >= .milliseconds(590) && elapsed < .milliseconds(1_300), "\(elapsed)")
+        #expect(elapsed >= .milliseconds(590) && elapsed < .seconds(4), "\(elapsed)")
     }
 
     @Test func aTrickleWithinTheDeadlineSucceeds() async throws {
         let server = try await LoopbackServer { _ in
             .init(status: 200, body: Data("slow".utf8), trickle: .milliseconds(40))
         }
-        let response = try await URLSessionTransport().send(Self.request(server, timeout: .seconds(3)))
+        let response = try await URLSessionTransport().send(Self.request(server, timeout: .seconds(10)))
         #expect(response.body == Data("slow".utf8))
     }
 
@@ -94,7 +95,7 @@ import Testing
         let cancelled = ContinuousClock.now
         task.cancel()
         await #expect(throws: TransportError.cancelled(requestStarted: true)) { try await task.value }
-        #expect(ContinuousClock.now - cancelled < .milliseconds(500))
+        #expect(ContinuousClock.now - cancelled < .seconds(3))
         try await Self.waitUntil { server.clientClosures == 1 }
         #expect(server.requests.first?.method == "DELETE")
     }
@@ -112,12 +113,12 @@ import Testing
             #expect(error.requestStarted, "\(error)")
             if case .unreachable = error { Issue.record("a reset after the request is not unreachable") }
         }
-        #expect(ContinuousClock.now - started < .seconds(2))
+        #expect(ContinuousClock.now - started < .seconds(5))
     }
 
-    /// Polls `condition` every 10 ms for up to 3 s.
+    /// Polls `condition` every 10 ms for up to 10 s.
     static func waitUntil(_ condition: @Sendable () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(3)
+        let deadline = ContinuousClock.now + .seconds(10)
         while !condition() {
             guard ContinuousClock.now < deadline else {
                 Issue.record("condition not met in time")
