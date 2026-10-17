@@ -2,7 +2,8 @@
 import QuickrCore
 import SwiftUI
 
-/// Design system: brand tokens, fonts and shared components (M2a).
+/// Design system: brand tokens (`Color.qr`, `Font.qr`, `QuickrMetrics`), icons (`QIcon`) and
+/// components. `DesignCatalogView` shows them all.
 public enum QuickrUI {
     /// A small caption showing the Core version, used by the M0 root view.
     public struct VersionLabel: View {
