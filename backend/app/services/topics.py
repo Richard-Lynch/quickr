@@ -320,7 +320,6 @@ async def create_topic(db: AsyncSession, body: TopicCreate) -> TopicDetail:
         raise _slug_conflict(topic.slug) from exc
     await _log_topic(db, topic)
     await log_change(db, FeedKind.version, FeedOp.upsert, first.id, topic.id)
-    await db.commit()
     return await topic_detail(db, topic.id)
 
 
@@ -345,7 +344,6 @@ async def update_topic(db: AsyncSession, ref: str, body: TopicUpdate) -> TopicDe
     except IntegrityError as exc:
         raise _slug_conflict(body.slug or topic.slug) from exc
     await _log_topic(db, topic)
-    await db.commit()
     return await topic_detail(db, topic.id)
 
 
@@ -359,7 +357,7 @@ async def set_archived(
     topic.archived_at = func.now() if archived else None
     topic.revision += 1
     await _log_topic(db, topic)
-    await db.commit()
+    await db.flush()
     return await topic_detail(db, topic.id)
 
 
@@ -381,7 +379,6 @@ async def delete_topic(db: AsyncSession, ref: str) -> None:
     await tombstone(db, FeedKind.topic, topic.id, topic.id)
     await log_change(db, FeedKind.topic, FeedOp.delete, topic.id, topic.id)
     await db.execute(delete(Topic).where(Topic.id == topic.id))
-    await db.commit()
 
 
 async def _history(db: AsyncSession, topic: Topic) -> list[list[Question]]:
@@ -448,7 +445,7 @@ async def publish_version(db: AsyncSession, ref: str, body: VersionCreate) -> To
     topic.updated_at = func.now()
     await _log_topic(db, topic)
     await log_change(db, FeedKind.version, FeedOp.upsert, next_version.id, topic.id)
-    await db.commit()
+    await db.flush()
     return await topic_detail(db, topic.id)
 
 

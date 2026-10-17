@@ -118,12 +118,13 @@ async def create_entry(db: AsyncSession, ref: str, body: EntryCreate, channel: C
     Runs under the feed lock, so a concurrent submit of the same id waits and then
     replays, and an id reserved by a delete can never be created (409 ``entry_deleted``).
     """
+    # Before resolving the topic: a replayed create whose topic was deleted with it is
+    # still "entry_deleted" (retire it), not a 404.
+    if body.id is not None and await is_deleted(db, FeedKind.entry, body.id):
+        raise EntryDeleted(f"entry '{body.id}' was deleted and can't be recreated")
     topic = await resolve_topic(db, ref)
-    if body.id is not None:
-        if await is_deleted(db, body.id):
-            raise EntryDeleted(f"entry '{body.id}' was deleted and can't be recreated")
-        if (existing := await _existing(db, body.id, topic.id)) is not None:
-            return existing  # logged before (possibly before the topic was archived)
+    if body.id is not None and (existing := await _existing(db, body.id, topic.id)) is not None:
+        return existing  # logged before (possibly before the topic was archived)
     if topic.status == TopicStatus.archived:
         raise TopicArchived(f"topic '{topic.slug}' is archived; unarchive it to record entries")
     version = await get_version(db, topic, body.version)
@@ -143,7 +144,6 @@ async def create_entry(db: AsyncSession, ref: str, body: EntryCreate, channel: C
     db.add(entry)
     await db.flush()
     await log_change(db, FeedKind.entry, FeedOp.upsert, entry.id, topic.id)
-    await db.commit()
     return await get_entry(db, entry.id)
 
 
@@ -195,7 +195,7 @@ async def update_entry(db: AsyncSession, entry_id: UUID, body: EntryUpdate) -> E
     s.revision += 1
     s.updated_at = func.now()
     await log_change(db, FeedKind.entry, FeedOp.upsert, s.id, s.topic_id)
-    await db.commit()
+    await db.flush()
     return await get_entry(db, s.id)
 
 
@@ -218,7 +218,6 @@ async def delete_entry(db: AsyncSession, entry_id: UUID) -> None:
     if topic_id is not None:
         await db.execute(delete(Entry).where(Entry.id == entry_id))
         await log_change(db, FeedKind.entry, FeedOp.delete, entry_id, topic_id)
-    await db.commit()
 
 
 def apply_filters[*Ts](stmt: Select[*Ts], topic_id: UUID, f: EntryFilters) -> Select[*Ts]:

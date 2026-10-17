@@ -47,37 +47,55 @@ def _retryable(exc: DBAPIError) -> bool:
     return getattr(exc.orig, "sqlstate", None) in RETRYABLE_SQLSTATES
 
 
+_IN_WRITER = "quickr_feed_writer"
+
+
+class WriterMisuse(RuntimeError):
+    """A writer was called on a session that already has work in flight."""
+
+
 def writer[**P, T](
     fn: Callable[Concatenate[AsyncSession, P], Coroutine[Any, Any, T]],
 ) -> Callable[Concatenate[AsyncSession, P], Coroutine[Any, Any, T]]:
-    """Run a mutating service function under the feed lock, retrying deadlocks.
+    """Run a mutating service function as one transaction under the feed lock.
 
-    The wrapped function does its writes and commits. A transaction left open by
-    earlier reads on the session is committed first, so the lock really is the first
-    statement. Deadlocks and serialization failures re-run the whole function (up to
-    ``MAX_ATTEMPTS``); any other error rolls back, releasing the lock, and propagates.
+    The outermost writer owns the transaction: it takes the lock as the first
+    statement, runs the function, and commits. The wrapped function never commits;
+    it may flush and read back its own writes. A writer called from inside another
+    (on the same session) just runs as part of the outer transaction.
+
+    The session must be idle: pending ORM changes or an open transaction (whose
+    flushed writes would otherwise be committed outside the lock) raise
+    :class:`WriterMisuse`. Deadlocks and serialization failures, including at commit,
+    roll back and re-run the whole function (up to ``MAX_ATTEMPTS``); any other error
+    rolls back, releasing the lock, and propagates.
     """
 
     async def run(db: AsyncSession, /, *args: P.args, **kwargs: P.kwargs) -> T:
-        for attempt in itertools.count(1):
-            if db.in_transaction():
-                await db.commit()
-            try:
-                await db.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": FEED_LOCK_ID})
-                result = await fn(db, *args, **kwargs)
-            except DBAPIError as exc:
-                await db.rollback()
-                if attempt >= MAX_ATTEMPTS or not _retryable(exc):
+        if db.info.get(_IN_WRITER):
+            return await fn(db, *args, **kwargs)  # nested: the outer writer locks and commits
+        if db.new or db.dirty or db.deleted or db.in_transaction():
+            raise WriterMisuse(f"{fn.__name__} needs an idle session: commit or roll back earlier work first")
+        db.info[_IN_WRITER] = True
+        try:
+            for attempt in itertools.count(1):
+                try:
+                    await db.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": FEED_LOCK_ID})
+                    result = await fn(db, *args, **kwargs)
+                    await db.commit()
+                except DBAPIError as exc:
+                    await db.rollback()
+                    if attempt >= MAX_ATTEMPTS or not _retryable(exc):
+                        raise
+                    log.warning("%s: retrying after %s (attempt %d)", fn.__name__, exc.orig, attempt)
+                    continue
+                except Exception:
+                    await db.rollback()
                     raise
-                log.warning("%s: retrying after %s (attempt %d)", fn.__name__, exc.orig, attempt)
-                continue
-            except Exception:
-                await db.rollback()
-                raise
-            if db.in_transaction():
-                await db.commit()  # a path that returned without writing still holds the lock
-            return result
-        raise AssertionError("unreachable")
+                return result
+            raise AssertionError("unreachable")
+        finally:
+            db.info.pop(_IN_WRITER, None)
 
     return functools.update_wrapper(run, fn)
 
@@ -87,14 +105,17 @@ async def log_change(db: AsyncSession, kind: FeedKind, op: FeedOp, entity_id: UU
     await db.execute(insert(ChangeLog).values(kind=kind, op=op, entity_id=entity_id, topic_id=topic_id))
 
 
-async def is_deleted(db: AsyncSession, entity_id: UUID) -> bool:
-    return (await db.scalar(select(DeletedId.id).where(DeletedId.id == entity_id))) is not None
+async def is_deleted(db: AsyncSession, kind: FeedKind, entity_id: UUID) -> bool:
+    stmt = select(DeletedId.id).where(DeletedId.kind == kind, DeletedId.id == entity_id)
+    return (await db.scalar(stmt)) is not None
 
 
 async def tombstone(db: AsyncSession, kind: FeedKind, entity_id: UUID, topic_id: UUID | None) -> None:
     """Reserve a deleted id forever (idempotent)."""
     await db.execute(
-        insert(DeletedId).values(id=entity_id, kind=kind, topic_id=topic_id).on_conflict_do_nothing()
+        insert(DeletedId)
+        .values(kind=kind, id=entity_id, topic_id=topic_id)
+        .on_conflict_do_nothing(index_elements=["kind", "id"])
     )
 
 
@@ -114,18 +135,29 @@ async def _stored_identity(db: AsyncSession) -> dict[str, str]:
     return {row.key: row.value for row in rows}
 
 
-async def feed_identity(db: AsyncSession) -> FeedIdentity:
-    """The feed epoch and server id, generated once on first use (the migration seeds them)."""
-    stored = await _stored_identity(db)
-    if len(stored) < 2:
+async def ensure_identity(db: AsyncSession) -> None:
+    """Generate the epoch and server id if missing (the migration seeds them). Commits."""
+    if len(await _stored_identity(db)) < 2:
         await db.execute(
             insert(AppSetting)
             .values([{"key": k, "value": str(uuid4())} for k in (EPOCH_SETTING, SERVER_ID_SETTING)])
             .on_conflict_do_nothing(index_elements=["key"])
         )
-        await db.commit()
-        stored = await _stored_identity(db)
+    await db.commit()
+
+
+async def read_identity(db: AsyncSession) -> FeedIdentity:
+    """The stored identity, read in the caller's transaction (after :func:`ensure_identity`)."""
+    stored = await _stored_identity(db)
     return FeedIdentity(epoch=stored[EPOCH_SETTING], server_id=stored[SERVER_ID_SETTING])
+
+
+async def feed_identity(db: AsyncSession) -> FeedIdentity:
+    """The feed epoch and server id (generated on first use). Leaves no transaction open."""
+    await ensure_identity(db)
+    identity = await read_identity(db)
+    await db.commit()
+    return identity
 
 
 async def rotate_epoch(db: AsyncSession) -> str:

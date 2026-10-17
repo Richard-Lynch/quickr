@@ -265,8 +265,48 @@ async def test_topic_delete_tombstones_children(client: httpx.AsyncClient) -> No
     assert order == ["entry"] * 3 + ["version"] * 2 + ["topic"]
     assert {d["id"] for d in full["deleted"] if d["kind"] == "entry"} == set(entries)
 
+    # Replaying a create for a child of the deleted topic retires it (not a 404).
     r = await client.post(f"/topics/{t['id']}/entries", json={"id": entries[0], "answers": ANSWERS})
-    assert r.status_code == 404  # the topic is gone
+    assert (r.status_code, r.json()["code"]) == (409, "entry_deleted")
+    async with Client(mcp) as mcp_client:
+        replay = await mcp_client.call_tool(
+            "record_entry", {"ref": t["id"], "answers": ANSWERS, "id": entries[1]}, raise_on_error=False
+        )
+    assert replay.is_error
+    assert "was deleted and can't be recreated" in str(replay.content[0])
+    # Without a client id there is nothing to retire: the topic is simply gone.
+    r = await client.post(f"/topics/{t['id']}/entries", json={"answers": ANSWERS})
+    assert r.status_code == 404
+
+
+async def test_ids_are_unique_per_kind_only(client: httpx.AsyncClient) -> None:
+    """An entry may reuse its topic's UUID (client-chosen ids): neither hides the other."""
+    t = await make_topic(client)
+    e = await record(client, "sleep-log", ANSWERS, id=t["id"])
+    assert e["id"] == t["id"]
+    page = await changes(client)
+    assert [k for k, _ in kinds(page)] == ["topic", "version", "entry"]
+    assert {i for k, i in kinds(page) if k != "version"} == {t["id"]}
+
+    cursor = page["next"]
+    assert (await client.delete(f"/entries/{t['id']}")).status_code == 204
+    page = await changes(client, after=cursor)
+    assert (page["items"], [(d["kind"], d["id"]) for d in page["deleted"]]) == ([], [("entry", t["id"])])
+    full = await changes(client)
+    assert [k for k, _ in kinds(full)] == ["topic", "version"]  # the topic is untouched
+    assert (await client.get(f"/topics/{t['id']}")).status_code == 200
+
+    # Both tombstones coexist once the topic goes too.
+    await client.post(f"/topics/{t['id']}/archive")
+    assert (await client.delete(f"/topics/{t['id']}")).status_code == 204
+    async with get_sessionmaker()() as db:
+        tombs = (await db.execute(select(DeletedId.kind).where(DeletedId.id == UUID(t["id"])))).scalars()
+        assert sorted(k.value for k in tombs) == ["entry", "topic"]
+    full = await changes(client)
+    assert {(d["kind"], d["id"]) for d in full["deleted"] if d["id"] == t["id"]} == {
+        ("entry", t["id"]),
+        ("topic", t["id"]),
+    }
 
 
 async def test_mcp_delete_shows_in_feed(client: httpx.AsyncClient) -> None:
@@ -341,7 +381,6 @@ async def test_seq_follows_commit_order() -> None:
         await feed.log_change(db, FeedKind.topic, FeedOp.upsert, a_id, a_id)
         started.set()
         await release.wait()
-        await db.commit()
 
     maker = get_sessionmaker()
     async with maker() as a, maker() as b, maker() as reader:
@@ -350,8 +389,7 @@ async def test_seq_follows_commit_order() -> None:
         body = TopicCreate.model_validate({"name": "Later", "questions": sleep_questions()})
         task_b = asyncio.create_task(topic_svc.create_topic(b, body))
         try:
-            await asyncio.sleep(0.3)
-            b_waited = not task_b.done()
+            b_waited = await _wait_for_lock_waiter(reader)
             visible = await reader.scalar(select(func.count()).select_from(ChangeLog))
             await reader.rollback()
         finally:
@@ -363,6 +401,21 @@ async def test_seq_follows_commit_order() -> None:
 
     rows = await log_rows()
     assert [i for _, _, i in rows][:2] == [a_id, b_topic.id]
+
+
+async def _wait_for_lock_waiter(db: AsyncSession) -> bool:
+    """Poll until some session is blocked waiting for the feed lock."""
+    stmt = text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid = :id AND NOT granted")
+    try:
+        async with asyncio.timeout(5):
+            while not await db.scalar(stmt, {"id": feed.FEED_LOCK_ID}):
+                await db.rollback()
+                await asyncio.sleep(0.01)
+    except TimeoutError:
+        return False
+    finally:
+        await db.rollback()
+    return True
 
 
 @pytest.fixture(autouse=True)
@@ -413,3 +466,110 @@ async def test_rotate_epoch_keeps_server_id(client: httpx.AsyncClient, db: Async
     after = await changes(client)
     assert after["epoch"] == new != before["epoch"]
     assert after["server_id"] == before["server_id"]
+
+
+async def _rotate() -> str:
+    async with get_sessionmaker()() as other:
+        return await feed.rotate_epoch(other)
+
+
+async def test_page_identity_comes_from_the_page_snapshot(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await make_topic(client)
+    old = (await changes(client))["epoch"]
+    real_ensure, real_details = feed.ensure_identity, topic_svc.topic_details
+    rotated: list[str] = []
+
+    async def ensure_then_rotate(db: AsyncSession) -> None:
+        await real_ensure(db)
+        rotated.append(await _rotate())  # after the identity exists, before the snapshot
+
+    monkeypatch.setattr("app.services.changes.ensure_identity", ensure_then_rotate)
+    page = await changes(client)
+    assert page["epoch"] == rotated[0] != old
+    monkeypatch.setattr("app.services.changes.ensure_identity", real_ensure)
+
+    async def rotate_mid_page(db: AsyncSession, ids: list[UUID]) -> Any:
+        rotated.append(await _rotate())  # commits while the page's snapshot is open
+        return await real_details(db, ids)
+
+    monkeypatch.setattr(topic_svc, "topic_details", rotate_mid_page)
+    page = await changes(client)
+    assert page["epoch"] == rotated[0]  # consistent with the snapshot it was read in
+    monkeypatch.setattr(topic_svc, "topic_details", real_details)
+    assert (await changes(client))["epoch"] == rotated[1]
+
+
+# --- writer contract ---------------------------------------------------------------
+
+
+async def _count(sql: str) -> int:
+    async with get_sessionmaker()() as db:
+        return int(await db.scalar(text(sql)) or 0)
+
+
+async def test_writer_rejects_pending_orm_writes(db: AsyncSession) -> None:
+    from app.models import AppSetting
+    from app.services import entries as entry_svc
+
+    db.add(AppSetting(key="stray", value="x"))
+    with pytest.raises(feed.WriterMisuse):
+        await entry_svc.delete_entry(db, uuid4())
+    await db.rollback()
+    assert await _count("SELECT count(*) FROM app_settings WHERE key = 'stray'") == 0
+    assert await _count("SELECT count(*) FROM deleted_ids") == 0
+
+
+async def test_writer_rejects_an_open_transaction(db: AsyncSession) -> None:
+    from app.services import entries as entry_svc
+
+    await db.execute(text("SELECT 1"))  # could as well have been a write
+    with pytest.raises(feed.WriterMisuse):
+        await entry_svc.delete_entry(db, uuid4())
+    await db.rollback()
+    await entry_svc.delete_entry(db, uuid4())  # an idle session is fine
+    assert await _count("SELECT count(*) FROM deleted_ids") == 1
+
+
+async def test_nested_writers_share_the_outer_transaction(db: AsyncSession) -> None:
+    from app.services import entries as entry_svc
+
+    @feed.writer
+    async def outer(session: AsyncSession, fail: bool) -> None:
+        await feed.log_change(session, FeedKind.topic, FeedOp.upsert, uuid4(), uuid4())
+        await entry_svc.delete_entry(session, uuid4())  # nested: no lock re-take, no commit
+        locks = await session.scalar(
+            text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid = :id AND granted"),
+            {"id": feed.FEED_LOCK_ID},
+        )
+        assert locks == 1
+        if fail:
+            raise RuntimeError("after the inner writer")
+
+    with pytest.raises(RuntimeError):
+        await outer(db, True)
+    assert await _count("SELECT count(*) FROM change_log") == 0
+    assert await _count("SELECT count(*) FROM deleted_ids") == 0  # the inner write rolled back too
+
+    await outer(db, False)
+    assert await _count("SELECT count(*) FROM change_log") == 1
+    assert await _count("SELECT count(*) FROM deleted_ids") == 1
+
+
+async def test_retry_rolls_back_and_replays_real_writes(db: AsyncSession) -> None:
+    attempts: list[int] = []
+    entity = uuid4()
+
+    @feed.writer
+    async def write_then_deadlock(session: AsyncSession) -> None:
+        attempts.append(1)
+        await feed.log_change(session, FeedKind.entry, FeedOp.delete, entity, entity)
+        await feed.tombstone(session, FeedKind.entry, entity, entity)
+        if len(attempts) == 1:
+            raise DBAPIError("stmt", {}, _FakeOrig("40P01"))
+
+    await write_then_deadlock(db)
+    assert len(attempts) == 2
+    assert await _count("SELECT count(*) FROM change_log") == 1
+    assert await _count("SELECT count(*) FROM deleted_ids") == 1

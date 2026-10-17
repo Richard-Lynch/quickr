@@ -221,12 +221,17 @@ class ChangeLog(Base):
 
 
 class DeletedId(Base):
-    """Permanent tombstone: a deleted id is never reused (a replayed create gets 409)."""
+    """Permanent tombstone: a deleted id is never reused (a replayed create gets 409).
+
+    Keyed by ``(kind, id)``: ids are only unique per table (entry ids are client-chosen).
+    """
 
     __tablename__ = "deleted_ids"
 
+    kind: Mapped[FeedKind] = mapped_column(
+        Enum(FeedKind, name="feed_kind", native_enum=True), primary_key=True
+    )
     id: Mapped[UUID] = mapped_column(primary_key=True)
-    kind: Mapped[FeedKind] = mapped_column(Enum(FeedKind, name="feed_kind", native_enum=True))
     # Null when an entry id was reserved before the server ever saw the entry.
     topic_id: Mapped[UUID | None] = mapped_column(default=None)
     deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

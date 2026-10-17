@@ -41,11 +41,11 @@ def upgrade() -> None:
     )
     op.create_table(
         "deleted_ids",
-        sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("kind", feed_kind, nullable=False),
+        sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("topic_id", sa.Uuid(), nullable=True),
         sa.Column("deleted_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("kind", "id"),
     )
     for table in ("topics", "entries"):
         op.add_column(table, sa.Column("revision", sa.Integer(), server_default="1", nullable=False))

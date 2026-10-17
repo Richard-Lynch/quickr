@@ -11,32 +11,35 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ChangeLog, DeletedId, Entry, FeedKind
 from app.schemas.api import ChangesPage, FeedDeletion, FeedEntry, FeedItem, FeedTopic, FeedVersion
 from app.services import entries as entry_svc
 from app.services import topics as topic_svc
-from app.services.feed import feed_identity
+from app.services.feed import ensure_identity, read_identity
 
 MAX_PAGE = 500
 # Order a page is applied in: parents before children, and the reverse for deletions.
 _APPLY_ORDER = {FeedKind.topic: 0, FeedKind.version: 1, FeedKind.entry: 2}
 
+# Ids are only unique per kind (entry ids are client-chosen), so entities are keyed by both.
+Key = tuple[FeedKind, UUID]
+
 
 async def list_changes(db: AsyncSession, after: int = 0, limit: int = MAX_PAGE) -> ChangesPage:
-    identity = await feed_identity(db)
-    if db.in_transaction():
-        await db.commit()
+    await ensure_identity(db)  # its own short transaction; commits
     await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
     try:
-        return await _page(db, after, min(limit, MAX_PAGE), identity.epoch, identity.server_id)
+        return await _page(db, after, min(limit, MAX_PAGE))
     finally:
         await db.rollback()  # ends the snapshot
 
 
-async def _page(db: AsyncSession, after: int, limit: int, epoch: str, server_id: str) -> ChangesPage:
+async def _page(db: AsyncSession, after: int, limit: int) -> ChangesPage:
+    # Everything below, the identity included, comes from one snapshot.
+    identity = await read_identity(db)
     server_time = await db.scalar(select(func.now()))
     head = await db.scalar(select(func.coalesce(func.max(ChangeLog.seq), 0)))
     assert server_time is not None
@@ -50,39 +53,42 @@ async def _page(db: AsyncSession, after: int, limit: int, epoch: str, server_id:
         .scalars()
         .all()
     )
-    latest: dict[UUID, ChangeLog] = {}  # ids are UUIDs, unique across kinds
+    latest: dict[Key, ChangeLog] = {}
     for row in rows:
-        latest.pop(row.entity_id, None)
-        latest[row.entity_id] = row  # re-insert: dict order = order of latest seq
+        key = (row.kind, row.entity_id)
+        latest.pop(key, None)
+        latest[key] = row  # re-insert: dict order = order of latest seq
     by_kind: dict[FeedKind, list[UUID]] = {k: [] for k in FeedKind}
-    for row in latest.values():
-        by_kind[row.kind].append(row.entity_id)
+    for kind, entity_id in latest:
+        by_kind[kind].append(entity_id)
 
-    found: dict[UUID, FeedItem] = {}
+    found: dict[Key, FeedItem] = {}
     if ids := by_kind[FeedKind.topic]:
         for topic_id, detail in (await topic_svc.topic_details(db, ids)).items():
-            found[topic_id] = FeedTopic(seq=latest[topic_id].seq, topic=detail)
+            key = (FeedKind.topic, topic_id)
+            found[key] = FeedTopic(seq=latest[key].seq, topic=detail)
     if ids := by_kind[FeedKind.version]:
         for v, out in await topic_svc.versions_by_id(db, ids):
-            found[v.id] = FeedVersion(seq=latest[v.id].seq, id=v.id, topic_id=v.topic_id, version=out)
+            key = (FeedKind.version, v.id)
+            found[key] = FeedVersion(seq=latest[key].seq, id=v.id, topic_id=v.topic_id, version=out)
     if ids := by_kind[FeedKind.entry]:
         stmt = select(Entry).where(Entry.id.in_(ids)).execution_options(populate_existing=True)
         for e in (await db.execute(stmt)).scalars():
-            found[e.id] = FeedEntry(seq=latest[e.id].seq, entry=entry_svc.entry_out(e))
+            key = (FeedKind.entry, e.id)
+            found[key] = FeedEntry(seq=latest[key].seq, entry=entry_svc.entry_out(e))
 
-    vanished = [i for i in latest if i not in found]
-    tombstones = (
-        {d.id: d for d in (await db.execute(select(DeletedId).where(DeletedId.id.in_(vanished)))).scalars()}
-        if vanished
-        else {}
-    )
+    vanished = [k for k in latest if k not in found]
+    tombstones: dict[Key, DeletedId] = {}
+    if vanished:
+        tomb_stmt = select(DeletedId).where(tuple_(DeletedId.kind, DeletedId.id).in_(vanished))
+        tombstones = {(d.kind, d.id): d for d in (await db.execute(tomb_stmt)).scalars()}
     deleted = [
         # The log row's topic_id: a tombstone's is null only for ids that were never logged.
         FeedDeletion(
-            kind=d.kind.value, seq=latest[i].seq, id=i, topic_id=latest[i].topic_id, deleted_at=d.deleted_at
+            kind=k[0].value, seq=latest[k].seq, id=k[1], topic_id=latest[k].topic_id, deleted_at=d.deleted_at
         )
-        for i in vanished
-        if (d := tombstones.get(i)) is not None
+        for k in vanished
+        if (d := tombstones.get(k)) is not None
     ]
 
     items = sorted(found.values(), key=lambda it: (_APPLY_ORDER[FeedKind(it.kind)], it.seq))
@@ -94,7 +100,7 @@ async def _page(db: AsyncSession, after: int, limit: int, epoch: str, server_id:
         next=next_seq,
         has_more=head > next_seq,
         head=head,
-        epoch=epoch,
-        server_id=server_id,
+        epoch=identity.epoch,
+        server_id=identity.server_id,
         server_time=server_time,
     )
