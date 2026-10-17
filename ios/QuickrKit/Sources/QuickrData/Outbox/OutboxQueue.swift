@@ -413,9 +413,6 @@ public enum OutboxSyncEffects {
         try OutboxQueue.remove(db, create)
     }
 
-    /// S8: a create that has left `in_flight` without a 2xx while a later `cancels_create` delete
-    /// exists is removed, with the updates queued between the two. The delete then has no
-    /// predecessor and is sent on its own. Idempotent; run after every exit from `in_flight`.
     /// Flush-expiry recovery (outbox.md §6.3) with S8, in the transaction that takes over an
     /// abandoned `flush` lease (a flusher's, or a rebuild swap's) and in the swap itself: every
     /// in-flight item becomes uncertain and loses its claim, then cancelled creates go.
@@ -424,6 +421,9 @@ public enum OutboxSyncEffects {
         try removeCancelledCreates(db)
     }
 
+    /// S8: a create that has left `in_flight` without a 2xx while a later `cancels_create` delete
+    /// exists is removed, with the updates queued between the two. The delete then has no
+    /// predecessor and is sent on its own. Idempotent; run after every exit from `in_flight`.
     public static func removeCancelledCreates(_ db: Database) throws {
         let cancels = try OutboxStorage.items(db).filter { $0.kind == .entryDelete && $0.cancelsCreate }
         for delete in cancels {

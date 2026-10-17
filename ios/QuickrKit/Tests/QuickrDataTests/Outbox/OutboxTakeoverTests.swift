@@ -20,26 +20,26 @@ import Testing
         let flushA = background { try await a.flushNow(budget: .seconds(120)) }
         await gate.arrival()
         #expect(try await a.undoLog(entryId: id, origin: .app) == .deleteQueued)
-        let cancel = try #require(h.items.last)
-        #expect(cancel.cancelsCreate && h.item(id)?.state == .inFlight)
+        let cancel = try #require(try h.items.last)
+        #expect(try cancel.cancelsCreate && h.item(id)?.state == .inFlight)
 
         // A is suspended past its 30 s lease; B takes the lease over while a rebuild is staging,
         // so B's pass claims nothing and only the takeover transaction runs.
         h.clock.advance(by: .seconds(31))
         try h.setSyncState("rebuilding = 'E2'")
         #expect(try await b.flushNow().ending == .paused)
-        #expect(h.item(id) == nil)
-        #expect(h.item(cancel.id)?.state == .pending)
+        #expect(try h.item(id) == nil)
+        #expect(try h.item(cancel.id)?.state == .pending)
 
         try h.setSyncState("rebuilding = NULL")
         let report = try await b.flushNow()
-        #expect(report.acked == 1 && h.items.isEmpty)
+        #expect(try report.acked == 1 && h.items.isEmpty)
         // The POST was only ever sent once (A's), never resent by B.
         #expect(h.server.requests.filter { $0.method == .post }.count == 1)
 
         gate.open()
         _ = try await flushA.value
         #expect(h.server.entry(id) == nil)
-        #expect(h.items.isEmpty)
+        #expect(try h.items.isEmpty)
     }
 }
