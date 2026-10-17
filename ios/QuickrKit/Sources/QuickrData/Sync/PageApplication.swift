@@ -181,10 +181,10 @@ public enum SyncTransactions {
                 """,
             arguments: [context.targetEpoch, stageCursor, head, wallNow.unixSeconds])
 
-        try OutboxResolution.recoverExpiredFlush(db, now: wallNow)
+        try OutboxSyncEffects.recoverExpiredFlush(db, now: wallNow)
         try pullAck(
             db, entryIds: try String.fetchAll(db, sql: "SELECT entity_id FROM outbox_item WHERE kind = 'entry.create'"))
-        try OutboxResolution.resolveTombstonedDependents(db, wallNow: wallNow)
+        try resolveTombstonedDependents(db, wallNow: wallNow)
 
         let topicsAfter = Set(try String.fetchAll(db, sql: "SELECT id FROM topic"))
         let layerGen = try syncState(db).layerGen
@@ -283,12 +283,9 @@ public enum SyncTransactions {
             switch deletion.kind {
             case .topic:
                 if !wasTombstoned { deletedTopics.append(deletion.id) }
-                try OutboxResolution.resolveDependents(
-                    db, items: try OutboxStorage.items(db, topicId: deletion.id.wireString), wallNow: wallNow)
+                try OutboxSyncEffects.resolveDependents(db, kind: .topic, id: deletion.id.wireString, wall: wallNow)
             case .entry:
-                try OutboxResolution.resolveDependents(
-                    db, items: try OutboxStorage.items(db, entityKind: .entry, entityId: deletion.id.wireString),
-                    wallNow: wallNow)
+                try OutboxSyncEffects.resolveDependents(db, kind: .entry, id: deletion.id.wireString, wall: wallNow)
             case .version:
                 break
             }
@@ -298,15 +295,38 @@ public enum SyncTransactions {
 
     /// §4.4: an `entry.create` whose entity now has a server row has landed. Remove it unless it
     /// is in flight (its sender resolves it), then chain the entity's next item.
+    /// Only for entities whose server row is present now: an upsert the tombstone guard dropped
+    /// is not a landing (its dependents resolve through the tombstone instead), and the swap runs
+    /// this over the whole outbox.
     private static func pullAck(_ db: Database, entryIds: [String]) throws {
         for id in Set(entryIds) {
             let landed =
                 try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM entry WHERE id = ?)", arguments: [id]) ?? false
-            guard landed else { continue }
-            try db.execute(
-                sql: "DELETE FROM outbox_item WHERE id = ? AND kind = 'entry.create' AND state != 'in_flight'",
-                arguments: [id])
-            if db.changesCount > 0 { try OutboxStorage.chainRevision(db, entityKind: .entry, entityId: id) }
+            if landed { try OutboxSyncEffects.pullAck(db, entryId: id) }
+        }
+    }
+
+    /// The swap's pass (§7 step 3.2): every outbox entity tombstoned in the new layer, directly or
+    /// through its topic, resolves by the §4.3 table.
+    private static func resolveTombstonedDependents(_ db: Database, wallNow: Date) throws {
+        let topics = try String.fetchAll(
+            db,
+            sql: """
+                SELECT DISTINCT topic_id FROM outbox_item
+                WHERE topic_id IN (SELECT id FROM tombstone WHERE kind = 'topic')
+                """)
+        for topicId in topics {
+            try OutboxSyncEffects.resolveDependents(db, kind: .topic, id: topicId, wall: wallNow)
+        }
+        let entries = try String.fetchAll(
+            db,
+            sql: """
+                SELECT DISTINCT entity_id FROM outbox_item
+                WHERE entity_kind = 'entry' AND entity_id IN (SELECT id FROM tombstone WHERE kind = 'entry')
+                  AND topic_id NOT IN (SELECT id FROM tombstone WHERE kind = 'topic')
+                """)
+        for entryId in entries {
+            try OutboxSyncEffects.resolveDependents(db, kind: .entry, id: entryId, wall: wallNow)
         }
     }
 }

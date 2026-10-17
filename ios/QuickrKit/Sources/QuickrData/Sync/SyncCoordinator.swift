@@ -542,11 +542,10 @@ public actor SyncCoordinator {
         guard try await store.leases.renew(context.claim) else { return .stop(.superseded) }
         // Taking over a sender's expired lease recovers its in-flight items with the S8
         // cancelled-create cleanup in the same transaction (outbox.md §6.3, S8).
-        let wall = partitions.wallClock
         guard
             let flushClaim = try await store.leases.acquire(
                 .flush, owner: owner, holding: [context.claim], waitingUpTo: configuration.swapFlushWait,
-                takeover: { db, _ in try OutboxResolution.recoverExpiredFlush(db, now: wall.now()) })
+                takeover: OutboxFlush.takeover(wallClock: partitions.wallClock))
         else { return .stop(.failed(.leaseBusy)) }
         let clock = store.leaseClock
         let wallNow = partitions.wallClock.now()
