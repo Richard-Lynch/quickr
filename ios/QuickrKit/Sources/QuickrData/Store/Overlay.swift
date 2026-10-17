@@ -23,8 +23,8 @@ public struct EntryOverlay: Sendable, Hashable {
     public var hidden: Bool
     /// Hidden by a `held` delete, so Undo can bring it back.
     public var undoable: Bool
-    /// The entity's `entry.create` failed and the server has no row: it shows only in the pinned
-    /// "Not synced" section and is excluded from derived fields.
+    /// The entity has an unresolved failed `entry.create` (with or without a server row): it shows
+    /// only in the pinned "Not synced" section and is excluded from derived fields.
     public var createFailed: Bool
 
     public var isVisible: Bool { entry != nil && !hidden }
@@ -56,10 +56,13 @@ public struct EntryOverlay: Sendable, Hashable {
             if isFailed && item.failureReason == .deletedElsewhere { continue }
             switch try item.payload() {
             case .entryCreate(let topic, let body):
+                // A failed create excludes the entity from derived fields whatever the content
+                // shows (§3.2–§3.3).
+                if isFailed { createFailed = true }
                 // With a server row, the server row wins: the create has landed.
                 guard server == nil else { break }
                 entry = try Entry(creating: item, topic: topic, body: body, questions: questions)
-                if isFailed { createFailed = true } else { pending = true }
+                if !isFailed { pending = true }
             case .entryUpdate(_, _, let patch):
                 guard var patched = entry else { break }
                 patched.apply(patch, at: item.updatedAt, questions: questions(patched.topicId, patched.version))

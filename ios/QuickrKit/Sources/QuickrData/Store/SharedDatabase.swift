@@ -17,6 +17,14 @@ import SQLite3
 ///   (PLAN §2, §6a rule 14);
 /// - a Darwin notification after every committed write transaction (sync-protocol.md §4.1 step 7).
 ///
+/// **App obligation (not wired here):** `observesSuspensionNotifications` only takes effect when
+/// the process posts the notifications. The app must post `Database.suspendNotification` when it
+/// is about to be suspended (`scenePhase` → `.background`, after any background work, and from
+/// every `beginBackgroundTask` expiration handler and `BGTask` expiration handler), and
+/// `Database.resumeNotification` when it becomes active again and at the start of every
+/// background callback that touches a store (`BGAppRefreshTask`, push, notification action).
+/// Extensions don't need to: they never stay suspended with a lock held.
+///
 /// Nothing here is process-global: every call opens what it is given, so a test subprocess can
 /// open the same file with the same code.
 public enum SharedDatabase {
