@@ -46,6 +46,11 @@ final class FakeServer: Transport {
     private let state = Mutex(State())
     private let faults = Mutex<[Fault]>([])
     private let log = Mutex<[HTTPRequest]>([])
+    private let executed = Mutex<[String]>([])
+
+    /// `"METHOD /path → status"` of every request the server executed, in order (a delayed one
+    /// when its gate opens).
+    var handled: [String] { executed.withLock { $0 } }
 
     func with<T>(_ body: (inout State) -> T) -> T { state.withLock { body(&$0) } }
 
@@ -158,7 +163,7 @@ final class FakeServer: Transport {
     // MARK: Handling
 
     private func handle(_ request: HTTPRequest) -> HTTPResponse {
-        state.withLock { state in
+        let response = state.withLock { state in
             var response = Self.route(request, &state)
             if !state.omitHeaders {
                 response.headers[QuickrHeader.serverId] = state.serverId
@@ -166,6 +171,8 @@ final class FakeServer: Transport {
             }
             return response
         }
+        executed.withLock { $0.append("\(request.method.rawValue) \(request.url.path) → \(response.status)") }
+        return response
     }
 
     private static func route(_ request: HTTPRequest, _ state: inout State) -> HTTPResponse {

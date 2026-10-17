@@ -90,10 +90,15 @@ enum OutboxFlush {
         else { return .paused }
         try OutboxSyncEffects.removeCancelledCreates(db)
         let serverNow = wall.addingTimeInterval(state.skewMilliseconds / 1000)
+        let items = try OutboxStorage.items(db)
+        // An entity whose delete is held waits for the hold: its release may drop or cancel
+        // everything queued before it (§8.3, §9.2), and Undo restores it unchanged.
+        let held = Set(items.filter { $0.state == .held }.map(\.entityId))
         var scope = OutboxScope()
-        for var item in try OutboxStorage.items(db) {
+        for var item in items {
             defer { scope.add(item) }
             guard item.state == .pending || item.state == .uncertain, !skipping.contains(item.id),
+                item.entityKind != .entry || !held.contains(item.entityId),
                 force || item.due.map({ now.hasPassed(deadline: $0) }) ?? true, scope.earliest(before: item) == nil
             else { continue }
             if let issue = try capturedAtIssue(item, serverNow: serverNow) {

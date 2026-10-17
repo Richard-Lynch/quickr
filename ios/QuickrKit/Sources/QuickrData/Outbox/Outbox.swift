@@ -446,7 +446,11 @@ public struct Outbox: Sendable {
             }
             let first = await group.next() ?? nil
             group.cancelAll()
-            return first
+            // A request cancelled by the budget or the task isn't an answer: the release handles it.
+            switch first?.outcome {
+            case .retryable(.noResponse(.cancelled)), .uncertain(.noResponse(.cancelled)): return nil
+            default: return first
+            }
         }
     }
 
