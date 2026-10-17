@@ -1,5 +1,5 @@
 // swift-tools-version: 6.2
-// quickR's shared code. Core and Data also build for macOS so `swift test` runs on the
+// quickR's shared code. Core, Data and TestSupport also build for macOS so `swift test` runs on the
 // host; UI is iOS-only (its sources are guarded with `#if os(iOS)`). See docs/ios/PLAN.md §2.
 import PackageDescription
 
@@ -10,6 +10,8 @@ let package = Package(
         .library(name: "QuickrCore", targets: ["QuickrCore"]),
         .library(name: "QuickrData", targets: ["QuickrData"]),
         .library(name: "QuickrUI", targets: ["QuickrUI"]),
+        // Test-only: fixtures, fakes and an in-memory store. Never linked into a shipping target.
+        .library(name: "QuickrTestSupport", targets: ["QuickrTestSupport"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.11.1")
@@ -21,8 +23,19 @@ let package = Package(
             dependencies: ["QuickrCore", .product(name: "GRDB", package: "GRDB.swift")]
         ),
         .target(name: "QuickrUI", dependencies: ["QuickrCore"], resources: [.process("Resources")]),
-        .testTarget(name: "QuickrCoreTests", dependencies: ["QuickrCore"]),
-        .testTarget(name: "QuickrDataTests", dependencies: ["QuickrData"]),
+        .target(
+            name: "QuickrTestSupport",
+            dependencies: ["QuickrCore", "QuickrData", .product(name: "GRDB", package: "GRDB.swift")]
+        ),
+        // Child process for the multi-process store tests (sync-protocol.md §13, G5). Host only.
+        .executableTarget(name: "ProcessHelper", dependencies: ["QuickrData", "QuickrTestSupport"]),
+        .testTarget(name: "QuickrCoreTests", dependencies: ["QuickrCore", "QuickrTestSupport"]),
+        .testTarget(
+            name: "QuickrDataTests",
+            dependencies: [
+                "QuickrData", "QuickrTestSupport", .product(name: "GRDB", package: "GRDB.swift"),
+            ]
+        ),
     ],
     swiftLanguageModes: [.v6]
 )
