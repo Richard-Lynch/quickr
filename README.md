@@ -69,8 +69,11 @@ Configuration is via `QUICKR_*` environment variables (or `backend/.env`):
 | `QUICKR_PUSH_ALLOWED_HOSTS`         | `[]`: extra push-service hosts (JSON list), see below      |
 
 Tests use `QUICKR_TEST_DATABASE_URL` (default
-`postgresql+asyncpg://quickr:quickr@localhost:5433/quickr_test`). The database
-is created and migrated automatically.
+`postgresql+asyncpg://quickr:quickr@localhost:5433/quickr_test`, or
+`quickr_test_<worktree directory>` in a git worktree, so parallel worktrees don't
+share tables). The database is created and migrated automatically. `make
+test-db-reset` drops it, e.g. after a migration was edited in place, and `make
+test-db-prune` drops `*_peer_*` databases a killed test run left behind.
 
 ## Entries
 
