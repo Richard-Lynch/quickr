@@ -1,0 +1,84 @@
+name: iOS
+
+# macOS minutes count 10x on this private repo (PLAN §8), so this stays small:
+# - push: `swift test` for ios/QuickrKit on the host.
+# - non-draft PR (opened, ready for review, new commits) or manual dispatch: `make ios-check-ci`
+#   (xcodegen, then build + the Unit plan on an iOS 26.x simulator, no signing).
+# The Makefile is in the path filters because it is the build interface CI calls.
+on:
+  push:
+    branches: [main, feat/ios-app]
+    paths: ["ios/**", "shared/fixtures/**", "Makefile", ".github/workflows/ios.yml"]
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+    paths: ["ios/**", "shared/fixtures/**", "Makefile", ".github/workflows/ios.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Pinned so CI matches a known toolchain. Local development uses Xcode 27.x; the code
+  # sticks to iOS 26 APIs so both build it (PLAN §2). Switch to the `xcode-27` runner image
+  # (and its Xcode 27.x path) once GitHub makes it generally available.
+  DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+  XCODEGEN_VERSION: 2.46.0
+  XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
+
+jobs:
+  package:
+    name: swift test
+    if: github.event_name == 'push'
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain identity
+        id: toolchain
+        run: |
+          xcodebuild -version && swift --version
+          echo "hash=$( (xcodebuild -version; swift --version 2>&1) | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      # .build holds compiled products, so the key includes the architecture and the toolchain.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ios/QuickrKit/.build
+          key: spm-host-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.hash }}-${{ hashFiles('ios/QuickrKit/Package.swift', 'ios/**/Package.resolved') }}
+      - name: Swift tests
+        run: ios/scripts/swift-test.sh
+
+  app:
+    name: build + Unit plan
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install xcodegen ${{ env.XCODEGEN_VERSION }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/$XCODEGEN_VERSION/xcodegen.zip"
+          echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ios/build/spm
+          key: spm-ios-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ios/QuickrKit/Package.swift', 'ios/**/Package.resolved') }}
+      - run: xcodebuild -version && xcodegen --version
+      # Fails unless an iPhone simulator on an iOS 26.x runtime exists (PLAN §6a rule 12).
+      - name: Build + Unit plan (no signing)
+        run: make ios-check-ci IOS_SIM_CI="iPhone 17"
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ios-xcresult
+          path: ios/build/results
+          retention-days: 7

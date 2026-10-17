@@ -35,7 +35,16 @@ from app.config import get_settings  # noqa: E402
 from app.db import get_engine, get_sessionmaker  # noqa: E402
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
-TABLES = ("answers", "entries", "topic_versions", "topics", "push_subscriptions", "app_settings")
+TABLES = (
+    "answers",
+    "entries",
+    "topic_versions",
+    "topics",
+    "push_subscriptions",
+    "app_settings",
+    "change_log",
+    "deleted_ids",
+)
 
 
 async def _ensure_database(url: str) -> None:
@@ -70,7 +79,7 @@ def migrated_db() -> str:
 @pytest.fixture
 async def clean_db(migrated_db: str) -> None:
     async with get_engine().begin() as conn:
-        await conn.execute(text(f"TRUNCATE {', '.join(TABLES)} CASCADE"))
+        await conn.execute(text(f"TRUNCATE {', '.join(TABLES)} RESTART IDENTITY CASCADE"))
 
 
 @pytest.fixture

@@ -19,7 +19,7 @@ import { rememberedSource } from '../lib/storage';
 import { UNDO_WINDOW_MS } from '../lib/undo';
 import { uuid } from '../lib/uuid';
 import { patchEntries } from './cache';
-import { recordEntry } from './entries';
+import { ENTRY_NOT_SAVED, recordEntry } from './entries';
 import { errorMessage } from './errors';
 import { invalidateEntryData } from './queryClient';
 
@@ -39,7 +39,9 @@ export function useUndoLog() {
       // Still queued (offline / in flight): drop it — the outbox effects roll back counts.
       const discarded = await outbox.discard(id);
       if (discarded) {
-        // It may have been mid-flight: make sure the server doesn't keep it (404 = fine).
+        // It may have been mid-flight: make sure the server doesn't keep it. The delete
+        // reserves the id even if the create hasn't arrived yet (204 either way), so a
+        // late create gets 409 entry_deleted and is never stored.
         void deleteEntry({ path: { entry_id: id } }).catch(() => undefined);
       } else {
         try {
@@ -79,6 +81,10 @@ export function useQuickLog() {
         // Don't hold the UI for the server: the tile already shows the result.
         { id, waitMs: 2_500 },
       );
+      if (result.status === 'retired') {
+        toast(ENTRY_NOT_SAVED);
+        return result;
+      }
       if (result.status === 'failed') {
         toast({
           title: `Couldn’t log ${topic.name}`,

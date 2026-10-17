@@ -1,0 +1,26 @@
+{
+  "body": {
+    "code": "conflict",
+    "detail": "entry '0f1e2d3c-4b5a-4968-8778-000000000001' already exists under another topic",
+    "errors": [
+      {
+        "loc": [
+          "id"
+        ],
+        "message": "already used by an entry of another topic"
+      }
+    ]
+  },
+  "operation_id": "createEntry",
+  "request": {
+    "body": {
+      "answers": {
+        "glasses": 1
+      },
+      "id": "0f1e2d3c-4b5a-4968-8778-000000000001"
+    },
+    "method": "POST",
+    "path": "/api/v1/topics/water/entries"
+  },
+  "status": 409
+}

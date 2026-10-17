@@ -10,10 +10,12 @@ from pydantic import AwareDatetime, TypeAdapter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.identity import ExpectIdentity, identity_headers
 from app.db import get_db
 from app.models import Channel
 from app.schemas.api import (
     Bucket,
+    ChangesPage,
     CompatibilityReport,
     EntryCreate,
     EntryFilters,
@@ -42,13 +44,22 @@ from app.schemas.api import (
     VersionDraft,
 )
 from app.schemas.questions import DoubleQuestion, EnumQuestion, IntQuestion, StrQuestion
+from app.services import changes as changes_svc
 from app.services import entries as entry_svc
 from app.services import push as push_svc
 from app.services import stats as stats_svc
 from app.services import topics as topic_svc
+from app.services.feed import FeedIdentity
 
 Db = Annotated[AsyncSession, Depends(get_db)]
 TopicRef = Annotated[str, Path(description="Topic UUID or slug.", examples=["sleep-log"])]
+ExpectedRevision = Annotated[
+    int | None,
+    Query(
+        ge=1,
+        description="Optional: the topic revision this change was based on; 409 stale_revision on mismatch.",
+    ),
+]
 ChannelHeader = Annotated[
     Channel | None,
     Header(alias="X-QuickR-Channel", description="Client channel; defaults to 'api'."),
@@ -145,7 +156,13 @@ async def list_topics(
     )
 
 
-@router.post("/topics", tags=["topics"], operation_id="createTopic", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/topics",
+    tags=["topics"],
+    operation_id="createTopic",
+    dependencies=[ExpectIdentity],
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_topic(db: Db, body: TopicCreate) -> TopicDetail:
     return await topic_svc.create_topic(db, body)
 
@@ -156,23 +173,31 @@ async def get_topic(db: Db, ref: TopicRef) -> TopicDetail:
     return await topic_svc.topic_detail(db, topic.id)
 
 
-@router.patch("/topics/{ref}", tags=["topics"], operation_id="updateTopic")
+@router.patch("/topics/{ref}", tags=["topics"], operation_id="updateTopic", dependencies=[ExpectIdentity])
 async def update_topic(db: Db, ref: TopicRef, body: TopicUpdate) -> TopicDetail:
     return await topic_svc.update_topic(db, ref, body)
 
 
-@router.post("/topics/{ref}/archive", tags=["topics"], operation_id="archiveTopic")
-async def archive_topic(db: Db, ref: TopicRef) -> TopicDetail:
-    return await topic_svc.set_archived(db, ref, archived=True)
+@router.post(
+    "/topics/{ref}/archive", tags=["topics"], operation_id="archiveTopic", dependencies=[ExpectIdentity]
+)
+async def archive_topic(db: Db, ref: TopicRef, expected_revision: ExpectedRevision = None) -> TopicDetail:
+    return await topic_svc.set_archived(db, ref, archived=True, expected_revision=expected_revision)
 
 
-@router.post("/topics/{ref}/unarchive", tags=["topics"], operation_id="unarchiveTopic")
-async def unarchive_topic(db: Db, ref: TopicRef) -> TopicDetail:
-    return await topic_svc.set_archived(db, ref, archived=False)
+@router.post(
+    "/topics/{ref}/unarchive", tags=["topics"], operation_id="unarchiveTopic", dependencies=[ExpectIdentity]
+)
+async def unarchive_topic(db: Db, ref: TopicRef, expected_revision: ExpectedRevision = None) -> TopicDetail:
+    return await topic_svc.set_archived(db, ref, archived=False, expected_revision=expected_revision)
 
 
 @router.delete(
-    "/topics/{ref}", tags=["topics"], operation_id="deleteTopic", status_code=status.HTTP_204_NO_CONTENT
+    "/topics/{ref}",
+    tags=["topics"],
+    operation_id="deleteTopic",
+    dependencies=[ExpectIdentity],
+    status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_topic(db: Db, ref: TopicRef) -> Response:
     """Permanently delete an archived topic and all its data."""
@@ -198,6 +223,7 @@ async def check_version(db: Db, ref: TopicRef, body: VersionDraft) -> Compatibil
     "/topics/{ref}/versions",
     tags=["versions"],
     operation_id="publishTopicVersion",
+    dependencies=[ExpectIdentity],
     status_code=status.HTTP_201_CREATED,
 )
 async def publish_version(db: Db, ref: TopicRef, body: VersionCreate) -> TopicDetail:
@@ -223,6 +249,7 @@ async def list_entries(
     "/topics/{ref}/entries",
     tags=["entries"],
     operation_id="createEntry",
+    dependencies=[ExpectIdentity],
     status_code=status.HTTP_201_CREATED,
 )
 async def create_entry(db: Db, ref: TopicRef, body: EntryCreate, channel: ChannelHeader = None) -> EntryOut:
@@ -237,12 +264,16 @@ async def create_entry(db: Db, ref: TopicRef, body: EntryCreate, channel: Channe
     responses={200: {"content": {"text/csv": {"schema": {"type": "string"}}}}},
 )
 async def export_entries(db: Db, ref: TopicRef, filters: Filters) -> StreamingResponse:
-    gen = await entry_svc.export_csv(db, ref, filters)
+    identity, gen = await entry_svc.export_csv(db, ref, filters)
     stamp = datetime.now().strftime("%Y%m%d")
     return StreamingResponse(
         gen,
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{ref}-{stamp}.csv"'},
+        # The export's snapshot identity: the rows stream later, from that same snapshot.
+        headers={
+            "Content-Disposition": f'attachment; filename="{ref}-{stamp}.csv"',
+            **identity_headers(identity),
+        },
     )
 
 
@@ -255,6 +286,7 @@ async def get_entry(db: Db, entry_id: UUID) -> EntryOut:
     "/entries/{entry_id}",
     tags=["entries"],
     operation_id="updateEntry",
+    dependencies=[ExpectIdentity],
 )
 async def update_entry(db: Db, entry_id: UUID, body: EntryUpdate) -> EntryOut:
     return await entry_svc.update_entry(db, entry_id, body)
@@ -264,11 +296,37 @@ async def update_entry(db: Db, entry_id: UUID, body: EntryUpdate) -> EntryOut:
     "/entries/{entry_id}",
     tags=["entries"],
     operation_id="deleteEntry",
+    dependencies=[ExpectIdentity],
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_entry(db: Db, entry_id: UUID) -> Response:
+    """Delete an entry. Idempotent: an unknown id also returns 204 and is reserved, so the
+    entry can never be created afterwards (a later create gets 409 entry_deleted)."""
     await entry_svc.delete_entry(db, entry_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- sync -------------------------------------------------------------------
+
+
+@router.get("/changes", tags=["sync"], operation_id="listChanges")
+async def list_changes(
+    db: Db,
+    response: Response,
+    after: Annotated[
+        int, Query(ge=0, description="Cursor: the `next` of the previous page (0 = from the start).")
+    ] = 0,
+    limit: Annotated[int, Query(ge=1, le=changes_svc.MAX_PAGE, description="Change-log rows to read.")] = 500,
+) -> ChangesPage:
+    """The change feed: every topic, version and entry changed after a cursor, plus deletions.
+
+    Start from ``after=0`` to bootstrap, then follow ``next`` while ``has_more``. When ``epoch``
+    changes, or the cursor is above ``head``, rebuild from ``after=0``.
+    """
+    page = await changes_svc.list_changes(db, after, limit)
+    # From the page's snapshot, so the identity headers always match the body.
+    response.headers.update(identity_headers(FeedIdentity(epoch=page.epoch, server_id=page.server_id)))
+    return page
 
 
 # --- aggregation ------------------------------------------------------------
@@ -305,6 +363,7 @@ async def push_config(db: Db) -> PushConfig:
     "/push/subscriptions",
     tags=["push"],
     operation_id="createPushSubscription",
+    dependencies=[ExpectIdentity],
     status_code=status.HTTP_201_CREATED,
 )
 async def create_push_subscription(db: Db, body: PushSubscriptionIn) -> PushSubscriptionOut:
@@ -316,6 +375,7 @@ async def create_push_subscription(db: Db, body: PushSubscriptionIn) -> PushSubs
     "/push/subscriptions/delete",
     tags=["push"],
     operation_id="deletePushSubscription",
+    dependencies=[ExpectIdentity],
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_push_subscription(db: Db, body: PushSubscriptionDelete) -> Response:
@@ -324,7 +384,7 @@ async def delete_push_subscription(db: Db, body: PushSubscriptionDelete) -> Resp
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/push/test", tags=["push"], operation_id="sendTestPush")
+@router.post("/push/test", tags=["push"], operation_id="sendTestPush", dependencies=[ExpectIdentity])
 async def send_test_push(db: Db) -> PushTestResult:
     """Send a test notification to every subscription."""
     return await push_svc.send_test(db)

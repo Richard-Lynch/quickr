@@ -1,6 +1,6 @@
 # Common developer tasks. `make help` lists them.
 SHELL := /bin/bash
-BACKEND := cd backend && unset VIRTUAL_ENV && PYTHONPATH=.
+BACKEND := cd backend && unset VIRTUAL_ENV && export PYTHONPATH=. &&
 FRONTEND := cd frontend &&
 
 .PHONY: help
@@ -36,6 +36,14 @@ web: ## Run the Vite dev server on :5180
 seed: ## Load demo topics and entries
 	$(BACKEND) uv run python scripts/seed.py
 
+.PHONY: rotate-epoch
+rotate-epoch: ## New change-feed epoch (run after a DB restore/reset; clients resync)
+	$(BACKEND) uv run python scripts/rotate_epoch.py
+
+.PHONY: rotate-epoch-docker
+rotate-epoch-docker: ## rotate-epoch against the docker stack
+	docker compose exec backend python scripts/rotate_epoch.py
+
 .PHONY: vapid
 vapid: ## Print a fresh VAPID key pair for QUICKR_VAPID_PRIVATE_KEY / QUICKR_VAPID_PUBLIC_KEY
 	$(BACKEND) uv run python -c "from app.services.push import generate_vapid_keys as g; k = g(); print(f'QUICKR_VAPID_PRIVATE_KEY={k.private_key}'); print(f'QUICKR_VAPID_PUBLIC_KEY={k.public_key}')"
@@ -52,16 +60,41 @@ openapi: ## Regenerate openapi.json from the FastAPI app
 client: openapi ## Regenerate spec + typed TS client/zod schemas
 	$(FRONTEND) pnpm gen:api
 
+.PHONY: vectors
+vectors: ## Regenerate shared/fixtures (due + quick-log vectors, API response fixtures)
+	$(BACKEND) QUICKR_UPDATE_VECTORS=1 uv run pytest -q tests/test_due_vectors.py tests/test_quicklog_vectors.py tests/test_api_fixtures.py
+
+# The database pytest and the migration check use (conftest.py has the same default).
+QUICKR_TEST_DATABASE_URL ?= postgresql+asyncpg://quickr:quickr@localhost:5433/quickr_test
+
 .PHONY: check
-check: check-backend check-frontend ## Run every check CI runs (except docker)
+check: check-backend check-frontend ## Run every check CI runs (except the docker smoke test)
 
 .PHONY: check-backend
-check-backend:
-	$(BACKEND) uv run ruff check . && uv run ruff format --check . && uv run mypy app scripts tests && uv run pytest -q
+check-backend: ## Backend: lint, types, openapi.json freshness, pytest, migrations match models
+	$(BACKEND) uv run ruff check . && uv run ruff format --check . && uv run mypy app scripts tests
+	@$(MAKE) --no-print-directory check-openapi
+	$(BACKEND) uv run pytest -q
+	@$(MAKE) --no-print-directory check-migrations
+
+.PHONY: check-openapi
+check-openapi: ## openapi.json matches the FastAPI app
+	$(BACKEND) out=$$(mktemp) && uv run python scripts/export_openapi.py "$$out" > /dev/null && \
+		{ diff -u ../openapi.json "$$out" || { echo "openapi.json is stale - run 'make openapi'"; exit 1; }; }
+
+.PHONY: check-migrations
+check-migrations: ## Migrate the test database to head and check the models need no new migration
+	$(BACKEND) export QUICKR_DATABASE_URL="$(QUICKR_TEST_DATABASE_URL)" && uv run alembic upgrade head && uv run alembic check
 
 .PHONY: check-frontend
-check-frontend:
+check-frontend: ## Frontend: generated client freshness, format, lint, types, tests, build
+	@$(MAKE) --no-print-directory check-client
 	$(FRONTEND) pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build
+
+.PHONY: check-client
+check-client: ## src/client matches openapi.json (regenerates it in place, like CI)
+	$(FRONTEND) before=$$(mktemp -d) && cp -R src/client "$$before" && pnpm -s gen:api > /dev/null && \
+		{ diff -r "$$before/client" src/client || { echo "src/client is stale - run 'make client'"; exit 1; }; }
 
 .PHONY: fmt
 fmt: ## Auto-format everything
@@ -79,3 +112,72 @@ down: ## Stop the docker stack
 .PHONY: seed-docker
 seed-docker: ## Load demo data into the docker stack
 	docker compose exec backend python scripts/seed.py
+
+# --- iOS (ios/). Needs full Xcode 27.x and xcodegen; every target checks first and fails fast.
+# Not part of `make check`, which stays Xcode-free. Logic lives in ios/scripts/. See ios/README.md.
+IOS_SIM_MIN ?= quickR iOS-26-0
+IOS_SIM_CUR ?= quickR iOS27
+IOS_SIM ?= $(IOS_SIM_MIN)
+# Preferred model for ios-check-ci, which requires an iOS 26.x runtime whatever the model.
+IOS_SIM_CI ?= iPhone 17
+IOS_SCRIPTS := ios/scripts
+
+.PHONY: ios-gen
+ios-gen: ## iOS: generate ios/quickR.xcodeproj from project.yml
+	@$(IOS_SCRIPTS)/gen.sh
+
+.PHONY: ios-build
+ios-build: ios-gen ## iOS: simulator Debug build (IOS_SIM=name or UDID)
+	@$(IOS_SCRIPTS)/build.sh "$(IOS_SIM)"
+
+.PHONY: ios-core-test
+ios-core-test: ## iOS: swift test for ios/QuickrKit on the Mac
+	@$(IOS_SCRIPTS)/require-xcode.sh
+	@$(IOS_SCRIPTS)/swift-test.sh
+
+.PHONY: ios-resolve
+ios-resolve: ## iOS: update package pins in ios/QuickrKit/Package.resolved and check Xcode matches
+	@$(IOS_SCRIPTS)/resolve.sh
+
+.PHONY: ios-test
+ios-test: ios-gen ## iOS: Unit test plan on the iOS 26.0 simulator
+	@$(IOS_SCRIPTS)/test.sh Unit "$(IOS_SIM_MIN)"
+
+.PHONY: ios-uitest
+ios-uitest: ios-gen ## iOS: UI test plan (IOS_SIM=name or UDID)
+	@$(IOS_SCRIPTS)/test.sh UI "$(IOS_SIM)"
+
+.PHONY: ios-lint
+ios-lint: ## iOS: swift-format lint (skips with a warning if swift-format is missing)
+	@$(IOS_SCRIPTS)/lint.sh --optional
+
+.PHONY: ios-fmt
+ios-fmt: ## iOS: swift-format in place
+	@$(IOS_SCRIPTS)/require-xcode.sh
+	cd ios && xcrun swift-format format --in-place --recursive --parallel App AppTests UITests Widgets NotificationService QuickrKit
+
+.PHONY: check-ios
+check-ios: ## iOS gate: gen, swift test, Unit + UI plans on iOS 26.0 and 27.0, lint, Xcode version
+	@$(IOS_SCRIPTS)/check-ios.sh "$(IOS_SIM_MIN)" "$(IOS_SIM_CUR)"
+
+.PHONY: ios-check-ci
+ios-check-ci: ## iOS: what CI runs on a ready PR (gen, build + Unit plan on iOS 26.x, no signing)
+	@$(IOS_SCRIPTS)/check-ci.sh "$(IOS_SIM_CI)"
+
+.PHONY: ios-sim-run
+ios-sim-run: ios-gen ## iOS: build, install and launch on a simulator (IOS_SIM; URL=quickr://... opens it)
+	@$(IOS_SCRIPTS)/sim-run.sh "$(IOS_SIM)" "$(URL)"
+
+IOS_SHOTS ?= docs/ios/demo/m0
+.PHONY: ios-shots
+ios-shots: ios-gen ## iOS: light + dark screenshots with a clean status bar into IOS_SHOTS
+	@$(IOS_SCRIPTS)/shots.sh "$(IOS_SIM)" "$(IOS_SHOTS)"
+
+IOS_GIF ?= docs/ios/demo/m0/launch.gif
+.PHONY: ios-demo-record
+ios-demo-record: ios-gen ## iOS: record a launch on the simulator and convert to IOS_GIF
+	@$(IOS_SCRIPTS)/demo-record.sh "$(IOS_SIM)" "$(IOS_GIF)"
+
+.PHONY: ios-clean
+ios-clean: ## iOS: remove the generated project and build output
+	rm -rf ios/quickR.xcodeproj ios/build ios/QuickrKit/.build ios/QuickrKit/.swiftpm

@@ -20,6 +20,20 @@ infeasible, the plan must say so explicitly.
 | Bundle IDs               | `com.bahumia.quickr`, with extensions under it (e.g. `com.bahumia.quickr.widgets`). App Group `group.com.bahumia.quickr`. Display name "quickR".                                                                                                                                          |
 | Web app                  | **Keep it working, with full feature parity where possible.** Backend changes must stay compatible with the PWA. New capabilities (e.g. logging from a notification) should reach the web app too where the platform allows.                                                              |
 
+## Change policy (added 2026-10-17)
+
+quickR is **not a production system yet**. If building the app shows that a backend or interface
+change would make the overall design cleaner, make it, including breaking changes. Every consumer
+must be updated in the same work package: the PWA, MCP, the tests and the generated clients.
+
+- Prefer the clean design over compatibility shims.
+- There's no need to keep old cached PWA builds working.
+- `make check` stays green.
+- Migrations keep working downgrades.
+- Breaking changes are listed in the milestone PR.
+
+This replaces the "additive only" wording in PLAN §5 and §1.
+
 ## Infrastructure
 
 - **Hosting (later):** the backend runs on a home box behind **Cloudflare

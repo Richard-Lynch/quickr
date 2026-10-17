@@ -191,7 +191,7 @@ function QuickChips({
               setBusy(o.value);
               void log(topic, { [quick.question.key]: o.value }, { label: o.label })
                 .then((r) => {
-                  if (r.status === 'failed') return;
+                  if (r.status === 'failed' || r.status === 'retired') return;
                   setLogged(o.value);
                   window.setTimeout(() => setLogged(null), CONFIRM_MS);
                 })
@@ -252,7 +252,7 @@ function QuickNumber({
     const label = `${value}${unit ? ` ${unit}` : ''}`;
     void log(topic, { [q.key]: parsed.value }, { label })
       .then((r) => {
-        if (r.status !== 'failed') {
+        if (r.status === 'sent' || r.status === 'queued') {
           numberDrafts.delete(topic.id);
           setTyped(null);
         }

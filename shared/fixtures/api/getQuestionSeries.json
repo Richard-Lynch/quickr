@@ -1,0 +1,40 @@
+{
+  "body": {
+    "bucket": "day",
+    "key": "hours",
+    "points": [
+      {
+        "count": 1,
+        "max": 7.5,
+        "mean": 7.5,
+        "min": 7.5,
+        "option_counts": {},
+        "start": "2026-03-01T00:00:00Z"
+      },
+      {
+        "count": 1,
+        "max": 6.0,
+        "mean": 6.0,
+        "min": 6.0,
+        "option_counts": {},
+        "start": "2026-03-02T00:00:00Z"
+      },
+      {
+        "count": 1,
+        "max": 8.25,
+        "mean": 8.25,
+        "min": 8.25,
+        "option_counts": {},
+        "start": "2026-03-03T00:00:00Z"
+      }
+    ],
+    "type": "double"
+  },
+  "operation_id": "getQuestionSeries",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/topics/everything/questions/hours/series?bucket=day&tz=Europe%2FLondon"
+  },
+  "status": 200
+}

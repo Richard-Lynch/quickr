@@ -1,0 +1,652 @@
+{
+  "body": {
+    "deleted": [],
+    "epoch": "00000000-0000-4000-8000-000000000008",
+    "has_more": false,
+    "head": 16,
+    "items": [
+      {
+        "kind": "topic",
+        "seq": 3,
+        "topic": {
+          "archived_at": null,
+          "created_at": "2026-06-01T12:00:00.123456Z",
+          "current_version": 1,
+          "description": "",
+          "due": {
+            "due_since": "2026-03-04T10:00:00Z",
+            "is_due": true,
+            "last_entry_at": "2026-03-04T07:00:00Z",
+            "next_due_at": "2026-03-04T10:00:00Z"
+          },
+          "entry_count": 2,
+          "id": "00000000-0000-4000-8000-000000000003",
+          "last_captured_at": "2026-03-04T07:00:00Z",
+          "name": "Water",
+          "question_count": 1,
+          "questions": [
+            {
+              "help_text": null,
+              "key": "glasses",
+              "label": "Glasses",
+              "max": 20,
+              "min": 0,
+              "required": true,
+              "type": "int",
+              "unit": null
+            }
+          ],
+          "revision": 1,
+          "schedule": {
+            "every_minutes": 180,
+            "kind": "interval",
+            "notify": false,
+            "timezone": "Europe/London"
+          },
+          "schedule_updated_at": "2026-01-01T00:00:00Z",
+          "slug": "water",
+          "status": "active",
+          "updated_at": "2026-06-01T12:00:00.123456Z"
+        }
+      },
+      {
+        "kind": "topic",
+        "seq": 9,
+        "topic": {
+          "archived_at": null,
+          "created_at": "2026-06-01T12:00:00.123456Z",
+          "current_version": 2,
+          "description": "One of each question type.",
+          "due": {
+            "due_since": "2026-03-04T08:00:00Z",
+            "is_due": true,
+            "last_entry_at": "2026-03-03T07:00:00Z",
+            "next_due_at": "2026-03-04T21:30:00Z"
+          },
+          "entry_count": 3,
+          "id": "00000000-0000-4000-8000-000000000001",
+          "last_captured_at": "2026-03-03T07:00:00Z",
+          "name": "Everything",
+          "question_count": 5,
+          "questions": [
+            {
+              "help_text": null,
+              "key": "glasses",
+              "label": "Glasses of water",
+              "max": 30,
+              "min": 0,
+              "required": true,
+              "type": "int",
+              "unit": "glasses"
+            },
+            {
+              "decimals": 1,
+              "help_text": "Time actually asleep.",
+              "key": "hours",
+              "label": "Hours slept",
+              "max": 24,
+              "min": 0,
+              "required": true,
+              "type": "double",
+              "unit": "h"
+            },
+            {
+              "help_text": null,
+              "key": "mood",
+              "label": "Mood",
+              "max_selected": null,
+              "min_selected": null,
+              "multiple": false,
+              "options": [
+                {
+                  "archived": false,
+                  "label": "Great",
+                  "value": "great"
+                },
+                {
+                  "archived": false,
+                  "label": "OK",
+                  "value": "ok"
+                },
+                {
+                  "archived": true,
+                  "label": "Poor",
+                  "value": "poor"
+                }
+              ],
+              "required": true,
+              "type": "enum"
+            },
+            {
+              "help_text": null,
+              "key": "factors",
+              "label": "Factors",
+              "max_selected": 2,
+              "min_selected": 1,
+              "multiple": true,
+              "options": [
+                {
+                  "archived": false,
+                  "label": "Caffeine",
+                  "value": "caffeine"
+                },
+                {
+                  "archived": false,
+                  "label": "Screens",
+                  "value": "screens"
+                },
+                {
+                  "archived": false,
+                  "label": "Exercise",
+                  "value": "exercise"
+                }
+              ],
+              "required": false,
+              "type": "enum"
+            },
+            {
+              "help_text": null,
+              "key": "note",
+              "label": "Note",
+              "max_length": 280,
+              "min_length": 0,
+              "multiline": true,
+              "required": false,
+              "type": "str"
+            }
+          ],
+          "revision": 2,
+          "schedule": {
+            "days": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7
+            ],
+            "kind": "daily",
+            "notify": true,
+            "times": [
+              "08:00",
+              "21:30"
+            ],
+            "timezone": "Europe/London"
+          },
+          "schedule_updated_at": "2026-01-01T00:00:00Z",
+          "slug": "everything",
+          "status": "active",
+          "updated_at": "2026-06-01T12:00:00.123456Z"
+        }
+      },
+      {
+        "kind": "topic",
+        "seq": 15,
+        "topic": {
+          "archived_at": "2026-06-01T12:00:00.123456Z",
+          "created_at": "2026-06-01T12:00:00.123456Z",
+          "current_version": 1,
+          "description": "Retired.",
+          "due": null,
+          "entry_count": 0,
+          "id": "00000000-0000-4000-8000-000000000002",
+          "last_captured_at": null,
+          "name": "Old habit",
+          "question_count": 1,
+          "questions": [
+            {
+              "help_text": null,
+              "key": "done",
+              "label": "Done",
+              "max": null,
+              "min": null,
+              "required": true,
+              "type": "int",
+              "unit": null
+            }
+          ],
+          "revision": 3,
+          "schedule": null,
+          "schedule_updated_at": null,
+          "slug": "old-habit",
+          "status": "archived",
+          "updated_at": "2026-06-01T12:00:00.123456Z"
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000004",
+        "kind": "version",
+        "seq": 2,
+        "topic_id": "00000000-0000-4000-8000-000000000001",
+        "version": {
+          "change_note": "Initial version",
+          "created_at": "2026-06-01T12:00:00.123456Z",
+          "entry_count": 2,
+          "questions": [
+            {
+              "help_text": null,
+              "key": "glasses",
+              "label": "Glasses of water",
+              "max": 30,
+              "min": 0,
+              "required": true,
+              "type": "int",
+              "unit": "glasses"
+            },
+            {
+              "decimals": 1,
+              "help_text": "Time actually asleep.",
+              "key": "hours",
+              "label": "Hours slept",
+              "max": 24,
+              "min": 0,
+              "required": true,
+              "type": "double",
+              "unit": "h"
+            },
+            {
+              "help_text": null,
+              "key": "mood",
+              "label": "Mood",
+              "max_selected": null,
+              "min_selected": null,
+              "multiple": false,
+              "options": [
+                {
+                  "archived": false,
+                  "label": "Great",
+                  "value": "great"
+                },
+                {
+                  "archived": false,
+                  "label": "OK",
+                  "value": "ok"
+                },
+                {
+                  "archived": false,
+                  "label": "Poor",
+                  "value": "poor"
+                }
+              ],
+              "required": true,
+              "type": "enum"
+            },
+            {
+              "help_text": null,
+              "key": "factors",
+              "label": "Factors",
+              "max_selected": 2,
+              "min_selected": 1,
+              "multiple": true,
+              "options": [
+                {
+                  "archived": false,
+                  "label": "Caffeine",
+                  "value": "caffeine"
+                },
+                {
+                  "archived": false,
+                  "label": "Screens",
+                  "value": "screens"
+                },
+                {
+                  "archived": false,
+                  "label": "Exercise",
+                  "value": "exercise"
+                }
+              ],
+              "required": false,
+              "type": "enum"
+            },
+            {
+              "help_text": null,
+              "key": "note",
+              "label": "Note",
+              "max_length": 280,
+              "min_length": 0,
+              "multiline": true,
+              "required": false,
+              "type": "str"
+            }
+          ],
+          "version": 1
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000005",
+        "kind": "version",
+        "seq": 4,
+        "topic_id": "00000000-0000-4000-8000-000000000003",
+        "version": {
+          "change_note": "Initial version",
+          "created_at": "2026-06-01T12:00:00.123456Z",
+          "entry_count": 2,
+          "questions": [
+            {
+              "help_text": null,
+              "key": "glasses",
+              "label": "Glasses",
+              "max": 20,
+              "min": 0,
+              "required": true,
+              "type": "int",
+              "unit": null
+            }
+          ],
+          "version": 1
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000006",
+        "kind": "version",
+        "seq": 6,
+        "topic_id": "00000000-0000-4000-8000-000000000002",
+        "version": {
+          "change_note": "Initial version",
+          "created_at": "2026-06-01T12:00:00.123456Z",
+          "entry_count": 0,
+          "questions": [
+            {
+              "help_text": null,
+              "key": "done",
+              "label": "Done",
+              "max": null,
+              "min": null,
+              "required": true,
+              "type": "int",
+              "unit": null
+            }
+          ],
+          "version": 1
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000007",
+        "kind": "version",
+        "seq": 10,
+        "topic_id": "00000000-0000-4000-8000-000000000001",
+        "version": {
+          "change_note": "Retire 'poor'",
+          "created_at": "2026-06-01T12:00:00.123456Z",
+          "entry_count": 1,
+          "questions": [
+            {
+              "help_text": null,
+              "key": "glasses",
+              "label": "Glasses of water",
+              "max": 30,
+              "min": 0,
+              "required": true,
+              "type": "int",
+              "unit": "glasses"
+            },
+            {
+              "decimals": 1,
+              "help_text": "Time actually asleep.",
+              "key": "hours",
+              "label": "Hours slept",
+              "max": 24,
+              "min": 0,
+              "required": true,
+              "type": "double",
+              "unit": "h"
+            },
+            {
+              "help_text": null,
+              "key": "mood",
+              "label": "Mood",
+              "max_selected": null,
+              "min_selected": null,
+              "multiple": false,
+              "options": [
+                {
+                  "archived": false,
+                  "label": "Great",
+                  "value": "great"
+                },
+                {
+                  "archived": false,
+                  "label": "OK",
+                  "value": "ok"
+                },
+                {
+                  "archived": true,
+                  "label": "Poor",
+                  "value": "poor"
+                }
+              ],
+              "required": true,
+              "type": "enum"
+            },
+            {
+              "help_text": null,
+              "key": "factors",
+              "label": "Factors",
+              "max_selected": 2,
+              "min_selected": 1,
+              "multiple": true,
+              "options": [
+                {
+                  "archived": false,
+                  "label": "Caffeine",
+                  "value": "caffeine"
+                },
+                {
+                  "archived": false,
+                  "label": "Screens",
+                  "value": "screens"
+                },
+                {
+                  "archived": false,
+                  "label": "Exercise",
+                  "value": "exercise"
+                }
+              ],
+              "required": false,
+              "type": "enum"
+            },
+            {
+              "help_text": null,
+              "key": "note",
+              "label": "Note",
+              "max_length": 280,
+              "min_length": 0,
+              "multiline": true,
+              "required": false,
+              "type": "str"
+            }
+          ],
+          "version": 2
+        }
+      },
+      {
+        "entry": {
+          "answers": [
+            {
+              "key": "glasses",
+              "type": "int",
+              "value": 6
+            },
+            {
+              "key": "hours",
+              "type": "double",
+              "value": 7.5
+            },
+            {
+              "key": "mood",
+              "type": "enum",
+              "value": "great"
+            },
+            {
+              "key": "factors",
+              "type": "enum_list",
+              "value": [
+                "caffeine",
+                "exercise"
+              ]
+            },
+            {
+              "key": "note",
+              "type": "str",
+              "value": "Slept well."
+            }
+          ],
+          "captured_at": "2026-03-01T08:05:00Z",
+          "channel": "api",
+          "created_at": "2026-06-01T12:00:00.123456Z",
+          "id": "0f1e2d3c-4b5a-4968-8778-000000000001",
+          "meta": {
+            "device": "iphone"
+          },
+          "notes": "",
+          "revision": 1,
+          "source": "ios",
+          "topic_id": "00000000-0000-4000-8000-000000000001",
+          "updated_at": "2026-06-01T12:00:00.123456Z",
+          "version": 1
+        },
+        "kind": "entry",
+        "seq": 7
+      },
+      {
+        "entry": {
+          "answers": [
+            {
+              "key": "glasses",
+              "type": "int",
+              "value": 8
+            },
+            {
+              "key": "hours",
+              "type": "double",
+              "value": 8.25
+            },
+            {
+              "key": "mood",
+              "type": "enum",
+              "value": "ok"
+            },
+            {
+              "key": "factors",
+              "type": "enum_list",
+              "value": [
+                "screens"
+              ]
+            }
+          ],
+          "captured_at": "2026-03-03T07:00:00Z",
+          "channel": "api",
+          "created_at": "2026-06-01T12:00:00.123456Z",
+          "id": "0f1e2d3c-4b5a-4968-8778-000000000003",
+          "meta": {},
+          "notes": "Weekend.",
+          "revision": 1,
+          "source": "api",
+          "topic_id": "00000000-0000-4000-8000-000000000001",
+          "updated_at": "2026-06-01T12:00:00.123456Z",
+          "version": 2
+        },
+        "kind": "entry",
+        "seq": 11
+      },
+      {
+        "entry": {
+          "answers": [
+            {
+              "key": "glasses",
+              "type": "int",
+              "value": 2
+            }
+          ],
+          "captured_at": "2026-03-03T09:00:00Z",
+          "channel": "api",
+          "created_at": "2026-06-01T12:00:00.123456Z",
+          "id": "0f1e2d3c-4b5a-4968-8778-000000000004",
+          "meta": {},
+          "notes": "",
+          "revision": 1,
+          "source": "api",
+          "topic_id": "00000000-0000-4000-8000-000000000003",
+          "updated_at": "2026-06-01T12:00:00.123456Z",
+          "version": 1
+        },
+        "kind": "entry",
+        "seq": 12
+      },
+      {
+        "entry": {
+          "answers": [
+            {
+              "key": "glasses",
+              "type": "int",
+              "value": 3
+            },
+            {
+              "key": "hours",
+              "type": "double",
+              "value": 6.0
+            },
+            {
+              "key": "mood",
+              "type": "enum",
+              "value": "poor"
+            },
+            {
+              "key": "note",
+              "type": "str",
+              "value": "Restless night."
+            }
+          ],
+          "captured_at": "2026-03-02T07:55:00Z",
+          "channel": "api",
+          "created_at": "2026-06-01T12:00:00.123456Z",
+          "id": "0f1e2d3c-4b5a-4968-8778-000000000002",
+          "meta": {},
+          "notes": "Edited later.",
+          "revision": 2,
+          "source": "api",
+          "topic_id": "00000000-0000-4000-8000-000000000001",
+          "updated_at": "2026-06-01T12:00:00.123456Z",
+          "version": 1
+        },
+        "kind": "entry",
+        "seq": 13
+      },
+      {
+        "entry": {
+          "answers": [
+            {
+              "key": "glasses",
+              "type": "int",
+              "value": 1
+            }
+          ],
+          "captured_at": "2026-03-04T07:00:00Z",
+          "channel": "api",
+          "created_at": "2026-06-01T12:00:00.123456Z",
+          "id": "0f1e2d3c-4b5a-4968-8778-000000000005",
+          "meta": {},
+          "notes": "",
+          "revision": 1,
+          "source": "api",
+          "topic_id": "00000000-0000-4000-8000-000000000003",
+          "updated_at": "2026-06-01T12:00:00.123456Z",
+          "version": 1
+        },
+        "kind": "entry",
+        "seq": 16
+      }
+    ],
+    "next": 16,
+    "server_id": "00000000-0000-4000-8000-000000000009",
+    "server_time": "2026-06-01T12:00:00.123456Z"
+  },
+  "operation_id": "listChanges",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/changes?after=0&limit=500"
+  },
+  "status": 200
+}

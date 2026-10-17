@@ -3,8 +3,8 @@
 import { type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { archiveTopic, checkTopicVersion, createEntry, createPushSubscription, createTopic, deleteEntry, deletePushSubscription, deleteTopic, exportEntriesCsv, getEntry, getLimits, getPushConfig, getQuestionSeries, getTopic, getTopicStats, health, listEntries, listQuestionTypes, listTopics, listTopicVersions, type Options, publishTopicVersion, sendTestPush, unarchiveTopic, updateEntry, updateTopic } from '../sdk.gen';
-import type { ArchiveTopicData, ArchiveTopicError, ArchiveTopicResponse, CheckTopicVersionData, CheckTopicVersionError, CheckTopicVersionResponse, CreateEntryData, CreateEntryError, CreateEntryResponse, CreatePushSubscriptionData, CreatePushSubscriptionError, CreatePushSubscriptionResponse, CreateTopicData, CreateTopicError, CreateTopicResponse, DeleteEntryData, DeleteEntryError, DeleteEntryResponse, DeletePushSubscriptionData, DeletePushSubscriptionError, DeletePushSubscriptionResponse, DeleteTopicData, DeleteTopicError, DeleteTopicResponse, ExportEntriesCsvData, ExportEntriesCsvError, ExportEntriesCsvResponse, GetEntryData, GetEntryError, GetEntryResponse, GetLimitsData, GetLimitsError, GetLimitsResponse, GetPushConfigData, GetPushConfigError, GetPushConfigResponse, GetQuestionSeriesData, GetQuestionSeriesError, GetQuestionSeriesResponse, GetTopicData, GetTopicError, GetTopicResponse, GetTopicStatsData, GetTopicStatsError, GetTopicStatsResponse, HealthData, HealthError, HealthResponse, ListEntriesData, ListEntriesError, ListEntriesResponse, ListQuestionTypesData, ListQuestionTypesError, ListQuestionTypesResponse, ListTopicsData, ListTopicsError, ListTopicsResponse, ListTopicVersionsData, ListTopicVersionsError, ListTopicVersionsResponse, PublishTopicVersionData, PublishTopicVersionError, PublishTopicVersionResponse, SendTestPushData, SendTestPushError, SendTestPushResponse, UnarchiveTopicData, UnarchiveTopicError, UnarchiveTopicResponse, UpdateEntryData, UpdateEntryError, UpdateEntryResponse, UpdateTopicData, UpdateTopicError, UpdateTopicResponse } from '../types.gen';
+import { archiveTopic, checkTopicVersion, createEntry, createPushSubscription, createTopic, deleteEntry, deletePushSubscription, deleteTopic, exportEntriesCsv, getEntry, getLimits, getPushConfig, getQuestionSeries, getTopic, getTopicStats, health, listChanges, listEntries, listQuestionTypes, listTopics, listTopicVersions, type Options, publishTopicVersion, sendTestPush, unarchiveTopic, updateEntry, updateTopic } from '../sdk.gen';
+import type { ArchiveTopicData, ArchiveTopicError, ArchiveTopicResponse, CheckTopicVersionData, CheckTopicVersionError, CheckTopicVersionResponse, CreateEntryData, CreateEntryError, CreateEntryResponse, CreatePushSubscriptionData, CreatePushSubscriptionError, CreatePushSubscriptionResponse, CreateTopicData, CreateTopicError, CreateTopicResponse, DeleteEntryData, DeleteEntryError, DeleteEntryResponse, DeletePushSubscriptionData, DeletePushSubscriptionError, DeletePushSubscriptionResponse, DeleteTopicData, DeleteTopicError, DeleteTopicResponse, ExportEntriesCsvData, ExportEntriesCsvError, ExportEntriesCsvResponse, GetEntryData, GetEntryError, GetEntryResponse, GetLimitsData, GetLimitsError, GetLimitsResponse, GetPushConfigData, GetPushConfigError, GetPushConfigResponse, GetQuestionSeriesData, GetQuestionSeriesError, GetQuestionSeriesResponse, GetTopicData, GetTopicError, GetTopicResponse, GetTopicStatsData, GetTopicStatsError, GetTopicStatsResponse, HealthData, HealthError, HealthResponse, ListChangesData, ListChangesError, ListChangesResponse, ListEntriesData, ListEntriesError, ListEntriesResponse, ListQuestionTypesData, ListQuestionTypesError, ListQuestionTypesResponse, ListTopicsData, ListTopicsError, ListTopicsResponse, ListTopicVersionsData, ListTopicVersionsError, ListTopicVersionsResponse, PublishTopicVersionData, PublishTopicVersionError, PublishTopicVersionResponse, SendTestPushData, SendTestPushError, SendTestPushResponse, UnarchiveTopicData, UnarchiveTopicError, UnarchiveTopicResponse, UpdateEntryData, UpdateEntryError, UpdateEntryResponse, UpdateTopicData, UpdateTopicError, UpdateTopicResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -418,6 +418,9 @@ export const exportEntriesCsvOptions = (options: Options<ExportEntriesCsvData>) 
 
 /**
  * Delete Entry
+ *
+ * Delete an entry. Idempotent: an unknown id also returns 204 and is reserved, so the
+ * entry can never be created afterwards (a later create gets 409 entry_deleted).
  */
 export const deleteEntryMutation = (options?: Partial<Options<DeleteEntryData>>): UseMutationOptions<DeleteEntryResponse, DeleteEntryError, Options<DeleteEntryData>> => {
     const mutationOptions: UseMutationOptions<DeleteEntryResponse, DeleteEntryError, Options<DeleteEntryData>> = {
@@ -466,6 +469,64 @@ export const updateEntryMutation = (options?: Partial<Options<UpdateEntryData>>)
         }
     };
     return mutationOptions;
+};
+
+export const listChangesQueryKey = (options?: Options<ListChangesData>) => createQueryKey('listChanges', options);
+
+/**
+ * List Changes
+ *
+ * The change feed: every topic, version and entry changed after a cursor, plus deletions.
+ *
+ * Start from ``after=0`` to bootstrap, then follow ``next`` while ``has_more``. When ``epoch``
+ * changes, or the cursor is above ``head``, rebuild from ``after=0``.
+ */
+export const listChangesOptions = (options?: Options<ListChangesData>) => queryOptions<ListChangesResponse, ListChangesError, ListChangesResponse, ReturnType<typeof listChangesQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listChanges({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listChangesQueryKey(options)
+});
+
+export const listChangesInfiniteQueryKey = (options?: Options<ListChangesData>): QueryKey<Options<ListChangesData>> => createQueryKey('listChanges', options, true);
+
+/**
+ * List Changes
+ *
+ * The change feed: every topic, version and entry changed after a cursor, plus deletions.
+ *
+ * Start from ``after=0`` to bootstrap, then follow ``next`` while ``has_more``. When ``epoch``
+ * changes, or the cursor is above ``head``, rebuild from ``after=0``.
+ */
+export const listChangesInfiniteOptions = (options?: Options<ListChangesData>) => {
+    const opts = infiniteQueryOptions<ListChangesResponse, ListChangesError, InfiniteData<ListChangesResponse>, QueryKey<Options<ListChangesData>>, number | Pick<QueryKey<Options<ListChangesData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
+    // @ts-ignore
+    {
+        queryFn: async ({ pageParam, queryKey, signal }) => {
+            // @ts-ignore
+            const page: Pick<QueryKey<Options<ListChangesData>>[0], 'body' | 'headers' | 'path' | 'query'> = typeof pageParam === 'object' ? pageParam : {
+                query: {
+                    after: pageParam
+                }
+            };
+            const params = createInfiniteParams(queryKey, page);
+            const { data } = await listChanges({
+                ...options,
+                ...params,
+                signal,
+                throwOnError: true
+            });
+            return data;
+        },
+        queryKey: listChangesInfiniteQueryKey(options)
+    });
+    return opts as Omit<typeof opts, 'initialData'>;
 };
 
 export const getTopicStatsQueryKey = (options: Options<GetTopicStatsData>) => createQueryKey('getTopicStats', options);

@@ -23,7 +23,19 @@ export type RecordResult =
   | { status: 'sent'; entry: EntryOut | null; itemId: string }
   | { status: 'queued'; itemId: string }
   /** Rejected by the server (4xx). `error` is the Problem body when there is one. */
-  | { status: 'failed'; error: unknown; itemId: string };
+  | { status: 'failed'; error: unknown; itemId: string }
+  /**
+   * Never recorded: the server says this entry id was deleted (e.g. undone on another
+   * device). Nothing is queued and nothing will sync.
+   */
+  | { status: 'retired'; itemId: string };
+
+/** What to tell the user about a `retired` result. */
+export const ENTRY_NOT_SAVED = {
+  title: 'Not saved',
+  description: 'This entry was deleted, so it won’t be recorded.',
+  tone: 'danger',
+} as const;
 
 function errorOf(item: OutboxItem): unknown {
   return item.last_error?.body ?? new Error(item.last_error?.message ?? 'Request failed');
@@ -71,6 +83,8 @@ export async function recordEntry(
       // form and drop the queued copy. A fix keeps its item (discard is explicit).
       if (!fixItemId && !keepFailed) await outbox.discard(item.id);
       return { status: 'failed', error: errorOf(r.item), itemId: item.id };
+    case 'retired':
+      return { status: 'retired', itemId: item.id };
     case 'discarded':
     case 'queued':
       return { status: 'queued', itemId: item.id };

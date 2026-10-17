@@ -1,0 +1,423 @@
+{
+  "body": [
+    {
+      "description": "Whole number, optional inclusive min/max and unit.",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "help_text": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Help Text"
+          },
+          "key": {
+            "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+            "examples": [
+              "hours_slept"
+            ],
+            "pattern": "^[a-z][a-z0-9_]{0,62}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Inclusive upper bound.",
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Inclusive lower bound.",
+            "title": "Min"
+          },
+          "required": {
+            "default": true,
+            "title": "Required",
+            "type": "boolean"
+          },
+          "type": {
+            "const": "int",
+            "default": "int",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Unit"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "IntQuestion",
+        "type": "object"
+      },
+      "type": "int"
+    },
+    {
+      "description": "Decimal number, optional inclusive min/max, decimals hint and unit.",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "decimals": {
+            "anyOf": [
+              {
+                "maximum": 10,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Display/input precision hint.",
+            "title": "Decimals"
+          },
+          "help_text": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Help Text"
+          },
+          "key": {
+            "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+            "examples": [
+              "hours_slept"
+            ],
+            "pattern": "^[a-z][a-z0-9_]{0,62}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Inclusive upper bound.",
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Inclusive lower bound.",
+            "title": "Min"
+          },
+          "required": {
+            "default": true,
+            "title": "Required",
+            "type": "boolean"
+          },
+          "type": {
+            "const": "double",
+            "default": "double",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Unit"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "DoubleQuestion",
+        "type": "object"
+      },
+      "type": "double"
+    },
+    {
+      "description": "Free text with min/max length; multiline renders a textarea.",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "help_text": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Help Text"
+          },
+          "key": {
+            "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+            "examples": [
+              "hours_slept"
+            ],
+            "pattern": "^[a-z][a-z0-9_]{0,62}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "max_length": {
+            "default": 500,
+            "maximum": 10000,
+            "minimum": 1,
+            "title": "Max Length",
+            "type": "integer"
+          },
+          "min_length": {
+            "default": 0,
+            "maximum": 10000,
+            "minimum": 0,
+            "title": "Min Length",
+            "type": "integer"
+          },
+          "multiline": {
+            "default": false,
+            "title": "Multiline",
+            "type": "boolean"
+          },
+          "required": {
+            "default": true,
+            "title": "Required",
+            "type": "boolean"
+          },
+          "type": {
+            "const": "str",
+            "default": "str",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "StrQuestion",
+        "type": "object"
+      },
+      "type": "str"
+    },
+    {
+      "description": "One (or, with multiple, several) of a configured list of options. Options can be archived, never removed.",
+      "json_schema": {
+        "$defs": {
+          "EnumOption": {
+            "additionalProperties": false,
+            "properties": {
+              "archived": {
+                "default": false,
+                "description": "Archived options remain valid for historic data but are hidden from new entries.",
+                "title": "Archived",
+                "type": "boolean"
+              },
+              "label": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Label",
+                "type": "string"
+              },
+              "value": {
+                "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+                "examples": [
+                  "hours_slept"
+                ],
+                "pattern": "^[a-z][a-z0-9_]{0,62}$",
+                "title": "Value",
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "label"
+            ],
+            "title": "EnumOption",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "help_text": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Help Text"
+          },
+          "key": {
+            "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+            "examples": [
+              "hours_slept"
+            ],
+            "pattern": "^[a-z][a-z0-9_]{0,62}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "max_selected": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Multi-select only: most options an answer may select.",
+            "title": "Max Selected"
+          },
+          "min_selected": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Multi-select only: fewest options an answer may select.",
+            "title": "Min Selected"
+          },
+          "multiple": {
+            "default": false,
+            "description": "Allow selecting several options; the answer is then a list of option values.",
+            "title": "Multiple",
+            "type": "boolean"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/$defs/EnumOption"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Options",
+            "type": "array"
+          },
+          "required": {
+            "default": true,
+            "title": "Required",
+            "type": "boolean"
+          },
+          "type": {
+            "const": "enum",
+            "default": "enum",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "options"
+        ],
+        "title": "EnumQuestion",
+        "type": "object"
+      },
+      "type": "enum"
+    }
+  ],
+  "operation_id": "listQuestionTypes",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/question-types"
+  },
+  "status": 200
+}

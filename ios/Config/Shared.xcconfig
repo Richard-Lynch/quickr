@@ -1,0 +1,5 @@
+// Project-wide build settings shared by every target and configuration.
+// Machine-specific values (DEVELOPMENT_TEAM, device id, dev server URL) live in the
+// gitignored ios/Local.xcconfig; copy ios/Local.xcconfig.example to start one.
+// Simulator builds work without it.
+#include? "../Local.xcconfig"

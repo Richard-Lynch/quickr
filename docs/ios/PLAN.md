@@ -261,6 +261,39 @@ Codex round-2 finding it answers ([review](reviews/plan-v2-codex.md)).
       every request it sends has a golden.
     - The CI Unit plan runs on an **iOS 26.x** simulator, the minimum we deploy to.
 
+### Amendments from the M0 specs review (2026-10-17)
+
+These amendments come from the Codex review of the specs ([review](reviews/m0-wp-specs-codex.md)).
+They take precedence over the rules above where they conflict.
+
+13. **Identity and epoch preconditions.**
+    - Every response carries the `X-QuickR-Server-Id` and `X-QuickR-Epoch` headers.
+    - A mutation may send `X-QuickR-Expect-Server-Id` and `X-QuickR-Expect-Epoch`. If either doesn't
+      match, the server rejects it with 409 `server_mismatch` or `epoch_mismatch` **before
+      executing**.
+    - The iOS client always sends both, so a queued write can never run on the wrong server or
+      generation.
+    - Each request captures a local store generation. An outcome that comes back for an obsolete
+      generation is discarded.
+14. **Coordination.**
+    - One coordinator owns both pulls and rebuilds, fenced by its lock token and generation, with a
+      single global lock order.
+    - Leases use boot-relative time plus a boot-session id, never wall-clock time.
+    - A reset creates a fresh store file and bumps a registry generation, which other processes
+      watch so they can reopen.
+15. **Coalescing** applies only to adjacent, never-sent operations on the same entity, with no
+    operation for the same topic in between. While an undoable delete is held, everything queued
+    before it is kept.
+16. **Notification categories (this amends rule 9).**
+    - The category table is append-only, with no pruning in v1.
+    - Registration takes the union of the table under the registry lock.
+    - Delivered notifications are snapshotted outside SQLite.
+    - Reconciliation (`getNotificationCategories` → re-register what's missing) runs on app
+      activation and at NSE start.
+    - Concurrent replacement is tested on the device at checkpoint D.
+    - The NSE never flushes the outbox.
+    - The badge comes only from the active store's derived due state.
+
 ## 7. Milestones
 
 Effort is relative (S < M < L < XL). **Needs** lists the human steps (§9) that

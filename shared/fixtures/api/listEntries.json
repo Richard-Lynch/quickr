@@ -1,0 +1,133 @@
+{
+  "body": {
+    "items": [
+      {
+        "answers": [
+          {
+            "key": "glasses",
+            "type": "int",
+            "value": 8
+          },
+          {
+            "key": "hours",
+            "type": "double",
+            "value": 8.25
+          },
+          {
+            "key": "mood",
+            "type": "enum",
+            "value": "ok"
+          },
+          {
+            "key": "factors",
+            "type": "enum_list",
+            "value": [
+              "screens"
+            ]
+          }
+        ],
+        "captured_at": "2026-03-03T07:00:00Z",
+        "channel": "api",
+        "created_at": "2026-06-01T12:00:00.123456Z",
+        "id": "0f1e2d3c-4b5a-4968-8778-000000000003",
+        "meta": {},
+        "notes": "Weekend.",
+        "revision": 1,
+        "source": "api",
+        "topic_id": "00000000-0000-4000-8000-000000000001",
+        "updated_at": "2026-06-01T12:00:00.123456Z",
+        "version": 2
+      },
+      {
+        "answers": [
+          {
+            "key": "glasses",
+            "type": "int",
+            "value": 3
+          },
+          {
+            "key": "hours",
+            "type": "double",
+            "value": 6.0
+          },
+          {
+            "key": "mood",
+            "type": "enum",
+            "value": "poor"
+          },
+          {
+            "key": "note",
+            "type": "str",
+            "value": "Restless night."
+          }
+        ],
+        "captured_at": "2026-03-02T07:55:00Z",
+        "channel": "api",
+        "created_at": "2026-06-01T12:00:00.123456Z",
+        "id": "0f1e2d3c-4b5a-4968-8778-000000000002",
+        "meta": {},
+        "notes": "Edited later.",
+        "revision": 2,
+        "source": "api",
+        "topic_id": "00000000-0000-4000-8000-000000000001",
+        "updated_at": "2026-06-01T12:00:00.123456Z",
+        "version": 1
+      },
+      {
+        "answers": [
+          {
+            "key": "glasses",
+            "type": "int",
+            "value": 6
+          },
+          {
+            "key": "hours",
+            "type": "double",
+            "value": 7.5
+          },
+          {
+            "key": "mood",
+            "type": "enum",
+            "value": "great"
+          },
+          {
+            "key": "factors",
+            "type": "enum_list",
+            "value": [
+              "caffeine",
+              "exercise"
+            ]
+          },
+          {
+            "key": "note",
+            "type": "str",
+            "value": "Slept well."
+          }
+        ],
+        "captured_at": "2026-03-01T08:05:00Z",
+        "channel": "api",
+        "created_at": "2026-06-01T12:00:00.123456Z",
+        "id": "0f1e2d3c-4b5a-4968-8778-000000000001",
+        "meta": {
+          "device": "iphone"
+        },
+        "notes": "",
+        "revision": 1,
+        "source": "ios",
+        "topic_id": "00000000-0000-4000-8000-000000000001",
+        "updated_at": "2026-06-01T12:00:00.123456Z",
+        "version": 1
+      }
+    ],
+    "limit": 50,
+    "offset": 0,
+    "total": 3
+  },
+  "operation_id": "listEntries",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/topics/everything/entries"
+  },
+  "status": 200
+}

@@ -1,0 +1,12 @@
+{
+  "body": {
+    "status": "ok"
+  },
+  "operation_id": "health",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/health"
+  },
+  "status": 200
+}

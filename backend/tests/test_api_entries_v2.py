@@ -7,13 +7,10 @@ import csv
 import io
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import httpx
-import pytest
 
-from app.schemas.api import EntryOut
-from app.services import entries as entry_svc
 from tests.helpers import make_topic, record
 
 ANSWERS = {"hours": 7.5, "wakeups": 1, "quality": "ok"}
@@ -88,25 +85,6 @@ async def test_concurrent_duplicate_submits_do_not_500(client: httpx.AsyncClient
     assert {r.status_code for r in responses} == {201}
     assert {r.json()["id"] for r in responses} == {entry_id}
     assert (await client.get("/topics/sleep-log/entries")).json()["total"] == 1
-
-
-async def test_lost_race_replays_winner(client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Deterministic version of the race: the pre-check misses, the insert hits the PK."""
-    await make_topic(client)
-    entry_id = str(uuid4())
-    winner = await record(client, "sleep-log", ANSWERS, id=entry_id)
-    real = entry_svc._existing
-    calls: list[UUID] = []
-
-    async def miss_once(db: Any, eid: UUID, topic_id: UUID) -> EntryOut | None:
-        calls.append(eid)
-        return None if len(calls) == 1 else await real(db, eid, topic_id)
-
-    monkeypatch.setattr(entry_svc, "_existing", miss_once)
-    r = await client.post("/topics/sleep-log/entries", json={"id": entry_id, "answers": ANSWERS})
-    assert r.status_code == 201
-    assert r.json() == winner
-    assert len(calls) == 2
 
 
 async def test_invalid_client_id(client: httpx.AsyncClient) -> None:

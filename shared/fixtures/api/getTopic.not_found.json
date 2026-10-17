@@ -1,0 +1,14 @@
+{
+  "body": {
+    "code": "not_found",
+    "detail": "topic 'nope' not found",
+    "errors": []
+  },
+  "operation_id": "getTopic",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/topics/nope"
+  },
+  "status": 404
+}
