@@ -163,7 +163,7 @@ import Testing
         #expect(transport.requests[0].headers[QuickrHeader.expectEpoch] == APITest.otherEpoch)
         #expect(result.expected == claim)
         let observed = APITest.fixtureIdentity
-        #expect(result.outcome == .epochMismatch(.responseHeaders(observed: observed)))
+        #expect(result.outcome == .epochMismatch(.responseHeaders(observed: ObservedIdentity(observed))))
     }
 
     @Test func readsAreCheckedAgainstTheStoreIdentity() async throws {
@@ -289,7 +289,7 @@ extension APIResponse {
     /// Type-erased, so calls with different success types fit one table.
     fileprivate var erased: APIResponse<any Sendable> {
         APIResponse<any Sendable>(
-            outcome: outcome.map { $0 as any Sendable }, status: status, identity: identity, expected: expected,
-            body: body)
+            outcome: outcome.map { $0 as any Sendable }, status: status, observed: observed, expected: expected,
+            body: body, bodyIsTrusted: bodyIsTrusted)
     }
 }

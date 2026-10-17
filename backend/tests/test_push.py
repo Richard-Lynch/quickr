@@ -169,6 +169,13 @@ async def test_send_test_push(client: httpx.AsyncClient, outbox: list[Sent]) -> 
         "url": "/",
         "tag": "test",
         "topic_slug": None,
+        "v": 1,
+        "kind": "test",
+        "server_id": None,
+        "topic_id": None,
+        "version": None,
+        "due_since": None,
+        "quick_log": None,
     }
     assert outbox[0].claims == {"sub": "https://github.com/Richard-Lynch/quickr"}
     public = (await client.get("/push/config")).json()["public_key"]
@@ -245,12 +252,29 @@ async def test_tick_notifies_once_per_due_slot(client: httpx.AsyncClient, outbox
     due_at = last + timedelta(minutes=60)
     assert await _tick(due_at + timedelta(minutes=1)) == 1
     assert sorted(s.endpoint for s in outbox) == [sub(1)["endpoint"], sub(2)["endpoint"]]
+    server_id = (await client.get("/changes")).headers["x-quickr-server-id"]
     assert outbox[0].payload == {
         "title": "Water",
         "body": "Time to log",
         "url": "/t/water/record",
         "tag": f"due-{t['id']}",
         "topic_slug": "water",
+        "v": 1,
+        "kind": "due",
+        "server_id": server_id,
+        "topic_id": t["id"],
+        "version": 1,
+        "due_since": due_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "quick_log": {
+            "type": "int",
+            "key": "n",
+            "label": "N",
+            "unit": None,
+            "min": None,
+            "max": None,
+            "decimals": None,
+            "last_value": 1,
+        },
     }
     assert outbox[0].ttl == push_svc.DEFAULT_TTL_SECONDS
 
