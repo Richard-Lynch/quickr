@@ -19,10 +19,36 @@ public struct ServerIdentity: Sendable, Hashable {
         else { return nil }
         self.init(serverId: serverId, epoch: epoch)
     }
+}
 
-    func sameServer(as other: ServerIdentity) -> Bool { serverId.lowercased() == other.serverId.lowercased() }
+/// The identity headers a response actually carried; either may be missing (a proxy that strips
+/// one, a misbehaving server). Each present header is compared on its own.
+public struct ObservedIdentity: Sendable, Hashable {
+    public var serverId: String?
+    public var epoch: String?
 
-    func sameEpoch(as other: ServerIdentity) -> Bool { epoch.lowercased() == other.epoch.lowercased() }
+    public init(serverId: String?, epoch: String?) {
+        self.serverId = serverId
+        self.epoch = epoch
+    }
+
+    public init(_ identity: ServerIdentity) {
+        self.init(serverId: identity.serverId, epoch: identity.epoch)
+    }
+
+    public init(response headers: HTTPHeaders) {
+        self.init(
+            serverId: headers[QuickrHeader.serverId].flatMap { $0.isEmpty ? nil : $0 },
+            epoch: headers[QuickrHeader.epoch].flatMap { $0.isEmpty ? nil : $0 })
+    }
+
+    /// Both headers, when both are present.
+    public var complete: ServerIdentity? {
+        guard let serverId, let epoch else { return nil }
+        return ServerIdentity(serverId: serverId, epoch: epoch)
+    }
+
+    public var isEmpty: Bool { serverId == nil && epoch == nil }
 }
 
 /// What one API call means for its caller: outbox.md §5.1 (the PWA's classification) after the
@@ -37,15 +63,13 @@ public struct ServerIdentity: Sendable, Hashable {
 /// | --------------------------------------------------------------- | ---------------------------------------- |
 /// | No response, request not started (offline, DNS, TLS)            | `retryable(.noResponse)`                 |
 /// | No response after the request started (timeout, lost, cancel)   | `uncertain(.noResponse)`                 |
-/// | 2xx without the identity headers                                | `identityMismatch(.missingHeaders)`      |
-/// | Non-2xx without the headers: 3xx                                | `retryable(.redirect)`                   |
-/// | Non-2xx without the headers: 401, 403, 408, 425, 429            | `retryable(.status)`, no Problem         |
-/// | Non-2xx without the headers: 5xx                                | `uncertain(.serverError)`, no Problem    |
-/// | Non-2xx without the headers: anything else                      | `retryable(.unexpectedResponse)`         |
-/// | 409 `server_mismatch`                                           | `identityMismatch(.preconditionRejected)`|
-/// | Server header differs from the expected identity                | `identityMismatch(.responseHeaders)`     |
-/// | 409 `epoch_mismatch`                                            | `epochMismatch(.preconditionRejected)`   |
-/// | Epoch header differs from the expected identity                 | `epochMismatch(.responseHeaders)`        |
+/// | A present server header differs, or 409 `server_mismatch`       | `identityMismatch`                       |
+/// | A present epoch header differs, or 409 `epoch_mismatch`         | `epochMismatch`                          |
+/// | 2xx without one or both identity headers                        | `identityMismatch(.missingHeaders)`      |
+/// | Non-2xx without one or both headers: 3xx                        | `retryable(.redirect)`                   |
+/// | Non-2xx without one or both headers: 401, 403, 408, 425, 429    | `retryable(.status)`, no Problem         |
+/// | Non-2xx without one or both headers: 5xx                        | `uncertain(.serverError)`, no Problem    |
+/// | Non-2xx without one or both headers: anything else              | `retryable(.unexpectedResponse)`         |
 /// | 2xx that decodes as the operation's type                        | `success`                                |
 /// | 2xx that doesn't (not JSON, captive portal, missing fields)     | `uncertain(.undecodableSuccess)`         |
 /// | 3xx                                                             | `retryable(.redirect)`                   |
@@ -57,8 +81,12 @@ public struct ServerIdentity: Sendable, Hashable {
 /// | 5xx                                                             | `uncertain(.serverError)`                |
 /// | Any other status (1xx, 6xx…)                                    | `retryable(.unexpectedResponse)`         |
 ///
-/// The rows are checked top to bottom. Without an expected identity (before the store is
-/// bootstrapped) the two header comparisons are skipped; the missing-header rows still apply.
+/// The rows are checked top to bottom. Each present header is compared on its own (server
+/// first), so a partial set still triggers a mismatch. The 409 precondition codes are read only
+/// from a response with both headers; a mismatch is `.preconditionRejected` (nothing executed)
+/// whenever the response is a 409 `server_mismatch` or `epoch_mismatch`, whichever mismatch
+/// takes priority. Without an expected identity (before the store is bootstrapped) the header
+/// comparisons are skipped; the missing-header rows still apply.
 public enum APIOutcome<Success: Sendable>: Sendable {
     /// A 2xx from the expected server and epoch whose body decoded and mapped to the domain.
     case success(Success)
@@ -167,13 +195,16 @@ public enum UncertainReason: Sendable, Hashable {
 
 /// What shows that a response came from the wrong server or epoch.
 public enum MismatchEvidence: Sendable, Hashable {
-    /// 409 `server_mismatch` or `epoch_mismatch`: the F10 precondition rejected the mutation
-    /// before any effect. **Nothing executed**: restore the item's pre-claim state.
-    case preconditionRejected(observed: ServerIdentity?)
-    /// The response headers name another server or epoch. The request may have executed.
-    case responseHeaders(observed: ServerIdentity)
-    /// A 2xx without the identity headers (only ever an identity mismatch). It may have executed.
-    case missingHeaders(status: Int)
+    /// 409 `server_mismatch` or `epoch_mismatch` (with both identity headers): the F10
+    /// precondition rejected the mutation before any effect. **Nothing executed**: restore the
+    /// item's pre-claim state. Used for both mismatches, whichever the headers show first.
+    case preconditionRejected(observed: ServerIdentity)
+    /// A present response header names another server or epoch (the other header may be
+    /// missing). The request may have executed.
+    case responseHeaders(observed: ObservedIdentity)
+    /// A 2xx without one or both identity headers, neither of them different (only ever an
+    /// identity mismatch). It may have executed.
+    case missingHeaders(status: Int, observed: ObservedIdentity)
 
     public var mayHaveExecuted: Bool {
         if case .preconditionRejected = self { return false }
@@ -188,22 +219,28 @@ public struct APIResponse<Success: Sendable>: Sendable {
     /// The HTTP status; nil when no response arrived.
     public var status: Int?
     /// The response's identity headers, when both were present (whatever the outcome).
-    public var identity: ServerIdentity?
+    public var identity: ServerIdentity? { observed.complete }
+    /// The identity headers the response carried, possibly partial.
+    public var observed: ObservedIdentity
     /// The identity the response was checked against: the mutation's expectation, or the
     /// store's identity for a read. Nil before bootstrap.
     public var expected: ServerIdentity?
     /// The raw response body (empty when no response arrived).
     public var body: Data
+    /// Whether the body may be read as quickR's: both identity headers present and no mismatch.
+    /// `message` and `errorInfo` ignore an untrusted body (sync-protocol.md §1.4 provenance).
+    public var bodyIsTrusted: Bool
 
     public init(
-        outcome: APIOutcome<Success>, status: Int?, identity: ServerIdentity?, expected: ServerIdentity?,
-        body: Data = Data()
+        outcome: APIOutcome<Success>, status: Int?, observed: ObservedIdentity, expected: ServerIdentity?,
+        body: Data = Data(), bodyIsTrusted: Bool
     ) {
         self.outcome = outcome
         self.status = status
-        self.identity = identity
+        self.observed = observed
         self.expected = expected
         self.body = body
+        self.bodyIsTrusted = bodyIsTrusted
     }
 
     /// The success value, if any.
@@ -213,7 +250,8 @@ public struct APIResponse<Success: Sendable>: Sendable {
     }
 
     /// The user-facing failure text: the PWA's `errorMessageFor` and `attempt()` strings
-    /// (outbox.md §5.1). Nil for a success.
+    /// (outbox.md §5.1). Nil for a success. A Problem `detail` is used only from a trusted body;
+    /// otherwise the status text ("Server error (n)", "Request failed (n)").
     public var message: String? {
         switch outcome {
         case .success: nil
@@ -223,15 +261,16 @@ public struct APIResponse<Success: Sendable>: Sendable {
             "Unexpected response from the server"
         case .identityMismatch: "The server address now reaches a different quickR server"
         case .epochMismatch: "The server's data was restored or reset"
-        default: Self.errorMessage(status: status ?? 0, body: body)
+        default: Self.errorMessage(status: status ?? 0, body: bodyIsTrusted ? body : Data())
         }
     }
 
     /// `last_error_json` for an outbox item (`{message, status, body?}`, the PWA `OutboxError`).
-    /// Nil for a success.
+    /// Nil for a success. `body` only when the body is trusted.
     public var errorInfo: OutboxErrorInfo? {
         guard let message else { return nil }
-        let json = body.isEmpty ? nil : try? WireCoding.decoder().decode(JSONValue.self, from: body)
+        let json =
+            !bodyIsTrusted || body.isEmpty ? nil : try? WireCoding.decoder().decode(JSONValue.self, from: body)
         return OutboxErrorInfo(message: message, status: status, body: json)
     }
 

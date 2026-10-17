@@ -3,7 +3,8 @@ import Network
 import Synchronization
 
 /// A minimal HTTP/1.1 server on 127.0.0.1 for `URLSessionTransport` tests: one request per
-/// connection, answered by `handler` (or never, when it returns nil). Records every request.
+/// connection, answered by `handler` (or never, when it returns nil). Records every request, and
+/// notices when the client closes a connection it never answered.
 final class LoopbackServer: Sendable {
     struct Request: Sendable {
         var method: String
@@ -17,16 +18,24 @@ final class LoopbackServer: Sendable {
         var status: Int
         var headers: [String: String] = [:]
         var body: Data = Data()
+        /// Send the body one byte at a time, this far apart (after the head, which goes at once).
+        var trickle: Duration?
+        /// Send only this many body bytes (the head still declares the full length), then reset
+        /// the connection.
+        var resetAfter: Int?
     }
 
     private let listener: NWListener
     private let queue = DispatchQueue(label: "LoopbackServer")
     private let recorded = Mutex<[Request]>([])
     private let held = Mutex<[NWConnection]>([])
+    private let closedByClient = Mutex(0)
     let port: UInt16
 
     var baseURL: URL { URL(string: "http://127.0.0.1:\(port)")! }
     var requests: [Request] { recorded.withLock { $0 } }
+    /// Unanswered connections the client has closed (or reset).
+    var clientClosures: Int { closedByClient.withLock { $0 } }
 
     init(_ handler: @escaping @Sendable (Request) -> Response?) async throws {
         let parameters = NWParameters.tcp
@@ -73,18 +82,62 @@ final class LoopbackServer: Sendable {
                 self.recorded.withLock { $0.append(request) }
                 guard let response = handler(request) else {
                     self.held.withLock { $0.append(connection) }  // never answered
+                    self.watchForClose(connection)
                     return
                 }
-                connection.send(
-                    content: Self.serialize(response),
-                    completion: .contentProcessed { _ in
-                        connection.cancel()
-                    })
+                self.respond(response, on: connection)
             } else if complete || error != nil {
                 connection.cancel()
             } else {
                 self.receive(connection, buffer: buffer, handler: handler)
             }
+        }
+    }
+
+    private func watchForClose(_ connection: NWConnection) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] _, _, complete, error in
+            guard let self else { return }
+            if complete || error != nil {
+                self.closedByClient.withLock { $0 += 1 }
+            } else {
+                self.watchForClose(connection)
+            }
+        }
+    }
+
+    private func respond(_ response: Response, on connection: NWConnection) {
+        let head = Self.head(response)
+        if let count = response.resetAfter {
+            connection.send(
+                content: head + response.body.prefix(count),
+                completion: .contentProcessed { [queue] _ in
+                    queue.asyncAfter(deadline: .now() + 0.05) { connection.forceCancel() }
+                })
+            return
+        }
+        guard let interval = response.trickle else {
+            connection.send(content: head + response.body, completion: .contentProcessed { _ in connection.cancel() })
+            return
+        }
+        connection.send(content: head, completion: .idempotent)
+        trickle(response.body[...], every: interval, on: connection)
+    }
+
+    private func trickle(_ rest: Data.SubSequence, every interval: Duration, on connection: NWConnection) {
+        let (seconds, attoseconds) = interval.components
+        let delay = Double(seconds) + Double(attoseconds) / 1e18
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, connection.state == .ready, let byte = rest.first else { return }
+            let last = rest.count == 1
+            connection.send(
+                content: Data([byte]), isComplete: last,
+                completion: .contentProcessed { _ in
+                    if last {
+                        connection.cancel()
+                    } else {
+                        self.trickle(rest.dropFirst(), every: interval, on: connection)
+                    }
+                })
         }
     }
 
@@ -108,13 +161,13 @@ final class LoopbackServer: Sendable {
             method: String(start[0]), target: String(start[1]), headers: headers, body: Data(body.prefix(length)))
     }
 
-    private static func serialize(_ response: Response) -> Data {
+    private static func head(_ response: Response) -> Data {
         var head = "HTTP/1.1 \(response.status) Status\r\n"
         var headers = response.headers
         headers["Content-Length"] = String(response.body.count)
         headers["Connection"] = "close"
         for (name, value) in headers.sorted(by: { $0.key < $1.key }) { head += "\(name): \(value)\r\n" }
-        return Data((head + "\r\n").utf8) + response.body
+        return Data((head + "\r\n").utf8)
     }
 }
 
