@@ -22,9 +22,9 @@ branch.
 |                     |                                                                                                                           |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Active milestone    | **M0: backend foundations and specs** (branch `ios/m0-foundations`)                                                       |
-| Running             | M0 milestone reviews (Codex + Claude). All four WPs are merged.                                                      |
-| Waiting on the user | Xcode install (via `xcodes`); Apple enrollment activation and the Team ID; iPhone model and iOS version; answers to Q1–Q4 |
-| Next up             | Integrate the M0 work packages, with a Codex review each → `ios/` scaffolding once Xcode lands → M0 PR                    |
+| Running             | M0 review fixes (WP `ios/m0-fixes`: identity connection, `/push/test` precondition, fixture coverage, `make check` parity). Milestone reviews done: Codex said BLOCK (2 Majors), Claude said SHIP WITH MINORS. |
+| Waiting on the user | Apple enrollment activation and the Team ID; iPhone model and iOS version; answers to Q1–Q4; a session restart to load MobileBuildMCP |
+| Next up             | Merge the fixes → Codex re-check → open the M0 PR into `feat/ios-app` (first real iOS CI run) → M1 |
 
 ## Human steps (PLAN §9)
 
@@ -95,7 +95,7 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
 
 ### WP vectors: `ios/m0-vectors` (worktree `../ios-m0-vectors`)
 
-- [x] Implementation (sub-agent): 4 commits. due-vectors.json has 1,831 due cases, 360 messages and 63 slots (671 KB). quicklog-vectors.json has 221 cases. api/ has 29 fixtures.
+- [x] Implementation (sub-agent): 4 commits. due-vectors.json has 1,831 due cases, 360 messages and 63 slots (671 KB). quicklog-vectors.json had 221 cases and api/ 29 fixtures at first. Now 380 quick-log cases (after the ±2^53 fix) and 32 fixtures (after integration).
   - [x] `shared/fixtures/due-vectors.json` with its drift test (DST grid)
   - [x] Python port of quick-log (`services/quicklog.py`), plus
         `quicklog-vectors.json`
@@ -141,8 +141,7 @@ These are the server details the specs assume. Each one must be confirmed in the
   `{kind: entry|topic|version, id, topic_id}`.
 - [x] `revision` exists on entries and topics, starts at 1 and only ever increases. It is returned by
   POST, PATCH, archive and unarchive.
-- [x] Deleting a topic writes the topic, its entries and its versions to `deleted_ids`, and emits a
-  deletion for each.
+- [x] Deleting a topic writes the topic, its entries and its versions to `deleted_ids`. An incremental page emits only the topic deletion, and clients cascade it locally. A bootstrap emits each child deletion. This matches sync F3.
 - [x] The backfill emits topics, then versions, then entries.
 - [x] Error codes:
   - 409 `entry_deleted`: POST reuses a deleted id;
@@ -163,7 +162,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### M0 integration and PR
 
-- [x] All WPs merged (vectors, specs, feed, scaffold). Integrated gates green: `make check` (401 pytest, 532 vitest, alembic check) and `make check-ios` (iOS 26.0 + 27.0).
+- [x] All WPs merged (vectors, specs, feed, scaffold). Integrated gates green: `make check` (401 pytest, 532 vitest), plus `alembic upgrade head && alembic check` run separately on a fresh DB and `make check-ios` (iOS 26.0 + 27.0).
 - [ ] Concurrency, feed and downgrade tests listed in the PR
 - [~] Codex review of the whole milestone diff, plus a Claude code-review sub-agent (both running)
 - [ ] PR body: the validation checklist, and test reports instead of media (a
