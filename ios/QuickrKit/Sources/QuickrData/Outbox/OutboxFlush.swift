@@ -307,10 +307,7 @@ enum OutboxFlush {
 
     /// Expiry recovery (§6.3) with S8, run when this flusher takes over an abandoned lease.
     static func takeover(wallClock: any WallClock) -> LeaseTable.Takeover {
-        { db, _ in
-            try FlushRecovery.recoverInFlight(db, now: wallClock.now())
-            try OutboxSyncEffects.removeCancelledCreates(db)
-        }
+        { db, _ in try OutboxSyncEffects.recoverExpiredFlush(db, now: wallClock.now()) }
     }
 
     // MARK: - Outcome pieces

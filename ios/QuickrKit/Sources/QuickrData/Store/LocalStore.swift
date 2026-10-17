@@ -52,16 +52,21 @@ public struct LocalStore: Sendable {
         }
     }
 
-    /// Reset step 4 (§12.1) on this file.
-    public func retire(confirmedCount: Int, confirmedMaxSeq: Int64, sync: LeaseClaim, flush: LeaseClaim) async throws
-        -> RetireOutcome
-    {
+    /// Reset step 4 (§12.1) on this file. With `intentToken`, refused if that attempt was vetoed.
+    public func retire(
+        confirmedCount: Int, confirmedMaxSeq: Int64, intentToken: String? = nil, sync: LeaseClaim, flush: LeaseClaim
+    ) async throws -> RetireOutcome {
         let clock = leaseClock
         return try await writer.write { db in
             try StoreRetirement.retire(
-                db, confirmedCount: confirmedCount, confirmedMaxSeq: confirmedMaxSeq, sync: sync, flush: flush,
-                at: clock.now())
+                db, confirmedCount: confirmedCount, confirmedMaxSeq: confirmedMaxSeq, intentToken: intentToken,
+                sync: sync, flush: flush, at: clock.now())
         }
+    }
+
+    /// Marks a reset attempt aborted on this file (see `StoreRetirement.vetoReset`).
+    public func vetoReset(intentToken: String) async throws -> ResetVeto {
+        try await writer.write { db in try StoreRetirement.vetoReset(db, intentToken: intentToken) }
     }
 
     public func isRetired() async throws -> Bool {

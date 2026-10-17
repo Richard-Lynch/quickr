@@ -280,6 +280,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-17 22:30: OUTBOX done (8947602): all 61 matrix cases covered (17 MP/INT stubs disabled, each pointing to its simulation), 267 Data tests green, 4 mutation checks all caught. 8 spec ambiguities resolved by the author; Codex review running (`codex-m1-outbox.md`). Its OutboxSyncEffects contract was handed to SYNC. Flake noted: `DuePerformanceTests.widgetTimelinesComputeQuickly` under load → backlog.
+
 - 2026-10-17 22:10: load ~340, mostly from simulator daemons (SKEL's iOS 27 clone) plus mediaanalysisd and other sessions' MCP servers; CPU itself isn't pegged. Mitigation: `IOS_JOBS=4` (ed91119); FORM paused at WIP 844f0bf; BUILDER asked to pause. Critical path still running: SYNC (Codex majors 1–4 in progress), OUTBOX (matrix), SKEL (intents/widget UI tests), testiso (1b157fe → Codex review next).
 
 - 2026-10-17 17:04–21:00: every agent stopped at the account usage limit (reset 20:40). No work lost: uncommitted changes stayed in the worktrees, and all 6 agents were resumed at 21:00. B7 finished just before the limit; Codex round 1 → `open` (More…) action accepted into the spec; `fmt` simplified to shortest round-trip with no rounding.
