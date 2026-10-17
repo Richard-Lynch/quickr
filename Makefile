@@ -36,6 +36,14 @@ web: ## Run the Vite dev server on :5180
 seed: ## Load demo topics and entries
 	$(BACKEND) uv run python scripts/seed.py
 
+.PHONY: rotate-epoch
+rotate-epoch: ## New change-feed epoch (run after a DB restore/reset; clients resync)
+	$(BACKEND) uv run python scripts/rotate_epoch.py
+
+.PHONY: rotate-epoch-docker
+rotate-epoch-docker: ## rotate-epoch against the docker stack
+	docker compose exec backend python scripts/rotate_epoch.py
+
 .PHONY: vapid
 vapid: ## Print a fresh VAPID key pair for QUICKR_VAPID_PRIVATE_KEY / QUICKR_VAPID_PUBLIC_KEY
 	$(BACKEND) uv run python -c "from app.services.push import generate_vapid_keys as g; k = g(); print(f'QUICKR_VAPID_PRIVATE_KEY={k.private_key}'); print(f'QUICKR_VAPID_PUBLIC_KEY={k.public_key}')"

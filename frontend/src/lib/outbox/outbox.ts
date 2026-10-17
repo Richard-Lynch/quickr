@@ -189,7 +189,7 @@ export function createOutbox(opts: OutboxOptions): Outbox {
       }
     }
 
-    const outcome = kind.classify?.(res.status) ?? classifyStatus(res.status);
+    const outcome = kind.classify?.(res.status, json) ?? classifyStatus(res.status);
     if (outcome === 'ok') {
       // A 200 HTML page (captive portal, proxy) is not a confirmation.
       if (text && !parsed) {
@@ -227,6 +227,16 @@ export function createOutbox(opts: OutboxOptions): Outbox {
       }
 
       const error = res.error;
+      if (res.outcome === 'retired') {
+        // Compare-and-set as below: a discard or edit made meanwhile wins.
+        const current = await store.get(item.id);
+        if (current?.updated_at === item.updated_at) {
+          await store.delete(item.id);
+          total.retired++;
+          emit({ type: 'retired', item, error });
+        }
+        continue;
+      }
       const attempts = item.attempts + 1;
       const terminal = res.outcome === 'terminal';
       const next: OutboxItem = terminal
@@ -262,7 +272,7 @@ export function createOutbox(opts: OutboxOptions): Outbox {
       return running;
     }
     const run = async (): Promise<FlushResult> => {
-      const total = { sent: 0, failed: 0, retrying: 0 };
+      const total = { sent: 0, failed: 0, retrying: 0, retired: 0 };
       let force = o.force === true;
       try {
         for (;;) {
@@ -311,6 +321,7 @@ export function createOutbox(opts: OutboxOptions): Outbox {
         if (e.type === 'sent') done({ status: 'sent', data: e.data });
         else if (e.type === 'failed') done({ status: 'failed', item: e.item });
         else if (e.type === 'retrying') done({ status: 'queued', item: e.item });
+        else if (e.type === 'retired') done({ status: 'retired', item: e.item, error: e.error });
         else if (e.type === 'discarded') done({ status: 'discarded' });
       });
       const timer = setTimeout(() => {

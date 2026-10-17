@@ -84,7 +84,8 @@ is created and migrated automatically.
 - `id` (optional UUID) makes the request idempotent. If an entry with that id
   already exists for the topic, it is returned (`201`, no duplicate), even if
   the topic has been archived since. The same id under another topic is a `409`.
-  Offline clients should always send one.
+  Offline clients should always send one. A deleted id can never be used again:
+  creating it returns `409 entry_deleted` (see [Change feed](#change-feed)).
 - `captured_at` is the client's own clock. It may be arbitrarily late (offline
   queues), but not before 2000-01-01 or more than 24 hours in the future.
 
@@ -213,11 +214,12 @@ the topic's current version (optimistic concurrency, `409` otherwise).
 | `GET /api/v1/topics/{ref}/versions` · `POST .../versions/check` · `POST .../versions`         | version history, dry-run, publish                     |
 | `GET/POST /api/v1/topics/{ref}/entries` · `GET .../entries.csv`                               | list/record/export entries                            |
 | `GET/PATCH/DELETE /api/v1/entries/{id}`                                                       | view/correct/delete an entry                          |
+| `GET /api/v1/changes?after=&limit=`                                                           | change feed (sync)                                    |
 | `GET /api/v1/topics/{ref}/stats` · `GET .../questions/{key}/series`                           | aggregation and time series                           |
 | `GET /api/v1/push/config` · `POST /api/v1/push/subscriptions[/delete]` · `POST .../push/test` | Web Push                                              |
 | `GET /api/v1/question-types` · `GET /api/v1/limits`                                           | question JSON schemas · validation limits             |
 
-Send `X-QuickR-Channel: ui|api|mcp` to tag the channel (defaults to `api`).
+Send `X-QuickR-Channel: ui|api|mcp|ios` to tag the channel (defaults to `api`).
 
 Every 4xx uses one envelope: `{code, detail, errors: [{loc, message}]}`. Each
 error points at the most specific field. For example, `min > max` on the first
@@ -226,6 +228,37 @@ and a duplicate option label at
 `["body", "questions", 2, "options", 1, "label"]`. `GET /limits` returns the
 numeric ceilings (max questions, options, lengths, schedule bounds, …) so
 clients can mirror server-side validation.
+
+## Change feed
+
+`GET /api/v1/changes?after=<seq>&limit=<≤500>` lets a client keep a full offline
+copy in step. Every change to a topic, version or entry, made over REST or MCP,
+appends a row to `change_log` in the same transaction. Each page returns the
+**current** state of every entity changed after the cursor (`items`), the
+deletions (`deleted`), and `{next, has_more, head, epoch, server_id, server_time}`.
+Start from `after=0` and follow `next` while `has_more`.
+
+- **Ordering.** Every write takes one advisory lock as its first statement, so
+  `seq` order is commit order: a page never skips a change that commits later.
+  Deadlocks and serialization failures are retried up to 3 times.
+- **Tombstones.** Deleted ids are kept forever in `deleted_ids`.
+  `DELETE /entries/{id}` is idempotent: it returns `204` even for an id the
+  server has never seen, and reserves it, so a create that arrives after its own
+  undo gets `409 entry_deleted` and never brings the entry back. A topic
+  deletion also deletes all its versions and entries.
+- **Derived fields.** Entry changes don't re-send their topic, so clients
+  recompute `entry_count`, `last_captured_at` and due status from entries.
+- **Revisions.** Topics and entries carry a `revision` that every update bumps.
+  `PATCH` (body) and archive/unarchive (query) accept an optional
+  `expected_revision`; a mismatch is `409 stale_revision`.
+- **Restores.** `epoch` changes when the database is restored or reset; a client
+  that sees a new epoch, or a cursor above `head`, rebuilds from `after=0`.
+  After restoring a backup, run `make rotate-epoch` (or `make rotate-epoch-docker`).
+  The `server_id` never changes, restores included.
+- **Identity headers.** Every `/api/v1` response, errors included, carries
+  `X-QuickR-Server-Id` and `X-QuickR-Epoch`. Mutations accept
+  `X-QuickR-Expect-Server-Id` / `X-QuickR-Expect-Epoch`; a mismatch is rejected
+  with `409 server_mismatch` / `409 epoch_mismatch` before anything is written.
 
 ## MCP
 

@@ -45,6 +45,7 @@ class Channel(enum.StrEnum):
     ui = "ui"
     api = "api"
     mcp = "mcp"
+    ios = "ios"
 
 
 class Topic(Base):
@@ -58,6 +59,8 @@ class Topic(Base):
         Enum(TopicStatus, name="topic_status", native_enum=True), default=TopicStatus.active
     )
     current_version: Mapped[int] = mapped_column(Integer, default=1)
+    # Bumped on every change to the topic's own fields (optimistic concurrency, see feed).
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -107,6 +110,8 @@ class Entry(Base):
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str] = mapped_column(Text, default="")
     meta: Mapped[dict[str, str]] = mapped_column(JSONB, default=dict)
+    # Bumped on every update (optimistic concurrency, see feed).
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -183,3 +188,50 @@ class AppSetting(Base):
 
     key: Mapped[str] = mapped_column(Text, primary_key=True)
     value: Mapped[str] = mapped_column(Text)
+
+
+class FeedKind(enum.StrEnum):
+    """What a change-feed row refers to."""
+
+    entry = "entry"
+    topic = "topic"
+    version = "version"
+
+
+class FeedOp(enum.StrEnum):
+    upsert = "upsert"
+    delete = "delete"
+
+
+class ChangeLog(Base):
+    """The change feed: one row per mutation, written in the mutation's transaction.
+
+    ``seq`` is allocated while holding the feed advisory lock (``app.services.feed``), so
+    seq order is commit order and a reader never sees seq N+1 without seq N.
+    """
+
+    __tablename__ = "change_log"
+
+    seq: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    kind: Mapped[FeedKind] = mapped_column(Enum(FeedKind, name="feed_kind", native_enum=True))
+    op: Mapped[FeedOp] = mapped_column(Enum(FeedOp, name="feed_op", native_enum=True))
+    entity_id: Mapped[UUID] = mapped_column()
+    topic_id: Mapped[UUID] = mapped_column()
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DeletedId(Base):
+    """Permanent tombstone: a deleted id is never reused (a replayed create gets 409).
+
+    Keyed by ``(kind, id)``: ids are only unique per table (entry ids are client-chosen).
+    """
+
+    __tablename__ = "deleted_ids"
+
+    kind: Mapped[FeedKind] = mapped_column(
+        Enum(FeedKind, name="feed_kind", native_enum=True), primary_key=True
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    # Null when an entry id was reserved before the server ever saw the entry.
+    topic_id: Mapped[UUID | None] = mapped_column(default=None)
+    deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

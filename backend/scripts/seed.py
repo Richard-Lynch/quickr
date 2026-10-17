@@ -199,6 +199,7 @@ async def seed(db: AsyncSession, *, days: int = 30, now: datetime | None = None)
     now = now or datetime.now(UTC)
     start = (now - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
     existing = set((await db.execute(select(Topic.slug))).scalars())
+    await db.rollback()  # end the read: writers need an idle session
     created: list[str] = []
     for demo in DEMOS:
         if demo.slug in existing:

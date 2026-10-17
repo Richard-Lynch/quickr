@@ -5,11 +5,63 @@ export type ClientOptions = {
 };
 
 /**
+ * ChangesPage
+ *
+ * One page of the change feed, read from a single consistent snapshot.
+ *
+ * Each changed entity appears once, in its latest state (``items``) or as a deletion
+ * (``deleted``). Apply ``items`` in order (topics, then versions, then entries), then
+ * ``deleted`` (entries, then versions, then topics), then store ``next`` as the cursor.
+ */
+export type ChangesPage = {
+    /**
+     * Items
+     */
+    items: Array<FeedEntry | FeedTopic | FeedVersion>;
+    /**
+     * Deleted
+     */
+    deleted: Array<FeedDeletion>;
+    /**
+     * Next
+     *
+     * Cursor for the next page: the highest seq in this page.
+     */
+    next: number;
+    /**
+     * Has More
+     */
+    has_more: boolean;
+    /**
+     * Head
+     *
+     * The server's highest seq. A client cursor above it means the database was restored or reset: treat it like an epoch change.
+     */
+    head: number;
+    /**
+     * Epoch
+     *
+     * Changes when the database is restored or reset. On a mismatch, rebuild from after=0.
+     */
+    epoch: string;
+    /**
+     * Server Id
+     *
+     * Stable random id of this server (one local store per server).
+     */
+    server_id: string;
+    /**
+     * Server Time
+     */
+    server_time: string;
+};
+
+/**
  * Channel
  *
  * How an entry reached the system. Set server-side.
  */
-export type Channel = 'ui' | 'api' | 'mcp';
+export type Channel = 'ui' | 'api' | 'mcp' | 'ios';
 
 /**
  * CompatibilityIssue
@@ -283,7 +335,7 @@ export type EntryCreate = {
      * Map of question key -> value. int questions take integers, double questions numbers, str questions strings, enum questions an option value, multi-select enum questions a list of option values. null/absent/empty list = unanswered.
      */
     answers: {
-        [key: string]: unknown | number | number | string | Array<string> | null;
+        [key: string]: number | string | Array<string> | null;
     };
     /**
      * Source
@@ -333,6 +385,12 @@ export type EntryOut = {
      * Version
      */
     version: number;
+    /**
+     * Revision
+     *
+     * Bumped on every update.
+     */
+    revision: number;
     /**
      * Source
      */
@@ -398,7 +456,7 @@ export type EntryUpdate = {
      * Answers
      */
     answers?: {
-        [key: string]: unknown | number | number | string | Array<string> | null;
+        [key: string]: number | string | Array<string> | null;
     } | null;
     /**
      * Source
@@ -420,6 +478,12 @@ export type EntryUpdate = {
     meta?: {
         [key: string]: string;
     } | null;
+    /**
+     * Expected Revision
+     *
+     * Optional optimistic-concurrency guard: the revision this change was based on. When it no longer matches, the change is rejected with 409 stale_revision.
+     */
+    expected_revision?: number | null;
 };
 
 /**
@@ -670,6 +734,92 @@ export type EnumStats = {
      * Options
      */
     options: Array<EnumOptionCount>;
+};
+
+/**
+ * FeedDeletion
+ *
+ * A permanently deleted id. A topic deletion also deletes all of its versions and entries.
+ */
+export type FeedDeletion = {
+    /**
+     * Kind
+     */
+    kind: 'entry' | 'topic' | 'version';
+    /**
+     * Seq
+     */
+    seq: number;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Topic Id
+     */
+    topic_id: string;
+    /**
+     * Deleted At
+     */
+    deleted_at: string;
+};
+
+/**
+ * FeedEntry
+ */
+export type FeedEntry = {
+    /**
+     * Kind
+     */
+    kind: 'entry';
+    /**
+     * Seq
+     */
+    seq: number;
+    entry: EntryOut;
+};
+
+/**
+ * FeedTopic
+ *
+ * A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,
+ * ``due``) are not re-sent when entries change: clients recompute them from entries.
+ */
+export type FeedTopic = {
+    /**
+     * Kind
+     */
+    kind: 'topic';
+    /**
+     * Seq
+     */
+    seq: number;
+    topic: TopicDetail;
+};
+
+/**
+ * FeedVersion
+ *
+ * A published question version (immutable; ``version.entry_count`` is as of this page).
+ */
+export type FeedVersion = {
+    /**
+     * Kind
+     */
+    kind: 'version';
+    /**
+     * Seq
+     */
+    seq: number;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Topic Id
+     */
+    topic_id: string;
+    version: TopicVersionOut;
 };
 
 /**
@@ -1433,6 +1583,12 @@ export type TopicDetail = {
      */
     current_version: number;
     /**
+     * Revision
+     *
+     * Bumped on every change to the topic's own fields.
+     */
+    revision: number;
+    /**
      * Question Count
      */
     question_count: number;
@@ -1565,6 +1721,12 @@ export type TopicSummary = {
      */
     current_version: number;
     /**
+     * Revision
+     *
+     * Bumped on every change to the topic's own fields.
+     */
+    revision: number;
+    /**
      * Question Count
      */
     question_count: number;
@@ -1636,6 +1798,12 @@ export type TopicUpdate = {
     } & DailyScheduleInput) | ({
         kind: 'interval';
     } & IntervalScheduleInput) | null;
+    /**
+     * Expected Revision
+     *
+     * Optional optimistic-concurrency guard: the revision this change was based on. When it no longer matches, the change is rejected with 409 stale_revision.
+     */
+    expected_revision?: number | null;
 };
 
 /**
@@ -1901,6 +2069,20 @@ export type ListTopicsResponse = ListTopicsResponses[keyof ListTopicsResponses];
 
 export type CreateTopicData = {
     body: TopicCreate;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/api/v1/topics';
@@ -1938,6 +2120,20 @@ export type CreateTopicResponse = CreateTopicResponses[keyof CreateTopicResponse
 
 export type DeleteTopicData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
     path: {
         /**
          * Ref
@@ -2026,6 +2222,20 @@ export type GetTopicResponse = GetTopicResponses[keyof GetTopicResponses];
 
 export type UpdateTopicData = {
     body: TopicUpdate;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
     path: {
         /**
          * Ref
@@ -2070,6 +2280,20 @@ export type UpdateTopicResponse = UpdateTopicResponses[keyof UpdateTopicResponse
 
 export type ArchiveTopicData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
     path: {
         /**
          * Ref
@@ -2078,7 +2302,14 @@ export type ArchiveTopicData = {
          */
         ref: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Expected Revision
+         *
+         * Optional: the topic revision this change was based on; 409 stale_revision on mismatch.
+         */
+        expected_revision?: number | null;
+    };
     url: '/api/v1/topics/{ref}/archive';
 };
 
@@ -2114,6 +2345,20 @@ export type ArchiveTopicResponse = ArchiveTopicResponses[keyof ArchiveTopicRespo
 
 export type UnarchiveTopicData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
     path: {
         /**
          * Ref
@@ -2122,7 +2367,14 @@ export type UnarchiveTopicData = {
          */
         ref: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Expected Revision
+         *
+         * Optional: the topic revision this change was based on; 409 stale_revision on mismatch.
+         */
+        expected_revision?: number | null;
+    };
     url: '/api/v1/topics/{ref}/unarchive';
 };
 
@@ -2204,6 +2456,20 @@ export type ListTopicVersionsResponse = ListTopicVersionsResponses[keyof ListTop
 
 export type PublishTopicVersionData = {
     body: VersionCreate;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
     path: {
         /**
          * Ref
@@ -2380,6 +2646,18 @@ export type CreateEntryData = {
          * Client channel; defaults to 'api'.
          */
         'X-QuickR-Channel'?: Channel | null;
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
     };
     path: {
         /**
@@ -2494,6 +2772,20 @@ export type ExportEntriesCsvResponse = ExportEntriesCsvResponses[keyof ExportEnt
 
 export type DeleteEntryData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
     path: {
         /**
          * Entry Id
@@ -2578,6 +2870,20 @@ export type GetEntryResponse = GetEntryResponses[keyof GetEntryResponses];
 
 export type UpdateEntryData = {
     body: EntryUpdate;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
     path: {
         /**
          * Entry Id
@@ -2617,6 +2923,56 @@ export type UpdateEntryResponses = {
 };
 
 export type UpdateEntryResponse = UpdateEntryResponses[keyof UpdateEntryResponses];
+
+export type ListChangesData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * After
+         *
+         * Cursor: the `next` of the previous page (0 = from the start).
+         */
+        after?: number;
+        /**
+         * Limit
+         *
+         * Change-log rows to read.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/changes';
+};
+
+export type ListChangesErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type ListChangesError = ListChangesErrors[keyof ListChangesErrors];
+
+export type ListChangesResponses = {
+    /**
+     * Successful Response
+     */
+    200: ChangesPage;
+};
+
+export type ListChangesResponse = ListChangesResponses[keyof ListChangesResponses];
 
 export type GetTopicStatsData = {
     body?: never;
@@ -2809,6 +3165,20 @@ export type GetPushConfigResponse = GetPushConfigResponses[keyof GetPushConfigRe
 
 export type CreatePushSubscriptionData = {
     body: PushSubscriptionIn;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/api/v1/push/subscriptions';
@@ -2846,6 +3216,20 @@ export type CreatePushSubscriptionResponse = CreatePushSubscriptionResponses[key
 
 export type DeletePushSubscriptionData = {
     body: PushSubscriptionDelete;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/api/v1/push/subscriptions/delete';
