@@ -281,6 +281,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-17 23:10: Load ~7. SYNC APPROVED (Codex r3 on the veto table 08b2bec). OUTBOX r3: unbounded wait resolved; new Major: grace runs past the extension budget, and a commit-before-grace reconciliation test is needed. BUILDER r2: both majors resolved; Major: gen-casefold isn't wired into `make vectors`, plus pinning the Unicode/Python version. Combined SYNC+OUTBOX head: ios/m1-outbox 99a5473. testiso fixes in progress; SKEL and FORM running.
+
 - 2026-10-17 22:55: Load dropped to ~12; FORM resumed. Codex: SYNC r2 resolves 1,2,4,5; still Major: an overwriteable `reset_veto` (needs a monotonic veto set). OUTBOX r2 resolves all round-1 items; new Major: the shutdown wait is unbounded when the sender ignores cancellation (liveness). testiso: REQUEST CHANGES (no per-worktree default DB; unowned `_peer` DBs). BUILDER: REQUEST CHANGES (canonical-equivalence vs Python code-point equality for duplicates and compat). All four are fixing. Combined SYNC+OUTBOX head: ios/m1-outbox e29232c. SKEL committed the intents proof b4fc26b.
 
 - 2026-10-17 22:40: OUTBOX Codex r1 = REQUEST CHANGES (no blockers; all 8 author spec resolutions agreed). Majors: a definitive answer is lost when cancellation races the timer; failed deletes are missing from the C0 guard. Minors: the coalescing test is weak; `source` is filled only when nil. Stubs major declined (MP/INT). Fixes in progress on top of 69bb903. SYNC merged OUTBOX and dropped its duplicate (39b64fb). SKEL committed 5ea1e46 (debug dylib off for intents metadata).
