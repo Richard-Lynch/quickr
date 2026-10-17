@@ -1,0 +1,10 @@
+{
+  "body": null,
+  "operation_id": "deleteTopic",
+  "request": {
+    "body": null,
+    "method": "DELETE",
+    "path": "/api/v1/topics/old-habit"
+  },
+  "status": 204
+}

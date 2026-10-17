@@ -63,10 +63,15 @@ There is one file per recorded call, named `<operationId>[.<variant>].json`:
 }
 ```
 
-They cover every operation, every question type (including multi-select enums
-and `enum_list` answers), daily and interval due state, and problem bodies: 422
-`invalid_answers` (with `loc`), 422 `invalid_request`, 404, and 409 `conflict`,
-`topic_archived` and id conflict. A 204 has `"body": null`.
+They cover every operation in `openapi.json` except `exportEntriesCsv` (a CSV
+download, not JSON). `test_every_operation_has_a_fixture` enforces this: an
+operation without a fixture fails unless it is in `UNCOVERED_OPERATIONS`, with
+its reason. They also cover every question type (including multi-select enums
+and `enum_list` answers), daily and interval due state, a feed entry deletion
+and topic deletion, and problem bodies: 422 `invalid_answers` (with `loc`), 422
+`invalid_request`, 404, and 409 `conflict` (including deleting an unarchived
+topic), `topic_archived` and id conflict. A 204 has `"body": null`. Push
+delivery is mocked (every send succeeds), so `sendTestPush` is deterministic.
 
 The application clock is frozen at `2026-03-04T12:00:00.5Z`. Entries carry fixed
 `captured_at` values and schedules are backdated to `2026-01-01T00:00:00Z`. So
