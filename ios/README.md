@@ -246,8 +246,9 @@ ios/scripts/sim-clone.sh --delete               # when the worktree is done
 
 The clone is named `<source> <worktree dir>-<hash of its canonical path>`, so
 running the script again finds the same device, and `--delete` can only ever
-remove this worktree's clone. A kernel advisory lock (`lockf`) serialises
-concurrent runs; the OS drops it when its holder exits or dies. If the source simulator is shut down, the script copies it with
+remove this worktree's clone. A kernel advisory lock (`lockf` on fd 9)
+serialises concurrent runs. The OS drops it when the last process holding fd 9
+exits or dies: the script and any child that inherited the descriptor. If the source simulator is shut down, the script copies it with
 `simctl clone`. If it is booted (in use), the script never touches it and
 creates a fresh device with the same device type and runtime instead.
 

@@ -21,11 +21,24 @@ root_real="$(cd "$ROOT_DIR" && pwd -P)"
 name="$source_name $(basename "$root_real")-$(printf '%s' "$root_real" | shasum | cut -c1-6)"
 
 # A kernel advisory lock (flock(2), via /usr/bin/lockf on fd 9) held for the rest of the
-# script: the OS releases it when this process exits or dies, so there is no stale state.
+# script. The OS releases it when the last descriptor sharing fd 9's open file closes, i.e.
+# when this script and every child that inherited fd 9 have exited or died; nothing stale
+# is left on disk. lockf exits 75 (EX_TEMPFAIL) on timeout; anything else is a real error
+# (a bad -t value, a descriptor problem) and keeps lockf's own message and status.
 lock="${QUICKR_SIM_CLONE_LOCK:-${TMPDIR:-/tmp}/quickr-sim-clone.lockf}"
 lock_wait="${QUICKR_SIM_CLONE_LOCK_WAIT:-600}"
 exec 9>>"$lock"
-/usr/bin/lockf -s -t "$lock_wait" 9 || die "timed out after ${lock_wait}s waiting for the lock on $lock"
+# (The lock belongs to the open file, so taking it in a $(...) subshell still holds it here.)
+lock_status=0
+lock_err="$(/usr/bin/lockf -t "$lock_wait" 9 2>&1)" || lock_status=$?
+if (( lock_status == 75 )); then
+  echo "ios: timed out after ${lock_wait}s waiting for the lock on $lock (another sim-clone.sh, or a" \
+    "child it left running, holds it)" >&2
+  exit 75
+elif (( lock_status != 0 )); then
+  echo "ios: lockf failed on $lock (exit $lock_status): $lock_err" >&2
+  exit "$lock_status"
+fi
 
 # Prints "<udid> <state> <deviceTypeIdentifier> <runtime>" for the first available device
 # with this exact name (or UDID), or nothing.
