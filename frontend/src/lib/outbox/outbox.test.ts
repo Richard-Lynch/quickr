@@ -12,15 +12,15 @@ interface NotePayload {
   text: string;
 }
 
-const kinds: Record<string, OutboxKind> = {
-  'note.create': {
-    toRequest: (item) => ({
-      method: 'POST',
-      url: '/api/v1/notes',
-      body: { id: item.id, ...(item.payload as NotePayload) },
-    }),
-  },
+const noteCreate: OutboxKind = {
+  toRequest: (item) => ({
+    method: 'POST',
+    url: '/api/v1/notes',
+    body: { id: item.id, ...(item.payload as NotePayload) },
+  }),
 };
+
+const kinds: Record<string, OutboxKind> = { 'note.create': noteCreate };
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -121,7 +121,7 @@ describe('outbox', () => {
     const { outbox, fetchMock, events } = setup([json(201, { id: 'srv-1' })]);
     const item = await outbox.enqueue<NotePayload>('note.create', { text: 'hi' });
     const r = await outbox.flush();
-    expect(r).toEqual({ sent: 1, failed: 0, retrying: 0, remaining: 0 });
+    expect(r).toEqual({ sent: 1, failed: 0, retrying: 0, retired: 0, remaining: 0 });
     expect(await outbox.list()).toEqual([]);
     const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(url).toBe('/api/v1/notes');
@@ -253,6 +253,52 @@ describe('outbox', () => {
     await outbox.enqueue('note.delete', {});
     expect(await outbox.flush()).toMatchObject({ sent: 1, remaining: 0 });
     expect(fetchMock.mock.calls[0]?.[1]?.body).toBeNull();
+  });
+
+  it('retires an item the server says can never happen, without a failure', async () => {
+    const retire: OutboxKind = {
+      ...noteCreate,
+      classify: (s, body) =>
+        s === 409 && (body as { code?: string } | undefined)?.code === 'gone'
+          ? 'retired'
+          : undefined,
+    };
+    const { outbox, events } = setup(
+      [json(409, problem('gone', 'deleted')), json(409, problem('conflict', 'taken'))],
+      { kinds: { 'note.create': retire } },
+    );
+    const a = await outbox.enqueue('note.create', { text: 'a' });
+    expect(await outbox.sendNow(a.id)).toEqual({ status: 'discarded' });
+    expect(events.at(-1)).toMatchObject({
+      type: 'retired',
+      item: { id: a.id },
+      error: { status: 409, body: { code: 'gone' } },
+    });
+    // Any other 409 is still a terminal failure.
+    const b = await outbox.enqueue('note.create', { text: 'b' });
+    expect(await outbox.flush()).toMatchObject({ failed: 1, remaining: 1 });
+    expect(await outbox.list()).toMatchObject([{ id: b.id, status: 'failed' }]);
+  });
+
+  it('does not retire an item discarded while its send was in flight', async () => {
+    let release: (r: Response) => void = () => undefined;
+    const retire: OutboxKind = { ...noteCreate, classify: () => 'retired' };
+    const { outbox, fetchMock, events } = setup([], { kinds: { 'note.create': retire } });
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const item = await outbox.enqueue('note.create', { text: 'x' });
+    const flushing = outbox.flush();
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+    await outbox.discard(item.id);
+    release(json(409, problem('gone', 'deleted')));
+    expect(await flushing).toMatchObject({ retired: 0, remaining: 0 });
+    expect(events.map((e) => e.type)).toEqual(['enqueued', 'discarded']);
   });
 
   it('coalesces concurrent flushes so nothing is sent twice', async () => {

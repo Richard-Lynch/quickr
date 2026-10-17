@@ -39,7 +39,9 @@ export function useUndoLog() {
       // Still queued (offline / in flight): drop it — the outbox effects roll back counts.
       const discarded = await outbox.discard(id);
       if (discarded) {
-        // It may have been mid-flight: make sure the server doesn't keep it (404 = fine).
+        // It may have been mid-flight: make sure the server doesn't keep it. The delete
+        // reserves the id even if the create hasn't arrived yet (204 either way), so a
+        // late create gets 409 entry_deleted and is never stored.
         void deleteEntry({ path: { entry_id: id } }).catch(() => undefined);
       } else {
         try {

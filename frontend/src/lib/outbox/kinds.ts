@@ -6,7 +6,7 @@
  *
  * Adding a kind (e.g. `entry.update`, `entry.delete`):
  *  1. add a payload type + `toRequest` here (and `classify` if a status means "done",
- *     e.g. 404 on delete),
+ *     e.g. 404 on delete, or "retired", e.g. 409 `entry_deleted` on create),
  *  2. add cache effects in `src/api/outboxEffects.ts` (optimistic patch / reconcile),
  *  3. enqueue it with `useOutbox().enqueue(kind, payload)`.
  */
@@ -34,7 +34,20 @@ export function entryCreateBody(item: OutboxItem<EntryCreatePayload>): EntryCrea
   return { ...item.payload.body, id: item.id };
 }
 
+/** The `code` of a `Problem` error body, if `body` is one. */
+export function problemCode(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null || !('code' in body)) return undefined;
+  return typeof body.code === 'string' ? body.code : undefined;
+}
+
 const entryCreate: OutboxKind<EntryCreatePayload> = {
+  /**
+   * 409 `entry_deleted`: the id was deleted (e.g. undone on another device, or this send
+   * lost a race with its own undo). The entry must never appear: retire the item.
+   */
+  classify(status, body) {
+    return status === 409 && problemCode(body) === 'entry_deleted' ? 'retired' : undefined;
+  },
   toRequest(item: OutboxItem<EntryCreatePayload>) {
     return {
       method: 'POST',
