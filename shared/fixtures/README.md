@@ -73,15 +73,16 @@ and topic deletion, and problem bodies: 422 `invalid_answers` (with `loc`), 422
 topic), `topic_archived` and id conflict. A 204 has `"body": null`. Push
 delivery is mocked (every send succeeds), so `sendTestPush` is deterministic.
 
-The application clock is frozen at `2026-03-04T12:00:00.5Z`. Entries carry fixed
-`captured_at` values and schedules are backdated to `2026-01-01T00:00:00Z`. So
-`due_since`, `next_due_at`, `archived_at` and a defaulted `captured_at` are real
-server output.
+Only the Python clock used for due computation is frozen, at
+`2026-03-04T12:00:00.5Z`, and schedules are backdated to `2026-01-01T00:00:00Z`.
+So `due_since` and `next_due_at` are real server output. Every recorded entry
+sends a fixed `captured_at`; a defaulted one would come from the database clock.
 
 What can't be frozen is normalised, but only at known response paths: topics,
-entries and versions, the records wrapped in `/changes` items, and `/changes`
-deletions. It is never applied inside `meta` or answers. The generator first checks
-that the original is a timezone-aware ISO-8601 datetime and fails otherwise:
+entries, versions and push subscriptions, the records wrapped in `/changes`
+items, and `/changes` deletions. It is never applied inside `meta` or answers.
+The generator first checks that the original is a timezone-aware ISO-8601
+datetime and fails otherwise:
 
 - The Postgres `now()` fields `created_at`, `updated_at`, `schedule_updated_at`,
   `archived_at`, `deleted_at` and the feed's `server_time` become

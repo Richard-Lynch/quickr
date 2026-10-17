@@ -5,14 +5,17 @@ response shape the iOS client decodes, and each recorded call becomes one file:
 ``{operation_id, request: {method, path, body}, status, body}``, named
 ``<operationId>[.<variant>].json``. Adding an endpoint is one ``rec(...)`` line.
 
-The application clock is frozen at ``FROZEN_NOW`` (``datetime.now`` in the
-topic and entry services), entries carry explicit ``captured_at`` values and
-schedules are backdated to ``SCHEDULE_SET_AT``, so due state, ``archived_at``
-and defaulted ``captured_at`` are real, deterministic values. What can't be
-frozen is normalised, only at known response paths and only after checking the
-original is a timezone-aware ISO-8601 datetime:
+Only the Python clock is frozen: ``app.services.topics.datetime`` (due
+computation) reads ``FROZEN_NOW``. Schedules are backdated to
+``SCHEDULE_SET_AT``, so due state is a real, deterministic value. Every recorded
+entry carries an explicit ``captured_at``: a defaulted one would be the
+database clock, which is never stable. The database clock (Postgres ``now()``:
+``created_at``, ``updated_at``, ``archived_at``, ``deleted_at``, the feed's
+``server_time``) can't be frozen, so it is normalised, only at known response
+paths and only after checking the original is a timezone-aware ISO-8601
+datetime:
 
-- ``DB_CLOCK_KEYS`` on topics, entries and versions (Postgres ``now()``) become
+- ``DB_CLOCK_KEYS`` on topics, entries, versions and push subscriptions become
   ``SERVER_TIME`` unless they hold one of the pinned instants;
 - server-generated UUIDs become ``00000000-0000-4000-8000-<n>`` in order of first
   appearance (client-supplied ids are kept);
