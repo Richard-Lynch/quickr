@@ -189,7 +189,7 @@ async def test_precondition_is_checked_under_the_lock(
     """A request that read epoch A, then waited on the feed lock while a rotation to B
     committed, must fail with epoch_mismatch: the check runs under the lock, not before."""
     await make_topic(client)
-    await client.post("/push/subscriptions", json={**PUSH_SUB, "endpoint": PUSH_SUB["endpoint"] + "0"})
+    await client.post("/push/subscriptions", json={**PUSH_SUB, "endpoint": f"{PUSH_SUB['endpoint']}0"})
     server_id, epoch_a = await identity(client)
     started, release = asyncio.Event(), asyncio.Event()
 
