@@ -6,10 +6,12 @@ import argparse
 import asyncio
 import json
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 import httpx
 import jwt
@@ -24,22 +26,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.db import get_sessionmaker
 from app.models import ApnsDevice, PushSlotDelivery, PushSubscription, Topic
+from app.schemas.api import QuickLogDescriptor
+from app.schemas.questions import DoubleQuestion, EnumOption, EnumQuestion, StrQuestion
+from app.services import notification, scheduler
 from app.services import push as push_svc
-from app.services import scheduler
 from app.services.push import apns
 from app.services.push import web as web_push
 from app.services.push.apns import ApnsConfig, ApnsSender, ProviderToken, SigningKey
 from tests.fake_apns import KEY_ID, TEAM_ID, TOPIC, FakeApns, new_key, token
 from tests.helpers import backdate_schedule, make_topic, record
 
+SERVER_ID = "0b9e0000-0000-4000-8000-0000000000aa"
+TOPIC_ID = UUID("6f1c0000-0000-4000-8000-000000000001")
 DUE = push_svc.Notification(
     kind="due",
     title="Water",
     body="Time to log",
     url="/t/water/record",
-    tag="due-6f1c0000-0000-4000-8000-000000000001",
+    tag=f"due-{TOPIC_ID}",
     topic_slug="water",
+    server_id=SERVER_ID,
+    topic_id=TOPIC_ID,
+    version=3,
+    due_since=datetime(2026, 10, 17, 10, 0, 0, 999999, tzinfo=ZoneInfo("Europe/Berlin")),
 )
+# The category ids' hashes: they change only with the actions (notifications.md §4.3).
+CATEGORY_HASHES = {"enum-3": "ac13c7153ebee78d", "enum-6": "d83ae3e8e449bdf4", "double": "746b872f70e41f41"}
 QUESTIONS = [{"key": "n", "label": "N", "type": "int"}]
 INTERVAL = {"kind": "interval", "every_minutes": 15, "timezone": "UTC"}
 WEB_SUB = {
@@ -102,30 +114,154 @@ async def test_request_path_headers_and_provider_token(fake_apns: FakeApns) -> N
     assert sandbox.headers["authorization"] == prod.headers["authorization"]
 
 
-async def test_payload_renders_the_notification(fake_apns: FakeApns) -> None:
-    await fake_apns.sender().post(token(1), "sandbox", DUE, 60)
-    assert fake_apns.sent[0].body == {
-        "aps": {"alert": {"title": "Water", "body": "Time to log"}, "sound": "default"},
-        "quickr": {"v": 1, "kind": "due", "url": "/t/water/record", "topic_slug": "water"},
-    }
-    assert "badge" not in fake_apns.sent[0].body["aps"]
+def _enum(n: int, *, key: str = "mood", label: str = "Option {i}") -> EnumQuestion:
+    options = [EnumOption(value=f"o{i}", label=label.format(i=i)) for i in range(n)]
+    return EnumQuestion(key=key, label=key.title(), type="enum", options=options)
 
 
-async def test_worst_case_payload_fits_in_4096_bytes(fake_apns: FakeApns) -> None:
-    worst = push_svc.Notification(
-        kind="due",
-        title="🌊" * 200,  # the longest topic name, 4 bytes a character
-        body="Overdue since 23:59",
-        url="/t/" + "a" * 64 + "/record",
-        tag="due-6f1c0000-0000-4000-8000-000000000001",
-        topic_slug="a" * 64,
-    )
-    await fake_apns.sender().post(token(1), "sandbox", worst, 60)
-    sent = fake_apns.sent[0]
+def _due(quick_log: QuickLogDescriptor | None, **overrides: Any) -> push_svc.Notification:
+    return replace(DUE, quick_log=quick_log, **overrides)
+
+
+async def _render(fake_apns: FakeApns, n: push_svc.Notification) -> dict[str, Any]:
+    await fake_apns.sender().post(token(1), "sandbox", n, 60)
+    sent = fake_apns.sent[-1]
     assert sent.size <= apns.MAX_PAYLOAD_BYTES
-    title = sent.body["aps"]["alert"]["title"]
-    assert len(title) == 120
-    assert title == "🌊" * 119 + "…"
+    assert "badge" not in sent.body["aps"]
+    body: dict[str, Any] = sent.body
+    return body
+
+
+QUICKR = {
+    "v": 1,
+    "kind": "due",
+    "server_id": SERVER_ID,
+    "topic_id": str(TOPIC_ID),
+    "topic_slug": "water",
+    "version": 3,
+    "due_since": "2026-10-17T08:00:00Z",  # 10:00:00.999999 in Berlin: UTC, whole seconds
+    "url": "/t/water/record",
+}
+
+
+async def test_payload_with_up_to_4_options(fake_apns: FakeApns) -> None:
+    quick_log = notification.descriptor([_enum(3)], counts={"o2": 9}, last=None)
+    assert await _render(fake_apns, _due(quick_log)) == {
+        "aps": {
+            "alert": {"title": "Water", "body": "Time to log"},
+            "sound": "default",
+            "thread-id": f"topic-{TOPIC_ID}",
+            "category": f"quickr.t.{TOPIC_ID}.{CATEGORY_HASHES['enum-3']}",
+            "mutable-content": 1,
+            "relevance-score": 0.8,
+        },
+        "quickr": {
+            **QUICKR,
+            "quick_log": {
+                "type": "enum",
+                "key": "mood",
+                "label": "Mood",
+                "options": [  # all of them, in question order (counts don't matter)
+                    {"value": "o0", "label": "Option 0"},
+                    {"value": "o1", "label": "Option 1"},
+                    {"value": "o2", "label": "Option 2"},
+                ],
+                "total_options": 3,
+            },
+        },
+    }
+
+
+async def test_payload_with_6_options_shows_the_3_most_used_and_says_so(fake_apns: FakeApns) -> None:
+    quick_log = notification.descriptor([_enum(6)], counts={"o4": 5, "o1": 2, "o3": 2, "o0": 1}, last=None)
+    body = await _render(fake_apns, _due(quick_log))
+    assert body["aps"]["alert"] == {"title": "Water", "body": "Time to log · 3 of 6 shown, More for all"}
+    assert body["aps"]["category"] == f"quickr.t.{TOPIC_ID}.{CATEGORY_HASHES['enum-6']}"
+    assert body["quickr"]["quick_log"] == {
+        "type": "enum",
+        "key": "mood",
+        "label": "Mood",
+        "options": [  # most-used first; o1 and o3 tie, so question order
+            {"value": "o4", "label": "Option 4"},
+            {"value": "o1", "label": "Option 1"},
+            {"value": "o3", "label": "Option 3"},
+        ],
+        "total_options": 6,
+    }
+
+
+async def test_payload_for_a_number_with_its_last_value(fake_apns: FakeApns) -> None:
+    hours = DoubleQuestion(key="hours", label="Sleep", type="double", unit="h", min=0, max=24, decimals=1)
+    body = await _render(fake_apns, _due(notification.descriptor([hours], counts={}, last=7.5)))
+    assert body["aps"]["alert"] == {"title": "Water", "body": "Time to log"}
+    assert body["aps"]["category"] == f"quickr.t.{TOPIC_ID}.{CATEGORY_HASHES['double']}"
+    assert body["quickr"] == {
+        **QUICKR,
+        "quick_log": {
+            "type": "double",
+            "key": "hours",
+            "label": "Sleep",
+            "unit": "h",
+            "min": 0,
+            "max": 24,
+            "decimals": 1,
+            "last_value": 7.5,
+        },
+    }
+
+
+async def test_payload_for_a_topic_that_cant_be_logged_from_a_notification(fake_apns: FakeApns) -> None:
+    note = StrQuestion(key="note", label="Note", type="str")
+    assert notification.descriptor([note], counts={}, last=None) is None
+    assert await _render(fake_apns, _due(None)) == {
+        "aps": {
+            "alert": {"title": "Water", "body": "Time to log"},
+            "sound": "default",
+            "thread-id": f"topic-{TOPIC_ID}",
+            "mutable-content": 1,
+            "relevance-score": 0.8,
+        },
+        "quickr": {**QUICKR, "quick_log": None},
+    }
+
+
+async def test_worst_case_payloads_fit_in_4096_bytes(fake_apns: FakeApns) -> None:
+    """notifications.md §2.2: a 200-character name, 4 options with 63-character values and
+    200-character multi-byte labels, a 64-character key, a 32-character unit."""
+    key = "k" * 64  # one more than a key can have
+    label = "🌊" * 200  # the longest label, 4 bytes a character
+    options = [EnumOption(value=f"v{i}".ljust(63, "v"), label=label) for i in range(6)]
+    widest = [
+        EnumQuestion.model_construct(key=key, label=label, type="enum", options=options[:n], multiple=False)
+        for n in (4, 6)
+    ]
+    number = DoubleQuestion.model_construct(
+        key=key,
+        label=label,
+        type="double",
+        unit="🌊" * 32,
+        min=-1.7976931348623157e308,
+        max=None,
+        decimals=10,
+    )
+    descriptors = [notification.descriptor([q], counts={}, last=None) for q in widest]
+    descriptors.append(notification.descriptor([number], counts={}, last=-2.2250738585072014e-308))
+    for quick_log in descriptors:
+        assert quick_log is not None
+        worst = _due(
+            quick_log,
+            title="🌊" * 200,
+            body="Overdue since Wed 23:59",
+            url="/t/" + "a" * 64 + "/record",
+            topic_slug="a" * 64,
+        )
+        body = await _render(fake_apns, worst)
+        assert body["aps"]["alert"]["title"] == "🌊" * 119 + "…"
+        assert body["quickr"]["quick_log"]["label"] == "🌊" * 63 + "…"
+        assert "badge" not in body["aps"]
+    enum_4 = fake_apns.sent[0]
+    assert [o["label"] for o in enum_4.body["quickr"]["quick_log"]["options"]] == ["🌊" * 63 + "…"] * 4
+    assert max(sent.size for sent in fake_apns.sent) == enum_4.size  # 4 options is the widest
 
 
 async def test_oversized_payload_is_never_sent(fake_apns: FakeApns, caplog: pytest.LogCaptureFixture) -> None:
@@ -468,11 +604,23 @@ async def test_test_this_device(client: httpx.AsyncClient, fake_apns: FakeApns) 
     assert [s.device for s in fake_apns.sent] == [token(1)]
     assert fake_apns.sent[0].headers["apns-collapse-id"] == "test"
     assert fake_apns.sent[0].body == {
-        "aps": {
+        "aps": {  # no thread-id, no category
             "alert": {"title": "quickR", "body": "Test notification: push is working."},
             "sound": "default",
+            "mutable-content": 1,
+            "relevance-score": 0.8,
         },
-        "quickr": {"v": 1, "kind": "test", "url": "/", "topic_slug": None},
+        "quickr": {
+            "v": 1,
+            "kind": "test",
+            "server_id": None,
+            "topic_id": None,
+            "topic_slug": None,
+            "version": None,
+            "due_since": None,
+            "url": "/",
+            "quick_log": None,
+        },
     }
     devices = await _devices()
     assert devices[token(1)].last_success_at is not None
@@ -535,7 +683,11 @@ async def test_tick_sends_one_notification_to_each_web_and_apns_target(
     assert sent.host == "api.sandbox.push.apple.com"
     assert sent.headers["apns-collapse-id"] == f"due-{topic['id']}"
     assert sent.body["aps"]["alert"] == {"title": "Water", "body": web_outbox[0]["body"]}
-    assert sent.body["quickr"] == {"v": 1, "kind": "due", "url": "/t/water/record", "topic_slug": "water"}
+    assert sent.body["aps"]["thread-id"] == f"topic-{topic['id']}"
+    # The same fields on both channels.
+    assert sent.body["quickr"] == {k: v for k, v in web_outbox[0].items() if k in sent.body["quickr"]}
+    assert sent.body["quickr"]["topic_id"] == topic["id"]
+    assert sent.body["quickr"]["quick_log"]["type"] == "int"
 
 
 async def test_tick_partial_failure_still_marks_the_slot(

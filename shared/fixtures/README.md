@@ -5,11 +5,12 @@ Generated from the backend and checked by every platform (the Swift tests in
 hand.** Run `make vectors` (it needs the test database, like `make check`) and
 commit the result.
 
-| File                    | Generator                                                         | Checked by                                                                  |
-| ----------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `due-vectors.json`      | `backend/tests/test_due_vectors.py` (real `services/schedule.py`) | pytest drift check; Swift `QuickrCore` due tests (M1)                       |
-| `quicklog-vectors.json` | `backend/tests/test_quicklog_vectors.py` (`services/quicklog.py`) | pytest drift check; `frontend/src/lib/quickLog.vectors.test.ts`; Swift (M1) |
-| `api/*.json`            | `backend/tests/test_api_fixtures.py` (the app, via ASGI)          | pytest drift check; Swift `QuickrData` decoding tests (M1)                  |
+| File                        | Generator                                                                 | Checked by                                                                  |
+| --------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `due-vectors.json`          | `backend/tests/test_due_vectors.py` (real `services/schedule.py`)         | pytest drift check; Swift `QuickrCore` due tests (M1)                       |
+| `quicklog-vectors.json`     | `backend/tests/test_quicklog_vectors.py` (`services/quicklog.py`)         | pytest drift check; `frontend/src/lib/quickLog.vectors.test.ts`; Swift (M1) |
+| `notification-vectors.json` | `backend/tests/test_notification_vectors.py` (`services/notification.py`) | pytest drift check; Swift notification categories (M3, spec test N1)        |
+| `api/*.json`                | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                  | pytest drift check; Swift `QuickrData` decoding tests (M1)                  |
 
 ## Drift checks
 
@@ -49,6 +50,29 @@ is one line, so diffs stay readable.
 - `initial[]`: `{name, question, last, expected}`: the text a number quick-log
   starts with. `last` is any JSON value. Numbers print as JS `String(n)` would
   (`7.0` gives `"7"`, `1e21` gives `"1e+21"`).
+
+## `notification-vectors.json`
+
+What a reminder offers to log, and its notification category
+([docs/ios/specs/notifications.md](../../docs/ios/specs/notifications.md) §2.3,
+§4). The iOS app registers categories from its local store, so its port must
+produce byte-identical descriptors, actions and category ids.
+
+- `meta.semantics`: the rules in prose (descriptor, `last_value`, actions,
+  hash input, category id, body suffix, `fmt`).
+- `cases[]`:
+  `{name, server_id, topic_id, version, questions, counts, last, expected}`.
+  `counts` maps an option value to the number of entries that chose it, and
+  `last` is the latest numeric answer for the key (any JSON value).
+  `expected` is `{quick_log, actions[], hash_input, category_id, body_suffix}`,
+  with `quick_log`, `hash_input` and `category_id` null and `actions` empty when
+  the topic isn't quick-loggable. Each action is
+  `{kind, identifier, title}`, plus `text_input_button_title` and
+  `text_input_placeholder` for `kind: "input"`. `kind` is `log`, `input`, or
+  `open` (the "More…" action, identifier `…|m|`). `hash_input` is already
+  NFC-normalised, with U+001E and U+001F separators.
+- `fmt[]`: `{kind, decimals, value, expected}`: how numbers appear in action
+  titles and identifiers.
 
 ## `api/*.json`
 
