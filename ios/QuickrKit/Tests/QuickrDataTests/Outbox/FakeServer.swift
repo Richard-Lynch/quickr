@@ -41,6 +41,8 @@ final class FakeServer: Transport {
         /// A transport that ignores cancellation: the request waits for the gate whatever the
         /// client does, then executes and answers.
         case hang(Gate)
+        /// Commit at once, but deliver the answer only after `delay`, whatever the client does.
+        case commitThenDeliver(after: Duration)
         /// Mutate the server first (another device acts just before), then execute.
         case before(@Sendable (inout State) -> Void)
     }
@@ -165,6 +167,10 @@ final class FakeServer: Transport {
         case .hang(let gate):
             await gate.arrive()
             return handle(request)
+        case .commitThenDeliver(let delay):
+            let response = handle(request)
+            await Task { try? await Task.sleep(for: delay) }.value  // not cancellable from here
+            return response
         case .answerOnCancel(let gate, let override):
             let answer = Answer()
             Task { [self] in
