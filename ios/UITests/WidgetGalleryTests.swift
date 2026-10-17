@@ -28,6 +28,11 @@ final class WidgetGalleryTests: XCTestCase {
         }
     }
 
+    override func setUp() {
+        // Bounded even if SpringBoard stalls; the plan enables test timeouts.
+        executionTimeAllowance = 300
+    }
+
     @MainActor
     func testTopicWidgetResolvesTopicEntityInTheExtension() throws {
         XCUIApplication().launch()  // installs the build, registering the widget
@@ -44,8 +49,9 @@ final class WidgetGalleryTests: XCTestCase {
         tap(springboard.cells["quickR"])
         sleep(2)  // the preview renders asynchronously
         attach("gallery")
-
-        tap(springboard.buttons.matching(NSPredicate(format: "label ENDSWITH 'Add Widget'")).element(boundBy: 0))
+        // By position: querying SpringBoard while the live preview is up can stall the accessibility
+        // snapshot (it waits on the extension) for many minutes.
+        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.905)).tap()
         tap(springboard.buttons["Done"])
         let widget = quickRWidgets.firstMatch
         XCTAssertTrue(widget.waitForExistence(timeout: 10), "the widget is on the Home Screen")
