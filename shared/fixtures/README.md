@@ -73,20 +73,25 @@ The application clock is frozen at `2026-03-04T12:00:00.5Z`. Entries carry fixed
 `due_since`, `next_due_at`, `archived_at` and a defaulted `captured_at` are real
 server output.
 
-What can't be frozen is normalised, but only at known response paths (topics,
-entries and versions, never inside `meta` or answers). The generator first checks
+What can't be frozen is normalised, but only at known response paths: topics,
+entries and versions, the records wrapped in `/changes` items, and `/changes`
+deletions. It is never applied inside `meta` or answers. The generator first checks
 that the original is a timezone-aware ISO-8601 datetime and fails otherwise:
 
-- The Postgres `now()` fields `created_at`, `updated_at` and `schedule_updated_at`
-  become `2026-06-01T12:00:00.123456Z`, unless they hold one of the pinned
-  instants above.
+- The Postgres `now()` fields `created_at`, `updated_at`, `schedule_updated_at`,
+  `archived_at`, `deleted_at` and the feed's `server_time` become
+  `2026-06-01T12:00:00.123456Z`, unless they hold one of the pinned instants
+  above.
 - Server-generated UUIDs become `00000000-0000-4000-8000-<n>`, numbered in order
-  of first appearance. Client-supplied entry ids are kept.
+  of first appearance. This includes the feed's `epoch` and `server_id`.
+  Client-supplied entry ids are kept. Feed `seq`, `head` and `next` are real: the
+  test database restarts its sequences.
 - The VAPID public key is replaced with a fixed one, after checking its format.
 
 Every other `*_at`, `due_since` and `start` value in a response body is
 format-checked too. The server sends microseconds and drops the fraction when it
-is zero. The fixtures contain both forms (for example `archived_at` with `.500000`
-and `captured_at` without), so decoders must accept both.
+is zero. The fixtures contain both forms (for example the normalised `.123456`
+timestamps, and `captured_at` and the due instants without a fraction), so
+decoders must accept both.
 
 To add an endpoint, add one `rec(...)` call to `scenario()`.

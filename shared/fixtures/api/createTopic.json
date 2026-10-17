@@ -102,6 +102,7 @@
         "type": "str"
       }
     ],
+    "revision": 1,
     "schedule": {
       "days": [
         1,

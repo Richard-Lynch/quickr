@@ -27,6 +27,7 @@
         "unit": null
       }
     ],
+    "revision": 1,
     "schedule": {
       "every_minutes": 180,
       "kind": "interval",

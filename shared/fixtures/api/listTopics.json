@@ -17,6 +17,7 @@
         "last_captured_at": "2026-03-03T09:00:00Z",
         "name": "Water",
         "question_count": 1,
+        "revision": 1,
         "schedule": {
           "every_minutes": 180,
           "kind": "interval",
@@ -44,6 +45,7 @@
         "last_captured_at": "2026-03-03T07:00:00Z",
         "name": "Everything",
         "question_count": 5,
+        "revision": 2,
         "schedule": {
           "days": [
             1,
@@ -65,7 +67,7 @@
         "schedule_updated_at": "2026-01-01T00:00:00Z",
         "slug": "everything",
         "status": "active",
-        "updated_at": "2026-03-04T12:00:00.500000Z"
+        "updated_at": "2026-06-01T12:00:00.123456Z"
       }
     ],
     "limit": 50,

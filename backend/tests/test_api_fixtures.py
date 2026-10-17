@@ -43,9 +43,22 @@ SERVER_TIME = "2026-06-01T12:00:00.123456Z"
 FROZEN_NOW = datetime(2026, 3, 4, 12, 0, 0, 500_000, tzinfo=UTC)
 SCHEDULE_SET_AT = datetime(2026, 1, 1, tzinfo=UTC)
 PINNED = frozenset({FROZEN_NOW, SCHEDULE_SET_AT})
-DB_CLOCK_KEYS = frozenset({"created_at", "updated_at", "schedule_updated_at"})
+DB_CLOCK_KEYS = frozenset(
+    {"created_at", "updated_at", "schedule_updated_at", "archived_at", "deleted_at", "server_time"}
+)
 # Where topics, entries and versions sit in a response body ("*" = any list index).
-RECORD_PATHS = frozenset({("body",), ("body", "items", "*"), ("body", "*")})
+RECORD_PATHS = frozenset(
+    {
+        ("body",),
+        ("body", "items", "*"),
+        ("body", "*"),
+        # /changes: items wrap the record under its kind; deletions sit in "deleted".
+        ("body", "items", "*", "topic"),
+        ("body", "items", "*", "entry"),
+        ("body", "items", "*", "version"),
+        ("body", "deleted", "*"),
+    }
+)
 FIXED_PUBLIC_KEY = "B" + "A" * 86
 PUBLIC_KEY_RE = re.compile(r"B[A-Za-z0-9_-]{86}")
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -162,7 +175,7 @@ class Recorder:
         for key, original in value.items():
             where = f"{name}: {'.'.join((*path, key))}"
             v = original
-            if v is not None and (key.endswith("_at") or key in {"due_since", "start"}):
+            if v is not None and (key.endswith("_at") or key in {"due_since", "start", "server_time"}):
                 instant = aware_datetime(v, where)
                 if path in RECORD_PATHS and key in DB_CLOCK_KEYS and instant not in PINNED:
                     v = SERVER_TIME
@@ -356,16 +369,29 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
     )
 
     # --- deletes ----------------------------------------------------------------
-    await record(client, "water", {"glasses": 1}, id=E5)
+    await record(client, "water", {"glasses": 1}, id=E5, captured_at="2026-03-04T07:00:00Z")
+    await rec("listChanges", "GET", "/changes?after=0&limit=500", status=200, variant="bootstrap")
     await rec("deleteEntry", "DELETE", f"/entries/{E5}", status=204)
+    # The tail of the feed after the delete: one entry deletion.
+    page = (await client.get("/changes?after=0&limit=500")).json()
+    await rec("listChanges", "GET", f"/changes?after={page['head'] - 1}", status=200, variant="deletion")
+    await rec(
+        "createEntry",
+        "POST",
+        "/topics/water/entries",
+        {"id": E5, "answers": {"glasses": 1}, "captured_at": "2026-03-04T07:00:00Z"},
+        status=409,
+        variant="entry_deleted",
+    )
     return rec.files
 
 
 async def test_api_fixtures_match_committed(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    for module in ("app.services.topics", "app.services.entries"):
-        monkeypatch.setattr(f"{module}.datetime", FrozenDatetime)
+    # Only the topic service still reads the Python clock (due computation); entry and
+    # topic timestamps come from the database's now() and are normalised instead.
+    monkeypatch.setattr("app.services.topics.datetime", FrozenDatetime)
     files = await scenario(client)
     existing = {p.name for p in API_DIR.glob("*.json")}
     if updating():
