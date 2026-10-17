@@ -136,7 +136,11 @@ export const zDueStatus = z.object({
  */
 export const zEntryCreate = z.object({
     id: z.uuid().nullish(),
-    answers: z.record(z.string(), z.unknown()),
+    answers: z.record(z.string(), z.union([
+        z.number(),
+        z.string(),
+        z.array(z.string())
+    ]).nullable()),
     source: z.string().min(1).max(100).nullish(),
     captured_at: z.iso.datetime({ offset: true }).nullish(),
     notes: z.string().max(5000).optional().default(''),
@@ -150,7 +154,11 @@ export const zEntryCreate = z.object({
  * Partial update. ``answers`` merges into existing answers; a null value clears an answer.
  */
 export const zEntryUpdate = z.object({
-    answers: z.record(z.string(), z.unknown()).nullish(),
+    answers: z.record(z.string(), z.union([
+        z.number(),
+        z.string(),
+        z.array(z.string())
+    ]).nullable()).nullish(),
     source: z.string().min(1).max(100).nullish(),
     captured_at: z.iso.datetime({ offset: true }).nullish(),
     notes: z.string().max(5000).nullish(),

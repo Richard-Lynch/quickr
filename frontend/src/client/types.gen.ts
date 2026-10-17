@@ -283,7 +283,7 @@ export type EntryCreate = {
      * Map of question key -> value. int questions take integers, double questions numbers, str questions strings, enum questions an option value, multi-select enum questions a list of option values. null/absent/empty list = unanswered.
      */
     answers: {
-        [key: string]: unknown | number | number | string | Array<string> | null;
+        [key: string]: number | string | Array<string> | null;
     };
     /**
      * Source
@@ -398,7 +398,7 @@ export type EntryUpdate = {
      * Answers
      */
     answers?: {
-        [key: string]: unknown | number | number | string | Array<string> | null;
+        [key: string]: number | string | Array<string> | null;
     } | null;
     /**
      * Source

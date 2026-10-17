@@ -15,6 +15,7 @@ from pydantic import (
     Field,
     StrictBool,
     StrictInt,
+    WithJsonSchema,
     field_validator,
     model_validator,
 )
@@ -347,13 +348,28 @@ AnswerOut = Annotated[
     IntAnswer | DoubleAnswer | StrAnswer | EnumAnswer | EnumListAnswer, Field(discriminator="type")
 ]
 
+# The schema is spelled out: pydantic would emit ``patternProperties`` (from the key
+# pattern), which code generators such as swift-openapi-generator drop. Validation is
+# unchanged; ``number`` covers integers, so there is no separate integer branch.
 AnswerMap = Annotated[
     dict[QuestionKey, AnswerValue | None],
-    Field(
-        description="Map of question key -> value. int questions take integers, double questions "
-        "numbers, str questions strings, enum questions an option value, multi-select enum questions "
-        "a list of option values. null/absent/empty list = unanswered.",
-        examples=[{"hours_slept": 7.5, "quality": "good", "factors": ["caffeine", "screen"]}],
+    WithJsonSchema(
+        {
+            "type": "object",
+            "propertyNames": {"pattern": KEY_PATTERN},
+            "additionalProperties": {
+                "anyOf": [
+                    {"type": "number"},
+                    {"type": "string"},
+                    {"type": "array", "items": {"type": "string"}},
+                    {"type": "null"},
+                ]
+            },
+            "description": "Map of question key -> value. int questions take integers, double "
+            "questions numbers, str questions strings, enum questions an option value, multi-select "
+            "enum questions a list of option values. null/absent/empty list = unanswered.",
+            "examples": [{"hours_slept": 7.5, "quality": "good", "factors": ["caffeine", "screen"]}],
+        }
     ),
 ]
 
