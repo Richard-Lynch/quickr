@@ -510,6 +510,11 @@ async def test_test_push_fans_out_to_every_channel(
 # --- scheduler -------------------------------------------------------------------------------------
 
 
+# A tick budget the answered sends and the tick's queries fit in with room to spare on a
+# loaded machine. The fake's quota decides which sends a tick cuts off, not wall time.
+BUDGET = 1.0
+
+
 async def _tick(now: datetime, db: AsyncSession | None = None) -> int:
     if db is not None:
         return await scheduler.tick(db, now=now)
@@ -595,14 +600,13 @@ async def test_tick_budget_bounds_delivery(
     for n in range(20):
         await client.post("/push/apns/devices", json=device(n))
     await make_topic(client, "Water", QUESTIONS, schedule=INTERVAL)
-    fake_apns.delay = 0.1  # batches finish at 0.1 s, 0.2 s and 0.3 s
-    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 0.25)
+    fake_apns.delay = 0.05  # a whole batch is in flight at once
+    fake_apns.allow(16)  # two batches answered; the third stalls past the budget
+    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", BUDGET)
     later = datetime.now(UTC) + timedelta(hours=1)
-    loop = asyncio.get_running_loop()
 
-    started = loop.time()
-    assert await _tick(later) == 0
-    assert loop.time() - started < 0.29  # stopped at the budget, not after the third batch
+    async with asyncio.timeout(BUDGET + 5):  # stopped at the budget, not waiting on the third batch
+        assert await _tick(later) == 0
     assert len(fake_apns.sent) == 16
     assert fake_apns.max_in_flight == push_svc.MAX_CONCURRENT_SENDS
     devices = await _devices()
@@ -612,6 +616,7 @@ async def test_tick_budget_bounds_delivery(
         assert (await db.scalar(select(Topic.last_notified_due_since))) is None
         assert (await db.scalar(select(func.count()).select_from(PushSlotDelivery))) == 16
 
+    fake_apns.allow()
     assert await _tick(later) == 1  # the same budget: the last 4 fit
     assert sorted(s.device for s in fake_apns.sent) == sorted(token(n) for n in range(20))
     async with get_sessionmaker()() as db:
@@ -632,10 +637,12 @@ async def test_repeated_short_ticks_reach_every_target_once_and_every_topic(
     await client.post("/push/subscriptions", json=WEB_SUB)
     await make_topic(client, "Water", QUESTIONS, schedule=INTERVAL)
     await make_topic(client, "Meds", QUESTIONS, schedule=INTERVAL)
-    fake_apns.delay = 0.2
-    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 0.5)  # two batches of 8 a tick
+    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", BUDGET)
     later = datetime.now(UTC) + timedelta(hours=1)
-    notified = [await _tick(later) for _ in range(6)]
+    notified = []
+    for _ in range(6):
+        fake_apns.allow(16)  # two batches of 8 a tick; the rest stall past the budget
+        notified.append(await _tick(later))
     assert sum(notified) == 2
     assert notified[-2:] == [0, 0]
     per_target: dict[tuple[str, str], int] = {}
@@ -680,8 +687,8 @@ async def test_progress_of_a_slot_still_due_survives_the_ttl(
     for n in range(20):
         await client.post("/push/apns/devices", json=device(n))
     await make_topic(client, "Water", QUESTIONS, schedule=INTERVAL)
-    fake_apns.delay = 0.1
-    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 0.25)
+    fake_apns.allow(16)
+    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", BUDGET)
     later = datetime.now(UTC) + timedelta(hours=1)
     assert await _tick(later) == 0
     assert await _age_progress(days=3) == 16  # older than the TTL, but the slot is still due
@@ -690,7 +697,8 @@ async def test_progress_of_a_slot_still_due_survives_the_ttl(
     assert await _tick(later) == 0
     assert await _progress_count() == 16
 
-    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 0.25)
+    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", BUDGET)
+    fake_apns.allow()
     assert await _tick(later) == 1
     assert sorted(s.device for s in fake_apns.sent) == sorted(token(n) for n in range(20))
     assert await _progress_count() == 0
@@ -702,8 +710,8 @@ async def test_progress_of_an_abandoned_slot_is_pruned_after_the_ttl(
     for n in range(20):
         await client.post("/push/apns/devices", json=device(n))
     await make_topic(client, "Water", QUESTIONS, schedule=INTERVAL)
-    fake_apns.delay = 0.1
-    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 0.25)
+    fake_apns.allow(16)
+    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", BUDGET)
     later = datetime.now(UTC) + timedelta(hours=1)
     assert await _tick(later) == 0
     assert await _progress_count() == 16
@@ -754,14 +762,14 @@ async def test_tick_holds_no_target_row_locks_while_sending(
     await client.post("/push/apns/devices", json=device(1))
     await make_topic(client, "Water", QUESTIONS, schedule=INTERVAL)
     await make_topic(client, "Meds", QUESTIONS, schedule=INTERVAL)
-    fake_apns.delay = 0.5
+    fake_apns.allow(1)  # water's send is answered; meds' stalls until allowed
     tick = asyncio.create_task(_tick(datetime.now(UTC) + timedelta(hours=1)))
-    async with asyncio.timeout(5):
+    async with asyncio.timeout(5):  # a blocked upsert would wait on the stalled tick for good
         await fake_apns.wait_started(2)  # water done, meds in flight
-    async with asyncio.timeout(0.3):  # well before the second send finishes
         r = await client.post("/push/apns/devices", json={**device(1), "app_version": "2.0"})
     assert r.status_code == 201
     assert not tick.done()
+    fake_apns.allow()
     assert await tick == 2
     stored = (await _devices())[token(1)]
     assert (stored.app_version, stored.last_success_at is not None) == ("2.0", True)

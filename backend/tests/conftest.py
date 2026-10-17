@@ -30,7 +30,7 @@ for _name in [n for n in os.environ if n.startswith("QUICKR_APNS_")]:
 import httpx  # noqa: E402
 from alembic.config import Config  # noqa: E402
 from sqlalchemy import make_url, text  # noqa: E402
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine  # noqa: E402
 
 from alembic import command  # noqa: E402
 from app.config import get_settings  # noqa: E402
@@ -80,6 +80,20 @@ def migrated_db() -> str:
     # alembic/env.py drives its own event loop, so this must run outside ours.
     command.upgrade(alembic_config(), "head")
     return TEST_DATABASE_URL
+
+
+@pytest.fixture
+async def peer_engine(migrated_db: str) -> AsyncIterator[AsyncEngine]:
+    """A second, empty database on the same server, as another worktree's test database or
+    another quickR instance would be. A lock wait there fails after 5 s instead of hanging."""
+    url = make_url(migrated_db)
+    peer = url.set(database=f"{url.database}_peer")
+    await _ensure_database(peer.render_as_string(hide_password=False))
+    engine = create_async_engine(peer, connect_args={"server_settings": {"lock_timeout": "5s"}})
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
 
 
 @pytest.fixture
