@@ -63,7 +63,7 @@ decision that changed after review.
 | Repeat-last **(v2)**          | Re-logs the latest entry's answers if they still validate against the current version; otherwise it opens the record screen prefilled. With no previous entry, it opens the record screen. If the topic is archived, it shows a dialog.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | UI                            | `@Observable` screen models over GRDB `ValueObservation`, reconciled whenever the app becomes active. `NavigationStack` with a typed `Route`, plus a URL parser for the PWA's paths. A schema-driven form engine using `FocusState`. Swift Charts. System navigation, lists and sheets, with brand tokens and fonts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Headers                       | `X-QuickR-Channel: ios` (a new enum value). `source` is `ios`, `ios.widget`, `ios.notification` or `ios.siri`. `CF-Access-Client-Id` and `-Secret` come from the shared Keychain (`AfterFirstUnlock`) and are sent only when configured.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Server identity **(v2)**      | The local store is **partitioned per server**: one DB file per **server id** (a stable random id the server reports). An epoch change rebuilds that store's server layer in place, keeping its outbox. Changing the server URL switches stores and unregisters the old server's APNs registration. Queued data never goes to a different server.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Server identity **(v2)**      | The local store is **partitioned per server**: one DB file per **server id** (a stable random id the server reports). An epoch change rebuilds that store's server layer in place, keeping its outbox. Changing the server URL switches stores and unregisters the old server's APNs registration. Queued data never goes to a different server.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Dependencies                  | GRDB.<br>Tools: xcodegen (downloaded as a release binary in CI), swift-format, ffmpeg, rsvg-convert, fonttools (via uvx).<br>Backend: `httpx[http2]` and an explicit `pyjwt[crypto]`.<br>**(v2) Cut:** snapshot testing, Access JWT verification, chart screenshot comparison.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 ## 3. Repository layout
@@ -241,7 +241,7 @@ Codex round-2 finding it answers ([review](reviews/plan-v2-codex.md)).
    - The table is append-only. Rows are pruned only when older than 7 days and not referenced by
      any delivered notification.
    - Category ids hash the **complete ordered action descriptor**: labels, values, kinds and order.
-   - Up to four actions is the *maximum*. Checkpoint D measures how many actually show, and the
+   - Up to four actions is the _maximum_. Checkpoint D measures how many actually show, and the
      design must still work when only two show (the banner).
 
 **Delivery, compatibility and coverage**
@@ -508,14 +508,14 @@ and M4. The order becomes M2b → M5 → M6 → M3 → M4.
 
 ## 8. Gates and CI
 
-| Gate                   | Contents                                                                                                                                                                                                                                                                                                                                                                                           | Where              |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| `make check`           | Today's checks, plus the drift checks for vectors, fixtures and request goldens. No Xcode needed.                                                                                                                                                                                                                                                                                                  | Local and `ci.yml` |
-| `make check-ios`       | `xcodegen generate`, `swift test`, `xcodebuild test` with the Unit and UI plans, a swift-format lint, and an Xcode version check                                                                                                                                                                                                                                                                   | Local              |
-| `make ios-integration` | The sync suite against this worktree's docker stack. **Required** for any milestone that touches sync.                                                                                                                                                                                                                                                                                             | Local              |
+| Gate                   | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                               | Where              |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
+| `make check`           | Today's checks, plus the drift checks for vectors, fixtures and request goldens. No Xcode needed.                                                                                                                                                                                                                                                                                                                                                      | Local and `ci.yml` |
+| `make check-ios`       | `xcodegen generate`, `swift test`, `xcodebuild test` with the Unit and UI plans, a swift-format lint, and an Xcode version check                                                                                                                                                                                                                                                                                                                       | Local              |
+| `make ios-integration` | The sync suite against this worktree's docker stack. **Required** for any milestone that touches sync.                                                                                                                                                                                                                                                                                                                                                 | Local              |
 | `ios.yml` **(v2)**     | Checks out the repo and downloads the xcodegen binary.<br>• On push: `swift test` on the host, about 3 min.<br>• On a PR marked ready for review, or a manual dispatch: an `xcodebuild` build plus the Unit plan.<br>• Path filters, and in-progress runs are cancelled.<br>The repo is private, so macOS minutes count at 10× — the account is on **GitHub Pro** (3,000 min, so about 300 macOS min a month), and usage is checked at each milestone. | GitHub             |
-| Device checklist       | Listed in each milestone's PR                                                                                                                                                                                                                                                                                                                                                                      | Phone              |
-| Reviews                | A code-review sub-agent plus `codex review`, for every milestone                                                                                                                                                                                                                                                                                                                                   | Before the PR      |
+| Device checklist       | Listed in each milestone's PR                                                                                                                                                                                                                                                                                                                                                                                                                          | Phone              |
+| Reviews                | A code-review sub-agent plus `codex review`, for every milestone                                                                                                                                                                                                                                                                                                                                                                                       | Before the PR      |
 
 **Definition of done:** the gates are green; every validation item and every row
 of the **requirements matrix (§11)** for this milestone is ticked; demo media is
@@ -559,16 +559,20 @@ Everything else:
 
 ## 10. Open questions
 
-- **Q1. Merge gating.** By default, I merge each milestone PR once its gates and
-  reviews pass, and you review afterwards. Is that OK, or should every milestone
-  wait for your approval?
-- **Q2. Logging from the lock screen.** Notification actions log **without Face
-  ID**, which keeps it at 2 taps. Should they require authentication instead?
-- **Q3. Siri and Shortcuts with multi-question topics.** These open the record
-  screen, or use Repeat-last; there's no field-by-field voice entry. Is that
-  acceptable?
-- **Q4. Topics with 5–6 options.** The notification shows the 4 most-used
-  options, and the rest are one tap away in the app. Is that acceptable?
+All four were answered by the user on 2026-10-17:
+
+- **Q1. Merge gating: decided.** Milestone PRs merge once their gates and reviews
+  pass, and the user reviews afterwards.
+- **Q2. Lock-screen logging: decided.** No Face ID, provided the experience is
+  clean. Checkpoint D verifies it, and if it turns out messy we raise it rather
+  than quietly adding authentication.
+- **Q3. Siri: decided, with a follow-up.** Opening the record screen or using
+  Repeat-last is acceptable for multi-question topics, **but** the design must use
+  the newest Siri / Apple Intelligence capabilities available on iOS 26/27.
+  Research is in `research/04-siri.md` and feeds the INTENTS WP.
+- **Q4. Topics with 5–6 options: decided.** The 3 most-used options plus a 4th
+  "More…" action that opens the app, with the truncation stated in the
+  notification body (`specs/notifications.md`).
 
 ## 11. Requirements matrix
 
@@ -598,7 +602,7 @@ Everything else:
    logging goes through the notification actions instead.
 2. The Action button exists only on the iPhone 15 Pro and later.
 3. A notification can show at most 4 actions, so a topic with 5–6 options shows
-   its 4 most-used.
+   its 3 most-used plus "More…", and says so in the body.
 4. Widgets have no number stepper in v1. A number topic gets "✓ last" only.
 5. Siri can't fill in a multi-question form field by field.
 6. PWA parity is limited by the platform:
@@ -640,18 +644,18 @@ Everything else:
 
 ### v2 → v3 (Codex round 2)
 
-| Round-2 finding | Resolution |
-| --- | --- |
-| A DELETE must reserve an id it hasn't seen; creates and deletes must be serialised | §6a rules 1–2 |
-| Lock ordering and deadlocks with the scheduler lock | §6a rule 1 |
-| Topic cascades and derived topic fields | §6a rule 3 |
-| Materialising pages | §6a rule 4 |
-| **New blocker:** notification provenance across servers | §6a rule 8, plus the store keyed by `server_id` (§2) |
-| Category registration race, and hashing the full descriptor | §6a rule 9 |
-| Expired senders overwriting newer changes | §6a rule 6 |
-| Double overlays on acknowledgement | §6a rule 7 |
-| A restore doesn't rotate the epoch | §6a rule 5 |
-| Partial scheduler delivery | §6a rule 10: best-effort per device, a stated limitation |
-| Rules for deduplicating the local fallback | §6a rule 11 |
-| Minimum-iOS testing and endpoint coverage | §6a rule 12 |
-| GitHub plan tier | Confirmed: Pro (§8) |
+| Round-2 finding                                                                    | Resolution                                               |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| A DELETE must reserve an id it hasn't seen; creates and deletes must be serialised | §6a rules 1–2                                            |
+| Lock ordering and deadlocks with the scheduler lock                                | §6a rule 1                                               |
+| Topic cascades and derived topic fields                                            | §6a rule 3                                               |
+| Materialising pages                                                                | §6a rule 4                                               |
+| **New blocker:** notification provenance across servers                            | §6a rule 8, plus the store keyed by `server_id` (§2)     |
+| Category registration race, and hashing the full descriptor                        | §6a rule 9                                               |
+| Expired senders overwriting newer changes                                          | §6a rule 6                                               |
+| Double overlays on acknowledgement                                                 | §6a rule 7                                               |
+| A restore doesn't rotate the epoch                                                 | §6a rule 5                                               |
+| Partial scheduler delivery                                                         | §6a rule 10: best-effort per device, a stated limitation |
+| Rules for deduplicating the local fallback                                         | §6a rule 11                                              |
+| Minimum-iOS testing and endpoint coverage                                          | §6a rule 12                                              |
+| GitHub plan tier                                                                   | Confirmed: Pro (§8)                                      |

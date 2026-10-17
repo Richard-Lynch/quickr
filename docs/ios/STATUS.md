@@ -25,7 +25,7 @@ branch.
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Active milestone    | **M1** on `ios/m1-data`. M0 merged (#8, 6249b0e).                                                                                                                                      |
 | Running             | M1 Wave 1 sub-agents: **C1** contracts (`ios/m1-c1`), **DS** design system (`ios/m1-ds`, sim), **B6** APNs backend, dark (`ios/m1-b6`), **TOOLS** integration harness (`ios/m1-tools`) |
-| Waiting on the user | Apple enrollment activation and the Team ID; iPhone model and iOS version; answers to Q1–Q4; a session restart to load MobileBuildMCP                                                  |
+| Waiting on the user | Apple enrollment activation and the Team ID; iPhone model and iOS version; a session restart to load MobileBuildMCP                                                                    |
 | Next up             | Wave 1 reviews (Codex) → merge C1 first → Wave 2: STORE, API, DUE, VAL                                                                                                                 |
 
 ## Human steps (PLAN §9)
@@ -49,10 +49,10 @@ branch.
 Each one is answered for now with the default shown below, marked provisional.
 The user can override any of them.
 
-- [ ] Q1: milestone PRs merge without waiting for review (default: yes)
-- [ ] Q2: lock-screen notification logging without Face ID (default: yes)
-- [ ] Q3: Siri opens the record screen for multi-question topics (default: yes)
-- [ ] Q4: notifications show the 4 most-used options (default: yes)
+- [x] Q1: milestone PRs merge without waiting for review. **Yes.**
+- [x] Q2: lock-screen logging without Face ID. **Yes, if it's clean.** Verified at checkpoint D.
+- [x] Q3: Siri opens the record screen or runs Repeat-last for multi-question topics. **Yes, but use the newest Siri capabilities** (research `04-siri.md` in progress).
+- [x] Q4: **3 most-used + "More…"** (opens the app) for 5–6 options, with the truncation stated in the body.
 
 ## Environment and tooling
 
