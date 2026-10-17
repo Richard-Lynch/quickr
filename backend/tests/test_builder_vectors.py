@@ -17,6 +17,8 @@ file must match.
 
 from __future__ import annotations
 
+import sys
+import unicodedata
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
@@ -28,7 +30,7 @@ from app.services.topics import slugify
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
 
 PATH = FIXTURES_DIR / "builder-vectors.json"
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
 
 adapter: TypeAdapter[list[Question]] = TypeAdapter(list[Question])
 
@@ -218,6 +220,29 @@ QUESTION_CASES: dict[str, list[dict[str, Any]]] = {
     "list/100": [draft("int", key=f"q{i}", label=f"Q{i}") for i in range(100)],
     "list/101": [draft("int", key=f"q{i}", label=f"Q{i}") for i in range(101)],
 }
+
+# Python compares code points: canonically equivalent spellings are different labels, but
+# casefold() equates compatibility pairs like KELVIN SIGN / K. (Swift's String == does the opposite.)
+E_NFC, E_NFD = chr(0xE9), "e" + chr(0x301)
+A_RING, A_RING_NFD, ANGSTROM, KELVIN = chr(0xC5), "A" + chr(0x30A), chr(0x212B), chr(0x212A)
+CHEROKEE_A, CHEROKEE_SMALL_A = chr(0x13A0), chr(0xAB70)
+LABEL_PAIRS = {
+    "nfc-nfd": (E_NFC, E_NFD),
+    "nfc-nfd-upper": ("Caf" + chr(0xC9), "CAFE" + chr(0x301)),
+    "angstrom-a-ring": (ANGSTROM, A_RING),
+    "a-ring-nfd": (A_RING, A_RING_NFD),
+    "kelvin-k": (KELVIN, "k"),
+    "cherokee": (CHEROKEE_A, CHEROKEE_SMALL_A),
+    "sharp-s-capital": (chr(0x1E9E), "ss"),
+    "final-sigma": (chr(0x3C2), chr(0x3A3)),
+    "dotted-capital-i": (chr(0x130), "i"),
+}
+for tag, (x, y) in LABEL_PAIRS.items():
+    QUESTION_CASES[f"text/option-labels-{tag}"] = [draft("enum", options=[opt("a", x), opt("b", y)])]
+    QUESTION_CASES[f"text/question-labels-{tag}"] = [
+        draft("int", key="a", label=x),
+        draft("str", key="b", label=y),
+    ]
 for tag, ch in WS.items():
     QUESTION_CASES[f"ws/label-only-{tag}"] = [draft("int", label=ch)]
     QUESTION_CASES[f"ws/key-padded-{tag}"] = [draft("int", key=f"{ch}k{ch}")]
@@ -312,6 +337,16 @@ COMPAT_CASES: dict[str, tuple[list[list[dict[str, Any]]], list[dict[str, Any]]]]
     "now-required": ([qs(i("a", required=False))], qs(i("a"))),
     "now-optional": ([qs(i("a"))], qs(i("a", required=False))),
     "label-and-help": ([qs(i("a"))], qs(i("a", label="Alpha", help_text="Some help"))),
+    "help-null-to-literal-none": ([qs(i("a"))], qs(i("a", help_text="none"))),
+    "unit-null-to-literal-none": ([qs(d("a"))], qs(d("a", unit="none"))),
+    "unit-literal-none-to-null": ([qs(i("a", unit="none"))], qs(i("a"))),
+    "label-nfc-to-nfd": ([qs(i("a", label="Caf" + chr(0xE9)))], qs(i("a", label="Cafe" + chr(0x301)))),
+    "help-nfd-to-nfc": ([qs(i("a", help_text="e" + chr(0x301)))], qs(i("a", help_text=chr(0xE9)))),
+    "option-label-nfc-to-nfd": (
+        [qs({**e("m"), "options": [{"value": "x", "label": chr(0xC5)}]})],
+        qs({**e("m"), "options": [{"value": "x", "label": "A" + chr(0x30A)}]}),
+    ),
+    "double-zero-to-negative-zero": ([qs(d("a", min=0))], qs(d("a", min=-0.0))),
     "help-removed": ([qs(i("a", help_text="Old"))], qs(i("a"))),
     "single-to-multiple": ([qs(e("f", "a", "b"))], qs(e("f", "a", "b", multiple=True, max_selected=2))),
     "multiple-to-single": ([qs(e("f", "a", "b", multiple=True))], qs(e("f", "a", "b"))),
@@ -390,11 +425,24 @@ SLUG_INPUTS = [
 ]
 
 
+def casefold_table() -> list[list[Any]]:
+    """[code point, [code points of its casefold()]] wherever it isn't the code point itself."""
+    table: list[list[Any]] = []
+    for c in range(sys.maxunicode + 1):
+        if 0xD800 <= c <= 0xDFFF:
+            continue
+        folded = chr(c).casefold()
+        if folded != chr(c):
+            table.append([c, [ord(x) for x in folded]])
+    return table
+
+
 def build() -> dict[str, Any]:
     return {
         "meta": {
             "generator": "backend/tests/test_builder_vectors.py",
             "generator_version": GENERATOR_VERSION,
+            "unicode_version": unicodedata.unidata_version,
             "semantics": [
                 "questions[].drafts: builder drafts, every constraint the text of its field; the "
                 "request sends numbers parsed from that text and selection limits only when multiple.",
@@ -406,11 +454,15 @@ def build() -> dict[str, Any]:
                 "compat questions are full API shapes; whole double bounds below 1e16 are ints, as "
                 "Swift's JSONEncoder sends them.",
                 "slugs[]: services/topics.py slugify ('topic' when nothing is left).",
+                "casefold[]: [code point, [folded code points]] for every code point whose Python "
+                "str.casefold() differs from itself (the server compares labels by casefold, code "
+                "point by code point, with no normalisation). unicode_version is Python's.",
             ],
         },
         "questions": question_cases(),
         "compat": [compat_case(name, h, p) for name, (h, p) in COMPAT_CASES.items()],
         "slugs": [{"input": x, "expected": slugify(x)} for x in SLUG_INPUTS],
+        "casefold": casefold_table(),
     }
 
 

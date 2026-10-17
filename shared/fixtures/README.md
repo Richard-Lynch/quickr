@@ -121,6 +121,14 @@ the iOS builder (`QuickrCore/Builder`) can prove it agrees offline.
   each change's `details` are sorted; compare them sorted.
 - `slugs[]`: `{input, expected}`: `slugify` (`services/topics.py`), which gives
   `topic` when nothing is left.
+- `casefold[]`: `[code point, [folded code points]]` for every code point whose
+  Python `str.casefold()` isn't itself (`meta.unicode_version` is Python's).
+  The server compares labels by `casefold()`, code point by code point, with no
+  normalisation: "é" and "e\u0301" are different labels, KELVIN SIGN and "k"
+  the same. Foundation's folding and Swift's lowercase mappings disagree with
+  it on hundreds of code points, so `ios/scripts/gen-casefold.py` turns this
+  list into `QuickrCore/Builder/CaseFoldTable.swift`; rerun it when the list
+  changes (`BuilderVectorTests.casefoldIsPythons` fails until you do).
 
 ## `api/*.json`
 
