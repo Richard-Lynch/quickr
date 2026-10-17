@@ -112,11 +112,11 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
 
 ### WP specs: `ios/m0-specs` (worktree `../ios-m0-specs`)
 
-- [~] Writing (sub-agent)
-  - [ ] `specs/sync-protocol.md`
-  - [ ] `specs/outbox.md`, with a test matrix of about 40 cases
-  - [ ] `specs/notifications.md`, including the local-fallback section
-- [ ] Codex review of the specs (required by the plan); findings folded in
+- [x] Writing (sub-agent): commits c272125, 7f9edaf, bfeb91f. outbox.md has a 46-case test matrix.
+  - [x] `specs/sync-protocol.md`
+  - [x] `specs/outbox.md`, with a test matrix of about 40 cases
+  - [x] `specs/notifications.md`, including the local-fallback section
+- [~] Codex review of the specs (required by the plan); findings folded in
 - [ ] Merged into `ios/m0-foundations`
 
 ### WP scaffold (starts once Xcode is installed)
