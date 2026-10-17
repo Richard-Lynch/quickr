@@ -22,7 +22,7 @@ branch.
 |                     |                                                                                                                           |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Active milestone    | **M0: backend foundations and specs** (branch `ios/m0-foundations`)                                                       |
-| Running             | WP scaffold (sub-agent). vectors, specs and feed are merged.                                                      |
+| Running             | M0 milestone reviews (Codex + Claude). All four WPs are merged.                                                      |
 | Waiting on the user | Xcode install (via `xcodes`); Apple enrollment activation and the Team ID; iPhone model and iOS version; answers to Q1–Q4 |
 | Next up             | Integrate the M0 work packages, with a Codex review each → `ios/` scaffolding once Xcode lands → M0 PR                    |
 
@@ -126,8 +126,8 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
       `swift test` on push, the full build on a ready PR or a manual dispatch
 - [x] Local smoke test: `make ios-gen` and a simulator build of an empty app
 - [x] Orchestrator re-check: `check-ios` passes on both simulators (Unit 3/3 and UI 1/1 on iOS 26.0 and 27.0, from the xcresults); screenshots reviewed.
-- [~] Codex review: round 1 requested changes (2 Majors: Makefile missing from the CI path filters, iOS 26.x not enforced in CI; 4 Minors). Fixes in progress.
-- [ ] Merged into `ios/m0-foundations`
+- [x] Codex review: round 1 found 2 Majors + 4 Minors, fixed in b3fd2b6 and dc658ac. Round 2 approved.
+- [x] Merged into `ios/m0-foundations` (d0647f7)
 
 ### Contract reconciliation (specs ↔ feed), checked at integration: all M0 items confirmed by the feed WP and Codex, and the specs were aligned (tagged-union page, query-param `expected_revision`, incremental topic-delete cascade).
 
@@ -163,7 +163,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### M0 integration and PR
 
-- [~] All WPs merged (vectors, specs, feed; scaffold in progress); `make check` green on `ios/m0-foundations` (401 pytest, 532 vitest, alembic check)
+- [x] All WPs merged (vectors, specs, feed, scaffold). Integrated gates green: `make check` (401 pytest, 532 vitest, alembic check) and `make check-ios` (iOS 26.0 + 27.0).
 - [ ] Concurrency, feed and downgrade tests listed in the PR
 - [ ] Codex review of the whole milestone diff, plus a Claude code-review
       sub-agent
