@@ -466,6 +466,17 @@ have its claim token. If the process is killed first, expiry recovery (§6.3)
 handles them. Every committed outbox change posts
 `com.bahumia.quickr.db-changed`.
 
+**What a budget bounds.** A budget bounds the network work and every new piece
+of work: lease polling (no acquire attempt once requests must stop), claims,
+requests, refetches and post-send verify or rebase steps. Requests stop early
+enough to keep the shutdown grace (at most 1 s, and at most 20 % of the budget)
+and the release inside the budget. An expiration-handler cancellation releases
+at once. Two transactions always run, because they make the item state correct:
+the outcome of an answer already received, and the release. Under write
+contention from another process, each can wait up to SQLite's busy timeout
+(5 s). Callers therefore choose a budget with headroom below their real limit:
+extensions use 4–5 s of a ~30 s window.
+
 ## 11. User actions on items (sync sheet)
 
 | Action      | Allowed in                                                                                             | Effect                                                                                                                                                                                                                                                                                    |
