@@ -7,6 +7,7 @@ import { z } from 'zod';
 import type { Limits } from '../client';
 import { zEntryCreate } from '../client/zod.gen';
 import { localInputToIso } from './dates';
+import { charCount } from './text';
 
 /** Why a capture time would be rejected by the server, or null when it's fine. */
 export function capturedAtIssue(
@@ -17,7 +18,8 @@ export function capturedAtIssue(
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return 'Pick a date and time';
   if (t < Date.parse(limits.captured_at_min)) {
-    return `Can’t be before ${new Date(limits.captured_at_min).getFullYear().toString()}`;
+    // The limit is a UTC instant: its local year reads 1999 west of UTC.
+    return `Can’t be before ${new Date(limits.captured_at_min).getUTCFullYear().toString()}`;
   }
   const maxH = limits.captured_at_max_future_hours;
   if (t > now.getTime() + maxH * 3_600_000) {
@@ -47,12 +49,18 @@ export function sourceSchema(limits: Limits) {
     .string()
     .trim()
     .min(1, 'Where did this come from? (e.g. phone)')
-    .max(limits.max_source_length, `At most ${String(limits.max_source_length)} characters`);
+    .refine(
+      (v) => charCount(v) <= limits.max_source_length,
+      `At most ${String(limits.max_source_length)} characters`,
+    );
 }
 
 export function notesSchema(limits: Limits) {
   return z
     .string()
     .trim()
-    .max(limits.max_notes_length, `At most ${String(limits.max_notes_length)} characters`);
+    .refine(
+      (v) => charCount(v) <= limits.max_notes_length,
+      `At most ${String(limits.max_notes_length)} characters`,
+    );
 }
