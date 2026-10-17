@@ -81,24 +81,64 @@ import Testing
     }
 
     @Test func repeatLastRelogsAnswersThatStillValidate() {
-        let last: [String: AnswerValue] = [
-            "hours": .double(7.5), "wakeups": .int(1), "mood": .string("good"), "removed": .string("gone"),
-        ]
+        let last: [String: AnswerValue] = ["hours": .double(7.5), "wakeups": .int(1), "mood": .string("good")]
+        #expect(RepeatLast.answers(last, questions: F.all) == last)
+        // A whole number for a double question is what the server accepts too.
         #expect(
-            RepeatLast.answers(last, questions: F.all)
-                == ["hours": .double(7.5), "wakeups": .int(1), "mood": .string("good")])
+            RepeatLast.answers(["hours": .int(7), "mood": .string("good")], questions: F.all)
+                == ["hours": .double(7), "mood": .string("good")])
+        // The server stores a selection in option order; reordered options are still the same answer.
+        #expect(
+            RepeatLast.answers(["tags": .strings(["c", "a"])], questions: [F.tags]) == ["tags": .strings(["a", "c"])])
+    }
+
+    @Test func repeatLastWithNoAnswersWhenEveryQuestionIsOptional() {
+        #expect(RepeatLast.answers([:], questions: [F.wakeups]) == [:])
+        #expect(RepeatLast.answers([:], questions: [F.wakeups, F.note]) == [:])
+        #expect(RepeatLast.answers([:], questions: F.all) == nil)
     }
 
     @Test func repeatLastOpensTheRecordScreenOtherwise() {
-        // An archived option, a value now out of range, a newly required question, nothing at all.
+        // An archived option, a value now out of range, a newly required question.
         #expect(RepeatLast.answers(["hours": .double(7), "mood": .string("awful")], questions: F.all) == nil)
         #expect(RepeatLast.answers(["hours": .double(25), "mood": .string("good")], questions: F.all) == nil)
         #expect(RepeatLast.answers(["hours": .double(7)], questions: F.all) == nil)
-        #expect(RepeatLast.answers([:], questions: [F.wakeups]) == nil)
         // The selection limits apply to the current version.
         #expect(RepeatLast.answers(["tags": .strings(["a"])], questions: [F.tags]) == nil)
+        // An answer to a question the version no longer has.
         #expect(
-            RepeatLast.answers(["tags": .strings(["c", "a"])], questions: [F.tags]) == ["tags": .strings(["a", "c"])])
+            RepeatLast.answers(["hours": .double(7), "mood": .string("good"), "gone": .int(1)], questions: F.all) == nil
+        )
+    }
+
+    @Test func repeatLastNeverReshapesAnAnswer() {
+        let single = F.choice(F.tags) {
+            $0.multiple = false
+            $0.minSelected = nil
+            $0.maxSelected = nil
+        }
+        // A list for what is now a single-select (the prefill would keep "a").
+        #expect(RepeatLast.answers(["tags": .strings(["a", "b"])], questions: [single]) == nil)
+        #expect(RepeatLast.answers(["tags": .strings(["a"])], questions: [single]) == nil)
+        // A single value for what is now a multi-select.
+        #expect(RepeatLast.answers(["tags": .string("a")], questions: [F.choice(F.tags) { $0.minSelected = 1 }]) == nil)
+        // Text for what is now a number, a number for what is now text, a double for an int.
+        let count = Question(key: "n", label: "N", kind: .int(.init()))
+        #expect(RepeatLast.answers(["n": .string("12")], questions: [count]) == nil)
+        #expect(RepeatLast.answers(["n": .double(12)], questions: [count]) == nil)
+        let text = Question(key: "n", label: "N", kind: .string(.init()))
+        #expect(RepeatLast.answers(["n": .int(12)], questions: [text]) == nil)
+        // A stored value validation would change (the server strips it).
+        #expect(RepeatLast.answers(["n": .string(" padded ")], questions: [text]) == nil)
+        // Duplicates, which the server rejects rather than collapses.
+        let free = F.choice(F.tags) {
+            $0.minSelected = nil
+            $0.maxSelected = nil
+        }
+        #expect(RepeatLast.answers(["tags": .strings(["a", "a"])], questions: [free]) == nil)
+        // The prefill still converts: the record screen opens with what can be kept.
+        #expect(RepeatLast.reusableInputs(["tags": .strings(["a", "b"])], questions: [single]) == ["tags": .text("a")])
+        #expect(RepeatLast.reusableInputs(["n": .string("12")], questions: [count]) == ["n": .text("12")])
     }
 }
 
