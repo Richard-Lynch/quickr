@@ -66,7 +66,7 @@ vectors: ## Regenerate shared/fixtures (due, quick-log, answer-text and notifica
 		tests/test_answer_text_vectors.py tests/test_notification_vectors.py tests/test_api_fixtures.py
 
 # The database pytest and the migration check use: $QUICKR_TEST_DATABASE_URL if set, else
-# quickr_test, or quickr_test_<worktree> in a git worktree (backend/tools/test_database.py).
+# quickr_test, or quickr_test_<worktree>_<path hash> in a git worktree (backend/tools/test_database.py).
 ifdef QUICKR_TEST_DATABASE_URL
 export QUICKR_TEST_DATABASE_URL
 endif
@@ -96,8 +96,8 @@ test-db-reset: ## Drop this checkout's test database (e.g. migrated before an in
 	$(TEST_DB) reset
 
 .PHONY: test-db-prune
-test-db-prune: ## Drop *_peer_* test databases left by killed runs (ones in use are skipped)
-	$(TEST_DB) prune-peers
+test-db-prune: ## Drop this checkout's peer test databases left by killed runs (older than 1 h; all=1: every checkout's)
+	$(TEST_DB) prune-peers $(if $(all),--all)
 
 .PHONY: check-frontend
 check-frontend: ## Frontend: generated client freshness, format, lint, types, tests, build

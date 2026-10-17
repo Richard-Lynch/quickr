@@ -1,7 +1,7 @@
 """Shared fixtures.
 
 The test database (``QUICKR_TEST_DATABASE_URL``, default ``quickr_test`` on the
-dev server, ``quickr_test_<worktree>`` in a git worktree: see ``tools.test_database``)
+dev server, ``quickr_test_<worktree>_<hash>`` in a git worktree: see ``tools.test_database``)
 is created if missing and migrated with Alembic -- never
 ``metadata.create_all`` -- so the migrations themselves are exercised. Tables
 are truncated before every DB-backed test.
@@ -73,7 +73,7 @@ def migrated_db() -> str:
 async def peer_engine(migrated_db: str) -> AsyncIterator[AsyncEngine]:
     """A second, empty database on the same server, as another worktree's test database or
     another quickR instance would be. Its name is unique to this fixture invocation, which
-    drops it afterwards (``make test-db-prune`` clears ones a killed run left). A lock wait
+    drops it afterwards (``make test-db-prune`` clears ones a killed run left, after an hour). A lock wait
     there fails after 5 s instead of hanging."""
     peer = test_database.peer_url(migrated_db)
     await test_database.create(peer)
