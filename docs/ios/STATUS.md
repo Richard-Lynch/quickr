@@ -15,36 +15,25 @@ branch.
 - `[ ]` to do
 - `[-]` skipped, with a reason
 
-<<<<<<< HEAD
 **Last updated:** 2026-10-17 17:10. M0 PR #8 is open; M1 Wave 1 is running.
 
 **Execution plan:** [DAG.md](DAG.md) (Fable). Waves of ≤4 WPs with at most 2 simulator-heavy at once. Milestones are stacked (squash-merge, then `rebase --onto`).
-=======
-**Last updated:** 2026-10-17 16:55, M0 close-out.
->>>>>>> origin/feat/ios-app
 
 ## Now
 
-|                     |                                                                                                                           |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-<<<<<<< HEAD
-| Active milestone    | **M1** on `ios/m1-data`. M0 merged (#8, 6249b0e). |
+|                     |                                                                                                                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Active milestone    | **M1** on `ios/m1-data`. M0 merged (#8, 6249b0e).                                                                                                                                      |
 | Running             | M1 Wave 1 sub-agents: **C1** contracts (`ios/m1-c1`), **DS** design system (`ios/m1-ds`, sim), **B6** APNs backend, dark (`ios/m1-b6`), **TOOLS** integration harness (`ios/m1-tools`) |
-| Waiting on the user | Apple enrollment activation and the Team ID; iPhone model and iOS version; answers to Q1–Q4; a session restart to load MobileBuildMCP |
-| Next up             | Wave 1 reviews (Codex) → merge C1 first → Wave 2: STORE, API, DUE, VAL |
-=======
-| Active milestone    | **M0: backend foundations and specs** (branch `ios/m0-foundations`)                                                       |
-| Running             | `m0-fixes`: the last 2 items from the Codex re-check (`/push/test` holds the lock through delivery; the header read never commits handler work). Fable is building the optimised execution DAG for M1–M7. |
-| Waiting on the user | Apple enrollment activation and the Team ID; iPhone model and iOS version; answers to Q1–Q4; a session restart to load MobileBuildMCP |
-| Next up             | Merge the fixes → Codex re-check → open the M0 PR into `feat/ios-app` (first real iOS CI run) → M1 |
->>>>>>> origin/feat/ios-app
+| Waiting on the user | Apple enrollment activation and the Team ID; iPhone model and iOS version; answers to Q1–Q4; a session restart to load MobileBuildMCP                                                  |
+| Next up             | Wave 1 reviews (Codex) → merge C1 first → Wave 2: STORE, API, DUE, VAL                                                                                                                 |
 
 ## Human steps (PLAN §9)
 
 - [x] H1: upgrade macOS. The Mac is on **macOS 27.0.1**, not Tahoe; Xcode 27
       supports it.
 - [x] H2: install Xcode 27.x with `xcodes`. Installed Xcode 27.1 (27A9275) at `/Applications/Xcode-27.1.0.app`, selected, with Swift 6.4. (another agent is doing it), then run
-  `xcode-select` and accept the licence. Report the install path.
+      `xcode-select` and accept the licence. Report the install path.
 - [~] H3: Apple Developer enrollment. Submitted 2026-10-17 (order W1832720362),
   awaiting activation. Then send the Team ID.
 - [ ] H4: Xcode ▸ Settings ▸ Accounts sign-in. Needed after H3, before
@@ -148,12 +137,12 @@ These are the server details the specs assume. Each one must be confirmed in the
 (or fixed, or the spec changed) before M0 merges.
 
 - [x] Every `/changes` page carries `server_id`, `epoch`, `head`, `next`, `has_more` and
-  `server_time`.
+      `server_time`.
 - [x] `server_id` survives a restore. A restore or reset rotates only `epoch`.
 - [x] Feed rows are topics, versions (with `topic_id`) and entries. `deleted[]` items are
-  `{kind: entry|topic|version, id, topic_id}`.
+      `{kind: entry|topic|version, id, topic_id}`.
 - [x] `revision` exists on entries and topics, starts at 1 and only ever increases. It is returned by
-  POST, PATCH, archive and unarchive.
+      POST, PATCH, archive and unarchive.
 - [x] Deleting a topic writes the topic, its entries and its versions to `deleted_ids`. An incremental page emits only the topic deletion, and clients cascade it locally. A bootstrap emits each child deletion. This matches sync F3.
 - [x] The backfill emits topics, then versions, then entries.
 - [x] Error codes:
@@ -162,10 +151,10 @@ These are the server details the specs assume. Each one must be confirmed in the
   - 404: PATCH or GET of a deleted entry;
   - 204: DELETE of an id that is absent or already deleted.
 - [x] The `X-QuickR-Server-Id` header is on every `/api/v1` response, including errors and
-  `/health`.
+      `/health`.
 - [ ] (M3) `due_since` in push payloads is UTC truncated to whole seconds.
 - [ ] (M3) `quicklog-vectors.json` gains category-id cases, so Python and Swift produce identical
-  `quickr.t.{id}.{hash}`.
+      `quickr.t.{id}.{hash}`.
 
 ### Backlog from M0 reviews (non-blocking)
 
@@ -178,37 +167,26 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 - [x] All WPs merged (vectors, specs, feed, scaffold). Integrated gates green: `make check` (401 pytest, 532 vitest), plus `alembic upgrade head && alembic check` run separately on a fresh DB and `make check-ios` (iOS 26.0 + 27.0).
 - [ ] Concurrency, feed and downgrade tests listed in the PR
-<<<<<<< HEAD
 - [x] Codex review of the whole milestone diff (BLOCK: 2 Majors, fixed over 2 rounds) and a Claude reviewer (SHIP WITH MINORS, fixed)
 - [ ] PR body: the validation checklist, and test reports instead of media (a
       stated deviation)
 - [x] PR [#8](https://github.com/Richard-Lynch/quickr/pull/8): CI green (backend, frontend, docker, and the **first iOS job**: build + Unit plan on Xcode 26.6 / iOS 26.2 in 3m32s). Squash-merged into `feat/ios-app` as 6249b0e, 2026-10-17 17:10.
-=======
-- [~] Codex review of the whole milestone diff, plus a Claude code-review sub-agent (both running)
-- [ ] PR body: the validation checklist, and test reports instead of media (a
-      stated deviation)
-- [ ] PR opened → squash-merged into `feat/ios-app` (Q1 default)
->>>>>>> origin/feat/ios-app
 - [x] STATUS updated; M1 branch `ios/m1-data` cut (stacked) and synced with `feat/ios-app` by merge
 
 ## M1: Core and data layer, plus platform proof · needs H1, H2
 
-<<<<<<< HEAD
 Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md).
 
-| Wave | WP | Branch | Status |
-| --- | --- | --- | --- |
-| W1 | C1 contracts (models, DTOs, schema, protocols, TestSupport, GRDB) | `ios/m1-c1` | [~] running |
-| W1 | DS design system (lands with M2) | `ios/m1-ds` | [~] running |
-| W1 | B6 APNs backend, dark | `ios/m1-b6` | [~] running |
-| W1 | TOOLS integration harness and fault proxy | `ios/m1-tools` | [~] running |
-| W2 | STORE · API · DUE · VAL | — | [ ] after C1 |
-| W3 | OUTBOX · SYNC · SKEL · B7 | — | [ ] |
-| W4 | MP · INT · SPIKE · FORM (M2) | — | [ ] |
+| Wave | WP                                                                | Branch         | Status       |
+| ---- | ----------------------------------------------------------------- | -------------- | ------------ |
+| W1   | C1 contracts (models, DTOs, schema, protocols, TestSupport, GRDB) | `ios/m1-c1`    | [~] running  |
+| W1   | DS design system (lands with M2)                                  | `ios/m1-ds`    | [~] running  |
+| W1   | B6 APNs backend, dark                                             | `ios/m1-b6`    | [~] running  |
+| W1   | TOOLS integration harness and fault proxy                         | `ios/m1-tools` | [~] running  |
+| W2   | STORE · API · DUE · VAL                                           | —              | [ ] after C1 |
+| W3   | OUTBOX · SYNC · SKEL · B7                                         | —              | [ ]          |
+| W4   | MP · INT · SPIKE · FORM (M2)                                      | —              | [ ]          |
 
-
-=======
->>>>>>> origin/feat/ios-app
 - [ ] QuickrCore: models, validation, quick-log, and the due port (all vectors
       pass)
 - [ ] QuickrData: the API client (fixtures and request goldens), the two-layer
