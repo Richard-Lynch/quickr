@@ -77,7 +77,8 @@ commit `ios/QuickrKit/Package.resolved`.
 ios/
   project.yml            XcodeGen spec: targets, entitlements, Info.plist keys, scheme, test plans
   Config/Shared.xcconfig optional-includes Local.xcconfig (DEVELOPMENT_TEAM etc.)
-  QuickrKit/             Swift package (tools 6.2): QuickrCore, QuickrData, QuickrUI (iOS only) + tests
+  QuickrKit/             Swift package (tools 6.2): QuickrCore, QuickrData, QuickrUI (iOS only),
+                         QuickrTestSupport and ProcessHelper (test-only) + tests
   App/                   QuickR app target (bundle id com.bahumia.quickr)
   AppTests/              QuickRTests (unit, hosted in the app)
   UITests/               QuickRUITests
@@ -98,6 +99,48 @@ the keychain group `$(AppIdentifierPrefix)com.bahumia.quickr.shared`.
 The test plans reference targets by XcodeGen's deterministic ids. If a test
 target is renamed or added, regenerate and update the `identifier` in the
 `.xctestplan` from `project.pbxproj`.
+
+## Data layer: Swift 6 and GRDB
+
+`QuickrData` uses GRDB 7 (pinned in `QuickrKit/Package.resolved`). The app, the widget extension
+and the NSE all link it; each has a `StoreLink.swift` that opens a pool and reads through a
+repository, and `QuickRTests` runs the app's copy on the simulator. The rules, so the three
+processes and every work package use one pattern:
+
+- **Connections.** One `DatabasePool` (WAL) per store file per process, opened with
+  `StoreDatabase.openPool(at:)` and its `configuration(label:)` (busy timeout for the other
+  processes). `DatabasePool`, `DatabaseQueue` and `any DatabaseReader`/`DatabaseWriter` are
+  `Sendable`, so a pool can be shared by any actor or task. Tests use
+  `TestDatabase.store()`/`registry()` (in-memory, real migrators); multi-process tests use files.
+- **Repositories** are `Sendable` structs holding `any DatabaseReader` (or `DatabaseWriter`),
+  behind the protocols in `QuickrData/Contracts/Repositories.swift`. Their methods are `async`
+  and call `try await reader.read { db in ... }` / `writer.write { db in ... }`: the database work
+  runs on GRDB's own queue, never on the caller's executor (in particular not the main actor).
+  `GRDBSyncStateRepository` is the template.
+- **Values out, never records or rows.** Closures build `Sendable` value types (QuickrCore models,
+  `StoreRecords`) inside the read and return them. `Row`, `Database` and statements never escape
+  a closure.
+- **No awaits inside a transaction.** A closure passed to `read`/`write` is synchronous; network
+  calls, lease waits and `UNUserNotificationCenter` calls happen before or after it
+  (sync-protocol.md §5.2 rule 3). The one exception is the synchronous
+  `setNotificationCategories`, called inside the registry write (notifications.md §5.2).
+- **Columns.** Instants are `REAL` Unix seconds, converted with
+  `Date(timeIntervalSince1970:)` (never GRDB's default `Date` string encoding); lease-time
+  deadlines are `(boot_id, ct)` pairs; ids are lowercase UUID strings (`UUID.wireString`). The
+  schema and its conventions are in `StoreSchema.swift` (store) and the same file's
+  `RegistrySchema` (registry).
+- **Migrations** are `StoreSchema.migrator()` and `RegistrySchema.migrator()`; any process may run
+  them. They are append-only once a build ships.
+
+API contracts live next to the schema: wire DTOs (`*DTO.swift`, explicit `CodingKeys`, no key
+strategy), `WireCoding` (dates in with 0–6 fractional digits and `Z` or an offset, out as UTC with
+`+00:00`), and the `Endpoints` table keyed by `operationId`. `FixtureCoverageTests` decodes every
+`shared/fixtures/api/*.json` through it, so a new fixture without a DTO fails `swift test`.
+
+`QuickrTestSupport` (test targets only) has `Fixtures` (reads `shared/fixtures` from the checkout
+via `#filePath`, on the Mac and the simulator; `QUICKR_FIXTURES_DIR` overrides), `FakeTransport`,
+`FakeClock`, `FakeLeaseClock`, `FakeNotificationCenter` and `TestDatabase`. `ProcessHelper` is the
+child process for the multi-process tests (`swift run ProcessHelper version`).
 
 ## CI
 

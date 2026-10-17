@@ -89,7 +89,7 @@ targets:
       - Widgets
     dependencies:
       - package: QuickrKit
-        products: [QuickrCore]
+        products: [QuickrCore, QuickrData]
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
     settings:
@@ -114,7 +114,7 @@ targets:
       - NotificationService
     dependencies:
       - package: QuickrKit
-        products: [QuickrCore]
+        products: [QuickrCore, QuickrData]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr.notification-service
