@@ -169,7 +169,8 @@ public enum StoreRetirement {
         if try StoreFence.isRetired(db) { return .retired }
         if let failure = try StoreFence.check(db, [.lease(sync), .lease(flush)], at: now) { return .fenced(failure) }
         if let intentToken,
-            try String.fetchOne(db, sql: "SELECT reset_veto FROM sync_state WHERE id = 1") == intentToken
+            try Bool.fetchOne(
+                db, sql: "SELECT EXISTS (SELECT 1 FROM reset_veto WHERE token = ?)", arguments: [intentToken]) == true
         {
             return .intentAborted
         }
@@ -185,7 +186,7 @@ public enum StoreRetirement {
     /// reported aborted. Needs no lease: a caller that timed out waiting for them uses it.
     public static func vetoReset(_ db: Database, intentToken: String) throws -> ResetVeto {
         if try StoreFence.isRetired(db) { return .alreadyRetired }
-        try db.execute(sql: "UPDATE sync_state SET reset_veto = ? WHERE id = 1", arguments: [intentToken])
+        try db.execute(sql: "INSERT OR IGNORE INTO reset_veto (token) VALUES (?)", arguments: [intentToken])
         return .vetoed
     }
 }

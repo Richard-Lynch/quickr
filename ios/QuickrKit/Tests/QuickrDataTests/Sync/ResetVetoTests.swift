@@ -31,6 +31,27 @@ import Testing
                 flush: pair.flush) == .retired)
     }
 
+    /// Vetoes are insert-only: aborting a later attempt B on the same file must not un-veto A, so
+    /// a suspended caller still holding A can't retire with it.
+    @Test func aLaterAbortDoesNotUnvetoAnEarlierAttempt() async throws {
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        let old = try await env.partitions.createStore(serverId: Self.serverId, baseURL: "https://q.example")
+        let a = try await env.partitions.persistResetIntent(store: old, confirmedCount: 0, confirmedMaxSeq: 0)
+        #expect(try await env.partitions.abortReset(a, on: old) == .vetoed)
+        let b = try await env.partitions.persistResetIntent(store: old, confirmedCount: 0, confirmedMaxSeq: 0)
+        #expect(a.pendingToken != b.pendingToken)
+        #expect(try await env.partitions.abortReset(b, on: old) == .vetoed)
+        let pair = try #require(try await old.leases.acquireSyncThenFlush(owner: "app:A", waitingUpTo: .seconds(1)))
+        for intent in [a, b] {
+            #expect(
+                try await old.retire(
+                    confirmedCount: 0, confirmedMaxSeq: 0, intentToken: intent.pendingToken, sync: pair.sync,
+                    flush: pair.flush) == .intentAborted)
+        }
+        #expect(try await !old.isRetired())
+    }
+
     @Test func anAbortAfterTheRetireLeavesTheIntentForStepSix() async throws {
         let env = try SyncEnv()
         defer { env.cleanup() }
