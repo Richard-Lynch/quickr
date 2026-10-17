@@ -141,6 +141,26 @@ import Testing
         #expect(state.epoch == FakeFeedServer.fixtureEpoch && state.cursor == 16 && state.rebuilding == nil)
     }
 
+    /// A non-2xx carrying only a different epoch header (partial headers) is never interpreted,
+    /// but its epoch is the server's: the coordinator stages towards it, and the staged pages
+    /// carry the full identity check.
+    @Test func aPartialEpochHeaderOnAnErrorStartsARebuild() async throws {
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        let coordinator = env.coordinator()
+        let store = try await env.connect(coordinator)
+        env.server.rotateEpoch(to: Self.e2)
+        let once = DelayLog()
+        env.server.intercept { after in
+            guard after == 16, once.values.isEmpty else { return nil }
+            once.append(.zero)
+            return HTTPResponse(status: 500, headers: [QuickrHeader.epoch: Self.e2])
+        }
+        #expect(await coordinator.sync(reason: .activation) == .synced)
+        let state = try await store.state()
+        #expect(state.epoch == Self.e2 && state.layerGen == 2)
+    }
+
     // MARK: - S3, S4: takeover
 
     /// S3 (simulation): coordinator A fetched page P and is suspended past its 60 s lease; B

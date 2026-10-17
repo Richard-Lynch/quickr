@@ -454,7 +454,7 @@ public actor SyncCoordinator {
             return try await enterIdentityMismatch(store, state: state, claim: claim)
         case .epochMismatch:
             // Only a *different* epoch restarts staging (§5.4, S15).
-            guard let epoch = response.identity?.epoch else {
+            guard let epoch = response.observed.epoch else {
                 return .stop(.failed(.protocolError("epoch mismatch without an epoch header")))
             }
             return .epochMismatch(epoch)
@@ -550,7 +550,7 @@ public actor SyncCoordinator {
     )
         async throws -> Step
     {
-        if let epoch = response.identity?.epoch { return .epochMismatch(epoch) }
+        if let epoch = response.observed.epoch { return .epochMismatch(epoch) }
         let clock = store.leaseClock
         _ = try await store.writer.write { db in
             try SyncTransactions.setEpochSuspect(db, conditions: conditions, now: clock.now())
