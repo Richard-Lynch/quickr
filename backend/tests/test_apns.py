@@ -30,7 +30,7 @@ from app.services.push import apns
 from app.services.push import web as web_push
 from app.services.push.apns import ApnsConfig, ApnsSender, ProviderToken, SigningKey
 from tests.fake_apns import KEY_ID, TEAM_ID, TOPIC, FakeApns, new_key, token
-from tests.helpers import backdate_schedule, make_topic
+from tests.helpers import backdate_schedule, make_topic, record
 
 DUE = push_svc.Notification(
     kind="due",
@@ -657,6 +657,63 @@ async def test_oldest_slot_goes_first(client: httpx.AsyncClient, fake_apns: Fake
     await backdate_schedule("older", datetime.now(UTC) - timedelta(days=1))
     assert await _tick(datetime.now(UTC) + timedelta(hours=1)) == 2
     assert [s.body["quickr"]["topic_slug"] for s in fake_apns.sent] == ["older", "newer"]
+
+
+async def _age_progress(days: int) -> int:
+    """Backdate every progress row; returns how many there are."""
+    async with get_sessionmaker()() as db:
+        await db.execute(update(PushSlotDelivery).values(created_at=datetime.now(UTC) - timedelta(days=days)))
+        await db.commit()
+        return int(await db.scalar(select(func.count()).select_from(PushSlotDelivery)) or 0)
+
+
+async def _progress_count() -> int:
+    async with get_sessionmaker()() as db:
+        return int(await db.scalar(select(func.count()).select_from(PushSlotDelivery)) or 0)
+
+
+async def test_progress_of_a_slot_still_due_survives_the_ttl(
+    client: httpx.AsyncClient, fake_apns: FakeApns, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fan-out slower than the TTL (an outage, a tiny budget) still resumes: no target
+    gets the slot twice."""
+    for n in range(20):
+        await client.post("/push/apns/devices", json=device(n))
+    await make_topic(client, "Water", QUESTIONS, schedule=INTERVAL)
+    fake_apns.delay = 0.1
+    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 0.25)
+    later = datetime.now(UTC) + timedelta(hours=1)
+    assert await _tick(later) == 0
+    assert await _age_progress(days=3) == 16  # older than the TTL, but the slot is still due
+
+    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", -1.0)  # a tick that sends nothing
+    assert await _tick(later) == 0
+    assert await _progress_count() == 16
+
+    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 0.25)
+    assert await _tick(later) == 1
+    assert sorted(s.device for s in fake_apns.sent) == sorted(token(n) for n in range(20))
+    assert await _progress_count() == 0
+
+
+async def test_progress_of_an_abandoned_slot_is_pruned_after_the_ttl(
+    client: httpx.AsyncClient, fake_apns: FakeApns, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for n in range(20):
+        await client.post("/push/apns/devices", json=device(n))
+    await make_topic(client, "Water", QUESTIONS, schedule=INTERVAL)
+    fake_apns.delay = 0.1
+    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 0.25)
+    later = datetime.now(UTC) + timedelta(hours=1)
+    assert await _tick(later) == 0
+    assert await _progress_count() == 16
+    await record(client, "water", {"n": 1}, captured_at=later.isoformat())  # satisfies the slot
+
+    assert await _tick(later) == 0
+    assert await _progress_count() == 16  # abandoned, but younger than the TTL
+    await _age_progress(days=3)
+    assert await _tick(later) == 0
+    assert await _progress_count() == 0
 
 
 async def test_stale_slot_progress_is_pruned(client: httpx.AsyncClient, fake_apns: FakeApns) -> None:

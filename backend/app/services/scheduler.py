@@ -21,7 +21,9 @@ the same commit), and the next tick resumes with the others, so a fan-out larger
 one tick's budget still completes, each target getting the slot once, in a few ticks.
 Due topics go oldest slot first, so the remaining topics follow. (Progress needs one
 send to fit in the budget: the per-send timeouts are well under it.) The progress rows
-are deleted when the slot is marked, or after ``SLOT_PROGRESS_TTL``.
+are deleted when the slot is marked. A slot that is still due keeps its progress however
+long it takes; the progress of an abandoned slot (the topic moved on to a newer slot, an
+entry satisfied it, the topic was archived or silenced) goes after ``SLOT_PROGRESS_TTL``.
 """
 
 from __future__ import annotations
@@ -35,7 +37,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, String, Uuid, column, delete, func, select, text, update, values
+from sqlalchemy import DateTime, String, Uuid, column, delete, func, select, text, tuple_, update, values
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,7 +54,7 @@ log = logging.getLogger(__name__)
 ADVISORY_LOCK_ID = 0x716B7201
 # Delivery stops this long after the tick starts; unfinished topics wait for the next tick.
 TICK_BUDGET_SECONDS = 30.0
-# Progress of a slot that was never marked (e.g. a new entry moved the topic on) is dropped.
+# Progress of a slot that is no longer due (e.g. a new entry moved the topic on) is dropped.
 SLOT_PROGRESS_TTL = timedelta(days=2)
 
 type Slot = tuple[UUID, datetime]  # (topic id, due_since)
@@ -134,7 +136,8 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
             break
         marks.append((topic_id, due_since))
     await db.flush()  # the delivery outcomes
-    await _record_progress(db, progress, marks)
+    active = [(topic_id, due_since) for due_since, topic_id, _, _ in due_topics]
+    await _record_progress(db, progress, marks, active)
     if marks:
         await _mark_notified(db, marks)
     await db.commit()  # also releases the advisory lock
@@ -153,8 +156,11 @@ async def _slot_progress(db: AsyncSession) -> set[Progress]:
     return {(r.topic_id, r.due_since, r.target_kind, r.target_id) for r in rows}
 
 
-async def _record_progress(db: AsyncSession, progress: list[Progress], marks: list[Slot]) -> None:
-    """Save the unfinished slot's reached targets; forget marked and stale slots."""
+async def _record_progress(
+    db: AsyncSession, progress: list[Progress], marks: list[Slot], active: list[Slot]
+) -> None:
+    """Save the unfinished slot's reached targets; forget marked slots, and abandoned ones
+    (not among the ``active`` due, unmarked slots) after ``SLOT_PROGRESS_TTL``."""
     if progress:
         reached = values(
             column("topic_id", Uuid()),
@@ -174,9 +180,11 @@ async def _record_progress(db: AsyncSession, progress: list[Progress], marks: li
         await db.execute(
             delete(PushSlotDelivery).where(PushSlotDelivery.topic_id.in_([topic_id for topic_id, _ in marks]))
         )
-    await db.execute(
-        delete(PushSlotDelivery).where(PushSlotDelivery.created_at < func.now() - SLOT_PROGRESS_TTL)
-    )
+    abandoned = PushSlotDelivery.created_at < func.now() - SLOT_PROGRESS_TTL
+    if active:
+        slot = tuple_(PushSlotDelivery.topic_id, PushSlotDelivery.due_since)
+        abandoned = abandoned & slot.not_in(active)
+    await db.execute(delete(PushSlotDelivery).where(abandoned))
 
 
 async def _mark_notified(db: AsyncSession, marks: list[Slot]) -> None:
