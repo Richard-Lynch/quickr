@@ -21,12 +21,12 @@ branch.
 
 ## Now
 
-|                     |                                                                                                                                                                                        |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Active milestone    | **M1** on `ios/m1-data`. M0 merged (#8, 6249b0e).                                                                                                                                      |
-| Running             | M1 Wave 1 sub-agents: **C1** contracts (`ios/m1-c1`), **DS** design system (`ios/m1-ds`, sim), **B6** APNs backend, dark (`ios/m1-b6`), **TOOLS** integration harness (`ios/m1-tools`) |
-| Waiting on the user | Apple enrollment activation and the Team ID; iPhone model and iOS version; a session restart to load MobileBuildMCP                                                                    |
-| Next up             | Wave 1 reviews (Codex) → merge C1 first → Wave 2: STORE, API, DUE, VAL                                                                                                                 |
+|                     |                                                                                                                                                                |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Active milestone    | **M1** on `ios/m1-data`. M0 merged (#8, 6249b0e).                                                                                                              |
+| Running             | Cap raised to **6 agents** (simulator-heavy ≤2; Mac has 14 cores). STORE (last Codex fix: intent token), API, B7, SKEL (sim), OUTBOX, SYNC, PWA zod length fix |
+| Waiting on the user | Apple enrollment activation and the Team ID; a session restart to load MobileBuildMCP                                                                          |
+| Next up             | Wave 1 reviews (Codex) → merge C1 first → Wave 2: STORE, API, DUE, VAL                                                                                         |
 
 ## Human steps (PLAN §9)
 
@@ -38,8 +38,7 @@ branch.
   awaiting activation. Then send the Team ID.
 - [ ] H4: Xcode ▸ Settings ▸ Accounts sign-in. Needed after H3, before
       checkpoint D.
-- [ ] H5: phone. Trust this Mac, turn on Developer Mode, and send the model and
-      iOS version.
+- [~] H5: phone is an **iPhone 16 Pro Max on iOS 26.6.2**. It has the Action button and Apple Intelligence (A18 Pro), so one-sentence Siri logging is available. Still to do: trust this Mac and turn on Developer Mode (after enrollment).
 - [ ] H6: APNs `.p8` key, with its Key ID (M3).
 - [ ] H7: App Store Connect app record and API key (M7).
 - [ ] H8: Cloudflare tunnel, Access app and service token (M7).
