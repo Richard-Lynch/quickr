@@ -2,8 +2,9 @@ import Foundation
 import Testing
 
 /// The App Intents metadata Xcode generated for the installed app and widget extension (PLAN M1
-/// platform proof). Both bundles must carry the package's types, with exactly one package include
-/// each, and only the app may carry the App Shortcuts. This runs on every runtime, including iOS
+/// platform proof). Both bundles must carry the package's types, neither may declare an
+/// `AppIntentsPackage` include (iOS 26.0's linkd rejects one for a static library and drops every
+/// intent; see `QuickrDataIntents.swift`), and only the app may carry the App Shortcuts. This runs on every runtime, including iOS
 /// 26.0, where AppIntentsTesting (`QuickRUITests/IntentResolutionTests`) is unavailable.
 @Suite struct IntentMetadataTests {
     struct Metadata {
@@ -11,7 +12,7 @@ import Testing
         let entities: Set<String>
         let queries: Set<String>
         let shortcuts: [String]
-        let includes: [String]
+        let hasPackageData: Bool
 
         init(bundle: URL) throws {
             let dir = bundle.appendingPathComponent("Metadata.appintents")
@@ -26,9 +27,8 @@ import Testing
             shortcuts = (json["autoShortcuts"] as? [[String: Any]] ?? []).compactMap {
                 $0["actionIdentifier"] as? String
             }
-            let packageData = try Data(contentsOf: dir.appendingPathComponent("extract.packagedata"))
-            let package = try #require(try JSONSerialization.jsonObject(with: packageData) as? [String: Any])
-            includes = package["includes"] as? [String] ?? []
+            let packageData = dir.appendingPathComponent("extract.packagedata")
+            hasPackageData = FileManager.default.fileExists(atPath: packageData.path)
         }
     }
 
@@ -36,13 +36,12 @@ import Testing
     static var widgetsURL: URL { Bundle.main.builtInPlugInsURL!.appendingPathComponent("QuickRWidgets.appex") }
 
     @Test(arguments: ["app", "widgets"])
-    func bundleCarriesThePackageIntentsOnce(_ name: String) throws {
+    func bundleCarriesThePackageIntentsWithoutAPackageInclude(_ name: String) throws {
         let metadata = try Metadata(bundle: name == "app" ? Self.appURL : Self.widgetsURL)
         #expect(metadata.entities == ["TopicEntity"])
         #expect(metadata.queries == ["TopicEntityQuery"])
         #expect(metadata.actions.isSuperset(of: ["LogEntryIntent", "SelectTopicIntent"]))
-        #expect(metadata.includes.count == 1)
-        #expect(metadata.includes.first?.contains("QuickrData") == true)
+        #expect(!metadata.hasPackageData)
     }
 
     @Test func onlyTheAppHasAppShortcuts() throws {

@@ -1,10 +1,11 @@
 import AppIntents
 import Foundation
 
-/// The package's App Intents types. Every target that uses them (the app and the widget extension)
-/// lists this exactly once in its own `AppIntentsPackage.includedPackages`; nothing else may
-/// include it, or the metadata is duplicated and the intents stop resolving.
-public struct QuickrDataIntentsPackage: AppIntentsPackage {}
+// No `AppIntentsPackage` here, on purpose. Xcode merges this static library's intents metadata into
+// every binary that links it. An `includedPackages` entry for it makes iOS 26.0's linkd look the
+// package type up among the binary's *imported* symbols; a static library's never are, so linkd
+// logs "did not match any imported symbol" and drops the whole bundle's intents (iOS 27 accepts
+// it). `IntentMetadataTests` guards this.
 
 /// Logs an entry for a quick-log topic. SKEL stub: it resolves the topic and answers with a dialog
 /// but writes nothing; INTENTS adds the option or number, validation and the outbox write.

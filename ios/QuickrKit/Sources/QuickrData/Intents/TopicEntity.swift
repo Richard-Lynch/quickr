@@ -3,8 +3,8 @@ import Foundation
 import QuickrCore
 
 /// A topic as App Intents sees it: Shortcuts, Siri, Spotlight and widget configuration. Declared
-/// once, here, and reaches the app and the widget extension through `QuickrDataIntentsPackage`
-/// (research/02-architecture.md §1, research/04-siri.md §5).
+/// once, here; its metadata reaches the app and the widget extension by linking (see
+/// `QuickrDataIntents.swift` for why there is no `AppIntentsPackage`).
 public struct TopicEntity: AppEntity, IndexedEntity {
     public static let typeDisplayRepresentation: TypeDisplayRepresentation = "Topic"
     public static let defaultQuery = TopicEntityQuery()
