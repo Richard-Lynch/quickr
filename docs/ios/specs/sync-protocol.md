@@ -95,9 +95,10 @@ ChangePage {
 ```
 
 Ordering within a page: `items` are listed topics, then versions, then entries;
-`deleted` is listed entries, then versions, then topics. Each kind is in ascending
-`seq`. The client applies by kind (§4.1) and doesn't depend on this order. `limit`
-counts change_log rows, not items, so a page can hold fewer items than `limit`.
+`deleted` is listed entries, then versions, then topics. Each kind is in
+ascending `seq`. The client applies by kind (§4.1) and doesn't depend on this
+order. `limit` counts change_log rows, not items, so a page can hold fewer items
+than `limit`.
 
 ### 1.3 Contract requirements
 
@@ -118,6 +119,15 @@ counts change_log rows, not items, so a page can hold fewer items than `limit`.
 The PWA may omit the F10 headers. They are optional for compatibility, not
 because the client is allowed to skip them.
 
+**`seq` is the only ordering authority.** Server timestamps (a defaulted
+`captured_at`, `updated_at`, `archived_at`, `deleted_at`, `change_log.at`) are
+Postgres `now()`, the **start time of the writing transaction**. A writer that
+queued on the feed lock can therefore commit after another writer yet carry a
+slightly earlier timestamp. The client never orders changes, detects changes or
+picks a winner by a server timestamp. It uses `seq` (feed order), `revision`
+(§4.2) and the outbox's local order. Timestamps remain data (shown, and
+`captured_at` drives due state), never a change signal.
+
 ### 1.4 Identity and epoch: what the client sends and checks
 
 | Request                                                                                  | iOS client sends                                                                                          |
@@ -125,8 +135,8 @@ because the client is allowed to skip them.
 | Every mutation: outbox sends, online-only writes, and APNs register, unregister and test | **Always** both `X-QuickR-Expect-Server-Id: <store.server_id>` and `X-QuickR-Expect-Epoch: <store.epoch>` |
 | Feed pages and other GETs (stats, series, CSV, refetches)                                | No precondition headers                                                                                   |
 
-The client checks **every** response, of any status, **before interpreting
-it**. Interpreting means acting on a 2xx body, on a Problem code, or on a 404 that
+The client checks **every** response, of any status, **before interpreting it**.
+Interpreting means acting on a 2xx body, on a Problem code, or on a 404 that
 says an entity is gone. The checks run in this order:
 
 | Observation                                                                                                                        | Meaning and handling                                                                                                                                                                                                                                                                                                                                           |
@@ -137,8 +147,8 @@ says an entity is gone. The checks run in this order:
 | A non-2xx without the headers, such as a 3xx or 403 from the Cloudflare Access proxy, or a 5xx while the server's database is down | It never reached quickR's application logic, so it is **never interpreted as an application error**. 3xx, 401, 403, 408, 425, 429 and 5xx keep their base classification ([outbox.md §5.1](outbox.md#51-base-table-byte-compatible-with-pwa-classifystatus-and-attempt)). Any other status without headers is a retry ("Unexpected response from the server"). |
 | Headers present and matching                                                                                                       | Interpret the response normally. A feed page also runs the checks in §2.2.                                                                                                                                                                                                                                                                                     |
 
-**Header provenance [server].** The header epoch is never older than the data
-in the response:
+**Header provenance [server].** The header epoch is never older than the data in
+the response:
 
 - **Ordinary endpoints:** the server reads `X-QuickR-Server-Id` and
   `X-QuickR-Epoch` in a separate query **after** it has handled the request,
@@ -510,9 +520,10 @@ rebuild**. Instead it:
    `com.bahumia.quickr.sync-requested` from an extension. The app also runs the
    coordinator on every activation.
 
-The coordinator's next live page confirms the epoch and clears `epoch_suspect`, or
-detects the mismatch and starts a rebuild, which clears it at the swap. An identity
-mismatch follows the same sequence, using `identity_mismatch` (§8.3) instead.
+The coordinator's next live page confirms the epoch and clears `epoch_suspect`,
+or detects the mismatch and starts a rebuild, which clears it at the swap. An
+identity mismatch follows the same sequence, using `identity_mismatch` (§8.3)
+instead.
 
 A process holding `flush` therefore never waits for `sync`, and the global lock
 order (§5.2) is never reversed.
@@ -765,8 +776,8 @@ These are never queued:
 
 ## 12. Local reset
 
-Settings ▸ "Reset local data" replaces the **active store** with a **fresh file**
-at a new store generation. Other stores, the other registry rows and the
+Settings ▸ "Reset local data" replaces the **active store** with a **fresh
+file** at a new store generation. Other stores, the other registry rows and the
 credentials are untouched. The reset is driven by a **persisted intent**, so a
 crash at any point can be recovered by repeating steps that are safe to repeat.
 
@@ -777,8 +788,8 @@ progress.
 
 ### 12.1 Procedure
 
-1. **Warn.** Read `N = count(outbox_item)` and `M = max(outbox_item.seq)` (0 when
-   empty).
+1. **Warn.** Read `N = count(outbox_item)` and `M = max(outbox_item.seq)` (0
+   when empty).
    - If `N > 0`, show "_N_ changes haven't synced (_k_ failed)." The options are
      **Sync first** (flush; continue if the outbox is empty, otherwise ask
      again), **Reset anyway** (a second, destructive confirmation) and
@@ -788,8 +799,8 @@ progress.
    `pending_gen = store_gen + 1`, `pending_confirmed_count = N` and
    `pending_confirmed_max_seq = M`. Nothing is retired yet. The new file name is
    `stores/<server_id>.g<pending_gen>.sqlite`.
-3. **Acquire** `sync`, then `flush`, on the old file (the §5.2 order). Wait up to
-   35 s; on timeout, abort, which clears the intent.
+3. **Acquire** `sync`, then `flush`, on the old file (the §5.2 order). Wait up
+   to 35 s; on timeout, abort, which clears the intent.
 4. **Re-check and retire.** In one transaction on the **old** file:
    - Re-check the outbox. If `count > pending_confirmed_count`, or
      `max(seq) > pending_confirmed_max_seq`, writes were committed after the
@@ -800,8 +811,8 @@ progress.
      every process, fails its retired check and reopens through the registry.
      Enqueues are retried on the new file.
 5. **Release** both leases on the old file.
-6. **Advance.** In one registry transaction: `store_gen = pending_gen`, clear the
-   intent columns, and insert the old path into `retired_file`.
+6. **Advance.** In one registry transaction: `store_gen = pending_gen`, clear
+   the intent columns, and insert the old path into `retired_file`.
 7. Post the Darwin notification `com.bahumia.quickr.registry-changed`.
 8. Create the new file if it doesn't exist yet, and bootstrap it (§2.1). The
    APNs registration is kept, because it is the same server. Categories are
@@ -824,11 +835,11 @@ in it is safe to repeat.
 | `pending_gen` null, and `store_gen` points to a file that is retired | —               | Inconsistent; this should be unreachable. Repair it with `store_gen += 1` and insert the old file into `retired_file`, in one registry transaction. Then a fresh file is bootstrapped.                                                          |
 | `pending_gen` null, and the `store_gen` file is missing              | —               | Create the file. The app bootstraps it.                                                                                                                                                                                                         |
 
-An extension may create and migrate the empty new file, because every process may
-run the migrator (PLAN §2). Only the app bootstraps it. Widgets and intents that
-open an empty, unbootstrapped store show "Open quickR" and retry on their next
-timeline. An enqueue into the empty store is valid: the item carries its topic
-`{id, slug, name}`, and the entry becomes visible once the topic arrives.
+An extension may create and migrate the empty new file, because every process
+may run the migrator (PLAN §2). Only the app bootstraps it. Widgets and intents
+that open an empty, unbootstrapped store show "Open quickR" and retry on their
+next timeline. An enqueue into the empty store is valid: the item carries its
+topic `{id, slug, name}`, and the entry becomes visible once the topic arrives.
 
 ## 13. Tests and gates
 
