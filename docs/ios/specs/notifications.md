@@ -187,16 +187,17 @@ due list and the badge are the safety net.
 
 ### 4.1 Actions per descriptor
 
-| Descriptor                            | Actions, in order                                                             |
-| ------------------------------------- | ----------------------------------------------------------------------------- |
-| `enum` with _n_ options (1 ≤ _n_ ≤ 4) | One action per option. The title is the label.                                |
-| `int`/`double`, `last_value ≠ null`   | 1. "✓ {fmt(last)}", which logs `last_value`. 2. "Other value…", a text input. |
-| `int`/`double`, `last_value = null`   | 1. "Other value…", a text input.                                              |
-| `null`                                | No category. Tapping opens `url`.                                             |
+| Descriptor                            | Actions, in order                                                                                                      |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `enum` with _n_ options (1 ≤ _n_ ≤ 4) | One action per option. The title is the label.                                                                         |
+| `enum` with 5–6 options (Q4)          | The 3 most-used options, then **"More…"**: an `open` action (`.foreground`) that opens `url` with nothing preselected. |
+| `int`/`double`, `last_value ≠ null`   | 1. "✓ {fmt(last)}", which logs `last_value`. 2. "Other value…", a text input.                                          |
+| `int`/`double`, `last_value = null`   | 1. "Other value…", a text input.                                                                                       |
+| `null`                                | No category. Tapping opens `url`.                                                                                      |
 
 All actions have these properties:
 
-- **No `.foreground`.** Logging runs in the background.
+- **No `.foreground`** on log and input actions; logging runs in the background. The `open` ("More…") action is the one `.foreground` exception.
 - **No `.destructive`.**
 - **No `.authenticationRequired`.** **[provisional: Q2]** If the user opts into
   authentication, the app sets `.authenticationRequired` on every log action at
@@ -227,14 +228,14 @@ actions iOS actually shows.
 q1|{server_id}|{topic_id}|{version}|{key}|{k}|{value}
 ```
 
-| Part                    | Rule                                                                      |
-| ----------------------- | ------------------------------------------------------------------------- |
-| `q1`                    | The scheme version                                                        |
-| `server_id`, `topic_id` | Lowercase canonical UUIDs                                                 |
-| `version`               | A decimal integer, `quickr.version`                                       |
-| `key`                   | The question key (`^[a-z][a-z0-9_]{0,62}$`)                               |
-| `k`                     | `o` for an enum option, `n` for a fixed number, `i` for number text input |
-| `value`                 | `o`: the option value. `n`: `fmt(last_value)` (§4.4). `i`: empty.         |
+| Part                    | Rule                                                                                              |
+| ----------------------- | ------------------------------------------------------------------------------------------------- |
+| `q1`                    | The scheme version                                                                                |
+| `server_id`, `topic_id` | Lowercase canonical UUIDs                                                                         |
+| `version`               | A decimal integer, `quickr.version`                                                               |
+| `key`                   | The question key (`^[a-z][a-z0-9_]{0,62}$`)                                                       |
+| `k`                     | `o` for an enum option, `n` for a fixed number, `i` for number text input, `m` for "More…" (open) |
+| `value`                 | `o`: the option value. `n`: `fmt(last_value)` (§4.4). `i` and `m`: empty.                         |
 
 ### 4.3 Category id and hash (§6a rule 9)
 
@@ -246,22 +247,21 @@ H = "quickr-cat-v1"
         + (kind == "input" ? "\u001F" + textInputButtonTitle + "\u001F" + textInputPlaceholder : "")
 ```
 
-- `kind` is `log` or `input`. Strings are NFC-normalised and UTF-8 encoded. Hex
+- `kind` is `log`, `input` or `open` (the "More…" action, added in B7 and accepted 2026-10-17). It is hashed like any other action, so a topic going from 4 to 5 options gets a new category id. Strings are NFC-normalised and UTF-8 encoded. Hex
   is lowercase.
 - The hash covers the **complete ordered action descriptor**. A change of
   version, label, last value or order produces a new id, so **a category is
   never changed in place**. The one exception is the authentication flag (§4.1).
 - Python (B7) and Swift MUST produce identical ids. The **category-id vectors**
-  are added to `shared/fixtures/quicklog-vectors.json` **in M3, together with
-  B7**. They cover:
+  live in `shared/fixtures/notification-vectors.json` (added by B7, 30 cases plus
+  21 `fmt` cases). They cover:
   - enums with 1, 4 and 6 options;
   - int and double, with and without `last_value`;
   - a null unit and null decimals;
   - non-ASCII labels;
   - truncation.
 
-  Until then the algorithm here is the contract. The M0 vectors don't include
-  category ids.
+  The algorithm here, together with those vectors, is the contract.
 
 ### 4.4 Title and number formatting (normative, part of the hash)
 
