@@ -1,0 +1,13 @@
+# Turns on APNs (push to the iOS app). Copy to docker-compose.override.yml, which
+# `docker compose` merges automatically, and fill in your ids. Keep the .p8 file out
+# of the repo; it is mounted read-only. The container runs as uid 10001, so the file
+# must be readable by it (e.g. chmod 644).
+services:
+  backend:
+    environment:
+      QUICKR_APNS_TEAM_ID: ABCDE12345
+      QUICKR_APNS_KEY_ID: FGHIJ67890
+      QUICKR_APNS_PRIVATE_KEY_FILE: /run/secrets/apns.p8
+      # QUICKR_APNS_TOPIC: com.bahumia.quickr
+    volumes:
+      - ~/secrets/AuthKey_FGHIJ67890.p8:/run/secrets/apns.p8:ro

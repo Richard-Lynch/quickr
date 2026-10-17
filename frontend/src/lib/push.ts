@@ -1,6 +1,6 @@
 /**
  * Web Push client plumbing, on top of the generated SDK:
- *   getPushConfig            GET  /api/v1/push/config               → { public_key } (VAPID)
+ *   getPushConfig            GET  /api/v1/push/config               → { public_key, apns_enabled } (VAPID)
  *   createPushSubscription   POST /api/v1/push/subscriptions        subscription.toJSON() + UA
  *   deletePushSubscription   POST /api/v1/push/subscriptions/delete { endpoint }
  *   sendTestPush             POST /api/v1/push/test                 → { sent, failed }

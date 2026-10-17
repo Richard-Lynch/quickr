@@ -4,8 +4,8 @@ import * as z from 'zod';
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { ArchiveTopicData, ArchiveTopicErrors, ArchiveTopicResponses, CheckTopicVersionData, CheckTopicVersionErrors, CheckTopicVersionResponses, CreateEntryData, CreateEntryErrors, CreateEntryResponses, CreatePushSubscriptionData, CreatePushSubscriptionErrors, CreatePushSubscriptionResponses, CreateTopicData, CreateTopicErrors, CreateTopicResponses, DeleteEntryData, DeleteEntryErrors, DeleteEntryResponses, DeletePushSubscriptionData, DeletePushSubscriptionErrors, DeletePushSubscriptionResponses, DeleteTopicData, DeleteTopicErrors, DeleteTopicResponses, ExportEntriesCsvData, ExportEntriesCsvErrors, ExportEntriesCsvResponses, GetEntryData, GetEntryErrors, GetEntryResponses, GetLimitsData, GetLimitsErrors, GetLimitsResponses, GetPushConfigData, GetPushConfigErrors, GetPushConfigResponses, GetQuestionSeriesData, GetQuestionSeriesErrors, GetQuestionSeriesResponses, GetTopicData, GetTopicErrors, GetTopicResponses, GetTopicStatsData, GetTopicStatsErrors, GetTopicStatsResponses, HealthData, HealthErrors, HealthResponses, ListChangesData, ListChangesErrors, ListChangesResponses, ListEntriesData, ListEntriesErrors, ListEntriesResponses, ListQuestionTypesData, ListQuestionTypesErrors, ListQuestionTypesResponses, ListTopicsData, ListTopicsErrors, ListTopicsResponses, ListTopicVersionsData, ListTopicVersionsErrors, ListTopicVersionsResponses, PublishTopicVersionData, PublishTopicVersionErrors, PublishTopicVersionResponses, SendTestPushData, SendTestPushErrors, SendTestPushResponses, UnarchiveTopicData, UnarchiveTopicErrors, UnarchiveTopicResponses, UpdateEntryData, UpdateEntryErrors, UpdateEntryResponses, UpdateTopicData, UpdateTopicErrors, UpdateTopicResponses } from './types.gen';
-import { zArchiveTopicHeaders, zArchiveTopicPath, zArchiveTopicQuery, zArchiveTopicResponse, zCheckTopicVersionBody, zCheckTopicVersionPath, zCheckTopicVersionResponse, zCreateEntryBody, zCreateEntryHeaders, zCreateEntryPath, zCreateEntryResponse, zCreatePushSubscriptionBody, zCreatePushSubscriptionHeaders, zCreatePushSubscriptionResponse, zCreateTopicBody, zCreateTopicHeaders, zCreateTopicResponse, zDeleteEntryHeaders, zDeleteEntryPath, zDeleteEntryResponse, zDeletePushSubscriptionBody, zDeletePushSubscriptionHeaders, zDeletePushSubscriptionResponse, zDeleteTopicHeaders, zDeleteTopicPath, zDeleteTopicResponse, zExportEntriesCsvPath, zExportEntriesCsvQuery, zExportEntriesCsvResponse, zGetEntryPath, zGetEntryResponse, zGetLimitsResponse, zGetPushConfigResponse, zGetQuestionSeriesPath, zGetQuestionSeriesQuery, zGetQuestionSeriesResponse, zGetTopicPath, zGetTopicResponse, zGetTopicStatsPath, zGetTopicStatsQuery, zGetTopicStatsResponse, zHealthResponse, zListChangesQuery, zListChangesResponse, zListEntriesPath, zListEntriesQuery, zListEntriesResponse, zListQuestionTypesResponse, zListTopicsQuery, zListTopicsResponse, zListTopicVersionsPath, zListTopicVersionsResponse, zPublishTopicVersionBody, zPublishTopicVersionHeaders, zPublishTopicVersionPath, zPublishTopicVersionResponse, zSendTestPushHeaders, zSendTestPushResponse, zUnarchiveTopicHeaders, zUnarchiveTopicPath, zUnarchiveTopicQuery, zUnarchiveTopicResponse, zUpdateEntryBody, zUpdateEntryHeaders, zUpdateEntryPath, zUpdateEntryResponse, zUpdateTopicBody, zUpdateTopicHeaders, zUpdateTopicPath, zUpdateTopicResponse } from './zod.gen';
+import type { ArchiveTopicData, ArchiveTopicErrors, ArchiveTopicResponses, CheckTopicVersionData, CheckTopicVersionErrors, CheckTopicVersionResponses, CreateEntryData, CreateEntryErrors, CreateEntryResponses, CreatePushSubscriptionData, CreatePushSubscriptionErrors, CreatePushSubscriptionResponses, CreateTopicData, CreateTopicErrors, CreateTopicResponses, DeleteApnsDeviceData, DeleteApnsDeviceErrors, DeleteApnsDeviceResponses, DeleteEntryData, DeleteEntryErrors, DeleteEntryResponses, DeletePushSubscriptionData, DeletePushSubscriptionErrors, DeletePushSubscriptionResponses, DeleteTopicData, DeleteTopicErrors, DeleteTopicResponses, ExportEntriesCsvData, ExportEntriesCsvErrors, ExportEntriesCsvResponses, GetEntryData, GetEntryErrors, GetEntryResponses, GetLimitsData, GetLimitsErrors, GetLimitsResponses, GetPushConfigData, GetPushConfigErrors, GetPushConfigResponses, GetQuestionSeriesData, GetQuestionSeriesErrors, GetQuestionSeriesResponses, GetTopicData, GetTopicErrors, GetTopicResponses, GetTopicStatsData, GetTopicStatsErrors, GetTopicStatsResponses, HealthData, HealthErrors, HealthResponses, ListChangesData, ListChangesErrors, ListChangesResponses, ListEntriesData, ListEntriesErrors, ListEntriesResponses, ListQuestionTypesData, ListQuestionTypesErrors, ListQuestionTypesResponses, ListTopicsData, ListTopicsErrors, ListTopicsResponses, ListTopicVersionsData, ListTopicVersionsErrors, ListTopicVersionsResponses, PublishTopicVersionData, PublishTopicVersionErrors, PublishTopicVersionResponses, RegisterApnsDeviceData, RegisterApnsDeviceErrors, RegisterApnsDeviceResponses, SendApnsTestPushData, SendApnsTestPushErrors, SendApnsTestPushResponses, SendTestPushData, SendTestPushErrors, SendTestPushResponses, UnarchiveTopicData, UnarchiveTopicErrors, UnarchiveTopicResponses, UpdateEntryData, UpdateEntryErrors, UpdateEntryResponses, UpdateTopicData, UpdateTopicErrors, UpdateTopicResponses } from './types.gen';
+import { zArchiveTopicHeaders, zArchiveTopicPath, zArchiveTopicQuery, zArchiveTopicResponse, zCheckTopicVersionBody, zCheckTopicVersionPath, zCheckTopicVersionResponse, zCreateEntryBody, zCreateEntryHeaders, zCreateEntryPath, zCreateEntryResponse, zCreatePushSubscriptionBody, zCreatePushSubscriptionHeaders, zCreatePushSubscriptionResponse, zCreateTopicBody, zCreateTopicHeaders, zCreateTopicResponse, zDeleteApnsDeviceBody, zDeleteApnsDeviceHeaders, zDeleteApnsDeviceResponse, zDeleteEntryHeaders, zDeleteEntryPath, zDeleteEntryResponse, zDeletePushSubscriptionBody, zDeletePushSubscriptionHeaders, zDeletePushSubscriptionResponse, zDeleteTopicHeaders, zDeleteTopicPath, zDeleteTopicResponse, zExportEntriesCsvPath, zExportEntriesCsvQuery, zExportEntriesCsvResponse, zGetEntryPath, zGetEntryResponse, zGetLimitsResponse, zGetPushConfigResponse, zGetQuestionSeriesPath, zGetQuestionSeriesQuery, zGetQuestionSeriesResponse, zGetTopicPath, zGetTopicResponse, zGetTopicStatsPath, zGetTopicStatsQuery, zGetTopicStatsResponse, zHealthResponse, zListChangesQuery, zListChangesResponse, zListEntriesPath, zListEntriesQuery, zListEntriesResponse, zListQuestionTypesResponse, zListTopicsQuery, zListTopicsResponse, zListTopicVersionsPath, zListTopicVersionsResponse, zPublishTopicVersionBody, zPublishTopicVersionHeaders, zPublishTopicVersionPath, zPublishTopicVersionResponse, zRegisterApnsDeviceBody, zRegisterApnsDeviceHeaders, zRegisterApnsDeviceResponse, zSendApnsTestPushBody, zSendApnsTestPushHeaders, zSendApnsTestPushResponse, zSendTestPushHeaders, zSendTestPushResponse, zUnarchiveTopicHeaders, zUnarchiveTopicPath, zUnarchiveTopicQuery, zUnarchiveTopicResponse, zUpdateEntryBody, zUpdateEntryHeaders, zUpdateEntryPath, zUpdateEntryResponse, zUpdateTopicBody, zUpdateTopicHeaders, zUpdateTopicPath, zUpdateTopicResponse } from './zod.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -381,7 +381,8 @@ export const getQuestionSeries = <ThrowOnError extends boolean = false>(options:
 /**
  * Push Config
  *
- * The VAPID public key to pass to ``PushManager.subscribe({applicationServerKey})``.
+ * The VAPID public key to pass to ``PushManager.subscribe({applicationServerKey})``, and
+ * whether APNs (the iOS app) is configured.
  */
 export const getPushConfig = <ThrowOnError extends boolean = false>(options?: Options<GetPushConfigData, ThrowOnError>): RequestResult<GetPushConfigResponses, GetPushConfigErrors, ThrowOnError> => (options?.client ?? client).get<GetPushConfigResponses, GetPushConfigErrors, ThrowOnError>({
     requestValidator: async (data) => await z.object({
@@ -439,7 +440,7 @@ export const deletePushSubscription = <ThrowOnError extends boolean = false>(opt
 /**
  * Send Test Push
  *
- * Send a test notification to every subscription.
+ * Send a test notification to every browser subscription and APNs device.
  */
 export const sendTestPush = <ThrowOnError extends boolean = false>(options?: Options<SendTestPushData, ThrowOnError>): RequestResult<SendTestPushResponses, SendTestPushErrors, ThrowOnError> => (options?.client ?? client).post<SendTestPushResponses, SendTestPushErrors, ThrowOnError>({
     requestValidator: async (data) => await z.object({
@@ -451,4 +452,69 @@ export const sendTestPush = <ThrowOnError extends boolean = false>(options?: Opt
     responseValidator: async (data) => await zSendTestPushResponse.parseAsync(data),
     url: '/api/v1/push/test',
     ...options
+});
+
+/**
+ * Register Apns Device
+ *
+ * Register (or refresh, keyed by token) the iOS app's APNs device token. Resets its failure
+ * count. The app calls this on every launch; it works whether or not APNs is enabled.
+ */
+export const registerApnsDevice = <ThrowOnError extends boolean = false>(options: Options<RegisterApnsDeviceData, ThrowOnError>): RequestResult<RegisterApnsDeviceResponses, RegisterApnsDeviceErrors, ThrowOnError> => (options.client ?? client).post<RegisterApnsDeviceResponses, RegisterApnsDeviceErrors, ThrowOnError>({
+    requestValidator: async (data) => await z.object({
+        body: zRegisterApnsDeviceBody,
+        headers: zRegisterApnsDeviceHeaders.optional(),
+        path: z.never().optional(),
+        query: z.never().optional()
+    }).parseAsync(data),
+    responseValidator: async (data) => await zRegisterApnsDeviceResponse.parseAsync(data),
+    url: '/api/v1/push/apns/devices',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Delete Apns Device
+ *
+ * Remove a device by token (idempotent).
+ */
+export const deleteApnsDevice = <ThrowOnError extends boolean = false>(options: Options<DeleteApnsDeviceData, ThrowOnError>): RequestResult<DeleteApnsDeviceResponses, DeleteApnsDeviceErrors, ThrowOnError> => (options.client ?? client).post<DeleteApnsDeviceResponses, DeleteApnsDeviceErrors, ThrowOnError>({
+    requestValidator: async (data) => await z.object({
+        body: zDeleteApnsDeviceBody,
+        headers: zDeleteApnsDeviceHeaders.optional(),
+        path: z.never().optional(),
+        query: z.never().optional()
+    }).parseAsync(data),
+    responseValidator: async (data) => await zDeleteApnsDeviceResponse.parseAsync(data),
+    url: '/api/v1/push/apns/devices/delete',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Send Apns Test Push
+ *
+ * Send a test notification to this one device ("Test this device"). 404 ``not_found`` for an
+ * unregistered token; 409 ``apns_disabled`` when APNs is not configured.
+ */
+export const sendApnsTestPush = <ThrowOnError extends boolean = false>(options: Options<SendApnsTestPushData, ThrowOnError>): RequestResult<SendApnsTestPushResponses, SendApnsTestPushErrors, ThrowOnError> => (options.client ?? client).post<SendApnsTestPushResponses, SendApnsTestPushErrors, ThrowOnError>({
+    requestValidator: async (data) => await z.object({
+        body: zSendApnsTestPushBody,
+        headers: zSendApnsTestPushHeaders.optional(),
+        path: z.never().optional(),
+        query: z.never().optional()
+    }).parseAsync(data),
+    responseValidator: async (data) => await zSendApnsTestPushResponse.parseAsync(data),
+    url: '/api/v1/push/apns/devices/test',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
 });

@@ -1,0 +1,21 @@
+# Codex review: M1 WP C1 (round 1)
+
+**REQUEST CHANGES**
+
+No blocker found; three major contract gaps need fixing before downstream implementation.
+
+- **Major — Notification contract loses data required for action validation.** [NotificationCenterProtocol.swift:94](/Users/richie/code/quickr-worktrees/ios-m1-c1/ios/QuickrKit/Sources/QuickrData/Contracts/NotificationCenterProtocol.swift:94): `QuickrNotificationInfo` omits `quick_log`, despite its comment saying the descriptor is retained. Notifications §7.1 requires validating the action’s key/value against that descriptor. It also omits `origin`, needed to distinguish local from remote reminders during §11 deduplication. Once converted to `NotificationSnapshot`, this information is unavailable. **Fix:** retain a typed descriptor or JSON value, plus origin; test descriptor preservation and both deduplication arrival orders.
+
+- **Major — Topic repository cannot return the specified view state.** [Repositories.swift:17](/Users/richie/code/quickr-worktrees/ios-m1-c1/ios/QuickrKit/Sources/QuickrData/Contracts/Repositories.swift:17): methods return `Topic`, which has no pending/failed metadata. Sync §3.2 requires failed archive/unarchive operations to leave server content unchanged while flagging the topic. Entries have `ViewEntry`; topics have no equivalent. Consumers would need separate outbox reads and their own joins, potentially across inconsistent snapshots. **Fix:** introduce `ViewTopic` carrying the topic and overlay/error state, returned from one repository read.
+
+- **Major — Required-but-nullable response fields silently accept omission.** [TopicDTO.swift:34](/Users/richie/code/quickr-worktrees/ios-m1-c1/ios/QuickrKit/Sources/QuickrData/Contracts/TopicDTO.swift:34): OpenAPI requires keys including `schedule`, `schedule_updated_at`, and `archived_at`, allowing their values to be null. Synthesized decoding of optional properties accepts both missing and null. A malformed feed topic missing `schedule` therefore decodes successfully, potentially clearing the stored schedule while advancing the cursor, contrary to sync §2.2’s protocol-error handling. Shared input/output question DTOs similarly default omitted output fields. **Fix:** distinguish required nullable output fields from optional request fields; add tests deleting each required key from valid fixtures.
+
+- **Minor — Persisted answers lose numeric type.** [EntryDTO.swift:12](/Users/richie/code/quickr-worktrees/ios-m1-c1/ios/QuickrKit/Sources/QuickrData/Contracts/EntryDTO.swift:12): `WireAnswer` tries `Int` first, so a whole-valued double can return as `.int` after payload persistence. Tagged response answers correctly use question type, but request-shaped outbox/store answer maps lack that discriminator. **Fix:** provide question-aware normalization when reconstructing domain answers and test a double answer of `7.0` through `OutboxPayload.encoded/decode`.
+
+- **Minor — WireDate implements a narrower format than advertised.** [WireDate.swift:25](/Users/richie/code/quickr-worktrees/ios-m1-c1/ios/QuickrKit/Sources/QuickrData/Contracts/WireDate.swift:25): seven-plus fractional digits and leap seconds are rejected, although the contract says RFC 3339. Current server microsecond output makes this low risk; tests explicitly enforce rejection. **Fix:** document an agreed restricted wire profile, or support longer fractions with defined precision handling and an explicit leap-second policy.
+
+The schema appears faithful to the specified two-layer separation, staging tables, registry reset generations, lease rows, outbox columns/states/indexes, and append-only notification categories. I found no missing normative schema field.
+
+Fixture coverage genuinely calls DTO decoding **and** `toDomain()` for every successful fixture through the endpoint table. Its weakness is malformed-response coverage, rather than merely decoding generic JSON. `Nullable` correctly preserves schedule PATCH’s three states. Unknown feed kinds appropriately fail the page; unknown Problem codes are preserved.
+
+The async GRDB repository pattern and Sendable boundaries look reasonable by inspection. GRDB resolves to 7.11.1. I did not rerun builds/tests in this read-only environment; Xcode 26.6/Swift 6.3 compatibility remains unverified, and success on 27.1/6.4 would not establish it.

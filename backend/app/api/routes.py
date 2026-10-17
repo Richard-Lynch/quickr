@@ -14,6 +14,9 @@ from app.api.identity import ExpectIdentity, identity_headers
 from app.db import get_db
 from app.models import Channel
 from app.schemas.api import (
+    ApnsDeviceIn,
+    ApnsDeviceOut,
+    ApnsDeviceRef,
     Bucket,
     ChangesPage,
     CompatibilityReport,
@@ -354,9 +357,10 @@ async def get_series(
 
 @router.get("/push/config", tags=["push"], operation_id="getPushConfig")
 async def push_config(db: Db) -> PushConfig:
-    """The VAPID public key to pass to ``PushManager.subscribe({applicationServerKey})``."""
+    """The VAPID public key to pass to ``PushManager.subscribe({applicationServerKey})``, and
+    whether APNs (the iOS app) is configured."""
     keys = await push_svc.get_vapid_keys(db)
-    return PushConfig(public_key=keys.public_key)
+    return PushConfig(public_key=keys.public_key, apns_enabled=push_svc.apns_enabled())
 
 
 @router.post(
@@ -386,5 +390,43 @@ async def delete_push_subscription(db: Db, body: PushSubscriptionDelete) -> Resp
 
 @router.post("/push/test", tags=["push"], operation_id="sendTestPush", dependencies=[ExpectIdentity])
 async def send_test_push(db: Db) -> PushTestResult:
-    """Send a test notification to every subscription."""
+    """Send a test notification to every browser subscription and APNs device."""
     return await push_svc.send_test(db)
+
+
+@router.post(
+    "/push/apns/devices",
+    tags=["push"],
+    operation_id="registerApnsDevice",
+    dependencies=[ExpectIdentity],
+    status_code=status.HTTP_201_CREATED,
+)
+async def register_apns_device(db: Db, body: ApnsDeviceIn) -> ApnsDeviceOut:
+    """Register (or refresh, keyed by token) the iOS app's APNs device token. Resets its failure
+    count. The app calls this on every launch; it works whether or not APNs is enabled."""
+    return await push_svc.register_device(db, body)
+
+
+@router.post(
+    "/push/apns/devices/delete",
+    tags=["push"],
+    operation_id="deleteApnsDevice",
+    dependencies=[ExpectIdentity],
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_apns_device(db: Db, body: ApnsDeviceRef) -> Response:
+    """Remove a device by token (idempotent)."""
+    await push_svc.unregister_device(db, body.token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/push/apns/devices/test",
+    tags=["push"],
+    operation_id="sendApnsTestPush",
+    dependencies=[ExpectIdentity],
+)
+async def send_apns_test_push(db: Db, body: ApnsDeviceRef) -> PushTestResult:
+    """Send a test notification to this one device ("Test this device"). 404 ``not_found`` for an
+    unregistered token; 409 ``apns_disabled`` when APNs is not configured."""
+    return await push_svc.send_test_to_device(db, body.token)

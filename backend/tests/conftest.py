@@ -24,6 +24,8 @@ os.environ["QUICKR_DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["QUICKR_SCHEDULER_ENABLED"] = "false"
 os.environ.pop("QUICKR_VAPID_PRIVATE_KEY", None)
 os.environ.pop("QUICKR_VAPID_PUBLIC_KEY", None)
+for _name in [n for n in os.environ if n.startswith("QUICKR_APNS_")]:
+    del os.environ[_name]  # APNs is off unless a test turns on the fake
 
 import httpx  # noqa: E402
 from alembic.config import Config  # noqa: E402
@@ -33,6 +35,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine  # noqa: E4
 from alembic import command  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.db import get_engine, get_sessionmaker  # noqa: E402
+from app.services.push import apns  # noqa: E402
+from tests.fake_apns import FakeApns  # noqa: E402
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 TABLES = (
@@ -41,6 +45,8 @@ TABLES = (
     "topic_versions",
     "topics",
     "push_subscriptions",
+    "apns_devices",
+    "push_slot_deliveries",
     "app_settings",
     "change_log",
     "deleted_ids",
@@ -95,3 +101,12 @@ async def client(clean_db: None) -> AsyncIterator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test/api/v1") as c:
         yield c
+
+
+@pytest.fixture
+def fake_apns(monkeypatch: pytest.MonkeyPatch) -> FakeApns:
+    """APNs switched on, talking to a fake (``httpx.MockTransport``)."""
+    fake = FakeApns.create()
+    sender = fake.sender()
+    monkeypatch.setattr(apns, "get_sender", lambda: sender)
+    return fake
