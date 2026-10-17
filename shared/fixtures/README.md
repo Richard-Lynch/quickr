@@ -5,11 +5,12 @@ Generated from the backend and checked by every platform (the Swift tests in
 hand.** Run `make vectors` (it needs the test database, like `make check`) and
 commit the result.
 
-| File                    | Generator                                                         | Checked by                                                                  |
-| ----------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `due-vectors.json`      | `backend/tests/test_due_vectors.py` (real `services/schedule.py`) | pytest drift check; Swift `QuickrCore` due tests (M1)                       |
-| `quicklog-vectors.json` | `backend/tests/test_quicklog_vectors.py` (`services/quicklog.py`) | pytest drift check; `frontend/src/lib/quickLog.vectors.test.ts`; Swift (M1) |
-| `api/*.json`            | `backend/tests/test_api_fixtures.py` (the app, via ASGI)          | pytest drift check; Swift `QuickrData` decoding tests (M1)                  |
+| File                       | Generator                                                           | Checked by                                                                                       |
+| -------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `due-vectors.json`         | `backend/tests/test_due_vectors.py` (real `services/schedule.py`)   | pytest drift check; Swift `QuickrCore` due tests (M1)                                            |
+| `quicklog-vectors.json`    | `backend/tests/test_quicklog_vectors.py` (`services/quicklog.py`)   | pytest drift check; `frontend/src/lib/quickLog.vectors.test.ts`; Swift (M1)                      |
+| `answer-text-vectors.json` | `backend/tests/test_answer_text_vectors.py` (`services/answers.py`) | pytest drift check; `frontend/src/lib/answerText.vectors.test.ts`; Swift `AnswerTextVectorTests` |
+| `api/*.json`               | `backend/tests/test_api_fixtures.py` (the app, via ASGI)            | pytest drift check; Swift `QuickrData` decoding tests (M1)                                       |
 
 ## Drift checks
 
@@ -49,6 +50,15 @@ is one line, so diffs stay readable.
 - `initial[]`: `{name, question, last, expected}`: the text a number quick-log
   starts with. `last` is any JSON value. Numbers print as JS `String(n)` would
   (`7.0` gives `"7"`, `1e21` gives `"1e+21"`).
+
+## `answer-text-vectors.json`
+
+- `meta.python_whitespace`: every code point Python's `str.strip()` removes (it
+  differs from JS `trim()`: U+001C–U+001F and U+0085 strip, U+FEFF doesn't).
+- `cases[]`: `{name, question, raw, expected}`. Strings are arrays of code
+  points. `raw` is what the user typed (one string, or the picked values of a
+  multi-select). `expected` is `{ok: true, value}` (what the server stores;
+  `null` = unanswered) or `{ok: false, message}` (the clients' message).
 
 ## `api/*.json`
 
