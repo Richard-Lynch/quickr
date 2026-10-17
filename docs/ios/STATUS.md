@@ -163,6 +163,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 - [ ] App integration (SKEL/SYNC-UX): post GRDB suspension notifications on app background/foreground (`Database.suspendNotification` / `resumeNotification`) in the app and extensions, the 0xDEAD10CC guard (from the STORE review).
 - [ ] NSE links QuickrData, so it also carries App Intents metadata (from SKEL). Harmless for now. If duplicate-metadata warnings or resolution issues appear, split intents into a `QuickrIntents` package target linked only by the app and widget.
 - [~] Backend test isolation (`ios/m1-testiso`): advisory locks ARE per-database (verified), so there's no deployment hazard. The cross-talk is the tests' `pg_locks` queries not filtering by database, plus wall-clock APNs budget tests. Fixing the tests only.
+- [ ] Registry can't update a known server's `base_url`: connecting to the same `server_id` at a new URL keeps the stored URL. Needed when hosting moves behind Cloudflare (M7) or the LAN address changes (from SYNC).
 - [ ] Backend: reject NUL in every text field the API stores (notes, source, labels, names…) with a 422 Problem instead of a Postgres 500. Today only str answers are checked (found by VAL).
 - [x] ~~PWA zod UTF-16 lengths~~: not a bug. zod 4.6.7 counts code points. Regression tests merged (b760fdf) so that a zod or generator change back to UTF-16 counting is caught.
 - [ ] Notifications WP: a fake-center orchestration test for ReminderDedup L1 (pending local cancel) and L2 (suppression/activation cleanup), from the C1 review.
