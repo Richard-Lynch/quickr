@@ -130,6 +130,32 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
       `swift test` on push, the full build on a ready PR or a manual dispatch
 - [ ] Local smoke test: `make ios-gen` and a simulator build of an empty app
 
+### Contract reconciliation (specs ↔ feed), checked at integration
+
+These are the server details the specs assume. Each one must be confirmed in the feed WP's code
+(or fixed, or the spec changed) before M0 merges.
+
+- [ ] Every `/changes` page carries `server_id`, `epoch`, `head`, `next`, `has_more` and
+  `server_time`.
+- [ ] `server_id` survives a restore. A restore or reset rotates only `epoch`.
+- [ ] Feed rows are topics, versions (with `topic_id`) and entries. `deleted[]` items are
+  `{kind: entry|topic|version, id, topic_id}`.
+- [ ] `revision` exists on entries and topics, starts at 1 and only ever increases. It is returned by
+  POST, PATCH, archive and unarchive.
+- [ ] Deleting a topic writes the topic, its entries and its versions to `deleted_ids`, and emits a
+  deletion for each.
+- [ ] The backfill emits topics, then versions, then entries.
+- [ ] Error codes:
+  - 409 `entry_deleted`: POST reuses a deleted id;
+  - 409 `stale_revision`: `expected_revision` doesn't match;
+  - 404: PATCH or GET of a deleted entry;
+  - 204: DELETE of an id that is absent or already deleted.
+- [ ] The `X-QuickR-Server-Id` header is on every `/api/v1` response, including errors and
+  `/health`.
+- [ ] (M3) `due_since` in push payloads is UTC truncated to whole seconds.
+- [ ] (M3) `quicklog-vectors.json` gains category-id cases, so Python and Swift produce identical
+  `quickr.t.{id}.{hash}`.
+
 ### M0 integration and PR
 
 - [ ] All WPs merged; `make check` green on `ios/m0-foundations`
