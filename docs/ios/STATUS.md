@@ -113,7 +113,7 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
   - [x] `specs/sync-protocol.md`
   - [x] `specs/outbox.md`, with a test matrix of about 40 cases
   - [x] `specs/notifications.md`, including the local-fallback section
-- [~] Codex review of the specs: round 1 said NOT READY (3 Blockers, 7 Majors). Resolutions sent to the agent and recorded as PLAN §6a rules 13–16; revision in progress (required by the plan); findings folded in
+- [~] Codex review of the specs: round 1 said NOT READY (3 Blockers, 7 Majors). Round 2: 6 of 10 resolved, 4 Majors remaining (takeover control flow, reset crash window, cross-epoch errors, undo of an uncertain create, simplified to a standalone DELETE). The final batch is in progress. Resolutions sent to the agent and recorded as PLAN §6a rules 13–16; revision in progress (required by the plan); findings folded in
 - [ ] Merged into `ios/m0-foundations`
 
 ### WP scaffold (starts once Xcode is installed)
