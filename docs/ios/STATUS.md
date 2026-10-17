@@ -30,7 +30,7 @@ branch.
 
 - [x] H1: upgrade macOS. The Mac is on **macOS 27.0.1**, not Tahoe; Xcode 27
       supports it.
-- [~] H2: install Xcode 27.x with `xcodes` (another agent is doing it), then run
+- [x] H2: install Xcode 27.x with `xcodes`. Installed Xcode 27.1 (27A9275) at `/Applications/Xcode-27.1.0.app`, selected, with Swift 6.4. (another agent is doing it), then run
   `xcode-select` and accept the licence. Report the install path.
 - [~] H3: Apple Developer enrollment. Submitted 2026-10-17 (order W1832720362),
   awaiting activation. Then send the Team ID.
@@ -60,7 +60,7 @@ The user can override any of them.
       `.mobilebuildmcp/config.yaml`, and local scope for `~/code/quickr`
 - [ ] Xcode selected (`xcode-select -p` points at the xcodes install) and
       `xcodebuild -version` = 27.x
-- [ ] Simulator runtimes installed: iOS 27 and **iOS 26.x** (needed for
+- [~] Simulator runtimes installed (downloading iOS 27 with `xcodebuild -downloadPlatform`, and iOS 26.0 with `xcodes runtimes`): iOS 27 and **iOS 26.x** (needed for
       minimum-version testing)
 - [ ] MobileBuildMCP tools verified after a session restart; Xcode IDE bridge
       prompt approved
