@@ -18,7 +18,8 @@ export function capturedAtIssue(
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return 'Pick a date and time';
   if (t < Date.parse(limits.captured_at_min)) {
-    return `Can’t be before ${new Date(limits.captured_at_min).getFullYear().toString()}`;
+    // The limit is a UTC instant: its local year reads 1999 west of UTC.
+    return `Can’t be before ${new Date(limits.captured_at_min).getUTCFullYear().toString()}`;
   }
   const maxH = limits.captured_at_max_future_hours;
   if (t > now.getTime() + maxH * 3_600_000) {
