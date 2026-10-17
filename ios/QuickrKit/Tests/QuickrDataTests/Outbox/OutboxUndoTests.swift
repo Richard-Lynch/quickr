@@ -272,6 +272,29 @@ import Testing
         #expect(try await outbox.flushNow().requests == 0 && h.server.count(.post) == 1)
     }
 
+    @Test("16k · a stale_revision inside the grace starts no refetch; the flush still ends in budget")
+    func case16StaleRevisionInsideGrace() async throws {
+        let h = try OutboxHarness()
+        let outbox = h.outbox()
+        let entry = try h.seedEntry(revision: 3)
+        try await outbox.updateEntry(id: entry.id, topicId: h.topic.id, patch: h.patch(notes: "x"), origin: .app)
+        // Budget 2 s: requests stop at 1.4 s, the grace ends at 1.8 s. The PATCH is answered
+        // stale_revision at 1.7 s, inside the grace; a refetch, if one started, would never answer.
+        let stale = header(FakeServer.problem(409, "stale_revision", "stale revision"))
+        h.server.inject(.patch, .answerOnCancel(Gate(), override: stale, after: .milliseconds(300)))
+        let stuck = Gate()
+        h.server.inject(.get, .hang(stuck))
+        let started = ContinuousClock.now
+        let report = try await outbox.flush(force: true, budget: .seconds(2))
+        #expect(ContinuousClock.now - started <= .seconds(2) + .milliseconds(100))
+        #expect(report.ending == .budgetExhausted)
+        #expect(h.server.count(.patch) == 1 && h.server.count(.get) == 0)
+        let item = try #require(try h.items.single)
+        #expect(item.state == .uncertain && item.claimToken == nil && item.baseRevision == 3)
+        #expect(try h.lease().owner == nil)
+        stuck.open()
+    }
+
     @Test("29 · Undo of a held delete restores the queued create byte for byte")
     func case29() async throws {
         let h = try OutboxHarness()

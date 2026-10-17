@@ -35,9 +35,9 @@ final class FakeServer: Transport {
         case delay(Gate, override: HTTPResponse? = nil)
         /// Hold the request until the client cancels it; it then executes (or answers `override`)
         /// and the answer reaches the client just after the cancellation: a response that lands
-        /// while the client shuts down. It arrives 20 ms late, after any timer the cancellation
-        /// woke, so a client that stops listening at cancellation loses it.
-        case answerOnCancel(Gate, override: HTTPResponse? = nil)
+        /// while the client shuts down. It arrives `after` the cancel (20 ms: after any timer the
+        /// cancellation woke), so a client that stops listening at cancellation loses it.
+        case answerOnCancel(Gate, override: HTTPResponse? = nil, after: Duration = .milliseconds(20))
         /// A transport that ignores cancellation: the request waits for the gate whatever the
         /// client does, then executes and answers.
         case hang(Gate)
@@ -171,7 +171,7 @@ final class FakeServer: Transport {
             let response = handle(request)
             await Task { try? await Task.sleep(for: delay) }.value  // not cancellable from here
             return response
-        case .answerOnCancel(let gate, let override):
+        case .answerOnCancel(let gate, let override, let delay):
             let answer = Answer()
             Task { [self] in
                 await gate.arrive()  // opened by a test that doesn't cancel, or to clean up
@@ -184,7 +184,7 @@ final class FakeServer: Transport {
                 answer.cancelled = true
                 let response = override ?? handle(request)
                 Task {
-                    try? await Task.sleep(for: .milliseconds(20))
+                    try? await Task.sleep(for: delay)
                     answer.resume(.success(response))
                 }
             }
