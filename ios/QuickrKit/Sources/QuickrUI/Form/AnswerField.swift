@@ -176,10 +176,10 @@ private struct TextAnswerControl: View {
         let shape = RoundedRectangle(cornerRadius: QuickrMetrics.controlRadius, style: .continuous)
         Group {
             if multiline {
-                TextField(text: $text, axis: .vertical) { Text(label) }
+                TextField(text: $text, prompt: Text(""), axis: .vertical) { Text(label) }
                     .lineLimit(3...8)
             } else {
-                TextField(text: $text) { Text(label) }
+                TextField(text: $text, prompt: Text("")) { Text(label) }
             }
         }
         .focused(focus)

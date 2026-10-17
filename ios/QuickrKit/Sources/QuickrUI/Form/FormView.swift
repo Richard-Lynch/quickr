@@ -63,9 +63,9 @@ public struct FormView<Footer: View>: View {
                 model.appear()
             }
             .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    if let key = model.focus, model.questions.first(where: { $0.key == key })?.numericRules != nil {
-                        Spacer()
+                if let key = model.focus, model.questions.first(where: { $0.key == key })?.numericRules != nil {
+                    ToolbarSpacer(.flexible, placement: .keyboard)
+                    ToolbarItem(placement: .keyboard) {
                         Button(model.nextField(after: key) == nil ? "Done" : "Next") { model.advance(from: key) }
                             .font(.qr(.callout))
                             .accessibilityIdentifier("form.keyboard.advance")
