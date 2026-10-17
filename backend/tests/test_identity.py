@@ -337,3 +337,59 @@ async def test_csv_export_closes_its_snapshot(db: Any, client: httpx.AsyncClient
     with pytest.raises(NotFound):
         await entry_svc.export_csv(db, "nope", EntryFilters())
     assert not db.in_transaction()
+
+
+async def test_headers_under_a_saturated_pool(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One pooled connection, many concurrent requests: each request reads its identity on
+    its own session, so none waits for a second connection while holding the first."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from tests.conftest import TEST_DATABASE_URL
+
+    await make_topic(client)
+    server_id, epoch = await identity(client)
+    engine = create_async_engine(TEST_DATABASE_URL, pool_size=1, max_overflow=0, pool_timeout=2)
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    for where in ("app.db", "app.api.identity"):
+        monkeypatch.setattr(f"{where}.get_sessionmaker", lambda: maker)
+    requests = [
+        *(client.get("/topics") for _ in range(4)),
+        *(client.get("/topics/sleep-log") for _ in range(4)),
+        client.get("/topics/nope"),  # 404
+        client.get("/limits"),  # no database work in the handler
+        client.post("/topics/sleep-log/entries", json={"answers": ANSWERS}),
+        client.get("/changes"),
+    ]
+    try:
+        responses = await asyncio.wait_for(asyncio.gather(*requests), 10)
+    finally:
+        await engine.dispose()
+    assert [r.status_code for r in responses] == [200] * 8 + [404, 200, 201, 200]
+    for r in responses:
+        assert (r.headers.get("x-quickr-server-id"), r.headers.get("x-quickr-epoch")) == (server_id, epoch)
+
+
+async def test_unreadable_identity_logs_one_line(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Database down: the response goes out without the headers, with a warning and no
+    traceback per request."""
+
+    async def down(_: Any) -> None:
+        raise ConnectionRefusedError("connection refused")
+
+    monkeypatch.setattr("app.api.identity.feed_identity", down)
+    r = await client.get("/limits")
+    assert r.status_code == 200
+    assert "x-quickr-epoch" not in r.headers
+    [warning] = [rec for rec in caplog.records if rec.name == "app.api.identity"]
+    assert warning.levelname == "WARNING"
+    assert warning.exc_info is None
+    assert "ConnectionRefusedError: connection refused" in warning.getMessage()
+
+
+async def test_prefix_is_a_path_segment(client: httpx.AsyncClient) -> None:
+    assert "x-quickr-epoch" in (await client.get("http://test/api/v1")).headers  # 404, but ours
+    assert "x-quickr-epoch" not in (await client.get("http://test/api/v10/health")).headers
