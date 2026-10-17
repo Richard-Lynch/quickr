@@ -12,6 +12,7 @@ commit the result.
 | `answer-text-vectors.json`  | `backend/tests/test_answer_text_vectors.py` (`services/answers.py`)           | pytest drift check; `frontend/src/lib/answerText.vectors.test.ts`; Swift `AnswerTextVectorTests` |
 | `jsnumber-vectors.json`     | `frontend/scripts/gen-jsnumber-vectors.js` (V8 `String(x)`, run once by hand) | Swift `JSNumberVectorTests`; pytest (`js_number_string` in `services/quicklog.py`)               |
 | `notification-vectors.json` | `backend/tests/test_notification_vectors.py` (`services/notification.py`)     | pytest drift check; Swift notification categories (M3, spec test N1)                             |
+| `builder-vectors.json`      | `backend/tests/test_builder_vectors.py` (`schemas/questions.py`, `services/compat.py`, `slugify`) | pytest drift check; Swift `BuilderVectorTests`                                          |
 | `api/*.json`                | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                      | pytest drift check; Swift `QuickrData` decoding tests (M1)                                       |
 
 ## Drift checks
@@ -94,6 +95,32 @@ produce byte-identical descriptors, actions and category ids.
   titles and identifiers: the shortest round-trip decimal, positional, never
   rounded to `decimals`. Doubles carry `bits` (IEEE 754, big-endian hex), so a
   port can build the exact value without trusting its JSON parser.
+
+## `builder-vectors.json`
+
+What the server decides about the question configs the topic builder produces, so
+the iOS builder (`QuickrCore/Builder`) can prove it agrees offline.
+
+- `questions[]`: `{name, drafts, expected: {errors}}`. `drafts` is a question
+  list as the builder edits it: every constraint is the text of its field
+  (`"1.5"`, `""` = not set), plus `type`, `key`, `label`, `help_text`,
+  `required`, `multiline`, `multiple` and `options[{value, label, archived}]`.
+  The server sees what a client sends: numbers parsed from the text (a whole
+  number below 1e16 as a JSON integer, like Swift's `JSONEncoder`), empty
+  help text and unit as null, and selection limits only when `multiple`.
+  `errors` lists the sorted dotted locations, relative to the list, where
+  `QuestionSet` rejects it (`""` is the list itself, `0.max`,
+  `1.options.0.label`); `[]` means accepted. Cases cover every rule, the
+  limits' edges, code-point lengths, `casefold` label duplicates (`Straße` /
+  `STRASSE`) and which whitespace pydantic strips (Unicode `White_Space`: not
+  U+001C–U+001F or U+FEFF, unlike Python's `str.strip()` and JS `trim()`).
+- `compat[]`: `{name, history, proposed, expected}`. `history` is a list of
+  versions, oldest first, and every question is the API's full shape.
+  `expected` is `check_compatibility`'s report. Python visits option sets in
+  hash order, so `issues` are sorted by `(level, question_key, message)` and
+  each change's `details` are sorted; compare them sorted.
+- `slugs[]`: `{input, expected}`: `slugify` (`services/topics.py`), which gives
+  `topic` when nothing is left.
 
 ## `api/*.json`
 
