@@ -10,16 +10,6 @@ import Testing
 /// held in the network by a `Gate` while lease time passes; "SIGCONT" opens it. The real
 /// multi-process runs are stubbed in `OutboxMatrixStubs` for the MP WP.
 @Suite struct OutboxConcurrencyTests {
-    /// The parts of the store a superseded sender must not touch.
-    private func snapshot(_ h: OutboxHarness) throws -> [String] {
-        try h.read { db in
-            try Row.fetchAll(db, sql: "SELECT * FROM outbox_item ORDER BY seq").map(\.description)
-                + Row.fetchAll(db, sql: "SELECT * FROM entry ORDER BY id").map(\.description)
-                + Row.fetchAll(db, sql: "SELECT * FROM tombstone ORDER BY id").map(\.description)
-                + Row.fetchAll(db, sql: "SELECT * FROM sync_state").map(\.description)
-        }
-    }
-
     @Test("8, 9 · (single process) lock expiry: B recovers and resends; A's late 201 writes nothing")
     func case08And09() async throws {
         let h = try OutboxHarness()
@@ -34,12 +24,12 @@ import Testing
 
         let reportB = try await b.flushNow()
         #expect(try reportB.acked == 1 && h.items.isEmpty && h.server.entry(id) != nil)
-        let before = try snapshot(h)
+        let before = try h.snapshot()
 
         gate.open()  // A resumes and gets its 201
         let reportA = try await flushA.value
         #expect(reportA.ending == .superseded && reportA.acked == 0)
-        #expect(try snapshot(h) == before)
+        #expect(try h.snapshot() == before)
         #expect(h.server.count(.post) == 2 && h.server.with { $0.entries.count } == 1)
     }
 
@@ -58,11 +48,11 @@ import Testing
         h.clock.advance(by: .seconds(31))
         let flushB = background { try await b.flushNow(budget: .seconds(120)) }
         await gateB.arrival()  // B recovered the item and has it in flight
-        let before = try snapshot(h)
+        let before = try h.snapshot()
 
         gateA.open()
         #expect(try await flushA.value.ending == .superseded)
-        #expect(try snapshot(h) == before)
+        #expect(try h.snapshot() == before)
         #expect(try h.item(id)?.state == .inFlight)
         gateB.open()
         #expect(try await flushB.value.acked == 1 && h.item(id) == nil)
@@ -82,10 +72,10 @@ import Testing
         try h.write { db in
             try db.execute(sql: "UPDATE outbox_item SET claim_token = 'other' WHERE id = ?", arguments: [id.wireString])
         }
-        let before = try snapshot(h)
+        let before = try h.snapshot()
         gate.open()
         #expect(try await flush.value.ending == .superseded)
-        #expect(try snapshot(h) == before)
+        #expect(try h.snapshot() == before)
         #expect(try h.item(id)?.state == .inFlight && h.item(id)?.claimToken == "other")
     }
 
@@ -149,7 +139,7 @@ import Testing
 
         let reportB = try await b.flushNow()
         #expect(reportB.acked == 2 && h.server.entry(entry.id)?.revision == 5)
-        let before = try snapshot(h)
+        let before = try h.snapshot()
 
         gate.open()  // A's original PATCH lands late: 409 stale_revision
         let reportA = try await flushA.value
@@ -158,7 +148,7 @@ import Testing
         #expect(h.server.count(.patch) == 3 && h.server.count(.get) == 0)
         #expect(!h.server.requests.contains { $0.method == .patch && $0.expectedRevision == 5 })
         #expect(h.server.entry(entry.id)?.revision == 5 && h.server.entry(entry.id)?.notes == "u2")
-        #expect(try snapshot(h) == before)
+        #expect(try h.snapshot() == before)
     }
 
     @Test("34 · (single process) B takes over between A's refetch and rebase: A's step 3 fails, B's state stands")
@@ -177,12 +167,12 @@ import Testing
 
         let reportB = try await b.flushNow()
         #expect(try reportB.acked == 1 && h.server.entry(entry.id)?.revision == 5 && h.items.isEmpty)
-        let before = try snapshot(h)
+        let before = try h.snapshot()
 
         gate.open()
         let reportA = try await flushA.value
         #expect(reportA.ending == .superseded)
-        #expect(try snapshot(h) == before)
+        #expect(try h.snapshot() == before)
         #expect(h.server.count(.patch) == 3)
     }
 

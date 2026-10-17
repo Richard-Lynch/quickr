@@ -42,11 +42,25 @@ final class OutboxHarness: Sendable {
     }
 
     /// An outbox for one process. `origin` is the client's surface; `random` the backoff jitter.
-    func outbox(owner: String = "app:1", store: LocalStore? = nil, random: Double = 0.5) -> Outbox {
+    func outbox(
+        owner: String = "app:1", store: LocalStore? = nil, random: Double = 0.5,
+        shutdownGrace: Duration = .milliseconds(500)
+    ) -> Outbox {
         let client = APIClient(baseURL: FakeServer.base, transport: server, identity: StaticServerIdentity(nil))
         return Outbox(
             store: store ?? self.store, sender: client, owner: owner,
-            onSignal: { [self] signal in self.signalLog.withLock { $0.append(signal) } }, random: { random })
+            onSignal: { [self] signal in self.signalLog.withLock { $0.append(signal) } }, random: { random },
+            shutdownGrace: shutdownGrace)
+    }
+
+    /// The rows a superseded or abandoned sender must not touch (its own lease release aside).
+    func snapshot() throws -> [String] {
+        try read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM outbox_item ORDER BY seq").map(\.description)
+                + Row.fetchAll(db, sql: "SELECT * FROM entry ORDER BY id").map(\.description)
+                + Row.fetchAll(db, sql: "SELECT * FROM tombstone ORDER BY id").map(\.description)
+                + Row.fetchAll(db, sql: "SELECT * FROM sync_state").map(\.description)
+        }
     }
 
     /// Another process: its own pool on the same file, the same clocks.

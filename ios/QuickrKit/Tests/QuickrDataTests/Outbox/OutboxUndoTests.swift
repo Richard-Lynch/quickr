@@ -171,6 +171,70 @@ import Testing
         #expect(try h.item(second)?.attempts == 0 && h.server.requests.count == 1)
     }
 
+    @Test("16f · a sender that ignores cancellation can't hold a budget-expired flush past the grace")
+    func case16StuckSenderAtDeadline() async throws {
+        let h = try OutboxHarness()
+        let outbox = h.outbox(shutdownGrace: .milliseconds(300))
+        let id = try await h.log(outbox)
+        let gate = Gate()
+        h.server.inject(.post, .hang(gate))
+        let started = ContinuousClock.now
+        let report = try await outbox.flush(force: true, budget: .seconds(1))
+        #expect(ContinuousClock.now - started < .seconds(3))
+        #expect(report.ending == .budgetExhausted)
+        let item = try #require(try h.item(id))
+        #expect(item.state == .uncertain && item.maybeDelivered && item.claimToken == nil)
+        #expect(try h.lease().owner == nil)
+        // The stuck request finally completes: nobody listens, nothing is written.
+        let before = try h.snapshot()
+        gate.open()
+        try await waitUntil { h.server.handled.count == 1 }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(try h.snapshot() == before)
+    }
+
+    @Test("16g · an expiration handler's cancel ends the flush and frees the scheduler despite a stuck sender")
+    func case16StuckSenderAtExpiration() async throws {
+        let h = try OutboxHarness()
+        let scheduler = OutboxFlushScheduler(outbox: h.outbox(shutdownGrace: .milliseconds(300)))
+        let id = try await h.log(scheduler.outbox)
+        let gate = Gate()
+        h.server.inject(.post, .hang(gate))
+        await scheduler.requestFlush(reason: .background)
+        await gate.arrival()
+        let started = ContinuousClock.now
+        await scheduler.cancel()
+        let report = await scheduler.waitUntilIdle()
+        #expect(ContinuousClock.now - started < .seconds(2))
+        #expect(report?.ending == .cancelled)
+        #expect(try h.item(id)?.state == .uncertain && h.lease().owner == nil)
+        gate.open()
+    }
+
+    @Test("16h · a stuck sender's late answer after another flusher took over is never applied")
+    func case16StuckSenderAfterTakeover() async throws {
+        let h = try OutboxHarness()
+        let a = h.outbox(owner: "app:A", shutdownGrace: .milliseconds(300))
+        let b = try h.process("widget:B")
+        let id = try await h.log(a)
+        try await h.log(a, minutes: 1)
+        let gate = Gate()
+        h.server.inject(.post, .hang(gate))
+        let flushA = background { try await a.flushNow() }
+        await gate.arrival()
+        flushA.cancel()
+        #expect(try await flushA.value.ending == .cancelled)
+        // B takes over at once (A released the lease) and resends the uncertain create.
+        let report = try await b.flushNow()
+        #expect(report.acked == 2 && h.server.count(.post) == 3)
+        let before = try h.snapshot()
+        gate.open()  // A's original POST lands now and is answered: 201, the existing entry
+        try await waitUntil { h.server.handled.count == 3 }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(try h.snapshot() == before)
+        #expect(h.server.with { $0.entries.count } == 2 && h.server.entry(id) != nil)
+    }
+
     @Test("29 · Undo of a held delete restores the queued create byte for byte")
     func case29() async throws {
         let h = try OutboxHarness()

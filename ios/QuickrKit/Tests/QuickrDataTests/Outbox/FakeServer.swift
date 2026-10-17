@@ -38,6 +38,9 @@ final class FakeServer: Transport {
         /// while the client shuts down. It arrives 20 ms late, after any timer the cancellation
         /// woke, so a client that stops listening at cancellation loses it.
         case answerOnCancel(Gate, override: HTTPResponse? = nil)
+        /// A transport that ignores cancellation: the request waits for the gate whatever the
+        /// client does, then executes and answers.
+        case hang(Gate)
         /// Mutate the server first (another device acts just before), then execute.
         case before(@Sendable (inout State) -> Void)
     }
@@ -159,6 +162,9 @@ final class FakeServer: Transport {
                 gate.abandon()
                 answer.resume(.failure(TransportError.cancelled(requestStarted: true)))
             }
+        case .hang(let gate):
+            await gate.arrive()
+            return handle(request)
         case .answerOnCancel(let gate, let override):
             let answer = Answer()
             Task { [self] in
