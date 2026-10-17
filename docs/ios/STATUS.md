@@ -51,7 +51,7 @@ The user can override any of them.
 
 - [x] Q1: milestone PRs merge without waiting for review. **Yes.**
 - [x] Q2: lock-screen logging without Face ID. **Yes, if it's clean.** Verified at checkpoint D.
-- [x] Q3: Siri opens the record screen or runs Repeat-last for multi-question topics. **Yes, but use the newest Siri capabilities** (research `04-siri.md` in progress).
+- [x] Q3: Siri opens the record screen or runs Repeat-last for multi-question topics. **Yes, and better:** research `04-siri.md` shows multi-question topics CAN be logged by voice on iOS 26 (`LogTopicIntent`: field-by-field turns plus an interactive confirmation card; one-sentence parsing on Apple Intelligence phones). Plan and DAG updated.
 - [x] Q4: **3 most-used + "More…"** (opens the app) for 5–6 options, with the truncation stated in the body.
 
 ## Environment and tooling
