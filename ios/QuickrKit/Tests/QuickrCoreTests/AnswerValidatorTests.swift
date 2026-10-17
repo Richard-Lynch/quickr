@@ -112,6 +112,28 @@ enum AnswerFixtures {
         #expect(errors([F.note], ["note": .text("abcdefghijk")]) == ["note": "At most 10 characters (11 entered)"])
     }
 
+    @Test func countsCharactersAsCodePointsLikeTheServer() {
+        // The same cases as answerSchema.test.ts.
+        #expect(errors([F.note], ["note": .text("😀😀")]) == ["note": "At least 3 characters (2 so far)"])
+        #expect(values([F.note], ["note": .text("😀😀😀")]) == ["note": .string("😀😀😀")])
+        #expect(
+            errors([F.note], ["note": .text(String(repeating: "😀", count: 11))])
+                == ["note": "At most 10 characters (11 entered)"])
+        #expect(errors([F.note], ["note": .text("ab\u{0}c")]) == ["note": "Remove the invalid character"])
+        #expect(errors([F.note], ["note": .text("\u{0}")]) == ["note": "Remove the invalid character"])
+    }
+
+    @Test func stripsTextLikeTheServer() {
+        // Python's strip, not JS trim: U+0085 goes, U+FEFF stays.
+        #expect(values([F.note], ["note": .text("\u{85}abc\u{1F}")]) == ["note": .string("abc")])
+        #expect(values([F.note], ["note": .text("\u{FEFF}ab")]) == ["note": .string("\u{FEFF}ab")])
+        #expect(errors([F.mood], ["mood": .text("\u{85}")]) == ["mood": "Required"])
+        #expect(values([F.mood], ["mood": .text("\u{1C}good\u{85}")]) == ["mood": .string("good")])
+        // Numbers keep the PWA's JS trim.
+        #expect(errors([F.hours], ["hours": .text("\u{85}7")]) == ["hours": "Enter a number"])
+        #expect(values([F.hours], ["hours": .text("\u{FEFF}7")]) == ["hours": .double(7)])
+    }
+
     @Test func rejectsArchivedAndUnknownOptionsUnlessExplicitlyAllowed() {
         #expect(errors([F.mood], ["mood": .text("awful")]) == ["mood": "That option has been retired"])
         #expect(errors([F.mood], ["mood": .text("nope")]) == ["mood": "Pick one of the options"])

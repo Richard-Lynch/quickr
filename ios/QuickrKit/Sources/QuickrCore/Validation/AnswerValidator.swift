@@ -40,7 +40,8 @@ public struct AnswerValidator: Sendable {
             case .selection(let values): values.first ?? ""
             case nil: ""
             }
-        let value = JSNumber.trim(raw)
+        // Numbers trim like the PWA's input; text and choices strip like the server stores them.
+        let value = question.numericRules != nil ? JSNumber.trim(raw) : ServerText.strip(raw)
         if value.isEmpty { return question.required ? .failure("Required") : .success(nil) }
 
         switch question.kind {
@@ -63,7 +64,7 @@ public struct AnswerValidator: Sendable {
         case .string(let rules):
             // The server counts code points (Python `len`); see `characterCount`.
             let count = characterCount(value)
-            // The server rejects NUL; the PWA has no rule for it, so this message is iOS's own.
+            // The server rejects NUL (the PWA shares this message).
             if value.unicodeScalars.contains("\u{0}") { return .failure("Remove the invalid character") }
             if count < rules.minLength {
                 return .failure(AnswerMessage("At least \(rules.minLength) characters (\(count) so far)"))
@@ -101,7 +102,7 @@ public struct AnswerValidator: Sendable {
             case nil: []
             }
         var picked: [String] = []
-        for value in raw.map(JSNumber.trim) where !value.isEmpty && !picked.contains(value) {
+        for value in raw.map(ServerText.strip) where !value.isEmpty && !picked.contains(value) {
             picked.append(value)
         }
         if picked.isEmpty { return question.required ? .failure("Pick at least one") : .success(nil) }
