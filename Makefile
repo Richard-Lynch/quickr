@@ -40,6 +40,10 @@ seed: ## Load demo topics and entries
 vapid: ## Print a fresh VAPID key pair for QUICKR_VAPID_PRIVATE_KEY / QUICKR_VAPID_PUBLIC_KEY
 	$(BACKEND) uv run python -c "from app.services.push import generate_vapid_keys as g; k = g(); print(f'QUICKR_VAPID_PRIVATE_KEY={k.private_key}'); print(f'QUICKR_VAPID_PUBLIC_KEY={k.public_key}')"
 
+.PHONY: notebook
+notebook: ## Open the API exploration notebook (needs the API on :8100; QUICKR_API overrides)
+	$(BACKEND) uv run --group notebook jupyter lab notebooks/explore_api.ipynb
+
 .PHONY: openapi
 openapi: ## Regenerate openapi.json from the FastAPI app
 	$(BACKEND) uv run python scripts/export_openapi.py ../openapi.json
