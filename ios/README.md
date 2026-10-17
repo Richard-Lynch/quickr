@@ -203,7 +203,8 @@ ios/scripts/sim-clone.sh --delete               # when the worktree is done
 
 The clone is named `<source> <worktree dir>-<hash of its canonical path>`, so
 running the script again finds the same device, and `--delete` can only ever
-remove this worktree's clone. A lock directory serialises concurrent runs. If the source simulator is shut down, the script copies it with
+remove this worktree's clone. A lock serialises concurrent runs; it records its
+owner's PID and host, and is taken over only when that owner has exited. If the source simulator is shut down, the script copies it with
 `simctl clone`. If it is booted (in use), the script never touches it and
 creates a fresh device with the same device type and runtime instead.
 

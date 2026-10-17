@@ -95,6 +95,7 @@ CONTENT_LENGTH = re.compile(r"[0-9]{1,12}")
 CHUNK_SIZE = re.compile(rb"[0-9A-Fa-f]{1,12}")
 STATUS_LINE = re.compile(r"HTTP/1\.[01] ([0-9]{3})(?: (.*))?")
 METHOD = re.compile(r"\*|[A-Za-z]+")
+HEADER_VALUE = re.compile(r"[\x20-\x7e]*")  # what a rule may put in a response header
 
 Headers = list[tuple[str, str]]
 
@@ -349,8 +350,8 @@ class Rule:
                 ok, kind = isinstance(value, str), "a string"
             if not ok:
                 raise ValueError(f"{name} must be {kind}")
-            if name in cls.HEADER_VALUE_FIELDS and value is not None and re.search(r"[\r\n\x00]", value):
-                raise ValueError(f"{name} must not contain CR, LF or NUL")
+            if name in cls.HEADER_VALUE_FIELDS and value is not None and not HEADER_VALUE.fullmatch(value):
+                raise ValueError(f"{name} must be printable ASCII (no CR, LF or other controls)")
         rule = cls(id=rule_id, **data)
         if not METHOD.fullmatch(rule.method):
             raise ValueError("method must be '*' or an HTTP method")
@@ -365,8 +366,9 @@ class Rule:
             raise ValueError("times must be >= 1")
         if not 0 <= rule.delay_ms <= MAX_DELAY_MS:
             raise ValueError(f"delay_ms must be in 0..{MAX_DELAY_MS}")
-        if not 100 <= rule.status <= 599:
-            raise ValueError("status must be an HTTP status code (100..599)")
+        if not 200 <= rule.status <= 599:
+            # A synthetic 1xx would never be followed by a final response.
+            raise ValueError("status must be a final HTTP status code (200..599)")
         return rule
 
     def matches(self, method: str, path: str) -> bool:
@@ -461,6 +463,7 @@ class FaultProxy:
         self.reset()
         for server in self._servers:
             server.close()
+            server.close_clients()
             await server.wait_closed()
 
     # state

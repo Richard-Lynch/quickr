@@ -377,6 +377,14 @@ async def test_upstream_down_is_a_502_with_no_upstream_status(h: Harness) -> Non
         {"action": "pass", "phase": None},
         {"action": "status", "retry_after": "1\r\nX-Injected: 1"},
         {"action": "captive", "content_type": "text/html\nX-Injected: 1"},
+        {"action": "status", "status": 100},
+        {"action": "status", "status": 103},
+        {"action": "status", "status": 199},
+        {"action": "status", "status": 600},
+        {"action": "status", "content_type": "\U0001f600"},
+        {"action": "status", "retry_after": "\U0001f600"},
+        {"action": "captive", "content_type": "text/html; charset=\u00e9"},
+        {"action": "status", "retry_after": "1\t2"},
     ],
 )
 async def test_rejects_bad_rules(h: Harness, rule: Any) -> None:
@@ -542,3 +550,18 @@ async def test_client_body_cap(h: Harness, monkeypatch: pytest.MonkeyPatch) -> N
     with pytest.raises(httpx.TransportError):
         await h.client.post("/x", content=b"y" * 100)
     assert h.a.requests == []
+
+
+@pytest.mark.parametrize("status", [200, 204, 304, 429, 503, 599])
+async def test_every_accepted_synthetic_status_gets_a_final_response(h: Harness, status: int) -> None:
+    await h.rule(action="status", status=status, retry_after="5", content_type="text/plain")
+    reader, writer = await raw(h)
+    try:
+        writer.write(b"GET /x HTTP/1.1\r\nHost: t\r\n\r\nGET /x HTTP/1.1\r\nHost: t\r\n\r\n")
+        await writer.drain()
+        got, headers, _ = await read_response(reader)
+        assert (got, headers["retry-after"]) == (status, "5")
+        got, _, body = await read_response(reader)  # the connection is still in sync
+        assert (got, json.loads(body)["server"]) == (200, "server-a")
+    finally:
+        writer.close()
