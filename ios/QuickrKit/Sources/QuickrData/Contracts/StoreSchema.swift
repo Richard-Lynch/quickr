@@ -114,7 +114,9 @@ public enum StoreSchema {
               last_pull_at       REAL,
               skew_ms            REAL NOT NULL DEFAULT 0,
               skew_measured_at   REAL,
-              bootstrap_complete INTEGER NOT NULL DEFAULT 0 CHECK (bootstrap_complete IN (0, 1))
+              bootstrap_complete INTEGER NOT NULL DEFAULT 0 CHECK (bootstrap_complete IN (0, 1)),
+              -- The pending_token of a reset attempt aborted on this file (§12.1): its retire is refused.
+              reset_veto         TEXT
             )
             """
         ]

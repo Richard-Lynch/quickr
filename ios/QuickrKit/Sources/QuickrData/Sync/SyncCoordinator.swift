@@ -629,6 +629,8 @@ public actor SyncCoordinator {
         case .fenced:
             try await partitions.abortReset(intent)
             return .superseded
+        case .intentAborted:
+            return .superseded
         case .retired:
             let fresh: LocalStore
             do {

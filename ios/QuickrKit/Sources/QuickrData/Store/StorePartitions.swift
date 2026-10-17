@@ -143,8 +143,20 @@ public struct StorePartitions: Sendable {
         return try await openStore(serverId: intent.id, role: .app).store
     }
 
+    /// Abort `intent` on the old file `store`, then in the registry: the veto makes the attempt's
+    /// retire fail in its own transaction, so an attempt racing this abort can never retire the
+    /// file afterwards. If the file is already retired the reset goes ahead instead and the intent
+    /// is kept for step 6 (`.alreadyRetired`).
+    public func abortReset(_ intent: RegisteredServer, on store: LocalStore) async throws -> ResetVeto {
+        guard let token = intent.pendingToken else { return .vetoed }
+        let veto = try await store.vetoReset(intentToken: token)
+        if veto == .vetoed { try await registry.clearResetIntent(serverId: intent.id, token: token) }
+        return veto
+    }
+
     /// Abort `intent` (lease timeout in step 3, or writes arrived in step 4). Clears only that
-    /// attempt (fenced on its token); returns whether it did.
+    /// attempt (fenced on its token); returns whether it did. Prefer `abortReset(_:on:)`, which
+    /// also fences a concurrent retire of the same attempt.
     @discardableResult
     public func abortReset(_ intent: RegisteredServer) async throws -> Bool {
         guard let token = intent.pendingToken else { return false }

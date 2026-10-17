@@ -144,21 +144,48 @@ public enum RetireOutcome: Sendable, Hashable {
     /// Writes were committed after the user's warning: nothing was retired; warn again.
     case writesArrived(count: Int, maxSeq: Int64)
     case fenced(FenceFailure)
+    /// The attempt identified by the intent token was aborted on this file (`vetoReset`):
+    /// nothing was retired.
+    case intentAborted
+}
+
+/// Aborting a reset attempt on the old file (§12.1 steps 3–4).
+public enum ResetVeto: Sendable, Hashable {
+    /// The attempt can no longer retire this file; clear its registry intent.
+    case vetoed
+    /// Too late: the file is already retired, so the reset goes ahead (step 6 completes it).
+    case alreadyRetired
 }
 
 public enum StoreRetirement {
     /// Re-checks the outbox against the confirmed count and max seq and, if nothing new arrived,
-    /// sets `retired = 1`. Fenced on both leases (taken `sync` → `flush`). Idempotent: an
+    /// sets `retired = 1`. Fenced on both leases (taken `sync` → `flush`) and, with
+    /// `intentToken`, on that attempt not having been vetoed in this file. Idempotent: an
     /// already retired file reports `.retired`.
     public static func retire(
-        _ db: Database, confirmedCount: Int, confirmedMaxSeq: Int64, sync: LeaseClaim, flush: LeaseClaim,
-        at now: LeaseInstant
+        _ db: Database, confirmedCount: Int, confirmedMaxSeq: Int64, intentToken: String? = nil, sync: LeaseClaim,
+        flush: LeaseClaim, at now: LeaseInstant
     ) throws -> RetireOutcome {
         if try StoreFence.isRetired(db) { return .retired }
         if let failure = try StoreFence.check(db, [.lease(sync), .lease(flush)], at: now) { return .fenced(failure) }
+        if let intentToken,
+            try String.fetchOne(db, sql: "SELECT reset_veto FROM sync_state WHERE id = 1") == intentToken
+        {
+            return .intentAborted
+        }
         let (count, maxSeq) = try OutboxStorage.summary(db)
         if count > confirmedCount || maxSeq > confirmedMaxSeq { return .writesArrived(count: count, maxSeq: maxSeq) }
         try db.execute(sql: "UPDATE sync_state SET retired = 1 WHERE id = 1")
         return .retired
+    }
+
+    /// Marks the attempt `intentToken` aborted on this file, unless the file is already retired.
+    /// Retirement and abort are serialized by this file's write lock, so the retire of a vetoed
+    /// attempt is refused in its own transaction, and an attempt that already retired is never
+    /// reported aborted. Needs no lease: a caller that timed out waiting for them uses it.
+    public static func vetoReset(_ db: Database, intentToken: String) throws -> ResetVeto {
+        if try StoreFence.isRetired(db) { return .alreadyRetired }
+        try db.execute(sql: "UPDATE sync_state SET reset_veto = ? WHERE id = 1", arguments: [intentToken])
+        return .vetoed
     }
 }
