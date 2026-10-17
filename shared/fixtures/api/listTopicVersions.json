@@ -1,0 +1,197 @@
+{
+  "body": [
+    {
+      "change_note": "Retire 'poor'",
+      "created_at": "2026-06-01T12:00:00.123456Z",
+      "entry_count": 1,
+      "questions": [
+        {
+          "help_text": null,
+          "key": "glasses",
+          "label": "Glasses of water",
+          "max": 30,
+          "min": 0,
+          "required": true,
+          "type": "int",
+          "unit": "glasses"
+        },
+        {
+          "decimals": 1,
+          "help_text": "Time actually asleep.",
+          "key": "hours",
+          "label": "Hours slept",
+          "max": 24,
+          "min": 0,
+          "required": true,
+          "type": "double",
+          "unit": "h"
+        },
+        {
+          "help_text": null,
+          "key": "mood",
+          "label": "Mood",
+          "max_selected": null,
+          "min_selected": null,
+          "multiple": false,
+          "options": [
+            {
+              "archived": false,
+              "label": "Great",
+              "value": "great"
+            },
+            {
+              "archived": false,
+              "label": "OK",
+              "value": "ok"
+            },
+            {
+              "archived": true,
+              "label": "Poor",
+              "value": "poor"
+            }
+          ],
+          "required": true,
+          "type": "enum"
+        },
+        {
+          "help_text": null,
+          "key": "factors",
+          "label": "Factors",
+          "max_selected": 2,
+          "min_selected": 1,
+          "multiple": true,
+          "options": [
+            {
+              "archived": false,
+              "label": "Caffeine",
+              "value": "caffeine"
+            },
+            {
+              "archived": false,
+              "label": "Screens",
+              "value": "screens"
+            },
+            {
+              "archived": false,
+              "label": "Exercise",
+              "value": "exercise"
+            }
+          ],
+          "required": false,
+          "type": "enum"
+        },
+        {
+          "help_text": null,
+          "key": "note",
+          "label": "Note",
+          "max_length": 280,
+          "min_length": 0,
+          "multiline": true,
+          "required": false,
+          "type": "str"
+        }
+      ],
+      "version": 2
+    },
+    {
+      "change_note": "Initial version",
+      "created_at": "2026-06-01T12:00:00.123456Z",
+      "entry_count": 2,
+      "questions": [
+        {
+          "help_text": null,
+          "key": "glasses",
+          "label": "Glasses of water",
+          "max": 30,
+          "min": 0,
+          "required": true,
+          "type": "int",
+          "unit": "glasses"
+        },
+        {
+          "decimals": 1,
+          "help_text": "Time actually asleep.",
+          "key": "hours",
+          "label": "Hours slept",
+          "max": 24,
+          "min": 0,
+          "required": true,
+          "type": "double",
+          "unit": "h"
+        },
+        {
+          "help_text": null,
+          "key": "mood",
+          "label": "Mood",
+          "max_selected": null,
+          "min_selected": null,
+          "multiple": false,
+          "options": [
+            {
+              "archived": false,
+              "label": "Great",
+              "value": "great"
+            },
+            {
+              "archived": false,
+              "label": "OK",
+              "value": "ok"
+            },
+            {
+              "archived": false,
+              "label": "Poor",
+              "value": "poor"
+            }
+          ],
+          "required": true,
+          "type": "enum"
+        },
+        {
+          "help_text": null,
+          "key": "factors",
+          "label": "Factors",
+          "max_selected": 2,
+          "min_selected": 1,
+          "multiple": true,
+          "options": [
+            {
+              "archived": false,
+              "label": "Caffeine",
+              "value": "caffeine"
+            },
+            {
+              "archived": false,
+              "label": "Screens",
+              "value": "screens"
+            },
+            {
+              "archived": false,
+              "label": "Exercise",
+              "value": "exercise"
+            }
+          ],
+          "required": false,
+          "type": "enum"
+        },
+        {
+          "help_text": null,
+          "key": "note",
+          "label": "Note",
+          "max_length": 280,
+          "min_length": 0,
+          "multiline": true,
+          "required": false,
+          "type": "str"
+        }
+      ],
+      "version": 1
+    }
+  ],
+  "operation_id": "listTopicVersions",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/topics/everything/versions"
+  },
+  "status": 200
+}

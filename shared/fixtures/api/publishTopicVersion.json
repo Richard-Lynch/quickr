@@ -1,0 +1,209 @@
+{
+  "body": {
+    "archived_at": null,
+    "created_at": "2026-06-01T12:00:00.123456Z",
+    "current_version": 2,
+    "description": "One of each question type.",
+    "due": {
+      "due_since": "2026-03-04T08:00:00Z",
+      "is_due": true,
+      "last_entry_at": "2026-03-02T07:55:00Z",
+      "next_due_at": "2026-03-04T21:30:00Z"
+    },
+    "entry_count": 2,
+    "id": "00000000-0000-4000-8000-000000000001",
+    "last_captured_at": "2026-03-02T07:55:00Z",
+    "name": "Everything",
+    "question_count": 5,
+    "questions": [
+      {
+        "help_text": null,
+        "key": "glasses",
+        "label": "Glasses of water",
+        "max": 30,
+        "min": 0,
+        "required": true,
+        "type": "int",
+        "unit": "glasses"
+      },
+      {
+        "decimals": 1,
+        "help_text": "Time actually asleep.",
+        "key": "hours",
+        "label": "Hours slept",
+        "max": 24,
+        "min": 0,
+        "required": true,
+        "type": "double",
+        "unit": "h"
+      },
+      {
+        "help_text": null,
+        "key": "mood",
+        "label": "Mood",
+        "max_selected": null,
+        "min_selected": null,
+        "multiple": false,
+        "options": [
+          {
+            "archived": false,
+            "label": "Great",
+            "value": "great"
+          },
+          {
+            "archived": false,
+            "label": "OK",
+            "value": "ok"
+          },
+          {
+            "archived": true,
+            "label": "Poor",
+            "value": "poor"
+          }
+        ],
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "help_text": null,
+        "key": "factors",
+        "label": "Factors",
+        "max_selected": 2,
+        "min_selected": 1,
+        "multiple": true,
+        "options": [
+          {
+            "archived": false,
+            "label": "Caffeine",
+            "value": "caffeine"
+          },
+          {
+            "archived": false,
+            "label": "Screens",
+            "value": "screens"
+          },
+          {
+            "archived": false,
+            "label": "Exercise",
+            "value": "exercise"
+          }
+        ],
+        "required": false,
+        "type": "enum"
+      },
+      {
+        "help_text": null,
+        "key": "note",
+        "label": "Note",
+        "max_length": 280,
+        "min_length": 0,
+        "multiline": true,
+        "required": false,
+        "type": "str"
+      }
+    ],
+    "schedule": {
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "kind": "daily",
+      "notify": true,
+      "times": [
+        "08:00",
+        "21:30"
+      ],
+      "timezone": "Europe/London"
+    },
+    "schedule_updated_at": "2026-01-01T00:00:00Z",
+    "slug": "everything",
+    "status": "active",
+    "updated_at": "2026-03-04T12:00:00.500000Z"
+  },
+  "operation_id": "publishTopicVersion",
+  "request": {
+    "body": {
+      "base_version": 1,
+      "change_note": "Retire 'poor'",
+      "questions": [
+        {
+          "key": "glasses",
+          "label": "Glasses of water",
+          "max": 30,
+          "min": 0,
+          "type": "int",
+          "unit": "glasses"
+        },
+        {
+          "decimals": 1,
+          "help_text": "Time actually asleep.",
+          "key": "hours",
+          "label": "Hours slept",
+          "max": 24,
+          "min": 0,
+          "type": "double",
+          "unit": "h"
+        },
+        {
+          "key": "mood",
+          "label": "Mood",
+          "options": [
+            {
+              "label": "Great",
+              "value": "great"
+            },
+            {
+              "label": "OK",
+              "value": "ok"
+            },
+            {
+              "archived": true,
+              "label": "Poor",
+              "value": "poor"
+            }
+          ],
+          "type": "enum"
+        },
+        {
+          "key": "factors",
+          "label": "Factors",
+          "max_selected": 2,
+          "min_selected": 1,
+          "multiple": true,
+          "options": [
+            {
+              "label": "Caffeine",
+              "value": "caffeine"
+            },
+            {
+              "label": "Screens",
+              "value": "screens"
+            },
+            {
+              "label": "Exercise",
+              "value": "exercise"
+            }
+          ],
+          "required": false,
+          "type": "enum"
+        },
+        {
+          "key": "note",
+          "label": "Note",
+          "max_length": 280,
+          "multiline": true,
+          "required": false,
+          "type": "str"
+        }
+      ]
+    },
+    "method": "POST",
+    "path": "/api/v1/topics/everything/versions"
+  },
+  "status": 201
+}

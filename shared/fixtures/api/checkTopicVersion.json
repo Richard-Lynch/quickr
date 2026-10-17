@@ -1,0 +1,79 @@
+{
+  "body": {
+    "changes": [
+      {
+        "details": [],
+        "kind": "removed",
+        "question_key": "factors"
+      },
+      {
+        "details": [],
+        "kind": "removed",
+        "question_key": "note"
+      }
+    ],
+    "issues": [
+      {
+        "level": "warning",
+        "message": "removed from new entries; historic answers are kept and still aggregated",
+        "question_key": "factors"
+      },
+      {
+        "level": "warning",
+        "message": "removed from new entries; historic answers are kept and still aggregated",
+        "question_key": "note"
+      }
+    ],
+    "next_version": 3,
+    "ok": true
+  },
+  "operation_id": "checkTopicVersion",
+  "request": {
+    "body": {
+      "base_version": 2,
+      "questions": [
+        {
+          "key": "glasses",
+          "label": "Glasses of water",
+          "max": 30,
+          "min": 0,
+          "type": "int",
+          "unit": "glasses"
+        },
+        {
+          "decimals": 1,
+          "help_text": "Time actually asleep.",
+          "key": "hours",
+          "label": "Hours slept",
+          "max": 24,
+          "min": 0,
+          "type": "double",
+          "unit": "h"
+        },
+        {
+          "key": "mood",
+          "label": "Mood",
+          "options": [
+            {
+              "label": "Great",
+              "value": "great"
+            },
+            {
+              "label": "OK",
+              "value": "ok"
+            },
+            {
+              "archived": true,
+              "label": "Poor",
+              "value": "poor"
+            }
+          ],
+          "type": "enum"
+        }
+      ]
+    },
+    "method": "POST",
+    "path": "/api/v1/topics/everything/versions/check"
+  },
+  "status": 200
+}

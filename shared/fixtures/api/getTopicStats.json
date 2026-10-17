@@ -1,0 +1,220 @@
+{
+  "body": {
+    "entry_count": 3,
+    "first_captured_at": "2026-03-01T08:05:00Z",
+    "last_captured_at": "2026-03-03T07:00:00Z",
+    "questions": [
+      {
+        "count": 3,
+        "histogram": [
+          {
+            "count": 1,
+            "lower": 2.5,
+            "upper": 3.5
+          },
+          {
+            "count": 0,
+            "lower": 3.5,
+            "upper": 4.5
+          },
+          {
+            "count": 0,
+            "lower": 4.5,
+            "upper": 5.5
+          },
+          {
+            "count": 1,
+            "lower": 5.5,
+            "upper": 6.5
+          },
+          {
+            "count": 0,
+            "lower": 6.5,
+            "upper": 7.5
+          },
+          {
+            "count": 1,
+            "lower": 7.5,
+            "upper": 8.5
+          }
+        ],
+        "key": "glasses",
+        "label": "Glasses of water",
+        "max": 8.0,
+        "mean": 5.666666666666667,
+        "median": 6.0,
+        "min": 3.0,
+        "missing": 0,
+        "stddev": 2.516611478423583,
+        "sum": 17.0,
+        "type": "int"
+      },
+      {
+        "count": 3,
+        "histogram": [
+          {
+            "count": 1,
+            "lower": 6.0,
+            "upper": 6.225
+          },
+          {
+            "count": 0,
+            "lower": 6.225,
+            "upper": 6.45
+          },
+          {
+            "count": 0,
+            "lower": 6.45,
+            "upper": 6.675
+          },
+          {
+            "count": 0,
+            "lower": 6.675,
+            "upper": 6.9
+          },
+          {
+            "count": 0,
+            "lower": 6.9,
+            "upper": 7.125
+          },
+          {
+            "count": 0,
+            "lower": 7.125,
+            "upper": 7.35
+          },
+          {
+            "count": 1,
+            "lower": 7.35,
+            "upper": 7.575
+          },
+          {
+            "count": 0,
+            "lower": 7.575,
+            "upper": 7.8
+          },
+          {
+            "count": 0,
+            "lower": 7.8,
+            "upper": 8.025
+          },
+          {
+            "count": 1,
+            "lower": 8.025,
+            "upper": 8.25
+          }
+        ],
+        "key": "hours",
+        "label": "Hours slept",
+        "max": 8.25,
+        "mean": 7.25,
+        "median": 7.5,
+        "min": 6.0,
+        "missing": 0,
+        "stddev": 1.14564392373896,
+        "sum": 21.75,
+        "type": "double"
+      },
+      {
+        "count": 3,
+        "key": "mood",
+        "label": "Mood",
+        "missing": 0,
+        "multiple": false,
+        "options": [
+          {
+            "archived": false,
+            "count": 1,
+            "label": "Great",
+            "share": 0.3333333333333333,
+            "value": "great"
+          },
+          {
+            "archived": false,
+            "count": 1,
+            "label": "OK",
+            "share": 0.3333333333333333,
+            "value": "ok"
+          },
+          {
+            "archived": true,
+            "count": 1,
+            "label": "Poor",
+            "share": 0.3333333333333333,
+            "value": "poor"
+          }
+        ],
+        "type": "enum"
+      },
+      {
+        "count": 2,
+        "key": "factors",
+        "label": "Factors",
+        "missing": 1,
+        "multiple": true,
+        "options": [
+          {
+            "archived": false,
+            "count": 1,
+            "label": "Caffeine",
+            "share": 0.5,
+            "value": "caffeine"
+          },
+          {
+            "archived": false,
+            "count": 1,
+            "label": "Screens",
+            "share": 0.5,
+            "value": "screens"
+          },
+          {
+            "archived": false,
+            "count": 1,
+            "label": "Exercise",
+            "share": 0.5,
+            "value": "exercise"
+          }
+        ],
+        "type": "enum"
+      },
+      {
+        "count": 2,
+        "distinct": 2,
+        "key": "note",
+        "label": "Note",
+        "missing": 1,
+        "recent": [
+          {
+            "captured_at": "2026-03-02T07:55:00Z",
+            "entry_id": "0f1e2d3c-4b5a-4968-8778-000000000002",
+            "value": "Restless night."
+          },
+          {
+            "captured_at": "2026-03-01T08:05:00Z",
+            "entry_id": "0f1e2d3c-4b5a-4968-8778-000000000001",
+            "value": "Slept well."
+          }
+        ],
+        "top": [],
+        "type": "str"
+      }
+    ],
+    "sources": [
+      {
+        "count": 2,
+        "value": "api"
+      },
+      {
+        "count": 1,
+        "value": "ios"
+      }
+    ],
+    "topic_id": "00000000-0000-4000-8000-000000000001"
+  },
+  "operation_id": "getTopicStats",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/topics/everything/stats"
+  },
+  "status": 200
+}

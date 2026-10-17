@@ -1,0 +1,82 @@
+{
+  "body": {
+    "items": [
+      {
+        "archived_at": null,
+        "created_at": "2026-06-01T12:00:00.123456Z",
+        "current_version": 1,
+        "description": "",
+        "due": {
+          "due_since": "2026-03-03T12:00:00Z",
+          "is_due": true,
+          "last_entry_at": "2026-03-03T09:00:00Z",
+          "next_due_at": "2026-03-03T12:00:00Z"
+        },
+        "entry_count": 1,
+        "id": "00000000-0000-4000-8000-000000000003",
+        "last_captured_at": "2026-03-03T09:00:00Z",
+        "name": "Water",
+        "question_count": 1,
+        "schedule": {
+          "every_minutes": 180,
+          "kind": "interval",
+          "notify": false,
+          "timezone": "Europe/London"
+        },
+        "schedule_updated_at": "2026-01-01T00:00:00Z",
+        "slug": "water",
+        "status": "active",
+        "updated_at": "2026-06-01T12:00:00.123456Z"
+      },
+      {
+        "archived_at": null,
+        "created_at": "2026-06-01T12:00:00.123456Z",
+        "current_version": 2,
+        "description": "One of each question type.",
+        "due": {
+          "due_since": "2026-03-04T08:00:00Z",
+          "is_due": true,
+          "last_entry_at": "2026-03-03T07:00:00Z",
+          "next_due_at": "2026-03-04T21:30:00Z"
+        },
+        "entry_count": 3,
+        "id": "00000000-0000-4000-8000-000000000001",
+        "last_captured_at": "2026-03-03T07:00:00Z",
+        "name": "Everything",
+        "question_count": 5,
+        "schedule": {
+          "days": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "kind": "daily",
+          "notify": true,
+          "times": [
+            "08:00",
+            "21:30"
+          ],
+          "timezone": "Europe/London"
+        },
+        "schedule_updated_at": "2026-01-01T00:00:00Z",
+        "slug": "everything",
+        "status": "active",
+        "updated_at": "2026-03-04T12:00:00.500000Z"
+      }
+    ],
+    "limit": 50,
+    "offset": 0,
+    "total": 2
+  },
+  "operation_id": "listTopics",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/topics"
+  },
+  "status": 200
+}
