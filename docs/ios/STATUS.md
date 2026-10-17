@@ -117,14 +117,17 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
 
 ### WP scaffold: `ios/m0-scaffold` (worktree `../ios-m0-scaffold`), started 2026-10-17 by a sub-agent
 
-- [ ] `ios/project.yml`: targets, entitlements, Info.plist keys, bundle ids
+- [x] `ios/project.yml`: targets, entitlements, Info.plist keys, bundle ids
       `com.bahumia.quickr.*`
-- [ ] `ios/QuickrKit/Package.swift` (tools 6.2): the Core, Data and UI targets,
+- [x] `ios/QuickrKit/Package.swift` (tools 6.2): the Core, Data and UI targets,
       with empty tests
-- [ ] `make ios-*` targets with the Xcode guard. `make check` stays Xcode-free.
-- [ ] `.github/workflows/ios.yml`: path filters, the xcodegen binary,
+- [x] `make ios-*` targets with the Xcode guard. `make check` stays Xcode-free.
+- [x] `.github/workflows/ios.yml`: path filters, the xcodegen binary,
       `swift test` on push, the full build on a ready PR or a manual dispatch
-- [ ] Local smoke test: `make ios-gen` and a simulator build of an empty app
+- [x] Local smoke test: `make ios-gen` and a simulator build of an empty app
+- [x] Orchestrator re-check: `check-ios` passes on both simulators (Unit 3/3 and UI 1/1 on iOS 26.0 and 27.0, from the xcresults); screenshots reviewed.
+- [~] Codex review: round 1 requested changes (2 Majors: Makefile missing from the CI path filters, iOS 26.x not enforced in CI; 4 Minors). Fixes in progress.
+- [ ] Merged into `ios/m0-foundations`
 
 ### Contract reconciliation (specs ↔ feed), checked at integration: all M0 items confirmed by the feed WP and Codex, and the specs were aligned (tagged-union page, query-param `expected_revision`, incremental topic-delete cascade).
 
