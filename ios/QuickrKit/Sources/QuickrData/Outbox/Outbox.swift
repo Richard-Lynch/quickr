@@ -267,23 +267,23 @@ public struct Outbox: Sendable {
     /// is claimed at most once per flush. On the way out, an item still in flight with this
     /// flusher's claim becomes `uncertain` and the lease is released; then signals are delivered.
     ///
-    /// `budget` bounds the whole call (§10): requests stop early enough to leave the shutdown
-    /// grace and the release inside it. A cancellation (an expiration handler) releases at once.
+    /// `budget` bounds the network work and every new piece of work (§10): lease polling, claims,
+    /// requests and post-send verify or rebase steps stop early enough to leave the shutdown
+    /// grace and the release inside it, and a cancellation (an expiration handler) releases at
+    /// once. Two transactions always run because they make the item state correct: the outcome of
+    /// an answer already received, and the release. Under write contention from another process
+    /// each can wait up to SQLite's busy timeout (5 s), so choose a budget with headroom below
+    /// the process's real limit (extensions use 4–5 s of a ~30 s window).
     public func flush(force: Bool, budget: Duration, leaseWait: Duration = .zero) async throws -> OutboxFlushReport {
         let start = ContinuousClock.now
         let grace = min(shutdownGrace, budget * 0.2)
         let requestDeadline = start.advanced(by: max(.zero, budget - grace - min(Self.cleanupReserve, budget * 0.1)))
         // One absolute end for every wait on a request of this flush: grace never restarts.
         let shutdownDeadline = requestDeadline.advanced(by: grace)
-        let leases = store.leases
-        let takeover = OutboxFlush.takeover(wallClock: store.wallClock)
-        let lease =
-            leaseWait > .zero
-            ? try await leases.acquire(
-                .flush, owner: owner, waitingUpTo: min(leaseWait, requestDeadline - start),
-                pollInterval: .milliseconds(50), takeover: takeover)
-            : try await leases.tryAcquire(.flush, owner: owner, takeover: takeover)
-        guard let lease else { return OutboxFlushReport(ending: .busy) }
+        let pollUntil = min(start.advanced(by: leaseWait), requestDeadline)
+        guard let lease = try await acquireFlushLease(until: pollUntil, requestDeadline: requestDeadline) else {
+            return OutboxFlushReport(ending: .busy)
+        }
 
         var run = FlushRun(
             lease: lease, deadline: requestDeadline, shutdownDeadline: shutdownDeadline, force: force)
@@ -302,6 +302,23 @@ public struct Outbox: Sendable {
         for signal in run.signals { onSignal(signal) }
         if let failure { throw failure }
         return run.report
+    }
+
+    /// Polls `flush` until `until`. Every attempt, the first and the one after the last sleep
+    /// included, is made only while the request deadline hasn't passed: no lease (and so no
+    /// takeover recovery) is taken by a flush that has no time left to use it.
+    private func acquireFlushLease(until: ContinuousClock.Instant, requestDeadline: ContinuousClock.Instant)
+        async throws -> LeaseClaim?
+    {
+        let leases = store.leases
+        let takeover = OutboxFlush.takeover(wallClock: store.wallClock)
+        while ContinuousClock.now < requestDeadline {
+            if let lease = try await leases.tryAcquire(.flush, owner: owner, takeover: takeover) { return lease }
+            let now = ContinuousClock.now
+            guard now < until else { return nil }
+            try await Task.sleep(for: min(.milliseconds(50), until - now))
+        }
+        return nil
     }
 
     private struct FlushRun {
@@ -333,7 +350,11 @@ public struct Outbox: Sendable {
     }
 
     private func pass(_ run: inout FlushRun) async throws -> OutboxFlushReport.Ending {
-        _ = try await write { db, now, wall in try OutboxQueue.releaseHolds(db, all: false, now: now, wall: wall) }
+        if ContinuousClock.now < run.deadline {
+            _ = try await write { db, now, wall in
+                try OutboxQueue.releaseHolds(db, all: false, now: now, wall: wall)
+            }
+        }
         while true {
             if Task.isCancelled { return .cancelled }
             guard ContinuousClock.now < run.deadline else { return .budgetExhausted }
@@ -385,6 +406,8 @@ public struct Outbox: Sendable {
     private func rebase(_ claim: OutboxClaim, _ item: OutboxItem, _ run: inout FlushRun) async throws -> RebaseResult {
         let sender = claim.sender
         let itemId = item.id
+        // Post-send steps start only before the shutdown deadline; past it the release takes over.
+        guard ContinuousClock.now < run.shutdownDeadline else { return .done(.budgetExhausted) }
         let failure = try await uncancellable { db, now, _ in
             try OutboxFlush.verify(db, itemId: itemId, sender: sender, now: now)
         }
@@ -397,6 +420,7 @@ public struct Outbox: Sendable {
         let resolution: OutboxResolution
         switch response.outcome {
         case .success(let fetched):
+            guard ContinuousClock.now < run.shutdownDeadline else { return .done(.budgetExhausted) }
             let step = try await uncancellable { db, now, wall in
                 try OutboxFlush.rebase(db, itemId: itemId, sender: sender, fetched: fetched, now: now, wall: wall)
             }
