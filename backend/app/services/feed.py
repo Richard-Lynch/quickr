@@ -197,6 +197,15 @@ class ExpectedIdentity:
 expected_identity: ContextVar[ExpectedIdentity | None] = ContextVar("expected_identity", default=None)
 
 
+@writer
+async def check_identity(db: AsyncSession) -> None:
+    """Check the request's expected identity under the feed lock, writing nothing.
+
+    For an action whose effects can't run inside a (retried) writer transaction, such
+    as sending push messages: check here first, then act.
+    """
+
+
 async def _check_expected_identity(db: AsyncSession) -> None:
     """Raise 409 server_mismatch / epoch_mismatch unless the stored identity matches."""
     expected = expected_identity.get()

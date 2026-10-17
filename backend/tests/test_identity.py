@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from app.db import get_sessionmaker
 from app.services import feed
+from app.services import push as push_svc
 from tests.helpers import make_topic, record, sleep_questions, wait_for_lock_waiter
 
 ANSWERS = {"hours": 7.5, "wakeups": 1, "quality": "ok"}
@@ -19,6 +20,14 @@ PUSH_SUB = {
     "endpoint": "https://fcm.googleapis.com/fcm/send/1",
     "keys": {"p256dh": "p256dh-1", "auth": "auth-1"},
 }
+
+
+@pytest.fixture(autouse=True)
+def deliveries(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Push delivery is mocked: the endpoints that would have been sent to."""
+    sent: list[str] = []
+    monkeypatch.setattr(push_svc, "deliver", lambda subscription, *_: sent.append(subscription["endpoint"]))
+    return sent
 
 
 async def identity(client: httpx.AsyncClient) -> tuple[str, str]:
@@ -80,7 +89,9 @@ async def _state() -> dict[str, Any]:
         "entries": "SELECT id, notes, revision FROM entries",
         "log": "SELECT seq FROM change_log",
         "tombstones": "SELECT id FROM deleted_ids",
-        "push": "SELECT endpoint FROM push_subscriptions",
+        "push": "SELECT endpoint, failure_count, last_success_at FROM push_subscriptions",
+        # VAPID keys, server id (the epoch is left out: the lock test rotates it on purpose)
+        "settings": f"SELECT key, value FROM app_settings WHERE key <> '{feed.EPOCH_SETTING}'",
     }
     async with get_sessionmaker()() as db:
         return {k: sorted(map(tuple, (await db.execute(text(q))).all()), key=str) for k, q in queries.items()}
@@ -110,10 +121,11 @@ def _mutations(ids: dict[str, str]) -> list[tuple[str, str, dict[str, Any] | Non
         ("DELETE", f"/entries/{ids['entry']}", None),
         ("POST", "/push/subscriptions", {**PUSH_SUB, "endpoint": "https://fcm.googleapis.com/fcm/send/2"}),
         ("POST", "/push/subscriptions/delete", {"endpoint": PUSH_SUB["endpoint"]}),
+        ("POST", "/push/test", None),
     ]
 
 
-MUTATIONS = range(11)
+MUTATIONS = range(12)
 
 
 @pytest.mark.parametrize("which", MUTATIONS)
@@ -122,7 +134,7 @@ MUTATIONS = range(11)
     [("X-QuickR-Expect-Server-Id", "server_mismatch"), ("X-QuickR-Expect-Epoch", "epoch_mismatch")],
 )
 async def test_precondition_rejects_before_any_write(
-    client: httpx.AsyncClient, which: int, header: str, code: str
+    client: httpx.AsyncClient, deliveries: list[str], which: int, header: str, code: str
 ) -> None:
     ids = await _fixture(client)
     server_id, epoch = await identity(client)
@@ -134,6 +146,7 @@ async def test_precondition_rejects_before_any_write(
     assert r.json()["code"] == code
     assert r.headers["x-quickr-server-id"] == server_id
     assert await _state() == before
+    assert deliveries == []
 
     # Matching headers: the mutation goes through.
     r = await client.request(method, url, json=body, headers=good)
@@ -154,10 +167,9 @@ async def test_every_mutating_operation_declares_the_preconditions() -> None:
     spec = app.openapi()
     for path, item in spec["paths"].items():
         for method, op in item.items():
-            if method not in {"post", "patch", "delete", "put"} or op["operationId"] in {
-                "checkTopicVersion",  # dry run
-                "sendTestPush",  # writes nothing the client keeps
-            }:
+            if (
+                method not in {"post", "patch", "delete", "put"} or op["operationId"] == "checkTopicVersion"
+            ):  # dry run
                 continue
             names = {p["name"] for p in op.get("parameters", []) if p["in"] == "header"}
             assert {"X-QuickR-Expect-Server-Id", "X-QuickR-Expect-Epoch"} <= names, (path, method)
@@ -168,14 +180,16 @@ async def test_every_mutating_operation_declares_the_preconditions() -> None:
     [
         ("POST", "/topics/sleep-log/entries", {"answers": ANSWERS}),
         ("POST", "/push/subscriptions", PUSH_SUB),
+        ("POST", "/push/test", None),
     ],
 )
 async def test_precondition_is_checked_under_the_lock(
-    client: httpx.AsyncClient, method: str, url: str, body: dict[str, Any]
+    client: httpx.AsyncClient, deliveries: list[str], method: str, url: str, body: dict[str, Any] | None
 ) -> None:
     """A request that read epoch A, then waited on the feed lock while a rotation to B
     committed, must fail with epoch_mismatch: the check runs under the lock, not before."""
     await make_topic(client)
+    await client.post("/push/subscriptions", json={**PUSH_SUB, "endpoint": PUSH_SUB["endpoint"] + "0"})
     server_id, epoch_a = await identity(client)
     started, release = asyncio.Event(), asyncio.Event()
 
@@ -203,6 +217,7 @@ async def test_precondition_is_checked_under_the_lock(
     assert (r.status_code, r.json()["code"]) == (409, "epoch_mismatch"), r.text
     assert r.headers["x-quickr-epoch"] == epoch_b  # labelled after the handler ran
     assert await _state() == before
+    assert deliveries == []
 
 
 async def test_changes_headers_match_the_page(

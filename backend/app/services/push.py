@@ -31,7 +31,7 @@ from app.config import get_settings
 from app.models import AppSetting, PushSubscription
 from app.push_guard import PushEndpointRejected, check_endpoint, ensure_public
 from app.schemas.api import PushPayload, PushSubscriptionIn, PushSubscriptionOut, PushTestResult
-from app.services.feed import writer
+from app.services.feed import check_identity, writer
 
 log = logging.getLogger(__name__)
 
@@ -240,6 +240,11 @@ async def send_to_all(
 
 
 async def send_test(db: AsyncSession) -> PushTestResult:
+    # The request's preconditions, before any key generation or delivery: a mismatch sends
+    # nothing and changes nothing. The deliveries can't run inside the writer (it may
+    # re-run its transaction), so a rotation after this check but before delivery isn't
+    # caught. That's acceptable: test push is a manual action and touches nothing in the feed.
+    await check_identity(db)
     payload = PushPayload(
         title="quickR",
         body="Test notification: push is working.",
