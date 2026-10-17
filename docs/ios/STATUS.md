@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- PWA parity bugs found by BUILDER (server is authoritative; fix the PWA to match): slugify (server drops non-ASCII after NFKD, falls back to `topic`; PWA gives `stra-e`/empty); duplicate-label check (server `casefold`, PWA `toLocaleLowerCase`); whitespace strip (pydantic Unicode White_Space vs JS `trim`, e.g. U+FEFF). Use `shared/fixtures/builder-vectors.json` in the PWA tests.
 - [ ] Feed: an ASGI disconnect/send-error test proving the CSV snapshot transaction closes and the connection is returned; a >500-row CSV with a mutation between pages.
 - [ ] Feed: a dedicated regression test for the commit-time retry in `@writer`.
 - [ ] Specs/fixtures: `quicklog-vectors.json` gains category-id cases (M3).
@@ -279,6 +280,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-17 22:45: BUILDER logic done (0d72c47 + vectors 171d5fd; 115 tests, 108+32+17 server-generated vectors); Codex review running. SYNC fixed Codex majors 1–5 (52e9b96 + Store veto 7a6d071) and is merging OUTBOX to remove the duplicate `OutboxResolution`; SYNC Codex round 2 follows. testiso `make check` green; 3× backend runs pending.
 
 - 2026-10-17 22:30: OUTBOX done (8947602): all 61 matrix cases covered (17 MP/INT stubs disabled, each pointing to its simulation), 267 Data tests green, 4 mutation checks all caught. 8 spec ambiguities resolved by the author; Codex review running (`codex-m1-outbox.md`). Its OutboxSyncEffects contract was handed to SYNC. Flake noted: `DuePerformanceTests.widgetTimelinesComputeQuickly` under load → backlog.
 
