@@ -20,6 +20,7 @@ import functools
 import itertools
 import logging
 from collections.abc import Callable, Coroutine
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Concatenate
 from uuid import UUID, uuid4
@@ -29,6 +30,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.errors import EpochMismatch, ServerMismatch
 from app.models import AppSetting, ChangeLog, DeletedId, FeedKind, FeedOp
 
 log = logging.getLogger(__name__)
@@ -66,7 +68,10 @@ def writer[**P, T](
 
     The session must be idle: pending ORM changes or an open transaction (whose
     flushed writes would otherwise be committed outside the lock) raise
-    :class:`WriterMisuse`. Deadlocks and serialization failures, including at commit,
+    :class:`WriterMisuse`. Right after taking the lock, on every attempt, the request's
+    expected identity (:data:`expected_identity`) is checked against the stored one,
+    so a precondition can't pass and then race an epoch rotation (which takes the
+    same lock). Deadlocks and serialization failures, including at commit,
     roll back and re-run the whole function (up to ``MAX_ATTEMPTS``); any other error
     rolls back, releasing the lock, and propagates.
     """
@@ -81,6 +86,7 @@ def writer[**P, T](
             for attempt in itertools.count(1):
                 try:
                     await db.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": FEED_LOCK_ID})
+                    await _check_expected_identity(db)
                     result = await fn(db, *args, **kwargs)
                     await db.commit()
                 except DBAPIError as exc:
@@ -153,20 +159,52 @@ async def read_identity(db: AsyncSession) -> FeedIdentity:
 
 
 async def feed_identity(db: AsyncSession) -> FeedIdentity:
-    """The feed epoch and server id (generated on first use). Leaves no transaction open."""
-    await ensure_identity(db)
-    identity = await read_identity(db)
+    """The feed epoch and server id (generated on first use). One query once they exist;
+    leaves no transaction open."""
+    stored = await _stored_identity(db)
     await db.commit()
-    return identity
+    if len(stored) < 2:
+        await ensure_identity(db)
+        stored = await _stored_identity(db)
+        await db.commit()
+    return FeedIdentity(epoch=stored[EPOCH_SETTING], server_id=stored[SERVER_ID_SETTING])
 
 
+@writer
 async def rotate_epoch(db: AsyncSession) -> str:
     """Start a new feed epoch: every client rebuilds its server layer (keeping its outbox).
 
-    Run after restoring or resetting the database (``make rotate-epoch``).
+    Run after restoring or resetting the database (``make rotate-epoch``). Takes the
+    feed lock, so no mutation can check its expected epoch against the old one and
+    commit after the rotation.
     """
     epoch = str(uuid4())
     stmt = insert(AppSetting).values(key=EPOCH_SETTING, value=epoch)
     await db.execute(stmt.on_conflict_do_update(index_elements=["key"], set_={"value": epoch}))
-    await db.commit()
     return epoch
+
+
+# --- mutation preconditions -----------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ExpectedIdentity:
+    server_id: str | None
+    epoch: str | None
+
+
+# Set per request from the X-QuickR-Expect-* headers (app.api.identity); None = no check.
+expected_identity: ContextVar[ExpectedIdentity | None] = ContextVar("expected_identity", default=None)
+
+
+async def _check_expected_identity(db: AsyncSession) -> None:
+    """Raise 409 server_mismatch / epoch_mismatch unless the stored identity matches."""
+    expected = expected_identity.get()
+    if expected is None:
+        return
+    stored = await _stored_identity(db)
+    server_id, epoch = stored.get(SERVER_ID_SETTING), stored.get(EPOCH_SETTING)
+    if expected.server_id is not None and expected.server_id != server_id:
+        raise ServerMismatch(f"this is server '{server_id}', not '{expected.server_id}'")
+    if expected.epoch is not None and expected.epoch != epoch:
+        raise EpochMismatch(f"the feed epoch is '{epoch}', not '{expected.epoch}'; resync from after=0")

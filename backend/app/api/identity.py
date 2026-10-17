@@ -7,7 +7,10 @@ local store belongs to.
 
 Mutating endpoints accept ``X-QuickR-Expect-Server-Id`` / ``X-QuickR-Expect-Epoch``:
 when present and different, the request is rejected with 409 ``server_mismatch`` /
-``epoch_mismatch`` before anything runs. Absent headers mean no check (PWA, MCP).
+``epoch_mismatch`` and nothing is written. The check runs inside the mutation's own
+transaction, right after it takes the feed lock (``app.services.feed.writer``), and
+epoch rotation takes the same lock, so it can't race a rotation. Absent headers mean
+no check (PWA, MCP).
 """
 
 from __future__ import annotations
@@ -15,20 +18,18 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import Depends, Header, Request
+from fastapi import Depends, Header
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.db import get_sessionmaker
-from app.errors import EpochMismatch, ServerMismatch
 from app.schemas.base import Problem
-from app.services.feed import FeedIdentity, feed_identity
+from app.services.feed import ExpectedIdentity, FeedIdentity, expected_identity, feed_identity
 
 log = logging.getLogger(__name__)
 
 SERVER_ID_HEADER = "X-QuickR-Server-Id"
 EPOCH_HEADER = "X-QuickR-Epoch"
-_STATE_KEY = "quickr_identity"
 
 
 async def _load_identity() -> FeedIdentity:
@@ -38,6 +39,10 @@ async def _load_identity() -> FeedIdentity:
 
 class IdentityHeadersMiddleware:
     """Adds the identity headers to every response under ``prefix``.
+
+    A response that already carries them keeps its own (``/changes`` sets them from the
+    page's snapshot, so headers and body always agree). The middleware also scopes the
+    request's expected identity, so it never leaks into another request.
 
     Unhandled errors are answered here (500 ``internal_error``) rather than by
     Starlette's outer error middleware, so they carry the headers too. Only a
@@ -53,12 +58,10 @@ class IdentityHeadersMiddleware:
             await self.app(scope, receive, send)
             return
         identity = await _load_identity()
-        # The precondition check reads the same values, so headers and checks agree.
-        scope.setdefault("state", {})[_STATE_KEY] = identity
-        extra = [
-            (SERVER_ID_HEADER.lower().encode(), identity.server_id.encode()),
-            (EPOCH_HEADER.lower().encode(), identity.epoch.encode()),
-        ]
+        extra = {
+            SERVER_ID_HEADER.lower().encode(): identity.server_id.encode(),
+            EPOCH_HEADER.lower().encode(): identity.epoch.encode(),
+        }
 
         started = False
 
@@ -66,9 +69,13 @@ class IdentityHeadersMiddleware:
             nonlocal started
             if message["type"] == "http.response.start":
                 started = True
-                message = {**message, "headers": [*message.get("headers", []), *extra]}
+                headers = list(message.get("headers", []))
+                present = {name.lower() for name, _ in headers}
+                headers += [(k, v) for k, v in extra.items() if k not in present]
+                message = {**message, "headers": headers}
             await send(message)
 
+        token = expected_identity.set(None)
         try:
             await self.app(scope, receive, send_with_identity)
         except Exception:
@@ -78,10 +85,11 @@ class IdentityHeadersMiddleware:
             body = Problem(code="internal_error", detail="internal server error")
             response = JSONResponse(status_code=500, content=body.model_dump(mode="json"))
             await response(scope, receive, send_with_identity)
+        finally:
+            expected_identity.reset(token)
 
 
-async def check_expected_identity(
-    request: Request,
+async def expect_identity(
     expect_server_id: Annotated[
         str | None,
         Header(
@@ -97,17 +105,13 @@ async def check_expected_identity(
         ),
     ] = None,
 ) -> None:
-    if expect_server_id is None and expect_epoch is None:
-        return
-    identity: FeedIdentity | None = getattr(request.state, _STATE_KEY, None)
-    if identity is None:
-        identity = await _load_identity()
-    if expect_server_id is not None and expect_server_id != identity.server_id:
-        raise ServerMismatch(f"this is server '{identity.server_id}', not '{expect_server_id}'")
-    if expect_epoch is not None and expect_epoch != identity.epoch:
-        raise EpochMismatch(
-            f"the feed epoch is '{identity.epoch}', not '{expect_epoch}'; resync from after=0"
-        )
+    """Record the request's preconditions; the mutation checks them under the feed lock."""
+    if expect_server_id is not None or expect_epoch is not None:
+        expected_identity.set(ExpectedIdentity(server_id=expect_server_id, epoch=expect_epoch))
 
 
-ExpectIdentity = Depends(check_expected_identity)
+def identity_headers(identity: FeedIdentity) -> dict[str, str]:
+    return {SERVER_ID_HEADER: identity.server_id, EPOCH_HEADER: identity.epoch}
+
+
+ExpectIdentity = Depends(expect_identity)

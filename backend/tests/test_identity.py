@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -9,7 +10,8 @@ import pytest
 from sqlalchemy import text
 
 from app.db import get_sessionmaker
-from tests.helpers import make_topic, record, sleep_questions
+from app.services import feed
+from tests.helpers import make_topic, record, sleep_questions, wait_for_lock_waiter
 
 ANSWERS = {"hours": 7.5, "wakeups": 1, "quality": "ok"}
 PUSH_SUB = {
@@ -158,3 +160,100 @@ async def test_every_mutating_operation_declares_the_preconditions() -> None:
                 continue
             names = {p["name"] for p in op.get("parameters", []) if p["in"] == "header"}
             assert {"X-QuickR-Expect-Server-Id", "X-QuickR-Expect-Epoch"} <= names, (path, method)
+
+
+@pytest.mark.parametrize(
+    ("method", "url", "body"),
+    [
+        ("POST", "/topics/sleep-log/entries", {"answers": ANSWERS}),
+        ("POST", "/push/subscriptions", PUSH_SUB),
+    ],
+)
+async def test_precondition_is_checked_under_the_lock(
+    client: httpx.AsyncClient, method: str, url: str, body: dict[str, Any]
+) -> None:
+    """A request that read epoch A, then waited on the feed lock while a rotation to B
+    committed, must fail with epoch_mismatch: the check runs under the lock, not before."""
+    await make_topic(client)
+    server_id, epoch_a = await identity(client)
+    started, release = asyncio.Event(), asyncio.Event()
+
+    @feed.writer
+    async def slow_rotation(db: Any) -> str:
+        started.set()
+        await release.wait()
+        return await feed.rotate_epoch(db)  # nested: joins this locked transaction
+
+    headers = {"X-QuickR-Expect-Server-Id": server_id, "X-QuickR-Expect-Epoch": epoch_a}
+    maker = get_sessionmaker()
+    async with maker() as holder, maker() as watcher:
+        rotation = asyncio.create_task(slow_rotation(holder))
+        await asyncio.wait_for(started.wait(), 5)
+        before = await _state()
+        request = asyncio.create_task(client.request(method, url, json=body, headers=headers))
+        try:
+            waited = await wait_for_lock_waiter(watcher)
+        finally:
+            release.set()
+            epoch_b = await rotation
+            r = await request
+    assert waited, "the request must have been waiting for the feed lock"
+    assert epoch_b != epoch_a
+    assert (r.status_code, r.json()["code"]) == (409, "epoch_mismatch"), r.text
+    assert await _state() == before
+
+
+async def test_changes_headers_match_the_page(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rotation after the middleware read its identity: /changes still answers with the
+    page's own (snapshot) identity in both body and headers."""
+    await make_topic(client)
+    real_ensure = feed.ensure_identity
+
+    async def ensure_then_rotate(db: Any) -> None:
+        await real_ensure(db)
+        async with get_sessionmaker()() as other:
+            await feed.rotate_epoch(other)
+
+    monkeypatch.setattr("app.services.changes.ensure_identity", ensure_then_rotate)
+    r = await client.get("/changes")
+    assert r.headers["x-quickr-epoch"] == r.json()["epoch"]
+    assert r.headers["x-quickr-server-id"] == r.json()["server_id"]
+    assert r.headers.get_list("x-quickr-epoch") == [r.json()["epoch"]]  # not duplicated
+
+
+async def test_unhandled_errors_get_cors_headers(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services import topics as topic_svc
+
+    async def boom(*_: Any, **__: Any) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(topic_svc, "list_topics", boom)
+    r = await client.get("/topics", headers={"Origin": "http://localhost:5180"})
+    assert r.status_code == 500
+    assert r.headers["access-control-allow-origin"] == "http://localhost:5180"
+    assert "x-quickr-epoch" in r.headers["access-control-expose-headers"].lower()
+    assert r.headers["x-quickr-epoch"]
+
+
+async def test_one_identity_query_per_request(client: httpx.AsyncClient) -> None:
+    from sqlalchemy import event
+
+    from app.db import get_engine
+
+    await client.get("/health")  # identity exists from here on
+    statements: list[str] = []
+
+    def record_sql(*args: Any) -> None:
+        statements.append(str(args[2]))
+
+    engine = get_engine().sync_engine
+    event.listen(engine, "before_cursor_execute", record_sql)
+    try:
+        await client.get("/health")
+    finally:
+        event.remove(engine, "before_cursor_execute", record_sql)
+    assert sum("app_settings" in sql for sql in statements) == 1

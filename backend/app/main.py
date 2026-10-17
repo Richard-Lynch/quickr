@@ -30,8 +30,11 @@ def create_app() -> FastAPI:
         lifespan=combine_lifespans(scheduler.lifespan, mcp_app.lifespan),
         generate_unique_id_function=_operation_id,
     )
-    # Feed pages and entry lists are large, repetitive JSON (~10x smaller compressed).
+    # Innermost first. Feed pages and entry lists are large, repetitive JSON (~10x smaller
+    # compressed). The identity middleware answers unhandled errors itself, so they carry
+    # its headers; CORS wraps it, so those answers get CORS headers too.
     app.add_middleware(GZipMiddleware, minimum_size=1024)
+    app.add_middleware(IdentityHeadersMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=get_settings().cors_origins,
@@ -39,8 +42,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=[SERVER_ID_HEADER, EPOCH_HEADER],
     )
-    # Outermost, so CORS and error responses carry the identity headers too.
-    app.add_middleware(IdentityHeadersMiddleware)
 
     @app.exception_handler(RequestValidationError)
     async def _request_error(_: Request, exc: RequestValidationError) -> JSONResponse:

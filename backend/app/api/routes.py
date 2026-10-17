@@ -10,7 +10,7 @@ from pydantic import AwareDatetime, TypeAdapter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.identity import ExpectIdentity
+from app.api.identity import ExpectIdentity, identity_headers
 from app.db import get_db
 from app.models import Channel
 from app.schemas.api import (
@@ -49,6 +49,7 @@ from app.services import entries as entry_svc
 from app.services import push as push_svc
 from app.services import stats as stats_svc
 from app.services import topics as topic_svc
+from app.services.feed import FeedIdentity
 
 Db = Annotated[AsyncSession, Depends(get_db)]
 TopicRef = Annotated[str, Path(description="Topic UUID or slug.", examples=["sleep-log"])]
@@ -307,6 +308,7 @@ async def delete_entry(db: Db, entry_id: UUID) -> Response:
 @router.get("/changes", tags=["sync"], operation_id="listChanges")
 async def list_changes(
     db: Db,
+    response: Response,
     after: Annotated[
         int, Query(ge=0, description="Cursor: the `next` of the previous page (0 = from the start).")
     ] = 0,
@@ -317,7 +319,10 @@ async def list_changes(
     Start from ``after=0`` to bootstrap, then follow ``next`` while ``has_more``. When ``epoch``
     changes, or the cursor is above ``head``, rebuild from ``after=0``.
     """
-    return await changes_svc.list_changes(db, after, limit)
+    page = await changes_svc.list_changes(db, after, limit)
+    # From the page's snapshot, so the identity headers always match the body.
+    response.headers.update(identity_headers(FeedIdentity(epoch=page.epoch, server_id=page.server_id)))
+    return page
 
 
 # --- aggregation ------------------------------------------------------------

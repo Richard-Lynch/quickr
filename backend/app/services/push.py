@@ -31,6 +31,7 @@ from app.config import get_settings
 from app.models import AppSetting, PushSubscription
 from app.push_guard import PushEndpointRejected, check_endpoint, ensure_public
 from app.schemas.api import PushPayload, PushSubscriptionIn, PushSubscriptionOut, PushTestResult
+from app.services.feed import writer
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +123,7 @@ def _out(sub: PushSubscription) -> PushSubscriptionOut:
     return PushSubscriptionOut(id=sub.id, endpoint=sub.endpoint, created_at=sub.created_at)
 
 
+@writer  # the feed lock: the request's identity preconditions are checked under it
 async def subscribe(db: AsyncSession, body: PushSubscriptionIn) -> PushSubscriptionOut:
     """Create or refresh (by endpoint) a subscription."""
     values = {"p256dh": body.keys.p256dh, "auth": body.keys.auth, "user_agent": body.user_agent}
@@ -133,14 +135,13 @@ async def subscribe(db: AsyncSession, body: PushSubscriptionIn) -> PushSubscript
         .execution_options(populate_existing=True)
     )
     sub = (await db.execute(stmt)).scalar_one()
-    await db.commit()
     return _out(sub)
 
 
+@writer
 async def unsubscribe(db: AsyncSession, endpoint: str) -> None:
     """Remove a subscription. Unknown endpoints are ignored (idempotent)."""
     await db.execute(delete(PushSubscription).where(PushSubscription.endpoint == endpoint))
-    await db.commit()
 
 
 # --- delivery ----------------------------------------------------------------

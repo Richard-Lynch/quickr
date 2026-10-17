@@ -19,7 +19,7 @@ from app.models import ChangeLog, DeletedId, Entry, FeedKind, FeedOp
 from app.schemas.api import TopicCreate
 from app.services import feed
 from app.services import topics as topic_svc
-from tests.helpers import make_topic, record, sleep_questions
+from tests.helpers import make_topic, record, sleep_questions, wait_for_lock_waiter
 
 ANSWERS = {"hours": 7.5, "wakeups": 1, "quality": "ok"}
 
@@ -389,7 +389,7 @@ async def test_seq_follows_commit_order() -> None:
         body = TopicCreate.model_validate({"name": "Later", "questions": sleep_questions()})
         task_b = asyncio.create_task(topic_svc.create_topic(b, body))
         try:
-            b_waited = await _wait_for_lock_waiter(reader)
+            b_waited = await wait_for_lock_waiter(reader)
             visible = await reader.scalar(select(func.count()).select_from(ChangeLog))
             await reader.rollback()
         finally:
@@ -401,21 +401,6 @@ async def test_seq_follows_commit_order() -> None:
 
     rows = await log_rows()
     assert [i for _, _, i in rows][:2] == [a_id, b_topic.id]
-
-
-async def _wait_for_lock_waiter(db: AsyncSession) -> bool:
-    """Poll until some session is blocked waiting for the feed lock."""
-    stmt = text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid = :id AND NOT granted")
-    try:
-        async with asyncio.timeout(5):
-            while not await db.scalar(stmt, {"id": feed.FEED_LOCK_ID}):
-                await db.rollback()
-                await asyncio.sleep(0.01)
-    except TimeoutError:
-        return False
-    finally:
-        await db.rollback()
-    return True
 
 
 @pytest.fixture(autouse=True)

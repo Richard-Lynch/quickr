@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Any
 
 import httpx
-from sqlalchemy import update
+from sqlalchemy import text, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_sessionmaker
 from app.models import Topic
+from app.services.feed import FEED_LOCK_ID
 
 
 def sleep_questions() -> list[dict[str, Any]]:
@@ -62,3 +65,18 @@ async def backdate_schedule(slug: str, to: datetime) -> None:
             .values(schedule_updated_at=to, updated_at=Topic.updated_at)
         )
         await db.commit()
+
+
+async def wait_for_lock_waiter(db: AsyncSession) -> bool:
+    """Poll until some session is blocked waiting for the feed lock."""
+    stmt = text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid = :id AND NOT granted")
+    try:
+        async with asyncio.timeout(5):
+            while not await db.scalar(stmt, {"id": FEED_LOCK_ID}):
+                await db.rollback()
+                await asyncio.sleep(0.01)
+    except TimeoutError:
+        return False
+    finally:
+        await db.rollback()
+    return True

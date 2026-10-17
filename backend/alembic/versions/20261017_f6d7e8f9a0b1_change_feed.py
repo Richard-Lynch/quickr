@@ -3,6 +3,10 @@
 Backfills one upsert row per existing topic, version and entry, so a fresh client
 bootstraps from ``GET /changes?after=0``.
 
+Edited in place during review (``deleted_ids`` became keyed by ``(kind, id)``) before
+it was ever merged or deployed: only throwaway test databases ran the earlier form,
+so there is deliberately no forward migration for it. Recreate such a database.
+
 Revision ID: f6d7e8f9a0b1
 Revises: e5c6d7e8f9a0
 Create Date: 2026-10-17 09:30:00.000000
