@@ -222,6 +222,7 @@ public enum RegistrySchema {
 
     static let v1: [String] = [
         // pending_* is the persisted reset intent (§12.1 step 2); all null when no reset runs.
+        // pending_token is unique per attempt, so two attempts at the same generation differ.
         """
         CREATE TABLE server (
           server_id                 TEXT PRIMARY KEY NOT NULL,
@@ -232,7 +233,8 @@ public enum RegistrySchema {
           last_sync_at              REAL,
           pending_gen               INTEGER,
           pending_confirmed_count   INTEGER,
-          pending_confirmed_max_seq INTEGER
+          pending_confirmed_max_seq INTEGER,
+          pending_token             TEXT
         )
         """,
         // The selected server; at most one row.

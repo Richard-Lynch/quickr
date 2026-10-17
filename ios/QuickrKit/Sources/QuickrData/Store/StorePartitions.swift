@@ -80,6 +80,8 @@ public struct StorePartitions: Sendable {
         for _ in 0..<Self.recoveryAttempts {
             let server = try await requireServer(serverId)
             if let pendingGen = server.pendingGen {
+                // An intent without a token can't be fenced; treat it as unidentified and stop.
+                guard let token = server.pendingToken else { throw StoreError.registryChanged(serverId) }
                 let old = try openExisting(server)
                 if let old, try await !old.isRetired() {
                     // Crashed between steps 2 and 4: the old file is still live.
@@ -91,7 +93,8 @@ public struct StorePartitions: Sendable {
                 // Crashed between steps 4 and 6 (or the old file is gone): finish step 6 for
                 // exactly the generations inspected, then re-read whatever the outcome.
                 try await registry.completeReset(
-                    serverId: serverId, fromGen: server.storeGen, toGen: pendingGen, retiredAtWall: wallClock.now(),
+                    serverId: serverId, fromGen: server.storeGen, toGen: pendingGen, token: token,
+                    retiredAtWall: wallClock.now(),
                     retiredAt: leaseClock.now())
                 continue
             }
@@ -129,20 +132,23 @@ public struct StorePartitions: Sendable {
     /// then create and open the new, empty file. The caller bootstraps it. Throws
     /// `registryChanged` if the intent was superseded.
     public func completeReset(_ intent: RegisteredServer) async throws -> LocalStore {
-        guard let pendingGen = intent.pendingGen else { throw StoreError.registryChanged(intent.id) }
+        guard let pendingGen = intent.pendingGen, let token = intent.pendingToken else {
+            throw StoreError.registryChanged(intent.id)
+        }
         let completion = try await registry.completeReset(
-            serverId: intent.id, fromGen: intent.storeGen, toGen: pendingGen, retiredAtWall: wallClock.now(),
+            serverId: intent.id, fromGen: intent.storeGen, toGen: pendingGen, token: token,
+            retiredAtWall: wallClock.now(),
             retiredAt: leaseClock.now())
         guard completion != .superseded else { throw StoreError.registryChanged(intent.id) }
         return try await openStore(serverId: intent.id, role: .app).store
     }
 
     /// Abort `intent` (lease timeout in step 3, or writes arrived in step 4). Clears only that
-    /// intent; returns whether it did.
+    /// attempt (fenced on its token); returns whether it did.
     @discardableResult
     public func abortReset(_ intent: RegisteredServer) async throws -> Bool {
-        guard let pendingGen = intent.pendingGen else { return false }
-        return try await registry.clearResetIntent(serverId: intent.id, pendingGen: pendingGen)
+        guard let token = intent.pendingToken else { return false }
+        return try await registry.clearResetIntent(serverId: intent.id, token: token)
     }
 
     /// Step 9, app only: deletes retired files once retired for `retiredFileGrace` of lease time
@@ -170,6 +176,7 @@ public struct StorePartitions: Sendable {
     private func registryUnchanged(_ server: RegisteredServer) async throws -> Bool {
         let now = try await requireServer(server.id)
         return now.storeGen == server.storeGen && now.pendingGen == server.pendingGen
+            && now.pendingToken == server.pendingToken
     }
 
     private func requireServer(_ serverId: String) async throws -> RegisteredServer {

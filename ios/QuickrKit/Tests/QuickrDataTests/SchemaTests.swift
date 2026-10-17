@@ -75,7 +75,7 @@ import Testing
             #expect(
                 try columns(db, "server") == [
                     "server_id", "base_url", "display_name", "store_gen", "created_at", "last_sync_at", "pending_gen",
-                    "pending_confirmed_count", "pending_confirmed_max_seq",
+                    "pending_confirmed_count", "pending_confirmed_max_seq", "pending_token",
                 ])
             #expect(
                 try columns(db, "retired_file") == ["path", "retired_at_wall", "retired_boot_id", "retired_ct"])

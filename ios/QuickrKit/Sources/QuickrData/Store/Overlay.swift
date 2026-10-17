@@ -11,7 +11,7 @@ extension OutboxItem {
 /// The questions an entry's answers are read against: `(topic id, version) → questions`. Request-
 /// shaped answer maps don't say whether `7` is an int or a double, so answers rebuilt from them are
 /// normalized for their question (`AnswerValue.normalized(for:)`).
-public typealias QuestionLookup = (_ topicId: UUID, _ version: Int) -> [Question]
+public typealias QuestionLookup = (_ topicId: UUID, _ version: Int) throws -> [Question]
 
 /// One entity's view row: the server row (if any) with its outbox items applied in `seq` order,
 /// exactly per the §3.2 table. A pure function, so the table is tested case by case.
@@ -65,7 +65,7 @@ public struct EntryOverlay: Sendable, Hashable {
                 if !isFailed { pending = true }
             case .entryUpdate(_, _, let patch):
                 guard var patched = entry else { break }
-                patched.apply(patch, at: item.updatedAt, questions: questions(patched.topicId, patched.version))
+                patched.apply(patch, at: item.updatedAt, questions: try questions(patched.topicId, patched.version))
                 entry = patched
                 if !isFailed { pending = true }
             case .entryDelete:
@@ -131,7 +131,7 @@ extension Entry {
             source: body.source ?? item.origin.source, channel: .ios,
             capturedAt: body.capturedAt ?? item.createdAt, createdAt: item.createdAt, updatedAt: item.updatedAt,
             notes: body.notes ?? "", meta: body.meta ?? [:],
-            answers: body.domainAnswers(for: questions(topicId, version)))
+            answers: body.domainAnswers(for: try questions(topicId, version)))
     }
 
     /// An `entry.update` patch: `answers` merges by key and `null` removes the key; `captured_at`,
