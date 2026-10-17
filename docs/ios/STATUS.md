@@ -72,27 +72,27 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
 
 ### WP feed: `ios/m0-feed` (worktree `../ios-m0-feed`)
 
-- [~] Implementation (sub-agent)
-  - [ ] B1: `answers` uses `additionalProperties`, plus a spec-shape test
-  - [ ] B3: `ios` channel, an autocommit migration, and an explicit downgrade
+- [x] Implementation (sub-agent): 5 commits, up to 1169835. Follow-up in progress: identity/epoch headers (rule 13).
+  - [x] B1: `answers` uses `additionalProperties`, plus a spec-shape test
+  - [x] B3: `ios` channel, an autocommit migration, and an explicit downgrade
         test
-  - [ ] B4: the `change_log` table, the feed advisory lock (rule 1), and retry
+  - [x] B4: the `change_log` table, the feed advisory lock (rule 1), and retry
         on conflict
-  - [ ] B4: `deleted_ids`. A DELETE reserves the id (204), and a create with
+  - [x] B4: `deleted_ids`. A DELETE reserves the id (204), and a create with
         that id gets 409 `entry_deleted` (rule 2)
-  - [ ] B4: deleting a topic tombstones its children (rule 3)
-  - [ ] B4: `GET /changes`, built from a REPEATABLE READ snapshot, plus a
+  - [x] B4: deleting a topic tombstones its children (rule 3)
+  - [x] B4: `GET /changes`, built from a REPEATABLE READ snapshot, plus a
         backfill migration (rule 4)
-  - [ ] B4: `feed_epoch`, `server_id`, `head`, and `make rotate-epoch` (rule 5)
-  - [ ] B4: `revision` and `expected_revision`, returning 409 `stale_revision`
+  - [x] B4: `feed_epoch`, `server_id`, `head`, and `make rotate-epoch` (rule 5)
+  - [x] B4: `revision` and `expected_revision`, returning 409 `stale_revision`
         (rule 6)
-  - [ ] B4: server-side `now()` for `updated_at`, GZip, and the `conftest`
+  - [x] B4: server-side `now()` for `updated_at`, GZip, and the `conftest`
         TABLES
-  - [ ] PWA: `entry_deleted` handling in the outbox and its effects, with tests
-  - [ ] `openapi.json` and the TS client regenerated
+  - [x] PWA: `entry_deleted` handling in the outbox and its effects, with tests
+  - [x] `openapi.json` and the TS client regenerated
 - [ ] Gate: `make check` green (the sub-agent's report and an orchestrator
       re-run)
-- [ ] Codex review of the WP diff; findings fixed or answered
+- [~] Codex review: round 1 requested changes (4 Majors: kind-scoped ids, `@writer` lock ownership, tombstone before topic resolve, PWA retired result; 1 Minor: identity inside the snapshot). Fixes in progress.
 - [ ] Merged into `ios/m0-foundations`
 
 ### WP vectors: `ios/m0-vectors` (worktree `../ios-m0-vectors`)
