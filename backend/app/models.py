@@ -181,6 +181,30 @@ class PushSubscription(Base):
     failure_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
+class ApnsDevice(Base):
+    """An iOS app install's APNs device token. Upserted by token on every launch."""
+
+    __tablename__ = "apns_devices"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    token: Mapped[str] = mapped_column(Text, unique=True)  # lower-case hex
+    # Which APNs host the token belongs to (a plain CHECK, not another PG enum).
+    environment: Mapped[str] = mapped_column(String(16))
+    bundle_id: Mapped[str | None] = mapped_column(String(155), default=None)
+    app_version: Mapped[str | None] = mapped_column(String(64), default=None)
+    device_name: Mapped[str | None] = mapped_column(String(200), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    __table_args__ = (
+        CheckConstraint("environment IN ('sandbox', 'production')", name="ck_apns_devices_environment"),
+    )
+
+
 class AppSetting(Base):
     """Small key/value store for server state that must survive restarts (e.g. generated VAPID keys)."""
 
