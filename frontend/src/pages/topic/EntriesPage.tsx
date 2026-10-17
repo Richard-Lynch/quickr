@@ -59,7 +59,7 @@ function pendingAsEntry(item: OutboxItem<EntryCreatePayload>, topic: TopicDetail
   const types = new Map(topic.questions.map((q) => [q.key, q.type]));
   const answers = Object.entries(b.answers).flatMap(([key, value]) => {
     const type = types.get(key);
-    if (!type || value === null || value === undefined) return [];
+    if (!type || value === null) return [];
     return [{ key, type: type === 'enum' && Array.isArray(value) ? 'enum_list' : type, value }];
   }) as EntryOut['answers'];
   return {
