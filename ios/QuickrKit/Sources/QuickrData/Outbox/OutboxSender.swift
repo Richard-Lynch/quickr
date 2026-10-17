@@ -81,7 +81,8 @@ extension APIResponse {
     /// The same response with the success value transformed.
     func mapSuccess<Other: Sendable>(_ transform: (Success) -> Other) -> APIResponse<Other> {
         APIResponse<Other>(
-            outcome: outcome.map(transform), status: status, identity: identity, expected: expected, body: body)
+            outcome: outcome.map(transform), status: status, observed: observed, expected: expected, body: body,
+            bodyIsTrusted: bodyIsTrusted)
     }
 }
 
@@ -94,7 +95,9 @@ extension APIResponse where Success == OutboxSuccess {
             case .encodingFailed: .terminal(status: 0, problem: nil)
             case .noServerIdentity, .providerFailed: .retryable(.noResponse(.unreachable(error.description)))
             }
-        return APIResponse(outcome: outcome, status: nil, identity: nil, expected: expecting)
+        return APIResponse(
+            outcome: outcome, status: nil, observed: ObservedIdentity(serverId: nil, epoch: nil), expected: expecting,
+            bodyIsTrusted: false)
     }
 
     /// `last_error_json` for this response. A refused request has no status, so the message is
