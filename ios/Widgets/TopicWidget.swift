@@ -27,8 +27,9 @@ struct TopicProvider: AppIntentTimelineProvider {
 /// SKEL's minimal widget: an `AppIntentConfiguration` choosing a `TopicEntity`, showing its name.
 struct TopicWidget: Widget {
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: "com.bahumia.quickr.topic", intent: SelectTopicIntent.self, provider: TopicProvider())
-        { entry in
+        AppIntentConfiguration(
+            kind: "com.bahumia.quickr.topic", intent: SelectTopicIntent.self, provider: TopicProvider()
+        ) { entry in
             VStack(alignment: .leading, spacing: 4) {
                 Text("quickR")
                     .font(.caption)

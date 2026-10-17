@@ -40,7 +40,9 @@ import Testing
     #expect(try await query.entities(for: [PlaceholderTopicRepository.mood]).map(\.name) == ["Mood"])
 }
 
-@Test func logEntryStubReturnsTheTopicWithoutWriting() async throws {
-    let intent = LogEntryIntent(topic: TopicEntity(id: PlaceholderTopicRepository.coffee, name: "Coffee", slug: "coffee"))
+/// The returned value is asserted end to end in `QuickRUITests/IntentResolutionTests`.
+@Test func logEntryStubPerformsWithoutAStore() async throws {
+    let topic = TopicEntity(id: PlaceholderTopicRepository.coffee, name: "Coffee", slug: "coffee")
+    let intent = LogEntryIntent(topic: topic)
     _ = try await intent.perform()
 }
