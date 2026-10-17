@@ -1,429 +1,525 @@
 # quickR iOS: delivery plan
 
-Status: **draft v1** (2026-10-17), not yet adversarially reviewed. Inputs:
-[REQUIREMENTS.md](REQUIREMENTS.md) (decisions, binding),
-[research/00-scouting.md](research/00-scouting.md),
-[01-toolchain.md](research/01-toolchain.md),
-[02-architecture.md](research/02-architecture.md),
-[03-backend.md](research/03-backend.md). The research files hold the detail and
-the sources. This plan is what we commit to.
+**Status: v2**, 2026-10-17. This version revises draft v1 after two adversarial
+reviews, [Codex](reviews/plan-v1-codex.md) and
+[Fable](reviews/plan-v1-fable.md). §12 maps each finding to how it was resolved.
+
+Inputs:
+
+- [REQUIREMENTS.md](REQUIREMENTS.md): the decisions. These are binding.
+- Research: [00](research/00-scouting.md), [01](research/01-toolchain.md),
+  [02](research/02-architecture.md), [03](research/03-backend.md).
+
+Where this plan and the research disagree, **this plan wins**.
 
 ## 1. Summary
 
 A native SwiftUI app (iOS 26+, iPhone) lives in `ios/` in this repo. It is a
-thin XcodeGen project around a local Swift package, `QuickrKit`, which holds
-almost all the logic. The app keeps a full offline mirror in GRDB/SQLite inside
-the App Group. Writes go through a durable outbox ported from the PWA, and reads
-come from a new entries change feed with tombstones. Reminders are server-sent
-APNs with per-topic actionable categories, so you can log straight from the
-notification. Widgets, Controls and App Intents (Siri, Shortcuts, the Action
-button) write to the same shared store.
+thin XcodeGen project around a local Swift package, `QuickrKit`.
 
-The backend gets additive, PWA-safe changes: an `ios` channel, a change feed
-with tombstones, an APNs sender, an actionable push payload, shared test vectors
-and fixtures, and an OpenAPI tweak. The PWA keeps working and picks up parity
-features where the web platform allows.
+- **Storage:** a full offline mirror in GRDB/SQLite inside the App Group.
+  **Server state** and a **local outbox overlay** are kept separate, so a resync
+  can never lose offline work.
+- **Reading changes:** a new server **change feed**. It is ordered by a sequence
+  number that follows commit order, and it records deletions as permanent
+  tombstones. A deleted id can never be recreated, so a late or repeated send
+  can't bring back an entry the user deleted.
+- **Reminders:** server-sent APNs with actions (up to 4), so you can log from
+  the notification.
+- **Widgets, Controls and App Intents** (Siri, Shortcuts, the Action button)
+  write to the same shared store.
+- **Backend changes** are additive and safe for the PWA. The PWA gains the new
+  features wherever the web platform allows.
 
-Delivery runs through 8 milestones (M0–M7). Each one is a PR into `feat/ios-app`
-with demo media and a validation checklist. A final PR merges `feat/ios-app`
-into `main`.
+Milestones M0–M7 each go as one PR into `feat/ios-app`, with validation and demo
+media. A final PR takes `feat/ios-app` into `main`.
 
 ## 2. Key decisions
 
-Each decision is the recommended option. The rejected option and the reason are
-in the research files.
+Rejected alternatives and sources are in the research files. **(v2)** marks a
+decision that changed after review.
 
-| Area                 | Decision                                                                                                                                                                                                                                                                                                         | Rejected (why)                                                                                                         |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Project              | **XcodeGen** `ios/project.yml`. The `.xcodeproj` is gitignored and generated.                                                                                                                                                                                                                                    | Committed pbxproj (churn, agent-hostile); Tuist (more moving parts)                                                    |
-| Code layout          | Local SPM package `ios/QuickrKit` with these targets: `QuickrCore` (models, validation, quick-log rules, due logic; no dependencies), `QuickrAPI`, `QuickrStore` (GRDB), `QuickrSync`, `QuickrUI`, `QuickrIntents`. Core, API, Store and Sync also build for **macOS** so `swift test` runs without a simulator. | One fat app target                                                                                                     |
-| Targets              | `QuickR` app, `QuickRWidgets` (widgets and controls), `QuickRNotificationService` (NSE), unit tests, UI tests                                                                                                                                                                                                    | Notification content extension (not needed for v1)                                                                     |
-| Persistence          | **GRDB 7** `DatabasePool` (WAL) in `group.com.bahumia.quickr`. Only the app runs migrations; extensions degrade gracefully.                                                                                                                                                                                      | SwiftData (cross-process and migration problems, 26.x regressions)                                                     |
-| Local data           | Mirror **everything**: all topics including archived, all versions, all entries. Stats and series are **server-computed and cached**, and show as stale when offline.                                                                                                                                            | Windowed history (can't browse old data offline)                                                                       |
-| Sync pull            | Re-pull the topic list (`status=all`); fetch versions when `current_version` moves; new **`GET /entries/changes?cursor=`** keyset feed plus a **`deleted_records`** tombstone table.                                                                                                                             | Combined `/sync` endpoint (more new shapes); re-pulling a window (misses old edits and deletes)                        |
-| Sync push            | Outbox table, a 1:1 port of the PWA state machine (same retry and terminal classification, same backoff). Kinds: `entry.create/update/delete`, `topic.archive/unarchive`. Coalescing at enqueue. Leases for cross-process exclusion.                                                                             | Background `URLSession` (out-of-process replays could recreate undone entries)                                         |
-| Online-only ops      | Topic create, question publish (needs a live 409), topic delete, schedule edit. Each gives a clear "needs connection" error.                                                                                                                                                                                     | Queuing them (conflicts that need a person to resolve)                                                                 |
-| API client           | **Hand-written Codable client** (about 25 endpoints). Contract-tested against **backend-generated JSON fixtures** with a drift check.                                                                                                                                                                            | swift-openapi-generator (patternProperties, const, overlapping anyOf, fractional dates; the models get wrapped anyway) |
-| Due logic            | Swift port of `schedule.py` with explicit PEP 495 fold semantics, verified against **Python-generated vectors** in `shared/fixtures/`. The server stays authoritative after each sync.                                                                                                                           | Trusting `Calendar` DST heuristics                                                                                     |
-| Reminders            | Server APNs. **Frozen contract:** `apns-collapse-id` = request identifier = `due-{topic_id}`, `thread-id` = `topic-{topic_id}`. A future local fallback uses the same identifier and dedupes for free.                                                                                                           | Local-only (stale when logged elsewhere)                                                                               |
-| Notification actions | Category per topic, `quickr.topic.{id}`: one action per chip option, or "✓ last value" plus a text input for a number, plus "Open". The app registers all categories after every sync; the NSE upserts the category from the payload's `quick_log` descriptor.                                                   | Content extension with custom UI                                                                                       |
-| Widgets              | `AppIntentConfiguration` per topic, `Button(intent:)` quick-log, a due-list widget, Lock Screen accessories, `ControlWidgetButton`s (Control Centre and the Action button). Timelines are computed locally.                                                                                                      | Network-backed widgets                                                                                                 |
-| App Intents          | `TopicEntity` (IndexedEntity, Spotlight), `LogEntryIntent` (quick-log-eligible topics), `RepeatLastEntryIntent` (any topic), `OpenRecordIntent` (fallback), App Shortcuts phrases                                                                                                                                | Per-question dynamic parameters (impossible)                                                                           |
-| UI                   | `@Observable` screen models fed by GRDB `ValueObservation`. `NavigationStack` with a typed `Route` and a URL parser for the PWA paths. A schema-driven form engine with `FocusState`. Swift Charts. System navigation, lists and sheets with brand tokens and fonts.                                             | TCA or another framework                                                                                               |
-| Headers              | `X-QuickR-Channel: ios` (new enum value). `source` is one of `ios`, `ios.widget`, `ios.notification`, `ios.siri`. `CF-Access-Client-Id/Secret` from the shared Keychain group, sent only when configured.                                                                                                        | n/a                                                                                                                    |
-| Dependencies         | GRDB; swift-snapshot-testing (tests only); tools: xcodegen, swift-format, ffmpeg, rsvg-convert, fonttools (uvx). Backend: `httpx[http2]`, explicit `pyjwt[crypto]`.                                                                                                                                              | fastlane, aioapns                                                                                                      |
+| Area                          | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Project                       | **XcodeGen**, from `ios/project.yml`. The `.xcodeproj` is generated and gitignored. `Package.resolved` is committed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Package **(v2)**              | **Three** SPM targets:<br>• `QuickrCore`: models, validation, quick-log, due logic. No dependencies.<br>• `QuickrData`: API client, GRDB store, sync, outbox.<br>• `QuickrUI`: design system. iOS only.<br>Core and Data also build for macOS, so `swift test` runs fast. The App Intents types live in the package; the `AppShortcutsProvider` and its phrases live in the **app target**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Targets                       | `QuickR` app, `QuickRWidgets` (widgets and controls), `QuickRNotificationService` (NSE), unit tests and UI tests.<br>Entitlements: App Group `group.com.bahumia.quickr`, keychain group `com.bahumia.quickr.shared`, and `aps-environment` on the app.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Toolchain **(v2)**            | Local: **Xcode 27.x**, after the macOS upgrade. CI: `macos-26` with Xcode 26.6, or the `xcode-27` image if it is generally available by M1.<br>Rules: deployment target iOS 26.0, `swift-tools-version: 6.2`, and no iOS 27-only API (enforced with `@available`), so both toolchains build the same code.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Persistence                   | **GRDB 7** `DatabasePool` (WAL) in the App Group, using GRDB's multi-process recipe with suspension notifications. **(v2)** Every process may run the append-only migrator inside one IMMEDIATE transaction. The app and its extensions always ship together, so there's no version skew. The JSONL fallback is dropped. File protection: `completeUntilFirstUserAuthentication`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Store model **(v2)**          | Two layers:<br>• the **server layer** (`topic`, `topic_version`, `entry`), written only by sync;<br>• the **outbox** of pending operations.<br>The UI reads the server layer with the outbox applied on top. A resync rebuilds the server layer only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Local data                    | Mirror everything: all topics (archived included), all versions and all entries. Stats and series are server-computed and cached; offline they show as stale with a "Last updated" label.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| **Change feed (v2)**          | **`change_log(seq bigserial, kind, op, entity_id, topic_id, at)`**, written by the **service layer** (REST and MCP) in the same transaction as each change. The `seq` is allocated under a **transaction-scoped advisory lock**, so seq order equals commit order.<br>`GET /api/v1/changes?after=<seq>&limit=` returns the latest state of each changed entity, plus deletions, plus `{next, has_more, epoch}`.<br>Bootstrap: a migration backfills one row per existing entity, so a fresh client simply starts from `after=0`.                                                                                                                                                                                                                                                                                                                                             |
+| Tombstones **(v2)**           | A deletion writes a `change_log` row plus a **permanent** `deleted_ids` record. These are never pruned; a personal dataset only adds a few KB a year.<br>Recreating a deleted entry id returns **409 `entry_deleted`**. Clients treat this as done for a create, and as success for an undo.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Epoch **(v2)**                | `app_settings.feed_epoch` is a random id, regenerated whenever the database is restored or reset. If the client's epoch doesn't match, it rebuilds the server layer and keeps its outbox.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Outbox **(v2)**               | A **new design** that extends the PWA's `entry.create` outbox, specified in `docs/ios/specs/outbox.md` with a test matrix.<br>• **Kinds:** `entry.create`, `entry.update`, `entry.delete`, `topic.archive`, `topic.unarchive`.<br>• **Classification and backoff:** the same as the PWA.<br>• **One flush at a time across processes,** using a single `flush_lock` row (owner, expiry) taken in `BEGIN IMMEDIATE`.<br>• **Ordering:** items for one entity are processed in `created_at` order.<br>• **Coalescing:** an update is folded into an unsent create; a delete of an unsent create drops both.<br>• **"Delivery uncertain" creates** (attempted, response lost) are never silently discarded. Undoing one enqueues a delete after it.                                                                                                                             |
+| Server-side safety **(v2)**   | A stale sender (for example a suspended process whose lock expired) can't do harm:<br>• a late create after a delete gets 409 `entry_deleted`;<br>• a late PATCH gets 404, which drops the local row and the item with a notice;<br>• a late DELETE gets 404, which counts as done.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Online-only                   | Topic create, question publish (needs a live 409 check), topic delete and schedule edit. Each shows a clear "needs a connection" message when offline.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| API client                    | A **hand-written Codable** client.<br>• Response contracts: backend-generated fixtures (`shared/fixtures/api`).<br>• **(v2)** Request contracts: Swift-generated **request goldens** that pytest validates against the Pydantic models.<br>Both have drift checks.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Due logic                     | A Swift port of `schedule.py` with explicit PEP 495 fold semantics, checked against Python-generated vectors in `shared/fixtures`. The server stays authoritative after each sync.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Reminders **(v2)**            | Server APNs, **best-effort and at-least-once**: send first, then mark as sent.<br>• Dedupe on the device uses a stable `apns-collapse-id` (`due-{topic_id}`) and `thread-id` (`topic-{topic_id}`).<br>• It also **removes delivered notifications whose `userInfo.quickr.topic_id` matches**. It doesn't rely on the collapse id becoming the notification identifier.<br>• The **badge is set on the device only**, by the NSE (from local due counts) and by the app. The payload has no `badge`.                                                                                                                                                                                                                                                                                                                                                                          |
+| Notification actions **(v2)** | **At most 4 actions.** iOS shows 4 when expanded and 2 in the banner. Tapping the notification body opens the record screen, so no "Open" action is needed.<br>• **Choice topics:** 1–4 options become actions. For 5–6 options, the server's descriptor carries the 4 most-used; the full list is a tap away.<br>• **Numbers:** "✓ {last}" plus "Other value…", a text-input action.<br>• **Category id** `quickr.t.{topicId}.{descriptorHash}`. Categories are never changed in place, so an old delivered notification keeps the meaning it was sent with. Handlers validate against the descriptor in the notification's `userInfo`.<br>• **Registration:** categories are stored in a `notification_category` table. Each time, the full set is re-registered, keeping every category referenced by a delivered notification. The NSE inserts a row, then re-registers. |
+| Widgets **(v2)**              | A per-topic quick-log widget: chips, or "✓ last" for numbers (no stepper in v1). Also a due-list widget, Lock Screen accessories, and one `ControlWidgetButton` per topic. Using the Action button needs an iPhone 15 Pro or later (see H5).<br>• Writes are durably enqueued before `perform()` returns, then flushed best-effort. The widget shows "queued" until synced.<br>• Timelines reload only when due state or last values change, to stay within WidgetKit's reload budget.                                                                                                                                                                                                                                                                                                                                                                                       |
+| App Intents **(v2)**          | `TopicEntity`; `LogEntryIntent(topic, option or number)` for quick-log topics, with options from a `DynamicOptionsProvider`; `RepeatLastEntryIntent`; `OpenRecordIntent`; `AppShortcutsProvider` phrases.<br>**Deferred** until after v1: Spotlight `IndexedEntity`, `UndoableIntent`, and dependent option entities.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Repeat-last **(v2)**          | Re-logs the latest entry's answers if they still validate against the current version; otherwise it opens the record screen prefilled. With no previous entry, it opens the record screen. If the topic is archived, it shows a dialog.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| UI                            | `@Observable` screen models over GRDB `ValueObservation`, reconciled whenever the app becomes active. `NavigationStack` with a typed `Route`, plus a URL parser for the PWA's paths. A schema-driven form engine using `FocusState`. Swift Charts. System navigation, lists and sheets, with brand tokens and fonts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Headers                       | `X-QuickR-Channel: ios` (a new enum value). `source` is `ios`, `ios.widget`, `ios.notification` or `ios.siri`. `CF-Access-Client-Id` and `-Secret` come from the shared Keychain (`AfterFirstUnlock`) and are sent only when configured.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Server identity **(v2)**      | The local store is **partitioned per server**: one DB file per server URL and epoch. Changing the server URL switches stores and unregisters the old server's APNs registration. Queued data never goes to a different server.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Dependencies                  | GRDB.<br>Tools: xcodegen (downloaded as a release binary in CI), swift-format, ffmpeg, rsvg-convert, fonttools (via uvx).<br>Backend: `httpx[http2]` and an explicit `pyjwt[crypto]`.<br>**(v2) Cut:** snapshot testing, Access JWT verification, chart screenshot comparison.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
-## 3. Repository layout (target)
+## 3. Repository layout
 
 ```
 ios/
-  project.yml                     XcodeGen spec (targets, entitlements, Info.plist, schemes)
-  QuickrKit/Package.swift         QuickrCore, QuickrAPI, QuickrStore, QuickrSync, QuickrUI, QuickrIntents
-  QuickrKit/Tests/…               Swift Testing; Fixtures/ links shared vectors + API fixtures
-  App/  Widgets/  NotificationService/  UITests/  TestPlans/
-  Resources/Fonts (static instances + OFL.txt), Assets.xcassets (colours, AppIcon)
-  scripts/                        icons.sh, fonts.sh, sim.sh, device.sh, demo.sh, testflight.sh
-  Local.xcconfig (gitignored)     DEVELOPMENT_TEAM, device id
-shared/fixtures/                  due-vectors.json, quicklog-vectors.json, api/*.json (all generated, drift-checked)
-backend/…                         changes in §5
-docs/ios/                         REQUIREMENTS, PLAN, research/, demo/ (media used in PRs)
-.github/workflows/ios.yml         macOS build + unit tests, path-filtered
+  project.yml                 XcodeGen spec: targets, entitlements, Info.plist (incl. BGTaskSchedulerPermittedIdentifiers,
+                              UIBackgroundModes fetch/remote-notification, NSAllowsLocalNetworking, NSLocalNetworkUsageDescription)
+  QuickrKit/                  Package.swift (tools 6.2): QuickrCore, QuickrData, QuickrUI (+ Tests, ProcessHelper for multi-process tests)
+  App/ Widgets/ NotificationService/ UITests/ TestPlans/ Resources/ scripts/
+  Local.xcconfig              gitignored: DEVELOPMENT_TEAM, device id, dev server URL
+shared/fixtures/              due-vectors.json, quicklog-vectors.json, api/*.json, requests/*.json (all generated + drift-checked)
+docs/ios/                     REQUIREMENTS, PLAN, specs/, research/, reviews/, demo/mN/
+.github/workflows/ios.yml     path-filtered macOS job
 ```
 
 ## 4. Workflow and branch management
 
-- **Integration branch:** `feat/ios-app` (worktree `../quickr-worktrees/ios`).
-- **Milestone branch:** `ios/mN-<name>`, cut from `feat/ios-app`. One PR per
-  milestone into `feat/ios-app`.
-- **Work packages:** each milestone is split into work packages (WPs) with
-  disjoint file ownership.
-  - Each WP runs in a sub-agent with its own worktree
-    (`../quickr-worktrees/ios-mN-<wp>`) on branch `ios/mN-<wp>`, cut from the
-    milestone branch.
-  - I (the orchestrator) review each WP diff and run the gates, then merge it
-    into the milestone branch with `--no-ff`, so the history keeps one merge per
-    WP.
-  - Contracts between WPs (DTOs, table schemas, protocols) land first, in a
-    "contracts" WP, so the parallel WPs build against stable interfaces.
-  - At most 3–4 parallel WPs per milestone.
-- **Before opening a milestone PR:**
-  1. All gates green (§8).
-  2. A code-review sub-agent pass, plus a `codex` review of the milestone diff.
-  3. Demo media recorded with `make ios-demo-record` / `ios-shots`, stored under
-     `docs/ios/demo/mN/` and embedded in the PR.
-  4. The PR body carries the milestone's validation checklist with each item
-     ticked, or marked as skipped with a reason.
-- **Merging milestone PRs:** to keep moving, milestone PRs are **non-blocking by
-  default**.
-  - I merge into `feat/ios-app` once the gates and reviews pass, then start the
-    next milestone.
-  - You review the PR (and its demos) asynchronously. Comments become fix-ups on
-    the next milestone branch.
-  - A PR is **blocking** if it changes a decision in this plan or needs your
-    input. Then I wait. _(See open question Q1.)_
-- **Keeping up with `main`:** merge `main` into `feat/ios-app` at the start of
-  each milestone.
-- **Final:** a PR from `feat/ios-app` into `main` after M7. It carries the full
-  release notes and a final demo. Backend changes ride along. If that PR gets
-  too large, B1–B4 can be split out to `main` early, since they are PWA-safe.
-- **Commits:** follow the repo's style ("Area: summary"). No force-pushes on
-  shared branches.
+- **Integration branch:** `feat/ios-app`, checked out in the worktree
+  `../quickr-worktrees/ios`.
+- **Milestones:** each is a branch `ios/mN-<name>` cut from `feat/ios-app`, and
+  one PR back into it.
+- **Work packages (WPs):** each runs in a sub-agent with its own worktree, on
+  branch `ios/mN-<wp>` cut from the milestone branch.
+  - Only independent work runs in parallel, at most 3 WPs at a time.
+  - Shared contracts land first, in a contracts WP that I own: schemas,
+    `openapi.json`, generated clients, fixtures, DB schema and specs. Other WPs
+    never edit generated files.
+  - I integrate WPs one at a time: review the diff, run the gates, then merge
+    into the milestone branch with `--no-ff`.
+- **(v2) Isolation:** every worktree gets a `.env` with its own
+  `COMPOSE_PROJECT_NAME`, `QUICKR_DB_PORT`, `QUICKR_API_PORT`, `QUICKR_WEB_PORT`
+  and `QUICKR_TEST_DATABASE_URL` (a test DB per worktree). Each also gets its
+  own simulator device, made with `simctl clone`.
+- **Before each milestone PR:**
+  1. All gates are green (§8).
+  2. A code-review sub-agent and `codex review` have both reviewed the diff, and
+     every finding is fixed or answered.
+  3. Demo media is recorded into `docs/ios/demo/mN/`.
+  4. The validation checklist is ticked, with any skipped item explained.
+  - **(v2)** Milestones without a UI (M0, M1) carry test reports and logs
+    instead of media. This is a deliberate deviation from "screenshots, videos
+    and GIFs".
+- **Merging (see Q1):** by default, milestone PRs **don't wait for you**.
+  - I merge once the gates and reviews pass, and you review asynchronously; your
+    comments become fix-ups.
+  - A PR **does wait for you** if it changes a decision in this plan, or if a
+    spike comes back no-go.
+- **Keeping current:** merge `main` into `feat/ios-app` at the start of each
+  milestone.
+- **Final step:** a PR from `feat/ios-app` into `main`. The backend changes ride
+  along. If that PR gets too big, the PWA-safe backend changes can go to `main`
+  first as separate PRs.
+- **Backend during development (v2):**
+  - Feature-branch backends run from their worktree with
+    `docker compose up --build`. No published images are needed.
+  - The simulator uses `http://localhost:<port>`.
+  - The phone uses `http://<mac>.local:<port>` over the LAN, which needs
+    `NSAllowsLocalNetworking` and the local-network prompt. You set the server
+    URL in Settings.
+  - The `.p8` key reaches the backend through a gitignored
+    `docker-compose.override.yml`. It mounts the key read-only and sets the
+    `QUICKR_APNS_*` variables.
 
-## 5. Backend and PWA changes (B-series)
+## 5. Backend and PWA changes
 
-All of these are additive and keep `make check` green. Each change regenerates
-`openapi.json` and `frontend/src/client` in the same commit. Details and file
-references are in [research/03-backend.md](research/03-backend.md).
+All of these are additive. `make check` stays green, and every change
+regenerates `openapi.json` and `frontend/src/client`.
 
-| ID  | Change                                                                                                                                                                                                                                                                                                                                                                              | Milestone                        |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| B1  | OpenAPI: `answers` map uses `additionalProperties` (via `WithJsonSchema`, dropping the redundant int branch). Typecheck fallout in the frontend is fixed.                                                                                                                                                                                                                           | M0                               |
-| B2  | **Shared vectors.** A pytest generator writes `shared/fixtures/due-vectors.json` (DST grid: London, New York, Lord Howe, Kolkata, Kathmandu, UTC) and `quicklog-vectors.json`, with a drift assertion and `make vectors`.                                                                                                                                                           | M0                               |
-| B3  | **`ios` channel:** `ALTER TYPE … ADD VALUE` in `autocommit_block`. Downgrade remaps to `api` and rebuilds the type. Plus a roundtrip test.                                                                                                                                                                                                                                          | M0                               |
-| B4  | **Change feed:** `GET /entries/changes?cursor=&limit=` returning `{server_time, items, deleted, next_cursor, has_more, resync_required}`. Also a `deleted_records` table (90-day retention, written in the services so REST and MCP both record it, and cleared when an id is re-created), an `(updated_at, id)` index, server-side `now()` for `updated_at`, and `GZipMiddleware`. | M1                               |
-| B5  | **API fixtures:** `backend/scripts/gen_api_fixtures.py` dumps representative responses (every question type, enum_list, problems, pages, change feed) to `shared/fixtures/api/`, with a drift check.                                                                                                                                                                                | M1                               |
-| B6  | **APNs:** an `apns_devices` table, register, delete and test endpoints, and `GET /push/config` gains `apns_enabled`. A `Sender` protocol shared with Web Push. `httpx[http2]` with an ES256 JWT cached for 50 min, an error map, pruning, concurrent sends with batched topic marks in the tick. The `QUICKR_APNS_*` config stays off unless set.                                   | M5 (code can land earlier, dark) |
-| B7  | **Actionable payload:** a channel-neutral `Notification` with `topic_id`, `version`, `due_since` and a `quick_log` descriptor (a Python port of `quickLogFor`, checked against the shared vectors, with `last_value`). APNs `category`, `thread-id`, `apns-collapse-id`, `mutable-content`. The Web Push payload gains optional fields only.                                        | M5                               |
-| B8  | **PWA parity:** Chromium notification `actions` for enum quick-log (≤ `maxActions`). `notificationclick` with an action enqueues an outbox entry. Display of the `ios` channel badge.                                                                                                                                                                                               | M5                               |
-| B9  | **Hosting:** docs for Cloudflare Access (service token, `/mcp` policy, AASA bypass if universal links are used). Optional `Cf-Access-Jwt-Assertion` verification behind `QUICKR_ACCESS_AUD`.                                                                                                                                                                                        | M7                               |
+| ID  | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | When                                         |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| B1  | The `answers` map uses `additionalProperties` (through `WithJsonSchema`, dropping the redundant int branch). Fix the type fallout in the frontend.                                                                                                                                                                                                                                                                                                                                                                                                                             | M0                                           |
+| B2  | **Shared vectors.** A pytest generator writes `shared/fixtures/due-vectors.json` (DST grid: London, New York, Lord Howe, Kolkata, Kathmandu, UTC) and `quicklog-vectors.json`. Adds `make vectors` and a drift assertion.                                                                                                                                                                                                                                                                                                                                                      | M0                                           |
+| B3  | **`ios` channel.** `ALTER TYPE … ADD VALUE` inside an `autocommit_block`. The downgrade remaps `ios` to `api` and rebuilds the type. Add an **explicit downgrade test**, because `alembic check` ignores enum values.                                                                                                                                                                                                                                                                                                                                                          | M0                                           |
+| B4  | **Change feed (v2):**<br>• the `change_log` table, advisory-lock seq allocation and `deleted_ids`, written in the services so REST and MCP get them both, plus a backfill migration;<br>• the `GET /changes` endpoint;<br>• `feed_epoch`;<br>• 409 `entry_deleted` when a client replays a deleted id;<br>• replace the Python `datetime.now()` timestamps with server-side `now()` (`entries.py:187`, `topics.py:403`, and any others);<br>• `GZipMiddleware`;<br>• add the new tables to `TABLES` in `conftest.py`;<br>• **PWA:** the outbox treats `entry_deleted` as done. | M0                                           |
+| B5  | **Contract fixtures.** `gen_api_fixtures.py` generates response fixtures. A pytest test validates the Swift request goldens. Both have drift checks.                                                                                                                                                                                                                                                                                                                                                                                                                           | M0 (responses), M1 (requests)                |
+| B6  | **APNs:**<br>• an `apns_devices` table (token, environment, app version);<br>• endpoints to register, delete, and test this device;<br>• `apns_enabled` in `/push/config`;<br>• a `Sender` protocol shared with Web Push;<br>• `httpx[http2]` with an ES256 JWT cached for 50 min;<br>• an error map, and pruning on send failure (not only from the scheduler);<br>• concurrent sends, with the topic marks batched before commit.<br>The docs and tests state the semantics: **best-effort, at least once**.                                                                 | M3 (the code can land earlier, switched off) |
+| B7  | **Actionable payload.** A channel-neutral `Notification` carrying `topic_id`, `version`, `due_since` and a `quick_log` descriptor. The descriptor comes from a Python port of `quickLogFor`, checked against the vectors, and holds the top 4 options and `last_value`.<br>On APNs: `category`, `thread-id`, `apns-collapse-id` and `mutable-content`. **No `badge`.**<br>Web Push gets only new optional fields.<br>Optional: a `content-available` push on data changes.                                                                                                     | M3                                           |
+| B8  | **PWA parity:** Chromium notification `actions` for enum quick-log (up to `maxActions`, about 2). An action enqueues an outbox entry from the service worker. Show the `ios` channel badge.                                                                                                                                                                                                                                                                                                                                                                                    | M3                                           |
+| B9  | **Hosting docs:** a Cloudflare Access service token, a policy for `/mcp`, and an AASA bypass if universal links are ever added.                                                                                                                                                                                                                                                                                                                                                                                                                                                | M7                                           |
 
-## 6. Milestones
+## 6. Specs written before code (v2)
 
-Size is relative effort (S < M < L < XL). **Blocked by** lists the human steps
-(§7) that must be done before the milestone can _finish_. Work starts earlier
-wherever possible.
+These are written in M0, while Xcode isn't available. They're reviewed in the M0
+PR and become the reference the tests are built from.
 
-### M0: Foundations and shared contracts · M · Blocked by: none
+- **`specs/sync-protocol.md`:** the feed contract, cursor, epoch and bootstrap;
+  the two-layer store; the merge rules; resync; server partitioning; and reset.
+  - A server row always lands in the server layer, and the outbox overlay
+    applies on top of it.
+  - A tombstone removes the row and **fails** any outbox items that depend on
+    it, with "deleted elsewhere".
+  - A topic tombstone also removes that topic's categories and widget configs.
+  - Resync on an epoch mismatch keeps the outbox.
+  - A local data reset warns about pending writes and offers to sync first.
+- **`specs/outbox.md`:**
+  - **Contents:** the kinds, the state machine, classification, per-entity
+    ordering, the flush lock, coalescing, "delivery uncertain", undo, and
+    handling of 404 and 409 `entry_deleted`.
+  - **Test matrix:** about 40 cases, including:
+    - the lock expiring and the old holder finishing late;
+    - a lost response;
+    - suspension;
+    - a late POST arriving after a DELETE.
+- **`specs/notifications.md`:**
+  - **Payload contract:** the payload, category ids, the action-id scheme, the
+    registration table, and the NSE flow.
+  - **Badge:** set on the device only.
+  - **Before first unlock:** the store is unreadable, so the NSE leaves the
+    notification alone; it has no actions, and tapping it opens the app.
+  - **Tokens:** re-register on every launch and every token change, and
+    unregister when notification permission is turned off.
+  - **Local fallback:** use the same identifiers, plus explicit rules for
+    cancelling pending local notifications when a push arrives or an entry is
+    logged. A local fallback can then be added later without a redesign.
 
-- **Backend:** B1, B2, B3.
-- **iOS skeleton:**
-  - `ios/project.yml` with all targets, entitlements (App Group;
-    `aps-environment` added in M5), bundle IDs
-    `com.bahumia.quickr{,.widgets,.notification-service}`.
-  - The QuickrKit package skeleton.
-  - `make ios-*` targets with the fail-fast Xcode guard. `make check` is
-    unchanged; `check-ios` is separate.
-  - `.github/workflows/ios.yml` on `macos-26` with Xcode pinned, path-filtered,
-    concurrency-cancel.
-- **QuickrCore:**
-  - Domain models: Topic, Version, the Question enum, AnswerValue, Entry,
-    Schedule, DueStatus.
-  - Validation rules and messages ported from `answerSchema.ts`.
-  - Quick-log eligibility and the initial-value port.
-  - The due-logic port: slots, satisfied, daily, interval, `compute_due`,
-    `due_message`.
+## 7. Milestones
+
+Effort is relative (S < M < L < XL). **Needs** lists the human steps (§9) that
+must be done before the milestone can _finish_.
+
+### M0: Backend foundations and specs · L · Needs: nothing
+
+- **Work:**
+  - B1–B4, plus the B5 response fixtures.
+  - The three specs (§6).
+  - `ios/project.yml`, the `Package.swift` manifest, `make ios-*` targets that
+    fail fast without Xcode, and the `ios.yml` workflow. All of these are first
+    compiled in M1.
+  - `make check` stays Xcode-free.
 - **Validation:**
-  - `swift test` for QuickrCore passes every due and quick-log vector. It runs
-    on CI `macos-26`, and locally via the Command Line Tools if Swift Testing
-    works there.
-  - A migration roundtrip test for `ios`.
-  - `make check` green. The OpenAPI and TS client regenerate cleanly.
-- **Demo:** CI run link, test summary, vector counts. There is no UI yet.
+  - Backend tests:
+    - Feed ordering under concurrent transactions: in two sessions, the one that
+      commits later always has the higher seq.
+    - Pages that contain only deletions.
+    - The backfill and the epoch.
+    - Replaying a deleted id returns 409.
+    - A delete made through MCP shows up in the feed.
+    - The enum downgrade.
+  - The drift checks for vectors and fixtures.
+  - The PWA's `make check` stays green.
+  - The specs get a `codex` review.
+- **Demo:** test reports.
 
-### M1: Data layer: API client, store, sync engine · L · Blocked by: none (host tests)
+### M1: Core and data layer, plus proof of the riskiest platform parts · XL · Needs: H1, H2
 
-- **Backend:** B4, B5.
-- **QuickrAPI:**
-  - Client actor, ephemeral `URLSession`, redirect refusal, header decorator,
-    date strategy (0–6 fraction digits in, an explicit offset out), Problem
-    decoding with `loc` mapping, response classification.
-- **QuickrStore:**
-  - GRDB schema v1: `topic`, `topic_version`, `entry` (with `local_state`),
-    `outbox`, `sync_meta`, `ui_draft`. The migrator.
-  - Repositories, `ValueObservation` helpers, a cross-process Darwin-notify
-    signal.
-  - File protection `completeUntilFirstUserAuthentication`.
-- **QuickrSync:**
-  - The outbox state machine: classification table, backoff, coalescing, undo
-    rules, leases, compare-and-set bookkeeping.
-  - Pull: topics, versions, change feed, the tombstone merge rule ("local outbox
-    wins").
-  - Initial backfill. A `resync_required` wipe-and-repull.
-  - Flush triggers as protocols (the app wires them in M2).
+- **QuickrCore:** models, validation (messages ported from `answerSchema.ts`),
+  quick-log, and the due port. All vectors pass.
+- **QuickrData:** the API client (fixtures and request goldens), the two-layer
+  GRDB store, the sync engine, and the outbox, built to the spec's test matrix.
+- **(v2) Multi-process tests.** They use file-backed databases and a macOS
+  `ProcessHelper` run as a subprocess. They cover:
+  - concurrent writers;
+  - migrating while other connections are open;
+  - a process killed while holding the flush lock;
+  - the lock expiring and another process taking over.
+- **(v2) Platform proof in the app skeleton:**
+  - App Intents resolve from both the app and the widget extension.
+  - A notification-action spike in the simulator, using local notifications:
+    categories registered from the table, and an action handler that runs in the
+    background with the app killed, writes, and flushes. Findings go in the PR.
 - **Validation:**
-  - Fixture decoding covers every `shared/fixtures/api` file.
-  - About 30 outbox cases ported from `outbox.test.ts`, plus undo, coalesce,
-    lease and merge tests, using a fake clock and transport.
-  - An opt-in integration test plan against the docker stack:
-    1. Seed.
-    2. Full sync.
-    3. Create offline, flush, verify on the server.
-    4. Delete on the server, and see the tombstone applied locally.
-    5. Undo after send.
-  - Backend tests for paging with equal timestamps, tombstones from REST and
-    MCP, and retention.
-- **Demo:** an integration test log and a short write-up of a sync trace. No UI.
+  - `swift test` passes on the host. The UI test plan is still empty.
+  - **(v2)** A **required** integration suite against the docker stack
+    (`make ios-integration`), run here and in every milestone that touches sync.
+    It covers:
+    1. Bootstrap.
+    2. Create offline, then flush.
+    3. A web delete reaches the phone through a tombstone.
+    4. Undo while a create is in flight.
+    5. An epoch reset keeps the outbox.
+  - CI (`ios.yml`) is green.
+- **Demo:** test report, integration log, spike notes.
 
-### M2: App shell and daily logging · XL · Blocked by: H1, H2 (Xcode)
+### D: Device checkpoint · S · Needs: H3, H4, H5 (+ H6 for push)
 
-- **Design system** (QuickrUI): asset-catalog colour tokens (light/dark, from
-  `index.css`), static font instances plus a `Font.brand` with Dynamic Type, the
-  dot-grid `Canvas`, chips, the stepper, the tile, the toast centre, the sync
-  pill, the app icon set (`make ios-icons`), haptics.
-- **App:**
-  - Settings onboarding: server URL; the CF token is optional and stored in the
-    Keychain.
-  - Home (due-first: Due now / Coming up / Topics; search, filter and sort; the
-    badge count).
-  - Quick-log tiles with exact PWA parity: chips, a number stepper with ✓,
-    last-value dot, the 1.6 s confirmation, kept stepper drafts.
-  - The record screen: the form engine for all types; focus rules; "Same as last
-    time"; the details section; "Log another"; auto-save on a chip for
-    single-select-only topics; the fix mode for failed items.
-  - Undo toasts (6 s).
-  - The sync sheet: retry, fix, discard.
-  - Deep links `quickr://t/{slug}/record` (and the other PWA paths).
-  - Flush triggers wired up: `scenePhase`, `NWPathMonitor`, backoff timer,
-    `BGAppRefreshTask`.
+This runs on the first day a device is available. It is a **go/no-go gate**, not
+a milestone.
+
+- **Checks:**
+  - Install the app with `devicectl`.
+  - Measure when the NSE's category upsert takes effect.
+  - Count the actions iOS shows.
+  - Measure the action's background time budget.
+  - Log from the Lock Screen while the store is protected until first unlock.
+  - Check how widget buttons behave.
+  - Check the Action button, if the phone has one.
+- **Output:** a short findings PR. **If any check is no-go, the PR waits for
+  you,** and I bring a proposal.
+
+### M2a: Shell, design system and home · L · Needs: H2
+
+- **Design system:**
+  - Colour tokens for light and dark.
+  - Static font instances, with a brand font helper that supports Dynamic Type.
+  - Dot grid, chips, stepper, tiles, toast centre, sync pill.
+  - App icon set and haptics.
+- **Onboarding and Settings:** server URL (one store per server), the optional
+  Cloudflare token, and notification permission with an explainer.
+- **Home:** due-first, with search, filter, sort and the badge.
+- **Quick-log tiles at PWA parity:** chips, a stepper with ✓, a dot showing the
+  last value, the 1.6 s confirmation, and kept drafts.
+- **Undo toasts.**
 - **Validation:**
-  - XCUITest flows:
-    1. Chip quick-log, then Undo.
-    2. A multi-question entry offline, then back online, then synced.
-    3. A deep link to record.
-  - **Tap-count table re-measured** on the simulator, meeting every PWA number
-    (the tap-count table in `frontend/docs/design-loop.md`).
-  - Dark and light screenshots of every screen. Dynamic Type at XL checked.
-  - Device install once H3–H5 are done (see §7).
-- **Demo:** GIFs for a quick-log chip with Undo, a stepper log, offline logging
-  then sync, and same-as-last-time. Home screenshots in light and dark.
+  - A UI test: quick-log a chip, then Undo.
+  - Tile tap counts match the PWA table: single enum = 1, single number = 1 or
+    2, undo = 1, offline = 1.
+  - Screenshots in light and dark, and at Dynamic Type XL.
+- **Demo:** GIFs and screenshots.
 
-### M3: History and entries · M · Blocked by: H2
+### M2b: Record screen, sync UX and background · L · Needs: H2
 
-- Entries list (filters: range, version, source; pending and failed items pinned
-  at the top), infinite scroll from the local store.
-- Edit an entry, rendered against its pinned version with retired options shown.
-  Optimistic, via the outbox.
-- Delete with undo (`deleting` state, sent after 6 s or on backgrounding).
-- CSV export through the share sheet (online; server CSV).
-- Offline history browsing.
+- **Record screen:**
+  - A form engine covering every question type.
+  - The focus rules.
+  - "Same as last time", details, and "Log another".
+  - When a topic has only one single-select question, tapping a chip saves
+    immediately.
+  - Fix mode.
+- **Sync sheet:** retry, fix, discard.
+- **Deep links** for the PWA's paths.
+- **Flush triggers:** `scenePhase`, `NWPathMonitor`, the backoff timer, and
+  `BGAppRefreshTask` (best-effort).
 - **Validation:**
-  - UI test for edit then delete then undo.
-  - Unit tests for the version-pinned rendering.
-  - An integration test confirming that an edit made on the web appears on the
-    phone via the feed.
-- **Demo:** GIFs of the entries list, an edit, and delete with undo.
+  - UI tests:
+    - record a multi-question entry offline, then see it sync;
+    - a deep link opens the record screen;
+    - "Same as last time".
+  - The full tap-count table is measured again, and every row is ≤ the PWA's.
+  - Device install, once D has passed.
+- **Demo:** GIFs.
 
-### M4: Management parity · L · Blocked by: H2
+### M3: Reminders and logging from notifications · L · Needs: H3–H6
 
-- Topic overview and stats: summary, numeric (mean, the stats grid, a histogram,
-  a mean line with a min–max band), enum (option bars, stacked bars over time),
-  text. Swift Charts. Cached responses carry a "Last updated" label.
-- New topic. The question builder for every type (enum options, multi-select
-  limits, archiving options, required, help text). The version check with a
-  compatibility report sheet, publish, and the "someone else published first"
-  conflict flow.
-- The versions screen.
-- Topic settings: details, the schedule editor (none, daily times and weekdays
-  with a timezone, interval; notify), archive with undo, delete with typed
-  confirmation.
-- App settings: notifications (permission and test push), sync status and "Sync
-  now", local data reset, about and licences.
-- **Validation:**
-  - Builder unit tests ported from `builder.test.ts`.
-  - UI test: create topic, log, publish v2, log again.
-  - Charts match the PWA numbers on seeded data (screenshot comparison).
-- **Demo:** GIFs of creating a topic, editing questions with a compatibility
-  warning, and the stats screens.
-
-### M5: Reminders and logging from a notification · L · Blocked by: H3, H4, H5, H6
-
-- **Backend:** B6, B7, B8.
+- **Backend:** B6, B7 and B8.
 - **iOS:**
-  - APNs registration on launch (token and environment).
-  - Per-topic categories, registered after each sync.
-  - The NSE upsert, with a fallback to the generic `quickr.due` category.
-  - The action handler: lightweight boot, write the entry and the outbox row in
-    one transaction, recompute due, set the badge, remove the delivered
-    notification, flush with a budget, then complete.
-  - Number text input parsed with the question's rules. Invalid input produces a
-    "tap to fix" local notification.
-  - Settings: the "Test this device" button.
-- **Spikes first (on a device):**
-  1. The NSE category-upsert timing.
-  2. How many actions the expanded notification shows.
-  3. The action background-time budget.
-  4. Logging from the Lock Screen with the store protected until first unlock.
-
-  Go/no-go is recorded in the PR.
-
+  - APNs registration, with the environment read from
+    `embedded.mobileprovision`.
+  - The category table, and the NSE (upserts the category, sets the badge from
+    local due counts).
+  - The action handler: validates against `userInfo`, writes in one transaction,
+    removes the matching delivered notifications, then flushes within its
+    budget.
+  - Number text input. If the input can't be parsed, a local notification says
+    "tap to fix".
+  - "Test this device".
 - **Validation:**
-  - Backend: `MockTransport` tests (JWT, headers, error table, payload ≤ 4 KB),
-    the scheduler fans out to web and APNs exactly once, payload golden tests.
-  - Device end to end in the sandbox:
-    1. A due reminder arrives.
+  - Backend: MockTransport tests (JWT, headers, the error table, payloads ≤ 4
+    KB); the scheduler fans out to web and APNs; partial-failure and
+    commit-failure cases (at least once).
+  - On the device, in the APNs sandbox:
+    1. The reminder arrives.
     2. A chip action logs with the app killed.
-    3. The entry shows on the server with `channel=ios` and
+    3. The server shows the entry with `channel=ios` and
        `source=ios.notification`.
     4. The badge updates.
-  - The PWA shows actions in Chromium, and logging from them works.
-- **Demo:** a device screen recording of a reminder, a long-press, logging from
-  the action, and the PWA/home updating.
+    5. Publish a new version while a notification is still on screen. That
+       notification's actions still log against the version they were sent with.
+  - PWA: Chromium actions log entries.
+- **Demo:** a device screen recording.
 
-### M6: Widgets, Controls, Siri and Shortcuts · L · Blocked by: H3–H5 (device verification)
+### M4: Widgets, Controls, Siri and Shortcuts · M · Needs: H3–H5
 
-- **QuickrIntents:**
-  - `TopicEntity` and `TopicOptionEntity` with a dependent query.
-  - `LogEntryIntent`, `RepeatLastEntryIntent`, `OpenRecordIntent`, each
-    `UndoableIntent` where applicable.
-  - `AppShortcutsProvider` phrases, and Spotlight indexing after sync.
-- **Widgets:**
-  - A per-topic quick-log widget (small and medium: chips, or stepper plus ✓
-    using `ui_draft`).
-  - A due-list widget (medium and large).
-  - Lock Screen accessories.
-  - `ControlWidgetButton` per topic and option, usable from the Action button.
-  - Timelines at the next due times within 24 h. Reload after every write, sync
-    and background refresh. Accented and tinted rendering.
+- **Work:** QuickrIntents (as in §2), the widgets, the controls, and the
+  Shortcuts phrases.
+- **Validation, on the device:**
+  - A widget chip logs with the app killed and **no network**. The widget shows
+    "queued", and the entry syncs on the next trigger.
+  - The Action button runs Repeat-last (if the phone has one).
+  - Siri: "Log water in quickR".
+  - Multi-process soak: logging from the app, a widget and notification actions
+    all at once surfaces no `SQLITE_BUSY` errors and no 0xDEAD10CC crashes.
+- **Demo:** GIFs and a device recording.
+
+### M5: History and entries · M · Needs: H2
+
+- **Work:**
+  - The entries list, read from the local store, with filters. Pending and
+    failed entries are pinned at the top.
+  - Editing an entry against its pinned version, applied optimistically through
+    the outbox.
+  - Delete with undo.
+  - CSV export through the share sheet (online only).
+  - Offline browsing of history.
 - **Validation:**
-  - Intents resolve from both the app and the widget.
-  - Simulator snapshots of widgets in light, dark and tinted.
-  - On the device:
-    1. A widget chip logs with the app killed.
-    2. The Action button runs `RepeatLast`.
-    3. "Log water in quickR" works through Siri.
-  - The multi-process soak: logging repeatedly from the app, the widget and a
-    notification at the same time leaves no `SQLITE_BUSY` errors and no
-    0xDEAD10CC crashes.
-- **Demo:** GIFs of logging from a widget, the Action button, and Siri.
+  - A UI test: edit, delete, undo.
+  - Integration:
+    - an edit made on the web reaches the phone;
+    - a web delete that arrives while an update is still pending drops the
+      entry, and the update fails with a notice.
+- **Demo:** GIFs.
 
-### M7: Hardening, delivery and hosting · M · Blocked by: H7 (TestFlight), H8 (Cloudflare)
+### M6: Management parity · L · Needs: H2
 
-- **TestFlight:** `make ios-testflight` (archive, then export with upload, using
-  an App Store Connect API key). Build numbers come from the git commit count.
-- **Hosting:** B9, the server URL and CF token in Settings, an end-to-end test
-  against the Cloudflare host, and documentation of the MCP policy.
-- **Polish:**
-  - An accessibility pass (VoiceOver labels, Dynamic Type up to AX sizes, 44 pt
-    targets).
-  - Performance (cold start under 1 s to an interactive home with 10k entries).
-  - Upgrade-migration test from the v1 schema.
-  - Docs: `ios/README.md`, and an iOS section in the root README and `pwa.md`.
-- **Final PR** from `feat/ios-app` into `main`.
+- **Work:**
+  - Overview and stats: Swift Charts, cached.
+  - Topic creation.
+  - Question builder (all types), with the compatibility report, publish, and
+    conflict handling.
+  - Versions.
+  - Topic settings: details, schedule editor, archive with undo, delete with
+    typed confirmation.
+  - App settings: sync status, reset, about and licences.
 - **Validation:**
-  - A TestFlight build installs over the air.
-  - The production APNs path works from TestFlight.
-  - The full regression checklist (every milestone's flows) passes on the
-    device.
+  - Builder tests ported from `builder.test.ts`.
+  - **(v2)** Chart-model unit tests assert bucket values and timezone bucketing
+    from fixture stats.
+  - A UI test: create a topic, log, publish v2, log again.
+- **Demo:** GIFs.
 
-## 7. Who does what
+### M7: Hardening, TestFlight and hosting · M · Needs: H7, H8
 
-### Human steps (yours)
+- **Work:**
+  - `make ios-testflight`.
+  - Hosting (B9), with an end-to-end test through Cloudflare.
+  - Accessibility: VoiceOver, the accessibility text sizes, 44 pt tap targets.
+  - Performance: cold start in under 1 s with 10k entries.
+  - A test that upgrades from the v1 schema.
+  - Docs.
+  - The final PR into `main`.
+- **Validation:**
+  - TestFlight installs over the air.
+  - APNs works in production.
+  - The full regression checklist passes on the device.
 
-| #   | Step                                                                                                                                                                                                                                                           | Needed before       | Effort                           |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------- |
-| H1  | **Upgrade macOS to Tahoe 26.6+** (the Mac is on 15.6.1; Xcode 27 needs Tahoe)                                                                                                                                                                                  | H2                  | ~1 h                             |
-| H2  | **Install Xcode 27.x** from the App Store or `xcodes`, then `sudo xcode-select -s /Applications/Xcode.app && sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch && xcodebuild -downloadPlatform iOS`. I'll run `brew install xcodegen` myself. | M2                  | ~1 h                             |
-| H3  | **Enroll in the Apple Developer Program** (individual, $99/yr). Note the Team ID.                                                                                                                                                                              | Device installs, M5 | Minutes, then 0–2 days of review |
-| H4  | **Xcode ▸ Settings ▸ Accounts:** sign in with the enrolled Apple ID (once)                                                                                                                                                                                     | First device build  | 2 min                            |
-| H5  | **Phone:** connect it by cable, tap Trust, turn on Developer Mode (Settings ▸ Privacy & Security, then reboot), and optionally enable "Connect via network". Tell me the phone's iOS version.                                                                  | First device build  | 10 min                           |
-| H6  | **APNs key:** developer.apple.com ▸ Keys ▸ + ▸ APNs, environment "Sandbox & Production". Download the `.p8` (it can only be downloaded once) and save it outside the repo. Give me the Key ID and Team ID.                                                     | M5                  | 5 min                            |
-| H7  | **App Store Connect:** create the app record `com.bahumia.quickr`, then a Team API key (App Manager role). Note the key `.p8`, Key ID and Issuer ID.                                                                                                           | M7 TestFlight       | 15 min                           |
-| H8  | **Cloudflare:** tunnel to the home box, an Access application, and a service token for the app. Decide the `/mcp` policy.                                                                                                                                      | M7 hosting          | ~1 h                             |
-| H9  | **Milestone PR reviews** (asynchronous, see Q1). Optional: an Icon Composer layered icon.                                                                                                                                                                      | Ongoing             | —                                |
+**If enrollment is slow:** M5 and M6 need only Xcode, so they move ahead of M3
+and M4. The order becomes M2b → M5 → M6 → M3 → M4.
 
-### Claude's work
+## 8. Gates and CI
+
+| Gate                   | Contents                                                                                                                                                                                                                                                                                                                                                                                           | Where              |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `make check`           | Today's checks, plus the drift checks for vectors, fixtures and request goldens. No Xcode needed.                                                                                                                                                                                                                                                                                                  | Local and `ci.yml` |
+| `make check-ios`       | `xcodegen generate`, `swift test`, `xcodebuild test` with the Unit and UI plans, a swift-format lint, and an Xcode version check                                                                                                                                                                                                                                                                   | Local              |
+| `make ios-integration` | The sync suite against this worktree's docker stack. **Required** for any milestone that touches sync.                                                                                                                                                                                                                                                                                             | Local              |
+| `ios.yml` **(v2)**     | Checks out the repo and downloads the xcodegen binary.<br>• On push: `swift test` on the host, about 3 min.<br>• On a PR marked ready for review, or a manual dispatch: an `xcodebuild` build plus the Unit plan.<br>• Path filters, and in-progress runs are cancelled.<br>The repo is private, so macOS minutes count at 10× — **we'll confirm your GitHub plan tier and keep an eye on usage**. | GitHub             |
+| Device checklist       | Listed in each milestone's PR                                                                                                                                                                                                                                                                                                                                                                      | Phone              |
+| Reviews                | A code-review sub-agent plus `codex review`, for every milestone                                                                                                                                                                                                                                                                                                                                   | Before the PR      |
+
+**Definition of done:** the gates are green; every validation item and every row
+of the **requirements matrix (§11)** for this milestone is ticked; demo media is
+embedded; review findings are resolved; docs and specs are updated.
+
+## 9. Who does what
+
+### Your steps
+
+| #      | Step                                                                                                                                                                                                            | Needed for | Effort  |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ------- |
+| **H1** | **Upgrade macOS to Tahoe 26.6 or later. Start now:** nothing in Swift compiles on this Mac until it's done.                                                                                                     | M1 onward  | ~1 h    |
+| **H2** | **Install Xcode 27.x**, then run `sudo xcode-select -s /Applications/Xcode.app && sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch && xcodebuild -downloadPlatform iOS`                       | M1 onward  | ~1 h    |
+| **H3** | **Enroll in the Apple Developer Program** (individual). **Start now**, because the review takes 0–2 days. Then send me the Team ID.                                                                             | D, M3, M4  | Minutes |
+| H4     | Sign in to Xcode ▸ Settings ▸ Accounts                                                                                                                                                                          | D          | 2 min   |
+| H5     | **Phone:** plug it in and tap Trust, turn on Developer Mode and reboot, and optionally turn on "Connect via network". **Tell me the model and iOS version**; the Action button needs an iPhone 15 Pro or later. | D          | 10 min  |
+| H6     | **APNs key:** in Developer ▸ Keys, create a key with APNs for Sandbox & Production. Download the `.p8`; it can only be downloaded once. Keep it outside the repo and send me the Key ID.                        | M3         | 5 min   |
+| H7     | **App Store Connect:** create the app record for `com.bahumia.quickr` and a Team API key (App Manager role). Send me the key file, Key ID and Issuer ID.                                                        | M7         | 15 min  |
+| H8     | **Cloudflare:** the tunnel, an Access app, a service token for the app, and a policy for `/mcp`                                                                                                                 | M7         | ~1 h    |
+| H9     | Review milestone PRs asynchronously (see Q1), and answer the open questions in §10                                                                                                                              | Ongoing    | —       |
+
+### My work
 
 Everything else:
 
-- all code (backend, PWA, iOS), tests, CI, scripts, docs, project generation;
-- simulator and device builds, installs and test runs;
+- all code (backend, PWA and iOS), tests, specs, CI and scripts;
+- builds, simulator and device installs, and test runs;
 - demo media;
-- orchestrating sub-agents, and merging their work packages;
-- milestone PRs, reviews (sub-agent and `codex`), and fix-ups.
+- orchestrating sub-agents, integrating their work, and opening PRs;
+- the sub-agent and Codex reviews, and the fixes they lead to.
 
-I ask you only for the H-steps above, or when a plan decision needs to change.
+### What can happen when
 
-### What can proceed before each human step
+| When           | What can proceed                              |
+| -------------- | --------------------------------------------- |
+| Now (no Xcode) | M0: backend and specs                         |
+| After H1 + H2  | M1, M2a, M2b, M5 and M6, all on the simulator |
+| After H3–H5    | Checkpoint D, device installs, M4             |
+| After H6       | M3                                            |
+| After H7 + H8  | M7                                            |
 
-- **Now (no Xcode):** M0 and M1 in full. The Swift packages compile and test on
-  CI `macos-26`. That CI run is the first real compile, and the `swift test`
-  host tests run there.
-- **After H2, before H3:** M2–M4 in the simulator, including UI tests, widgets
-  in the simulator, `simctl push` with the payload contract, and demos.
-- **After H3–H5:** device installs from M2 onward, and real APNs (M5).
-- **After H7 and H8:** M7.
+## 10. Open questions
 
-## 8. Validation and gates
+- **Q1. Merge gating.** By default, I merge each milestone PR once its gates and
+  reviews pass, and you review afterwards. Is that OK, or should every milestone
+  wait for your approval?
+- **Q2. Logging from the lock screen.** Notification actions log **without Face
+  ID**, which keeps it at 2 taps. Should they require authentication instead?
+- **Q3. Siri and Shortcuts with multi-question topics.** These open the record
+  screen, or use Repeat-last; there's no field-by-field voice entry. Is that
+  acceptable?
+- **Q4. Topics with 5–6 options.** The notification shows the 4 most-used
+  options, and the rest are one tap away in the app. Is that acceptable?
 
-| Gate                | Contents                                                                                                                                                          | Where                     |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| `make check`        | Existing backend and frontend gate, plus the vector and fixture drift checks                                                                                      | Local, and CI `ci.yml`    |
-| `make check-ios`    | `xcodegen generate`; `swift test` (QuickrKit); `xcodebuild test` with the Unit and UI plans on the pinned simulator; swift-format lint; asserts the Xcode version | Local (needs Xcode)       |
-| `make ios-check-ci` | The same, without UI tests, with `CODE_SIGNING_ALLOWED=NO`                                                                                                        | CI `ios.yml` (`macos-26`) |
-| Integration plan    | Sync engine against the local docker stack (opt-in, needs `make up`)                                                                                              | Local, before M1–M4 PRs   |
-| Device checklist    | A per-milestone manual and scripted checklist on the phone, listed in the PR                                                                                      | Local device              |
-| Reviews             | A code-review sub-agent plus `codex review` on every milestone diff, with findings addressed or answered in the PR                                                | Before each PR            |
+## 11. Requirements matrix
 
-**Definition of done for a milestone:**
+| Requirement (REQUIREMENTS.md)                                                               | Delivered in       | Proven by                                                                           |
+| ------------------------------------------------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------- |
+| Native SwiftUI, iOS 26+, iPhone only                                                        | M1–M2              | Deployment target 26.0; the CI build on the 26.x SDK                                |
+| Full parity: home, tiles and record                                                         | M2a, M2b           | UI tests and the tap-count table                                                    |
+| Full parity: entries, edit, delete with undo, CSV                                           | M5                 | UI test and integration test                                                        |
+| Full parity: topic create, builder, versions, schedule, archive and delete, stats, settings | M6                 | Builder and chart-model tests, plus a UI test                                       |
+| Offline-first: instant logging, later sync, offline history                                 | M1, M2b, M5        | The integration suite and the offline UI test                                       |
+| Server APNs reminders                                                                       | M3                 | Device sandbox checklist                                                            |
+| A future local fallback stays possible                                                      | §6 spec, M3        | The spec's identifier and cancel rules, reviewed                                    |
+| Log from a notification                                                                     | M3                 | Device checklist, with the app killed                                               |
+| Widgets on the Home and Lock Screens, interactive                                           | M4                 | Device checklist, with the app killed and offline                                   |
+| Siri, Shortcuts, Action button                                                              | M4                 | Device checklist (Action button only on a 15 Pro or later)                          |
+| Native look with the brand                                                                  | M2a                | Light and dark screenshots; design-system components                                |
+| Bundle IDs `com.bahumia.quickr.*`, App Group                                                | M0                 | `project.yml`                                                                       |
+| Keep the PWA working, with parity where possible                                            | Every milestone    | `make check`; B8's Chromium actions                                                 |
+| Cloudflare service-token headers, services stay open                                        | M2a (settings), M7 | End-to-end test through Cloudflare                                                  |
+| Monorepo, `ios/`                                                                            | M0                 | The repository layout                                                               |
+| Worktrees; a PR per milestone with demos; a final PR                                        | All                | The §4 process. M0 and M1 carry test reports instead of media (a stated deviation). |
+| Local gate plus CI build                                                                    | M0–M1              | `make check-ios`, `ios.yml`                                                         |
 
-- Gates green.
-- Validation items ticked.
-- Demo media embedded.
-- No unresolved review findings.
-- Docs updated: `docs/ios/` and the research decisions, if any changed.
+**Infeasible or limited, stated explicitly:**
 
-## 9. Risks and mitigations
+1. Interactive widgets need the phone to be unlocked. On the Lock Screen,
+   logging goes through the notification actions instead.
+2. The Action button exists only on the iPhone 15 Pro and later.
+3. A notification can show at most 4 actions, so a topic with 5–6 options shows
+   its 4 most-used.
+4. Widgets have no number stepper in v1. A number topic gets "✓ last" only.
+5. Siri can't fill in a multi-question form field by field.
+6. PWA parity is limited by the platform:
+   - iPhone Safari's web push has no actions, and Chromium allows about 2.
+   - So on the iPhone, one-tap logging from a notification exists only in the
+     native app.
+7. A notification that arrives before the first unlock after a reboot has no
+   actions.
 
-| Risk                                                                           | Mitigation                                                                                                                             |
-| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| The macOS or Xcode upgrade is delayed                                          | M0 and M1 are host- and CI-only, and CI `macos-26` compiles the code. If needed, fall back to Xcode 26.3 on Sequoia for the simulator. |
-| Notification-action background time, and NSE category timing, are undocumented | Write to the outbox first and flush opportunistically. Spike at the start of M5. Fall back to a generic category with "Open".          |
-| Multi-process SQLite: locks, 0xDEAD10CC, migrations owned by one process       | GRDB's sharing recipe, suspension notifications, migrations in the app only, a pending-log fallback file, the M6 soak test             |
-| Commit-order gaps in the `updated_at` cursor                                   | A 2-minute overlap re-read, and idempotent upserts                                                                                     |
-| DST mismatch between Python and Swift                                          | Explicit fold logic plus about 1–2k shared vectors from stable zones                                                                   |
-| Interactive widgets don't run while the phone is locked                        | Documented. The notification action is the lock-screen path.                                                                           |
-| Unauthenticated device registration before Cloudflare                          | Local network only until M7. Cloudflare Access covers it afterwards.                                                                   |
-| macOS CI minutes cost about 10× on a private repo                              | Path filters, concurrency cancel, unit tests only in CI, an 8-minute target                                                            |
-| Scope (full parity plus extras)                                                | Milestones are ordered so the daily-use value (M2, M5) arrives early. Each PR ships something usable.                                  |
+## 12. Review resolutions (v1 → v2)
 
-## 10. Open questions for you
-
-- **Q1. Milestone PR gating.** The default above is that I merge milestone PRs
-  into `feat/ios-app` once the gates and reviews pass, and you review
-  asynchronously. Do you prefer that, or should each milestone PR wait for your
-  approval?
-- **Q2. Logging from the lock screen.** Notification actions log **without**
-  Face ID by default (the 2-tap bar). Should logging from the lock screen need
-  authentication?
-- **Q3. Siri and Shortcuts for multi-question topics.** These would open the
-  record screen; there's no voice entry for every field. Acceptable?
+| Finding                                                                                                      | Resolution                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Codex B1:** the cursor can lose rows                                                                       | A commit-ordered `change_log` whose seq is allocated under an advisory lock, with one ordering for both changes and deletions (§2). Concurrency tests in M0.                                                                                        |
+| **Codex B2:** undo relies on leases                                                                          | Permanent `deleted_ids` plus 409 `entry_deleted` make stale sends harmless. A create whose delivery is uncertain is never discarded (§2, §6).                                                                                                       |
+| **Codex B3:** wipe-and-repull loses offline work                                                             | A two-layer store. Resync on an epoch mismatch rebuilds only the server layer (§2).                                                                                                                                                                 |
+| **Codex M4 / Fable M4:** zombie entries, topic tombstones                                                    | Merge and failure rules in `sync-protocol.md`, covered by M5's integration tests                                                                                                                                                                    |
+| **Codex M5:** a category's meaning drifts across versions                                                    | Categories `quickr.t.{id}.{hash}` are never changed in place, actions are validated against `userInfo`, and a registration table tracks them (§2)                                                                                                   |
+| **Codex M6:** the fallback drops a requirement, and the spike comes too late                                 | A simulator spike in M1 and checkpoint D on day one. A no-go waits for you.                                                                                                                                                                         |
+| **Codex M7:** fallback dedupe is unproven                                                                    | Explicit cancel rules in `notifications.md`, with no reliance on the collapse id                                                                                                                                                                    |
+| **Codex M8:** GRDB multi-process access is untested                                                          | File-backed subprocess tests in M1 and a soak in M4. The JSONL fallback is dropped.                                                                                                                                                                 |
+| **Codex M9:** widget delivery                                                                                | Durable enqueue, a "queued" state, flushes from the NSE and the action handler, and a test with the app killed and offline                                                                                                                          |
+| **Codex M10:** "exactly once"                                                                                | Replaced by best-effort, at-least-once, with failure tests                                                                                                                                                                                          |
+| **Codex M11:** backend deployment during development                                                         | Docker stacks per worktree, LAN access from the phone, and the `.p8` via a compose override (§4)                                                                                                                                                    |
+| **Codex M12:** validation doesn't prove parity                                                               | The requirements matrix, request goldens, chart-model tests, and the required integration suite                                                                                                                                                     |
+| **Codex M13 / Fable:** workflow isolation, and media for non-UI milestones                                   | Ports and databases per worktree, contract ownership, and the stated deviation (§4)                                                                                                                                                                 |
+| **Codex "missing":** server changes, keychain while locked, repeat-last, token rotation, topic paging, reset | Store partitioning, `AfterFirstUnlock`, defined repeat-last rules, the notifications spec, the feed (which replaces topic paging), and the reset rules                                                                                              |
+| **Fable B1:** the Command Line Tools can't build any Swift                                                   | Swift work starts at M1, after H1 and H2. M0 is backend work and specs. H1 and H2 start now.                                                                                                                                                        |
+| **Fable B2:** at most 4 actions                                                                              | Designed for 4 (§2)                                                                                                                                                                                                                                 |
+| **Fable B3:** the outbox isn't a port                                                                        | Labelled a new design, with its own spec and test matrix. M1 is sized XL.                                                                                                                                                                           |
+| **Fable M1:** Xcode pinning                                                                                  | An explicit toolchain rule. CI uses Xcode 26.6, or `xcode-27` once that's generally available.                                                                                                                                                      |
+| **Fable M2:** where `AppShortcutsProvider` lives                                                             | In the app target, proven in M1                                                                                                                                                                                                                     |
+| **Fable M3:** the Action button needs specific hardware                                                      | The phone model is asked in H5, and the limit is stated                                                                                                                                                                                             |
+| **Fable M5:** value arrives late and M2 is too big                                                           | Reordered so reminders and widgets come before history and management; M2 split; checkpoint D added                                                                                                                                                 |
+| **Fable M6:** CI budget                                                                                      | Compile locally; `swift test` on push; the full build only on a ready PR or a dispatch; the xcodegen binary instead of brew                                                                                                                         |
+| **Fable M7:** badge                                                                                          | Set on the device only; the payload has no badge                                                                                                                                                                                                    |
+| **Fable minors**                                                                                             | Environment read from `embedded.mobileprovision`; the widget reload budget; plist keys; dev networking; the PWA parity limits listed; `conftest` TABLES                                                                                             |
+| **Fable simplifications**                                                                                    | **Taken:** 3 targets, permanent tombstones (no retention), a trimmed M4, a single flush lock, cutting snapshot tests and JWT verification. **Not taken:** dropping one of the two drift mechanisms, because Codex asked for more contract coverage. |

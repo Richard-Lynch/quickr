@@ -57,71 +57,46 @@ ios/QuickrKit/ (iOS 26, macOS 15)
 ios/UITests/
 ```
 
-**Platform-free targets.** Core, API, Store and Sync have no UIKit, WidgetKit or
-AppIntents dependency. That lets `swift test` run on macOS CI in seconds without
-a simulator. It may also run on the Command Line Tools alone, before Xcode is
-installed; this is unverified.
-
-**App Intents in a package (Xcode 26).**
-
-- Xcode 26 supports App Intents in packages through `AppIntentsPackage` [8].
-- Apple engineers say the protocol is only needed when an `AppEntity` crosses a
-  package boundary, and that redundant declarations can duplicate metadata so
-  that intents fail to resolve [9].
-- We have `TopicEntity`, so each bundle target (app and widget) declares exactly
-  one package that includes `QuickrIntents`.
-- We test that the intents resolve from both targets.
-- There is a known localization bug for intents that live in a package [9]. The
-  app is English-only, so we accept it.
-
-**Shared resources.**
-
-- App Group `group.com.bahumia.quickr` holds the database and a shared defaults
-  suite with the base URL and settings.
-- Keychain access group `$(AppIdentifierPrefix)com.bahumia.quickr.shared` holds
-  the Cloudflare secrets.
-- Fonts and colour sets live in `QuickrUI` (`Bundle.module`). Each process
-  registers the fonts at startup with `CTFontManagerRegisterFontsForURL`.
-
-**Rejected: Tuist.** It does more, but four targets don't need more than one
-YAML file.
+- **Platform-free targets:** Core, API, Store and Sync import no UIKit,
+  WidgetKit or AppIntents, so `swift test` runs on macOS CI without a simulator
+  (possibly even on Command Line Tools alone; unverified).
+- **App Intents in a package** are supported from Xcode 26 via
+  `AppIntentsPackage` [8]. It is only needed when an `AppEntity` crosses a
+  package boundary, and redundant declarations can duplicate metadata so intents
+  fail to resolve [9]. We have `TopicEntity`, so the app and the widget each
+  declare exactly one package including `QuickrIntents`, with a test that
+  intents resolve from both. A known localization bug for packaged intents [9]
+  doesn't matter while the app is English-only.
+- **Shared:** App Group `group.com.bahumia.quickr` (database, defaults suite
+  with base URL and settings); keychain group
+  `$(AppIdentifierPrefix)com.bahumia.quickr.shared` (Cloudflare secrets); fonts
+  and colours in `QuickrUI` (`Bundle.module`, fonts registered per process with
+  `CTFontManagerRegisterFontsForURL`).
+- **Rejected: Tuist.** Four targets don't need more than one YAML file.
 
 ## 2. Persistence: GRDB 7
 
-**Setup.** GRDB 7.11.x is current [5]. Use one `DatabasePool` at
-`<AppGroup>/Library/quickr.sqlite`, configured with GRDB's own multi-process
-recipe [4]:
+**Setup.** GRDB 7.11.x is current [5]. One `DatabasePool` at
+`<AppGroup>/Library/quickr.sqlite`, using GRDB's multi-process recipe [4]: WAL
+with `SQLITE_FCNTL_PERSIST_WAL`, `busyMode = .timeout(5)`,
+`observesSuspensionNotifications` plus `Database.suspendNotification` on
+backgrounding (avoids the 0xDEAD10CC lock-while-suspended kill), and creation
+coordinated with `NSFileCoordinator`.
 
-- WAL mode with `SQLITE_FCNTL_PERSIST_WAL`.
-- `busyMode = .timeout(5)`.
-- `observesSuspensionNotifications` turned on, and
-  `Database.suspendNotification` posted when the app moves to the background.
-  This avoids 0xDEAD10CC, which is a kill for holding a lock while suspended.
-- Database creation coordinated with `NSFileCoordinator`.
+**Cross-process changes.** GRDB observation can't see other processes' writes
+[4], so every writer posts the Darwin notification
+`com.bahumia.quickr.db-changed` after commit; the app re-runs observations and
+widgets reload.
 
-**Cross-process changes.** GRDB observation can't see writes from another
-process [4]. So every writer posts the Darwin notification
-`com.bahumia.quickr.db-changed` after it commits. The app then re-runs its
-observations, and the widget's timelines get reloaded.
+**File protection:** `.completeUntilFirstUserAuthentication` on the database
+directory. Notification actions run while locked, when `.complete` files are
+unreadable [13].
 
-**File protection.** Set `.completeUntilFirstUserAuthentication` on the database
-directory. Notification actions can run while the device is locked, and Apple
-warns that `.complete` files are unreadable then [13]. Logging from the lock
-screen is a core flow, so this setting is required.
-
-**Migrations.**
-
-- Use `DatabaseMigrator` with append-only migrations, and only the app ever
-  calls `migrate`. This is the "one process owns the schema" rule Apple gives
-  for SwiftData [1].
-- If an extension runs before the app has migrated after an update,
-  `hasCompletedMigrations` is false. Each extension then degrades:
-
-  | Extension           | Behaviour                                                                                        |
-  | ------------------- | ------------------------------------------------------------------------------------------------ |
-  | Widget              | Shows "Open quickR"                                                                              |
-  | Intent              | Shows a dialog asking the user to open the app                                                   |
-  | Notification action | Appends the log to a `pending-logs.jsonl` file in the App Group, which the app ingests at launch |
+**Migrations.** Append-only `DatabaseMigrator`; only the app calls `migrate`
+(Apple's "one process owns the schema" rule [1]). If an extension finds
+`hasCompletedMigrations` false after an update, it degrades: the widget shows
+"Open quickR", an intent asks the user to open the app, and a notification
+action appends to `pending-logs.jsonl` in the App Group for the app to ingest.
 
 **Schema v1.**
 
@@ -206,21 +181,10 @@ GET /api/v1/sync?cursor=<opaque>&limit=500
 
 - **Online only:** topic create, publishing questions (which needs
   `base_version` and an immediate 409 path), topic delete and schedule edits.
-- **Classification and backoff** are identical to the PWA:
-
-  | Response                           | Outcome  |
-  | ---------------------------------- | -------- |
-  | 2xx with JSON                      | ok       |
-  | Network error or 15 s timeout      | retry    |
-  | 5xx                                | retry    |
-  | 401, 403, 408, 425, 429            | retry    |
-  | 3xx (redirects are never followed) | retry    |
-  | Non-JSON 200                       | retry    |
-  | Any other 4xx                      | `failed` |
-
-  Retries back off `2s·2^(n-1)` ±20 %, capped at 5 minutes. A network error
-  stops the current pass.
-
+- **Classification and backoff** are identical to the PWA: 2xx with JSON → ok;
+  network error, 15 s timeout, 5xx, 401/403/408/425/429, any 3xx (redirects are
+  never followed) or a non-JSON 200 → retry; any other 4xx → `failed`. Backoff
+  `2s·2^(n-1)` ±20 %, capped at 5 min; a network error stops the pass.
 - **Coalescing at enqueue:**
   - An update to an unsent create is folded into the create.
   - Two updates to the same entity merge.
@@ -243,17 +207,13 @@ GET /api/v1/sync?cursor=<opaque>&limit=500
   `updated_at`, so an edit or discard made during a send wins.
 - **Conflicts: last write wins**, as today. Later, optionally, send
   `If-Unmodified-Since` and surface a 412 as a failed item to fix.
-- **Flush triggers:**
-  - Enqueue: `sendNow`, waiting a few seconds before reporting the item as
-    queued, like `recordEntry`.
-  - `scenePhase` becoming active.
-  - `NWPathMonitor` reporting `.satisfied`.
-  - A timer for the next backoff deadline while in the foreground.
-  - After a notification action or widget intent, with a 5–8 s budget.
-  - `BGAppRefreshTask` `com.bahumia.quickr.refresh` [18], which pulls, flushes,
-    reloads widgets and re-arms itself for the next due time.
-  - Later, optionally: a silent push when data changes on the web.
-  - Every flush runs inside `beginBackgroundTask`.
+- **Flush triggers:** enqueue (`sendNow`, waiting a few seconds before
+  reporting "queued", like `recordEntry`); `scenePhase` active; `NWPathMonitor`
+  `.satisfied`; a foreground timer for the next backoff deadline; after a
+  notification action or widget intent (5–8 s budget); `BGAppRefreshTask`
+  `com.bahumia.quickr.refresh` [18] (pull, flush, reload widgets, re-arm for the
+  next due time); later, optionally, a silent push on web-side changes. Every
+  flush runs inside `beginBackgroundTask`.
 - **Rejected: background `URLSession` in v1.** A background upload is delivered
   outside our process, possibly after the user has pressed Undo. It would then
   recreate the deleted entry. Making it safe means cancelling system tasks
@@ -406,21 +366,14 @@ A 410 response removes the token.
   process that also needs the database and a flush, and it still needs a
   category. Revisit it only if an in-notification stepper becomes a must.
 
-**Handler.** `didReceive` runs after the system launches the app in the
-background [13]. It uses a lean boot path with no UI and runs these steps:
-
-1. Open the database.
-2. Validate the answer.
-3. Insert the entry and its `entry.create` outbox row in one transaction, with
-   `source = ios.notification`.
-4. Recompute due, call `setBadgeCount`, and remove the delivered `due-<topicId>`
-   notification.
-5. Post a Darwin notification and reload the widgets.
-6. Flush within a 5–8 s budget inside `beginBackgroundTask`.
-7. Call the completion handler.
-
-The time limit is undocumented. About 30 s is commonly cited [21]. Durability
-therefore never depends on the network.
+**Handler.** The system launches the app in the background and calls
+`didReceive` [13]. On a lean boot path (no UI): open the database, validate,
+insert the entry and its `entry.create` row in one transaction
+(`source = ios.notification`), recompute due, `setBadgeCount`, remove the
+delivered `due-<topicId>`, post the Darwin notification, reload widgets, flush
+within 5–8 s inside `beginBackgroundTask`, then call the completion handler. The
+time limit is undocumented (about 30 s is commonly cited [21]), so durability
+never depends on the network.
 
 **Payload (B3).** The Web Push payload is unchanged.
 
@@ -579,19 +532,17 @@ API.
 
 ## Risks and unknowns
 
-1. **Notification action time** is undocumented. The outbox write happens first
-   and the flush is opportunistic.
-2. **Category registration from the NSE** and the number of visible actions both
-   need a device spike in an early milestone.
-3. **Multi-process SQLite** (0xDEAD10CC, `SQLITE_BUSY`, an extension running
-   before the migration) relies on GRDB's recipe and the pending-log file. It
-   needs a soak test.
+1. **Notification action time** is undocumented; mitigated by writing to the
+   outbox first.
+2. **NSE category registration** and the number of visible actions need a
+   device spike in an early milestone.
+3. **Multi-process SQLite** (0xDEAD10CC, `SQLITE_BUSY`, extension before
+   migration) relies on GRDB's recipe and the pending-log file; soak-test it.
 4. **Lock Screen widget buttons** require an unlock [10].
-5. **B1 is on the critical path.** Without tombstones, deletes made on the web
+5. **B1 is on the critical path:** without tombstones, deletes made on the web
    never reach the phone.
-6. **Cloudflare Access** answers a bad token with a redirect or a 403. Both are
-   classified as retryable and shown as "Sign-in problem". Universal links need
-   an AASA bypass.
+6. **Cloudflare Access** answers a bad token with a redirect or 403 (retryable,
+   shown as "Sign-in problem"); universal links need an AASA bypass.
 7. **Swift Testing on Command Line Tools alone** is unverified.
 
 ## Sources
