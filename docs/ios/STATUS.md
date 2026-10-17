@@ -116,7 +116,7 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
 - [x] Codex review of the specs: 3 rounds plus a final check. All Blockers and Majors resolved; the last provenance wording fix is 35c5319.
 - [x] Merged into `ios/m0-foundations`
 
-### WP scaffold (starts once Xcode is installed)
+### WP scaffold: `ios/m0-scaffold` (worktree `../ios-m0-scaffold`), started 2026-10-17 by a sub-agent
 
 - [ ] `ios/project.yml`: targets, entitlements, Info.plist keys, bundle ids
       `com.bahumia.quickr.*`
