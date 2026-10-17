@@ -16,3 +16,10 @@ export function charCount(s: string): number {
 export function inputMaxLength(max: number): number {
   return 2 * max;
 }
+
+/** The server rejects NUL in text answers (`services/answers.py`). iOS shows the same message. */
+export const INVALID_CHARACTER_MESSAGE = 'Remove the invalid character';
+
+export function hasInvalidCharacter(s: string): boolean {
+  return s.includes('\u0000');
+}

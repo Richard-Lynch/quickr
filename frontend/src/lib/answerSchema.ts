@@ -10,7 +10,7 @@ import { z } from 'zod';
 
 import type { EntryOut } from '../client';
 import { activeOptions, isMultiEnum, type EnumQuestionOutput, type Question } from './questions';
-import { charCount } from './text';
+import { charCount, hasInvalidCharacter, INVALID_CHARACTER_MESSAGE } from './text';
 
 export type AnswerValue = number | string | string[] | null;
 /** Raw input for one question. */
@@ -130,6 +130,7 @@ export function answerFieldSchema(
           return checkRange(ctx, n, q.min, q.max, q.unit);
         }
         case 'str': {
+          if (hasInvalidCharacter(value)) return issue(ctx, INVALID_CHARACTER_MESSAGE);
           // Code points, like the server (and iOS): an emoji is one character.
           const count = charCount(value);
           if (count < q.min_length)

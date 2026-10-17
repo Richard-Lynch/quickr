@@ -104,6 +104,16 @@ describe('buildAnswerSchema', () => {
     });
   });
 
+  it('rejects NUL like the server, with the message iOS uses', () => {
+    expect(errors(buildAnswerSchema([note]).safeParse({ note: 'ab\u0000c' }))).toEqual({
+      note: 'Remove the invalid character',
+    });
+    // Before the length rules: a short value with NUL gets the same message.
+    expect(errors(buildAnswerSchema([note]).safeParse({ note: '\u0000' }))).toEqual({
+      note: 'Remove the invalid character',
+    });
+  });
+
   it('counts characters as code points, like the server: an emoji is one', () => {
     expect(errors(buildAnswerSchema([note]).safeParse({ note: '😀😀' }))).toEqual({
       note: 'At least 3 characters (2 so far)',
