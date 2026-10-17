@@ -107,8 +107,7 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
   - [x] `make vectors`, and `shared/fixtures/README.md`
 - [x] Gate: `make check` green (orchestrator re-run: 324 pytest and 365 vitest passed)
 - [x] Codex review: round 1 found 2 Majors, both fixed (0e2843f, f958671). Round 2 approved.
-- [ ] Merged into `ios/m0-foundations`. Then **regenerate the fixtures**,
-      because the feed work adds fields and `/changes`.
+- [x] Merged into `ios/m0-foundations` (98584b1). Still to do: **regenerate the fixtures** once the feed WP merges.
 
 ### WP specs: `ios/m0-specs` (worktree `../ios-m0-specs`)
 
