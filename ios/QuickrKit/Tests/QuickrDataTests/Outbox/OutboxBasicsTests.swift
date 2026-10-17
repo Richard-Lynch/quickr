@@ -73,11 +73,11 @@ import Testing
         let report = try await outbox.flush(force: false, budget: .seconds(30))
         #expect(report.ending == .unreachable)
         #expect(h.server.count(.post) == 1)
-        let a = try #require(h.item(first))
+        let a = try #require(try h.item(first))
         #expect(a.state == .uncertain && a.maybeDelivered && a.attempts == 1)
         #expect(a.due == h.clock.now().adding(.seconds(2)))
-        #expect(a.errorInfo == OutboxErrorInfo(message: "Could not reach the server"))
-        #expect(h.item(second)?.attempts == 0)
+        #expect(try a.errorInfo == OutboxErrorInfo(message: "Could not reach the server"))
+        #expect(try h.item(second)?.attempts == 0)
     }
 
     @Test("5 · a 200 HTML page and a 302 keep the item queued with the PWA messages")
@@ -87,9 +87,9 @@ import Testing
         let id = try await h.log(outbox)
         h.server.inject(.post, .respond(HTTPResponse(status: 302, headers: ["Location": "/login"])))
         _ = try await outbox.flushNow()
-        var item = try #require(h.item(id))
+        var item = try #require(try h.item(id))
         #expect(item.state == .pending && !item.maybeDelivered)
-        #expect(item.errorInfo?.message == "The server redirected the request (sign-in required?)")
+        #expect(try item.errorInfo?.message == "The server redirected the request (sign-in required?)")
 
         let html = Data("<html>captive portal</html>".utf8)
         h.server.inject(
@@ -98,9 +98,9 @@ import Testing
                 HTTPResponse(
                     status: 200, headers: [QuickrHeader.serverId: "server-1", QuickrHeader.epoch: "E1"], body: html)))
         _ = try await outbox.flushNow()
-        item = try #require(h.item(id))
+        item = try #require(try h.item(id))
         #expect(item.state == .uncertain && item.maybeDelivered)
-        #expect(item.errorInfo?.message == "Unexpected response from the server")
+        #expect(try item.errorInfo?.message == "Unexpected response from the server")
         #expect(h.server.entry(id) == nil)
     }
 
@@ -111,10 +111,10 @@ import Testing
         let id = try await h.log(outbox)
         h.server.inject(.post, .respond(header(FakeServer.problem(422, "invalid_answers", "mood is required"))))
         _ = try await outbox.flush(force: false, budget: .seconds(30))
-        let item = try #require(h.item(id))
+        let item = try #require(try h.item(id))
         #expect(item.state == .failed && item.failureReason == .rejected)
-        #expect(item.errorInfo?.message == "Mood is required")
-        #expect(item.errorInfo?.status == 422)
+        #expect(try item.errorInfo?.message == "Mood is required")
+        #expect(try item.errorInfo?.status == 422)
         let report = try await outbox.flushNow()
         #expect(report.requests == 0 && h.server.count(.post) == 1)
     }
@@ -126,7 +126,7 @@ import Testing
         let id = try await h.log(outbox)
         h.server.inject(.post, .respond(header(FakeServer.problem(503, "internal_error", "down"))))
         _ = try await outbox.flushNow()
-        let item = try #require(h.item(id))
+        let item = try #require(try h.item(id))
         #expect(item.state == .uncertain && item.maybeDelivered)
     }
 
@@ -137,16 +137,16 @@ import Testing
         let id = try await h.log(outbox, minutes: 30 * 60)
         _ = try await outbox.flushNow()
         #expect(h.server.requests.isEmpty)
-        let item = try #require(h.item(id))
+        let item = try #require(try h.item(id))
         #expect(item.state == .failed && item.failureReason == .futureTime && item.attempts == 0)
         // Fix replaces the time and requeues it.
         var body = h.create()
         body.capturedAt = Make.t0
         try await outbox.fix(
             itemId: item.id, payload: .entryCreate(topic: h.ref, body: body), rowVersion: item.rowVersion)
-        #expect(h.item(id)?.state == .pending)
+        #expect(try h.item(id)?.state == .pending)
         _ = try await outbox.flushNow()
-        #expect(h.item(id) == nil && h.server.entry(id) != nil)
+        #expect(try h.item(id) == nil && h.server.entry(id) != nil)
     }
 
     @Test("42 · while rebuilding, a widget flush claims nothing; enqueue still works")
@@ -157,7 +157,7 @@ import Testing
         let id = try await h.log(widget)
         let report = try await widget.flush(force: true, budget: .seconds(4))
         #expect(report.ending == .paused)
-        #expect(h.server.requests.isEmpty && h.item(id)?.state == .pending)
+        #expect(try h.server.requests.isEmpty && h.item(id)?.state == .pending)
     }
 
     @Test("47 · a backoff deadline follows lease time, not the wall clock")
@@ -170,14 +170,14 @@ import Testing
             h.server.inject(.post, .lose(.unreachable("offline")))
             _ = try await outbox.flushNow()
         }
-        let item = try #require(h.item(id))
+        let item = try #require(try h.item(id))
         #expect(item.attempts == 3 && item.due == h.clock.now().adding(.seconds(8)))
         h.wall.advance(by: -86_400)
         h.clock.advance(by: .seconds(7))
         #expect(try await outbox.flush(force: false, budget: .seconds(30)).requests == 0)
         h.clock.advance(by: .seconds(1))
         _ = try await outbox.flush(force: false, budget: .seconds(30))
-        #expect(h.item(id) == nil && h.server.entry(id) != nil)
+        #expect(try h.item(id) == nil && h.server.entry(id) != nil)
     }
 
     @Test("48 · after a reboot the lease, the backoff deadline and the hold have all passed")
@@ -194,7 +194,7 @@ import Testing
         h.clock.reboot(bootId: "boot-2", ct: 1)
         let report = try await outbox.flush(force: false, budget: .seconds(30))
         #expect(report.ending == .drained)
-        #expect(h.items.isEmpty)
+        #expect(try h.items.isEmpty)
         #expect(h.server.entry(id) != nil && h.server.entry(entry.id) == nil)
     }
 }

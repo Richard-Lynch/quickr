@@ -33,6 +33,11 @@ final class FakeServer: Transport {
         /// Hold the request in the network until the gate opens, then execute it (or answer
         /// `override`). The client's cancellation abandons the wait, not the request.
         case delay(Gate, override: HTTPResponse? = nil)
+        /// Hold the request until the client cancels it; it then executes (or answers `override`)
+        /// and the answer reaches the client just after the cancellation: a response that lands
+        /// while the client shuts down. It arrives 20 ms late, after any timer the cancellation
+        /// woke, so a client that stops listening at cancellation loses it.
+        case answerOnCancel(Gate, override: HTTPResponse? = nil)
         /// Mutate the server first (another device acts just before), then execute.
         case before(@Sendable (inout State) -> Void)
     }
@@ -153,6 +158,23 @@ final class FakeServer: Transport {
             } onCancel: {
                 gate.abandon()
                 answer.resume(.failure(TransportError.cancelled(requestStarted: true)))
+            }
+        case .answerOnCancel(let gate, let override):
+            let answer = Answer()
+            Task { [self] in
+                await gate.arrive()  // opened by a test that doesn't cancel, or to clean up
+                guard !answer.cancelled else { return }
+                answer.resume(.success(override ?? handle(request)))
+            }
+            return try await withTaskCancellationHandler {
+                try await answer.value()
+            } onCancel: { [self] in
+                answer.cancelled = true
+                let response = override ?? handle(request)
+                Task {
+                    try? await Task.sleep(for: .milliseconds(20))
+                    answer.resume(.success(response))
+                }
             }
         }
     }
@@ -421,6 +443,14 @@ private final class Answer: Sendable {
             result: Result<HTTPResponse, TransportError>?, waiter: CheckedContinuation<HTTPResponse, any Error>?
         )
     >((nil, nil))
+
+    private let cancelFlag = Mutex(false)
+
+    /// Set when the client cancelled (`answerOnCancel` then answers from the handler).
+    var cancelled: Bool {
+        get { cancelFlag.withLock { $0 } }
+        set { cancelFlag.withLock { $0 = newValue } }
+    }
 
     func value() async throws -> HTTPResponse {
         try await withCheckedThrowingContinuation { continuation in

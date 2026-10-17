@@ -33,7 +33,7 @@ import Testing
         h.clock.advance(by: .seconds(31))  // A is stopped past the TTL
 
         let reportB = try await b.flushNow()
-        #expect(reportB.acked == 1 && h.items.isEmpty && h.server.entry(id) != nil)
+        #expect(try reportB.acked == 1 && h.items.isEmpty && h.server.entry(id) != nil)
         let before = try snapshot(h)
 
         gate.open()  // A resumes and gets its 201
@@ -63,7 +63,7 @@ import Testing
         gateA.open()
         #expect(try await flushA.value.ending == .superseded)
         #expect(try snapshot(h) == before)
-        #expect(h.item(id)?.state == .inFlight)
+        #expect(try h.item(id)?.state == .inFlight)
         gateB.open()
         #expect(try await flushB.value.acked == 1 && h.item(id) == nil)
     }
@@ -86,7 +86,7 @@ import Testing
         gate.open()
         #expect(try await flush.value.ending == .superseded)
         #expect(try snapshot(h) == before)
-        #expect(h.item(id)?.state == .inFlight && h.item(id)?.claimToken == "other")
+        #expect(try h.item(id)?.state == .inFlight && h.item(id)?.claimToken == "other")
     }
 
     @Test("10 · (single process) the holder dies: after the TTL, recovery, resend, ack")
@@ -103,7 +103,7 @@ import Testing
         #expect(try await b.flushNow().ending == .busy)
         h.clock.advance(by: .seconds(1))
         let report = try await b.flushNow()
-        #expect(report.acked == 1 && h.item(id) == nil && h.server.entry(id) != nil)
+        #expect(try report.acked == 1 && h.item(id) == nil && h.server.entry(id) != nil)
         gate.open()
         _ = try await flushA.value
     }
@@ -119,7 +119,7 @@ import Testing
         h.server.inject(.post, .delay(gate))
         let flushA = background { try await a.flushNow() }
         await gate.arrival()
-        let create = try #require(h.item(id))
+        let create = try #require(try h.item(id))
         guard
             case .appended = try await b.updateEntry(
                 id: id, topicId: h.topic.id, patch: h.patch(notes: "n"), origin: .widget)
@@ -127,10 +127,10 @@ import Testing
             Issue.record("not appended")
             return
         }
-        #expect(h.item(id)?.payloadJSON == create.payloadJSON && h.item(id)?.rowVersion == create.rowVersion)
+        #expect(try h.item(id)?.payloadJSON == create.payloadJSON && h.item(id)?.rowVersion == create.rowVersion)
         gate.open()
         _ = try await flushA.value
-        #expect(h.server.entry(id)?.notes == "n" && h.items.isEmpty)
+        #expect(try h.server.entry(id)?.notes == "n" && h.items.isEmpty)
     }
 
     @Test("32 · (single process) a superseded sender's late stale_revision doesn't rebase or resend")
@@ -176,7 +176,7 @@ import Testing
         h.clock.advance(by: .seconds(31))
 
         let reportB = try await b.flushNow()
-        #expect(reportB.acked == 1 && h.server.entry(entry.id)?.revision == 5 && h.items.isEmpty)
+        #expect(try reportB.acked == 1 && h.server.entry(entry.id)?.revision == 5 && h.items.isEmpty)
         let before = try snapshot(h)
 
         gate.open()
@@ -196,10 +196,10 @@ import Testing
             let entry = try h.seedEntry()
             try await app.updateEntry(id: entry.id, topicId: h.topic.id, patch: h.patch(notes: "x"), origin: .app)
             try await widget.deleteEntry(id: entry.id, topicId: h.topic.id, undoable: true, origin: .widget)
-            #expect(h.items.map(\.kind) == [.entryUpdate, .entryDelete])
+            #expect(try h.items.map(\.kind) == [.entryUpdate, .entryDelete])
             h.clock.advance(by: Outbox.holdDuration)
             _ = try await app.flushNow()
-            #expect(h.server.requests.map(\.method) == [.delete] && h.items.isEmpty)
+            #expect(try h.server.requests.map(\.method) == [.delete] && h.items.isEmpty)
         }
         // The delete commits first: C0 rejects the update.
         do {
@@ -249,10 +249,10 @@ import Testing
         let policy = OutboxFlushPolicy.extensionFlush(budget: .seconds(4))
         let report = try await widget.flush(force: policy.force, budget: policy.budget, leaseWait: policy.leaseWait)
         #expect(report.ending == .busy && ContinuousClock.now - started < .seconds(4))
-        #expect(h.item(logged)?.state == .pending)
+        #expect(try h.item(logged)?.state == .pending)
         gate.open()
         _ = try await flushApp.value
-        #expect(h.server.entry(first) != nil && h.server.entry(logged) != nil && h.items.isEmpty)
+        #expect(try h.server.entry(first) != nil && h.server.entry(logged) != nil && h.items.isEmpty)
     }
 
     @Test("45 · (single process) the wall clock set back 3 h doesn't delay a takeover")

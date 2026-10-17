@@ -19,7 +19,7 @@ import Testing
             Issue.record("not merged: \(result)")
             return
         }
-        #expect(merged.id == id.wireString && h.items.count == 1)
+        #expect(try merged.id == id.wireString && h.items.count == 1)
         _ = try await outbox.flushNow()
         #expect(h.server.count(.post) == 1 && h.server.count(.patch) == 0)
         let entry = try #require(h.server.entry(id))
@@ -42,7 +42,7 @@ import Testing
         _ = try await outbox.flushNow()
         let patch = try #require(h.server.requests.last { $0.method == .patch })
         #expect(patch.expectedRevision == 1)
-        #expect(h.server.entry(id)?.revision == 2 && h.items.isEmpty)
+        #expect(try h.server.entry(id)?.revision == 2 && h.items.isEmpty)
     }
 
     @Test("24 · (single process) unarchive, create, archive: no K3 across the create; all three succeed")
@@ -57,13 +57,13 @@ import Testing
             Issue.record("cancelled across a topic barrier: \(result)")
             return
         }
-        #expect(h.items.map(\.kind) == [.topicUnarchive, .entryCreate, .topicArchive])
+        #expect(try h.items.map(\.kind) == [.topicUnarchive, .entryCreate, .topicArchive])
         _ = try await app.flushNow()
         let path = "/api/v1/topics/\(h.topic.id.wireString)"
         #expect(
             h.server.calls == ["POST \(path)/unarchive", "POST \(path)/entries", "POST \(path)/archive"])
         #expect(h.server.handled.allSatisfy { !$0.hasSuffix("409") })
-        #expect(h.server.entry(id) != nil && h.items.isEmpty)
+        #expect(try h.server.entry(id) != nil && h.items.isEmpty)
         #expect(h.server.with { $0.topics[h.topic.id.wireString]?.status } == .archived)
     }
 
@@ -103,7 +103,7 @@ import Testing
             _ = try OutboxStorage.append(
                 db, payload(EntryUpdateDTO(answers: ["mood": .int(1), "where": .string("home")])), now: now)
         }
-        let latest = try #require(h.items.last)
+        let latest = try #require(try h.items.last)
         let result = try await outbox.updateEntry(
             id: entry.id, topicId: h.topic.id, patch: EntryUpdateDTO(answers: ["mood": .int(5), "where": nil]),
             origin: .app)
@@ -118,7 +118,7 @@ import Testing
         }
         #expect(patch.answers?["mood"] == .some(WireAnswer(.int(5))))
         #expect(patch.answers?.keys.contains("where") == true && patch.answers?["where"] == .some(nil))
-        #expect(h.items.count == 2 && h.items.first?.baseRevision == 2 && merged.baseRevision == nil)
+        #expect(try h.items.count == 2 && h.items.first?.baseRevision == 2 && merged.baseRevision == nil)
     }
 
     @Test("27 · K3: archive then unarchive, adjacent and unsent, cancel; no requests")
@@ -127,7 +127,7 @@ import Testing
         let outbox = h.outbox()
         try await outbox.archiveTopic(id: h.topic.id, origin: .app)
         #expect(try await outbox.unarchiveTopic(id: h.topic.id, origin: .app) == .cancelled)
-        #expect(h.items.isEmpty)
+        #expect(try h.items.isEmpty)
         _ = try await outbox.flushNow()
         #expect(h.server.requests.isEmpty)
     }
@@ -149,6 +149,6 @@ import Testing
         _ = try await flush.value
         #expect(h.server.requests.map(\.expectedRevision) == [7, 8])
         #expect(h.server.with { $0.topics[h.topic.id.wireString]?.status } == .active)
-        #expect(h.items.isEmpty)
+        #expect(try h.items.isEmpty)
     }
 }

@@ -62,16 +62,16 @@ final class OutboxHarness: Sendable {
 
     func read<T>(_ body: (Database) throws -> T) throws -> T { try store.writer.read(body) }
 
-    var items: [OutboxItem] { (try? read { db in try OutboxStorage.items(db) }) ?? [] }
+    var items: [OutboxItem] { get throws { try read { db in try OutboxStorage.items(db) } } }
 
-    func item(_ id: String) -> OutboxItem? { try? read { db in try OutboxStorage.item(db, id: id) } }
+    func item(_ id: String) throws -> OutboxItem? { try read { db in try OutboxStorage.item(db, id: id) } }
 
-    func item(_ id: UUID) -> OutboxItem? { item(id.wireString) }
+    func item(_ id: UUID) throws -> OutboxItem? { try item(id.wireString) }
 
-    func view(_ id: UUID) -> ViewEntry? { try? read { db in try StoreView.entry(db, id: id.wireString) } }
+    func view(_ id: UUID) throws -> ViewEntry? { try read { db in try StoreView.entry(db, id: id.wireString) } }
 
-    func viewEntries() -> [ViewEntry] {
-        (try? read { db in try StoreView.entries(db, topicId: self.topic.id.wireString) }) ?? []
+    func viewEntries() throws -> [ViewEntry] {
+        try read { db in try StoreView.entries(db, topicId: self.topic.id.wireString) }
     }
 
     func syncState() async throws -> SyncState? { try await store.syncState.syncState() }
@@ -141,7 +141,9 @@ final class OutboxHarness: Sendable {
 extension OutboxItem {
     /// `last_error_json`, decoded.
     var errorInfo: OutboxErrorInfo? {
-        lastErrorJSON.flatMap { try? WireCoding.decoder().decode(OutboxErrorInfo.self, from: Data($0.utf8)) }
+        get throws {
+            try lastErrorJSON.map { try WireCoding.decoder().decode(OutboxErrorInfo.self, from: Data($0.utf8)) }
+        }
     }
 }
 

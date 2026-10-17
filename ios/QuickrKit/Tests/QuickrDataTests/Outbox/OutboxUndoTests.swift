@@ -15,18 +15,18 @@ import Testing
         let id = try await h.log(outbox)
         h.server.inject(.post, .lose(.timedOut(requestStarted: true)))
         _ = try await outbox.flushNow()
-        #expect(h.item(id)?.state == .uncertain && h.server.entry(id) != nil)
+        #expect(try h.item(id)?.state == .uncertain && h.server.entry(id) != nil)
 
         #expect(try await outbox.undoLog(entryId: id, origin: .app) == .deleteQueued)
-        #expect(h.view(id) == nil)
-        let delete = try #require(h.items.single)
+        #expect(try h.view(id) == nil)
+        let delete = try #require(try h.items.single)
         #expect(delete.kind == .entryDelete && !delete.cancelsCreate)
         _ = try await outbox.flushNow()
         #expect(
             h.server.calls == [
                 "POST /api/v1/topics/\(h.topic.id.wireString)/entries", "DELETE /api/v1/entries/\(id.wireString)",
             ])
-        #expect(h.server.entry(id) == nil && h.items.isEmpty && h.view(id) == nil)
+        #expect(try h.server.entry(id) == nil && h.items.isEmpty && h.view(id) == nil)
     }
 
     @Test("12 · (fake server) a late POST after the undo DELETE gets entry_deleted")
@@ -55,14 +55,14 @@ import Testing
         let flush = background { try await outbox.flushNow() }
         await gate.arrival()
         #expect(try await outbox.undoLog(entryId: id, origin: .app) == .deleteQueued)
-        #expect(h.view(id) == nil)
-        let delete = try #require(h.items.last)
+        #expect(try h.view(id) == nil)
+        let delete = try #require(try h.items.last)
         #expect(delete.kind == .entryDelete && delete.cancelsCreate)
         gate.open()
         let report = try await flush.value
         #expect(report.acked == 2)
         #expect(h.server.count(.post) == 1 && h.server.count(.delete) == 1)
-        #expect(h.server.entry(id) == nil && h.items.isEmpty && h.view(id) == nil)
+        #expect(try h.server.entry(id) == nil && h.items.isEmpty && h.view(id) == nil)
     }
 
     @Test("14 · Undo of a never-attempted create removes it; no requests")
@@ -71,7 +71,7 @@ import Testing
         let outbox = h.outbox()
         let id = try await h.log(outbox)
         #expect(try await outbox.undoLog(entryId: id, origin: .app) == .removed)
-        #expect(h.items.isEmpty)
+        #expect(try h.items.isEmpty)
         _ = try await outbox.flushNow()
         #expect(h.server.requests.isEmpty)
     }
@@ -83,7 +83,7 @@ import Testing
         let e = try await h.log(outbox)
         let f = try await h.log(outbox, minutes: 1)
         #expect(try await outbox.undoLog(entryId: e, origin: .app) == .removed)
-        #expect(h.items.map(\.id) == [f.wireString])
+        #expect(try h.items.map(\.id) == [f.wireString])
         _ = try await outbox.flushNow()
         #expect(h.server.calls == ["POST /api/v1/topics/\(h.topic.id.wireString)/entries"])
         #expect(h.server.entry(f) != nil && h.server.entry(e) == nil)
@@ -102,7 +102,7 @@ import Testing
         let report = try await flush.value
         #expect(report.ending == .cancelled)
         #expect(gate.abandoned)
-        let item = try #require(h.item(id))
+        let item = try #require(try h.item(id))
         #expect(item.state == .uncertain && item.maybeDelivered && item.claimToken == nil)
         #expect(try h.lease().owner == nil)
         gate.open()
@@ -119,9 +119,56 @@ import Testing
         let report = try await outbox.flush(force: true, budget: .seconds(3))
         #expect(gate.abandoned)
         #expect(report.ending == .budgetExhausted)
-        #expect(h.item(id)?.state == .uncertain && h.item(id)?.maybeDelivered == true)
+        #expect(try h.item(id)?.state == .uncertain && h.item(id)?.maybeDelivered == true)
         #expect(try h.lease().owner == nil)
         gate.open()
+    }
+
+    @Test("16c · a 201 that lands while the task is cancelled is kept: acked, not uncertain")
+    func case16AnswerDuringCancellation() async throws {
+        let h = try OutboxHarness()
+        let outbox = h.outbox()
+        let id = try await h.log(outbox)
+        h.server.inject(.post, .answerOnCancel(Gate()))
+        let flush = background { try await outbox.flushNow() }
+        try await waitUntil { h.server.requests.count == 1 }
+        flush.cancel()
+        let report = try await flush.value
+        #expect(report.ending == .cancelled && report.acked == 1)
+        #expect(try h.items.isEmpty && h.view(id)?.syncState == .synced)
+        #expect(h.server.calls == ["POST /api/v1/topics/\(h.topic.id.wireString)/entries"] && h.server.entry(id) != nil)
+        #expect(try h.lease().owner == nil)
+    }
+
+    @Test("16d · a 422 that lands while the task is cancelled fails the item")
+    func case16TerminalDuringCancellation() async throws {
+        let h = try OutboxHarness()
+        let outbox = h.outbox()
+        let id = try await h.log(outbox)
+        let problem = header(FakeServer.problem(422, "invalid_answers", "mood is required"))
+        h.server.inject(.post, .answerOnCancel(Gate(), override: problem))
+        let flush = background { try await outbox.flushNow() }
+        try await waitUntil { h.server.requests.count == 1 }
+        flush.cancel()
+        #expect(try await flush.value.ending == .cancelled)
+        let item = try #require(try h.item(id))
+        #expect(item.state == .failed && item.failureReason == .rejected && !item.maybeDelivered)
+        #expect(try item.errorInfo?.message == "Mood is required")
+        #expect(h.server.requests.count == 1 && h.server.entry(id) == nil)
+    }
+
+    @Test("16e · a 201 that lands as the budget expires is kept")
+    func case16AnswerAtDeadline() async throws {
+        let h = try OutboxHarness()
+        let outbox = h.outbox()
+        let id = try await h.log(outbox)
+        let second = try await h.log(outbox, minutes: 1)
+        h.server.inject(.post, .answerOnCancel(Gate()))
+        let report = try await outbox.flush(force: true, budget: .seconds(2))
+        #expect(report.ending == .budgetExhausted && report.acked == 1)
+        #expect(try h.item(id) == nil && h.server.entry(id) != nil)
+        // The pass stops at the deadline: the next item is never claimed.
+        #expect(try h.item(second)?.attempts == 0 && h.server.requests.count == 1)
     }
 
     @Test("29 · Undo of a held delete restores the queued create byte for byte")
@@ -130,13 +177,13 @@ import Testing
         let outbox = h.outbox()
         let id = try await h.log(outbox)
         try await outbox.updateEntry(id: id, topicId: h.topic.id, patch: h.patch(notes: "edited"), origin: .app)
-        let before = try #require(h.item(id))
+        let before = try #require(try h.item(id))
         try await outbox.deleteEntry(id: id, topicId: h.topic.id, undoable: true, origin: .app)
-        #expect(h.view(id) == nil)
+        #expect(try h.view(id) == nil)
         h.clock.advance(by: .seconds(3))
         #expect(try await outbox.undoDelete(entryId: id) == .restored)
-        #expect(h.items == [before])
-        let view = try #require(h.view(id))
+        #expect(try h.items == [before])
+        let view = try #require(try h.view(id))
         #expect(view.entry.notes == "edited" && view.syncState == .pending)
     }
 
@@ -148,9 +195,9 @@ import Testing
         try await outbox.updateEntry(id: entry.id, topicId: h.topic.id, patch: h.patch(notes: "mine"), origin: .app)
         try await outbox.deleteEntry(id: entry.id, topicId: h.topic.id, undoable: true, origin: .app)
         #expect(try await outbox.undoDelete(entryId: entry.id) == .restored)
-        let update = try #require(h.items.single)
+        let update = try #require(try h.items.single)
         #expect(update.kind == .entryUpdate && update.baseRevision == 3)
-        #expect(h.view(entry.id)?.entry.notes == "mine")
+        #expect(try h.view(entry.id)?.entry.notes == "mine")
     }
 
     @Test("31 · when the hold passes, the unsent create, its update and the delete all go; no requests")
@@ -162,10 +209,10 @@ import Testing
         try await outbox.deleteEntry(id: id, topicId: h.topic.id, undoable: true, origin: .app)
         h.clock.advance(by: .seconds(5))
         _ = try await outbox.flush(force: false, budget: .seconds(30))
-        #expect(h.items.count == 2)  // still held
+        #expect(try h.items.count == 2)  // still held
         h.clock.advance(by: .seconds(1))
         _ = try await outbox.flush(force: false, budget: .seconds(30))
-        #expect(h.items.isEmpty && h.server.requests.isEmpty)
+        #expect(try h.items.isEmpty && h.server.requests.isEmpty)
         #expect(try await outbox.undoDelete(entryId: id) == .nothingToDo)
     }
 
@@ -182,7 +229,7 @@ import Testing
         await gate.arrival()
         flush.cancel()  // the client gives up; the POST stays in the network
         _ = try await flush.value
-        #expect(h.item(id)?.state == .uncertain)
+        #expect(try h.item(id)?.state == .uncertain)
         #expect(try await outbox.undoLog(entryId: id, origin: .app) == .deleteQueued)
         _ = try await outbox.flushNow()
         #expect(h.server.count(.delete) == 1 && h.server.count(.post) == 1)
@@ -191,7 +238,7 @@ import Testing
         let late = "POST /api/v1/topics/\(h.topic.id.wireString)/entries → 409"
         try await waitUntil { h.server.handled.contains(late) }
         #expect(gate.abandoned)
-        #expect(h.server.entry(id) == nil && h.items.isEmpty && h.view(id) == nil)
+        #expect(try h.server.entry(id) == nil && h.items.isEmpty && h.view(id) == nil)
     }
 
     @Test("52 · in-flight create cancelled; the POST gets topic_archived: S8 removes it, the DELETE goes alone")
@@ -219,7 +266,7 @@ import Testing
         gate.open()
         _ = try await flush.value
         #expect(h.server.count(.delete) == 1)
-        #expect(h.items.isEmpty)  // no failed create left in the sync sheet
+        #expect(try h.items.isEmpty)  // no failed create left in the sync sheet
         #expect(h.server.entry(id) == nil && h.server.with { $0.deleted.contains(id.wireString) })
     }
 
@@ -235,7 +282,7 @@ import Testing
         _ = try await outbox.flushNow()
         #expect(h.server.count(.post) == 1 && h.server.count(.delete) == 1)
         #expect(h.server.requests.last.map { $0.method == .delete } == true)
-        #expect(h.items.isEmpty)
+        #expect(try h.items.isEmpty)
     }
 
     @Test("59 · (fake server) a committed POST with a garbled 201 is uncertain; Undo deletes it on the server")
@@ -246,11 +293,11 @@ import Testing
         h.server.inject(.post, .garble(status: 201, body: Data(#"{"id": "trunc"#.utf8)))
         _ = try await outbox.flushNow()
         #expect(h.server.entry(id) != nil)
-        let item = try #require(h.item(id))
+        let item = try #require(try h.item(id))
         #expect(item.state == .uncertain && item.maybeDelivered)
         #expect(try await outbox.undoLog(entryId: id, origin: .app) == .deleteQueued)
         _ = try await outbox.flushNow()
-        #expect(h.server.entry(id) == nil && h.items.isEmpty)
+        #expect(try h.server.entry(id) == nil && h.items.isEmpty)
     }
 
     @Test("59b · a 201 EntryOut missing revision is garbled too")
@@ -264,7 +311,7 @@ import Testing
         json["revision"] = nil
         h.server.inject(.post, .garble(status: 201, body: try JSONSerialization.data(withJSONObject: json)))
         _ = try await outbox.flushNow()
-        #expect(h.item(id)?.state == .uncertain && h.item(id)?.maybeDelivered == true)
+        #expect(try h.item(id)?.state == .uncertain && h.item(id)?.maybeDelivered == true)
     }
 
     @Test("60 · held delete of an unsent create, F queued after it: at release only POST F remains")
@@ -277,7 +324,7 @@ import Testing
         h.clock.advance(by: Outbox.holdDuration)
         _ = try await outbox.flush(force: false, budget: .seconds(30))
         #expect(h.server.calls == ["POST /api/v1/topics/\(h.topic.id.wireString)/entries"])
-        #expect(h.server.entry(f) != nil && h.server.entry(e) == nil && h.items.isEmpty)
+        #expect(try h.server.entry(f) != nil && h.server.entry(e) == nil && h.items.isEmpty)
     }
 
     @Test("61 · held delete of an uncertain create: kept while held, then DELETE only")
@@ -288,13 +335,13 @@ import Testing
         h.server.inject(.post, .lose(.timedOut(requestStarted: true)))
         _ = try await outbox.flushNow()
         try await outbox.updateEntry(id: id, topicId: h.topic.id, patch: h.patch(notes: "x"), origin: .app)
-        let before = h.items
+        let before = try h.items
         try await outbox.deleteEntry(id: id, topicId: h.topic.id, undoable: true, origin: .app)
-        #expect(Array(h.items.prefix(2)) == before)
+        #expect(try Array(h.items.prefix(2)) == before)
         h.clock.advance(by: Outbox.holdDuration)
         _ = try await outbox.flush(force: true, budget: .seconds(30))
         #expect(h.server.count(.post) == 1 && h.server.count(.delete) == 1 && h.server.count(.patch) == 0)
-        #expect(h.server.entry(id) == nil && h.items.isEmpty)
+        #expect(try h.server.entry(id) == nil && h.items.isEmpty)
     }
 }
 

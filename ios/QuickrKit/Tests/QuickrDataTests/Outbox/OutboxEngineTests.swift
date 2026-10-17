@@ -14,14 +14,14 @@ import Testing
         try await outbox.archiveTopic(id: h.topic.id, origin: .app)
         h.server.deleteTopic(h.topic.id)
         _ = try await outbox.flushNow()
-        #expect(h.items.isEmpty && h.signals == [.pullRequested])
+        #expect(try h.items.isEmpty && h.signals == [.pullRequested])
 
         let other = try OutboxHarness(topicStatus: .archived)
         let unarchiver = other.outbox()
         try await unarchiver.unarchiveTopic(id: other.topic.id, origin: .app)
         other.server.deleteTopic(other.topic.id)
         _ = try await unarchiver.flushNow()
-        #expect(other.items.single?.failureReason == .deletedElsewhere && other.signals == [.pullRequested])
+        #expect(try other.items.single?.failureReason == .deletedElsewhere && other.signals == [.pullRequested])
     }
 
     @Test func aCreateToAnArchivedTopicFailsWithTheUnarchiveHint() async throws {
@@ -30,15 +30,15 @@ import Testing
         let id = try await h.log(outbox)
         h.server.setArchived(h.topic.id, true)
         _ = try await outbox.flushNow()
-        let item = try #require(h.item(id))
+        let item = try #require(try h.item(id))
         #expect(item.failureReason == .topicArchived)
-        #expect(item.errorInfo?.message == "Topic is archived. Unarchive it to sync this entry.")
+        #expect(try item.errorInfo?.message == "Topic is archived. Unarchive it to sync this entry.")
         // Fix is offered for topic_archived.
         await #expect(throws: OutboxError.itemChanged) {
             try await outbox.fix(itemId: item.id, payload: try item.payload(), rowVersion: item.rowVersion - 1)
         }
         try await outbox.fix(itemId: item.id, payload: try item.payload(), rowVersion: item.rowVersion)
-        #expect(h.item(id)?.state == .pending && h.item(id)?.rowVersion == item.rowVersion + 1)
+        #expect(try h.item(id)?.state == .pending && h.item(id)?.rowVersion == item.rowVersion + 1)
     }
 
     @Test func deleteOf404OrReservedIdIsDone() async throws {
@@ -64,7 +64,7 @@ import Testing
         h.clock.advance(by: .seconds(31))
         _ = try await b.flushNow()
         // S8 at recovery: the create is gone and never resent; the DELETE went alone.
-        #expect(h.server.count(.post) == 1 && h.server.count(.delete) == 1 && h.items.isEmpty)
+        #expect(try h.server.count(.post) == 1 && h.server.count(.delete) == 1 && h.items.isEmpty)
         gate.open()
         _ = try await flushA.value
         #expect(h.server.entry(id) == nil)
@@ -83,7 +83,7 @@ import Testing
         let summary = try await outbox.summary()
         #expect(summary.failed == 1 && summary.blocked == 1 && summary.queued == 1)
         try await outbox.discard(itemId: id.wireString, origin: .app)
-        #expect(h.items.isEmpty)
+        #expect(try h.items.isEmpty)
     }
 
     @Test func discardOfAMaybeDeliveredCreateQueuesAStandaloneDelete() async throws {
@@ -93,7 +93,7 @@ import Testing
         h.server.inject(.post, .lose(.timedOut(requestStarted: true)))
         _ = try await outbox.flushNow()
         try await outbox.discard(itemId: id.wireString, origin: .app)
-        let delete = try #require(h.items.single)
+        let delete = try #require(try h.items.single)
         #expect(delete.kind == .entryDelete)
         await #expect(throws: OutboxError.self) { try await outbox.dismiss(itemId: delete.id) }
     }
@@ -109,7 +109,7 @@ import Testing
         try await outbox.deleteEntry(id: entry.id, topicId: h.topic.id, undoable: true, origin: .app)
         let summary = try await outbox.summary()
         #expect(summary.queued == 2 && summary.held == 1 && summary.offline)
-        #expect(summary.nextWake == h.item(id)?.due)
+        #expect(try summary.nextWake == h.item(id)?.due)
     }
 
     @Test func enqueueRefusesARetiredStoreAndHiddenEntries() async throws {
@@ -132,26 +132,84 @@ import Testing
         #expect(try await outbox.undoLog(entryId: id, origin: .app) == .deleteQueued)
         #expect(try await outbox.undoLog(entryId: id, origin: .app) == .nothingToDo)
         _ = try await outbox.flushNow()
-        #expect(h.server.entry(id) == nil && h.items.isEmpty)
+        #expect(try h.server.entry(id) == nil && h.items.isEmpty)
         #expect(try await outbox.undoLog(entryId: id, origin: .app) == .nothingToDo)
     }
 
-    @Test func theSchedulerCoalescesRequestsIntoOneFollowUp() async throws {
+    @Test func theSchedulerCoalescesRequestsIntoOneMergedFollowUp() async throws {
         let h = try OutboxHarness()
         let outbox = h.outbox()
         let scheduler = OutboxFlushScheduler(outbox: outbox)
         let first = try await h.log(outbox)
+        let entry = try h.seedEntry()
+        try await outbox.deleteEntry(id: entry.id, topicId: h.topic.id, undoable: true, origin: .app)
         let gate = Gate()
         h.server.inject(.post, .delay(gate))
         await scheduler.requestFlush(reason: .enqueue)
         await gate.arrival()
+        // While it runs: three enqueues, an activation (forced) and a backgrounding (releases holds).
         let second = try await h.log(outbox, minutes: 1)
-        for _ in 0..<5 { await scheduler.requestFlush(reason: .enqueue) }
+        for _ in 0..<3 { await scheduler.requestFlush(reason: .enqueue) }
+        await scheduler.requestFlush(reason: .activation)
+        await scheduler.requestFlush(reason: .background)
+        #expect(await scheduler.started == [OutboxFlushReason.enqueue.policy])
         gate.open()
-        let report = await scheduler.flushNow(reason: .timer)
-        #expect(report?.ending == .drained)
+        await scheduler.waitUntilIdle()
+
+        let merged = OutboxFlushPolicy(force: true, leaseWait: .seconds(30), releasesAllHolds: true)
+        #expect(await scheduler.started == [OutboxFlushReason.enqueue.policy, merged])
         #expect(h.server.entry(first) != nil && h.server.entry(second) != nil)
-        #expect(h.server.count(.post) == 2)
+        // Only the follow-up released the hold (the first flush's hold hadn't passed).
+        #expect(h.server.entry(entry.id) == nil && h.server.count(.delete) == 1)
+        #expect(try h.items.isEmpty)
+
+        // With nothing running, one request is one flush.
+        await scheduler.requestFlush(reason: .timer)
+        await scheduler.waitUntilIdle()
+        #expect(await scheduler.started.count == 3)
+    }
+
+    @Test func aFailedDeleteRejectsFurtherWritesAndLeavesTheQueueAlone() async throws {
+        let h = try OutboxHarness()
+        let outbox = h.outbox()
+        let entry = try h.seedEntry()
+        try await outbox.deleteEntry(id: entry.id, topicId: h.topic.id, undoable: false, origin: .app)
+        h.server.inject(.delete, .respond(header(FakeServer.problem(422, "invalid_request", "no"))))
+        _ = try await outbox.flushNow()
+        let before = try h.items
+        #expect(before.single?.state == .failed && before.single?.kind == .entryDelete)
+        await #expect(throws: OutboxError.entryDeleted) {
+            try await outbox.updateEntry(id: entry.id, topicId: h.topic.id, patch: h.patch(notes: "x"), origin: .app)
+        }
+        await #expect(throws: OutboxError.entryDeleted) {
+            try await outbox.deleteEntry(id: entry.id, topicId: h.topic.id, undoable: true, origin: .app)
+        }
+        await #expect(throws: OutboxError.entryDeleted) {
+            try await outbox.deleteEntry(id: entry.id, topicId: h.topic.id, undoable: false, origin: .app)
+        }
+        #expect(try await outbox.undoLog(entryId: entry.id, origin: .app) == .nothingToDo)
+        #expect(try h.items == before)
+    }
+
+    @Test func aCreateSendsTheSourceOfItsOrigin() async throws {
+        let h = try OutboxHarness()
+        let widget = try h.process("widget:1")
+        let id = UUID()
+        var body = h.create()
+        body.source = "ios"  // what a shared form might put there
+        try await widget.createEntry(id: id, topic: h.ref, body: body, origin: .widget)
+        #expect(try h.view(id)?.entry.source == "ios.widget")
+        // Even a payload written with another source (an older build) is sent with the origin's.
+        let raw = UUID()
+        try h.write { db in
+            _ = try OutboxStorage.append(
+                db, NewOutboxItem(id: raw, payload: .entryCreate(topic: h.ref, body: body), origin: .siri),
+                now: h.wall.now())
+        }
+        _ = try await widget.flushNow()
+        let sources = h.server.requests.compactMap { $0.json?["source"] as? String }
+        #expect(sources == ["ios.widget", "ios.siri"])
+        #expect(h.server.entry(id)?.source == "ios.widget" && h.server.entry(raw)?.source == "ios.siri")
     }
 
     @Test func sendNowReportsSentOrQueued() async throws {
@@ -170,6 +228,6 @@ import Testing
         let entry = try h.seedEntry()
         try await scheduler.outbox.deleteEntry(id: entry.id, topicId: h.topic.id, undoable: true, origin: .app)
         await scheduler.flushNow(reason: .background)
-        #expect(h.server.entry(entry.id) == nil && h.items.isEmpty)
+        #expect(try h.server.entry(entry.id) == nil && h.items.isEmpty)
     }
 }
