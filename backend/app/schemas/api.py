@@ -681,14 +681,62 @@ class PushTestResult(StrictModel):
     failed: int
 
 
+class QuickLogOption(StrictModel):
+    value: str
+    label: str
+
+
+class QuickLogEnum(StrictModel):
+    """A single-select enum a notification can log: the options it offers as actions.
+
+    With 1-4 active options, all of them, in question order. With 5-6, the 3 most-used
+    (most-used first, ties in question order), and a "More…" action opens the record
+    screen (docs/ios/specs/notifications.md §2.3).
+    """
+
+    type: Literal["enum"] = "enum"
+    key: str
+    label: str
+    options: list[QuickLogOption]
+    total_options: int  # the number of active options
+
+
+class QuickLogNumber(StrictModel):
+    """An int or double question a notification can log, with its latest valid value."""
+
+    type: Literal["int", "double"]
+    key: str
+    label: str
+    unit: str | None
+    min: int | float | None
+    max: int | float | None
+    decimals: int | None
+    last_value: int | float | None
+
+
+type QuickLogDescriptor = QuickLogEnum | QuickLogNumber
+
+
 class PushPayload(StrictModel):
-    """JSON body of every Web Push message (consumed by the service worker)."""
+    """JSON body of every Web Push message (consumed by the service worker).
+
+    The first five fields are the original contract. The rest carry the actionable
+    fields, with the same shapes as the APNs payload's ``quickr`` dict (null on a test
+    push); older service workers ignore them.
+    """
 
     title: str
     body: str
     url: str
     tag: str
     topic_slug: str | None = None
+    v: int = 1
+    kind: Literal["due", "test"] = "due"
+    server_id: str | None = None
+    topic_id: str | None = None
+    version: int | None = None
+    due_since: str | None = None  # canonical: UTC, whole seconds, "Z"
+    quick_log: QuickLogEnum | QuickLogNumber | None = None
 
 
 ApnsToken = Annotated[

@@ -61,8 +61,9 @@ client: openapi ## Regenerate spec + typed TS client/zod schemas
 	$(FRONTEND) pnpm gen:api
 
 .PHONY: vectors
-vectors: ## Regenerate shared/fixtures (due, quick-log and answer-text vectors, API response fixtures)
-	$(BACKEND) QUICKR_UPDATE_VECTORS=1 uv run pytest -q tests/test_due_vectors.py tests/test_quicklog_vectors.py tests/test_answer_text_vectors.py tests/test_api_fixtures.py
+vectors: ## Regenerate shared/fixtures (due, quick-log, answer-text and notification vectors, API response fixtures)
+	$(BACKEND) QUICKR_UPDATE_VECTORS=1 uv run pytest -q tests/test_due_vectors.py tests/test_quicklog_vectors.py \
+		tests/test_answer_text_vectors.py tests/test_notification_vectors.py tests/test_api_fixtures.py
 
 # The database pytest and the migration check use (conftest.py has the same default).
 QUICKR_TEST_DATABASE_URL ?= postgresql+asyncpg://quickr:quickr@localhost:5433/quickr_test

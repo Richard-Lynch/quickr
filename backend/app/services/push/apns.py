@@ -49,6 +49,7 @@ from app.config import Settings, get_settings
 from app.models import ApnsDevice
 from app.schemas.api import ApnsDeviceIn, ApnsDeviceOut, ApnsEnvironment
 from app.services.feed import writer
+from app.services.notification import actions, canonical_instant, category_id, more_suffix, truncate
 from app.services.push.base import Notification, PushFailed, PushGone
 
 log = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ TOKEN_MAX_AGE_SECONDS = 50 * 60  # re-sign before Apple's 60-minute limit
 TOKEN_MIN_REFRESH_SECONDS = 20 * 60  # Apple's TooManyProviderTokenUpdates threshold
 MAX_PAYLOAD_BYTES = 4096
 MAX_TITLE_LENGTH = 120
+RELEVANCE_SCORE = 0.8
 TIMEOUT = httpx.Timeout(10, connect=5)
 
 _DEVICE_PATH = re.compile(r"/3/device/[0-9A-Fa-f]+")
@@ -89,20 +91,39 @@ type Clock = Callable[[], float]
 # --- payload ------------------------------------------------------------------------
 
 
-def _truncate(text: str, limit: int) -> str:
-    """At most ``limit`` characters (Unicode scalars), the "…" included."""
-    return text if len(text) <= limit else text[: limit - 1] + "…"
-
-
 def render(n: Notification) -> dict[str, Any]:
     """The APNs JSON body for ``n``: the alert in ``aps``, our fields under ``quickr``.
 
-    B7 adds ``thread-id``, ``category``, ``mutable-content`` and ``relevance-score`` to
-    ``aps``, and the actionable fields to ``quickr`` (docs/ios/specs/notifications.md §2).
+    docs/ios/specs/notifications.md §2. A due notification is grouped per topic
+    (``thread-id``) and, when its topic can be logged from it, has the category of its
+    actions, and a body saying so when the actions show only some options. Never a
+    ``badge``: the device owns it. ``mutable-content`` lets the app's Notification Service
+    Extension register the category and set the badge before display.
     """
+    aps: dict[str, Any] = {
+        "alert": {"title": truncate(n.title, MAX_TITLE_LENGTH), "body": n.body + more_suffix(n.quick_log)},
+        "sound": "default",
+    }
+    if n.kind == "due" and n.topic_id is not None:
+        aps["thread-id"] = f"topic-{n.topic_id}"
+    if n.server_id and n.topic_id and n.version is not None and n.quick_log is not None:
+        topic_id = str(n.topic_id)
+        aps["category"] = category_id(topic_id, actions(n.server_id, topic_id, n.version, n.quick_log))
+    aps["mutable-content"] = 1
+    aps["relevance-score"] = RELEVANCE_SCORE
     return {
-        "aps": {"alert": {"title": _truncate(n.title, MAX_TITLE_LENGTH), "body": n.body}, "sound": "default"},
-        "quickr": {"v": 1, "kind": n.kind, "url": n.url, "topic_slug": n.topic_slug},
+        "aps": aps,
+        "quickr": {
+            "v": 1,
+            "kind": n.kind,
+            "server_id": n.server_id,
+            "topic_id": str(n.topic_id) if n.topic_id else None,
+            "topic_slug": n.topic_slug,
+            "version": n.version,
+            "due_since": canonical_instant(n.due_since) if n.due_since else None,
+            "url": n.url,
+            "quick_log": n.quick_log.model_dump(mode="json") if n.quick_log else None,
+        },
     }
 
 
