@@ -9,7 +9,7 @@ export type ClientOptions = {
  *
  * How an entry reached the system. Set server-side.
  */
-export type Channel = 'ui' | 'api' | 'mcp';
+export type Channel = 'ui' | 'api' | 'mcp' | 'ios';
 
 /**
  * CompatibilityIssue

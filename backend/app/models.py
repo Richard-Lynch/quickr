@@ -45,6 +45,7 @@ class Channel(enum.StrEnum):
     ui = "ui"
     api = "api"
     mcp = "mcp"
+    ios = "ios"
 
 
 class Topic(Base):

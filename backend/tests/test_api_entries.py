@@ -46,6 +46,16 @@ async def test_channel_header_and_explicit_fields(client: httpx.AsyncClient) -> 
     assert r.status_code == 201
     assert (r.json()["channel"], r.json()["source"]) == ("ui", "ui")
 
+    r = await client.post(
+        "/topics/sleep-log/entries",
+        json={"answers": ANSWERS, "source": "ios.widget"},
+        headers={"X-QuickR-Channel": "ios"},
+    )
+    assert r.status_code == 201
+    assert (r.json()["channel"], r.json()["source"]) == ("ios", "ios.widget")
+    r = await client.get("/topics/sleep-log/entries", params={"channel": "ios"})
+    assert r.json()["total"] == 1
+
     s = await record(
         client,
         "sleep-log",

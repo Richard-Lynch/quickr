@@ -2388,7 +2388,8 @@
         "enum": [
           "ui",
           "api",
-          "mcp"
+          "mcp",
+          "ios"
         ],
         "title": "Channel",
         "description": "How an entry reached the system. Set server-side."

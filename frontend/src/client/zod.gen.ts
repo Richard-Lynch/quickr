@@ -10,7 +10,8 @@ import * as z from 'zod';
 export const zChannel = z.enum([
     'ui',
     'api',
-    'mcp'
+    'mcp',
+    'ios'
 ]);
 
 /**

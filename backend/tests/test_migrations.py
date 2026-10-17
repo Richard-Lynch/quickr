@@ -199,3 +199,49 @@ async def test_schedule_updated_at_backfilled_from_created_at(clean_db: None) ->
         assert rows == {"demo": True, "plain": None}  # unscheduled topics stay NULL
     finally:
         await _alembic(command.upgrade, "head")
+
+
+async def test_ios_channel_downgrade_remaps_to_api(clean_db: None) -> None:
+    """``alembic check`` ignores enum values, so the rebuild of entry_channel is tested directly."""
+    ios_rev, before_ios = "e5c6d7e8f9a0", "d4b5c6d7e8f9"
+    await _alembic(command.downgrade, ios_rev)
+    try:
+        async with get_engine().begin() as conn:
+            await _insert_v1_data_at_head(conn, channel="ios")
+        await _alembic(command.downgrade, before_ios)
+        async with get_engine().connect() as conn:
+            assert (await conn.scalar(text("SELECT channel::text FROM entries"))) == "api"
+            labels = (
+                await conn.execute(text("SELECT unnest(enum_range(NULL::entry_channel))::text"))
+            ).scalars()
+            assert list(labels) == ["ui", "api", "mcp"]
+            assert not await conn.scalar(text("SELECT 1 FROM pg_type WHERE typname = 'entry_channel_old'"))
+        await _alembic(command.upgrade, ios_rev)
+        async with get_engine().begin() as conn:
+            await conn.execute(text("UPDATE entries SET channel = 'ios'"))
+            assert (await conn.scalar(text("SELECT channel::text FROM entries"))) == "ios"
+    finally:
+        await _alembic(command.upgrade, "head")
+
+
+async def _insert_v1_data_at_head(conn: AsyncConnection, channel: str) -> None:
+    """One topic, version and entry (entries table, current column set)."""
+    await conn.execute(
+        text(
+            "INSERT INTO topics (id, slug, name, description, status, current_version)"
+            f" VALUES ('{T}1', 'demo', 'Demo', '', 'active', 1)"
+        )
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO topic_versions (id, topic_id, version, questions, change_note) VALUES"
+            f""" ('{T}2', '{T}1', 1, '[{{"type": "int", "key": "n", "label": "N"}}]', '')"""
+        )
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO entries (id, topic_id, topic_version_id, version, source, channel,"
+            f" captured_at, notes, meta) VALUES ('{T}3', '{T}1', '{T}2', 1, 'phone', '{channel}',"
+            " '2026-01-01T08:00:00Z', '', '{}')"
+        )
+    )
