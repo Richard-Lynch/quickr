@@ -15,6 +15,7 @@ from app.errors import DomainError
 from app.mcp_server import mcp
 from app.schemas.base import FieldIssue, Problem, error_loc, error_message
 from app.services import scheduler
+from app.services.push import apns
 
 
 def _operation_id(route: APIRoute) -> str:
@@ -27,7 +28,7 @@ def create_app() -> FastAPI:
         title="quickR API",
         version="1.0.0",
         description="Config-driven topics, questions and answer entries.",
-        lifespan=combine_lifespans(scheduler.lifespan, mcp_app.lifespan),
+        lifespan=combine_lifespans(scheduler.lifespan, apns.lifespan, mcp_app.lifespan),
         generate_unique_id_function=_operation_id,
     )
     # Innermost first. Feed pages and entry lists are large, repetitive JSON (~10x smaller

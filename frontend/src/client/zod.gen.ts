@@ -3,6 +3,42 @@
 import * as z from 'zod';
 
 /**
+ * ApnsDeviceIn
+ *
+ * An iOS app install's APNs registration, upserted by token (sent on every launch).
+ */
+export const zApnsDeviceIn = z.object({
+    token: z.string().regex(/^[0-9a-fA-F]{64,200}$/),
+    environment: z.enum(['sandbox', 'production']),
+    bundle_id: z.string().regex(/^[A-Za-z0-9.-]{1,155}$/).nullish(),
+    app_version: z.string().max(64).nullish(),
+    device_name: z.string().max(200).nullish()
+});
+
+/**
+ * ApnsDeviceOut
+ */
+export const zApnsDeviceOut = z.object({
+    id: z.uuid(),
+    token: z.string(),
+    environment: z.enum(['sandbox', 'production']),
+    bundle_id: z.string().nullable(),
+    app_version: z.string().nullable(),
+    device_name: z.string().nullable(),
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true })
+});
+
+/**
+ * ApnsDeviceRef
+ *
+ * One device, by token (unregister, test).
+ */
+export const zApnsDeviceRef = z.object({
+    token: z.string().regex(/^[0-9a-fA-F]{64,200}$/)
+});
+
+/**
  * Channel
  *
  * How an entry reached the system. Set server-side.
@@ -420,7 +456,8 @@ export const zProblem = z.object({
  * PushConfig
  */
 export const zPushConfig = z.object({
-    public_key: z.string()
+    public_key: z.string(),
+    apns_enabled: z.boolean()
 });
 
 /**
@@ -1222,3 +1259,39 @@ export const zSendTestPushHeaders = z.object({
  * Successful Response
  */
 export const zSendTestPushResponse = zPushTestResult;
+
+export const zRegisterApnsDeviceBody = zApnsDeviceIn;
+
+export const zRegisterApnsDeviceHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
+/**
+ * Successful Response
+ */
+export const zRegisterApnsDeviceResponse = zApnsDeviceOut;
+
+export const zDeleteApnsDeviceBody = zApnsDeviceRef;
+
+export const zDeleteApnsDeviceHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
+/**
+ * Successful Response
+ */
+export const zDeleteApnsDeviceResponse = z.void();
+
+export const zSendApnsTestPushBody = zApnsDeviceRef;
+
+export const zSendApnsTestPushHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
+/**
+ * Successful Response
+ */
+export const zSendApnsTestPushResponse = zPushTestResult;

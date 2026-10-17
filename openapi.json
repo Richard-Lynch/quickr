@@ -2581,7 +2581,7 @@
           "push"
         ],
         "summary": "Push Config",
-        "description": "The VAPID public key to pass to ``PushManager.subscribe({applicationServerKey})``.",
+        "description": "The VAPID public key to pass to ``PushManager.subscribe({applicationServerKey})``, and\nwhether APNs (the iOS app) is configured.",
         "operationId": "getPushConfig",
         "responses": {
           "200": {
@@ -2856,7 +2856,7 @@
           "push"
         ],
         "summary": "Send Test Push",
-        "description": "Send a test notification to every subscription.",
+        "description": "Send a test notification to every browser subscription and APNs device.",
         "operationId": "sendTestPush",
         "parameters": [
           {
@@ -2949,10 +2949,490 @@
           }
         }
       }
+    },
+    "/api/v1/push/apns/devices": {
+      "post": {
+        "tags": [
+          "push"
+        ],
+        "summary": "Register Apns Device",
+        "description": "Register (or refresh, keyed by token) the iOS app's APNs device token. Resets its failure\ncount. The app calls this on every launch; it works whether or not APNs is enabled.",
+        "operationId": "registerApnsDevice",
+        "parameters": [
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApnsDeviceIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApnsDeviceOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
+    "/api/v1/push/apns/devices/delete": {
+      "post": {
+        "tags": [
+          "push"
+        ],
+        "summary": "Delete Apns Device",
+        "description": "Remove a device by token (idempotent).",
+        "operationId": "deleteApnsDevice",
+        "parameters": [
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApnsDeviceRef"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
+    "/api/v1/push/apns/devices/test": {
+      "post": {
+        "tags": [
+          "push"
+        ],
+        "summary": "Send Apns Test Push",
+        "description": "Send a test notification to this one device (\"Test this device\"). 404 ``not_found`` for an\nunregistered token; 409 ``apns_disabled`` when APNs is not configured.",
+        "operationId": "sendApnsTestPush",
+        "parameters": [
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApnsDeviceRef"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushTestResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ApnsDeviceIn": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64,200}$",
+            "title": "Token",
+            "description": "The APNs device token, hex (stored lower-case)."
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "sandbox",
+              "production"
+            ],
+            "title": "Environment",
+            "description": "The APNs host the token belongs to: sandbox for debug builds, production for TestFlight and App Store builds."
+          },
+          "bundle_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9.-]{1,155}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bundle Id"
+          },
+          "app_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Version"
+          },
+          "device_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "token",
+          "environment"
+        ],
+        "title": "ApnsDeviceIn",
+        "description": "An iOS app install's APNs registration, upserted by token (sent on every launch)."
+      },
+      "ApnsDeviceOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "sandbox",
+              "production"
+            ],
+            "title": "Environment"
+          },
+          "bundle_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bundle Id"
+          },
+          "app_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Version"
+          },
+          "device_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "token",
+          "environment",
+          "bundle_id",
+          "app_version",
+          "device_name",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ApnsDeviceOut"
+      },
+      "ApnsDeviceRef": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64,200}$",
+            "title": "Token",
+            "description": "The APNs device token, hex (stored lower-case)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "title": "ApnsDeviceRef",
+        "description": "One device, by token (unregister, test)."
+      },
       "ChangesPage": {
         "properties": {
           "items": {
@@ -5109,12 +5589,18 @@
             "type": "string",
             "title": "Public Key",
             "description": "VAPID public key (base64url, uncompressed P-256 point): the applicationServerKey for PushManager.subscribe()."
+          },
+          "apns_enabled": {
+            "type": "boolean",
+            "title": "Apns Enabled",
+            "description": "Whether this server can send APNs notifications (to the iOS app). When false, devices can still register, but nothing is sent to them."
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "public_key"
+          "public_key",
+          "apns_enabled"
         ],
         "title": "PushConfig"
       },

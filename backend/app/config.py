@@ -18,6 +18,18 @@ class Settings(BaseSettings):
     # Extra push service hosts (JSON list) on top of app.push_guard.DEFAULT_PUSH_HOSTS.
     push_allowed_hosts: list[str] = []
 
+    # APNs (the iOS app). Off unless the team id, key id and a key (inline or file) are all set.
+    apns_team_id: str | None = None
+    apns_key_id: str | None = None
+    # The .p8 key: PEM text (literal "\n" escapes allowed) or a path to the file.
+    apns_private_key: str | None = None
+    apns_private_key_file: str | None = None
+    apns_topic: str = "com.bahumia.quickr"  # the app's bundle id
+    # Optional separate key for the sandbox host (Apple keys can be limited to one environment).
+    apns_sandbox_key_id: str | None = None
+    apns_sandbox_private_key: str | None = None
+    apns_sandbox_private_key_file: str | None = None
+
     # Background task that sends "topic due" notifications.
     scheduler_enabled: bool = True
     scheduler_interval_seconds: float = 60.0

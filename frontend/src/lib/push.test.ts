@@ -110,7 +110,7 @@ describe('push API helpers', () => {
 
   it('returns the VAPID key and sends the channel header', async () => {
     const fetchMock = vi.fn<(req: Request) => Promise<Response>>(() =>
-      Promise.resolve(json({ public_key: 'abc' })),
+      Promise.resolve(json({ public_key: 'abc', apns_enabled: false })),
     );
     vi.stubGlobal('fetch', fetchMock);
     expect(await fetchPushConfig()).toEqual({ public_key: 'abc' });

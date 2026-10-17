@@ -15,11 +15,13 @@ database clock, which is never stable. The database clock (Postgres ``now()``:
 paths and only after checking the original is a timezone-aware ISO-8601
 datetime:
 
-- ``DB_CLOCK_KEYS`` on topics, entries, versions and push subscriptions become
+- ``DB_CLOCK_KEYS`` on topics, entries, versions, push subscriptions and APNs devices become
   ``SERVER_TIME`` unless they hold one of the pinned instants;
 - server-generated UUIDs become ``00000000-0000-4000-8000-<n>`` in order of first
   appearance (client-supplied ids are kept);
 - the generated VAPID public key becomes ``FIXED_PUBLIC_KEY``.
+
+APNs is on, against a fake (``fake_apns``), so ``getPushConfig`` says ``apns_enabled: true``.
 
 Every other ``*_at`` value in a response body is format-checked too.
 
@@ -36,6 +38,7 @@ from typing import Any, Self
 import httpx
 import pytest
 
+from tests.fake_apns import FakeApns
 from tests.helpers import backdate_schedule, make_topic, record
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_json, stale_message, updating
 
@@ -73,6 +76,13 @@ PUSH_SUBSCRIPTION = {
     "endpoint": "https://web.push.apple.com/QGuQyavXutnMlB5k",
     "keys": {"p256dh": "BOr8uW3hZ8t3Qn0dJ4Xq-key", "auth": "x5sQe1Zl0dAuth"},
     "user_agent": "Mozilla/5.0 (iPhone)",
+}
+APNS_DEVICE = {
+    "token": "7c5d0e1fa2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d",
+    "environment": "sandbox",
+    "bundle_id": "com.bahumia.quickr",
+    "app_version": "1.0 (1)",
+    "device_name": "iPhone",
 }
 # Operations without a fixture. Each one says why.
 UNCOVERED_OPERATIONS = {
@@ -408,7 +418,14 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
 
     # --- push (delivery is mocked: every send succeeds) --------------------------------
     await rec("createPushSubscription", "POST", "/push/subscriptions", PUSH_SUBSCRIPTION, status=201)
+    await rec("registerApnsDevice", "POST", "/push/apns/devices", APNS_DEVICE, status=201)
     await rec("sendTestPush", "POST", "/push/test", status=200)
+    await rec(
+        "sendApnsTestPush", "POST", "/push/apns/devices/test", {"token": APNS_DEVICE["token"]}, status=200
+    )
+    await rec(
+        "deleteApnsDevice", "POST", "/push/apns/devices/delete", {"token": APNS_DEVICE["token"]}, status=204
+    )
     await rec(
         "deletePushSubscription",
         "POST",
@@ -420,12 +437,12 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
 
 
 async def test_api_fixtures_match_committed(
-    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, fake_apns: FakeApns
 ) -> None:
     # Only the topic service still reads the Python clock (due computation); entry and
     # topic timestamps come from the database's now() and are normalised instead.
     monkeypatch.setattr("app.services.topics.datetime", FrozenDatetime)
-    monkeypatch.setattr("app.services.push.deliver", lambda *_: None)
+    monkeypatch.setattr("app.services.push.web.deliver", lambda *_: None)
     files = await scenario(client)
     existing = {p.name for p in API_DIR.glob("*.json")}
     if updating():

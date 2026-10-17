@@ -25,13 +25,17 @@ from app.models import Channel, TopicStatus
 from app.push_guard import PushEndpointRejected, check_endpoint
 from app.schemas.base import FieldIssue, Problem, StrictModel, field_error
 from app.schemas.limits import (
+    APNS_TOKEN_PATTERN,
+    BUNDLE_ID_PATTERN,
     CAPTURED_AT_MAX_FUTURE_HOURS,
     CAPTURED_AT_MIN,
     INTERVAL_MAX_MINUTES,
     INTERVAL_MIN_MINUTES,
+    MAX_APP_VERSION_LENGTH,
     MAX_CHANGE_NOTE_LENGTH,
     MAX_DECIMALS,
     MAX_DESCRIPTION_LENGTH,
+    MAX_DEVICE_NAME_LENGTH,
     MAX_ENUM_OPTIONS,
     MAX_HELP_TEXT_LENGTH,
     MAX_LABEL_LENGTH,
@@ -638,6 +642,10 @@ class PushConfig(StrictModel):
         description="VAPID public key (base64url, uncompressed P-256 point): the applicationServerKey "
         "for PushManager.subscribe()."
     )
+    apns_enabled: bool = Field(
+        description="Whether this server can send APNs notifications (to the iOS app). When false, "
+        "devices can still register, but nothing is sent to them."
+    )
 
 
 class PushKeys(StrictModel):
@@ -674,13 +682,56 @@ class PushTestResult(StrictModel):
 
 
 class PushPayload(StrictModel):
-    """JSON body of every push message (consumed by the service worker)."""
+    """JSON body of every Web Push message (consumed by the service worker)."""
 
     title: str
     body: str
     url: str
     tag: str
     topic_slug: str | None = None
+
+
+ApnsToken = Annotated[
+    str,
+    Field(pattern=APNS_TOKEN_PATTERN, description="The APNs device token, hex (stored lower-case)."),
+    AfterValidator(str.lower),
+]
+ApnsEnvironment = Literal["sandbox", "production"]
+
+
+class ApnsDeviceIn(StrictModel):
+    """An iOS app install's APNs registration, upserted by token (sent on every launch)."""
+
+    token: ApnsToken
+    environment: ApnsEnvironment = Field(
+        description="The APNs host the token belongs to: sandbox for debug builds, production for "
+        "TestFlight and App Store builds."
+    )
+    bundle_id: Annotated[str | None, Field(pattern=BUNDLE_ID_PATTERN)] = None
+    app_version: Annotated[str | None, Field(max_length=MAX_APP_VERSION_LENGTH)] = None
+    device_name: Annotated[str | None, Field(max_length=MAX_DEVICE_NAME_LENGTH)] = None
+
+    @field_validator("app_version", "device_name")
+    @classmethod
+    def _blank_is_none(cls, v: str | None) -> str | None:
+        return v or None
+
+
+class ApnsDeviceOut(StrictModel):
+    id: UUID
+    token: str
+    environment: ApnsEnvironment
+    bundle_id: str | None
+    app_version: str | None
+    device_name: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ApnsDeviceRef(StrictModel):
+    """One device, by token (unregister, test)."""
+
+    token: ApnsToken
 
 
 # ---------------------------------------------------------------------------
