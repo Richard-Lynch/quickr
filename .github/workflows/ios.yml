@@ -4,13 +4,14 @@ name: iOS
 # - push: `swift test` for ios/QuickrKit on the host.
 # - non-draft PR (opened, ready for review, new commits) or manual dispatch: `make ios-check-ci`
 #   (xcodegen, then build + the Unit plan on an iOS 26.x simulator, no signing).
+# The Makefile is in the path filters because it is the build interface CI calls.
 on:
   push:
     branches: [main, feat/ios-app]
-    paths: ["ios/**", "shared/fixtures/**", ".github/workflows/ios.yml"]
+    paths: ["ios/**", "shared/fixtures/**", "Makefile", ".github/workflows/ios.yml"]
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize]
-    paths: ["ios/**", "shared/fixtures/**", ".github/workflows/ios.yml"]
+    paths: ["ios/**", "shared/fixtures/**", "Makefile", ".github/workflows/ios.yml"]
   workflow_dispatch:
 
 concurrency:
@@ -36,13 +37,18 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain identity
+        id: toolchain
+        run: |
+          xcodebuild -version && swift --version
+          echo "hash=$( (xcodebuild -version; swift --version 2>&1) | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      # .build holds compiled products, so the key includes the architecture and the toolchain.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ios/QuickrKit/.build
-          key: spm-host-${{ runner.os }}-${{ hashFiles('ios/QuickrKit/Package.swift', 'ios/**/Package.resolved') }}
-      - run: xcodebuild -version && swift --version
+          key: spm-host-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.hash }}-${{ hashFiles('ios/QuickrKit/Package.swift', 'ios/**/Package.resolved') }}
       - name: Swift tests
-        run: swift test --package-path ios/QuickrKit
+        run: ios/scripts/swift-test.sh
 
   app:
     name: build + Unit plan
@@ -64,8 +70,9 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ios/build/spm
-          key: spm-ios-${{ runner.os }}-${{ hashFiles('ios/QuickrKit/Package.swift', 'ios/**/Package.resolved') }}
+          key: spm-ios-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ios/QuickrKit/Package.swift', 'ios/**/Package.resolved') }}
       - run: xcodebuild -version && xcodegen --version
+      # Fails unless an iPhone simulator on an iOS 26.x runtime exists (PLAN §6a rule 12).
       - name: Build + Unit plan (no signing)
         run: make ios-check-ci IOS_SIM_CI="iPhone 17"
       - name: Upload test results
