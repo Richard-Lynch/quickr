@@ -436,11 +436,13 @@ public struct RegisteredServer: Sendable, Hashable, Identifiable {
     public var pendingGen: Int?
     public var pendingConfirmedCount: Int?
     public var pendingConfirmedMaxSeq: Int64?
+    /// Unique per reset attempt: completion and abort are fenced on it.
+    public var pendingToken: String?
 
     public init(
         id: String, baseURL: String, displayName: String? = nil, storeGen: Int = 1, createdAt: Date,
         lastSyncAt: Date? = nil, pendingGen: Int? = nil, pendingConfirmedCount: Int? = nil,
-        pendingConfirmedMaxSeq: Int64? = nil
+        pendingConfirmedMaxSeq: Int64? = nil, pendingToken: String? = nil
     ) {
         self.id = id
         self.baseURL = baseURL
@@ -451,6 +453,7 @@ public struct RegisteredServer: Sendable, Hashable, Identifiable {
         self.pendingGen = pendingGen
         self.pendingConfirmedCount = pendingConfirmedCount
         self.pendingConfirmedMaxSeq = pendingConfirmedMaxSeq
+        self.pendingToken = pendingToken
     }
 
     /// The store file name, relative to `<AppGroup>/Library/quickr/`.

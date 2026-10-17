@@ -21,12 +21,12 @@ branch.
 
 ## Now
 
-|                     |                                                                                                                                                                                        |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Active milestone    | **M1** on `ios/m1-data`. M0 merged (#8, 6249b0e).                                                                                                                                      |
-| Running             | M1 Wave 1 sub-agents: **C1** contracts (`ios/m1-c1`), **DS** design system (`ios/m1-ds`, sim), **B6** APNs backend, dark (`ios/m1-b6`), **TOOLS** integration harness (`ios/m1-tools`) |
-| Waiting on the user | Apple enrollment activation and the Team ID; iPhone model and iOS version; a session restart to load MobileBuildMCP                                                                    |
-| Next up             | Wave 1 reviews (Codex) → merge C1 first → Wave 2: STORE, API, DUE, VAL                                                                                                                 |
+|                     |                                                                                                                                                                |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Active milestone    | **M1** on `ios/m1-data`. M0 merged (#8, 6249b0e).                                                                                                              |
+| Running             | Cap raised to **6 agents** (simulator-heavy ≤2; Mac has 14 cores). STORE (last Codex fix: intent token), API, B7, SKEL (sim), OUTBOX, SYNC, PWA zod length fix |
+| Waiting on the user | Apple enrollment activation and the Team ID; a session restart to load MobileBuildMCP                                                                          |
+| Next up             | Wave 1 reviews (Codex) → merge C1 first → Wave 2: STORE, API, DUE, VAL                                                                                         |
 
 ## Human steps (PLAN §9)
 
@@ -38,8 +38,7 @@ branch.
   awaiting activation. Then send the Team ID.
 - [ ] H4: Xcode ▸ Settings ▸ Accounts sign-in. Needed after H3, before
       checkpoint D.
-- [ ] H5: phone. Trust this Mac, turn on Developer Mode, and send the model and
-      iOS version.
+- [~] H5: phone is an **iPhone 16 Pro Max on iOS 26.6.2**. It has the Action button and Apple Intelligence (A18 Pro), so one-sentence Siri logging is available. Still to do: trust this Mac and turn on Developer Mode (after enrollment).
 - [ ] H6: APNs `.p8` key, with its Key ID (M3).
 - [ ] H7: App Store Connect app record and API key (M7).
 - [ ] H8: Cloudflare tunnel, Access app and service token (M7).
@@ -161,6 +160,12 @@ These are the server details the specs assume. Each one must be confirmed in the
 - [ ] Feed: an ASGI disconnect/send-error test proving the CSV snapshot transaction closes and the connection is returned; a >500-row CSV with a mutation between pages.
 - [ ] Feed: a dedicated regression test for the commit-time retry in `@writer`.
 - [ ] Specs/fixtures: `quicklog-vectors.json` gains category-id cases (M3).
+- [ ] App integration (SKEL/SYNC-UX): post GRDB suspension notifications on app background/foreground (`Database.suspendNotification` / `resumeNotification`) in the app and extensions, the 0xDEAD10CC guard (from the STORE review).
+- [ ] NSE links QuickrData, so it also carries App Intents metadata (from SKEL). Harmless for now. If duplicate-metadata warnings or resolution issues appear, split intents into a `QuickrIntents` package target linked only by the app and widget.
+- [ ] Backend test isolation: feed/APNs tests that use **Postgres advisory locks** interfere across worktrees, because advisory locks are server-wide and every worktree's test DB shares the :5433 server. Fix: derive the lock keys from the database name/OID in tests (or a per-DB key setting), and make the tick-budget test clock-driven. Seen as `test_feed`/`test_apns` failures under parallel runs (API, zodlen).
+- [ ] Backend: reject NUL in every text field the API stores (notes, source, labels, names…) with a 422 Problem instead of a Postgres 500. Today only str answers are checked (found by VAL).
+- [x] ~~PWA zod UTF-16 lengths~~: not a bug. zod 4.6.7 counts code points. Regression tests merged (b760fdf) so that a zod or generator change back to UTF-16 counting is caught.
+- [ ] Notifications WP: a fake-center orchestration test for ReminderDedup L1 (pending local cancel) and L2 (suppression/activation cleanup), from the C1 review.
 - [ ] TILES (M2): at accessibility text sizes, badges and the sync pill truncate and the tile stays side by side. Consider a stacked tile layout at AX sizes (from DS).
 - [ ] Scaffold: confirm on the first real CI run that Xcode 26.6 honours `ios/QuickrKit/Package.resolved` (verified locally on 27.1 only). When GRDB lands in M1, run `make ios-resolve` and commit the lockfile.
 
@@ -178,15 +183,15 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md).
 
-| Wave | WP                                                                                                                        | Branch         | Status                                                                                                                                                                                                    |
-| ---- | ------------------------------------------------------------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| W1   | C1 contracts (models, DTOs, schema, protocols, TestSupport, GRDB)                                                         | `ios/m1-c1`    | [~] built (4 commits, GRDB 7.11.1, 26 operationIds). Codex round 1: 3 Majors (notification info, ViewTopic, strict required-nullable) + 2 Minors; fixing                                                  |
-| W1   | DS design system (lands with M2)                                                                                          | `ios/m1-ds`    | [x] **Approved** by Codex round 2 (fixes a06e8dd). Merges right after C1 (needs its Package.swift resources entry plus the QuickrDesignTests target and project.yml Resources/AppIcon).                   |
-| W1   | B6 APNs backend, dark                                                                                                     | `ios/m1-b6`    | [x] **Merged** (4b398b9) after 4 Codex rounds (lifespan order, delivery deadline, token log redaction, sandbox config, slot-progress table against starvation, TTL only for abandoned slots). 494 pytest. |
-| W1   | TOOLS integration harness and fault proxy                                                                                 | `ios/m1-tools` | [~] fixes b670337. Round 2: 6/8 resolved; still open: synthetic 1xx, non-ASCII header values, stale-lock takeover. Fixing                                                                                 |
-| W2   | STORE · DUE · VAL started early from the C1 tip (`ios/m1-store`, `ios/m1-due`, `ios/m1-val`); API waits for the C1 review | —              | [~] running                                                                                                                                                                                               |
-| W3   | OUTBOX · SYNC · SKEL · B7                                                                                                 | —              | [ ]                                                                                                                                                                                                       |
-| W4   | MP · INT · SPIKE · FORM (M2)                                                                                              | —              | [ ]                                                                                                                                                                                                       |
+| Wave | WP                                                                                                                                                                                                                                                                                   | Branch         | Status                                                                                                                                                                                                                                |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| W1   | C1 contracts (models, DTOs, schema, protocols, TestSupport, GRDB)                                                                                                                                                                                                                    | `ios/m1-c1`    | [x] **Merged** (77d0e72) after 2 Codex rounds. Minor deferred: a dedup orchestration test (notifications WP).                                                                                                                         |
+| W1   | DS design system (lands with M2)                                                                                                                                                                                                                                                     | `ios/m1-ds`    | [x] **Merged** (6a579a4 + integration d6f367b: QuickrDesignTests, Resources/AppIcon, DEBUG catalogue hook). check-ios green on iOS 26.0 + 27.0.                                                                                       |
+| W1   | B6 APNs backend, dark                                                                                                                                                                                                                                                                | `ios/m1-b6`    | [x] **Merged** (4b398b9) after 4 Codex rounds (lifespan order, delivery deadline, token log redaction, sandbox config, slot-progress table against starvation, TTL only for abandoned slots). 494 pytest.                             |
+| W1   | TOOLS integration harness and fault proxy                                                                                                                                                                                                                                            | `ios/m1-tools` | [x] **Merged** (6205724) after 4 Codex rounds (HTTP framing, hop-by-hop, control validation, docker-assigned ports, startup cleanup, kernel-lock sim-clone). Smoke 12/12 on the merged branch; 2 wording/error minors as a follow-up. |
+| W2   | **DUE**, **VAL** and **STORE merged** (STORE after 3 Codex rounds: reset-generation and token fencing, lease time inside the lock, the sync-lease leak, failed-create exclusion, a 56-case overlay matrix). **API** fixing round 1 (partial identity headers, precondition evidence) | —              | [~]                                                                                                                                                                                                                                   |
+| W3   | **OUTBOX** (`ios/m1-outbox`) and **SYNC** (`ios/m1-sync`) building; **B7** and **SKEL** building; PWA zod length fix (`ios/m1-zodlen`)                                                                                                                                               | —              | [~] running                                                                                                                                                                                                                           |
+| W4   | MP · INT · SPIKE · FORM (M2)                                                                                                                                                                                                                                                         | —              | [ ]                                                                                                                                                                                                                                   |
 
 - [ ] QuickrCore: models, validation, quick-log, and the due port (all vectors
       pass)
@@ -273,6 +278,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-17 17:04–21:00: every agent stopped at the account usage limit (reset 20:40). No work lost: uncommitted changes stayed in the worktrees, and all 6 agents were resumed at 21:00. B7 finished just before the limit; Codex round 1 → `open` (More…) action accepted into the spec; `fmt` simplified to shortest round-trip with no rounding.
 
 - 2026-10-17: WP vectors done and gate green. Findings to carry into the Swift due port: DST gaps can merge slots, slots must be sorted by UTC instant, the early window can be tiny, `next_due_at` ignores `schedule_since`.
 - 2026-10-17: Plan v3 finalised (PR #6). Notebook merged to `main` (PR #7).
