@@ -91,7 +91,7 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
   - [x] `openapi.json` and the TS client regenerated
 - [ ] Gate: `make check` green (the sub-agent's report and an orchestrator
       re-run)
-- [~] Codex review: round 1 requested changes (4 Majors: kind-scoped ids, `@writer` lock ownership, tombstone before topic resolve, PWA retired result; 1 Minor: identity inside the snapshot). Fixes in progress.
+- [~] Codex review: round 1 found 4 Majors + 1 Minor, fixed in bc6f4c1, c13d3ac and e6d94cc (gate re-run: 368 pytest, 151 vitest). Round 2: the 4 fixes are resolved. Open: the epoch precondition must be atomic with the write (fix in progress). Declined: a forward migration for the in-place edit, since that revision was never merged or deployed.
 - [ ] Merged into `ios/m0-foundations`
 
 ### WP vectors: `ios/m0-vectors` (worktree `../ios-m0-vectors`)
