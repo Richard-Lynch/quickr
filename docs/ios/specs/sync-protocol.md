@@ -79,18 +79,25 @@ GET /api/v1/changes?after=<cursor:int ≥ 0>&limit=<1..500>
 
 ```
 ChangePage {
-  server_id:   string        // [server] in every page
-  epoch:       string        // [server]
-  head:        int           // highest seq on the server when the page was built
-  next:        int           // highest seq this page covers (equal to after when the page is empty)
+  server_id:   string (UUID)  // in every page
+  epoch:       string (UUID)
+  head:        int            // highest seq on the server when the page was built
+  next:        int            // highest seq this page covers (equal to after when the page is empty)
   has_more:    bool
-  server_time: datetime      // RFC 3339, for clock skew (§10)
-  topics:      TopicDetail[]               // incl. revision; derived fields are ignored (§3.3)
-  versions:    TopicVersionOut+{topic_id}[] // immutable
-  entries:     EntryOut[]                   // incl. revision
-  deleted:     { kind: "entry" | "topic" | "version", id, topic_id }[]
+  server_time: datetime       // RFC 3339, for clock skew (§10)
+  items: (                    // tagged union on `kind`; each item carries its change_log `seq`
+      { kind: "topic",   seq, topic: TopicDetail }                          // incl. revision; derived fields ignored (§3.3)
+    | { kind: "version", seq, id, topic_id, version: TopicVersionOut }      // immutable; nested, not flattened
+    | { kind: "entry",   seq, entry: EntryOut }                             // incl. revision
+  )[]
+  deleted: { kind: "entry" | "topic" | "version", seq, id, topic_id, deleted_at }[]   // topic_id never null
 }
 ```
+
+Ordering within a page: `items` are listed topics, then versions, then entries;
+`deleted` is listed entries, then versions, then topics. Each kind is in ascending
+`seq`. The client applies by kind (§4.1) and doesn't depend on this order. `limit`
+counts change_log rows, not items, so a page can hold fewer items than `limit`.
 
 ### 1.3 Contract requirements
 
@@ -98,7 +105,7 @@ ChangePage {
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | F1  | A page is materialised in **one REPEATABLE READ snapshot**. It covers the change_log rows with `after < seq ≤ next`. For each entity in those rows, it returns the entity's **latest state in that snapshot**, which may be newer than the seq that put it on the page.                                                                                                                                                                                                                                          | The client can apply a page as an idempotent, monotone set of upserts.      |
 | F2  | An entity that no longer exists in the snapshot is emitted in `deleted` **only if its id is in `deleted_ids`**. Otherwise it is skipped, because its own delete row comes later (§6a rule 4).                                                                                                                                                                                                                                                                                                                    | A "vanished" entity always arrives with a tombstone.                        |
-| F3  | Every deleted entity of every kind (entry, topic and version) is in `deleted_ids` permanently. A topic delete puts its child entries and versions into `deleted_ids` **before** the foreign-key cascade (§6a rule 3).                                                                                                                                                                                                                                                                                            | Tombstones are complete, and ids are never reused.                          |
+| F3  | Every deleted entity of every kind (entry, topic and version) is in `deleted_ids` permanently. A topic delete puts its child entries and versions into `deleted_ids` **before** the foreign-key cascade (§6a rule 3), so their ids stay reserved. **Incremental** pages emit only the topic's own deletion, and the client cascades to the children locally (§4.3 step 2). A **bootstrap** from `after=0` emits every child deletion explicitly.                                                                 | Tombstones are complete, and ids are never reused.                          |
 | F4  | `entry` and `topic` rows carry `revision`, an integer. It starts at 1 and increases with every change to that entity within an epoch. POST, PATCH, archive and unarchive responses carry it too.                                                                                                                                                                                                                                                                                                                 | The regression guard (§5.2).                                                |
 | F5  | Entry mutations do not log topic rows. Topic rows are logged only when the topic's own fields change (§6a rule 3).                                                                                                                                                                                                                                                                                                                                                                                               | The client recomputes derived fields itself (§3.3).                         |
 | F6  | The backfill migration writes seqs in the order topics, then versions, then entries.                                                                                                                                                                                                                                                                                                                                                                                                                             | The first bootstrap pages can render the home screen.                       |
@@ -118,16 +125,17 @@ because the client is allowed to skip them.
 | Every mutation: outbox sends, online-only writes, and APNs register, unregister and test | **Always** both `X-QuickR-Expect-Server-Id: <store.server_id>` and `X-QuickR-Expect-Epoch: <store.epoch>` |
 | Feed pages and other GETs (stats, series, CSV, refetches)                                | No precondition headers                                                                                   |
 
-These are the client's checks on every response:
+The client checks **every** response, of any status, **before interpreting
+it**. Interpreting means acting on a 2xx body, on a Problem code, or on a 404 that
+says an entity is gone. The checks run in this order:
 
-| Observation                                                                          | Meaning and handling                                                                                                                                                                                                                                          |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 409 `server_mismatch`                                                                | The URL now reaches a different server. **Nothing executed.** The outbox puts the item back exactly as it was before the claim ([outbox.md §5.2](outbox.md#52-per-kind-overrides)). The store enters **identity mismatch** (§8.4): flushing and pulling stop. |
-| 409 `epoch_mismatch`                                                                 | **Nothing executed.** The item is put back the same way. The coordinator starts a rebuild (§7).                                                                                                                                                               |
-| A 2xx whose `X-QuickR-Server-Id` is missing or differs from `store.server_id`        | This can only happen with a misbehaving proxy or server. Treat it as an identity mismatch, and **discard the outcome** (§5.5).                                                                                                                                |
-| A 2xx whose `X-QuickR-Epoch` differs from the epoch in the request context           | **Discard the outcome** (§5.5) and start a rebuild. With F10 this should not happen for mutations, but GETs have no precondition.                                                                                                                             |
-| A non-2xx without the headers, such as a 3xx or 403 from the Cloudflare Access proxy | It never reached quickR. Classify it normally ([outbox.md §5](outbox.md#5-classification)).                                                                                                                                                                   |
-| A feed page                                                                          | Run the checks in §2.2 against the page body.                                                                                                                                                                                                                 |
+| Observation                                                                                                                        | Meaning and handling                                                                                                                                                                                                                                                                                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `X-QuickR-Server-Id` is present and differs from `store.server_id` (any status), or 409 `server_mismatch`                          | The URL now reaches a different server. **Do not interpret the response.** For a mutation that was rejected by its precondition, nothing executed. The outbox restores the item ([outbox.md §5.2](outbox.md#52-per-kind-overrides)). The store enters **identity mismatch** (§8.3).                                                                            |
+| `X-QuickR-Epoch` is present and differs from the request context's epoch (any status), or 409 `epoch_mismatch`                     | **Do not interpret the response.** That includes a 404 or a 4xx, which never mean "gone" or "rejected" across epochs. Discard the outcome (§5.5), then follow the mismatch signalling in §5.6: `epoch_suspect`, release `flush`, and ask the coordinator to run. Item handling is in outbox.md §5.2.                                                           |
+| A 2xx without the headers                                                                                                          | Treat it as an identity mismatch, because only a misbehaving proxy or server sends this. **Discard the outcome.**                                                                                                                                                                                                                                              |
+| A non-2xx without the headers, such as a 3xx or 403 from the Cloudflare Access proxy, or a 5xx while the server's database is down | It never reached quickR's application logic, so it is **never interpreted as an application error**. 3xx, 401, 403, 408, 425, 429 and 5xx keep their base classification ([outbox.md §5.1](outbox.md#51-base-table-byte-compatible-with-pwa-classifystatus-and-attempt)). Any other status without headers is a retry ("Unexpected response from the server"). |
+| Headers present and matching                                                                                                       | Interpret the response normally. A feed page also runs the checks in §2.2.                                                                                                                                                                                                                                                                                     |
 
 The previous draft had a 60-second "identity confirmed" window and a health
 probe. **Both are removed.** The F10 preconditions make every mutation
@@ -210,6 +218,7 @@ A bootstrap, with `cursor = 0` and no epoch yet, accepts whatever `epoch` and
 - `cursor` and `head_seen`;
 - `layer_gen`;
 - `rebuilding`: null, or the target epoch;
+- `epoch_suspect`: 0 or 1 (§5.6);
 - `retired`: 0 or 1 (§12);
 - `identity_mismatch`: 0 or 1;
 - `last_pull_at`, `skew_ms` and `skew_measured_at`;
@@ -281,8 +290,8 @@ coordinator:
 
 1. Check the **fence** (§5.5), then run the §2.2 checks. Stop on the first
    failure.
-2. **Upserts.** Apply `topics`, then `versions`, then `entries`, each through
-   the §4.2 guards.
+2. **Upserts.** Apply the `items` of kind `topic`, then `version`, then `entry`,
+   each through the §4.2 guards.
 3. **Deletions.** Apply `deleted` as in §4.3.
 4. **Pull-ack.** Apply §4.4.
 5. Recompute derived fields for every touched topic.
@@ -303,12 +312,13 @@ These guards apply to every write into the server layer, whatever the path:
 
 ### 4.3 Tombstones
 
-For each item in `deleted` (`{kind, id, topic_id}`):
+For each item in `deleted` (`{kind, seq, id, topic_id, deleted_at}`):
 
 1. Insert into `tombstone`. This is idempotent.
 2. Delete the server-layer row. A **topic** tombstone also deletes every
    `topic_version` and `entry` row with that `topic_id`, and inserts tombstones
-   for them.
+   for them. **This local cascade is required:** incremental pages carry only
+   the topic's own deletion (F3).
 3. **Dependent outbox items.** These are the items for the deleted entity, or,
    for a topic, every item with that `topic_id`. They are resolved in the same
    transaction:
@@ -407,20 +417,42 @@ CREATE TABLE lease (
 
 ### 5.4 The coordinator loop
 
+The loop decides what to do from the persisted state **before** it makes any
+request. A coordinator that takes over a half-finished rebuild therefore resumes
+staging, and never starts with a live pull.
+
 ```
 coordinate(store):
-  acquire lease "sync" or return                            // another coordinator is running
-  ctx = (store file, sync_state.layer_gen, sync_state.epoch, my sync token)
+  acquire lease "sync" or return                     // another coordinator is running
   loop:
-    page = GET /changes?after=cursor                        // no transaction open
-    TX IMMEDIATE:
-      fence(ctx) or abort-silently                          // §5.5
-      renew "sync"
-      checks §2.2 → apply §4.1
-    if epoch mismatch: rebuild(ctx) (§7); return
-    if !page.has_more: break
+    st = TX read sync_state                          // short read; no request in flight
+    if st.retired: reopen from registry (§12); return
+    if st.identity_mismatch: return                  // §8.3
+    if st.rebuilding != nil:
+      if stageStep(st) == .swapped: continue         // §7; context refreshed by re-reading st
+      else: return or retry with backoff
+    else:
+      result = liveStep(st)                          // one live page
+      if result == .epochMismatch(E): startRebuild(E); continue
+      if result == .drained: break
   release "sync"
+
+liveStep(st):
+  ctx = (store file, st.layer_gen, st.epoch, my sync token)
+  page = GET /changes?after=st.cursor                // no transaction open
+  if page.server_id != st.server_id: TX(fenced) set identity_mismatch; return .stop
+  if page.epoch != ctx.epoch or st.cursor > page.head: return .epochMismatch(page.epoch)
+  TX IMMEDIATE: fence(ctx) or abort-silently; renew "sync"; checks §2.2; apply §4.1;
+                epoch_suspect = 0                    // a page in our epoch clears suspicion (§5.6)
+  return page.has_more ? .more : .drained
+
+startRebuild(E):                                     // idempotent for the same target
+  TX IMMEDIATE: fence(sync token, layer_gen)
+    if rebuilding == E: no-op                         // already staging for E: never re-clear
+    else: rebuilding = E; clear stage_*; stage_state.cursor = 0
 ```
+
+`stageStep` is defined in §7 step 2, and the swap in §7 step 3.
 
 ### 5.5 Fencing and generations
 
@@ -429,18 +461,42 @@ page, the swap, an ack, an outbox outcome, an online-only response, or a
 refetch) MUST begin with a **fence check** against the request context it
 captured:
 
-| Fence condition                                              | Applies to                                                   |
-| ------------------------------------------------------------ | ------------------------------------------------------------ |
-| `sync_state.retired = 0`                                     | Everything. A retired file is never written again (§12).     |
-| `sync_state.layer_gen = ctx.layer_gen`                       | Everything that writes the server layer or outbox state      |
-| `sync_state.epoch = ctx.epoch` and `rebuilding` is unchanged | Pages and staged pages                                       |
-| The `sync` lease is valid and its token is `ctx.token`       | Pages, staged pages, the swap and reset (coordinator work)   |
-| The `flush` lease is valid, and `claim_token` matches        | Outbox outcomes ([outbox.md §6](outbox.md#6-the-flush-lock)) |
+| Fence condition                                         | Applies to                                                   |
+| ------------------------------------------------------- | ------------------------------------------------------------ |
+| `sync_state.retired = 0`                                | Everything. A retired file is never written again (§12).     |
+| `sync_state.layer_gen = ctx.layer_gen`                  | Everything that writes the server layer or outbox state      |
+| `sync_state.epoch = ctx.epoch` and `rebuilding IS NULL` | Live pages                                                   |
+| `sync_state.rebuilding = ctx.target_epoch`              | Staged pages                                                 |
+| The `sync` lease is valid and its token is `ctx.token`  | Pages, staged pages, the swap and reset (coordinator work)   |
+| The `flush` lease is valid, and `claim_token` matches   | Outbox outcomes ([outbox.md §6](outbox.md#6-the-flush-lock)) |
 
 If the fence fails, the outcome is **discarded entirely**. That means no server
 rows, no tombstones, no deletions, no outbox changes and no derived updates. The
 process stops the work that produced it. The state that the outcome would have
 reported reaches the store through the next pull instead.
+
+### 5.6 Mismatch signalling (never a reverse lock order)
+
+When a flusher, or any non-coordinator, sees an epoch mismatch (a 409
+`epoch_mismatch`, or a response whose epoch header doesn't match), it **does not
+rebuild**. Instead it:
+
+1. In its outcome transaction, which is fenced as usual, sets
+   `sync_state.epoch_suspect = 1` and applies the outcome rule for the item
+   ([outbox.md §5.2](outbox.md#52-per-kind-overrides)). While `epoch_suspect` is
+   set, claims are refused, so the queue doesn't keep sending into 409s.
+2. **Releases `flush`.**
+3. Only then requests a coordinator run **asynchronously**: an in-process task
+   if this is the app, or the Darwin notification
+   `com.bahumia.quickr.sync-requested` from an extension. The app also runs the
+   coordinator on every activation.
+
+The coordinator's next live page confirms the epoch and clears `epoch_suspect`, or
+detects the mismatch and starts a rebuild, which clears it at the swap. An identity
+mismatch follows the same sequence, using `identity_mismatch` (§8.3) instead.
+
+A process holding `flush` therefore never waits for `sync`, and the global lock
+order (§5.2) is never reversed.
 
 ## 6. Atomic ack (§6a rule 7)
 
@@ -473,27 +529,44 @@ are untouched. Only the server layer is rebuilt, through staging tables. The UI
 keeps showing the old data until the new data is complete. **Only the
 coordinator rebuilds**, while it holds the `sync` lease.
 
-1. **Start.** In one fenced transaction: set `sync_state.rebuilding = new_epoch`
-   and clear the `stage_*` tables. **From now on, outbox claims are refused in
-   every process**
+1. **Start.** `startRebuild(E)` (§5.4) is called in one fenced transaction. It
+   sets `sync_state.rebuilding = E`, clears the `stage_*` tables and sets
+   `stage_state.cursor = 0`, unless `rebuilding` is already `E`, in which case
+   it does nothing. **From now on, outbox claims are refused in every process**
    ([outbox.md §6.2](outbox.md#62-claims-and-the-rebuild-guard)). Enqueueing
    still works.
-2. **Stage.** Page from `after=0` into `stage_*`. Each staged page is applied in
-   a fenced transaction that also checks `rebuilding = new_epoch` and advances
-   `stage_state.cursor`.
-   - If the coordinator loses its lease, its fenced writes fail, and it stops.
-   - A **new coordinator** that finds `rebuilding` set **takes over**: it
-     continues staging from `stage_state.cursor`, provided the server's epoch is
-     still `rebuilding`. Otherwise it clears `stage_*` and restarts with the
-     newest epoch.
+2. **Stage.** `stageStep(st)` uses its **own staging context**:
+   `sctx = (store file, st.layer_gen, target_epoch = st.rebuilding, my sync token)`.
+
+   ```
+   stageStep(st):
+     page = GET /changes?after=stage_state.cursor
+     if page.server_id != st.server_id: set identity_mismatch; return .stop
+     if page.epoch != sctx.target_epoch: startRebuild(page.epoch); return .restarted   // only a *different* epoch re-clears
+     TX IMMEDIATE: fence(sctx) or abort-silently; renew "sync"; decode checks;
+                   apply into stage_* (same guards, against stage tables); stage_state.cursor = next
+     if !page.has_more: swap(sctx) (step 3); return .swapped
+     return .more
+   ```
+
+   - The live-layer checks (`cursor ≤ head`, the live epoch) don't apply to
+     staged pages. A staged page is only compared with `target_epoch`.
+   - If the coordinator loses its lease, its fenced writes fail and it stops.
+   - **Takeover.** A new coordinator's loop sees `rebuilding` set before it
+     makes any request (§5.4). It continues from `stage_state.cursor`, building
+     the staging context from the persisted state. An E2 page seen while staging
+     for E2 never clears the staging tables again.
+   - After the swap, the loop re-reads `sync_state`, so the next live context
+     carries the new `epoch` and `layer_gen`.
+
 3. **Swap.** When a staged page returns `has_more = false`:
    1. Acquire the `flush` lease (lock order `sync` → `flush`). This waits for
       any live sender to finish, or for its lease to expire.
    2. In one `IMMEDIATE` transaction, fenced on both leases:
       - replace `topic`, `topic_version`, `entry` and `tombstone` with the
         staged rows;
-      - set `epoch`, `cursor = stage cursor`, `rebuilding = null`, and
-        **`layer_gen += 1`**;
+      - set `epoch`, `cursor = stage cursor`, `rebuilding = null`,
+        `epoch_suspect = 0`, and **`layer_gen += 1`**;
       - set every `in_flight` item to `uncertain` and clear its claim. Its
         sender's fence now fails, because of `layer_gen` and the token;
       - run §4.4 pull-ack over the whole outbox;
@@ -673,37 +746,70 @@ These are never queued:
 
 ## 12. Local reset
 
-Settings ▸ "Reset local data" replaces the **active store** with a **fresh
-file** at a new store generation. Other stores, the registry's other rows and
-the credentials are untouched.
+Settings ▸ "Reset local data" replaces the **active store** with a **fresh file**
+at a new store generation. Other stores, the other registry rows and the
+credentials are untouched. The reset is driven by a **persisted intent**, so a
+crash at any point can be recovered by repeating steps that are safe to repeat.
 
-1. If `outbox_item` has rows (in any state), warn: "_N_ changes haven't synced
-   (_k_ failed)." The options are **Sync first** (flush; continue if the outbox
-   is empty, otherwise ask again), **Reset anyway** (a second, destructive
-   confirmation), and **Cancel**. With no items, a single confirmation is
-   enough.
-2. The coordinator acquires `sync`, then `flush` (the §5.2 order), on the old
-   file. It waits up to 35 s, and on timeout aborts with "Try again".
-3. In one transaction on the **old** file: `retired = 1`. From now on, every
-   transaction in every process that opens this file fails its fence or retired
-   check and reopens the store from the registry (§8.1).
-4. Release both leases on the old file.
-5. In one registry transaction:
-   - `store_gen += 1`;
-   - insert the old path into `retired_file`.
-6. Post the Darwin notification `com.bahumia.quickr.registry-changed`.
-7. Create `stores/<server_id>.g<new>.sqlite` and bootstrap it (§2.1). The APNs
-   registration is kept, because it is the same server. Categories are
+Registry columns used: `server.store_gen`, plus the intent columns
+`server.pending_gen`, `server.pending_confirmed_count` and
+`server.pending_confirmed_max_seq`. All three are null when no reset is in
+progress.
+
+### 12.1 Procedure
+
+1. **Warn.** Read `N = count(outbox_item)` and `M = max(outbox_item.seq)` (0 when
+   empty).
+   - If `N > 0`, show "_N_ changes haven't synced (_k_ failed)." The options are
+     **Sync first** (flush; continue if the outbox is empty, otherwise ask
+     again), **Reset anyway** (a second, destructive confirmation) and
+     **Cancel**.
+   - If `N = 0`, a single confirmation is enough.
+2. **Persist the intent.** In one registry transaction:
+   `pending_gen = store_gen + 1`, `pending_confirmed_count = N` and
+   `pending_confirmed_max_seq = M`. Nothing is retired yet. The new file name is
+   `stores/<server_id>.g<pending_gen>.sqlite`.
+3. **Acquire** `sync`, then `flush`, on the old file (the §5.2 order). Wait up to
+   35 s; on timeout, abort, which clears the intent.
+4. **Re-check and retire.** In one transaction on the **old** file:
+   - Re-check the outbox. If `count > pending_confirmed_count`, or
+     `max(seq) > pending_confirmed_max_seq`, writes were committed after the
+     user's warning. **Abort:** retire nothing, release the leases, clear the
+     intent, and show the warning again with the new count. Fewer items, because
+     some synced meanwhile, is fine.
+   - Otherwise set `retired = 1`. From now on every transaction on this file, in
+     every process, fails its retired check and reopens through the registry.
+     Enqueues are retried on the new file.
+5. **Release** both leases on the old file.
+6. **Advance.** In one registry transaction: `store_gen = pending_gen`, clear the
+   intent columns, and insert the old path into `retired_file`.
+7. Post the Darwin notification `com.bahumia.quickr.registry-changed`.
+8. Create the new file if it doesn't exist yet, and bootstrap it (§2.1). The
+   APNs registration is kept, because it is the same server. Categories are
    re-registered.
-8. **Lazy deletion.** Retired files are deleted by the app, at launch and after
-   each sync, once they have been retired for more than 10 minutes, measured
-   with lease time, or once the boot id has changed. Extensions never hold a
-   store open longer than their own run, which is at most about 30 s for the
-   NSE, so a retired file is unused well before then. An extension that still
-   has an old pool open sees `retired = 1` (or a missing file) and reopens.
+9. **Lazy deletion.** The app deletes retired files at launch and after each
+   sync, once they have been retired for more than 10 minutes of lease time, or
+   once the boot id has changed. Extensions never hold a store open longer than
+   their own run, which is about 30 s at most. An extension that still has an
+   old pool open sees `retired = 1` (or a missing file) and reopens.
 
-Widgets and intents that open the store between steps 5 and 7 find an empty
-store. They show "Open quickR" and retry on their next timeline.
+### 12.2 Recovery
+
+Recovery runs at app launch, and in any process that opens a store. Every action
+in it is safe to repeat.
+
+| Registry state                                                       | Old file        | Action                                                                                                                                                                                                                                          |
+| -------------------------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pending_gen` set                                                    | **not** retired | Crashed between steps 2 and 4. **Only the app** resumes from step 3. Step 4's re-check uses the persisted confirmed count and max seq. It still aborts (and clears the intent) if writes arrived. Extensions keep using the old file meanwhile. |
+| `pending_gen` set                                                    | retired         | Crashed between steps 4 and 6. **Any process** completes step 6. This is a single registry transaction with the condition `WHERE pending_gen IS NOT NULL`, so it is idempotent. Then it opens the new file, creating it empty if needed.        |
+| `pending_gen` null, and `store_gen` points to a file that is retired | —               | Inconsistent; this should be unreachable. Repair it with `store_gen += 1` and insert the old file into `retired_file`, in one registry transaction. Then a fresh file is bootstrapped.                                                          |
+| `pending_gen` null, and the `store_gen` file is missing              | —               | Create the file. The app bootstraps it.                                                                                                                                                                                                         |
+
+An extension may create and migrate the empty new file, because every process may
+run the migrator (PLAN §2). Only the app bootstraps it. Widgets and intents that
+open an empty, unbootstrapped store show "Open quickR" and retry on their next
+timeline. An enqueue into the empty store is valid: the item carries its topic
+`{id, slug, name}`, and the entry becomes visible once the topic arrives.
 
 ## 13. Tests and gates
 
@@ -712,22 +818,28 @@ store. They show "Open quickR" and retry on their next timeline.
 These run against a file-backed store. **MP** marks multi-process tests with
 `ProcessHelper`, and **INT** marks tests that use `make ios-integration`.
 
-| #   | Given                                                                                                             | When                                | Then                                                                                                                                                                                            | Proves                                  |
-| --- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| S1  | An empty device (INT)                                                                                             | Bootstrap                           | Every page is committed together with its cursor. After the process is killed mid-way, it resumes from the last cursor and the final state equals the server's.                                 | §2.1                                    |
-| S2  | A page applied after an ack of a newer revision                                                                   | Apply the page                      | The older row is dropped by the revision guard.                                                                                                                                                 | §4.2                                    |
-| S3  | Coordinator A has fetched page P and is then suspended past the 60 s lease; coordinator B pulls and rebuilds (MP) | A resumes and applies P             | A's fence fails (token and `layer_gen`), and **nothing is written**.                                                                                                                            | §5.5 **staged-page takeover**           |
-| S4  | A rebuild is staged half-way, then the coordinator is killed (MP)                                                 | A new coordinator starts            | It takes over at `stage_state.cursor`, finishes, and swaps once. No page is staged twice into the live layer.                                                                                   | §7 step 2                               |
-| S5  | An online-only publish is in flight; an epoch rebuild swaps first                                                 | The publish response arrives        | The fence fails on `layer_gen`, the response is not applied, and the next pull brings the new version.                                                                                          | §11 **online-only after swap**          |
-| S6  | An online-only topic delete returns 204 after a swap                                                              | Apply it                            | Discarded: no tombstone is written from a stale context.                                                                                                                                        | §5.5 (deletions)                        |
-| S7  | Widget and NSE processes have pools open on `g1` (MP)                                                             | Reset                               | The `g1` file is marked retired. Their next transaction fails the retired check, they reopen `g2`, and a write from the widget lands in `g2`. `g1` is deleted after 10 minutes.                 | §12 **reset with open extension pools** |
-| S8  | A queued item exists; the server URL now reaches a different server (INT, two stacks)                             | Flush                               | The server answers 409 `server_mismatch` without executing. The item is unchanged and not marked delivered, the store is in identity mismatch, and **nothing reaches the other server's data**. | F10, §8.3                               |
-| S9  | The server epoch rotates while an item is queued (INT)                                                            | Flush                               | 409 `epoch_mismatch`, the item is unchanged, then rebuild, then resend with the new epoch.                                                                                                      | F10, §7                                 |
-| S10 | APNs register is attempted against a server whose epoch has rotated                                               | Register                            | 409 `epoch_mismatch`, then a rebuild for the active store, then the register is retried.                                                                                                        | §1.4                                    |
-| S11 | The wall clock is moved 3 h **back**, then 3 h **forward**, while the `sync` lease is held (MP)                   | Another process tries to acquire it | The validity of the lease depends only on `mach_continuous_time` and the boot id, so neither change causes an early takeover or a stranded lease.                                               | §5.3                                    |
-| S12 | A lease row from a previous boot                                                                                  | Acquire                             | It succeeds immediately (different boot id).                                                                                                                                                    | §5.3                                    |
-| S13 | Rebuild and reset requested together (MP)                                                                         | Both run                            | Both take `sync` then `flush`. No deadlock, and they run one after the other.                                                                                                                   | §5.2                                    |
-| S14 | A topic tombstone page                                                                                            | Apply                               | Its versions and entries are removed, the dependents follow the table, drafts and widget state are cleared, and categories are kept.                                                            | §4.3                                    |
+| #   | Given                                                                                                             | When                                                                                       | Then                                                                                                                                                                                                                                                                                                                                                                   | Proves                                  |
+| --- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| S1  | An empty device (INT)                                                                                             | Bootstrap                                                                                  | Every page is committed together with its cursor. After the process is killed mid-way, it resumes from the last cursor and the final state equals the server's.                                                                                                                                                                                                        | §2.1                                    |
+| S2  | A page applied after an ack of a newer revision                                                                   | Apply the page                                                                             | The older row is dropped by the revision guard.                                                                                                                                                                                                                                                                                                                        | §4.2                                    |
+| S3  | Coordinator A has fetched page P and is then suspended past the 60 s lease; coordinator B pulls and rebuilds (MP) | A resumes and applies P                                                                    | A's fence fails (token and `layer_gen`), and **nothing is written**.                                                                                                                                                                                                                                                                                                   | §5.5 **staged-page takeover**           |
+| S4  | Staging for E2 has reached `stage_state.cursor = 400` of 900, then the coordinator is killed (MP)                 | The app relaunches and its coordinator runs                                                | The loop reads `rebuilding = E2` **before any request** and calls `stageStep`, fetching `after=400` with the staging context. It never makes a live pull, never calls `startRebuild` with a different epoch, and leaves rows 1–400 staged. It finishes at 900 and swaps exactly once, then re-reads `sync_state` (`layer_gen + 1`) and pulls live from the new cursor. | §5.4, §7 step 2 **takeover**            |
+| S5  | An online-only publish is in flight; an epoch rebuild swaps first                                                 | The publish response arrives                                                               | The fence fails on `layer_gen`, the response is not applied, and the next pull brings the new version.                                                                                                                                                                                                                                                                 | §11 **online-only after swap**          |
+| S6  | An online-only topic delete returns 204 after a swap                                                              | Apply it                                                                                   | Discarded: no tombstone is written from a stale context.                                                                                                                                                                                                                                                                                                               | §5.5 (deletions)                        |
+| S7  | Widget and NSE processes have pools open on `g1` (MP)                                                             | Reset                                                                                      | The `g1` file is marked retired. Their next transaction fails the retired check, they reopen `g2`, and a write from the widget lands in `g2`. `g1` is deleted after 10 minutes.                                                                                                                                                                                        | §12 **reset with open extension pools** |
+| S8  | A queued item exists; the server URL now reaches a different server (INT, two stacks)                             | Flush                                                                                      | The server answers 409 `server_mismatch` without executing. The item is unchanged and not marked delivered, the store is in identity mismatch, and **nothing reaches the other server's data**.                                                                                                                                                                        | F10, §8.3                               |
+| S9  | The server epoch rotates while an item is queued (INT)                                                            | Flush                                                                                      | 409 `epoch_mismatch`, the item is unchanged, then rebuild, then resend with the new epoch.                                                                                                                                                                                                                                                                             | F10, §7                                 |
+| S10 | APNs register is attempted against a server whose epoch has rotated                                               | Register                                                                                   | 409 `epoch_mismatch`, then a rebuild for the active store, then the register is retried.                                                                                                                                                                                                                                                                               | §1.4                                    |
+| S11 | The wall clock is moved 3 h **back**, then 3 h **forward**, while the `sync` lease is held (MP)                   | Another process tries to acquire it                                                        | The validity of the lease depends only on `mach_continuous_time` and the boot id, so neither change causes an early takeover or a stranded lease.                                                                                                                                                                                                                      | §5.3                                    |
+| S12 | A lease row from a previous boot                                                                                  | Acquire                                                                                    | It succeeds immediately (different boot id).                                                                                                                                                                                                                                                                                                                           | §5.3                                    |
+| S13 | Rebuild and reset requested together (MP)                                                                         | Both run                                                                                   | Both take `sync` then `flush`. No deadlock, and they run one after the other.                                                                                                                                                                                                                                                                                          | §5.2                                    |
+| S14 | A topic tombstone page                                                                                            | Apply                                                                                      | Its versions and entries are removed, the dependents follow the table, drafts and widget state are cleared, and categories are kept.                                                                                                                                                                                                                                   | §4.3                                    |
+| S15 | Staging for E2 is in progress                                                                                     | A staged page arrives with epoch E2; separately, a flusher reports `epoch_mismatch` for E2 | `startRebuild(E2)` is a no-op: the staging tables and cursor are untouched. Only a page with a **different** epoch (E3) clears staging and restarts it.                                                                                                                                                                                                                | §5.4 `startRebuild`                     |
+| S16 | A flusher holding `flush` receives 409 `epoch_mismatch` (MP)                                                      | Its outcome transaction commits                                                            | It sets `epoch_suspect`, restores the item, **releases `flush`, then** posts `sync-requested`. The coordinator then takes `sync` → `flush` without deadlock, and claims stay refused until the coordinator clears `epoch_suspect`.                                                                                                                                     | §5.6                                    |
+| S17 | Reset intent persisted (step 2); the app is killed before step 4 (MP)                                             | Relaunch                                                                                   | Recovery resumes at step 3, re-checks against the persisted count, retires, and advances. The registry never points at a retired file.                                                                                                                                                                                                                                 | §12.2                                   |
+| S18 | The old file is retired (step 4); the app is killed before step 6 (MP)                                            | A widget opens the store                                                                   | The widget completes step 6 itself (idempotent), opens the new empty file, and its enqueue lands there. A later app launch bootstraps the file and doesn't repeat step 6.                                                                                                                                                                                              | §12.2                                   |
+| S19 | The user confirmed a reset with N=2 queued items; a widget enqueues a third before step 4 (MP)                    | Step 4                                                                                     | The re-check sees 3 > 2, so **the reset aborts**, nothing is retired, the intent is cleared, and the warning is shown again with N=3.                                                                                                                                                                                                                                  | §12.1 step 4                            |
+| S20 | Online-only GET of stats under epoch E1 returns with the header `X-QuickR-Epoch: E2`                              | Apply                                                                                      | The result is discarded, `epoch_suspect` is set, and the coordinator runs.                                                                                                                                                                                                                                                                                             | §1.4, §11                               |
 
 The outbox cases are in [outbox.md §13](outbox.md#13-test-matrix), and the
 notification cases in [notifications.md §12](notifications.md#12-tests).
@@ -750,22 +862,24 @@ notification cases in [notifications.md §12](notifications.md#12-tests).
 
 ## Traceability
 
-| Source                                                                             | Where it is addressed                                                               |
-| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| PLAN §2: store model, change feed, tombstones, epoch, server identity, online-only | §1–§4, §7, §8, §11                                                                  |
-| §6a rule 1, one write order                                                        | F1                                                                                  |
-| §6a rule 2, deletes reserve the id                                                 | F11, §4.3, outbox.md §5                                                             |
-| §6a rule 3, cascade and derived fields                                             | F3, F5, §3.3, §4.3                                                                  |
-| §6a rule 4, page materialisation                                                   | F1, F2, §4.1, §4.2                                                                  |
-| §6a rule 5, restore detection                                                      | §2.2, §7                                                                            |
-| §6a rule 6, revisions                                                              | F4, §4.2, outbox.md §7                                                              |
-| §6a rule 7, atomic ack                                                             | §6                                                                                  |
-| §6a rule 8, provenance and store per server                                        | §8, F10                                                                             |
-| §6a rule 12, coverage and minimum iOS                                              | §13.2 G1–G3                                                                         |
-| Codex spec review B3, identity is checked only after the data has arrived          | F10, §1.4, §8.2 invariant 4; the 60 s window is removed                             |
-| Codex spec review M4, epoch fencing of responses and online-only operations        | F9, F10, §5.5, §7 step 5, §11, S5, S6, S9                                           |
-| Codex spec review M5, unfenced pages, lock order and reset                         | §5 (single coordinator, lock order, fences), §12 (fresh file name), S3, S4, S7, S13 |
-| Codex spec review M7, lease clock                                                  | §5.3, S11, S12                                                                      |
-| Codex spec review M9, badge from the active store only                             | §3.3                                                                                |
-| Codex spec review M10, coverage gates                                              | §13                                                                                 |
-| Codex v1 B1, B3, M4 and v2 #3, #4, #6 (earlier rounds)                             | §1, §4, §6, §7, §8                                                                  |
+| Source                                                                              | Where it is addressed                                                               |
+| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| PLAN §2: store model, change feed, tombstones, epoch, server identity, online-only  | §1–§4, §7, §8, §11                                                                  |
+| §6a rule 1, one write order                                                         | F1                                                                                  |
+| §6a rule 2, deletes reserve the id                                                  | F11, §4.3, outbox.md §5                                                             |
+| §6a rule 3, cascade and derived fields                                              | F3, F5, §3.3, §4.3                                                                  |
+| §6a rule 4, page materialisation                                                    | F1, F2, §4.1, §4.2                                                                  |
+| §6a rule 5, restore detection                                                       | §2.2, §7                                                                            |
+| §6a rule 6, revisions                                                               | F4, §4.2, outbox.md §7                                                              |
+| §6a rule 7, atomic ack                                                              | §6                                                                                  |
+| §6a rule 8, provenance and store per server                                         | §8, F10                                                                             |
+| §6a rule 12, coverage and minimum iOS                                               | §13.2 G1–G3                                                                         |
+| Codex spec review B3, identity is checked only after the data has arrived           | F10, §1.4, §8.2 invariant 4; the 60 s window is removed                             |
+| Codex spec review M4, epoch fencing of responses and online-only operations         | F9, F10, §5.5, §7 step 5, §11, S5, S6, S9                                           |
+| Codex round-2 findings: rebuild takeover, reset crash window, mismatch sequencing   | §5.4, §5.6, §7 step 2, §12.1, §12.2, S4, S15–S19                                    |
+| PLAN rules 13 and 14 (amendments from the M0 specs review, on `ios/m0-foundations`) | §1.3 F9–F10, §1.4, §5, §12                                                          |
+| Codex spec review M5, unfenced pages, lock order and reset                          | §5 (single coordinator, lock order, fences), §12 (fresh file name), S3, S4, S7, S13 |
+| Codex spec review M7, lease clock                                                   | §5.3, S11, S12                                                                      |
+| Codex spec review M9, badge from the active store only                              | §3.3                                                                                |
+| Codex spec review M10, coverage gates                                               | §13                                                                                 |
+| Codex v1 B1, B3, M4 and v2 #3, #4, #6 (earlier rounds)                              | §1, §4, §6, §7, §8                                                                  |
