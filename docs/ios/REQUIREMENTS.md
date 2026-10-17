@@ -43,7 +43,7 @@ This replaces the "additive only" wording in PLAN §5 and §1.
   local docker stack now. The Cloudflare setup is a later milestone and is
   mostly the user's work.
 - **Repo:** all code lives in **this repo** (monorepo). The iOS app goes in
-  `swift-ui/`.
+  `ios/`.
 
 ## Process
 

@@ -24,7 +24,7 @@ branch.
 | Active milestone    | **M0: backend foundations and specs** (branch `ios/m0-foundations`)                                                       |
 | Running             | WP feed, WP vectors, WP specs (sub-agents, each in its own worktree)                                                      |
 | Waiting on the user | Xcode install (via `xcodes`); Apple enrollment activation and the Team ID; iPhone model and iOS version; answers to Q1–Q4 |
-| Next up             | Integrate the M0 work packages, with a Codex review each → `swift-ui/` scaffolding once Xcode lands → M0 PR                    |
+| Next up             | Integrate the M0 work packages, with a Codex review each → `ios/` scaffolding once Xcode lands → M0 PR                    |
 
 ## Human steps (PLAN §9)
 
@@ -121,9 +121,9 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
 
 ### WP scaffold (starts once Xcode is installed)
 
-- [ ] `swift-ui/project.yml`: targets, entitlements, Info.plist keys, bundle ids
+- [ ] `ios/project.yml`: targets, entitlements, Info.plist keys, bundle ids
       `com.bahumia.quickr.*`
-- [ ] `swift-ui/QuickrKit/Package.swift` (tools 6.2): the Core, Data and UI targets,
+- [ ] `ios/QuickrKit/Package.swift` (tools 6.2): the Core, Data and UI targets,
       with empty tests
 - [ ] `make ios-*` targets with the Xcode guard. `make check` stays Xcode-free.
 - [ ] `.github/workflows/ios.yml`: path filters, the xcodegen binary,
