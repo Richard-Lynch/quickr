@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- xcodebuild occasionally hangs after the tests finish (seen by FORM): add a timeout/watchdog to `ios/scripts` test runs and a CI step timeout.
 - PWA parity bugs found by BUILDER (server is authoritative; fix the PWA to match): slugify (server drops non-ASCII after NFKD, falls back to `topic`; PWA gives `stra-e`/empty); duplicate-label check (server `casefold`, PWA `toLocaleLowerCase`); whitespace strip (pydantic Unicode White_Space vs JS `trim`, e.g. U+FEFF). Use `shared/fixtures/builder-vectors.json` in the PWA tests.
 - [ ] Feed: an ASGI disconnect/send-error test proving the CSV snapshot transaction closes and the connection is returned; a >500-row CSV with a mutation between pages.
 - [ ] Feed: a dedicated regression test for the commit-time retry in `@writer`.
@@ -280,6 +281,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-17 23:35: MP started (ios/m1-mp from 99a5473, SYNC agent). OUTBOX r4: still a fresh grace per send (refetch after stale_revision) → one absolute shutdown deadline. testiso r2: worktree-name collisions (needs a path hash), prune can drop a live lazy peer, `ensure()` race on CREATE. FORM: UI test green, screenshots captured, check-ios running; xcodebuild sometimes hangs after tests (CI timeout watch → backlog). Load spiked again to ~350 (2 sims + Spotlight/photos + Docker VM).
 
 - 2026-10-17 23:10: Load ~7. SYNC APPROVED (Codex r3 on the veto table 08b2bec). OUTBOX r3: unbounded wait resolved; new Major: grace runs past the extension budget, and a commit-before-grace reconciliation test is needed. BUILDER r2: both majors resolved; Major: gen-casefold isn't wired into `make vectors`, plus pinning the Unicode/Python version. Combined SYNC+OUTBOX head: ios/m1-outbox 99a5473. testiso fixes in progress; SKEL and FORM running.
 
