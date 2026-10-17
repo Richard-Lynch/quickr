@@ -104,6 +104,47 @@ describe('buildAnswerSchema', () => {
     });
   });
 
+  it('rejects NUL like the server, with the message iOS uses', () => {
+    expect(errors(buildAnswerSchema([note]).safeParse({ note: 'ab\u0000c' }))).toEqual({
+      note: 'Remove the invalid character',
+    });
+    // Before the length rules: a short value with NUL gets the same message.
+    expect(errors(buildAnswerSchema([note]).safeParse({ note: '\u0000' }))).toEqual({
+      note: 'Remove the invalid character',
+    });
+  });
+
+  it('strips text like the server (Python strip), numbers like the input', () => {
+    expect(buildAnswerSchema([note]).safeParse({ note: '\u0085abc\u001f' }).data).toEqual({
+      note: 'abc',
+    });
+    expect(buildAnswerSchema([note]).safeParse({ note: '\ufeffab' }).data).toEqual({
+      note: '\ufeffab',
+    });
+    expect(errors(buildAnswerSchema([mood]).safeParse({ mood: '\u0085' }))).toEqual({
+      mood: 'Required',
+    });
+    expect(buildAnswerSchema([mood]).safeParse({ mood: '\u001cgood\u0085' }).data).toEqual({
+      mood: 'good',
+    });
+    expect(errors(buildAnswerSchema([hours]).safeParse({ hours: '\u00857' }))).toEqual({
+      hours: 'Enter a number',
+    });
+    expect(buildAnswerSchema([hours]).safeParse({ hours: '\ufeff7' }).data).toEqual({ hours: 7 });
+  });
+
+  it('counts characters as code points, like the server: an emoji is one', () => {
+    expect(errors(buildAnswerSchema([note]).safeParse({ note: '😀😀' }))).toEqual({
+      note: 'At least 3 characters (2 so far)',
+    });
+    expect(buildAnswerSchema([note]).safeParse({ note: '😀😀😀' }).data).toEqual({
+      note: '😀😀😀',
+    });
+    expect(errors(buildAnswerSchema([note]).safeParse({ note: '😀'.repeat(11) }))).toEqual({
+      note: 'At most 10 characters (11 entered)',
+    });
+  });
+
   it('rejects archived and unknown enum values unless explicitly allowed', () => {
     expect(errors(buildAnswerSchema([mood]).safeParse({ mood: 'awful' }))).toEqual({
       mood: 'That option has been retired',
