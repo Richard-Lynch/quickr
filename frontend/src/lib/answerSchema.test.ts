@@ -114,6 +114,25 @@ describe('buildAnswerSchema', () => {
     });
   });
 
+  it('strips text like the server (Python strip), numbers like the input', () => {
+    expect(buildAnswerSchema([note]).safeParse({ note: '\u0085abc\u001f' }).data).toEqual({
+      note: 'abc',
+    });
+    expect(buildAnswerSchema([note]).safeParse({ note: '\ufeffab' }).data).toEqual({
+      note: '\ufeffab',
+    });
+    expect(errors(buildAnswerSchema([mood]).safeParse({ mood: '\u0085' }))).toEqual({
+      mood: 'Required',
+    });
+    expect(buildAnswerSchema([mood]).safeParse({ mood: '\u001cgood\u0085' }).data).toEqual({
+      mood: 'good',
+    });
+    expect(errors(buildAnswerSchema([hours]).safeParse({ hours: '\u00857' }))).toEqual({
+      hours: 'Enter a number',
+    });
+    expect(buildAnswerSchema([hours]).safeParse({ hours: '\ufeff7' }).data).toEqual({ hours: 7 });
+  });
+
   it('counts characters as code points, like the server: an emoji is one', () => {
     expect(errors(buildAnswerSchema([note]).safeParse({ note: '😀😀' }))).toEqual({
       note: 'At least 3 characters (2 so far)',

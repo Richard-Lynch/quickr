@@ -23,3 +23,18 @@ export const INVALID_CHARACTER_MESSAGE = 'Remove the invalid character';
 export function hasInvalidCharacter(s: string): boolean {
   return s.includes('\u0000');
 }
+
+// Python's str.isspace(): what the server's str.strip() removes. Unlike JS trim(), it includes
+// U+001C–U+001F and U+0085 and excludes U+FEFF.
+const PY_SPACE =
+  '\\t\\n\\v\\f\\r\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000';
+const PY_STRIP = new RegExp(`^[${PY_SPACE}]+|[${PY_SPACE}]+$`, 'g');
+
+/**
+ * Text as the server normalises answers (`services/answers.py::_normalise`, Python
+ * `str.strip()`), so a value that validates is exactly what the server stores. iOS does the
+ * same (`ServerText.strip`); see shared/fixtures/answer-text-vectors.json.
+ */
+export function serverStrip(s: string): string {
+  return s.replace(PY_STRIP, '');
+}

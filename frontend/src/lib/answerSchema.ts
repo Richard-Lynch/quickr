@@ -10,7 +10,7 @@ import { z } from 'zod';
 
 import type { EntryOut } from '../client';
 import { activeOptions, isMultiEnum, type EnumQuestionOutput, type Question } from './questions';
-import { charCount, hasInvalidCharacter, INVALID_CHARACTER_MESSAGE } from './text';
+import { charCount, hasInvalidCharacter, INVALID_CHARACTER_MESSAGE, serverStrip } from './text';
 
 export type AnswerValue = number | string | string[] | null;
 /** Raw input for one question. */
@@ -82,7 +82,7 @@ function parseMulti(
   allowed: readonly string[],
   ctx: Ctx,
 ): AnswerValue {
-  const picked = (Array.isArray(raw) ? raw : raw ? [raw] : []).map((v) => v.trim()).filter(Boolean);
+  const picked = (Array.isArray(raw) ? raw : raw ? [raw] : []).map(serverStrip).filter(Boolean);
   const unique = [...new Set(picked)];
   if (unique.length === 0) {
     if (q.required) return issue(ctx, 'Pick at least one');
@@ -112,7 +112,9 @@ export function answerFieldSchema(
     .optional()
     .transform((raw, ctx): AnswerValue => {
       if (q.type === 'enum' && q.multiple) return parseMulti(q, raw, allowed, ctx);
-      const value = (Array.isArray(raw) ? (raw[0] ?? '') : (raw ?? '')).trim();
+      const text = Array.isArray(raw) ? (raw[0] ?? '') : (raw ?? '');
+      // Numbers trim like the input; text and choices strip like the server stores them.
+      const value = q.type === 'int' || q.type === 'double' ? text.trim() : serverStrip(text);
       if (value === '') {
         if (q.required) return issue(ctx, 'Required');
         return null;
