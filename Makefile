@@ -72,7 +72,7 @@ check: check-backend check-frontend ## Run every check CI runs (except the docke
 
 .PHONY: check-backend
 check-backend: ## Backend: lint, types, openapi.json freshness, pytest, migrations match models
-	$(BACKEND) uv run ruff check . && uv run ruff format --check . && uv run mypy app scripts tests
+	$(BACKEND) uv run ruff check . && uv run ruff format --check . && uv run mypy app scripts tools tests
 	@$(MAKE) --no-print-directory check-openapi
 	$(BACKEND) uv run pytest -q
 	@$(MAKE) --no-print-directory check-migrations
@@ -177,6 +177,23 @@ IOS_GIF ?= docs/ios/demo/m0/launch.gif
 .PHONY: ios-demo-record
 ios-demo-record: ios-gen ## iOS: record a launch on the simulator and convert to IOS_GIF
 	@$(IOS_SCRIPTS)/demo-record.sh "$(IOS_SIM)" "$(IOS_GIF)"
+
+# Integration harness: this worktree's own docker stacks + fault proxy. See ios/README.md.
+.PHONY: ios-integration
+ios-integration: ## iOS: integration suite vs this worktree's stacks (up, smoke, tests, down)
+	@$(IOS_SCRIPTS)/integration.sh
+
+.PHONY: ios-integration-up
+ios-integration-up: ## iOS: start this worktree's integration stacks (writes ios/build/integration.env)
+	@$(IOS_SCRIPTS)/integration-up.sh
+
+.PHONY: ios-integration-down
+ios-integration-down: ## iOS: stop this worktree's integration stacks
+	@$(IOS_SCRIPTS)/integration-down.sh
+
+.PHONY: ios-sim-clone
+ios-sim-clone: ## iOS: UDID of this worktree's own simulator (created from IOS_SIM_MIN on first use)
+	@$(IOS_SCRIPTS)/sim-clone.sh "$(IOS_SIM_MIN)"
 
 .PHONY: ios-clean
 ios-clean: ## iOS: remove the generated project and build output
