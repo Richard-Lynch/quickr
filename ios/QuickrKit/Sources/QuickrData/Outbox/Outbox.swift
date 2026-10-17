@@ -273,6 +273,8 @@ public struct Outbox: Sendable {
         let start = ContinuousClock.now
         let grace = min(shutdownGrace, budget * 0.2)
         let requestDeadline = start.advanced(by: max(.zero, budget - grace - min(Self.cleanupReserve, budget * 0.1)))
+        // One absolute end for every wait on a request of this flush: grace never restarts.
+        let shutdownDeadline = requestDeadline.advanced(by: grace)
         let leases = store.leases
         let takeover = OutboxFlush.takeover(wallClock: store.wallClock)
         let lease =
@@ -283,7 +285,8 @@ public struct Outbox: Sendable {
             : try await leases.tryAcquire(.flush, owner: owner, takeover: takeover)
         guard let lease else { return OutboxFlushReport(ending: .busy) }
 
-        var run = FlushRun(lease: lease, deadline: requestDeadline, grace: grace, force: force)
+        var run = FlushRun(
+            lease: lease, deadline: requestDeadline, shutdownDeadline: shutdownDeadline, force: force)
         var failure: (any Error)?
         do {
             run.report.ending = try await pass(&run)
@@ -303,10 +306,11 @@ public struct Outbox: Sendable {
 
     private struct FlushRun {
         let lease: LeaseClaim
-        /// When requests stop: the budget minus the shutdown grace and the cleanup reserve.
+        /// When requests stop: the budget minus the shutdown grace and the cleanup reserve. No
+        /// request (a resend or a refetch included) starts after it.
         let deadline: ContinuousClock.Instant
-        /// How long a request cancelled by `deadline` is still listened to.
-        let grace: Duration
+        /// `deadline` plus the grace: the last moment any request of this flush is listened to.
+        let shutdownDeadline: ContinuousClock.Instant
         let force: Bool
         var report = OutboxFlushReport(ending: .drained)
         /// The item this flusher holds in flight, if any.
@@ -314,10 +318,12 @@ public struct Outbox: Sendable {
         var attempted: Set<String> = []
         var signals: [OutboxSignal] = []
 
-        init(lease: LeaseClaim, deadline: ContinuousClock.Instant, grace: Duration, force: Bool) {
+        init(
+            lease: LeaseClaim, deadline: ContinuousClock.Instant, shutdownDeadline: ContinuousClock.Instant, force: Bool
+        ) {
             self.lease = lease
             self.deadline = deadline
-            self.grace = grace
+            self.shutdownDeadline = shutdownDeadline
             self.force = force
         }
 
@@ -354,7 +360,7 @@ public struct Outbox: Sendable {
         var item = claim.item
         while true {
             let request = try OutboxFlush.request(for: item, expecting: claim.expecting, timeout: timeout(run))
-            guard let response = await send(request, deadline: run.deadline, grace: run.grace) else {
+            guard let response = await send(request, run) else {
                 return Task.isCancelled ? .cancelled : .budgetExhausted
             }
             run.report.requests += 1
@@ -384,7 +390,7 @@ public struct Outbox: Sendable {
         }
         if failure != nil { return .done(.superseded) }
         let request = try OutboxFlush.refetch(for: item, expecting: claim.expecting, timeout: timeout(run))
-        guard let response = await send(request, deadline: run.deadline, grace: run.grace) else {
+        guard let response = await send(request, run) else {
             return .done(Task.isCancelled ? .cancelled : .budgetExhausted)
         }
         run.report.requests += 1
@@ -451,27 +457,29 @@ public struct Outbox: Sendable {
         min(Self.requestTimeout, max(.zero, run.deadline - ContinuousClock.now))
     }
 
-    /// Sends `request`, racing the request deadline and the task's cancellation. The request runs
-    /// in its own task, so no wait here depends on the sender honouring cancellation:
-    /// 1. until the deadline or a cancellation, the answer is awaited;
-    /// 2. at the deadline the request is cancelled, and whatever it returns within `grace` (which
-    ///    `flush` reserved inside the budget) is still kept if it is an answer;
+    /// Sends `request`, racing the flush's deadlines and the task's cancellation. Nothing starts
+    /// once the request deadline has passed or the task is cancelled: the item stays claimed for
+    /// the release. The request runs in its own task, so no wait here depends on the sender
+    /// honouring cancellation:
+    /// 1. until the request deadline or a cancellation, the answer is awaited;
+    /// 2. at the request deadline the request is cancelled, and whatever it returns before the
+    ///    flush's one shutdown deadline (reserved inside the budget) is still kept if it is an
+    ///    answer;
     /// 3. on a cancellation (the OS is about to suspend the process) nothing more is awaited.
     /// Nil: the release makes the item `uncertain` and frees the lease. A later completion is
     /// never applied (and would fail the sender check once the claim or lease moves on); if the
     /// server committed, the next flush reconciles through the idempotent resend or pull-ack.
-    private func send(_ request: OutboxRequest, deadline: ContinuousClock.Instant, grace: Duration) async
-        -> APIResponse<OutboxSuccess>?
-    {
+    private func send(_ request: OutboxRequest, _ run: FlushRun) async -> APIResponse<OutboxSuccess>? {
+        guard ContinuousClock.now < run.deadline, !Task.isCancelled else { return nil }
         let sender = sender
         let call = Task { await sender.send(request) }
-        if let response = await Self.result(of: call, until: deadline, stopsOnCancellation: true) {
+        if let response = await Self.result(of: call, until: run.deadline, stopsOnCancellation: true) {
             return Self.isAnswer(response) ? response : nil
         }
         call.cancel()
         guard !Task.isCancelled else { return nil }
-        let end = ContinuousClock.now.advanced(by: grace)
-        guard let response = await Self.result(of: call, until: end, stopsOnCancellation: true) else { return nil }
+        guard let response = await Self.result(of: call, until: run.shutdownDeadline, stopsOnCancellation: true)
+        else { return nil }
         return Self.isAnswer(response) ? response : nil
     }
 
