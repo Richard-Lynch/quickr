@@ -71,6 +71,8 @@ public actor OutboxFlushScheduler {
     private var followUp: OutboxFlushPolicy?
     /// The most recent report, for the sync pill and tests.
     public private(set) var lastReport: OutboxFlushReport?
+    /// The policy of every flush this scheduler started, in order.
+    public private(set) var started: [OutboxFlushPolicy] = []
 
     public init(outbox: Outbox) { self.outbox = outbox }
 
@@ -83,6 +85,12 @@ public actor OutboxFlushScheduler {
     @discardableResult
     public func flushNow(reason: OutboxFlushReason) async -> OutboxFlushReport? {
         request(reason.policy)
+        return await waitUntilIdle()
+    }
+
+    /// Waits for the running flush and any follow-up to end, without requesting one.
+    @discardableResult
+    public func waitUntilIdle() async -> OutboxFlushReport? {
         // `finished` runs inside the task, so after each await `running` is nil or the follow-up.
         while let running { _ = await running.value }
         return lastReport
@@ -112,6 +120,7 @@ public actor OutboxFlushScheduler {
     }
 
     private func start(_ policy: OutboxFlushPolicy) {
+        started.append(policy)
         let outbox = outbox
         running = Task {
             if policy.releasesAllHolds { _ = try? await outbox.releaseHolds(all: true) }

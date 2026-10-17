@@ -163,7 +163,8 @@ enum OutboxFlush {
         switch try item.payload() {
         case .entryCreate(let topic, var body):
             body.id = item.id
-            if body.source == nil { body.source = item.origin.source }
+            // §4: `source` is the enqueuing process's, whatever the payload carries.
+            body.source = item.origin.source
             operation = .createEntry(topicId: topic.id, body: body)
         case .entryUpdate(let entryId, _, var patch):
             patch.expectedRevision = item.baseRevision

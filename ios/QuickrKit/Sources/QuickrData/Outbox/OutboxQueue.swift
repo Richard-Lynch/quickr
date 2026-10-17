@@ -35,7 +35,8 @@ public enum OutboxUndoDeleteResult: Sendable, Hashable {
 
 /// Why the outbox refused a call.
 public enum OutboxError: Error, Sendable, Hashable, CustomStringConvertible {
-    /// C0 (outbox.md §8.3): an update or delete for an entry the view hides.
+    /// C0 (outbox.md §8.3): an update or delete for an entry with a tombstone or an unresolved
+    /// delete.
     case entryDeleted
     /// The item is gone.
     case itemNotFound(String)
@@ -101,11 +102,13 @@ enum OutboxQueue {
         return try releaseDelete(db, item, wall: wall).map(OutboxEnqueueResult.appended) ?? .cancelled
     }
 
-    /// C0: the view hides an entry with a tombstone or an active or held delete.
+    /// C0: an entry with a tombstone or any unresolved delete takes no more writes. A failed
+    /// delete still shows its row ("Couldn't delete"), but it stays unresolved until the user
+    /// retries or discards it, so nothing may queue behind it.
     static func requireVisible(_ db: Database, entryId: String) throws {
         if try ServerLayer.isTombstoned(db, kind: .entry, id: entryId) { throw OutboxError.entryDeleted }
         let items = try OutboxStorage.items(db, entityKind: .entry, entityId: entryId)
-        if items.contains(where: { $0.kind == .entryDelete && $0.state != .failed }) { throw OutboxError.entryDeleted }
+        if items.contains(where: { $0.kind == .entryDelete }) { throw OutboxError.entryDeleted }
     }
 
     /// K1/K2: merges an update's patch into the adjacent never-attempted create or update, with
@@ -228,7 +231,8 @@ enum OutboxQueue {
             try releaseHolds(db, ids: [held.id], wall: wall)
             return try OutboxStorage.items(db, entityKind: .entry, entityId: entryId).isEmpty ? .removed : .deleteQueued
         }
-        if items.contains(where: { $0.kind == .entryDelete && $0.state != .failed }) { return .nothingToDo }
+        // Already being deleted; a failed delete is retried or discarded from the sync sheet.
+        if items.contains(where: { $0.kind == .entryDelete }) { return .nothingToDo }
         guard let create = items.first(where: { $0.kind == .entryCreate }) else {
             // Acked: delete it like any server entry.
             guard

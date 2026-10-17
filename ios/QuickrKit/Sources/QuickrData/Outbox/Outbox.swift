@@ -145,13 +145,14 @@ public struct Outbox: Sendable {
     }
 
     /// Logs an entry: `entry.create`, whose item id is the entry id. `body.version` and
-    /// `body.captured_at` must be set.
+    /// `body.captured_at` must be set; `body.source` is the origin's (§4).
     @discardableResult
     public func createEntry(id: UUID, topic: TopicRef, body: EntryCreateDTO, origin: OutboxOrigin) async throws
         -> OutboxEnqueueResult
     {
         var body = body
         body.id = nil
+        body.source = origin.source  // what the request will carry (§4), so the overlay shows it
         return try await enqueue(NewOutboxItem(id: id, payload: .entryCreate(topic: topic, body: body), origin: origin))
     }
 
@@ -432,25 +433,51 @@ public struct Outbox: Sendable {
         min(Self.requestTimeout, max(.zero, run.deadline - ContinuousClock.now))
     }
 
-    /// Sends `request`, racing the budget. Nil when the budget ran out or the task was cancelled
-    /// first; the request is then cancelled.
+    /// Sends `request`, racing the budget. When the deadline passes first, or the task is
+    /// cancelled, the request is cancelled; whatever the sender then returns is still waited for,
+    /// and kept if it is an answer (a response that arrived during shutdown is never lost). Nil
+    /// when the only result is the cancellation itself: the release makes the item `uncertain`.
     private func send(_ request: OutboxRequest, deadline: ContinuousClock.Instant) async -> APIResponse<
         OutboxSuccess
     >? {
+        enum Race: Sendable {
+            case response(APIResponse<OutboxSuccess>)
+            case deadline
+            /// The timer stopped because the task was cancelled; the sender sees the same
+            /// cancellation and answers for itself.
+            case timerCancelled
+        }
         let sender = sender
-        return await withTaskGroup(of: APIResponse<OutboxSuccess>?.self) { group in
-            group.addTask { await sender.send(request) }
+        return await withTaskGroup(of: Race.self) { group in
+            group.addTask { .response(await sender.send(request)) }
             group.addTask {
-                try? await Task.sleep(until: deadline, clock: .continuous)
-                return nil
+                do {
+                    try await Task.sleep(until: deadline, clock: .continuous)
+                    return .deadline
+                } catch {
+                    return .timerCancelled
+                }
             }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            // A request cancelled by the budget or the task isn't an answer: the release handles it.
-            switch first?.outcome {
-            case .retryable(.noResponse(.cancelled)), .uncertain(.noResponse(.cancelled)): return nil
-            default: return first
+            while let next = await group.next() {
+                switch next {
+                case .response(let response):
+                    group.cancelAll()
+                    return Self.isAnswer(response) ? response : nil
+                case .deadline:
+                    group.cancelAll()  // cancels the request; its result still arrives above
+                case .timerCancelled:
+                    continue
+                }
             }
+            return nil
+        }
+    }
+
+    /// Anything but the cancellation of the request itself is an answer and is applied.
+    private static func isAnswer(_ response: APIResponse<OutboxSuccess>) -> Bool {
+        switch response.outcome {
+        case .retryable(.noResponse(.cancelled)), .uncertain(.noResponse(.cancelled)): false
+        default: true
         }
     }
 
