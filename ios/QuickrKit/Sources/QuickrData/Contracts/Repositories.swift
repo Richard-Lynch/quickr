@@ -13,10 +13,10 @@ import QuickrCore
 // implementations.
 
 public protocol TopicRepository: Sendable {
-    /// Every view topic, archived included, in display order.
-    func topics() async throws -> [Topic]
-    func topic(id: UUID) async throws -> Topic?
-    func topic(slug: String) async throws -> Topic?
+    /// Every view topic, archived included, in display order, each with its overlay state.
+    func topics() async throws -> [ViewTopic]
+    func topic(id: UUID) async throws -> ViewTopic?
+    func topic(slug: String) async throws -> ViewTopic?
 }
 
 public protocol TopicVersionRepository: Sendable {

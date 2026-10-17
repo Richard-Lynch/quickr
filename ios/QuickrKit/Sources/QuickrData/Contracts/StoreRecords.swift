@@ -91,13 +91,58 @@ public enum RecordSyncState: Sendable, Hashable {
 public struct ViewEntry: Sendable, Hashable, Identifiable {
     public var entry: Entry
     public var syncState: RecordSyncState
+    /// The error of the failed item behind `.failed`, for display and Fix.
+    public var lastError: OutboxErrorInfo?
 
-    public init(entry: Entry, syncState: RecordSyncState) {
+    public init(entry: Entry, syncState: RecordSyncState, lastError: OutboxErrorInfo? = nil) {
         self.entry = entry
         self.syncState = syncState
+        self.lastError = lastError
     }
 
     public var id: UUID { entry.id }
+}
+
+/// A topic as the view shows it (sync-protocol.md §3.2), from one read so the topic and its
+/// overlay state come from the same snapshot.
+///
+/// `topic` has active and held `topic.archive`/`topic.unarchive` items applied (`status`,
+/// `archived_at`) and derived fields recomputed. A **failed** archive or unarchive is not
+/// applied: `topic` keeps the server's status, and the failure shows in `syncState` and
+/// `lastError`.
+public struct ViewTopic: Sendable, Hashable, Identifiable {
+    public var topic: Topic
+    /// `.pending` while an archive or unarchive is queued; `.failed` when the latest one failed.
+    public var syncState: RecordSyncState
+    /// The kind of the queued or failed topic item, if any.
+    public var pendingChange: OutboxKind?
+    public var lastError: OutboxErrorInfo?
+
+    public init(
+        topic: Topic, syncState: RecordSyncState = .synced, pendingChange: OutboxKind? = nil,
+        lastError: OutboxErrorInfo? = nil
+    ) {
+        self.topic = topic
+        self.syncState = syncState
+        self.pendingChange = pendingChange
+        self.lastError = lastError
+    }
+
+    public var id: UUID { topic.id }
+}
+
+/// `outbox_item.last_error_json`: the PWA `OutboxError` shape `{message, status, body?}`.
+public struct OutboxErrorInfo: Codable, Sendable, Hashable {
+    public var message: String
+    /// The HTTP status, nil when no response arrived.
+    public var status: Int?
+    public var body: JSONValue?
+
+    public init(message: String, status: Int? = nil, body: JSONValue? = nil) {
+        self.message = message
+        self.status = status
+        self.body = body
+    }
 }
 
 // MARK: - Outbox (outbox.md §1–§3)
