@@ -5,11 +5,20 @@ response shape the iOS client decodes, and each recorded call becomes one file:
 ``{operation_id, request: {method, path, body}, status, body}``, named
 ``<operationId>[.<variant>].json``. Adding an endpoint is one ``rec(...)`` line.
 
-Volatile values are normalised so the output is stable: server-generated UUIDs
-become ``00000000-0000-4000-8000-<n>`` in order of first appearance (client-
-supplied ids are kept), server clock timestamps (``SERVER_TIME_KEYS``) become
-``SERVER_TIME`` and the generated VAPID key a fixed one. Entries carry explicit
-``captured_at`` values and schedules are backdated, so due state is fixed too.
+The application clock is frozen at ``FROZEN_NOW`` (``datetime.now`` in the
+topic and entry services), entries carry explicit ``captured_at`` values and
+schedules are backdated to ``SCHEDULE_SET_AT``, so due state, ``archived_at``
+and defaulted ``captured_at`` are real, deterministic values. What can't be
+frozen is normalised, only at known response paths and only after checking the
+original is a timezone-aware ISO-8601 datetime:
+
+- ``DB_CLOCK_KEYS`` on topics, entries and versions (Postgres ``now()``) become
+  ``SERVER_TIME`` unless they hold one of the pinned instants;
+- server-generated UUIDs become ``00000000-0000-4000-8000-<n>`` in order of first
+  appearance (client-supplied ids are kept);
+- the generated VAPID public key becomes ``FIXED_PUBLIC_KEY``.
+
+Every other ``*_at`` value in a response body is format-checked too.
 
 ``QUICKR_UPDATE_VECTORS=1`` (``make vectors``) rewrites the directory (removing
 files no longer produced); otherwise the committed files must match.
@@ -18,10 +27,11 @@ files no longer produced); otherwise the committed files must match.
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
-from typing import Any
+from datetime import UTC, datetime, tzinfo
+from typing import Any, Self
 
 import httpx
+import pytest
 
 from tests.helpers import backdate_schedule, make_topic, record
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_json, stale_message, updating
@@ -29,12 +39,19 @@ from tests.vectors import FIXTURES_DIR, check_or_write, dump_json, stale_message
 API_DIR = FIXTURES_DIR / "api"
 PREFIX = "/api/v1"
 SERVER_TIME = "2026-06-01T12:00:00.123456Z"
-SERVER_TIME_KEYS = frozenset(
-    {"created_at", "updated_at", "archived_at", "schedule_updated_at", "due_since", "next_due_at"}
-)
-FIXED_VALUES = {"public_key": "B" + "A" * 86}
-UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+# Half a second, so frozen timestamps carry a fraction and captured_at values don't.
+FROZEN_NOW = datetime(2026, 3, 4, 12, 0, 0, 500_000, tzinfo=UTC)
 SCHEDULE_SET_AT = datetime(2026, 1, 1, tzinfo=UTC)
+PINNED = frozenset({FROZEN_NOW, SCHEDULE_SET_AT})
+DB_CLOCK_KEYS = frozenset({"created_at", "updated_at", "schedule_updated_at"})
+# Where topics, entries and versions sit in a response body ("*" = any list index).
+RECORD_PATHS = frozenset({("body",), ("body", "items", "*"), ("body", "*")})
+FIXED_PUBLIC_KEY = "B" + "A" * 86
+PUBLIC_KEY_RE = re.compile(r"B[A-Za-z0-9_-]{86}")
+UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+DATETIME_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})")
+# Free-form maps whose keys are user data, never response fields.
+USER_DATA_KEYS = frozenset({"meta", "option_counts"})
 
 ENTRY_IDS = [f"0f1e2d3c-4b5a-4968-8778-{n:012d}" for n in range(1, 6)]
 E1, E2, E3, E4, E5 = ENTRY_IDS
@@ -89,6 +106,19 @@ def everything_v2() -> list[dict[str, Any]]:
     return qs
 
 
+class FrozenDatetime(datetime):
+    @classmethod
+    def now(cls, tz: tzinfo | None = None) -> Self:
+        return cls.fromtimestamp(FROZEN_NOW.timestamp(), tz)
+
+
+def aware_datetime(value: object, where: str) -> datetime:
+    """The parsed value; fails the test unless it is a timezone-aware ISO-8601 datetime."""
+    assert isinstance(value, str), f"{where}: not a string: {value!r}"
+    assert DATETIME_RE.fullmatch(value), f"{where}: not an aware ISO-8601 datetime: {value!r}"
+    return datetime.fromisoformat(value)
+
+
 class Recorder:
     def __init__(self, client: httpx.AsyncClient) -> None:
         self.client = client
@@ -112,25 +142,43 @@ class Recorder:
         name = operation_id + (f".{variant}" if variant else "") + ".json"
         assert name not in self.files, name
         query = "?" + str(httpx.QueryParams(params)) if params else ""
-        record = {
+        record: dict[str, Any] = {
             "operation_id": operation_id,
             "request": {"method": method, "path": PREFIX + path + query, "body": body},
             "status": status,
             "body": data,
         }
-        self.files[name] = dump_json(self.normalise(record))
+        record["body"] = self.normalise(data, ("body",), name)
+        self.files[name] = dump_json(self.uuids_in(record))
         return data
 
-    def normalise(self, value: Any, key: str | None = None) -> Any:
-        if isinstance(value, dict):
-            return {k: self.normalise(value[k], k) for k in sorted(value)}
+    def normalise(self, value: Any, path: tuple[str, ...], name: str) -> Any:
+        """Check and normalise timestamps and the VAPID key in a response body."""
         if isinstance(value, list):
-            return [self.normalise(v) for v in value]
+            return [self.normalise(v, (*path, "*"), name) for v in value]
+        if not isinstance(value, dict) or (path and path[-1] in USER_DATA_KEYS):
+            return value
+        out: dict[str, Any] = {}
+        for key, original in value.items():
+            where = f"{name}: {'.'.join((*path, key))}"
+            v = original
+            if v is not None and (key.endswith("_at") or key in {"due_since", "start"}):
+                instant = aware_datetime(v, where)
+                if path in RECORD_PATHS and key in DB_CLOCK_KEYS and instant not in PINNED:
+                    v = SERVER_TIME
+            elif path == ("body",) and key == "public_key":
+                assert isinstance(v, str), where
+                assert PUBLIC_KEY_RE.fullmatch(v), f"{where}: {v!r}"
+                v = FIXED_PUBLIC_KEY
+            out[key] = self.normalise(v, (*path, key), name)
+        return out
+
+    def uuids_in(self, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {k: self.uuids_in(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self.uuids_in(v) for v in value]
         if isinstance(value, str):
-            if key in SERVER_TIME_KEYS:
-                return SERVER_TIME
-            if key in FIXED_VALUES:
-                return FIXED_VALUES[key]
             return UUID_RE.sub(lambda m: self._uuid(m.group()), value)
         return value
 
@@ -313,7 +361,11 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
     return rec.files
 
 
-async def test_api_fixtures_match_committed(client: httpx.AsyncClient) -> None:
+async def test_api_fixtures_match_committed(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for module in ("app.services.topics", "app.services.entries"):
+        monkeypatch.setattr(f"{module}.datetime", FrozenDatetime)
     files = await scenario(client)
     existing = {p.name for p in API_DIR.glob("*.json")}
     if updating():
@@ -323,3 +375,26 @@ async def test_api_fixtures_match_committed(client: httpx.AsyncClient) -> None:
         assert existing == set(files), stale_message(API_DIR)
     for name, content in files.items():
         check_or_write(API_DIR / name, content)
+
+
+@pytest.mark.parametrize("bad", ["2026-03-01T08:00:00", "2026-03-01", "soon", 1767225600])
+def test_normaliser_rejects_non_aware_timestamps(bad: object) -> None:
+    rec = Recorder(httpx.AsyncClient())
+    with pytest.raises(AssertionError, match="created_at"):
+        rec.normalise({"created_at": bad}, ("body",), "x.json")
+
+
+def test_normaliser_only_touches_known_paths() -> None:
+    rec = Recorder(httpx.AsyncClient())
+    db_time = "2026-10-17T14:38:26.420960Z"
+    body = {
+        "created_at": db_time,
+        "schedule_updated_at": "2026-01-01T00:00:00Z",  # pinned: kept
+        "meta": {"created_at": "not a date"},
+        "answers": [{"key": "k", "value": db_time}],
+        "due": {"due_since": "2026-03-04T08:00:00Z", "next_due_at": None},
+    }
+    assert rec.normalise(body, ("body",), "x.json") == {
+        **body,
+        "created_at": SERVER_TIME,
+    }

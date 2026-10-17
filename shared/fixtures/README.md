@@ -68,14 +68,25 @@ and `enum_list` answers), daily and interval due state, and problem bodies: 422
 `invalid_answers` (with `loc`), 422 `invalid_request`, 404, and 409 `conflict`,
 `topic_archived` and id conflict. A 204 has `"body": null`.
 
-Volatile values are normalised:
+The application clock is frozen at `2026-03-04T12:00:00.5Z`. Entries carry fixed
+`captured_at` values and schedules are backdated to `2026-01-01T00:00:00Z`. So
+`due_since`, `next_due_at`, `archived_at` and a defaulted `captured_at` are real
+server output.
 
+What can't be frozen is normalised, but only at known response paths (topics,
+entries and versions, never inside `meta` or answers). The generator first checks
+that the original is a timezone-aware ISO-8601 datetime and fails otherwise:
+
+- The Postgres `now()` fields `created_at`, `updated_at` and `schedule_updated_at`
+  become `2026-06-01T12:00:00.123456Z`, unless they hold one of the pinned
+  instants above.
 - Server-generated UUIDs become `00000000-0000-4000-8000-<n>`, numbered in order
   of first appearance. Client-supplied entry ids are kept.
-- Server clock fields (`created_at`, `updated_at`, `archived_at`,
-  `schedule_updated_at`, `due_since`, `next_due_at`) become
-  `2026-06-01T12:00:00.123456Z`. The server sends microseconds and drops the
-  fraction when it is zero, so decoders must accept both forms.
-- The VAPID public key is replaced with a fixed one.
+- The VAPID public key is replaced with a fixed one, after checking its format.
+
+Every other `*_at`, `due_since` and `start` value in a response body is
+format-checked too. The server sends microseconds and drops the fraction when it
+is zero. The fixtures contain both forms (for example `archived_at` with `.500000`
+and `captured_at` without), so decoders must accept both.
 
 To add an endpoint, add one `rec(...)` call to `scenario()`.

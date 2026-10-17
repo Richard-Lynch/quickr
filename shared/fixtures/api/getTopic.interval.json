@@ -5,10 +5,10 @@
     "current_version": 1,
     "description": "",
     "due": {
-      "due_since": "2026-06-01T12:00:00.123456Z",
+      "due_since": "2026-03-03T12:00:00Z",
       "is_due": true,
       "last_entry_at": "2026-03-03T09:00:00Z",
-      "next_due_at": "2026-06-01T12:00:00.123456Z"
+      "next_due_at": "2026-03-03T12:00:00Z"
     },
     "entry_count": 1,
     "id": "00000000-0000-4000-8000-000000000003",
@@ -33,7 +33,7 @@
       "notify": false,
       "timezone": "Europe/London"
     },
-    "schedule_updated_at": "2026-06-01T12:00:00.123456Z",
+    "schedule_updated_at": "2026-01-01T00:00:00Z",
     "slug": "water",
     "status": "active",
     "updated_at": "2026-06-01T12:00:00.123456Z"
