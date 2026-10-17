@@ -110,6 +110,8 @@ public struct Outbox: Sendable {
     public static let holdDuration: Duration = .seconds(6)
     /// The per-request timeout, capped by the remaining budget (§4).
     public static let requestTimeout: Duration = .seconds(15)
+    /// Kept out of a budget for the release transaction (at most 10 % of the budget).
+    public static let cleanupReserve: Duration = .milliseconds(250)
     /// `stale_revision` rebases before `failed/conflict` (§7.4).
     public static let maxRebases = 3
 
@@ -121,8 +123,9 @@ public struct Outbox: Sendable {
     public var onSignal: @Sendable (OutboxSignal) -> Void
     /// The backoff jitter source, in `[0, 1)`.
     public var random: @Sendable () -> Double
-    /// How long a flush that is out of budget or cancelled still listens for the answer to the
-    /// request it cancelled, before giving up on a sender that doesn't stop (§10).
+    /// How long a flush whose request deadline passed still listens for the answer to the
+    /// request it cancelled (at most 20 % of the budget, and inside it). A cancelled flush doesn't
+    /// wait.
     public var shutdownGrace: Duration
 
     public init(
@@ -263,19 +266,24 @@ public struct Outbox: Sendable {
     /// or an outcome stops the pass. `force` ignores backoff deadlines, never `failed`. Each item
     /// is claimed at most once per flush. On the way out, an item still in flight with this
     /// flusher's claim becomes `uncertain` and the lease is released; then signals are delivered.
+    ///
+    /// `budget` bounds the whole call (§10): requests stop early enough to leave the shutdown
+    /// grace and the release inside it. A cancellation (an expiration handler) releases at once.
     public func flush(force: Bool, budget: Duration, leaseWait: Duration = .zero) async throws -> OutboxFlushReport {
-        let deadline = ContinuousClock.now.advanced(by: budget)
+        let start = ContinuousClock.now
+        let grace = min(shutdownGrace, budget * 0.2)
+        let requestDeadline = start.advanced(by: max(.zero, budget - grace - min(Self.cleanupReserve, budget * 0.1)))
         let leases = store.leases
         let takeover = OutboxFlush.takeover(wallClock: store.wallClock)
         let lease =
             leaseWait > .zero
             ? try await leases.acquire(
-                .flush, owner: owner, waitingUpTo: min(leaseWait, budget), pollInterval: .milliseconds(50),
-                takeover: takeover)
+                .flush, owner: owner, waitingUpTo: min(leaseWait, requestDeadline - start),
+                pollInterval: .milliseconds(50), takeover: takeover)
             : try await leases.tryAcquire(.flush, owner: owner, takeover: takeover)
         guard let lease else { return OutboxFlushReport(ending: .busy) }
 
-        var run = FlushRun(lease: lease, deadline: deadline, force: force)
+        var run = FlushRun(lease: lease, deadline: requestDeadline, grace: grace, force: force)
         var failure: (any Error)?
         do {
             run.report.ending = try await pass(&run)
@@ -295,7 +303,10 @@ public struct Outbox: Sendable {
 
     private struct FlushRun {
         let lease: LeaseClaim
+        /// When requests stop: the budget minus the shutdown grace and the cleanup reserve.
         let deadline: ContinuousClock.Instant
+        /// How long a request cancelled by `deadline` is still listened to.
+        let grace: Duration
         let force: Bool
         var report = OutboxFlushReport(ending: .drained)
         /// The item this flusher holds in flight, if any.
@@ -303,9 +314,10 @@ public struct Outbox: Sendable {
         var attempted: Set<String> = []
         var signals: [OutboxSignal] = []
 
-        init(lease: LeaseClaim, deadline: ContinuousClock.Instant, force: Bool) {
+        init(lease: LeaseClaim, deadline: ContinuousClock.Instant, grace: Duration, force: Bool) {
             self.lease = lease
             self.deadline = deadline
+            self.grace = grace
             self.force = force
         }
 
@@ -342,7 +354,7 @@ public struct Outbox: Sendable {
         var item = claim.item
         while true {
             let request = try OutboxFlush.request(for: item, expecting: claim.expecting, timeout: timeout(run))
-            guard let response = await send(request, deadline: run.deadline) else {
+            guard let response = await send(request, deadline: run.deadline, grace: run.grace) else {
                 return Task.isCancelled ? .cancelled : .budgetExhausted
             }
             run.report.requests += 1
@@ -372,7 +384,7 @@ public struct Outbox: Sendable {
         }
         if failure != nil { return .done(.superseded) }
         let request = try OutboxFlush.refetch(for: item, expecting: claim.expecting, timeout: timeout(run))
-        guard let response = await send(request, deadline: run.deadline) else {
+        guard let response = await send(request, deadline: run.deadline, grace: run.grace) else {
             return .done(Task.isCancelled ? .cancelled : .budgetExhausted)
         }
         run.report.requests += 1
@@ -439,25 +451,27 @@ public struct Outbox: Sendable {
         min(Self.requestTimeout, max(.zero, run.deadline - ContinuousClock.now))
     }
 
-    /// Sends `request`, racing the budget and the task's cancellation. The request runs in its own
-    /// task, so no wait here depends on the sender honouring cancellation:
+    /// Sends `request`, racing the request deadline and the task's cancellation. The request runs
+    /// in its own task, so no wait here depends on the sender honouring cancellation:
     /// 1. until the deadline or a cancellation, the answer is awaited;
-    /// 2. then the request is cancelled, and whatever it returns within `shutdownGrace` is still
-    ///    kept if it is an answer (a response that lands during shutdown isn't lost);
-    /// 3. after that the flusher stops listening. Nil: the release makes the item `uncertain`
-    ///    and frees the lease, and a later completion is never applied (and would fail the sender
-    ///    check anyway once the claim or lease has moved on).
-    private func send(_ request: OutboxRequest, deadline: ContinuousClock.Instant) async -> APIResponse<
-        OutboxSuccess
-    >? {
+    /// 2. at the deadline the request is cancelled, and whatever it returns within `grace` (which
+    ///    `flush` reserved inside the budget) is still kept if it is an answer;
+    /// 3. on a cancellation (the OS is about to suspend the process) nothing more is awaited.
+    /// Nil: the release makes the item `uncertain` and frees the lease. A later completion is
+    /// never applied (and would fail the sender check once the claim or lease moves on); if the
+    /// server committed, the next flush reconciles through the idempotent resend or pull-ack.
+    private func send(_ request: OutboxRequest, deadline: ContinuousClock.Instant, grace: Duration) async
+        -> APIResponse<OutboxSuccess>?
+    {
         let sender = sender
         let call = Task { await sender.send(request) }
         if let response = await Self.result(of: call, until: deadline, stopsOnCancellation: true) {
             return Self.isAnswer(response) ? response : nil
         }
         call.cancel()
-        let grace = ContinuousClock.now.advanced(by: shutdownGrace)
-        guard let response = await Self.result(of: call, until: grace, stopsOnCancellation: false) else { return nil }
+        guard !Task.isCancelled else { return nil }
+        let end = ContinuousClock.now.advanced(by: grace)
+        guard let response = await Self.result(of: call, until: end, stopsOnCancellation: true) else { return nil }
         return Self.isAnswer(response) ? response : nil
     }
 
