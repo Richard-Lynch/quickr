@@ -95,7 +95,7 @@ public enum StoreView {
     {
         guard try topicExists(db, topicId) else { return [] }
         let book = QuestionBook(db)
-        let questions = { (row: Row) in book.questions(row["topic_id"], row["version"]) }
+        let questions = { (row: Row) in try book.questions(row["topic_id"], row["version"]) }
         let overlaid = try overlays(db, topicId: topicId, book: book)
             .filter { countedOnly ? $0.isCounted : $0.isVisible }
             .compactMap(\.viewEntry)
@@ -117,7 +117,7 @@ public enum StoreView {
         if try ServerLayer.isTombstoned(db, kind: .entry, id: id) { return nil }
         let book = QuestionBook(db)
         let server = try Row.fetchOne(db, sql: "SELECT * FROM entry WHERE id = ?", arguments: [id]).map { row in
-            try Entry(serverRow: row, questions: book.questions(row["topic_id"], row["version"]))
+            try Entry(serverRow: row, questions: try book.questions(row["topic_id"], row["version"]))
         }
         let overlay = try EntryOverlay.resolve(
             server: server, items: OutboxStorage.items(db, entityKind: .entry, entityId: id), questions: book.lookup)
@@ -179,7 +179,7 @@ public enum StoreView {
             ).map { row in
                 (
                     row["id"] as String,
-                    try Entry(serverRow: row, questions: book.questions(row["topic_id"], row["version"]))
+                    try Entry(serverRow: row, questions: try book.questions(row["topic_id"], row["version"]))
                 )
             })
         let tombstoned = Set(
@@ -201,24 +201,25 @@ public enum StoreView {
 }
 
 /// The questions of each `(topic, version)`, read lazily within one read transaction: the
-/// version's own questions, else the topic's current ones, else none.
+/// version's own questions, else the topic's current ones, else none (an orphan row). SQL and
+/// decoding errors propagate.
 final class QuestionBook {
     private let db: Database
     private var cache: [String: [Question]] = [:]
 
     init(_ db: Database) { self.db = db }
 
-    var lookup: QuestionLookup { { [self] topicId, version in questions(topicId.wireString, version) } }
+    var lookup: QuestionLookup { { [self] topicId, version in try questions(topicId.wireString, version) } }
 
-    func questions(_ topicId: String, _ version: Int) -> [Question] {
+    func questions(_ topicId: String, _ version: Int) throws -> [Question] {
         let key = "\(topicId)#\(version)"
         if let cached = cache[key] { return cached }
         let json =
-            (try? String.fetchOne(
+            try String.fetchOne(
                 db, sql: "SELECT questions_json FROM topic_version WHERE topic_id = ? AND version = ?",
-                arguments: [topicId, version]))
-            ?? (try? String.fetchOne(db, sql: "SELECT questions_json FROM topic WHERE id = ?", arguments: [topicId]))
-        let questions = json.flatMap { try? StoreJSON.decode([QuestionDTO].self, $0).toDomain() } ?? []
+                arguments: [topicId, version])
+            ?? String.fetchOne(db, sql: "SELECT questions_json FROM topic WHERE id = ?", arguments: [topicId])
+        let questions = try json.map { try StoreJSON.decode([QuestionDTO].self, $0).toDomain() } ?? []
         cache[key] = questions
         return questions
     }

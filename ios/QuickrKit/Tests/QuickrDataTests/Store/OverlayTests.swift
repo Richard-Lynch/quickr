@@ -158,6 +158,19 @@ import Testing
             try await s.store.entries.entry(id: stored.id)?.entry.answers == ["mood": .int(4), "weight": .double(8)])
     }
 
+    @Test func unreadableQuestionsFailTheReadInsteadOfSkippingNormalization() async throws {
+        let s = try TestStore()
+        let topic = Make.topic()
+        let entry = Make.entry(topicId: topic.id)
+        try s.write { (db: Database) throws in
+            _ = try ServerLayer.upsert(db, topic: topic)
+            _ = try ServerLayer.upsert(db, entry: entry)
+            try db.execute(sql: "UPDATE topic SET questions_json = '[{\"type\":\"nope\"}]'")
+        }
+        await #expect(throws: (any Error).self) { try await s.store.entries.entry(id: entry.id) }
+        await #expect(throws: (any Error).self) { try await s.store.entries.entries(topicId: topic.id, limit: nil) }
+    }
+
     @Test func failedEntriesCarryTheirLastError() async throws {
         let s = try TestStore()
         let topic = Make.topic()
