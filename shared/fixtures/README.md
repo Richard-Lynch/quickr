@@ -127,8 +127,13 @@ the iOS builder (`QuickrCore/Builder`) can prove it agrees offline.
   normalisation: "é" and "e\u0301" are different labels, KELVIN SIGN and "k"
   the same. Foundation's folding and Swift's lowercase mappings disagree with
   it on hundreds of code points, so `ios/scripts/gen-casefold.py` turns this
-  list into `QuickrCore/Builder/CaseFoldTable.swift`; rerun it when the list
-  changes (`BuilderVectorTests.casefoldIsPythons` fails until you do).
+  list into `QuickrCore/Builder/CaseFoldTable.swift`. `make vectors` writes
+  both; the pytest drift check fails when either is stale (or run the script
+  with `--check`), and `BuilderVectorTests.casefoldIsPythons` checks the Swift
+  table against the fixture for every code point. The generator and the drift
+  check refuse a Python whose `unicodedata.unidata_version` isn't the
+  fixture's; the backend pins Python 3.14 (`requires-python`, the Dockerfile
+  base) so the server's Unicode can't move silently.
 
 ## `api/*.json`
 

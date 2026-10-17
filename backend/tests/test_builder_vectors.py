@@ -17,8 +17,11 @@ file must match.
 
 from __future__ import annotations
 
+import importlib.util
+import json
 import sys
 import unicodedata
+from types import ModuleType
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
@@ -27,9 +30,10 @@ from app.schemas.base import error_loc
 from app.schemas.questions import Question, QuestionSet
 from app.services.compat import check_compatibility
 from app.services.topics import slugify
-from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
+from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases, updating
 
 PATH = FIXTURES_DIR / "builder-vectors.json"
+CASEFOLD_GENERATOR = FIXTURES_DIR.parents[1] / "ios" / "scripts" / "gen-casefold.py"
 GENERATOR_VERSION = 2
 
 adapter: TypeAdapter[list[Question]] = TypeAdapter(list[Question])
@@ -466,5 +470,33 @@ def build() -> dict[str, Any]:
     }
 
 
+def casefold_generator() -> ModuleType:
+    """ios/scripts/gen-casefold.py, which renders QuickrCore/Builder/CaseFoldTable.swift."""
+    spec = importlib.util.spec_from_file_location("gen_casefold", CASEFOLD_GENERATOR)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_unicode_version_matches_committed() -> None:
+    """The casefold table and the whitespace cases depend on Python's Unicode data."""
+    if updating() or not PATH.exists():
+        return
+    committed = json.loads(PATH.read_text())["meta"]["unicode_version"]
+    assert unicodedata.unidata_version == committed, (
+        f"{sys.executable} (Python {sys.version.split()[0]}) has Unicode {unicodedata.unidata_version}; "
+        f"{PATH.name} was generated with Unicode {committed}. Run the backend's pinned Python "
+        "(requires-python, the Dockerfile base), or regenerate with 'make vectors' on purpose."
+    )
+
+
 def test_builder_vectors_match_committed() -> None:
     check_or_write(PATH, dump_cases(build()))
+
+
+def test_casefold_swift_table_matches_committed() -> None:
+    """The iOS builder's copy of the casefold table, rendered from the same build."""
+    generator = casefold_generator()
+    check_or_write(generator.OUT, generator.render(build()))
