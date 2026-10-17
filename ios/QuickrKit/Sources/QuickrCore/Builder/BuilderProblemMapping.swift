@@ -54,7 +54,7 @@ public enum BuilderProblemMapping {
         var out: [DraftField: String] = [:]
         for issue in report.issues where issue.level == .error {
             guard let key = issue.questionKey,
-                let i = draft.questions.firstIndex(where: { BuilderText.strip($0.key) == key })
+                let i = draft.questions.firstIndex(where: { TextKey(BuilderText.strip($0.key)) == TextKey(key) })
             else { continue }
             out[.question(i, .key)] = issue.message
         }

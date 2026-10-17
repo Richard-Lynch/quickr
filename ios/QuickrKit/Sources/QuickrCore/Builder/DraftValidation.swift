@@ -158,7 +158,7 @@ extension DraftQuestion {
                 issues.add(.optionValue(i), BuilderMessage.key)
             }
         }
-        for i in duplicates(values) { issues.add(.optionValue(i), "Another option has this value") }
+        for i in duplicates(values.map(TextKey.init)) { issues.add(.optionValue(i), "Another option has this value") }
         for i in duplicates(options.map { BuilderText.fold($0.label) }) {
             issues.add(.optionLabel(i), "Another option has this label")
         }
@@ -274,7 +274,7 @@ extension TopicDraft {
         if questions.count > limits.maxQuestions {
             issues.append(.init(field: .questions, message: "At most \(limits.maxQuestions) questions"))
         }
-        for i in duplicates(questions.map { BuilderText.strip($0.key) }) {
+        for i in duplicates(questions.map { TextKey(BuilderText.strip($0.key)) }) {
             issues.append(.init(field: .question(i, .key), message: "Key already used by another question"))
         }
         for i in duplicates(questions.map { BuilderText.fold($0.label) }) {
@@ -315,9 +315,10 @@ extension TopicDraft {
     }
 }
 
-/// Indices of items equal to an earlier one; empty items never clash.
-func duplicates(_ items: [String]) -> [Int] {
-    var seen = Set<String>()
+/// Indices of items equal (code point by code point, like Python) to an earlier one; empty items
+/// never clash.
+func duplicates(_ items: [TextKey]) -> [Int] {
+    var seen = Set<TextKey>()
     var out: [Int] = []
     for (i, item) in items.enumerated() where !item.isEmpty {
         if seen.contains(item) { out.append(i) }

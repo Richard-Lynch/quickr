@@ -34,8 +34,8 @@ extension DraftQuestion {
             relaxed.minSelected = ""
             relaxed.maxSelected = ""
         }
-        var values = Set<String>()
-        var labels = Set<String>()
+        var values = Set<TextKey>()
+        var labels = Set<TextKey>()
         relaxed.options = filled.options
             .filter { !BuilderText.strip($0.label).isEmpty }
             .enumerated()
@@ -44,7 +44,7 @@ extension DraftQuestion {
                 if !keys.matches(o.value) { o.value = "option_\(i + 1)" }
                 return o
             }
-            .filter { values.insert($0.value).inserted }
+            .filter { values.insert(TextKey($0.value)).inserted }
             .filter { labels.insert(BuilderText.fold($0.label)).inserted }
         relaxed.publishedMultiple = false
         if relaxed.type == .enum && relaxed.options.allSatisfy(\.archived) { relaxed.options = [] }

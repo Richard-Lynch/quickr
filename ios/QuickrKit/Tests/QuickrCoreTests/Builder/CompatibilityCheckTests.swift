@@ -236,6 +236,33 @@ private func kinds(_ r: CompatibilityReport) -> [String: CompatibilityReport.Cha
         #expect(levels(loosened, .warning).isEmpty)
     }
 
+    @Test func nullAndTheLiteralNoneAreDifferentValues() {
+        var help = i("a")
+        help.helpText = "none"
+        #expect(check([[i("a")]], [help]).changes.first?.details == ["help_text: none -> none"])
+        let unit = Question(key: "a", label: "A", kind: .double(.init(unit: "none")))
+        let r = check([[d("a")]], [unit])
+        #expect(r.ok)
+        #expect(r.changes.first?.details == ["unit: none -> none"])
+    }
+
+    @Test func canonicallyEquivalentTextIsAChange() {
+        let r = check([[i("a", label: "Caf\u{E9}")]], [i("a", label: "Cafe\u{301}")])
+        #expect(r.ok)
+        #expect(r.changes.map(\.kind) == [.modified])
+        let opts = { (label: String) in
+            Question(key: "m", label: "M", kind: .choice(.init(options: [EnumOption(value: "x", label: label)])))
+        }
+        #expect(
+            check([[opts("\u{C5}")]], [opts("A\u{30A}")]).changes.first?.details == [
+                "option x label: \u{C5} -> A\u{30A}"
+            ])
+    }
+
+    @Test func negativeZeroIsNoChange() {
+        #expect(!check([[d("a", min: 0)]], [d("a", min: -0.0)]).ok)
+    }
+
     @Test func blockingIssuesLightUpTheirQuestionKeys() {
         let r = check([[i("a"), e("f", "x", "y")]], [i("a"), e("f", "x")])
         var draft = TopicDraft.editing(name: "T", slug: "t", description: "", questions: [i("a"), e("f", "x", "y")])

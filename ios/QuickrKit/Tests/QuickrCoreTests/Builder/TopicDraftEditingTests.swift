@@ -132,6 +132,27 @@ import Testing
         #expect(t[n]?.options.map(\.value) == ["yes", "no"])
     }
 
+    /// A fractional bound survives the switch to whole numbers and is flagged, never truncated.
+    @Test func fractionalDoubleBecomingIntIsFlagged() throws {
+        var t = TopicDraft.empty()
+        t.setLabel(t.questions[0].id, "Mood")
+        let n = t.addQuestion(.double)
+        t.setLabel(n, "Hours")
+        let i = try #require(t.index(of: n))
+        t.questions[i].min = "0.5"
+        t.questions[i].max = "7.25"
+        let switched = t.setType(n, to: .int)
+        #expect(switched)
+        #expect(t.questions[i].min == "0.5")
+        #expect(t.questions[i].max == "7.25")
+        let issues = DraftIssues<DraftField>.fields(of: t.validatedQuestions())
+        #expect(issues == ["questions.1.min": "Must be a whole number", "questions.1.max": "Must be a whole number"])
+        t.questions[i].min = "0"
+        t.questions[i].max = "7"
+        let fixed = try t.validatedQuestions().get()
+        #expect(fixed[1].kind == .int(.init(min: 0, max: 7)))
+    }
+
     @Test func optionsAddRenameAndDeriveValues() throws {
         var t = TopicDraft.empty()
         let q = t.addQuestion(.enum)
@@ -238,5 +259,12 @@ import Testing
                 .question(1, .optionLabel(0)): "Dup", .question(0, .key): "Bool", .questions: "Gone",
             ])
         #expect(mapped.unplaced.map(\.message) == ["Tz", "Stale"])
+    }
+}
+
+extension DraftIssues<DraftField> {
+    static func fields<T>(of result: Result<T, Self>) -> [String: String] {
+        guard case .failure(let e) = result else { return [:] }
+        return Dictionary(e.issues.map { ($0.field.path, $0.message) }, uniquingKeysWith: { $1 })
     }
 }

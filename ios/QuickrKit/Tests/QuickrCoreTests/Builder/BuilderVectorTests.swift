@@ -48,6 +48,21 @@ import Testing
         #expect((slug.isEmpty ? "topic" : slug) == vector.expected)
     }
 
+    /// The Swift table is generated from the fixture (ios/scripts/gen-casefold.py); this pins both
+    /// to the server's Python, for every code point.
+    @Test func casefoldIsPythons() {
+        let python = Dictionary(uniqueKeysWithValues: BuilderVectors.shared.casefold.map { ($0.codePoint, $0.folded) })
+        #expect(python.count > 1_500)
+        var mismatches: [String] = []
+        for value in UInt32(0)...0x10FFFF {
+            guard let c = Unicode.Scalar(value) else { continue }
+            let want = python[value] ?? [value]
+            let got = BuilderText.casefold(String(c)).scalars.map(\.value)
+            if got != want { mismatches.append(String(value, radix: 16)) }
+        }
+        #expect(mismatches.isEmpty, "U+\(mismatches.prefix(20))")
+    }
+
     @Test func whitespaceIsPydantics() {
         // The ws/ cases pin which characters the server strips; spot-check the boundary here.
         for c: Unicode.Scalar in ["\u{85}", "\u{A0}", "\u{2028}", "\u{3000}", " ", "\t"] {
@@ -85,6 +100,19 @@ struct BuilderVectors: Decodable {
     var questions: [QuestionCase]
     var compat: [CompatCase]
     var slugs: [SlugCase]
+    var casefold: [CaseFold]
+
+    /// `[code point, [folded code points]]`.
+    struct CaseFold: Decodable {
+        var codePoint: UInt32
+        var folded: [UInt32]
+
+        init(from decoder: any Decoder) throws {
+            var c = try decoder.unkeyedContainer()
+            codePoint = try c.decode(UInt32.self)
+            folded = try c.decode([UInt32].self)
+        }
+    }
 
     struct QuestionCase: Decodable, Sendable, CustomTestStringConvertible {
         var name: String

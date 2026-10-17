@@ -17,11 +17,34 @@ public enum BuilderText {
     /// Unicode `White_Space`.
     public static func isWhitespace(_ c: Unicode.Scalar) -> Bool { c.properties.isWhitespace }
 
-    /// What the server compares labels by: stripped, then Python's `str.casefold()` (so "Straße"
-    /// and "STRASSE" clash; the PWA's `toLocaleLowerCase` misses that).
-    public static func fold(_ s: String) -> String {
-        strip(s).folding(options: .caseInsensitive, locale: nil)
+    /// What the server compares labels by: stripped, then Python's `str.casefold()`, code point by
+    /// code point (so "Straße" and "STRASSE" clash, which the PWA's `toLocaleLowerCase` misses, but
+    /// "é" and "e\u{301}" don't). From the server's own table (`CaseFoldTable.swift`): Foundation's
+    /// folding and Swift's lowercase mappings disagree with Python on hundreds of code points.
+    public static func fold(_ s: String) -> TextKey { casefold(strip(s)) }
+
+    /// Python's `str.casefold()`: full case folding, one code point at a time, no normalisation.
+    public static func casefold(_ s: String) -> TextKey {
+        var out: [Unicode.Scalar] = []
+        for c in s.unicodeScalars {
+            if let mapped = caseFolds[c] { out += mapped } else { out.append(c) }
+        }
+        return TextKey(scalars: out)
     }
+
+    private static let caseFolds: [Unicode.Scalar: [Unicode.Scalar]] = {
+        var table: [Unicode.Scalar: [Unicode.Scalar]] = [:]
+        for entry in caseFoldTable.split(whereSeparator: { $0 == "," || $0.isNewline }) {
+            let trimmed = entry.trimmingCharacters(in: .whitespaces)
+            guard let colon = trimmed.firstIndex(of: ":"),
+                let from = UInt32(trimmed[..<colon], radix: 16).flatMap(Unicode.Scalar.init)
+            else { continue }
+            table[from] = trimmed[trimmed.index(after: colon)...].split(separator: " ").compactMap {
+                UInt32($0, radix: 16).flatMap(Unicode.Scalar.init)
+            }
+        }
+        return table
+    }()
 
     /// Characters as the server counts them: code points.
     public static func count(_ s: String) -> Int { s.unicodeScalars.count }
@@ -45,14 +68,14 @@ public enum BuilderText {
     /// The first of `base`, `base_2`, `base_3`, … not in `taken`, within 63 characters
     /// (`uniqueKey`). An empty base is "question".
     public static func uniqueKey(_ base: String, taken: some Sequence<String>) -> String {
-        let used = Set(taken)
+        let used = Set(taken.map(TextKey.init))
         let root = base.isEmpty ? "question" : base
-        if !used.contains(root) { return root }
+        if !used.contains(TextKey(root)) { return root }
         var i = 2
         while true {
             let suffix = "_\(i)"
             let candidate = String(root.prefix(63 - suffix.count)) + suffix
-            if !used.contains(candidate) { return candidate }
+            if !used.contains(TextKey(candidate)) { return candidate }
             i += 1
         }
     }
@@ -85,6 +108,30 @@ public enum BuilderText {
         var s = s
         while s.last == c { s.removeLast() }
         return s
+    }
+}
+
+/// Text compared the way the server's Python compares `str`: code point by code point. Swift's
+/// `String ==`, `Set<String>` and `[String: …]` use canonical equivalence instead ("é" equals
+/// "e\u{301}", "\u{212B}" equals "Å"), so the builder never compares user text with them.
+public struct TextKey: Sendable, Hashable, CustomStringConvertible {
+    public var scalars: [Unicode.Scalar]
+
+    public init(scalars: [Unicode.Scalar]) { self.scalars = scalars }
+
+    public init(_ s: String) { scalars = Array(s.unicodeScalars) }
+
+    public var isEmpty: Bool { scalars.isEmpty }
+
+    public var description: String { String(String.UnicodeScalarView(scalars)) }
+
+    /// Python's `a == b` for optional text (None only equals None).
+    public static func same(_ a: String?, _ b: String?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): true
+        case (let a?, let b?): TextKey(a) == TextKey(b)
+        default: false
+        }
     }
 }
 

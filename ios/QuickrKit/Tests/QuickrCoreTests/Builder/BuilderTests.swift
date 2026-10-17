@@ -398,3 +398,36 @@ func paths<T>(_ result: Result<T, DraftIssues<DraftField>>) -> [String] {
 }
 
 struct Unexpected: Error {}
+
+/// Text equality is the server's: code points, never canonical equivalence; labels by casefold.
+@Suite struct TextKeyTests {
+    @Test func canonicallyEquivalentSpellingsDiffer() {
+        #expect("\u{E9}" == "e\u{301}", "Swift's String says equal")
+        #expect(TextKey("\u{E9}") != TextKey("e\u{301}"))
+        #expect(TextKey("\u{212B}") != TextKey("\u{C5}"))
+        #expect(Set(["\u{E9}", "e\u{301}"].map(TextKey.init)).count == 2)
+        #expect(!TextKey.same(nil, "none"))
+        #expect(TextKey.same(nil, nil))
+    }
+
+    @Test func foldIsPythonsCasefold() {
+        #expect(BuilderText.fold(" Straße ") == BuilderText.fold("STRASSE"))
+        #expect(BuilderText.fold("\u{212A}") == BuilderText.fold("k"), "KELVIN SIGN")
+        #expect(BuilderText.fold("\u{212B}") == BuilderText.fold("\u{C5}"), "ANGSTROM SIGN folds to å")
+        #expect(BuilderText.fold("\u{13A0}") == BuilderText.fold("\u{AB70}"), "Cherokee folds to upper case")
+        #expect(BuilderText.fold("\u{C5}") != BuilderText.fold("A\u{30A}"), "no normalisation")
+        #expect(BuilderText.fold("Caf\u{C9}") != BuilderText.fold("CAFE\u{301}"))
+    }
+
+    @Test func duplicateDetectionMatchesTheServer() {
+        let nfc = DraftOption(value: "a", label: "\u{E9}")
+        let nfd = DraftOption(value: "b", label: "e\u{301}")
+        #expect(issuesOf(draft(.enum) { $0.options = [nfc, nfd] }) == [:])
+        let kelvin = DraftOption(value: "c", label: "\u{212A}")
+        let k = DraftOption(value: "d", label: "k")
+        #expect(
+            issuesOf(draft(.enum) { $0.options = [kelvin, k] }) == ["options.1.label": "Another option has this label"])
+        #expect(TopicDraft.questionListIssues([("a", "Caf\u{E9}"), ("b", "Cafe\u{301}")]).isEmpty)
+        #expect(BuilderText.uniqueKey("\u{E9}", taken: ["e\u{301}"]) == "\u{E9}")
+    }
+}
