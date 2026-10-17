@@ -52,6 +52,10 @@ openapi: ## Regenerate openapi.json from the FastAPI app
 client: openapi ## Regenerate spec + typed TS client/zod schemas
 	$(FRONTEND) pnpm gen:api
 
+.PHONY: vectors
+vectors: ## Regenerate shared/fixtures (due + quick-log vectors, API response fixtures)
+	$(BACKEND) QUICKR_UPDATE_VECTORS=1 uv run pytest -q tests/test_due_vectors.py tests/test_quicklog_vectors.py tests/test_api_fixtures.py
+
 .PHONY: check
 check: check-backend check-frontend ## Run every check CI runs (except docker)
 
