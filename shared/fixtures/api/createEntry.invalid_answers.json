@@ -1,0 +1,53 @@
+{
+  "body": {
+    "code": "invalid_answers",
+    "detail": "one or more answers are invalid",
+    "errors": [
+      {
+        "loc": [
+          "answers",
+          "glasses"
+        ],
+        "message": "must be <= 30"
+      },
+      {
+        "loc": [
+          "answers",
+          "hours"
+        ],
+        "message": "required"
+      },
+      {
+        "loc": [
+          "answers",
+          "mood"
+        ],
+        "message": "option is archived"
+      },
+      {
+        "loc": [
+          "answers",
+          "factors"
+        ],
+        "message": "select at most 2 options"
+      }
+    ]
+  },
+  "operation_id": "createEntry",
+  "request": {
+    "body": {
+      "answers": {
+        "factors": [
+          "caffeine",
+          "screens",
+          "exercise"
+        ],
+        "glasses": 99,
+        "mood": "poor"
+      }
+    },
+    "method": "POST",
+    "path": "/api/v1/topics/everything/entries"
+  },
+  "status": 422
+}

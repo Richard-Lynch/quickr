@@ -1,0 +1,38 @@
+{
+  "body": {
+    "archived_at": "2026-06-01T12:00:00.123456Z",
+    "created_at": "2026-06-01T12:00:00.123456Z",
+    "current_version": 1,
+    "description": "Retired.",
+    "due": null,
+    "entry_count": 0,
+    "id": "00000000-0000-4000-8000-000000000002",
+    "last_captured_at": null,
+    "name": "Old habit",
+    "question_count": 1,
+    "questions": [
+      {
+        "help_text": null,
+        "key": "done",
+        "label": "Done",
+        "max": null,
+        "min": null,
+        "required": true,
+        "type": "int",
+        "unit": null
+      }
+    ],
+    "schedule": null,
+    "schedule_updated_at": null,
+    "slug": "old-habit",
+    "status": "archived",
+    "updated_at": "2026-06-01T12:00:00.123456Z"
+  },
+  "operation_id": "archiveTopic",
+  "request": {
+    "body": null,
+    "method": "POST",
+    "path": "/api/v1/topics/old-habit/archive"
+  },
+  "status": 200
+}

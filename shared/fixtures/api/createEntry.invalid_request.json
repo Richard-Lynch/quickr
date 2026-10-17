@@ -1,0 +1,27 @@
+{
+  "body": {
+    "code": "invalid_request",
+    "detail": "request validation failed",
+    "errors": [
+      {
+        "loc": [
+          "body",
+          "captured_at"
+        ],
+        "message": "Input should have timezone info"
+      }
+    ]
+  },
+  "operation_id": "createEntry",
+  "request": {
+    "body": {
+      "answers": {
+        "glasses": 1
+      },
+      "captured_at": "2026-03-01T08:00:00"
+    },
+    "method": "POST",
+    "path": "/api/v1/topics/everything/entries"
+  },
+  "status": 422
+}

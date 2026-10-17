@@ -1,0 +1,10 @@
+{
+  "body": null,
+  "operation_id": "deleteEntry",
+  "request": {
+    "body": null,
+    "method": "DELETE",
+    "path": "/api/v1/entries/0f1e2d3c-4b5a-4968-8778-000000000005"
+  },
+  "status": 204
+}
