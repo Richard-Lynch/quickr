@@ -28,7 +28,9 @@ let package = Package(
             dependencies: ["QuickrCore", "QuickrData", .product(name: "GRDB", package: "GRDB.swift")]
         ),
         // Child process for the multi-process store tests (sync-protocol.md §13, G5). Host only.
-        .executableTarget(name: "ProcessHelper", dependencies: ["QuickrData", "QuickrTestSupport"]),
+        .executableTarget(
+            name: "ProcessHelper",
+            dependencies: ["QuickrData", "QuickrTestSupport", .product(name: "GRDB", package: "GRDB.swift")]),
         .testTarget(name: "QuickrCoreTests", dependencies: ["QuickrCore", "QuickrTestSupport"]),
         // Design-system logic tests (not "QuickrUITests": that would collide with the QuickRUITests
         // UI-test bundle on case-insensitive disks).
@@ -37,6 +39,8 @@ let package = Package(
             name: "QuickrDataTests",
             dependencies: [
                 "QuickrData", "QuickrTestSupport", .product(name: "GRDB", package: "GRDB.swift"),
+                // Built for the multi-process tests, which launch it (Tests/QuickrDataTests/MultiProcess).
+                "ProcessHelper",
             ]
         ),
     ],

@@ -1,6 +1,7 @@
 // A child process for the multi-process store tests (sync-protocol.md §13, G5; outbox.md §13).
 // Tests launch it with a command and a store path; it prints one line of result and exits 0, or
-// prints the error to stderr and exits 1. Commands are added with the MP tests (STORE, OUTBOX).
+// prints the error to stderr and exits 1. `agent` is the long-running multi-process test agent
+// (Agent.swift).
 import Foundation
 import QuickrCore
 import QuickrData
@@ -24,6 +25,8 @@ case "migrate":
     } catch {
         fail("migrate failed: \(error)")
     }
+case "agent":
+    await runAgent(Array(arguments.dropFirst()))
 default:
-    fail("usage: ProcessHelper version | migrate <store path>")
+    fail("usage: ProcessHelper version | migrate <store path> | agent --root … --owner … …")
 }
