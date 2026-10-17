@@ -51,6 +51,9 @@ public final class FormModel {
     /// and report the user's own focus changes through ``focusChanged(_:isFocused:)``.
     public private(set) var focus: String?
     public private(set) var scrollRequest: FormScrollRequest?
+    /// An auto-save is being saved: further picks are ignored (and the chips disabled) until
+    /// ``autoSaveFinished(succeeded:)``.
+    public private(set) var isAutoSaving = false
 
     private let byKey: [String: Question]
     private let initialInputs: [String: AnswerInput]
@@ -59,6 +62,10 @@ public final class FormModel {
     /// The question last used (focused or picked), so leaving it counts as a touch.
     private var active: String?
     private var scrollSerial = 0
+    /// The pick the last successful auto-save logged; tapping it again logs nothing.
+    private var autoSaved: AnswerInput?
+    /// The screen has run ``appear()``, or the user acted first; either way it never runs again.
+    private var settled = false
 
     public init(questions: [Question], mode: Mode = .create()) {
         self.questions = questions
@@ -134,23 +141,41 @@ public final class FormModel {
 
     /// Sets one answer. A touched question revalidates. Picking a single-select answer moves
     /// focus on (new entries), and on the ``autoSaveKey`` question it submits: the returned body
-    /// is the entry to save now (nil otherwise, or when the form is invalid).
+    /// is the entry to save now (nil otherwise, or when the form is invalid). The caller saves it
+    /// and reports back with ``autoSaveFinished(succeeded:)``; until then picks are ignored, and a
+    /// pick that was already saved is never saved again.
     @discardableResult
     public func change(_ key: String, to input: AnswerInput) -> AnswersBody? {
         guard let question = byKey[key] else { return nil }
+        if key == autoSaveKey && (isAutoSaving || input == autoSaved) { return nil }
+        settled = true
         inputs[key] = input
         if !Self.takesTyping(question) { use(key) }
         if touched.contains(key) { validate(key) }
         guard question.type == .enum, !question.isMultiSelect, input.hasValue else { return nil }
-        if key == autoSaveKey { return submit() }
+        if key == autoSaveKey {
+            guard let body = submit() else { return nil }
+            isAutoSaving = true
+            return body
+        }
         if isNewEntry { focus = nextField(after: key) }
         return nil
+    }
+
+    /// The auto-saved entry was saved (or queued), or it failed: picks work again, and after a
+    /// failure tapping the same answer retries.
+    public func autoSaveFinished(succeeded: Bool) {
+        guard isAutoSaving, let key = autoSaveKey else { return }
+        isAutoSaving = false
+        autoSaved = succeeded ? inputs[key] : nil
     }
 
     /// A field gained or lost keyboard focus (the user's tap, or the view applying ``focus``).
     /// Losing it touches the question.
     public func focusChanged(_ key: String, isFocused: Bool) {
         if isFocused {
+            // Focus the model didn't ask for is the user's: initial focus no longer applies.
+            if focus != key { settled = true }
             focus = key
             use(key)
         } else {
@@ -171,8 +196,11 @@ public final class FormModel {
     }
 
     /// The screen appeared: focus (or scroll to) the first unanswered question of a new entry,
-    /// or show the first error in fix mode.
+    /// or show the first error in fix mode. Only once, and not after the user has picked, typed
+    /// or focused a field: it would take focus away from them.
     public func appear() {
+        guard !settled else { return }
+        settled = true
         if !errors.isEmpty || banner != nil {
             revealFirstError()
             return
@@ -206,11 +234,17 @@ public final class FormModel {
             return
         }
         guard let prefill else { return }
+        settled = true
         beforePrefill = inputs
         for question in questions {
             guard let input = prefill.inputs[question.key] else { continue }
             inputs[question.key] = input
-            if input.hasValue { validate(question.key) }
+            // A blanked field loses an error that no longer applies; a touched one re-checks.
+            if input.hasValue || touched.contains(question.key) {
+                validate(question.key)
+            } else {
+                errors[question.key] = nil
+            }
         }
     }
 
@@ -219,6 +253,7 @@ public final class FormModel {
     /// Validates every question. Valid: the body for the mode. Invalid: nil, with every error
     /// shown, the view scrolled to the first and focus on it when it takes typing.
     public func submit() -> AnswersBody? {
+        settled = true
         banner = nil
         metaErrors = [:]
         touched.formUnion(questions.map(\.key))

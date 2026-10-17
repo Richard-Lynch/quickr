@@ -27,7 +27,13 @@ struct FormDemoView: View {
 
     var body: some View {
         NavigationStack {
-            FormView(model: model, onAutoSave: show) {
+            FormView(
+                model: model,
+                onAutoSave: { body in
+                    show(body)
+                    return true
+                }
+            ) {
                 if let submitted {
                     Text(submitted)
                         .font(.qr(.monoCaption))

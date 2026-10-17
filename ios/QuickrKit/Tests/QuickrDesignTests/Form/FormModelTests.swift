@@ -27,6 +27,10 @@ private let factors = Question(
                 EnumOption(value: "food", label: "Food"), EnumOption(value: "gone", label: "Gone", archived: true),
             ], multiple: true, minSelected: 2, maxSelected: 3)))
 
+private let severity = Question(
+    key: "severity", label: "Severity",
+    kind: .choice(.init(options: [EnumOption(value: "mild", label: "Mild"), EnumOption(value: "bad", label: "Bad")])))
+
 private let monday = Date(timeIntervalSince1970: 1_760_000_000)
 
 @MainActor @Suite struct FormModelTests {
@@ -139,6 +143,20 @@ private let monday = Date(timeIntervalSince1970: 1_760_000_000)
         #expect(model.showsSameAsLast)
     }
 
+    @Test func sameAsLastClearsErrorsOnFieldsItBlanks() {
+        let last = LastEntry(answers: ["type": .string("run"), "duration": .int(45)], capturedAt: monday)
+        let model = FormModel(questions: workout, mode: .create(last: last))
+        model.change("distance", to: .text("far"))
+        model.focusChanged("distance", isFocused: false)
+        #expect(model.errors["distance"] == "Enter a number")
+        model.toggleSameAsLast()
+        #expect(model.input(for: "distance") == .text(""))
+        #expect(model.errors["distance"] == nil)
+        // An untouched blank required field stays quiet until it is left or saved.
+        #expect(model.errors["note"] == nil)
+        #expect(model.errors["duration"] == nil)
+    }
+
     @Test func sameAsLastDropsWhatIsNoLongerValid() throws {
         let last = LastEntry(answers: ["type": .string("old"), "duration": .int(9999)], capturedAt: monday)
         #expect(FormModel(questions: workout, mode: .create(last: last)).prefill == nil)
@@ -165,10 +183,6 @@ private let monday = Date(timeIntervalSince1970: 1_760_000_000)
     // MARK: Auto-save
 
     @Test func aSingleChipTopicSavesOnPick() {
-        let severity = Question(
-            key: "severity", label: "Severity",
-            kind: .choice(
-                .init(options: [EnumOption(value: "mild", label: "Mild"), EnumOption(value: "bad", label: "Bad")])))
         let last = LastEntry(answers: ["severity": .string("mild")], capturedAt: monday)
         let model = FormModel(questions: [severity], mode: .create(last: last))
         #expect(model.autoSaveKey == "severity")
@@ -180,6 +194,74 @@ private let monday = Date(timeIntervalSince1970: 1_760_000_000)
         #expect(fix.autoSaveKey == nil)
         #expect(fix.change("severity", to: .text("bad")) == nil)
         #expect(FormModel(questions: [severity, workout[3]]).autoSaveKey == nil)
+    }
+
+    @Test func anAutoSaveInFlightIgnoresFurtherTaps() {
+        let model = FormModel(questions: [severity])
+        #expect(model.change("severity", to: .text("mild")) == .create(["severity": .string("mild")]))
+        #expect(model.isAutoSaving)
+        // Rapid taps, on the same chip or another, start nothing and change nothing.
+        #expect(model.change("severity", to: .text("mild")) == nil)
+        #expect(model.change("severity", to: .text("bad")) == nil)
+        #expect(model.input(for: "severity") == .text("mild"))
+
+        model.autoSaveFinished(succeeded: true)
+        #expect(!model.isAutoSaving)
+        // The saved answer again logs nothing; another answer is a new entry.
+        #expect(model.change("severity", to: .text("mild")) == nil)
+        #expect(!model.isAutoSaving)
+        #expect(model.change("severity", to: .text("bad")) == .create(["severity": .string("bad")]))
+    }
+
+    @Test func aFailedAutoSaveCanBeRetriedWithTheSameTap() {
+        let model = FormModel(questions: [severity])
+        #expect(model.change("severity", to: .text("bad")) != nil)
+        model.autoSaveFinished(succeeded: false)
+        #expect(!model.isAutoSaving)
+        #expect(model.input(for: "severity") == .text("bad"))
+        #expect(model.change("severity", to: .text("bad")) == .create(["severity": .string("bad")]))
+        // A stray completion while idle changes nothing.
+        model.autoSaveFinished(succeeded: true)
+        model.autoSaveFinished(succeeded: true)
+        #expect(!model.isAutoSaving)
+    }
+
+    // MARK: Initial focus
+
+    @Test func initialFocusRunsOnceAndNeverAfterTheUserActs() {
+        let typed = Array(workout.dropFirst())
+        // The user focused a later field before the delayed appear.
+        let tapped = FormModel(questions: typed)
+        tapped.focusChanged("note", isFocused: true)
+        tapped.appear()
+        #expect(tapped.focus == "note")
+        #expect(tapped.scrollRequest == nil)
+
+        // Typing first (a hardware keyboard, say) also counts.
+        let typedFirst = FormModel(questions: typed)
+        typedFirst.change("distance", to: .text("3"))
+        typedFirst.appear()
+        #expect(typedFirst.focus == nil)
+
+        // Disappearing and coming back doesn't redo it.
+        let model = FormModel(questions: typed)
+        model.appear()
+        #expect(model.focus == "duration")
+        model.focusChanged("duration", isFocused: true)  // the view applying it isn't the user
+        model.dismissKeyboard()
+        model.appear()
+        #expect(model.focus == nil)
+    }
+
+    @Test func fixModeRevealsItsErrorOnlyOnce() {
+        let problem = Problem(
+            code: .invalidAnswers, detail: "",
+            errors: [FieldIssue(location: [.key("answers"), .key("duration")], message: "Too long")])
+        let model = FormModel(questions: workout, mode: .fix(answers: [:], problem: problem))
+        model.appear()
+        let first = model.scrollRequest
+        model.appear()
+        #expect(model.scrollRequest == first)
     }
 
     // MARK: Bodies

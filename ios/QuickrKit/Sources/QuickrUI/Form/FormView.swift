@@ -12,14 +12,15 @@ import SwiftUI
 /// keyboard toolbar offers Next/Done while a number field has focus.
 public struct FormView<Footer: View>: View {
     let model: FormModel
-    let onAutoSave: ((AnswersBody) -> Void)?
+    let onAutoSave: AutoSave?
     let footer: Footer
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// - Parameter onAutoSave: called with the entry when a pick on ``FormModel/autoSaveKey``
-    ///   completes a valid form (single-chip topics). Save it and show the Undo toast.
+    ///   completes a valid form (single-chip topics). Save it, show the Undo toast, and return
+    ///   whether it was saved or queued; chips stay disabled until it returns.
     public init(
-        model: FormModel, onAutoSave: ((AnswersBody) -> Void)? = nil, @ViewBuilder footer: () -> Footer
+        model: FormModel, onAutoSave: AutoSave? = nil, @ViewBuilder footer: () -> Footer
     ) {
         self.model = model
         self.onAutoSave = onAutoSave
@@ -59,7 +60,7 @@ public struct FormView<Footer: View>: View {
             }
             .task {
                 // FocusState only takes once the fields are on screen (after a push animation).
-                try? await Task.sleep(for: .milliseconds(400))
+                do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
                 model.appear()
             }
             .toolbar {
@@ -85,11 +86,17 @@ public struct FormView<Footer: View>: View {
             }
         }
         .qrCard()
+        // While an auto-save is in flight no chip can start another.
+        .disabled(model.isAutoSaving)
     }
 }
 
+/// Saves an auto-saved entry (``FormModel/autoSaveKey``) and returns whether it was saved or
+/// queued; false lets the user tap the answer again to retry.
+public typealias AutoSave = @MainActor (AnswersBody) async -> Bool
+
 extension FormView where Footer == EmptyView {
-    public init(model: FormModel, onAutoSave: ((AnswersBody) -> Void)? = nil) {
+    public init(model: FormModel, onAutoSave: AutoSave? = nil) {
         self.init(model: model, onAutoSave: onAutoSave) { EmptyView() }
     }
 }
@@ -98,7 +105,7 @@ extension FormView where Footer == EmptyView {
 private struct FormRow: View {
     let model: FormModel
     let question: Question
-    let onAutoSave: ((AnswersBody) -> Void)?
+    let onAutoSave: AutoSave?
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -107,7 +114,13 @@ private struct FormRow: View {
             question: question,
             input: Binding(
                 get: { model.input(for: key) },
-                set: { if let body = model.change(key, to: $0) { onAutoSave?(body) } }),
+                set: { input in
+                    guard let body = model.change(key, to: input) else { return }
+                    Task {
+                        let saved = await onAutoSave?(body) ?? false
+                        model.autoSaveFinished(succeeded: saved)
+                    }
+                }),
             options: model.options(for: question), error: model.errors[key],
             characterCount: model.characterCount(for: key), focus: $isFocused,
             submitLabel: model.nextField(after: key) == nil ? .done : .next,

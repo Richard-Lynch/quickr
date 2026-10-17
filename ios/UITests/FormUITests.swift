@@ -53,6 +53,45 @@ final class FormUITests: XCTestCase {
         XCTAssertEqual(body.label, #"{"distance":5.2,"duration":45,"note":"Easy pace","type":"run"}"#)
     }
 
+    /// At the largest accessibility text size the Workout form still works: every question can
+    /// be reached by scrolling, and Save stays on screen and tappable.
+    @MainActor
+    func testWorkoutFormWorksAtAnAccessibilityTextSize() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-QuickrFormDemo", "workout", "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityXXXL",
+        ]
+        app.launch()
+
+        let save = app.buttons["formDemo.save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 10))
+        XCTAssertTrue(save.isHittable, "Save must stay tappable")
+
+        app.buttons["Run"].tap()
+        let duration = app.textFields["form.field.duration"]
+        XCTAssertTrue(waitForFocus(duration))
+        duration.typeText("30")
+        app.buttons["Next"].firstMatch.tap()
+
+        // The last question is reachable by scrolling.
+        let note = app.textFields["form.field.note"]
+        for _ in 0..<6 where !note.isHittable { app.swipeUp() }
+        XCTAssertTrue(note.isHittable, "the last question must be reachable")
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "form-workout-ax"
+        shot.lifetime = .keepAlways
+        add(shot)
+
+        app.swipeDown()
+        XCTAssertTrue(save.isHittable)
+        save.tap()
+        let body = app.staticTexts["formDemo.body"]
+        for _ in 0..<6 where !body.exists { app.swipeUp() }
+        XCTAssertTrue(body.waitForExistence(timeout: 5))
+        XCTAssertEqual(body.label, #"{"duration":30,"type":"run"}"#)
+    }
+
     private func waitForFocus(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
         let focused = NSPredicate(format: "hasKeyboardFocus == true")
         let expectation = XCTNSPredicateExpectation(predicate: focused, object: element)
