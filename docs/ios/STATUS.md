@@ -106,7 +106,7 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
   - [x] B5: API response fixtures and their generator
   - [x] `make vectors`, and `shared/fixtures/README.md`
 - [x] Gate: `make check` green (orchestrator re-run: 324 pytest and 365 vitest passed)
-- [~] Codex review of the WP diff
+- [~] Codex review of the WP diff: round 1 requested changes (2 Majors: JS number semantics in quick-log, timestamp normalisation). Fixes in progress; see reviews/m0-wp-vectors-codex.md
 - [ ] Merged into `ios/m0-foundations`. Then **regenerate the fixtures**,
       because the feed work adds fields and `/changes`.
 
