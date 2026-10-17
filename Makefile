@@ -83,3 +83,67 @@ down: ## Stop the docker stack
 .PHONY: seed-docker
 seed-docker: ## Load demo data into the docker stack
 	docker compose exec backend python scripts/seed.py
+
+# --- iOS (ios/). Needs full Xcode 27.x and xcodegen; every target checks first and fails fast.
+# Not part of `make check`, which stays Xcode-free. Logic lives in ios/scripts/. See ios/README.md.
+IOS_SIM_MIN ?= quickR iOS-26-0
+IOS_SIM_CUR ?= quickR iOS27
+IOS_SIM ?= $(IOS_SIM_MIN)
+IOS_SIM_CI ?= iPhone 17
+IOS_SCRIPTS := ios/scripts
+
+.PHONY: ios-gen
+ios-gen: ## iOS: generate ios/quickR.xcodeproj from project.yml
+	@$(IOS_SCRIPTS)/gen.sh
+
+.PHONY: ios-build
+ios-build: ios-gen ## iOS: simulator Debug build (IOS_SIM=name or UDID)
+	@$(IOS_SCRIPTS)/build.sh "$(IOS_SIM)"
+
+.PHONY: ios-core-test
+ios-core-test: ## iOS: swift test for ios/QuickrKit on the Mac
+	@$(IOS_SCRIPTS)/require-xcode.sh
+	swift test --package-path ios/QuickrKit
+
+.PHONY: ios-test
+ios-test: ios-gen ## iOS: Unit test plan on the iOS 26.0 simulator
+	@$(IOS_SCRIPTS)/test.sh Unit "$(IOS_SIM_MIN)"
+
+.PHONY: ios-uitest
+ios-uitest: ios-gen ## iOS: UI test plan (IOS_SIM=name or UDID)
+	@$(IOS_SCRIPTS)/test.sh UI "$(IOS_SIM)"
+
+.PHONY: ios-lint
+ios-lint: ## iOS: swift-format lint
+	@$(IOS_SCRIPTS)/lint.sh
+
+.PHONY: ios-fmt
+ios-fmt: ## iOS: swift-format in place
+	@$(IOS_SCRIPTS)/require-xcode.sh
+	cd ios && xcrun swift-format format --in-place --recursive --parallel App AppTests UITests Widgets NotificationService QuickrKit
+
+.PHONY: check-ios
+check-ios: ## iOS gate: gen, swift test, Unit + UI plans on iOS 26.0 and 27.0, lint, Xcode version
+	@$(IOS_SCRIPTS)/check-ios.sh "$(IOS_SIM_MIN)" "$(IOS_SIM_CUR)"
+
+.PHONY: ios-check-ci
+ios-check-ci: ## iOS: what CI runs on a ready PR (gen, build + Unit plan, no signing; IOS_SIM_CI)
+	@$(IOS_SCRIPTS)/check-ci.sh "$(IOS_SIM_CI)"
+
+.PHONY: ios-sim-run
+ios-sim-run: ios-gen ## iOS: build, install and launch on a simulator (IOS_SIM; URL=quickr://... opens it)
+	@$(IOS_SCRIPTS)/sim-run.sh "$(IOS_SIM)" "$(URL)"
+
+IOS_SHOTS ?= docs/ios/demo/m0
+.PHONY: ios-shots
+ios-shots: ios-gen ## iOS: light + dark screenshots with a clean status bar into IOS_SHOTS
+	@$(IOS_SCRIPTS)/shots.sh "$(IOS_SIM)" "$(IOS_SHOTS)"
+
+IOS_GIF ?= docs/ios/demo/m0/launch.gif
+.PHONY: ios-demo-record
+ios-demo-record: ios-gen ## iOS: record a launch on the simulator and convert to IOS_GIF
+	@$(IOS_SCRIPTS)/demo-record.sh "$(IOS_SIM)" "$(IOS_GIF)"
+
+.PHONY: ios-clean
+ios-clean: ## iOS: remove the generated project and build output
+	rm -rf ios/quickR.xcodeproj ios/build ios/QuickrKit/.build ios/QuickrKit/.swiftpm
