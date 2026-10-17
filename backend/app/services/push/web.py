@@ -37,6 +37,7 @@ from app.models import AppSetting, PushSubscription
 from app.push_guard import PushEndpointRejected, check_endpoint, ensure_public
 from app.schemas.api import PushPayload, PushSubscriptionIn, PushSubscriptionOut
 from app.services.feed import writer
+from app.services.notification import canonical_instant
 from app.services.push.base import Notification, PushFailed, PushGone
 
 _REQUEST_LINE = re.compile(r'"([A-Z]+) \S+ (HTTP/[0-9.]+)"')
@@ -224,8 +225,23 @@ def deliver(
 
 
 def render(n: Notification) -> PushPayload:
-    """The Web Push JSON for ``n`` (what the service worker reads)."""
-    return PushPayload(title=n.title, body=n.body, url=n.url, tag=n.tag, topic_slug=n.topic_slug)
+    """The Web Push JSON for ``n`` (what the service worker reads).
+
+    The body is the plain due message: the "More…" suffix belongs to the APNs actions.
+    """
+    return PushPayload(
+        title=n.title,
+        body=n.body,
+        url=n.url,
+        tag=n.tag,
+        topic_slug=n.topic_slug,
+        kind=n.kind,
+        server_id=n.server_id,
+        topic_id=str(n.topic_id) if n.topic_id else None,
+        version=n.version,
+        due_since=canonical_instant(n.due_since) if n.due_since else None,
+        quick_log=n.quick_log,
+    )
 
 
 class WebPushSender:
