@@ -59,7 +59,7 @@ The user can override any of them.
 - [x] MobileBuildMCP 2.7.1 configured: project `.mcp.json` plus
       `.mobilebuildmcp/config.yaml`, and local scope for `~/code/quickr`
 - [x] Xcode selected (`xcode-select -p` points at the xcodes install) and `xcodebuild -version` = 27.1. Smoke tests passed: `swift test` (Swift Testing) and a simulator build of an XcodeGen app with a local package.
-- [~] Simulator runtimes installed (downloading iOS 27 with `xcodebuild -downloadPlatform`, and iOS 26.0 with `xcodes runtimes`): iOS 27 and **iOS 26.x** (needed for
+- [~] Simulator runtimes installed. iOS 26.0 is installed, and the smoke app runs on an iPhone 17 simulator (screenshot taken). The full iOS 27.0 download is still in progress; the 27.1 runtime already listed only supports "iPhone Duo".: iOS 27 and **iOS 26.x** (needed for
       minimum-version testing)
 - [ ] MobileBuildMCP tools verified after a session restart; Xcode IDE bridge
       prompt approved
