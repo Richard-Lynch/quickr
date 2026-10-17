@@ -264,12 +264,16 @@ async def create_entry(db: Db, ref: TopicRef, body: EntryCreate, channel: Channe
     responses={200: {"content": {"text/csv": {"schema": {"type": "string"}}}}},
 )
 async def export_entries(db: Db, ref: TopicRef, filters: Filters) -> StreamingResponse:
-    gen = await entry_svc.export_csv(db, ref, filters)
+    identity, gen = await entry_svc.export_csv(db, ref, filters)
     stamp = datetime.now().strftime("%Y%m%d")
     return StreamingResponse(
         gen,
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{ref}-{stamp}.csv"'},
+        # The export's snapshot identity: the rows stream later, from that same snapshot.
+        headers={
+            "Content-Disposition": f'attachment; filename="{ref}-{stamp}.csv"',
+            **identity_headers(identity),
+        },
     )
 
 

@@ -286,22 +286,54 @@ async def test_headers_are_read_after_the_handler(
     assert r.headers["x-quickr-epoch"] == rotated[0] != old
 
 
-async def test_streamed_response_headers_are_read_after_the_handler(
+async def test_csv_export_streams_one_snapshot(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Headers go out, then the epoch rotates and an entry is added, then the body streams:
+    the body is the snapshot's (no new entry) and so is the header."""
+    from app.models import Channel
+    from app.schemas.api import EntryCreate
     from app.services import entries as entry_svc
 
     await make_topic(client)
+    old_entry = await record(client, "sleep-log", ANSWERS)
+    _, old_epoch = await identity(client)
     real_export = entry_svc.export_csv
-    rotated: list[str] = []
+    late: list[str] = []
 
-    async def rotate_then_export(*args: Any) -> Any:
-        gen = await real_export(*args)
+    async def export_then_change(*args: Any) -> Any:
+        result = await real_export(*args)  # the snapshot is open from here
         async with get_sessionmaker()() as other:
-            rotated.append(await feed.rotate_epoch(other))
-        return gen
+            await feed.rotate_epoch(other)
+        async with get_sessionmaker()() as other:
+            body = EntryCreate.model_validate({"answers": ANSWERS})
+            late.append(str((await entry_svc.create_entry(other, "sleep-log", body, Channel.api)).id))
+        return result
 
-    monkeypatch.setattr(entry_svc, "export_csv", rotate_then_export)
+    monkeypatch.setattr(entry_svc, "export_csv", export_then_change)
     r = await client.get("/topics/sleep-log/entries.csv")
     assert r.status_code == 200
-    assert r.headers["x-quickr-epoch"] == rotated[0]
+    assert r.headers["x-quickr-epoch"] == old_epoch
+    assert r.headers.get_list("x-quickr-epoch") == [old_epoch]
+    assert old_entry["id"] in r.text
+    assert late[0] not in r.text
+    assert (await identity(client))[1] != old_epoch  # the rotation did happen
+
+
+async def test_csv_export_closes_its_snapshot(db: Any, client: httpx.AsyncClient) -> None:
+    """An export abandoned mid-stream (client gone) ends its transaction."""
+    from app.errors import NotFound
+    from app.schemas.api import EntryFilters
+    from app.services import entries as entry_svc
+
+    await make_topic(client)
+    await record(client, "sleep-log", ANSWERS)
+    _, gen = await entry_svc.export_csv(db, "sleep-log", EntryFilters())
+    assert db.in_transaction()
+    assert (await anext(gen)).startswith("entry_id,")
+    await gen.aclose()  # what Starlette does when the client disconnects
+    assert not db.in_transaction()
+
+    with pytest.raises(NotFound):
+        await entry_svc.export_csv(db, "nope", EntryFilters())
+    assert not db.in_transaction()

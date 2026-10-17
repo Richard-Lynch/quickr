@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import csv
 import io
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Select, delete, func, select
+from sqlalchemy import Select, delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import Conflict, EntryDeleted, NotFound, StaleRevision, TopicArchived
@@ -27,7 +27,15 @@ from app.schemas.api import (
     StrAnswer,
 )
 from app.services.answers import TypedAnswer, validate_answers
-from app.services.feed import is_deleted, log_change, tombstone, writer
+from app.services.feed import (
+    FeedIdentity,
+    ensure_identity,
+    is_deleted,
+    log_change,
+    read_identity,
+    tombstone,
+    writer,
+)
 from app.services.topics import (
     all_questions_by_key,
     get_version,
@@ -254,7 +262,26 @@ async def list_entries(
     return EntryPage(items=[entry_out(s) for s in rows], total=total, limit=limit, offset=offset)
 
 
-async def export_csv(db: AsyncSession, ref: str, filters: EntryFilters) -> AsyncIterator[str]:
+async def export_csv(
+    db: AsyncSession, ref: str, filters: EntryFilters
+) -> tuple[FeedIdentity, AsyncGenerator[str]]:
+    """A CSV export read from one REPEATABLE READ snapshot, and that snapshot's identity.
+
+    The snapshot stays open while the rows stream (label the response with the returned
+    identity, not one read later). The generator ends the transaction when it finishes
+    or is closed; if it never runs, closing the session does.
+    """
+    await ensure_identity(db)  # its own short transaction; commits
+    await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+    try:
+        identity = await read_identity(db)
+        return identity, await _export(db, ref, filters)
+    except Exception:
+        await db.rollback()
+        raise
+
+
+async def _export(db: AsyncSession, ref: str, filters: EntryFilters) -> AsyncGenerator[str]:
     topic = await resolve_topic(db, ref)
     questions = list((await all_questions_by_key(db, topic)).values())
     current_keys = [q.key for q in parse_questions((await get_version(db, topic)).questions)]
@@ -288,18 +315,21 @@ async def export_csv(db: AsyncSession, ref: str, filters: EntryFilters) -> Async
             ]
         )
 
-    async def gen() -> AsyncIterator[str]:
-        yield line(list(header))
-        stmt = apply_filters(select(Entry), topic.id, filters).order_by(Entry.captured_at, Entry.id)
-        offset = 0
-        while True:
-            # Paged rather than streamed: answers are selectin-loaded per page
-            # on the same connection, which a live server-side cursor forbids.
-            page = (await db.execute(stmt.limit(500).offset(offset))).scalars().all()
-            if not page:
-                break
-            offset += len(page)
-            for s in page:
-                yield row(s)
+    async def gen() -> AsyncGenerator[str]:
+        try:
+            yield line(list(header))
+            stmt = apply_filters(select(Entry), topic.id, filters).order_by(Entry.captured_at, Entry.id)
+            offset = 0
+            while True:
+                # Paged rather than streamed: answers are selectin-loaded per page
+                # on the same connection, which a live server-side cursor forbids.
+                page = (await db.execute(stmt.limit(500).offset(offset))).scalars().all()
+                if not page:
+                    break
+                offset += len(page)
+                for s in page:
+                    yield row(s)
+        finally:
+            await db.rollback()  # ends the snapshot (also on client disconnect)
 
     return gen()
