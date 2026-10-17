@@ -37,6 +37,70 @@ import Testing
         }
     }
 
+    /// Every key of every response object is required in `openapi.json` (nullable ones too), so
+    /// a response missing any one of them must fail to decode, never default to nil (sync §2.2).
+    /// Free-form maps (`meta`, `option_counts`, `json_schema`, `/health`) have no required keys.
+    @Test(arguments: try Fixtures.apiNames().filter { $0 != "health" })
+    func responseMissingAnyKeyFailsToDecode(name: String) throws {
+        let fixture = try Fixtures.api(name)
+        guard fixture.isSuccess, let body = fixture.body else { return }
+        let endpoint = try #require(Endpoints.named(fixture.operationId))
+        let root = try JSONSerialization.jsonObject(with: body, options: .fragmentsAllowed)
+        let variants = Self.withOneKeyRemoved(root, path: "")
+        for (path, variant) in variants {
+            let data = try JSONSerialization.data(withJSONObject: variant, options: .fragmentsAllowed)
+            #expect(throws: (any Error).self, "\(name): decoded without \(path)") {
+                try endpoint.decodeResponse(data)
+            }
+        }
+        if fixture.operationId != "sendTestPush" && fixture.operationId != "getPushConfig" {
+            #expect(!variants.isEmpty || name.hasPrefix("delete"))
+        }
+    }
+
+    /// Required-but-nullable keys accept `null`.
+    @Test func requiredNullableKeysAcceptNull() throws {
+        let body = try #require(try Fixtures.api("getTopic").body)
+        var object = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        for key in ["schedule", "schedule_updated_at", "archived_at", "last_captured_at", "due"] {
+            object[key] = NSNull()
+        }
+        let data = try JSONSerialization.data(withJSONObject: object)
+        let topic = try Endpoints.getTopic.erased.decodeResponse(data) as? Topic
+        #expect(topic?.schedule == nil && topic?.due == nil && topic?.archivedAt == nil)
+    }
+
+    private static let freeFormMaps: Set<String> = ["meta", "option_counts", "json_schema"]
+
+    /// Every copy of `value` with exactly one object key removed, with the removed key's path.
+    static func withOneKeyRemoved(_ value: Any, path: String) -> [(String, Any)] {
+        if let object = value as? [String: Any] {
+            var variants: [(String, Any)] = []
+            for (key, child) in object.sorted(by: { $0.key < $1.key }) {
+                var removed = object
+                removed[key] = nil
+                variants.append(("\(path)/\(key)", removed))
+                guard !freeFormMaps.contains(key) else { continue }
+                for (childPath, childVariant) in withOneKeyRemoved(child, path: "\(path)/\(key)") {
+                    var copy = object
+                    copy[key] = childVariant
+                    variants.append((childPath, copy))
+                }
+            }
+            return variants
+        }
+        if let array = value as? [Any] {
+            return array.enumerated().flatMap { index, element in
+                withOneKeyRemoved(element, path: "\(path)/\(index)").map { childPath, childVariant in
+                    var copy = array
+                    copy[index] = childVariant
+                    return (childPath, copy as Any)
+                }
+            }
+        }
+        return []
+    }
+
     @Test func everyJSONEndpointHasASuccessFixture() throws {
         let fixtures = try Fixtures.allAPI()
         for endpoint in Endpoints.all where endpoint.hasJSONResponse {

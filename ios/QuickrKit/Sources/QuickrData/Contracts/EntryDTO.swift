@@ -137,6 +137,12 @@ public struct EntryCreateDTO: Codable, Sendable, Hashable {
         self.meta = meta
         self.version = version
     }
+
+    /// The answers as domain values, typed by `questions` (the version the entry is pinned to).
+    /// Use this, not `answers[k]?.value`, when rebuilding answers from a stored payload.
+    public func domainAnswers(for questions: [Question]) -> [String: AnswerValue] {
+        answers.compactMapValues { $0?.value }.normalized(for: questions)
+    }
 }
 
 /// `EntryUpdate` (updateEntry). Only changed keys are sent; in `answers`, a `null` removes the
@@ -165,5 +171,15 @@ public struct EntryUpdateDTO: Codable, Sendable, Hashable {
         self.notes = notes
         self.meta = meta
         self.expectedRevision = expectedRevision
+    }
+
+    /// The answer patch as domain values, typed by `questions`; a `nil` value removes the key.
+    public func domainAnswers(for questions: [Question]) -> [String: AnswerValue?]? {
+        guard let answers else { return nil }
+        let byKey = Dictionary(questions.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        return answers.reduce(into: [:]) { result, answer in
+            let value = answer.value?.value
+            result[answer.key] = .some(value.map { value in byKey[answer.key].map(value.normalized(for:)) ?? value })
+        }
     }
 }

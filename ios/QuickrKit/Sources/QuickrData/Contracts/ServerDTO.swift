@@ -109,7 +109,7 @@ public struct ProblemDTO: Codable, Sendable, Hashable, WireResponse {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         code = try container.decode(String.self, forKey: .code)
         detail = try container.decode(String.self, forKey: .detail)
-        errors = try container.decodeIfPresent([FieldIssueDTO].self, forKey: .errors) ?? []
+        errors = try container.decode([FieldIssueDTO].self, forKey: .errors)
     }
 
     public func toDomain() -> Problem {
