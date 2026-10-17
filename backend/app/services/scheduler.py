@@ -15,8 +15,13 @@ target (a target that fails is not retried; the shared tag ``due-{topic_id}``
 collapses a resent duplicate on the device).
 
 Delivery stops at ``TICK_BUDGET_SECONDS`` after the tick started, mid-topic if need be.
-The topic being delivered then is not marked (some of its sends were cut off), and it
-and the remaining topics are sent on the next tick.
+The topic being delivered then is not marked (some of its sends were cut off). The
+targets whose send did finish are recorded for that slot (``push_slot_deliveries``, in
+the same commit), and the next tick resumes with the others, so a fan-out larger than
+one tick's budget still completes, each target getting the slot once, in a few ticks.
+Due topics go oldest slot first, so the remaining topics follow. (Progress needs one
+send to fit in the budget: the per-send timeouts are well under it.) The progress rows
+are deleted when the slot is marked, or after ``SLOT_PROGRESS_TTL``.
 """
 
 from __future__ import annotations
@@ -26,16 +31,17 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, Uuid, column, func, select, text, update, values
+from sqlalchemy import DateTime, String, Uuid, column, delete, func, select, text, update, values
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import get_sessionmaker
-from app.models import Entry, Topic, TopicStatus
+from app.models import Entry, PushSlotDelivery, Topic, TopicStatus
 from app.services import push as push_svc
 from app.services.push import Notification
 from app.services.schedule import compute_due, due_message, parse_schedule
@@ -46,6 +52,11 @@ log = logging.getLogger(__name__)
 ADVISORY_LOCK_ID = 0x716B7201
 # Delivery stops this long after the tick starts; unfinished topics wait for the next tick.
 TICK_BUDGET_SECONDS = 30.0
+# Progress of a slot that was never marked (e.g. a new entry moved the topic on) is dropped.
+SLOT_PROGRESS_TTL = timedelta(days=2)
+
+type Slot = tuple[UUID, datetime]  # (topic id, due_since)
+type Progress = tuple[UUID, datetime, str, UUID]  # a slot, and a target (kind, id) it reached
 
 
 async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
@@ -76,9 +87,7 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
             .order_by(Topic.created_at)
         )
     ).all()
-    deadline = asyncio.get_running_loop().time() + TICK_BUDGET_SECONDS
-    targets: list[push_svc.Pair] | None = None  # loaded on the first due topic
-    marks: list[tuple[UUID, datetime]] = []
+    due_topics = []
     for topic_id, slug, name, raw_schedule, since, last_notified, last_entry_at in rows:
         schedule = parse_schedule(raw_schedule)
         if schedule is None or not schedule.notify:
@@ -94,26 +103,83 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
             tag=f"due-{topic_id}",
             topic_slug=slug,
         )
-        if targets is None:
-            targets = await push_svc.targets(db)
+        due_topics.append((due.due_since, topic_id, slug, notification))
+    due_topics.sort(key=lambda t: t[0])  # oldest slot first (stable: then creation order)
+
+    deadline = asyncio.get_running_loop().time() + TICK_BUDGET_SECONDS
+    targets: list[push_svc.Pair] = []
+    reached: set[Progress] = set()
+    if due_topics:  # one read of each, before any send (no query may autoflush mid-tick)
+        targets = await push_svc.targets(db)
+        reached = await _slot_progress(db)
+    marks: list[Slot] = []
+    progress: list[Progress] = []
+    for due_since, topic_id, slug, notification in due_topics:
+        pending = [(s, t) for s, t in targets if (topic_id, due_since, s.kind, t.id) not in reached]
         delivery = await push_svc.deliver(
-            db, targets, notification, push_svc.DEFAULT_TTL_SECONDS, deadline=deadline
+            db, pending, notification, push_svc.DEFAULT_TTL_SECONDS, deadline=deadline
         )
         log.info(
-            "topic %s due since %s: pushed %d, failed %d", slug, due.due_since, delivery.sent, delivery.failed
+            "topic %s due since %s: pushed %d, failed %d (%d of %d targets reached before)",
+            slug,
+            due_since,
+            delivery.sent,
+            delivery.failed,
+            len(targets) - len(pending),
+            len(targets),
         )
         if not delivery.complete:
-            log.warning("scheduler tick over budget; topic %s and the rest wait for the next tick", slug)
+            progress = [(topic_id, due_since, s.kind, t.id) for s, t in delivery.finished]
+            log.warning("scheduler tick over budget; topic %s resumes next tick, with the rest", slug)
             break
-        marks.append((topic_id, due.due_since))
+        marks.append((topic_id, due_since))
     await db.flush()  # the delivery outcomes
+    await _record_progress(db, progress, marks)
     if marks:
         await _mark_notified(db, marks)
     await db.commit()  # also releases the advisory lock
     return len(marks)
 
 
-async def _mark_notified(db: AsyncSession, marks: list[tuple[UUID, datetime]]) -> None:
+async def _slot_progress(db: AsyncSession) -> set[Progress]:
+    rows = await db.execute(
+        select(
+            PushSlotDelivery.topic_id,
+            PushSlotDelivery.due_since,
+            PushSlotDelivery.target_kind,
+            PushSlotDelivery.target_id,
+        )
+    )
+    return {(r.topic_id, r.due_since, r.target_kind, r.target_id) for r in rows}
+
+
+async def _record_progress(db: AsyncSession, progress: list[Progress], marks: list[Slot]) -> None:
+    """Save the unfinished slot's reached targets; forget marked and stale slots."""
+    if progress:
+        reached = values(
+            column("topic_id", Uuid()),
+            column("due_since", DateTime(timezone=True)),
+            column("target_kind", String()),
+            column("target_id", Uuid()),
+            name="reached",
+        ).data(progress)
+        # Joined to topics: a topic deleted meanwhile is skipped rather than failing the tick.
+        rows = select(reached).join(Topic, Topic.id == reached.c.topic_id)
+        await db.execute(
+            insert(PushSlotDelivery)
+            .from_select(["topic_id", "due_since", "target_kind", "target_id"], rows)
+            .on_conflict_do_nothing()
+        )
+    if marks:
+        await db.execute(
+            delete(PushSlotDelivery).where(PushSlotDelivery.topic_id.in_([topic_id for topic_id, _ in marks]))
+        )
+    await db.execute(
+        delete(PushSlotDelivery).where(PushSlotDelivery.created_at < func.now() - SLOT_PROGRESS_TTL)
+    )
+
+
+async def _mark_notified(db: AsyncSession, marks: list[Slot]) -> None:
     """Record the notified slots in one statement."""
     slots = values(column("id", Uuid()), column("due_since", DateTime(timezone=True)), name="slots").data(
         marks

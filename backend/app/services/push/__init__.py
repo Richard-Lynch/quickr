@@ -96,6 +96,8 @@ class Delivery:
     sent: int
     failed: int
     complete: bool  # False: the deadline cut some sends off (they are not counted)
+    # The pairs whose send finished (sent, failed or gone): not cut off.
+    finished: tuple[Pair, ...] = ()
 
 
 async def senders(db: AsyncSession) -> list[Sender[Any]]:
@@ -155,9 +157,11 @@ async def deliver(
     outcomes = await asyncio.gather(*(attempt(sender, target) for sender, target in live))
     now = datetime.now(UTC)
     sent = failed = 0
+    finished: list[Pair] = []
     for (sender, target), outcome in zip(live, outcomes, strict=True):
         if outcome is _CUT_OFF:
             continue
+        finished.append((sender, target))
         if outcome is None:
             target.last_success_at = now
             target.failure_count = 0
@@ -181,7 +185,7 @@ async def deliver(
     cut_off = sum(outcome is _CUT_OFF for outcome in outcomes)
     if cut_off:
         log.warning("push of %r: the deadline cut off %d of %d sends", n.tag, cut_off, len(live))
-    return Delivery(sent=sent, failed=failed, complete=not cut_off)
+    return Delivery(sent=sent, failed=failed, complete=not cut_off, finished=tuple(finished))
 
 
 def _dead(target: PushTarget, now: datetime) -> bool:

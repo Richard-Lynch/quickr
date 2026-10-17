@@ -205,6 +205,28 @@ class ApnsDevice(Base):
     )
 
 
+class PushSlotDelivery(Base):
+    """Progress of one due slot's fan-out: this target's send finished (sent or failed).
+
+    Written by a scheduler tick whose budget ran out mid-topic, so the next tick resumes
+    with the targets not yet reached instead of starting over. Rows go when the slot is
+    marked notified, or after a couple of days. ``target_id`` is an ``apns_devices`` or
+    ``push_subscriptions`` id (no foreign key: two tables, and a gone target is harmless).
+    """
+
+    __tablename__ = "push_slot_deliveries"
+
+    topic_id: Mapped[UUID] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True)
+    due_since: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    target_kind: Mapped[str] = mapped_column(String(8), primary_key=True)
+    target_id: Mapped[UUID] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("target_kind IN ('web', 'apns')", name="ck_push_slot_deliveries_target_kind"),
+    )
+
+
 class AppSetting(Base):
     """Small key/value store for server state that must survive restarts (e.g. generated VAPID keys)."""
 

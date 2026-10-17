@@ -9,6 +9,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import httpx
 import jwt
@@ -17,12 +18,12 @@ import requests
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from pywebpush import WebPushException
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.db import get_sessionmaker
-from app.models import ApnsDevice, PushSubscription, Topic
+from app.models import ApnsDevice, PushSlotDelivery, PushSubscription, Topic
 from app.services import push as push_svc
 from app.services import scheduler
 from app.services.push import apns
@@ -589,11 +590,11 @@ async def test_tick_commit_failure_resends_next_tick(
 async def test_tick_budget_bounds_delivery(
     client: httpx.AsyncClient, fake_apns: FakeApns, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The budget cuts delivery off mid-topic (here in its third batch of 8) and that slot
-    stays unmarked: it goes out again, in full, on the next tick."""
+    """The budget cuts delivery off mid-topic (here in its third batch of 8). The slot stays
+    unmarked, the targets reached are recorded, and the next tick sends to the rest only."""
     for n in range(20):
         await client.post("/push/apns/devices", json=device(n))
-    topic = await make_topic(client, "Water", QUESTIONS, schedule=INTERVAL)
+    await make_topic(client, "Water", QUESTIONS, schedule=INTERVAL)
     fake_apns.delay = 0.1  # batches finish at 0.1 s, 0.2 s and 0.3 s
     monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 0.25)
     later = datetime.now(UTC) + timedelta(hours=1)
@@ -609,27 +610,72 @@ async def test_tick_budget_bounds_delivery(
     assert all(d.failure_count == 0 for d in devices.values())  # cut off is not a failure
     async with get_sessionmaker()() as db:
         assert (await db.scalar(select(Topic.last_notified_due_since))) is None
+        assert (await db.scalar(select(func.count()).select_from(PushSlotDelivery))) == 16
 
-    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 30.0)
-    assert await _tick(later) == 1
-    assert len(fake_apns.sent) == 36
-    assert {s.headers["apns-collapse-id"] for s in fake_apns.sent} == {f"due-{topic['id']}"}
+    assert await _tick(later) == 1  # the same budget: the last 4 fit
+    assert sorted(s.device for s in fake_apns.sent) == sorted(token(n) for n in range(20))
+    async with get_sessionmaker()() as db:
+        assert (await db.scalar(select(func.count()).select_from(PushSlotDelivery))) == 0
     assert await _tick(later) == 0
 
 
-async def test_tick_budget_leaves_later_topics_for_the_next_tick(
-    client: httpx.AsyncClient, fake_apns: FakeApns, monkeypatch: pytest.MonkeyPatch
+async def test_repeated_short_ticks_reach_every_target_once_and_every_topic(
+    client: httpx.AsyncClient,
+    fake_apns: FakeApns,
+    web_outbox: list[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    await client.post("/push/apns/devices", json=device(1))
+    """With the same insufficient budget every tick, a fan-out larger than a tick still
+    completes: every target gets each slot exactly once, and the later topic follows."""
+    for n in range(20):
+        await client.post("/push/apns/devices", json=device(n))
+    await client.post("/push/subscriptions", json=WEB_SUB)
     await make_topic(client, "Water", QUESTIONS, schedule=INTERVAL)
     await make_topic(client, "Meds", QUESTIONS, schedule=INTERVAL)
-    fake_apns.delay = 0.1
-    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 0.15)
+    fake_apns.delay = 0.2
+    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 0.5)  # two batches of 8 a tick
     later = datetime.now(UTC) + timedelta(hours=1)
-    assert await _tick(later) == 1  # water; meds was cut off
-    assert await _tick(later) == 1  # meds
-    assert await _tick(later) == 0
-    assert [s.body["quickr"]["topic_slug"] for s in fake_apns.sent] == ["water", "meds"]
+    notified = [await _tick(later) for _ in range(6)]
+    assert sum(notified) == 2
+    assert notified[-2:] == [0, 0]
+    per_target: dict[tuple[str, str], int] = {}
+    for sent in fake_apns.sent:
+        key = (sent.body["quickr"]["topic_slug"], sent.device)
+        per_target[key] = per_target.get(key, 0) + 1
+    assert per_target == {(slug, token(n)): 1 for slug in ("water", "meds") for n in range(20)}
+    assert sorted(w["topic_slug"] for w in web_outbox) == ["meds", "water"]
+    async with get_sessionmaker()() as db:
+        marked = (await db.execute(select(Topic.last_notified_due_since))).scalars().all()
+        assert all(m is not None for m in marked)
+        assert (await db.scalar(select(func.count()).select_from(PushSlotDelivery))) == 0
+
+
+async def test_oldest_slot_goes_first(client: httpx.AsyncClient, fake_apns: FakeApns) -> None:
+    await client.post("/push/apns/devices", json=device(1))
+    await make_topic(client, "Newer", QUESTIONS, schedule=INTERVAL)
+    await make_topic(client, "Older", QUESTIONS, schedule=INTERVAL)
+    await backdate_schedule("older", datetime.now(UTC) - timedelta(days=1))
+    assert await _tick(datetime.now(UTC) + timedelta(hours=1)) == 2
+    assert [s.body["quickr"]["topic_slug"] for s in fake_apns.sent] == ["older", "newer"]
+
+
+async def test_stale_slot_progress_is_pruned(client: httpx.AsyncClient, fake_apns: FakeApns) -> None:
+    topic = await make_topic(client, "Water", QUESTIONS)
+    async with get_sessionmaker()() as db:
+        for age in (1, 3):
+            db.add(
+                PushSlotDelivery(
+                    topic_id=topic["id"],
+                    due_since=datetime.now(UTC) - timedelta(days=age),
+                    target_kind="apns",
+                    target_id=uuid4(),
+                    created_at=datetime.now(UTC) - timedelta(days=age),
+                )
+            )
+        await db.commit()
+    assert await _tick(datetime.now(UTC)) == 0
+    async with get_sessionmaker()() as db:
+        assert (await db.scalar(select(func.count()).select_from(PushSlotDelivery))) == 1
 
 
 async def test_tick_past_its_budget_sends_nothing_more(

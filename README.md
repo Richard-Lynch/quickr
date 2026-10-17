@@ -246,9 +246,7 @@ then marks the slot as notified in the same transaction. A target that fails is
 not retried for that slot. If the tick fails before it commits, nothing is
 marked and the next tick sends the slot again; the duplicate replaces the first
 notification on the device, because both carry the same tag (`due-<topic id>`,
-the APNs collapse id). Delivery stops 30 seconds into a tick, even in the
-middle of a topic: that topic's slot is not marked, so it goes out again in
-full on the next tick, along with the topics after it. A target is deleted when
+the APNs collapse id). Delivery stops 30 seconds into a tick, even in the middle of a topic. That topic's slot is not marked; the targets it already reached are recorded (`push_slot_deliveries`), and the next tick continues with the others, so every target gets the slot once even when a fan-out takes several ticks. Due topics go oldest slot first, so the topics after it follow. A target is deleted when
 its push service says it is gone, or after 20 failures in a row with no success
 for 30 days.
 
