@@ -161,8 +161,10 @@ These are the server details the specs assume. Each one must be confirmed in the
 - [ ] Feed: a dedicated regression test for the commit-time retry in `@writer`.
 - [ ] Specs/fixtures: `quicklog-vectors.json` gains category-id cases (M3).
 - [ ] App integration (SKEL/SYNC-UX): post GRDB suspension notifications on app background/foreground (`Database.suspendNotification` / `resumeNotification`) in the app and extensions, the 0xDEAD10CC guard (from the STORE review).
+- [ ] NSE links QuickrData, so it also carries App Intents metadata (from SKEL). Harmless for now. If duplicate-metadata warnings or resolution issues appear, split intents into a `QuickrIntents` package target linked only by the app and widget.
+- [ ] Backend test isolation: feed/APNs tests that use **Postgres advisory locks** interfere across worktrees, because advisory locks are server-wide and every worktree's test DB shares the :5433 server. Fix: derive the lock keys from the database name/OID in tests (or a per-DB key setting), and make the tick-budget test clock-driven. Seen as `test_feed`/`test_apns` failures under parallel runs (API, zodlen).
 - [ ] Backend: reject NUL in every text field the API stores (notes, source, labels, names…) with a 422 Problem instead of a Postgres 500. Today only str answers are checked (found by VAL).
-- [ ] **PRIORITY** PWA: the generated zod request validators (`frontend/src/client/zod.gen.ts`) count UTF-16 units, and `api/entries.ts` parses `zEntryCreate`, so source/notes with emoji that the form accepts can fail before sending. Fix in the generator/OpenAPI output rather than by hand (found by VAL, confirmed by Codex). Schedule as a small WP in the next free slot.
+- [x] ~~PWA zod UTF-16 lengths~~: not a bug. zod 4.6.7 counts code points. Regression tests merged (b760fdf) so that a zod or generator change back to UTF-16 counting is caught.
 - [ ] Notifications WP: a fake-center orchestration test for ReminderDedup L1 (pending local cancel) and L2 (suppression/activation cleanup), from the C1 review.
 - [ ] TILES (M2): at accessibility text sizes, badges and the sync pill truncate and the tile stays side by side. Consider a stacked tile layout at AX sizes (from DS).
 - [ ] Scaffold: confirm on the first real CI run that Xcode 26.6 honours `ios/QuickrKit/Package.resolved` (verified locally on 27.1 only). When GRDB lands in M1, run `make ios-resolve` and commit the lockfile.
@@ -276,6 +278,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-17 17:04–21:00: every agent stopped at the account usage limit (reset 20:40). No work lost: uncommitted changes stayed in the worktrees, and all 6 agents were resumed at 21:00. B7 finished just before the limit; Codex round 1 → `open` (More…) action accepted into the spec; `fmt` simplified to shortest round-trip with no rounding.
 
 - 2026-10-17: WP vectors done and gate green. Findings to carry into the Swift due port: DST gaps can merge slots, slots must be sorted by UTC instant, the early window can be tiny, `next_due_at` ignores `schedule_since`.
 - 2026-10-17: Plan v3 finalised (PR #6). Notebook merged to `main` (PR #7).
