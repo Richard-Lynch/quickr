@@ -58,8 +58,7 @@ The user can override any of them.
 - [x] xcodegen 2.46 and xcbeautify installed (brew)
 - [x] MobileBuildMCP 2.7.1 configured: project `.mcp.json` plus
       `.mobilebuildmcp/config.yaml`, and local scope for `~/code/quickr`
-- [ ] Xcode selected (`xcode-select -p` points at the xcodes install) and
-      `xcodebuild -version` = 27.x
+- [x] Xcode selected (`xcode-select -p` points at the xcodes install) and `xcodebuild -version` = 27.1. Smoke tests passed: `swift test` (Swift Testing) and a simulator build of an XcodeGen app with a local package.
 - [~] Simulator runtimes installed (downloading iOS 27 with `xcodebuild -downloadPlatform`, and iOS 26.0 with `xcodes runtimes`): iOS 27 and **iOS 26.x** (needed for
       minimum-version testing)
 - [ ] MobileBuildMCP tools verified after a session restart; Xcode IDE bridge
