@@ -9,6 +9,7 @@ file; otherwise the committed file must match.
 from __future__ import annotations
 
 import json
+import struct
 from typing import Any
 
 import pytest
@@ -205,3 +206,16 @@ def test_quicklog_vectors_match_committed() -> None:
 )
 def test_js_number_string(x: float, expected: str) -> None:
     assert js_number_string(x) == expected
+
+
+def test_js_number_string_matches_v8() -> None:
+    """Every case of ``jsnumber-vectors.json`` (V8's ``String(x)``, from
+    ``frontend/scripts/gen-jsnumber-vectors.js``); the Swift port checks the same file."""
+    doc = json.loads((FIXTURES_DIR / "jsnumber-vectors.json").read_text())
+    assert len(doc["cases"]) > 5000
+    mismatches = []
+    for case in doc["cases"]:
+        (x,) = struct.unpack(">d", bytes.fromhex(case["bits"]))
+        if js_number_string(x) != case["string"]:
+            mismatches.append((case["bits"], js_number_string(x), case["string"]))
+    assert mismatches == []
