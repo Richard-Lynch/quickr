@@ -321,8 +321,8 @@ export function createOutbox(opts: OutboxOptions): Outbox {
         if (e.type === 'sent') done({ status: 'sent', data: e.data });
         else if (e.type === 'failed') done({ status: 'failed', item: e.item });
         else if (e.type === 'retrying') done({ status: 'queued', item: e.item });
-        // Retired: removed without reaching the server, just like a discard.
-        else if (e.type === 'discarded' || e.type === 'retired') done({ status: 'discarded' });
+        else if (e.type === 'retired') done({ status: 'retired', item: e.item, error: e.error });
+        else if (e.type === 'discarded') done({ status: 'discarded' });
       });
       const timer = setTimeout(() => {
         void store.get(id).then(

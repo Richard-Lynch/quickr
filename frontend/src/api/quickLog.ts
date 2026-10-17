@@ -19,7 +19,7 @@ import { rememberedSource } from '../lib/storage';
 import { UNDO_WINDOW_MS } from '../lib/undo';
 import { uuid } from '../lib/uuid';
 import { patchEntries } from './cache';
-import { recordEntry } from './entries';
+import { ENTRY_NOT_SAVED, recordEntry } from './entries';
 import { errorMessage } from './errors';
 import { invalidateEntryData } from './queryClient';
 
@@ -81,6 +81,10 @@ export function useQuickLog() {
         // Don't hold the UI for the server: the tile already shows the result.
         { id, waitMs: 2_500 },
       );
+      if (result.status === 'retired') {
+        toast(ENTRY_NOT_SAVED);
+        return result;
+      }
       if (result.status === 'failed') {
         toast({
           title: `Couldn’t log ${topic.name}`,

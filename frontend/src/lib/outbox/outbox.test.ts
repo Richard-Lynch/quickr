@@ -268,7 +268,7 @@ describe('outbox', () => {
       { kinds: { 'note.create': retire } },
     );
     const a = await outbox.enqueue('note.create', { text: 'a' });
-    expect(await outbox.sendNow(a.id)).toEqual({ status: 'discarded' });
+    expect(await outbox.sendNow(a.id)).toMatchObject({ status: 'retired', item: { id: a.id } });
     expect(events.at(-1)).toMatchObject({
       type: 'retired',
       item: { id: a.id },

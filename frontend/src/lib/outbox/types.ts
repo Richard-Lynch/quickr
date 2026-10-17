@@ -85,4 +85,6 @@ export type SendNowResult =
   | { status: 'sent'; data: unknown }
   | { status: 'failed'; item: OutboxItem }
   | { status: 'queued'; item: OutboxItem | undefined }
+  /** The server said it can never happen (e.g. the entry was deleted); the item is gone. */
+  | { status: 'retired'; item: OutboxItem; error: OutboxError }
   | { status: 'discarded' };

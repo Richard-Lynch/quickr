@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 
-import { lastEntryOptions, useRecordEntry } from '../../api/entries';
+import { ENTRY_NOT_SAVED, lastEntryOptions, useRecordEntry } from '../../api/entries';
 import { useUndoLog } from '../../api/quickLog';
 import type { TopicDetail } from '../../client';
 import { canGoBack, Page, TopBar } from '../../components/AppShell';
@@ -256,6 +256,13 @@ function RecordForm({
             );
             // Rejected (4xx): EntryForm maps the Problem onto the fields.
             if (result.status === 'failed') throw result.error;
+            if (result.status === 'retired') {
+              allowNavigation();
+              toast(ENTRY_NOT_SAVED);
+              if (fixItem) void navigate(`${base}/entries`);
+              else leave();
+              return;
+            }
 
             rememberSource(v.source);
             const saved =
