@@ -2,7 +2,7 @@
  * Client-side mirrors of the server's constraints (backend/app/schemas/*.py): every rule
  * the server enforces should be caught here first, at the same field.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { FALLBACK_LIMITS } from '../api/limits';
 import { locToPath, mapApiError } from '../api/errors';
@@ -59,6 +59,14 @@ describe('question constraints', () => {
       label: 'At most 5 characters (8 now)',
       help_text: 'At most 3 characters (4 now)',
       unit: 'At most 2 characters (3 now)',
+    });
+  });
+
+  it('counts label lengths in code points', () => {
+    const tight: Limits = { ...L, max_label_length: 2 };
+    expect(issuesOf(draft('int', { label: '😀😀' }), tight)).toEqual({});
+    expect(issuesOf(draft('int', { label: '😀😀😀' }), tight)).toEqual({
+      label: 'At most 2 characters (3 now)',
     });
   });
 
@@ -207,6 +215,12 @@ describe('question list + topic constraints', () => {
     });
     const paths = r.error?.issues.map((i) => i.path.join('.'));
     expect(paths).toEqual(expect.arrayContaining(['name', 'slug', 'description']));
+    const emoji = makeTopicDraftSchema({ ...L, max_topic_name_length: 3 }).safeParse({
+      ...emptyTopicDraft(),
+      name: '😀😀😀',
+      questions: [draft('int')],
+    });
+    expect(emoji.error?.issues.map((i) => i.path.join('.')) ?? []).not.toContain('name');
     const meta = makeTopicMetaSchema(L).safeParse({
       name: 'x',
       slug: 'a'.repeat(65),
@@ -374,6 +388,19 @@ describe('answer constraints', () => {
       'Can’t be more than 24 hours in the future',
     );
     expect(capturedAtIssue('2026-10-16T11:59:00Z', L, now)).toBeNull();
+  });
+
+  it('captured_at: names the limit’s UTC year, even west of UTC', () => {
+    vi.stubEnv('TZ', 'America/Los_Angeles');
+    try {
+      // Sanity: the local year of 2000-01-01T00:00Z really is 1999 here.
+      expect(new Date(L.captured_at_min).getFullYear()).toBe(1999);
+      expect(capturedAtIssue('1999-06-01T00:00:00Z', L, new Date('2026-10-15T12:00:00Z'))).toBe(
+        'Can’t be before 2000',
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

@@ -9,6 +9,7 @@ import {
   type ChipOption,
 } from '../../lib/answerSchema';
 import type { EnumQuestionOutput, Question } from '../../lib/questions';
+import { inputMaxLength } from '../../lib/text';
 import { cn } from '../ui/cn';
 import { Input, Select, Textarea } from '../ui/Field';
 import { Icon } from '../ui/Icon';
@@ -100,7 +101,7 @@ export function AnswerField({
             value={text}
             onChange={(e) => onChange(e.target.value)}
             onBlur={onBlur}
-            maxLength={hints.maxLength}
+            maxLength={inputMaxLength(hints.maxLength)}
             aria-invalid={error ? true : undefined}
             aria-describedby={describedBy}
             disabled={disabled}
@@ -113,7 +114,7 @@ export function AnswerField({
             value={text}
             onChange={(e) => onChange(e.target.value)}
             onBlur={onBlur}
-            maxLength={hints.maxLength}
+            maxLength={inputMaxLength(hints.maxLength)}
             aria-invalid={error ? true : undefined}
             aria-describedby={describedBy}
             disabled={disabled}

@@ -30,6 +30,9 @@ let package = Package(
         // Child process for the multi-process store tests (sync-protocol.md §13, G5). Host only.
         .executableTarget(name: "ProcessHelper", dependencies: ["QuickrData", "QuickrTestSupport"]),
         .testTarget(name: "QuickrCoreTests", dependencies: ["QuickrCore", "QuickrTestSupport"]),
+        // Design-system logic tests (not "QuickrUITests": that would collide with the QuickRUITests
+        // UI-test bundle on case-insensitive disks).
+        .testTarget(name: "QuickrDesignTests", dependencies: ["QuickrUI"]),
         .testTarget(
             name: "QuickrDataTests",
             dependencies: [
