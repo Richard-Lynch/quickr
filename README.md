@@ -52,6 +52,7 @@ make api           # FastAPI on :8100 (reload)
 make web           # Vite on :5180 (proxies /api and /mcp to :8100; QUICKR_API_TARGET overrides)
 make seed          # optional demo data (scheduled topics, a multi-select question)
 make check         # everything CI runs
+make notebook      # Jupyter tour of the REST API + MCP (backend/notebooks/explore_api.ipynb)
 ```
 
 Configuration is via `QUICKR_*` environment variables (or `backend/.env`):
