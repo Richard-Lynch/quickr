@@ -20,32 +20,12 @@ source_name="${1:-quickR iOS-26-0}"
 root_real="$(cd "$ROOT_DIR" && pwd -P)"
 name="$source_name $(basename "$root_real")-$(printf '%s' "$root_real" | shasum | cut -c1-6)"
 
-# The lock is a symlink whose target is the owner, "<pid>@<host>": creating it is atomic and
-# reading it never sees a half-written owner. A lock is taken over only when its owner is
-# on this host and no longer running, and only while it still names that owner; it is
-# released only by its owner. Another host's lock (a shared TMPDIR) is never taken over.
-lock="${QUICKR_SIM_CLONE_LOCK:-${TMPDIR:-/tmp}/quickr-sim-clone.owner}"
+# A kernel advisory lock (flock(2), via /usr/bin/lockf on fd 9) held for the rest of the
+# script: the OS releases it when this process exits or dies, so there is no stale state.
+lock="${QUICKR_SIM_CLONE_LOCK:-${TMPDIR:-/tmp}/quickr-sim-clone.lockf}"
 lock_wait="${QUICKR_SIM_CLONE_LOCK_WAIT:-600}"
-host="$(scutil --get LocalHostName 2>/dev/null || hostname)" # stable across networks
-me="$$@$host"
-deadline=$(( SECONDS + lock_wait ))
-while ! ln -s "$me" "$lock" 2>/dev/null; do
-  owner="$(readlink "$lock" 2>/dev/null)" || continue # released meanwhile: try again
-  owner_pid="${owner%%@*}"
-  if [[ "${owner#*@}" == "$host" && "$owner_pid" =~ ^[0-9]+$ ]] && ! ps -p "$owner_pid" >/dev/null 2>&1; then
-    if [[ "$(readlink "$lock" 2>/dev/null)" == "$owner" ]]; then
-      rm -f "$lock"
-      echo "sim-clone: took over the lock of exited process $owner_pid" >&2
-    fi
-    continue
-  fi
-  (( SECONDS < deadline )) || die "timed out after ${lock_wait}s waiting for $lock (held by $owner)"
-  sleep 0.5
-done
-release_lock() {
-  if [[ "$(readlink "$lock" 2>/dev/null)" == "$me" ]]; then rm -f "$lock"; fi
-}
-trap release_lock EXIT
+exec 9>>"$lock"
+/usr/bin/lockf -s -t "$lock_wait" 9 || die "timed out after ${lock_wait}s waiting for the lock on $lock"
 
 # Prints "<udid> <state> <deviceTypeIdentifier> <runtime>" for the first available device
 # with this exact name (or UDID), or nothing.
