@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import QuickrCore
+import Synchronization
 
 /// What the outbox asks of the coordinator, delivered **after** `flush` is released
 /// (sync-protocol.md §5.6): the app runs its coordinator; an extension posts
@@ -120,17 +121,22 @@ public struct Outbox: Sendable {
     public var onSignal: @Sendable (OutboxSignal) -> Void
     /// The backoff jitter source, in `[0, 1)`.
     public var random: @Sendable () -> Double
+    /// How long a flush that is out of budget or cancelled still listens for the answer to the
+    /// request it cancelled, before giving up on a sender that doesn't stop (§10).
+    public var shutdownGrace: Duration
 
     public init(
         store: LocalStore, sender: any OutboxSender, owner: String,
         onSignal: @escaping @Sendable (OutboxSignal) -> Void = { _ in },
-        random: @escaping @Sendable () -> Double = { Double.random(in: 0..<1) }
+        random: @escaping @Sendable () -> Double = { Double.random(in: 0..<1) },
+        shutdownGrace: Duration = .seconds(1)
     ) {
         self.store = store
         self.sender = sender
         self.owner = owner
         self.onSignal = onSignal
         self.random = random
+        self.shutdownGrace = shutdownGrace
     }
 
     private var writer: any DatabaseWriter { store.writer }
@@ -433,43 +439,48 @@ public struct Outbox: Sendable {
         min(Self.requestTimeout, max(.zero, run.deadline - ContinuousClock.now))
     }
 
-    /// Sends `request`, racing the budget. When the deadline passes first, or the task is
-    /// cancelled, the request is cancelled; whatever the sender then returns is still waited for,
-    /// and kept if it is an answer (a response that arrived during shutdown is never lost). Nil
-    /// when the only result is the cancellation itself: the release makes the item `uncertain`.
+    /// Sends `request`, racing the budget and the task's cancellation. The request runs in its own
+    /// task, so no wait here depends on the sender honouring cancellation:
+    /// 1. until the deadline or a cancellation, the answer is awaited;
+    /// 2. then the request is cancelled, and whatever it returns within `shutdownGrace` is still
+    ///    kept if it is an answer (a response that lands during shutdown isn't lost);
+    /// 3. after that the flusher stops listening. Nil: the release makes the item `uncertain`
+    ///    and frees the lease, and a later completion is never applied (and would fail the sender
+    ///    check anyway once the claim or lease has moved on).
     private func send(_ request: OutboxRequest, deadline: ContinuousClock.Instant) async -> APIResponse<
         OutboxSuccess
     >? {
-        enum Race: Sendable {
-            case response(APIResponse<OutboxSuccess>)
-            case deadline
-            /// The timer stopped because the task was cancelled; the sender sees the same
-            /// cancellation and answers for itself.
-            case timerCancelled
-        }
         let sender = sender
-        return await withTaskGroup(of: Race.self) { group in
-            group.addTask { .response(await sender.send(request)) }
-            group.addTask {
-                do {
-                    try await Task.sleep(until: deadline, clock: .continuous)
-                    return .deadline
-                } catch {
-                    return .timerCancelled
-                }
-            }
-            while let next = await group.next() {
-                switch next {
-                case .response(let response):
-                    group.cancelAll()
-                    return Self.isAnswer(response) ? response : nil
-                case .deadline:
-                    group.cancelAll()  // cancels the request; its result still arrives above
-                case .timerCancelled:
-                    continue
-                }
-            }
-            return nil
+        let call = Task { await sender.send(request) }
+        if let response = await Self.result(of: call, until: deadline, stopsOnCancellation: true) {
+            return Self.isAnswer(response) ? response : nil
+        }
+        call.cancel()
+        let grace = ContinuousClock.now.advanced(by: shutdownGrace)
+        guard let response = await Self.result(of: call, until: grace, stopsOnCancellation: false) else { return nil }
+        return Self.isAnswer(response) ? response : nil
+    }
+
+    /// `call`'s result if it finishes before `deadline` (and, with `stopsOnCancellation`, before
+    /// the current task is cancelled); nil otherwise, without waiting for `call` any longer.
+    private static func result<T: Sendable>(
+        of call: Task<T, Never>, until deadline: ContinuousClock.Instant, stopsOnCancellation: Bool
+    ) async -> T? {
+        let first = FirstResult<T>()
+        let waiter = Task { first.offer(await call.value) }
+        let timer = Task {
+            try? await Task.sleep(until: deadline, clock: .continuous)
+            first.offer(nil)
+        }
+        defer {
+            waiter.cancel()
+            timer.cancel()
+        }
+        guard stopsOnCancellation else { return await first.value() }
+        return await withTaskCancellationHandler {
+            await first.value()
+        } onCancel: {
+            first.offer(nil)
         }
     }
 
@@ -497,5 +508,31 @@ public struct Outbox: Sendable {
     ) async throws -> T {
         let outbox = self
         return try await Task { try await outbox.write(body) }.value
+    }
+}
+
+/// The first value offered wins; `value()` waits for it. Later offers are ignored.
+private final class FirstResult<T: Sendable>: Sendable {
+    private let state = Mutex<(value: T??, waiters: [CheckedContinuation<T?, Never>])>((nil, []))
+
+    func offer(_ value: T?) {
+        let waiters = state.withLock { state -> [CheckedContinuation<T?, Never>] in
+            guard state.value == nil else { return [] }
+            state.value = .some(value)
+            defer { state.waiters = [] }
+            return state.waiters
+        }
+        for waiter in waiters { waiter.resume(returning: value) }
+    }
+
+    func value() async -> T? {
+        await withCheckedContinuation { continuation in
+            let ready = state.withLock { state -> T?? in
+                if let value = state.value { return .some(value) }
+                state.waiters.append(continuation)
+                return nil
+            }
+            if let ready { continuation.resume(returning: ready) }
+        }
     }
 }
