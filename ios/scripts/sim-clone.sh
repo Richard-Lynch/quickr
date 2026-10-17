@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # A simulator of this worktree's own, so parallel worktrees never boot, install into or
 # erase each other's device. Prints the device's UDID on stdout (and nothing else), creating
-# it on first use: "<source> <worktree dir>", e.g. "quickR iOS-26-0 ios-m1-tools".
+# it on first use: "<source> <worktree dir>-<hash of the canonical worktree path>", e.g.
+# "quickR iOS-26-0 ios-m1-tools-021970", so same-named directories elsewhere never share one.
 #
 #   sim-clone.sh [source]           create (or find) the clone; source defaults to "quickR iOS-26-0"
 #   sim-clone.sh --delete [source]  shut down and delete it
 #
 # A shut-down source is cloned with `simctl clone`; a booted one (in use elsewhere) is never
 # touched: the clone is created fresh from the same device type and runtime instead.
+# Lookup, creation and deletion are serialised across worktrees by a lock directory.
 # Use it as the IOS_SIM* make variables: make ios-test IOS_SIM_MIN="$(ios/scripts/sim-clone.sh)"
 source "$(dirname "$0")/common.sh"
 require_xcodebuild
@@ -15,7 +17,21 @@ require_xcodebuild
 delete=0
 if [[ "${1:-}" == --delete ]]; then delete=1; shift; fi
 source_name="${1:-quickR iOS-26-0}"
-name="$source_name $(basename "$ROOT_DIR")"
+root_real="$(cd "$ROOT_DIR" && pwd -P)"
+name="$source_name $(basename "$root_real")-$(printf '%s' "$root_real" | shasum | cut -c1-6)"
+
+# A mkdir lock (atomic, no flock on macOS). A lock older than 10 minutes is a crashed run's.
+lock="${TMPDIR:-/tmp}/quickr-sim-clone.lock"
+for (( waited = 0; ; waited++ )); do
+  if mkdir "$lock" 2>/dev/null; then break; fi
+  if [[ -n "$(find "$lock" -maxdepth 0 -mmin +10 2>/dev/null)" ]]; then
+    rmdir "$lock" 2>/dev/null || true
+    continue
+  fi
+  (( waited < 600 )) || die "timed out waiting for $lock"
+  sleep 0.5
+done
+trap 'rmdir "$lock" 2>/dev/null || true' EXIT
 
 # Prints "<udid> <state> <deviceTypeIdentifier> <runtime>" for the first available device
 # with this exact name (or UDID), or nothing.

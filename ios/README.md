@@ -123,18 +123,20 @@ Each one has its own database, so the `server_id` and epoch differ.
 `backend/tools/faultproxy.py` runs in front of them and routes to server a by
 default. Every port is bound to 127.0.0.1.
 
-**Ports.** Each worktree gets a block of 4 ports in 21000–22999, chosen by a
-hash of its path: proxy, proxy control, server a, server b. If any port in the
-block is busy, the next block is used. Ports and project names never collide
-with the dev stack (:8100, :5433, :8080), and two worktrees can run at once.
+**Ports.** Docker picks free host ports (`127.0.0.1::<container port>`) on every
+start, and `integration-up.sh` reads them back with `docker compose port`, so
+worktrees never race for ports and nothing collides with the dev stack (:8100,
+:5433, :8080). Two worktrees can run at once. If startup fails or is interrupted
+before the env file is written, `integration-up.sh` removes the stack again.
 
-**`ios/build/integration.env`** holds plain `KEY=value` lines, one per line,
-with no quoting. It is sourceable from a shell. `make ios-integration` exports
-these variables to `swift test`:
+**`ios/build/integration.env`** holds `KEY=value` lines, one per line, with each
+value shell-escaped (`printf %q`; URLs, ids and ports need no escaping). Source it
+from a shell; prefer the environment over parsing it. `make ios-integration`
+exports these variables to `swift test`:
 
 | Variable                                | Value                                                                                                                             |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `QUICKR_IT_BASE_URL`                    | The proxy, e.g. `http://127.0.0.1:21028`. The app's server URL in tests. API paths start with `/api/v1`                           |
+| `QUICKR_IT_BASE_URL`                    | The proxy, e.g. `http://127.0.0.1:55012`. The app's server URL in tests. API paths start with `/api/v1`                           |
 | `QUICKR_IT_BASE_URL_2`                  | Server b, directly (a different server)                                                                                           |
 | `QUICKR_IT_DIRECT_URL`                  | Server a, directly (to check server state without going through the proxy rules)                                                  |
 | `QUICKR_IT_PROXY_CONTROL_URL`           | The proxy's control API                                                                                                           |
@@ -167,7 +169,9 @@ A rule is
 path without its query string (`*` also matches `/`), e.g.
 `/api/v1/topics/*/entries`. The first rule that matches and is not exhausted
 applies. A rule applies `times` times (one-shot by default), or forever when
-`sticky` is true. The actions are:
+`sticky` is true. Every field is type-checked (integers must be JSON integers,
+header values such as `retry_after` and `content_type` must not contain CR/LF),
+and an invalid rule gets a JSON 400 and is not installed. The actions are:
 
 | `action`         | Behaviour                                                                                                                                                                                                                           | Extra fields                                                                                                      |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -197,8 +201,9 @@ make ios-uitest IOS_SIM="$(ios/scripts/sim-clone.sh 'quickR iOS27')"
 ios/scripts/sim-clone.sh --delete               # when the worktree is done
 ```
 
-The clone is named `<source> <worktree dir>`, so running the script again finds
-the same device. If the source simulator is shut down, the script copies it with
+The clone is named `<source> <worktree dir>-<hash of its canonical path>`, so
+running the script again finds the same device, and `--delete` can only ever
+remove this worktree's clone. A lock directory serialises concurrent runs. If the source simulator is shut down, the script copies it with
 `simctl clone`. If it is booted (in use), the script never touches it and
 creates a fresh device with the same device type and runtime instead.
 

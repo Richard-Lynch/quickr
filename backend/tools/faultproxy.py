@@ -24,7 +24,9 @@ import contextlib
 import fnmatch
 import json
 import logging
+import re
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from typing import Any
@@ -43,10 +45,10 @@ HOP_BY_HOP = frozenset(
         "trailer",
         "transfer-encoding",
         "upgrade",
-        "content-length",
-        "expect",
     }
 )
+# Recomputed by the proxy for every message it writes (bodies are buffered and de-chunked).
+FRAMING = frozenset({"content-length", "transfer-encoding"})
 IDENTITY_HEADERS = frozenset({"x-quickr-server-id", "x-quickr-epoch"})
 
 ACTIONS = frozenset(
@@ -82,8 +84,17 @@ REASONS = {
     503: "Service Unavailable",
     504: "Gateway Timeout",
 }
-MAX_HEAD = 64 * 1024
+MAX_HEAD = 64 * 1024  # start line + headers, and any single chunk-size or trailer line
+MAX_BODY = 16 * 1024 * 1024
+MAX_TRAILERS = 16 * 1024
 UPSTREAM_TIMEOUT = 60.0
+CLIENT_TIMEOUT = 300.0  # to read one whole request, including keep-alive idle time
+MAX_DELAY_MS = 10 * 60 * 1000
+
+CONTENT_LENGTH = re.compile(r"[0-9]{1,12}")
+CHUNK_SIZE = re.compile(rb"[0-9A-Fa-f]{1,12}")
+STATUS_LINE = re.compile(r"HTTP/1\.[01] ([0-9]{3})(?: (.*))?")
+METHOD = re.compile(r"\*|[A-Za-z]+")
 
 Headers = list[tuple[str, str]]
 
@@ -95,6 +106,23 @@ class BadMessage(Exception):
 def header(headers: Headers, name: str) -> str | None:
     name = name.lower()
     return next((v for k, v in headers if k.lower() == name), None)
+
+
+def tokens(headers: Headers, name: str) -> list[str]:
+    """The comma-separated tokens of every ``name`` header, lowercased."""
+    name = name.lower()
+    return [t.strip().lower() for k, v in headers if k.lower() == name for t in v.split(",") if t.strip()]
+
+
+def end_to_end(headers: Headers, drop: Iterable[str] = ()) -> Headers:
+    """``headers`` without hop-by-hop ones (the fixed set and every header the Connection
+    header names) and without framing headers, which the proxy writes itself."""
+    excluded = HOP_BY_HOP | FRAMING | set(tokens(headers, "connection")) | set(drop)
+    return [(k, v) for k, v in headers if k.lower() not in excluded]
+
+
+def has_body(method: str, status: int) -> bool:
+    return method != "HEAD" and status >= 200 and status not in (204, 304)
 
 
 @dataclass
@@ -111,10 +139,10 @@ class Request:
 
     @property
     def keep_alive(self) -> bool:
-        conn = (header(self.headers, "connection") or "").lower()
+        conn = tokens(self.headers, "connection")
         if self.version == "HTTP/1.0":
-            return conn == "keep-alive"
-        return conn != "close"
+            return "keep-alive" in conn
+        return "close" not in conn
 
 
 @dataclass
@@ -126,13 +154,24 @@ class Response:
     # Made up by the proxy because the upstream failed (502), not the upstream's answer.
     from_proxy: bool = False
 
-    def encode(self, *, keep_alive: bool) -> bytes:
+    def encode(self, *, method: str, keep_alive: bool) -> bytes:
+        """The response as an answer to ``method``: no body for HEAD, 1xx, 204 and 304."""
         reason = self.reason or REASONS.get(self.status, "Unknown")
         lines = [f"HTTP/1.1 {self.status} {reason}"]
-        lines += [f"{k}: {v}" for k, v in self.headers if k.lower() not in HOP_BY_HOP]
-        lines.append(f"Content-Length: {len(self.body)}")
+        lines += [f"{k}: {v}" for k, v in end_to_end(self.headers)]
+        body = b""
+        if has_body(method, self.status):
+            body = self.body
+            lines.append(f"Content-Length: {len(body)}")
+        elif self.status >= 200 and self.status != 204:
+            # HEAD and 304 carry the length the body would have had: the upstream's, or ours.
+            length = header(self.headers, "content-length")
+            if length is None and method == "HEAD":
+                length = str(len(self.body))
+            if length is not None:
+                lines.append(f"Content-Length: {length}")
         lines.append(f"Connection: {'keep-alive' if keep_alive else 'close'}")
-        return ("\r\n".join(lines) + "\r\n\r\n").encode("latin-1") + self.body
+        return ("\r\n".join(lines) + "\r\n\r\n").encode("latin-1") + body
 
 
 def simple_response(
@@ -169,27 +208,63 @@ async def read_head(reader: asyncio.StreamReader) -> tuple[str, Headers] | None:
     return start, headers
 
 
+async def read_line(reader: asyncio.StreamReader) -> bytes:
+    try:
+        return await reader.readuntil(b"\r\n")
+    except asyncio.LimitOverrunError as exc:
+        raise BadMessage("line too long") from exc
+
+
 async def read_chunked(reader: asyncio.StreamReader) -> bytes:
     body = bytearray()
     while True:
-        size_line = await reader.readuntil(b"\r\n")
-        size = int(size_line.split(b";")[0].strip(), 16)
+        size_text = (await read_line(reader))[:-2].split(b";", 1)[0].strip()
+        if not CHUNK_SIZE.fullmatch(size_text):
+            raise BadMessage(f"bad chunk size {size_text!r}")
+        size = int(size_text, 16)
         if size == 0:
-            # Trailers, up to the blank line.
-            while await reader.readuntil(b"\r\n") != b"\r\n":
-                pass
-            return bytes(body)
+            break
+        if len(body) + size > MAX_BODY:
+            raise BadMessage("body too large")
         body += await reader.readexactly(size)
-        await reader.readexactly(2)
+        if await reader.readexactly(2) != b"\r\n":
+            raise BadMessage("chunk not terminated by CRLF")
+    trailers = 0
+    while (line := await read_line(reader)) != b"\r\n":
+        trailers += len(line)
+        if trailers > MAX_TRAILERS:
+            raise BadMessage("trailers too large")
+    return bytes(body)
+
+
+def content_length(headers: Headers) -> int | None:
+    values = set(tokens(headers, "content-length"))
+    if not values:
+        return None
+    if len(values) > 1 or not CONTENT_LENGTH.fullmatch(value := values.pop()):
+        raise BadMessage(f"bad Content-Length {header(headers, 'content-length')!r}")
+    if int(value) > MAX_BODY:
+        raise BadMessage("body too large")
+    return int(value)
 
 
 async def read_body(reader: asyncio.StreamReader, headers: Headers, *, until_eof: bool) -> bytes:
-    if "chunked" in (header(headers, "transfer-encoding") or "").lower():
+    encodings = tokens(headers, "transfer-encoding")
+    if encodings:
+        if encodings != ["chunked"]:
+            raise BadMessage(f"unsupported Transfer-Encoding {encodings}")
         return await read_chunked(reader)
-    length = header(headers, "content-length")
+    length = content_length(headers)
     if length is not None:
-        return await reader.readexactly(int(length))
-    return await reader.read() if until_eof else b""
+        return await reader.readexactly(length)
+    if not until_eof:
+        return b""
+    body = bytearray()
+    while chunk := await reader.read(64 * 1024):
+        body += chunk
+        if len(body) > MAX_BODY:
+            raise BadMessage("body too large")
+    return bytes(body)
 
 
 async def read_request(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> Request | None:
@@ -201,7 +276,7 @@ async def read_request(reader: asyncio.StreamReader, writer: asyncio.StreamWrite
     if len(parts) != 3 or not parts[2].startswith("HTTP/1."):
         raise BadMessage(f"bad request line {start!r}")
     method, target, version = parts
-    if (header(headers, "expect") or "").lower() == "100-continue":
+    if "100-continue" in tokens(headers, "expect"):
         writer.write(b"HTTP/1.1 100 Continue\r\n\r\n")
         await writer.drain()
     body = await read_body(reader, headers, until_eof=False)
@@ -249,17 +324,36 @@ class Rule:
         }
     )
 
+    INT_FIELDS = frozenset({"times", "delay_ms", "status"})
+    OPTIONAL_STR_FIELDS = frozenset({"body", "content_type", "retry_after"})
+    HEADER_VALUE_FIELDS = frozenset({"content_type", "retry_after"})
+
     @classmethod
     def from_json(cls, rule_id: int, data: Any) -> Rule:
+        """A rule from control-API JSON. Raises ValueError, never anything else, if invalid."""
         if not isinstance(data, dict):
             raise ValueError("rule must be a JSON object")
         unknown = set(data) - cls.FIELDS
         if unknown:
             raise ValueError(f"unknown rule fields: {sorted(unknown)}")
-        for name, kind in (("action", str), ("method", str), ("path", str), ("sticky", bool)):
-            if name in data and not isinstance(data[name], kind):
-                raise ValueError(f"{name} must be a {kind.__name__}")
+        if "action" not in data:
+            raise ValueError("action is required")
+        for name, value in data.items():
+            if name in cls.INT_FIELDS:
+                ok, kind = type(value) is int, "an integer"
+            elif name == "sticky":
+                ok, kind = type(value) is bool, "a boolean"
+            elif name in cls.OPTIONAL_STR_FIELDS:
+                ok, kind = value is None or isinstance(value, str), "a string or null"
+            else:
+                ok, kind = isinstance(value, str), "a string"
+            if not ok:
+                raise ValueError(f"{name} must be {kind}")
+            if name in cls.HEADER_VALUE_FIELDS and value is not None and re.search(r"[\r\n\x00]", value):
+                raise ValueError(f"{name} must not contain CR, LF or NUL")
         rule = cls(id=rule_id, **data)
+        if not METHOD.fullmatch(rule.method):
+            raise ValueError("method must be '*' or an HTTP method")
         rule.method = rule.method.upper()
         if rule.action not in ACTIONS:
             raise ValueError(f"action must be one of {sorted(ACTIONS)}")
@@ -267,12 +361,12 @@ class Rule:
             raise ValueError(f"garble must be one of {sorted(GARBLE_MODES)}")
         if rule.phase not in PHASES:
             raise ValueError(f"phase must be one of {sorted(PHASES)}")
-        if not isinstance(rule.times, int) or rule.times < 1:
-            raise ValueError("times must be an integer >= 1")
-        if not isinstance(rule.delay_ms, int) or rule.delay_ms < 0:
-            raise ValueError("delay_ms must be an integer >= 0")
-        if not isinstance(rule.status, int) or not 100 <= rule.status <= 599:
-            raise ValueError("status must be an HTTP status code")
+        if rule.times < 1:
+            raise ValueError("times must be >= 1")
+        if not 0 <= rule.delay_ms <= MAX_DELAY_MS:
+            raise ValueError(f"delay_ms must be in 0..{MAX_DELAY_MS}")
+        if not 100 <= rule.status <= 599:
+            raise ValueError("status must be an HTTP status code (100..599)")
         return rule
 
     def matches(self, method: str, path: str) -> bool:
@@ -402,11 +496,13 @@ class FaultProxy:
     async def _proxy_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             while True:
-                req = await read_request(reader, writer)
+                req = await asyncio.wait_for(read_request(reader, writer), CLIENT_TIMEOUT)
                 if req is None or not await self._serve(req, writer):
                     break
-        except (BadMessage, asyncio.IncompleteReadError, ConnectionError) as exc:
-            log.debug("client connection ended: %s", exc)
+        except (BadMessage, asyncio.IncompleteReadError, ConnectionError, TimeoutError) as exc:
+            log.debug("client connection ended: %r", exc)
+        except Exception:
+            log.exception("proxy connection failed")
         finally:
             writer.close()
             with contextlib.suppress(ConnectionError):
@@ -474,7 +570,7 @@ class FaultProxy:
         keep_alive = req.keep_alive
         entry["status"] = resp.status
         try:
-            writer.write(resp.encode(keep_alive=keep_alive))
+            writer.write(resp.encode(method=req.method, keep_alive=keep_alive))
             await writer.drain()
         except ConnectionError:
             # The client gave up (e.g. timed out while the request was held).
@@ -511,22 +607,30 @@ class FaultProxy:
         reader, writer = await asyncio.open_connection(upstream.host, upstream.port, limit=MAX_HEAD)
         try:
             lines = [f"{req.method} {req.target} HTTP/1.1"]
-            lines += [f"{k}: {v}" for k, v in req.headers if k.lower() not in HOP_BY_HOP]
+            # Expect was answered by the proxy already (read_request).
+            lines += [f"{k}: {v}" for k, v in end_to_end(req.headers, drop=("expect",))]
             if req.body or req.method in ("POST", "PUT", "PATCH"):
                 lines.append(f"Content-Length: {len(req.body)}")
             lines.append("Connection: close")
             writer.write(("\r\n".join(lines) + "\r\n\r\n").encode("latin-1") + req.body)
             await writer.drain()
 
-            head = await read_head(reader)
-            if head is None:
-                raise BadMessage("upstream closed without a response")
-            start, headers = head
-            _, status_text, *reason = start.split(" ", 2)
-            status = int(status_text)
-            no_body = req.method == "HEAD" or status in (204, 304) or status < 200
-            body = b"" if no_body else await read_body(reader, headers, until_eof=True)
-            return Response(status, headers, body, reason[0] if reason else "")
+            while True:
+                head = await read_head(reader)
+                if head is None:
+                    raise BadMessage("upstream closed without a response")
+                start, headers = head
+                match = STATUS_LINE.fullmatch(start)
+                if not match:
+                    raise BadMessage(f"bad status line {start!r}")
+                status = int(match[1])
+                if status == 101:
+                    raise BadMessage("upstream switched protocols; upgrades are not supported")
+                if status >= 200:
+                    break
+                # Interim response (100 Continue, 103 Early Hints): the final one follows.
+            body = await read_body(reader, headers, until_eof=True) if has_body(req.method, status) else b""
+            return Response(status, headers, body, match[2] or "")
         finally:
             writer.close()
             with contextlib.suppress(ConnectionError):
@@ -537,19 +641,22 @@ class FaultProxy:
     async def _control_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             while True:
-                req = await read_request(reader, writer)
+                req = await asyncio.wait_for(read_request(reader, writer), CLIENT_TIMEOUT)
                 if req is None:
                     break
                 try:
                     resp = self._control(req)
                 except ValueError as exc:
                     resp = json_response(400, {"error": str(exc)})
-                writer.write(resp.encode(keep_alive=req.keep_alive))
+                except Exception as exc:
+                    log.exception("control request failed")
+                    resp = json_response(500, {"error": repr(exc)})
+                writer.write(resp.encode(method=req.method, keep_alive=req.keep_alive))
                 await writer.drain()
                 if not req.keep_alive:
                     break
-        except (BadMessage, asyncio.IncompleteReadError, ConnectionError) as exc:
-            log.debug("control connection ended: %s", exc)
+        except (BadMessage, asyncio.IncompleteReadError, ConnectionError, TimeoutError) as exc:
+            log.debug("control connection ended: %r", exc)
         finally:
             writer.close()
             with contextlib.suppress(ConnectionError):
@@ -604,7 +711,7 @@ class FaultProxy:
             case ["upstream"] if m == "PUT":
                 data = body()
                 name = data.get("name") if isinstance(data, dict) else None
-                if name not in self.upstreams:
+                if not isinstance(name, str) or name not in self.upstreams:
                     raise ValueError(f"name must be one of {sorted(self.upstreams)}")
                 self.current = name
                 return json_response(200, self._upstream_json())

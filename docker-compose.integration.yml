@@ -1,7 +1,8 @@
 # Isolated backend stacks for the iOS integration tests (`make ios-integration`).
-# Started by ios/scripts/integration-up.sh, which picks a per-worktree project name and
-# ports; don't `docker compose up` this by hand. Two independent servers (own database,
-# own server id) share one throwaway Postgres, and the fault proxy fronts them:
+# Started by ios/scripts/integration-up.sh, which picks a per-worktree project name; Docker
+# picks free loopback host ports, which the script reads back. Don't `docker compose up`
+# this by hand. Two independent servers (own database, own server id) share one throwaway
+# Postgres, and the fault proxy fronts them:
 #   proxy          -> backend-a by default; PUT /upstream on its control port switches to b
 #   backend-a / -b -> also published directly, for tests that bypass the proxy
 # Everything is bound to 127.0.0.1 and nothing is persisted (Postgres runs on tmpfs).
@@ -37,7 +38,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${QUICKR_IT_PORT_A:?}:8000"
+      - "127.0.0.1::8000"
     healthcheck: &backend-health
       test:
         [
@@ -60,7 +61,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${QUICKR_IT_PORT_B:?}:8000"
+      - "127.0.0.1::8000"
     healthcheck: *backend-health
 
   proxy:
@@ -78,8 +79,8 @@ services:
       backend-b:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${QUICKR_IT_PORT_PROXY:?}:8080"
-      - "127.0.0.1:${QUICKR_IT_PORT_CONTROL:?}:8081"
+      - "127.0.0.1::8080"
+      - "127.0.0.1::8081"
     healthcheck:
       test:
         [

@@ -15,7 +15,25 @@ from typing import Any
 import httpx
 import pytest
 
+from tools import faultproxy
 from tools.faultproxy import FaultProxy, Upstream, read_request
+
+# Raw upstream answers, by path. The default (anything else) is a JSON echo.
+CANNED: dict[str, bytes] = {
+    "/chunked": b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Type: text/plain\r\n\r\n"
+    b"5\r\nhello\r\n6\r\n world\r\n0\r\nX-Trailer: t\r\n\r\n",
+    "/early-hints": b"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Early Hints\r\nLink: </a.css>\r\n\r\n"
+    b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nfinal",
+    "/nocontent": b"HTTP/1.1 204 No Content\r\nX-QuickR-Server-Id: server-a\r\n\r\n",
+    "/not-modified": b'HTTP/1.1 304 Not Modified\r\nETag: "v1"\r\nContent-Length: 42\r\n\r\n',
+    "/hop": b"HTTP/1.1 200 OK\r\nConnection: X-Up-Secret, close\r\nX-Up-Secret: 1\r\n"
+    b"Keep-Alive: timeout=5\r\n"
+    b'ETag: "v1"\r\nX-QuickR-Server-Id: server-a\r\nX-QuickR-Epoch: epoch-1\r\nContent-Length: 2\r\n\r\nok',
+    "/bad-chunk": b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhelloXX0\r\n\r\n",
+    "/bad-chunk-size": b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n-5\r\nhello\r\n0\r\n\r\n",
+    "/bad-length": b"HTTP/1.1 200 OK\r\nContent-Length: 5, 6\r\n\r\nhello",
+    "/big": b"HTTP/1.1 200 OK\r\n\r\n" + b"x" * 1000,
+}
 
 
 def is_json(body: bytes) -> bool:
@@ -52,11 +70,8 @@ class FakeUpstream:
         assert req is not None
         self.requests.append((req.method, req.target, req.body))
         identity = f"X-QuickR-Server-Id: {self.server_id}\r\nX-QuickR-Epoch: epoch-1\r\n"
-        if req.path == "/chunked":
-            writer.write(
-                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Type: text/plain\r\n\r\n"
-                b"5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n"
-            )
+        if req.path in CANNED:
+            writer.write(CANNED[req.path])
         elif req.path == "/missing":
             missing = b'{"code": "not_found"}'
             writer.write(
@@ -66,11 +81,18 @@ class FakeUpstream:
         else:
             status = "201 Created" if req.method == "POST" else "200 OK"
             body = json.dumps(
-                {"id": "e1", "revision": 1, "server": self.server_id, "echo": req.body.decode()}
+                {
+                    "id": "e1",
+                    "revision": 1,
+                    "server": self.server_id,
+                    "echo": req.body.decode(),
+                    "headers": {k.lower(): v for k, v in req.headers},
+                }
             )
             writer.write(
                 f"HTTP/1.1 {status}\r\n{identity}Content-Type: application/json\r\n"
-                f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n{body}".encode()
+                f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode()
+                + (b"" if req.method == "HEAD" else body.encode())
             )
         await writer.drain()
         writer.close()
@@ -338,12 +360,39 @@ async def test_upstream_down_is_a_502_with_no_upstream_status(h: Harness) -> Non
         {"action": "status", "status": 42},
         {"action": "pass", "sticky": "yes"},
         ["not", "an", "object"],
+        {},
+        {"method": "GET"},
+        {"action": 5},
+        {"action": "pass", "method": 3},
+        {"action": "pass", "method": "GE T"},
+        {"action": "pass", "path": None},
+        {"action": "pass", "times": "1"},
+        {"action": "pass", "times": True},
+        {"action": "delay", "delay_ms": 1.5},
+        {"action": "delay", "delay_ms": -1},
+        {"action": "status", "status": "503"},
+        {"action": "status", "body": 5},
+        {"action": "garble", "garble": []},
+        {"action": "garble", "field": {}},
+        {"action": "pass", "phase": None},
+        {"action": "status", "retry_after": "1\r\nX-Injected: 1"},
+        {"action": "captive", "content_type": "text/html\nX-Injected: 1"},
     ],
 )
 async def test_rejects_bad_rules(h: Harness, rule: Any) -> None:
     r = await h.control.post("/rules", json=rule)
     assert r.status_code == 400
     assert "error" in r.json()
+    assert (await h.control.get("/rules")).json() == []  # nothing installed
+    assert (await h.client.get("/x")).status_code == 200  # and the proxy still works
+
+
+@pytest.mark.parametrize("body", [{"name": []}, {"name": None}, {}, [], "b", {"name": {"x": 1}}])
+async def test_rejects_bad_upstream_switch(h: Harness, body: Any) -> None:
+    r = await h.control.put("/upstream", json=body)
+    assert r.status_code == 400
+    assert "error" in r.json()
+    assert (await h.control.get("/upstream")).json()["current"] == "a"
 
 
 async def test_control_errors(h: Harness) -> None:
@@ -352,3 +401,144 @@ async def test_control_errors(h: Harness) -> None:
     r = await h.control.post("/rules", content=b"{not json")
     assert r.status_code == 400
     assert (await h.control.get("/health")).json() == {"ok": True}
+
+
+# --- wire format, over raw sockets ---------------------------------------------------
+
+
+async def read_response(
+    reader: asyncio.StreamReader, method: str = "GET"
+) -> tuple[int, dict[str, str], bytes]:
+    """One response off a raw connection, framed by Content-Length (as the proxy writes them)."""
+    head = (await reader.readuntil(b"\r\n\r\n")).decode("latin-1")
+    start, *lines = head[:-4].split("\r\n")
+    headers = {k.lower(): v.strip() for k, _, v in (line.partition(":") for line in lines)}
+    status = int(start.split(" ")[1])
+    no_body = method == "HEAD" or status in (204, 304) or status < 200
+    length = 0 if no_body else int(headers.get("content-length", "0"))
+    return status, headers, await reader.readexactly(length)
+
+
+async def raw(h: Harness) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    return await asyncio.open_connection("127.0.0.1", h.proxy.port)
+
+
+async def test_raw_keep_alive_sequence_stays_in_sync(h: Harness) -> None:
+    """GET, HEAD, 204, 304, synthetic HEAD, GET on one connection: no stray body bytes."""
+    await h.rule(method="HEAD", path="/injected", action="status", status=503)
+    reader, writer = await raw(h)
+    steps = [
+        ("GET", "/x", 200),
+        ("HEAD", "/x", 200),
+        ("GET", "/nocontent", 204),
+        ("GET", "/not-modified", 304),
+        ("HEAD", "/injected", 503),
+        ("GET", "/x", 200),
+    ]
+    for method, path, want in steps:
+        writer.write(f"{method} {path} HTTP/1.1\r\nHost: t\r\n\r\n".encode())
+        await writer.drain()
+        status, headers, body = await read_response(reader, method)
+        assert status == want, (method, path)
+        if method == "HEAD":
+            assert int(headers["content-length"]) > 0  # the length a GET would have had
+        if path == "/nocontent":
+            assert "content-length" not in headers
+        if path == "/not-modified":
+            assert headers["content-length"] == "42"
+            assert headers["etag"] == '"v1"'
+        if (method, path) == ("GET", "/x"):
+            assert json.loads(body)["server"] == "server-a"
+    writer.close()
+    assert [m for m, _, _ in h.a.requests] == ["GET", "HEAD", "GET", "GET", "GET"]
+
+
+async def test_raw_two_requests_with_bodies_on_one_connection(h: Harness) -> None:
+    reader, writer = await raw(h)
+    for n in (1, 2):
+        body = json.dumps({"n": n}).encode()
+        writer.write(
+            b"POST /api/v1/topics/t/entries HTTP/1.1\r\nHost: t\r\n"
+            + f"Content-Length: {len(body)}\r\n\r\n".encode()
+            + body
+        )
+        await writer.drain()
+        status, _, resp = await read_response(reader)
+        assert status == 201
+        assert json.loads(resp)["echo"] == body.decode()
+    writer.close()
+
+
+async def test_skips_interim_responses(h: Harness) -> None:
+    r = await h.client.get("/early-hints")
+    assert (r.status_code, r.text) == (200, "final")
+
+
+async def test_hop_by_hop_headers_are_dropped_both_ways(h: Harness) -> None:
+    r = await h.client.get(
+        "/x",
+        headers={
+            "Connection": "X-Secret, keep-alive",
+            "X-Secret": "1",
+            "Keep-Alive": "timeout=5",
+            "Proxy-Authorization": "Basic eA==",
+            "If-None-Match": '"v1"',
+            "If-Match": '"v2"',
+            "X-QuickR-Expect-Server-Id": "server-a",
+            "X-QuickR-Expect-Epoch": "epoch-1",
+        },
+    )
+    seen = r.json()["headers"]
+    assert {"x-secret", "keep-alive", "proxy-authorization"}.isdisjoint(seen)
+    assert seen["connection"] == "close"  # the proxy's own, to the upstream
+    assert seen["if-none-match"] == '"v1"'
+    assert seen["if-match"] == '"v2"'
+    assert seen["x-quickr-expect-server-id"] == "server-a"
+    assert seen["x-quickr-expect-epoch"] == "epoch-1"
+
+    r = await h.client.get("/hop")
+    assert r.text == "ok"
+    assert "x-up-secret" not in r.headers
+    assert "keep-alive" not in r.headers
+    assert r.headers["etag"] == '"v1"'
+    assert r.headers["x-quickr-server-id"] == "server-a"
+    assert r.headers["x-quickr-epoch"] == "epoch-1"
+
+
+@pytest.mark.parametrize("path", ["/bad-chunk", "/bad-chunk-size", "/bad-length"])
+async def test_bad_upstream_framing_is_a_502(h: Harness, path: str) -> None:
+    r = await h.client.get(path)
+    assert r.status_code == 502
+    assert (await h.log())[-1]["upstream_status"] is None
+
+
+async def test_upstream_body_cap(h: Harness, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(faultproxy, "MAX_BODY", 100)
+    assert (await h.client.get("/big")).status_code == 502
+
+
+@pytest.mark.parametrize(
+    "request_bytes",
+    [
+        b"POST /x HTTP/1.1\r\nContent-Length: abc\r\n\r\n",
+        b"POST /x HTTP/1.1\r\nContent-Length: -1\r\n\r\n",
+        b"POST /x HTTP/1.1\r\nTransfer-Encoding: gzip\r\n\r\n",
+        b"POST /x HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n",
+        b"NONSENSE\r\n\r\n",
+    ],
+)
+async def test_bad_client_framing_closes_the_connection(h: Harness, request_bytes: bytes) -> None:
+    reader, writer = await raw(h)
+    writer.write(request_bytes)
+    await writer.drain()
+    assert await reader.read() == b""  # closed, no response, no crash
+    writer.close()
+    assert h.a.requests == []
+    assert (await h.client.get("/x")).status_code == 200
+
+
+async def test_client_body_cap(h: Harness, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(faultproxy, "MAX_BODY", 10)
+    with pytest.raises(httpx.TransportError):
+        await h.client.post("/x", content=b"y" * 100)
+    assert h.a.requests == []
