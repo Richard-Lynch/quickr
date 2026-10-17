@@ -98,15 +98,15 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
 
 ### WP vectors: `ios/m0-vectors` (worktree `../ios-m0-vectors`)
 
-- [~] Implementation (sub-agent)
-  - [ ] `shared/fixtures/due-vectors.json` with its drift test (DST grid)
-  - [ ] Python port of quick-log (`services/quicklog.py`), plus
+- [x] Implementation (sub-agent): 4 commits. due-vectors.json has 1,831 due cases, 360 messages and 63 slots (671 KB). quicklog-vectors.json has 221 cases. api/ has 29 fixtures.
+  - [x] `shared/fixtures/due-vectors.json` with its drift test (DST grid)
+  - [x] Python port of quick-log (`services/quicklog.py`), plus
         `quicklog-vectors.json`
-  - [ ] Frontend vitest proving TS and Python quick-log agree
-  - [ ] B5: API response fixtures and their generator
-  - [ ] `make vectors`, and `shared/fixtures/README.md`
-- [ ] Gate: `make check` green
-- [ ] Codex review of the WP diff
+  - [x] Frontend vitest proving TS and Python quick-log agree
+  - [x] B5: API response fixtures and their generator
+  - [x] `make vectors`, and `shared/fixtures/README.md`
+- [x] Gate: `make check` green (orchestrator re-run: 324 pytest and 365 vitest passed)
+- [~] Codex review of the WP diff
 - [ ] Merged into `ios/m0-foundations`. Then **regenerate the fixtures**,
       because the feed work adds fields and `/changes`.
 
@@ -230,6 +230,7 @@ Branch `ios/m0-foundations`. PR → `feat/ios-app`.
 
 ## Log
 
+- 2026-10-17: WP vectors done and gate green. Findings to carry into the Swift due port: DST gaps can merge slots, slots must be sorted by UTC instant, the early window can be tiny, `next_due_at` ignores `schedule_since`.
 - 2026-10-17: Plan v3 finalised (PR #6). Notebook merged to `main` (PR #7).
   macOS upgraded to 27.0.1. MobileBuildMCP configured. M0 started with 3
   sub-agents.
