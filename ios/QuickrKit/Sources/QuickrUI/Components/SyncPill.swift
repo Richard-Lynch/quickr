@@ -22,7 +22,7 @@ public struct SyncPill: View {
             Button(action: action) {
                 HStack(spacing: 6) {
                     icon(status)
-                    Text(status.short).lineLimit(1)
+                    Text(status.short).lineLimit(1).minimumScaleFactor(0.7)
                 }
                 .font(.qr(.caption))
                 .padding(.horizontal, 12)

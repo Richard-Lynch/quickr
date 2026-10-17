@@ -27,6 +27,24 @@ public enum ChipSelection {
         isFull(count: current.count, max: max) && !current.contains(value)
     }
 
+    /// The PWA's `selectionHint`: "Pick 2", "Pick 1–3", "Pick up to 3", "Pick at least 2",
+    /// "Pick any". `min` already includes the 1 a required question implies.
+    public static func hint(min: Int, max: Int?) -> String {
+        if let max, min == max { return "Pick \(min)" }
+        if let max, min > 0 { return "Pick \(min)–\(max)" }
+        if let max { return "Pick up to \(max)" }
+        if min > 1 { return "Pick at least \(min)" }
+        return "Pick any"
+    }
+
+    /// The multi-select group's spoken value: "2 selected, pick up to 3", and "limit reached"
+    /// once full.
+    public static func summary(count: Int, min: Int, max: Int?) -> String {
+        var parts = ["\(count) selected", hint(min: min, max: max).lowercased()]
+        if count > 0 && isFull(count: count, max: max) { parts.append("limit reached") }
+        return parts.joined(separator: ", ")
+    }
+
     /// Record-screen layout on a phone is two columns; with 3 or fewer options and an odd count,
     /// the last chip spans both.
     public static func isWide(index: Int, count: Int) -> Bool {

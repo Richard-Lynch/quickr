@@ -66,7 +66,10 @@ public struct QuickrButtonStyle: ButtonStyle {
                 if variant == .secondary { Capsule().strokeBorder(Color.qr.lineStrong, lineWidth: 1) }
             }
             .shadow(color: variant == .primary ? .black.opacity(0.15) : .clear, radius: 0, y: 1)
-            .contentShape(Capsule())
+            // The small size looks 36 pt but takes (and lays out) a 44 × 44 pt hit area, so it
+            // never overlaps a neighbour's target.
+            .frame(minWidth: QuickrMetrics.tapTarget, minHeight: QuickrMetrics.tapTarget)
+            .contentShape(Rectangle())
             .opacity(isEnabled ? 1 : 0.5)
             .scaleEffect(pressed && !reduceMotion ? 0.97 : 1)
             .animation(reduceMotion ? nil : QuickrMotion.press, value: pressed)
@@ -136,7 +139,8 @@ public struct PrimaryButton: View {
     }
 }
 
-/// A round 44 pt (or 36 pt) icon-only button, e.g. the header's settings and add buttons.
+/// A round 44 pt (or 36 pt to look at, still 44 pt to tap) icon-only button, e.g. the header's
+/// settings and add buttons.
 public struct QuickrIconButton: View {
     let icon: QIcon
     let label: String
@@ -160,7 +164,8 @@ public struct QuickrIconButton: View {
                 .foregroundStyle(.qr.inkSoft)
                 .background(bordered ? Color.qr.surface : .clear, in: Circle())
                 .overlay { if bordered { Circle().strokeBorder(Color.qr.lineStrong, lineWidth: 1) } }
-                .contentShape(Circle())
+                .frame(width: QuickrMetrics.tapTarget, height: QuickrMetrics.tapTarget)
+                .contentShape(Rectangle())
         }
         .buttonStyle(QuickrPressStyle(scale: 0.95))
         .accessibilityLabel(label)

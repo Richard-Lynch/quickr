@@ -45,7 +45,7 @@ public struct Chip: View {
     /// - Parameters:
     ///   - isDimmed: at the multi-select limit: still visible and announced, but unavailable.
     ///   - isLast: the answer last time; shown as an accent dot (quick chips).
-    ///   - isConfirmed: just logged; green with a ✓ (quick chips, for ``QuickrTiming/chipConfirm``).
+    ///   - isConfirmed: just logged; green with a ✓ (quick chips, for ``ConfirmFlash/duration``).
     public init(
         _ label: String, role: Role = .radio, style: ChipStyle = .form, isSelected: Bool = false,
         isDimmed: Bool = false, isInvalid: Bool = false, isLast: Bool = false, isConfirmed: Bool = false,
@@ -68,6 +68,9 @@ public struct Chip: View {
                 if showsCheck { QIcon.check.view(size: 16, weight: .heavy) }
                 Text(label)
                     .multilineTextAlignment(.center)
+                    // A single word shrinks rather than breaking mid-word at large text sizes.
+                    .lineLimit(label.contains(" ") ? 3 : 1)
+                    .minimumScaleFactor(0.6)
             }
             .font(style == .form ? .qr(.callout) : .qr(.sansSemiBold, size: 14.5, relativeTo: .callout))
             .padding(.horizontal, style == .form ? 12 : 8)
@@ -85,10 +88,12 @@ public struct Chip: View {
             .contentShape(shape)
         }
         .buttonStyle(QuickrPressStyle(scale: 0.96))
+        // Disabled at the limit: VoiceOver still reaches it and reads it as dimmed.
+        .disabled(isDimmed)
         .opacity(isDimmed ? 0.45 : 1)
         .accessibilityAddTraits(traits)
         .accessibilityValue(accessibilityValue)
-        .accessibilityHint(isDimmed ? "Limit reached. Deselect another to choose this." : "")
+        .accessibilityHint(hint)
     }
 
     private var shape: RoundedRectangle {
@@ -115,23 +120,31 @@ public struct Chip: View {
         return isInvalid ? .qr.danger.opacity(0.6) : .qr.lineStrong
     }
 
+    /// Radio: a button that reads "Selected" when chosen. Checkbox: a toggle (on/off).
     private var traits: AccessibilityTraits {
-        role != .button && isSelected ? [.isButton, .isSelected] : .isButton
+        switch role {
+        case .radio: isSelected ? [.isButton, .isSelected] : .isButton
+        case .checkbox: isSelected ? [.isButton, .isToggle, .isSelected] : [.isButton, .isToggle]
+        case .button: .isButton
+        }
     }
 
     private var accessibilityValue: String {
         var parts: [String] = []
-        if role == .checkbox && !isSelected { parts.append("Not selected") }
+        if isDimmed { parts.append("Unavailable, limit reached") }
         if isLast { parts.append("Same as last time") }
         if isConfirmed { parts.append("Logged") }
         return parts.joined(separator: ", ")
     }
-}
 
-/// Timings that define the logging feel.
-public enum QuickrTiming {
-    /// How long a tapped quick-log chip stays green (the Undo toast has the details).
-    public static let chipConfirm: Duration = .milliseconds(1600)
+    private var hint: String {
+        if isDimmed { return "Deselect another choice to pick this one." }
+        switch role {
+        case .radio: return isSelected ? "" : "Selects this answer."
+        case .checkbox: return ""
+        case .button: return "Logs this answer now."
+        }
+    }
 }
 
 /// Record-screen chips for one question: single select (radio) or multi select (checkbox,
@@ -139,25 +152,35 @@ public enum QuickrTiming {
 public struct ChipGrid: View {
     private enum Mode {
         case single(Binding<String?>, required: Bool)
-        case multi(Binding<[String]>, max: Int?)
+        case multi(Binding<[String]>, min: Int, max: Int?)
     }
 
+    let label: String
     let options: [ChipOption]
     private let mode: Mode
     let isInvalid: Bool
     @State private var tapCount = 0
 
     /// Single select. Tapping the selected chip clears it unless `required`.
-    public init(options: [ChipOption], selection: Binding<String?>, required: Bool, isInvalid: Bool = false) {
+    /// - Parameter label: the question, read as the group's name.
+    public init(
+        _ label: String, options: [ChipOption], selection: Binding<String?>, required: Bool, isInvalid: Bool = false
+    ) {
+        self.label = label
         self.options = options
         self.mode = .single(selection, required: required)
         self.isInvalid = isInvalid
     }
 
     /// Multi select, kept in option order. With `max`, the remaining chips dim at the limit.
-    public init(options: [ChipOption], selection: Binding<[String]>, max: Int? = nil, isInvalid: Bool = false) {
+    /// `min` only feeds the spoken hint ("pick 1–3"); validation is the form's job.
+    public init(
+        _ label: String, options: [ChipOption], selection: Binding<[String]>, min: Int = 0, max: Int? = nil,
+        isInvalid: Bool = false
+    ) {
+        self.label = label
         self.options = options
-        self.mode = .multi(selection, max: max)
+        self.mode = .multi(selection, min: min, max: max)
         self.isInvalid = isInvalid
     }
 
@@ -173,6 +196,29 @@ public struct ChipGrid: View {
             }
         }
         .qrHaptic(.selection, trigger: tapCount)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
+        .accessibilityValue(groupValue)
+        .onChange(of: isFull) { _, full in
+            // Reaching or leaving the limit changes which chips are available: say so.
+            guard case .multi(let selection, _, let max) = mode, let max else { return }
+            let message = full ? "Limit reached, \(max) selected" : "\(selection.wrappedValue.count) of \(max) selected"
+            AccessibilityNotification.Announcement(message).post()
+        }
+    }
+
+    private var groupValue: String {
+        switch mode {
+        case .single(let selection, _):
+            options.first { $0.value == selection.wrappedValue }.map { "\($0.label) selected" } ?? "None selected"
+        case .multi(let selection, let min, let max):
+            ChipSelection.summary(count: selection.wrappedValue.count, min: min, max: max)
+        }
+    }
+
+    private var isFull: Bool {
+        guard case .multi(let selection, _, let max) = mode else { return false }
+        return ChipSelection.isFull(count: selection.wrappedValue.count, max: max)
     }
 
     private var rows: [[(offset: Int, element: ChipOption)]] {
@@ -189,14 +235,13 @@ public struct ChipGrid: View {
                     selection.wrappedValue, tapped: option.value, required: required)
                 tapCount += 1
             }
-        case .multi(let selection, let max):
+        case .multi(let selection, _, let max):
             let current = selection.wrappedValue
             let dimmed = ChipSelection.isDimmed(option.value, in: current, max: max)
             Chip(
                 option.label, role: .checkbox, isSelected: current.contains(option.value), isDimmed: dimmed,
                 isInvalid: isInvalid
             ) {
-                guard !dimmed else { return }
                 selection.wrappedValue = ChipSelection.toggle(
                     current, tapped: option.value, max: max, order: options.map(\.value))
                 tapCount += 1
@@ -214,8 +259,7 @@ public struct QuickChipGrid: View {
     let log: @MainActor (ChipOption) async -> Bool
 
     @State private var busy: String?
-    @State private var confirmed: String?
-    @State private var logCount = 0
+    @State private var flash = ConfirmFlash()
 
     /// - Parameters:
     ///   - label: the group's accessible name, e.g. "Log Headache".
@@ -235,7 +279,7 @@ public struct QuickChipGrid: View {
             ForEach(options) { option in
                 Chip(
                     option.label, role: .button, style: .quick, isLast: last == option.value,
-                    isConfirmed: confirmed == option.value
+                    isConfirmed: flash.value == option.value
                 ) {
                     tap(option)
                 }
@@ -245,12 +289,7 @@ public struct QuickChipGrid: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(label)
-        .qrHaptic(.logged, trigger: logCount)
-        .task(id: confirmed) {
-            guard confirmed != nil else { return }
-            try? await Task.sleep(for: QuickrTiming.chipConfirm)
-            confirmed = nil
-        }
+        .qrHaptic(.logged, trigger: flash.generation)
     }
 
     private func tap(_ option: ChipOption) {
@@ -258,10 +297,7 @@ public struct QuickChipGrid: View {
         Task {
             let ok = await log(option)
             busy = nil
-            if ok {
-                confirmed = option.value
-                logCount += 1
-            }
+            if ok { flash.confirm(option.value) }
         }
     }
 }
@@ -279,8 +315,8 @@ private struct ChipsPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            ChipGrid(options: severity, selection: $single, required: false)
-            ChipGrid(options: workouts, selection: $multi, max: 2)
+            ChipGrid("Severity", options: severity, selection: $single, required: false)
+            ChipGrid("Workout type", options: workouts, selection: $multi, min: 1, max: 2)
             QuickChipGrid(options: severity, last: "none", label: "Log Headache") { _ in
                 try? await Task.sleep(for: .milliseconds(200))
                 return true

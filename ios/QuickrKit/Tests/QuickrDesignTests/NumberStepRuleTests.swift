@@ -73,3 +73,42 @@ import Testing
         #expect(NumberStepRule(integer: true).allowsNegative)
     }
 }
+
+/// Values beyond `Int`'s range must never trap (a pasted "1e30" used to crash on ±).
+@Suite struct NumberStepRuleOverflowTests {
+    let open = NumberStepRule(integer: true)
+
+    @Test func hugePositiveAndNegativeValuesStep() {
+        // A step of 1 is below a double's precision up here, so the value round-trips unchanged.
+        #expect(open.parse(open.bumped("1e30", .up)) == 1e30)
+        #expect(open.parse(open.bumped("-1e30", .down)) == -1e30)
+        #expect(!open.bumped("1e30", .up).contains("e"))
+        #expect(open.parse(open.bumped("1e308", .up)) == 1e308)
+        #expect(open.parse(open.bumped("-1.7976931348623157e308", .down)) == -Double.greatestFiniteMagnitude)
+    }
+
+    @Test func intBoundaryNeighbours() {
+        for text in ["9223372036854775806", "9223372036854775807", "9223372036854775808"] {
+            for direction in [NumberStepRule.Direction.up, .down] {
+                let out = open.bumped(text, direction)
+                #expect(open.parse(out) != nil, "\(text) \(direction)")
+            }
+        }
+        for text in ["-9223372036854775807", "-9223372036854775808", "-9223372036854775809"] {
+            #expect(open.parse(open.bumped(text, .down)) != nil)
+            #expect(open.parse(open.bumped(text, .up)) != nil)
+        }
+        #expect(open.parse(open.format(Double(Int.max))) == Double(Int.max))
+        #expect(open.parse(open.format(Double(Int.min))) == Double(Int.min))
+    }
+
+    @Test func hugeValuesClampToBounds() {
+        let bounded = NumberStepRule(integer: true, min: 0, max: 100)
+        #expect(bounded.bumped("1e30", .down) == "100")
+        #expect(bounded.bumped("-1e30", .up) == "0")
+    }
+
+    @Test func roundingNeverPrintsNegativeZero() {
+        #expect(open.format(-0.4) == "0")
+    }
+}

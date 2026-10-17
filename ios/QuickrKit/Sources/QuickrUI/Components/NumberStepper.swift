@@ -10,7 +10,6 @@ public struct NumberStepper: View {
         /// Tile quick-log: 44 pt.
         case compact
 
-        var side: CGFloat { self == .regular ? QuickrMetrics.chipHeight : QuickrMetrics.tapTarget }
     }
 
     @Binding var text: String
@@ -21,6 +20,9 @@ public struct NumberStepper: View {
     let isInvalid: Bool
     let focus: FocusState<Bool>.Binding?
 
+    // The 52/44 pt sides grow with Dynamic Type so the scaled digits and ± never clip.
+    @ScaledMetric(relativeTo: .title3) private var regularSide = QuickrMetrics.chipHeight
+    @ScaledMetric(relativeTo: .title3) private var compactSide = QuickrMetrics.tapTarget
     @FocusState private var ownFocus: Bool
     @State private var haptic: (QuickrHaptic, Int) = (.increase, 0)
 
@@ -46,8 +48,16 @@ public struct NumberStepper: View {
             field
             stepButton(.up)
         }
-        .frame(height: size.side)
+        .frame(height: side)
         .sensoryFeedback(trigger: haptic.1) { _, _ in haptic.0.feedback }
+    }
+
+    private var side: CGFloat { size == .regular ? regularSide : compactSide }
+
+    /// Buttons grow taller with the text but only a little wider, so the field keeps its room.
+    private var buttonWidth: CGFloat {
+        let base = size == .regular ? QuickrMetrics.chipHeight : QuickrMetrics.tapTarget
+        return min(side, base + 12)
     }
 
     private var isFocused: Bool { focus?.wrappedValue ?? ownFocus }
@@ -115,7 +125,7 @@ public struct NumberStepper: View {
             Text(direction == .up ? "+" : "−")
                 .font(.qr(.sansSemiBold, size: 24, relativeTo: .title2))
                 .foregroundStyle(.qr.inkSoft)
-                .frame(width: size.side, height: size.side)
+                .frame(width: buttonWidth, height: side)
                 .background(Color.qr.surface, in: shape)
                 .overlay(shape.strokeBorder(Color.qr.lineStrong, lineWidth: 1))
                 .contentShape(shape)

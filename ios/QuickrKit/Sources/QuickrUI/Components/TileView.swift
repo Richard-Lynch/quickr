@@ -106,6 +106,7 @@ public struct QuickNumberRow: View {
     let isBusy: Bool
     let error: String?
     let onLog: () -> Void
+    @ScaledMetric(relativeTo: .title3) private var height = QuickrMetrics.tapTarget
 
     public init(
         label: String, text: Binding<String>, rule: NumberStepRule, isBusy: Bool = false, error: String? = nil,
@@ -131,7 +132,7 @@ public struct QuickNumberRow: View {
                 Button(action: onLog) {
                     QIcon.check.view(size: 20, weight: .heavy)
                         .foregroundStyle(.qr.paper)
-                        .frame(width: 48, height: QuickrMetrics.tapTarget)
+                        .frame(width: 48, height: height)
                         .background(Color.qr.ink, in: RoundedRectangle(cornerRadius: QuickrMetrics.controlRadius))
                         .contentShape(Rectangle())
                 }

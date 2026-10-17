@@ -49,3 +49,20 @@ import Testing
         #expect(ChipSelection.quickColumns(count: 6) == 3)
     }
 }
+
+@Suite struct ChipSummaryTests {
+    @Test func hintsMatchThePWA() {
+        #expect(ChipSelection.hint(min: 2, max: 2) == "Pick 2")
+        #expect(ChipSelection.hint(min: 1, max: 3) == "Pick 1–3")
+        #expect(ChipSelection.hint(min: 0, max: 3) == "Pick up to 3")
+        #expect(ChipSelection.hint(min: 2, max: nil) == "Pick at least 2")
+        #expect(ChipSelection.hint(min: 1, max: nil) == "Pick any")
+    }
+
+    @Test func spokenSummaryReachingAndLeavingTheLimit() {
+        #expect(ChipSelection.summary(count: 0, min: 0, max: 3) == "0 selected, pick up to 3")
+        #expect(ChipSelection.summary(count: 2, min: 0, max: 3) == "2 selected, pick up to 3")
+        #expect(ChipSelection.summary(count: 3, min: 0, max: 3) == "3 selected, pick up to 3, limit reached")
+        #expect(ChipSelection.summary(count: 2, min: 1, max: nil) == "2 selected, pick any")
+    }
+}

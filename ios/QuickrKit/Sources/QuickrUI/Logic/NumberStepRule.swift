@@ -71,7 +71,10 @@ public struct NumberStepRule: Hashable, Sendable {
 
     /// Ints round; fixed decimals pad (`2.50`); free precision trims float noise (`0.30000000000000004` → `0.3`).
     public func format(_ value: Double) -> String {
-        if isInteger { return String(Int(value.rounded())) }
+        // "%.0f" never traps, unlike Int(_:), which does for values outside Int's range (a
+        // pasted 1e30). Doubles cannot overflow here: `parse` rejects non-finite input and the
+        // largest finite Double plus a step stays finite.
+        if isInteger { return Self.zeroless(String(format: "%.0f", locale: Self.posix, value.rounded())) }
         if let decimals { return String(format: "%.\(decimals)f", locale: Self.posix, value) }
         return Self.plain(value)
     }
@@ -94,6 +97,8 @@ public struct NumberStepRule: Hashable, Sendable {
         var s = String(format: "%.10f", locale: posix, value)
         while s.hasSuffix("0") { s.removeLast() }
         if s.hasSuffix(".") { s.removeLast() }
-        return s == "-0" ? "0" : s
+        return zeroless(s)
     }
+
+    private static func zeroless(_ s: String) -> String { s == "-0" ? "0" : s }
 }

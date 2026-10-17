@@ -209,9 +209,9 @@ private struct ControlsPage: View {
             SectionHeader("Chips")
             VStack(alignment: .leading, spacing: 16) {
                 label("Severity", note: "single · optional")
-                ChipGrid(options: severity, selection: $single, required: false)
+                ChipGrid("Severity", options: severity, selection: $single, required: false)
                 label("Workout type", note: "\(multi.count) selected · pick 1–2")
-                ChipGrid(options: workouts, selection: $multi, max: 2)
+                ChipGrid("Workout type", options: workouts, selection: $multi, min: 1, max: 2)
             }
             .padding(16)
             .qrCard()
