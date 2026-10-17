@@ -1,603 +1,552 @@
 # Spec: outbox (iOS client)
 
-**Status:** M0 draft, 2026-10-17. **Implements:** PLAN.md §2 ("Outbox" and
-"Server-side safety"), §6, and §6a rules 2, 6 and 7. **Companion specs:**
-[sync-protocol.md](sync-protocol.md) covers the view, acks and tombstones, and
+**Status:** M0 draft, revision 2 (after the Codex spec review), 2026-10-17.
+**Implements:** PLAN.md §2 ("Outbox" and "Server-side safety"), §6, and §6a
+rules 2, 6 and 7. **Companion specs:** [sync-protocol.md](sync-protocol.md)
+covers the view, acks, fences, leases and tombstones.
 [notifications.md](notifications.md) covers action writes.
 
 ## Purpose
 
-The outbox is the only way the iOS client mutates server data while offline. It
-is shared by every process (the app, the widget extension, the notification
-action handler, the App Intents and the NSE), so it must stay correct when:
+The outbox is the only way the iOS client changes server data while offline.
+Every process shares it: the app, the widget extension, the notification action
+handler and App Intents. It must stay correct when:
 
 - processes run concurrently;
-- a process is suspended or killed mid-send;
+- a process is suspended or killed in the middle of a send;
 - a response is lost;
 - the user undoes an action while it is in flight;
-- other devices delete or edit the same data.
+- other devices delete or edit the same data;
+- the server is restored or replaced.
 
-It extends the PWA outbox (`frontend/src/lib/outbox/*`), which has a single
-kind, `entry.create`. The classification table and the backoff stay
-byte-compatible with the PWA. Everything else here is new design: the extra
-kinds, the states, the lock, the ordering, coalescing and undo.
+The outbox extends the PWA outbox (`frontend/src/lib/outbox/*`), which has only
+`entry.create`. The classification table and the backoff are byte-compatible
+with the PWA. Everything else here is new design.
 
-**Normative language.** **MUST**, **MUST NOT**, **SHOULD** and **MAY** are used
-as in RFC 2119. **[server]** marks a contract requirement on the backend (see
-[sync-protocol.md §1.2](sync-protocol.md#12-response)).
+**Normative language.** **MUST**, **MUST NOT**, **SHOULD** and **MAY** follow
+RFC 2119. **[server]** marks a backend contract requirement
+([sync-protocol.md §1.3](sync-protocol.md#13-contract-requirements)).
 
 ## Glossary
 
-| Term                | Meaning                                                                                                                                                                                       |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Item**            | One queued operation (one row of `outbox_item`).                                                                                                                                              |
-| **Entity**          | What an item mutates: `entry:{id}` or `topic:{id}`.                                                                                                                                           |
-| **seq**             | The local, monotonically increasing `INTEGER PRIMARY KEY AUTOINCREMENT` of `outbox_item`. It is the total order of user intent across processes. Wall-clock `created_at` is for display only. |
-| **Active**          | An item whose state is `pending`, `in_flight` or `uncertain`.                                                                                                                                 |
-| **Unresolved**      | An item that is active, `held` or `failed`. In other words, still in the table.                                                                                                               |
-| **Never delivered** | An item with `maybe_delivered = 0`: no request for it can have reached the server.                                                                                                            |
-| **Claim**           | Moving an item to `in_flight` under the flush lock, with a fresh `claim_token`.                                                                                                               |
-| **CAS**             | Compare-and-set on `claim_token` (for send bookkeeping) or on `row_version` (for user edits).                                                                                                 |
-| **Retire**          | Remove an item without a server effect and without an error. The goal is moot or already met.                                                                                                 |
-| **Ack**             | Remove an item after a definitive success ([sync-protocol.md §6](sync-protocol.md#6-atomic-ack-6a-rule-7)).                                                                                   |
-| **Base revision**   | The entity `revision` an update or archive was based on. It is sent as `expected_revision`.                                                                                                   |
-| **Budget**          | The wall-clock time a process may spend flushing before it must stop.                                                                                                                         |
+| Term                | Meaning                                                                                                                                                                                                                                                                                        |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Item**            | One queued operation, stored as one row of `outbox_item`.                                                                                                                                                                                                                                      |
+| **Entity**          | What an item changes: `entry:{id}` or `topic:{id}`.                                                                                                                                                                                                                                            |
+| **seq**             | The local `INTEGER PRIMARY KEY AUTOINCREMENT` of `outbox_item`. It is the total order of user intent across processes.                                                                                                                                                                         |
+| **Topic scope**     | All unresolved items with the same `topic_id`, ordered by `seq`.                                                                                                                                                                                                                               |
+| **Active**          | An item whose state is `pending`, `in_flight` or `uncertain`.                                                                                                                                                                                                                                  |
+| **Unresolved**      | An item that is active, `held` or `failed`; in other words, any item still in the table.                                                                                                                                                                                                       |
+| **Never attempted** | `attempts = 0`. No request for the item has ever been built. Only never-attempted items can be coalesced (§8).                                                                                                                                                                                 |
+| **Maybe delivered** | `maybe_delivered = 1`. A request for the item might have reached the server.                                                                                                                                                                                                                   |
+| **Claim**           | Moving an item to `in_flight` while holding the `flush` lease, with a fresh `claim_token`.                                                                                                                                                                                                     |
+| **Sender check**    | The fence that every transaction run by a sender must pass: the `flush` lease is valid and has my token, the item still has my `claim_token`, `layer_gen` and `epoch` equal the claim's, and the store is not retired ([sync-protocol.md §5.5](sync-protocol.md#55-fencing-and-generations)).  |
+| **Retire**          | Remove an item without a server effect and without an error, because its goal is moot or already met.                                                                                                                                                                                          |
+| **Ack**             | Remove an item after a definitive success ([sync-protocol.md §6](sync-protocol.md#6-atomic-ack-6a-rule-7)).                                                                                                                                                                                    |
+| **Base revision**   | The entity `revision` that an update or archive was based on. It is sent as `expected_revision`.                                                                                                                                                                                               |
+| **Lease time**      | `(boot_id, ct)`, where `ct` is nanoseconds of `mach_continuous_time`. Every deadline in this spec (leases, holds, backoff) uses lease time. A different `boot_id` means the deadline has passed ([sync-protocol.md §5.3](sync-protocol.md#53-lease-row-semantics-shared-with-the-flush-lock)). |
+| **Budget**          | The wall time a process may spend flushing before it must stop.                                                                                                                                                                                                                                |
 
 ## 1. Kinds
 
-| Kind              | Entity            | Request                                                                         | Payload (JSON)                                                                                                                                      |
-| ----------------- | ----------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `entry.create`    | `entry:{item.id}` | `POST /api/v1/topics/{topic_id}/entries` with body `{...body, id: item.id}`     | `{topic: {id, slug, name}, body: EntryCreate without id}`. `body.version` is always set (the pinned version), and `body.captured_at` is always set. |
-| `entry.update`    | `entry:{id}`      | `PATCH /api/v1/entries/{id}` with body `{...changed fields, expected_revision}` | `{entry_id, topic_id, patch: EntryUpdate}`. Only the changed keys are included.                                                                     |
-| `entry.delete`    | `entry:{id}`      | `DELETE /api/v1/entries/{id}`                                                   | `{entry_id, topic_id}`                                                                                                                              |
-| `topic.archive`   | `topic:{id}`      | `POST /api/v1/topics/{id}/archive` with body `{expected_revision}`              | `{topic_id}`                                                                                                                                        |
-| `topic.unarchive` | `topic:{id}`      | `POST /api/v1/topics/{id}/unarchive` with body `{expected_revision}`            | `{topic_id}`                                                                                                                                        |
+| Kind              | Entity            | Request                                                                     | Payload (JSON)                                                                                                   |
+| ----------------- | ----------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `entry.create`    | `entry:{item.id}` | `POST /api/v1/topics/{topic_id}/entries`, body `{...body, id: item.id}`     | `{topic: {id, slug, name}, body: EntryCreate without id}`. `body.version` and `body.captured_at` are always set. |
+| `entry.update`    | `entry:{id}`      | `PATCH /api/v1/entries/{id}`, body `{...changed fields, expected_revision}` | `{entry_id, topic_id, patch: EntryUpdate}`, holding only the changed keys                                        |
+| `entry.delete`    | `entry:{id}`      | `DELETE /api/v1/entries/{id}`                                               | `{entry_id, topic_id}`                                                                                           |
+| `topic.archive`   | `topic:{id}`      | `POST /api/v1/topics/{id}/archive`, body `{expected_revision}`              | `{topic_id}`                                                                                                     |
+| `topic.unarchive` | `topic:{id}`      | `POST /api/v1/topics/{id}/unarchive`, body `{expected_revision}`            | `{topic_id}`                                                                                                     |
 
-Notes:
-
-- The item id **is** the entry id for `entry.create`, so creation is idempotent
-  (PWA parity). For other kinds, the item id is a fresh UUID.
-- Requests are built **at send time** from the payload, and `expected_revision`
-  is taken from the item's current `base_revision` (§7.3). This is PWA parity:
-  `toRequest` runs at send time.
-- The topic is addressed by **id**, never by slug, because a slug can be renamed
-  while the item waits.
-- `expected_revision` is omitted when `base_revision` is null. This only happens
-  for items that were enqueued before the server supported revisions.
-  **[server]** `expected_revision` is optional, which keeps the PWA unchanged.
+- For `entry.create`, the item id **is** the entry id, so creation is idempotent
+  (as in the PWA). Every other kind gets a fresh UUID as its item id.
+- Requests are built **at send time**. `expected_revision` comes from the item's
+  current `base_revision` (§7.3).
+- The topic is addressed by **id**, never by slug.
 
 ## 2. Item schema
 
 ```sql
 CREATE TABLE outbox_item (
   seq             INTEGER PRIMARY KEY AUTOINCREMENT,
-  id              TEXT NOT NULL UNIQUE,          -- uuid
-  kind            TEXT NOT NULL,                 -- §1
+  id              TEXT NOT NULL UNIQUE,
+  kind            TEXT NOT NULL,
   entity_kind     TEXT NOT NULL,                 -- 'entry' | 'topic'
   entity_id       TEXT NOT NULL,
   topic_id        TEXT NOT NULL,
   payload_json    TEXT NOT NULL,
-  base_revision   INTEGER,                       -- §7.3; NULL = "inherit from predecessor"
+  base_revision   INTEGER,                       -- §7.3; NULL = inherit from predecessor
   state           TEXT NOT NULL CHECK (state IN ('held','pending','in_flight','uncertain','failed')),
-  maybe_delivered INTEGER NOT NULL DEFAULT 0,    -- sticky: a request may have reached the server
-  hold_until      REAL,                          -- epoch seconds; only for state 'held'
+  maybe_delivered INTEGER NOT NULL DEFAULT 0,    -- sticky
   attempts        INTEGER NOT NULL DEFAULT 0,
-  next_attempt_at REAL NOT NULL,                 -- epoch seconds (backoff)
+  due_boot_id     TEXT,                          -- backoff deadline in lease time; NULL = due now
+  due_ct          INTEGER,
+  hold_boot_id    TEXT,                          -- undo hold deadline in lease time (state 'held')
+  hold_ct         INTEGER,
   claim_token     TEXT,                          -- set while in_flight
-  claim_owner     TEXT,                          -- process instance id
-  claim_epoch     TEXT,                          -- store epoch at claim time
-  claimed_at      REAL,
-  failure_reason  TEXT,                          -- §5: rejected | deleted_elsewhere | conflict | topic_archived | topic_missing | future_time
-  last_error_json TEXT,                          -- {message, status, body?} (PWA OutboxError shape)
-  rebase_count    INTEGER NOT NULL DEFAULT 0,    -- §7.4
-  origin          TEXT NOT NULL,                 -- app | widget | notification | siri | nse
-  created_at      REAL NOT NULL,
+  claim_owner     TEXT,
+  claim_layer_gen INTEGER,                       -- sync_state.layer_gen at claim
+  claim_epoch     TEXT,                          -- sync_state.epoch at claim
+  pre_claim_json  TEXT,                          -- {state, attempts, due_*} before the claim (§5.2 precondition restore)
+  failure_reason  TEXT,                          -- rejected | deleted_elsewhere | conflict | topic_archived | topic_missing | future_time
+  last_error_json TEXT,                          -- {message, status, body?}, the PWA OutboxError shape
+  rebase_count    INTEGER NOT NULL DEFAULT 0,
+  origin          TEXT NOT NULL,                 -- app | widget | notification | siri
+  created_at      REAL NOT NULL,                 -- wall clock, for display and archived_at only
   updated_at      REAL NOT NULL,
-  row_version     INTEGER NOT NULL DEFAULT 0     -- bumped on every write; CAS for user edits
+  row_version     INTEGER NOT NULL DEFAULT 0     -- CAS for user edits
 );
 CREATE INDEX ix_outbox_entity ON outbox_item(entity_kind, entity_id, seq);
 CREATE INDEX ix_outbox_topic  ON outbox_item(topic_id, seq);
-CREATE INDEX ix_outbox_due    ON outbox_item(state, next_attempt_at);
+CREATE INDEX ix_outbox_state  ON outbox_item(state);
 ```
 
-`last_error_json` uses the same shape as the PWA's `OutboxError`. A sync sheet
-can then use one formatter, `errorMessageFor` ported from `classify.ts`.
+An item is **due** when `due_boot_id IS NULL`, or
+`due_boot_id ≠ current_boot_id`, or `now_ct ≥ due_ct`. A hold has **passed**
+under the same rule applied to its `hold_*` fields. Changing the wall clock in
+either direction never delays or advances an item.
 
 ## 3. State machine
 
-| State       | Meaning                                                                                                                                                                         | In the view ([sync-protocol.md §3.2](sync-protocol.md#32-how-the-view-is-computed)) |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `held`      | Enqueued, but waiting for an undo window to close (`hold_until`). It is never sent. Only `entry.delete` uses this state.                                                        | Applied (the row is hidden, and undoable)                                           |
-| `pending`   | Will be sent automatically when `next_attempt_at ≤ now` (or when a flush is forced). `maybe_delivered = 0`.                                                                     | Applied                                                                             |
-| `in_flight` | Claimed by a flush. A request may be on the wire.                                                                                                                               | Applied                                                                             |
-| `uncertain` | Like `pending`, but `maybe_delivered = 1`: an earlier attempt may have reached the server. Its "delivery uncertain" status is shown in the sync sheet as "Sending… (checking)". | Applied                                                                             |
-| `failed`    | Terminal. Needs the user to Retry, Fix or Discard (§11). It is never sent automatically, even by a forced flush (PWA parity).                                                   | Applied for display, flagged failed                                                 |
+| State       | Meaning                                                                                                            | In the view                                  |
+| ----------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| `held`      | Only `entry.delete`, while its undo window is open. The item is never sent and is never coalesced (§9.2).          | Applied: the row is hidden but can be undone |
+| `pending`   | Sent automatically when due, or when a flush is forced. `maybe_delivered = 0`.                                     | Applied                                      |
+| `in_flight` | Claimed. A request may be on the wire.                                                                             | Applied                                      |
+| `uncertain` | Like `pending`, but `maybe_delivered = 1`. The sync sheet shows it as "Sending… (checking)".                       | Applied                                      |
+| `failed`    | Terminal. The user can Retry, Fix or Discard it (§11). It is never sent automatically, not even by a forced flush. | Applied for display and flagged              |
 
-Items leave the table by **ack**, **retire**, **discard** (a user action), or
-**supersede** (coalescing, §8).
+Items leave the table through **ack**, **retire**, **discard** (a user action)
+or **coalesce** (§8).
 
 ```mermaid
 stateDiagram-v2
-  [*] --> held: enqueue delete with undo window
+  [*] --> held: delete with undo window
   [*] --> pending: enqueue
-  held --> pending: hold_until passed / app backgrounded
-  held --> [*]: undo (discard)
-  pending --> in_flight: claim (under flush_lock)
+  held --> [*]: undo (only the held delete is removed)
+  held --> pending: hold passed / app backgrounded → release coalescing (§8.3)
+  pending --> in_flight: claim
   uncertain --> in_flight: claim
   in_flight --> [*]: ok → ack / retire-class outcome
-  in_flight --> pending: retry-class outcome, response received, maybe_delivered=0
-  in_flight --> uncertain: no response / 5xx / timeout / lock expired / process died
+  in_flight --> pending: retry-class response, maybe_delivered=0
+  in_flight --> uncertain: no response / 5xx / lease lost / process died / swap
   in_flight --> failed: terminal outcome
-  in_flight --> in_flight: stale_revision → rebase & resend (§7.4)
+  in_flight --> pending: 409 server_mismatch / epoch_mismatch (restore pre-claim state)
+  in_flight --> in_flight: stale_revision → verified rebase & resend (§7.4)
   pending --> failed: tombstone (deleted_elsewhere) / future_time
   uncertain --> failed: tombstone (deleted_elsewhere)
-  failed --> pending: Retry / Fix (maybe_delivered unchanged → uncertain if 1)
+  failed --> pending: Retry / Fix
   failed --> [*]: Discard
-  pending --> [*]: coalesced / undo / retire
-  uncertain --> [*]: superseded by delete (§8 C5) / pull-ack
 ```
 
-The transition rules are binding:
+The pre-claim state is `pending` or `uncertain`. A `pending` item can also leave
+the table without being sent: by coalescing, undo or retirement.
 
-| #   | Rule                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| S1  | A claim sets `state = in_flight`, a new `claim_token`, `claim_owner`, `claim_epoch` and `claimed_at`, and does `attempts += 1`. It happens in an `IMMEDIATE` transaction that also verifies flush-lock ownership (§6).                                                                                                                                                                                                        |
-| S2  | All bookkeeping after a send is CAS on `claim_token`. If the token no longer matches, the outcome is ignored, except that guarded server state is still applied ([sync-protocol.md §6](sync-protocol.md#6-atomic-ack-6a-rule-7) step 1).                                                                                                                                                                                      |
-| S3  | `maybe_delivered` is set to 1 when an attempt ends **without a definitive response**: a network error after the request started, a timeout, a 5xx, the process dying, or the lock expiring. It is **never cleared**.                                                                                                                                                                                                          |
-| S4  | A non-terminal, non-ok outcome returns the item to `uncertain` if `maybe_delivered = 1`, and to `pending` otherwise. Either way, `next_attempt_at = now + backoff(attempts)`.                                                                                                                                                                                                                                                 |
-| S5  | `failed` is only entered with a `failure_reason`. It never applies to an item that has had a 2xx.                                                                                                                                                                                                                                                                                                                             |
-| S6  | Payloads are only edited in `pending`, `held` or `failed` (§8, §11), under CAS on `row_version`. An item that is `in_flight` or `maybe_delivered = 1` is never edited. It can only be superseded by a delete (§8 C5), or discarded (§11).                                                                                                                                                                                     |
-| S7  | Within one entity, at most one item is `in_flight`, and only the oldest unresolved item of its ordering scope can be claimed (§7.1).                                                                                                                                                                                                                                                                                          |
-| S8  | **A create is never resent once a delete for its entity is queued.** If the next eligible item is an `entry.create` that is not `in_flight` and a later unresolved `entry.delete` exists for the same entity, the claim transaction removes the create (it is superseded) and claims the delete instead. This covers the C6 case where the in-flight create resolves as `uncertain`. The DELETE reserves the id (§6a rule 2). |
+| #   | Rule                                                                                                                                                                                                                                                                                                                        |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S1  | A claim happens in one `IMMEDIATE` transaction that renews the `flush` lease and checks the rebuild guard (§6.2). It saves `pre_claim_json`, sets `state = in_flight`, a new `claim_token`, `claim_owner`, `claim_layer_gen` and `claim_epoch`, and does `attempts += 1`.                                                   |
+| S2  | **Every** transaction a sender runs after its claim begins with the **sender check**. This includes outcome bookkeeping, acks, rebase upserts, revision updates, and the decision to resend. If the check fails, the sender **discards the outcome entirely and stops**. It writes nothing: no server state, no item state. |
+| S3  | `maybe_delivered` becomes 1 when an attempt ends without a definitive response: a network error after the request started, a timeout, a 5xx, the process dying, the lease being lost, or a rebuild swap. **It is never cleared.**                                                                                           |
+| S4  | A retry-class outcome returns the item to `uncertain` if `maybe_delivered = 1`, and to `pending` otherwise. The backoff deadline becomes `now_ct + backoff(attempts)`.                                                                                                                                                      |
+| S5  | An item only enters `failed` with a `failure_reason`. An item that has had a 2xx never fails.                                                                                                                                                                                                                               |
+| S6  | Payloads are edited only by coalescing, which applies to never-attempted `pending` items (§8), or by Fix, which applies to `failed` items with `maybe_delivered = 0` (§11). Both use CAS on `row_version`.                                                                                                                  |
+| S7  | Each entity has at most one item `in_flight`, and only the oldest unresolved item in its scope can be claimed (§7.1).                                                                                                                                                                                                       |
 
 ## 4. Request construction
 
-- Base URL: the store's `base_url`
-  ([sync-protocol.md §8](sync-protocol.md#8-server-identity-and-store-partitioning-6a-rule-8)),
-  after the identity check in sync-protocol.md §8.3.
-- Headers on every request:
+- **Base URL** is the store's `base_url`.
+- **Headers on every request:**
   - `Accept: application/json`;
   - `Content-Type: application/json` when there is a body;
   - `X-QuickR-Channel: ios`;
-  - `CF-Access-Client-Id` and `CF-Access-Client-Secret` when they are
-    configured;
-  - `Cache-Control: no-store`.
-- `source` in `entry.create`'s body is set at enqueue from the origin:
-  - `ios` from the app;
-  - `ios.widget` from a widget;
-  - `ios.notification` from a notification action;
-  - `ios.siri` from an App Intent run by Siri or Shortcuts.
-- **Redirects are never followed.** `URLSessionTaskDelegate` returns `nil` for
-  the redirect. A 3xx is classified as described below (PWA `redirect: 'manual'`
-  parity).
-- **Timeout: 15 s per request** (PWA `DEFAULT_TIMEOUT_MS`), and it is also
-  capped by the remaining budget. A timeout is a network error.
-- Requests use a foreground `URLSession`. **Background `URLSession` is not
-  used** (research 02 §3): a background upload could be delivered after an Undo.
+  - the CF Access headers, when configured;
+  - `Cache-Control: no-store`;
+  - **`X-QuickR-Expect-Server-Id: <store.server_id>`** and
+    **`X-QuickR-Expect-Epoch: <claim_epoch>`**. All outbox requests are
+    mutations
+    ([sync-protocol.md §1.4](sync-protocol.md#14-identity-and-epoch-what-the-client-sends-and-checks)).
+- **`source` in `entry.create`** depends on the process that enqueued it:
+
+  | Origin                       | `source`           |
+  | ---------------------------- | ------------------ |
+  | App                          | `ios`              |
+  | Widget                       | `ios.widget`       |
+  | Notification action          | `ios.notification` |
+  | App Intent (Siri, Shortcuts) | `ios.siri`         |
+
+- **Redirects are never followed**, matching the PWA's `redirect: 'manual'`.
+- **Timeout** is 15 s per request, capped by the remaining budget. A timeout
+  counts as a network error.
+- **Foreground `URLSession` only.** A background `URLSession` could deliver a
+  request after Undo.
 
 ## 5. Classification
 
-### 5.1 Base table (byte-compatible with the PWA `classifyStatus` plus `attempt()`)
+### 5.1 Base table (byte-compatible with PWA `classifyStatus` and `attempt()`)
 
-| Response                                            | Base outcome             | `maybe_delivered`              | Error message (PWA text)                                       |
-| --------------------------------------------------- | ------------------------ | ------------------------------ | -------------------------------------------------------------- |
-| No response (offline, DNS, TLS, timeout, cancelled) | retry, **stop the pass** | → 1 if the request was started | "Could not reach the server"                                   |
-| 2xx with a JSON body or an empty body               | ok                       | —                              | —                                                              |
-| 2xx with a non-JSON body (captive portal)           | retry                    | unchanged                      | "Unexpected response from the server"                          |
-| 3xx                                                 | retry                    | unchanged                      | "The server redirected the request (sign-in required?)"        |
-| 401, 403, 408, 425, 429                             | retry                    | unchanged                      | Problem `detail`, or "Request failed (_status_)"               |
-| Any other 4xx (400, 404, 409, 422 …)                | terminal                 | unchanged                      | Problem `detail` (capitalised), or "Request failed (_status_)" |
-| 5xx                                                 | retry                    | → 1                            | "Server error (_status_)"                                      |
-
-Notes:
-
-- "Stop the pass" follows the PWA: after a network error, no further items are
-  tried in this flush, so their attempts aren't burned while offline.
-- 5xx and timeouts set `maybe_delivered`, because the server may have committed
-  before failing. 3xx and the retryable 4xx statuses don't: they come from an
-  auth proxy or a rate limiter before the request reaches the app server. This
-  is the only addition to the PWA's behaviour, and it doesn't change any
-  outcome.
+| Response                                            | Base outcome                         | `maybe_delivered`              | Message (PWA text)                                      |
+| --------------------------------------------------- | ------------------------------------ | ------------------------------ | ------------------------------------------------------- |
+| No response (offline, DNS, TLS, timeout, cancelled) | retry, **stop the pass**             | → 1 if the request was started | "Could not reach the server"                            |
+| 2xx with JSON or an empty body                      | ok (after the header checks in §5.2) | —                              | —                                                       |
+| 2xx with a non-JSON body                            | retry                                | unchanged                      | "Unexpected response from the server"                   |
+| 3xx                                                 | retry                                | unchanged                      | "The server redirected the request (sign-in required?)" |
+| 401, 403, 408, 425, 429                             | retry                                | unchanged                      | Problem `detail`, or "Request failed (_status_)"        |
+| Any other 4xx                                       | terminal                             | unchanged                      | Problem `detail`, or "Request failed (_status_)"        |
+| 5xx                                                 | retry                                | → 1                            | "Server error (_status_)"                               |
 
 ### 5.2 Per-kind overrides
 
-The kind's override is checked first. The Problem `code` comes from the parsed
-JSON body. If the body is unparseable, no code-specific row matches.
+Overrides are checked first. The Problem `code` comes from the JSON body.
 
-| Kind                        | Response                                  | Outcome                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| --------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `entry.create`              | 2xx                                       | **Ack.** The upserted row is the response (`EntryOut`).                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `entry.create`              | 409 `entry_deleted`                       | **Retire**, never materialise (§6a rule 2). In one transaction: insert a local tombstone for the id, remove the item, and remove the entity's overlay so no row is shown. A later `entry.delete` for the entity, if one exists, is acked silently. If no later `entry.delete` exists, the deletion came from elsewhere: the item becomes `failed/deleted_elsewhere` instead. It still has no view row, but it shows in the sync sheet, so the loss is visible. |
-| `entry.create`              | 404 (`not_found`, the topic is missing)   | `failed`, `topic_missing`: "This topic no longer exists". A pull is triggered; the topic tombstone then turns it into `deleted_elsewhere`.                                                                                                                                                                                                                                                                                                                     |
-| `entry.create`              | 409 `topic_archived`                      | `failed`, `topic_archived`: "Topic is archived — unarchive it to sync this entry". Retry is offered once the view shows the topic active.                                                                                                                                                                                                                                                                                                                      |
-| `entry.create`              | 409 `conflict` (id used by another topic) | `failed`, `rejected`                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `entry.create`              | 422                                       | `failed`, `rejected`. The Fix flow opens the record screen with the field errors (PWA parity).                                                                                                                                                                                                                                                                                                                                                                 |
-| `entry.update`              | 2xx                                       | Ack                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `entry.update`              | 404, or 409 `entry_deleted`               | **The entity is gone.** Insert a local tombstone and remove the server row, then apply [sync-protocol.md §5.3](sync-protocol.md#53-tombstones) to this item and its dependants. This item becomes `failed/deleted_elsewhere` unless a later `entry.delete` exists, in which case it is retired.                                                                                                                                                                |
-| `entry.update`              | 409 `stale_revision`                      | **Rebase** (§7.4)                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `entry.update`              | 422                                       | `failed`, `rejected` (Fix)                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `entry.delete`              | 2xx (204), **404**, 409 `entry_deleted`   | **Ack (done).** Insert a local tombstone and remove the server row. The 404 case covers old servers and ids that are already gone. With §6a rule 2, the server returns 204 for absent ids.                                                                                                                                                                                                                                                                     |
-| `topic.archive`             | 2xx                                       | Ack (the response is `TopicDetail`)                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `topic.archive`             | 404                                       | Retire (the topic is gone). A pull is triggered.                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `topic.unarchive`           | 404                                       | `failed/deleted_elsewhere`. A pull is triggered.                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `topic.archive`/`unarchive` | 409 `stale_revision`                      | Rebase (§7.4)                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| All kinds                   | Any other response                        | The base table (§5.1)                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Kind                        | Response                                               | Outcome                                                                                                                                                                                                                                                                                                          |
+| --------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **All**                     | 409 `server_mismatch`                                  | **Not executed.** Restore `pre_claim_json`: state, attempts and deadline. `maybe_delivered` is unchanged. Stop the pass. Put the store into identity mismatch ([sync-protocol.md §8.3](sync-protocol.md#83-identity-mismatch)).                                                                                  |
+| **All**                     | 409 `epoch_mismatch`                                   | **Not executed.** Restore `pre_claim_json` and stop the pass. Ask the coordinator to rebuild ([sync-protocol.md §7](sync-protocol.md#7-epoch-rebuild-in-place)).                                                                                                                                                 |
+| **All**                     | 2xx whose `X-QuickR-Server-Id` is missing or different | Discard the outcome and stop. The item becomes `uncertain` (S3), and the store goes into identity mismatch.                                                                                                                                                                                                      |
+| **All**                     | 2xx whose `X-QuickR-Epoch` ≠ `claim_epoch`             | Discard the outcome and stop. The item becomes `uncertain`, and a rebuild is requested.                                                                                                                                                                                                                          |
+| `entry.create`              | 2xx                                                    | **Ack.** The row is `EntryOut`.                                                                                                                                                                                                                                                                                  |
+| `entry.create`              | 409 `entry_deleted`                                    | **Never materialise** (§6a rule 2). In one transaction: insert a local tombstone and remove the item and its overlay. If a later `entry.delete` exists for the entity, it is acked silently. Otherwise the item becomes `failed/deleted_elsewhere`, which has no row in the view and is shown in the sync sheet. |
+| `entry.create`              | 404 (topic missing)                                    | `failed/topic_missing`, and a pull is triggered. The topic's tombstone then turns it into `deleted_elsewhere`.                                                                                                                                                                                                   |
+| `entry.create`              | 409 `topic_archived`                                   | `failed/topic_archived`: "Topic is archived. Unarchive it to sync this entry."                                                                                                                                                                                                                                   |
+| `entry.create`              | 409 `conflict`, or 422                                 | `failed/rejected`. A 422 offers Fix with the field errors.                                                                                                                                                                                                                                                       |
+| `entry.update`              | 2xx                                                    | Ack                                                                                                                                                                                                                                                                                                              |
+| `entry.update`              | 404, or 409 `entry_deleted`                            | **Entity gone.** Insert a local tombstone, remove the row, and apply [sync-protocol.md §4.3](sync-protocol.md#43-tombstones). This item becomes `failed/deleted_elsewhere`, unless a later `entry.delete` exists, in which case it is retired.                                                                   |
+| `entry.update`              | 409 `stale_revision`                                   | **Rebase** (§7.4)                                                                                                                                                                                                                                                                                                |
+| `entry.update`              | 422                                                    | `failed/rejected` (Fix)                                                                                                                                                                                                                                                                                          |
+| `entry.delete`              | 2xx, 404, or 409 `entry_deleted`                       | **Ack (done).** Insert a local tombstone and remove the row.                                                                                                                                                                                                                                                     |
+| `topic.archive`             | 2xx                                                    | Ack (`TopicDetail`)                                                                                                                                                                                                                                                                                              |
+| `topic.archive`             | 404                                                    | Retire, and trigger a pull                                                                                                                                                                                                                                                                                       |
+| `topic.unarchive`           | 404                                                    | `failed/deleted_elsewhere`, and trigger a pull                                                                                                                                                                                                                                                                   |
+| `topic.archive`/`unarchive` | 409 `stale_revision`                                   | Rebase (§7.4)                                                                                                                                                                                                                                                                                                    |
+| All                         | Anything else                                          | §5.1                                                                                                                                                                                                                                                                                                             |
 
-**[server]** The client depends on these behaviours:
+Every outcome above is applied only after the **sender check** passes (S2).
 
-- 409 Problem codes `entry_deleted` and `stale_revision`;
-- PATCH on a deleted id returns 404 `not_found`;
-- DELETE returns 204 for an id that is absent or already reserved;
-- a POST replay of a live id returns the existing entry with 201, even if the
-  topic is now archived. This is today's `_existing` check, which runs before
-  the archived check.
-
-### 5.3 Backoff (byte-compatible with the PWA `backoffMs`)
+### 5.3 Backoff (byte-compatible with the PWA)
 
 `backoff(n) = min(5 min, 2 s · 2^(n−1)) × U(0.8, 1.2)`, where `n` is the number
-of attempts made so far (≥ 1). A **forced** flush ignores `next_attempt_at`. A
-forced flush happens on app activation, when the network becomes available, and
-when the user taps Retry.
+of attempts made (n ≥ 1). The deadline is stored in lease time. A forced flush
+ignores deadlines. Flushes are forced on app activation, when the network
+becomes available, and on Retry.
 
 ## 6. The flush lock
 
-### 6.1 Schema and identity
+### 6.1 The lease
 
-```sql
-CREATE TABLE flush_lock (
-  id          INTEGER PRIMARY KEY CHECK (id = 1),
-  owner       TEXT,      -- process instance id: "<bundle-suffix>:<launch uuid>", e.g. "app:6F1…", "widgets:A2…"
-  token       TEXT,      -- fencing token, new on every acquisition
-  acquired_at REAL,
-  expires_at  REAL       -- epoch seconds, wall clock
-);
-```
+The flush lock is the `flush` row of the store's `lease` table. It uses the
+semantics in
+[sync-protocol.md §5.3](sync-protocol.md#53-lease-row-semantics-shared-with-the-flush-lock):
+lease time, a boot id and a fencing token, with **TTL = 30 s**. The lease is
+renewed in every claim transaction. A request takes at most 15 s, so a live
+holder never loses the lease; only a suspended or dead one does.
 
-There is **one lock per store**. The lock is a row, not a SQLite lock. **No
-SQLite transaction is held while a request is on the wire.**
+Lock order: `sync` → `flush`. A flusher never waits for `sync`. **No SQLite
+transaction is open while a request is in flight.**
 
-### 6.2 Acquire, renew and release
+### 6.2 Claims and the rebuild guard
 
-| Operation   | Transaction       | Rule                                                                                                                                                                                                                                                                                                                                                           |
-| ----------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Acquire** | `BEGIN IMMEDIATE` | Succeeds if `owner IS NULL` or `expires_at < now`. It sets `owner = me`, a new `token`, and `expires_at = now + TTL`. If it took over an expired lock, it first runs **expiry recovery** (§6.3) in the same transaction. If the lock is held and live, the caller either gives up (when its trigger is opportunistic) or polls every 250 ms within its budget. |
-| **Renew**   | `BEGIN IMMEDIATE` | Runs before every claim, together with the claim. It requires `owner = me AND token = myToken AND expires_at ≥ now`, and sets `expires_at = now + TTL`. If the check fails, the holder has **lost the lock**: it MUST stop claiming and MUST NOT write bookkeeping except through CAS.                                                                         |
-| **Release** | `BEGIN IMMEDIATE` | `owner = NULL` if `token = myToken`. It runs at the end of the pass, on budget expiry, in the `beginBackgroundTask` expiration handler, and when the NSE's `serviceExtensionTimeWillExpire` fires.                                                                                                                                                             |
-
-**TTL = 30 s.** A request is capped at 15 s, and the lock is renewed before
-every claim, so a live holder never loses it. Only a holder that is suspended or
-dead does.
-
-Wall-clock time is used because monotonic clocks aren't shared between
-processes. If the user changes the device clock, the worst case is an early
-takeover, which the server-side safety (§6.4) makes harmless.
-
-**Rebuild guard.** The claim transaction also reads `sync_state.rebuilding`. If
-it is set, nothing is claimed
-([sync-protocol.md §7](sync-protocol.md#7-epoch-reset-rebuild-in-place)).
+A claim transaction reads `sync_state.rebuilding`. If it is set, the transaction
+claims nothing. It also checks `retired = 0` and `identity_mismatch = 0`, and
+claims nothing if either is set. Enqueueing is never blocked by these flags.
 
 ### 6.3 Expiry recovery
 
-When a process acquires a lock whose previous owner expired, it runs these steps
-in the acquiring transaction:
+When a process acquires a `flush` lease whose previous holder has expired, it
+runs this in the same transaction:
 
-- Every `in_flight` item claimed under the previous owner moves to `uncertain`:
-  `maybe_delivered = 1`, the claim fields are cleared, and
-  `next_attempt_at = now`.
-- `attempts` is unchanged. It was already incremented at claim time.
+- every `in_flight` item moves to `uncertain`, with `maybe_delivered = 1`;
+- its claim fields and `pre_claim_json` are cleared, so the old holder's sender
+  check now fails;
+- its backoff deadline is cleared, so it is due now.
 
-An item left `in_flight` by a process that crashed is recovered the same way.
-Its lock expires within 30 s.
+`attempts` is unchanged.
 
-### 6.4 Late completion
+### 6.4 Late completion and superseded senders
 
-A suspended holder that wakes after it lost the lock may still receive a
-response, and its request may still reach the server late. This is how each case
-is handled:
-
-| Late event                                                | Why it is harmless                                                                                                                                         |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A late POST lands after the entry was deleted (or undone) | The server reserved the id on DELETE. The POST gets 409 `entry_deleted` and nothing is created (§6a rule 2).                                               |
-| A late POST lands twice                                   | The client id is idempotent, so the replay returns the existing entry.                                                                                     |
-| A late PATCH or archive lands after newer operations      | Its `expected_revision` is stale, so it gets 409 `stale_revision` and changes nothing (§6a rule 6).                                                        |
-| A late DELETE lands                                       | Deletes are idempotent.                                                                                                                                    |
-| The late response's bookkeeping                           | The CAS on `claim_token` fails, so it is ignored. Guarded server state is still applied, unless `claim_epoch ≠` the current epoch (sync-protocol.md §5.2). |
+| Late event                                                    | Why it is harmless                                                                                                                                                                 |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A late POST lands after the entry was deleted or undone       | The id was reserved, so the server returns 409 `entry_deleted` and nothing is created (§6a rule 2).                                                                                |
+| A late POST lands twice                                       | The POST is idempotent, so the replay returns the existing entry.                                                                                                                  |
+| A late PATCH or archive lands after newer operations          | Its `expected_revision` is stale, so the server returns 409 `stale_revision` (§6a rule 6). The **superseded sender's sender check fails, so it does not rebase or resend** (§7.4). |
+| A late request lands after a restore or on a different server | F10 preconditions mean 409 `epoch_mismatch` or `server_mismatch`, and nothing executes.                                                                                            |
+| The late response arrives                                     | The sender check fails, and the response is discarded. **Not even guarded server state is written.** The next pull brings the server state instead.                                |
 
 ## 7. Ordering, revisions and conflicts
 
 ### 7.1 Ordering scopes
 
-An item X is **eligible** to be claimed only if no earlier (lower `seq`)
-unresolved item Y exists in its scope:
+Item X can be claimed only if no unresolved item Y with a lower `seq` exists in
+its scope:
 
-| X kind    | Scope: X waits for every earlier unresolved Y such that…                          |
+| X kind    | X waits for every earlier unresolved Y where…                                     |
 | --------- | --------------------------------------------------------------------------------- |
 | `entry.*` | Y has the same `entity_id`, **or** Y is a `topic.*` item with the same `topic_id` |
 | `topic.*` | Y has the same `topic_id` (any kind)                                              |
 
-This is why the scopes are shaped this way:
-
-- An offline unarchive followed by a log must reach the server in that order, or
-  the log gets 409 `topic_archived`.
-- A log followed by an archive must also stay in order.
-- Unrelated entries stay independent, so one failed entry never blocks the
-  others.
-
-`held` items count as unresolved for ordering. A later item for the same entity
-waits until the hold releases or the item is discarded. In practice, nothing
-else is enqueued for an entity whose deletion is held, because it is hidden.
+`held` items count as unresolved.
 
 ### 7.2 Blocking
 
 If the earliest unresolved item in X's scope is `failed`, X is **blocked**. It
-stays `pending` and is shown as "Waiting for _failed item_". It is unblocked
-when the failed item is retried successfully, fixed, discarded or retired.
-
-There is one exception. Discarding a failed **`entry.create`** discards every
-later item for that entity in the same transaction, because they depend on the
-create.
+stays `pending` and is shown as "Waiting for _failed item_". Discarding a failed
+`entry.create` also discards every later item for that entity, in the same
+transaction.
 
 ### 7.3 Revision chaining
 
-This sets the `base_revision` that `entry.update`, `topic.archive` and
-`topic.unarchive` send as `expected_revision`.
+| Moment                                                                | Rule                                                                                                                                                                                |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Enqueue, with no earlier unresolved item for the entity               | `base_revision` = the server-layer revision under the view that the user edited                                                                                                     |
+| Enqueue, with an earlier unresolved item for the entity               | `base_revision = NULL`, meaning inherit                                                                                                                                             |
+| An item for the entity is removed (ack, pull-ack, retire, or discard) | In the same transaction, which must pass the sender check when it is an ack: the next unresolved item with `base_revision IS NULL` gets the entity's current server-layer revision. |
+| Claim, with `base_revision` still NULL                                | This cannot happen, because of the ordering in §7.1. If it is observed, use the current server-layer revision and log it.                                                           |
 
-| Moment                                                                  | Rule                                                                                                                                                                                                                                                                                               |
-| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Enqueue, with no earlier unresolved item for the entity                 | `base_revision` = the entity's **server-layer** revision that the user saw. That is the revision under the view the edit was made from.                                                                                                                                                            |
-| Enqueue, with an earlier unresolved item for the entity                 | `base_revision = NULL`, meaning "inherit"                                                                                                                                                                                                                                                          |
-| An item for the entity is removed (by ack, pull-ack, retire or discard) | In the same transaction, the next unresolved item for the entity with `base_revision IS NULL` gets `base_revision` = the entity's current server-layer revision (after this transaction's upsert). If the entity has no server row (a discarded create), the dependants were discarded too (§7.2). |
-| Claim, while `base_revision` is still NULL                              | This cannot happen, because ordering guarantees the predecessor resolved first. If it is observed anyway, use the current server-layer revision and log it.                                                                                                                                        |
+### 7.4 `stale_revision` recovery (§6a rule 6), verified at every step
 
-The result is that a chain of local edits sends
-`expected_revision = r, r+1, r+2, …`, and a stale sender's request can never
-overwrite a newer one.
+When the sender receives 409 `stale_revision` for item X:
 
-### 7.4 `stale_revision` recovery (§6a rule 6)
+1. **Verify** in a transaction: run the sender check and renew the `flush`
+   lease. If this fails, **stop**. The sender has been superseded and writes
+   nothing.
+2. `GET` the entity: `GET /entries/{id}` or `GET /topics/{id}`. No transaction
+   is open during the request.
+   - A 404 means the entity is gone. Apply the §5.2 "entity gone" rule, inside a
+     transaction that passes the sender check.
+   - A network error means X becomes `uncertain` and the pass stops. That
+     transaction must pass the sender check too.
+   - A response whose epoch header doesn't match is handled as in §5.2.
+3. **Verify and rebase** in one transaction: run the sender check, renew the
+   lease, upsert the fetched row under the guards, then set
+   `X.base_revision = fetched.revision` and `rebase_count += 1`. If the check
+   fails, **stop** and write nothing.
+4. If `rebase_count ≤ 3`, resend X under the same claim. The resend counts as a
+   new send, so its outcome goes through §5 and S2 again. If `rebase_count > 3`,
+   X becomes `failed/conflict` with "Changed on another device — review and
+   retry". This transition also requires the sender check.
 
-When an item gets 409 `stale_revision`:
-
-1. While still holding the lock, `GET` the entity: `GET /entries/{id}`, or
-   `GET /topics/{id}`.
-   - A 404 means the entity is gone. Apply the §5.2 "entity gone" rule.
-   - A network error ends this attempt as a network error: the item becomes
-     `uncertain`, and the pass stops.
-2. One transaction:
-   - upsert the fetched row under the guards;
-   - set `X.base_revision = fetched.revision` and do `rebase_count += 1`;
-   - leave `X` claimed.
-3. If `rebase_count ≤ 3`, resend X immediately. That is the same claim. Later
-   own items for the entity follow in order, chained through §7.3. If
-   `rebase_count > 3`, X becomes `failed/conflict`: "Changed on another device —
-   review and retry".
-
-**The merge semantics are last-writer-wins per field, after the client has seen
-the remote state.** PATCH sends only the changed keys, so edits to different
-fields from two devices both survive. When both devices change the same field,
-the local change wins. This matches today's behaviour, and the guard exists to
-stop _stale processes_, not to surface user conflicts.
-
-`rebase_count` is reset to 0 when the user edits the item (Fix).
+The merge semantics are **last writer wins, per field**, after the client has
+seen the remote state. The guard stops _stale processes_; it does not raise user
+conflicts. Fix resets `rebase_count` to 0.
 
 ## 8. Coalescing
 
-Coalescing happens **at enqueue**, inside the enqueue's `IMMEDIATE` transaction.
-That transaction is what makes coalescing safe across processes: it sees every
-claim.
+### 8.1 The adjacency rule
 
-Let `T` be the latest unresolved item for the entity (highest `seq`).
+When a new item N is enqueued, let **P** be the unresolved item with the highest
+`seq` in N's **topic scope**. That is the latest queued item for the same topic,
+for any entity. N may coalesce with P **only if all of these hold**:
 
-| #   | Enqueue                       | Condition                                                                                                         | Result                                                                                                                                                                                                                   |
-| --- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| C0  | `entry.update`                | The entity is hidden in the view: it has an unresolved `entry.delete` (held or active), or a local tombstone      | **Rejected at enqueue** with "This entry was deleted". The UI can't reach this state; App Intents surface the error.                                                                                                     |
-| C1  | `entry.update`                | `T` is an `entry.create` that is **never delivered** and not `in_flight` (`pending`, or `failed` with `rejected`) | Merge the patch into the create's body. `answers` merges by key, and a null value removes the key. Other fields are replaced. If T was `failed`, it becomes `pending` (this is the Fix flow). No new item is created.    |
-| C2  | `entry.update`                | `T` is an `entry.update` that is never delivered and `pending` or `failed`                                        | Merge into T. Later values win per field. T keeps its `seq` and `base_revision`. If T was `failed`, it becomes `pending` and `rebase_count = 0`.                                                                         |
-| C3  | `entry.delete`                | The entity's `entry.create` is **never delivered** and not `in_flight`                                            | **Drop the create and every other item for the entity. Enqueue nothing.** The server never saw the entity.                                                                                                               |
-| C4  | `entry.delete`                | Unresolved `entry.update` items exist for the entity that are not `in_flight`                                     | Drop them (superseded). Then enqueue the delete.                                                                                                                                                                         |
-| C5  | `entry.delete`                | The entity's `entry.create` is `uncertain`, or `failed` with `maybe_delivered = 1`                                | Drop the create, and enqueue the delete. The DELETE reserves the id, so a late POST is harmless (§6a rule 2).                                                                                                            |
-| C6  | `entry.delete`                | The entity's create or update is `in_flight`                                                                      | Don't touch the in-flight item. Enqueue the delete after it. The ordering scopes (§7.1) send it after the in-flight item resolves. If the create resolves as `uncertain`, S8 supersedes it, and only the delete is sent. |
-| C7  | `entry.delete`                | An unresolved `entry.delete` already exists for the entity                                                        | No-op. The existing item stands. If it is `held`, the new request releases the hold.                                                                                                                                     |
-| C8  | `topic.archive` / `unarchive` | `T` is the **opposite** kind, never delivered and `pending`                                                       | Drop T and enqueue nothing. The two cancel out.                                                                                                                                                                          |
-| C9  | `topic.archive` / `unarchive` | `T` is the **same** kind and unresolved                                                                           | No-op                                                                                                                                                                                                                    |
-| C10 | Any                           | Otherwise                                                                                                         | Append a new item. `base_revision` follows §7.3.                                                                                                                                                                         |
+- P is for the **same entity** as N;
+- P is `pending`;
+- P is **never attempted** (`attempts = 0`).
 
-**Never** merge a payload into an item that is `in_flight` or has
-`maybe_delivered = 1` (S6). A payload that may already have landed must stay
-exactly as sent, because sync's pull-ack relies on it
-([sync-protocol.md §5.4](sync-protocol.md#54-pull-ack-of-creates)).
+Under these conditions no request for P has been built, and no other operation
+in the topic sits between P and N. Every other case **appends** N. There are no
+other coalescing rules.
+
+### 8.2 Enqueue-time rules
+
+| #   | N (new)                              | P (adjacent, never attempted) | Result                                                                                                                                                     |
+| --- | ------------------------------------ | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| K1  | `entry.update`                       | `entry.create`                | Merge the patch into the create's body. `answers` merges by key, and null removes a key. Other fields are replaced.                                        |
+| K2  | `entry.update`                       | `entry.update`                | Merge into P. Later values win per field. P keeps its `seq` and `base_revision`.                                                                           |
+| K3  | `topic.archive` or `topic.unarchive` | The opposite topic kind       | Drop P and enqueue nothing. The two cancel out.                                                                                                            |
+| K4  | `entry.delete`, **not held**         | Any                           | Delete coalescing (§8.3) runs immediately.                                                                                                                 |
+| K5  | `entry.delete`, **held**             | Any                           | **No coalescing at enqueue.** The held delete is appended, and everything before it is kept, so Undo is exact (§9.2). §8.3 runs when the hold is released. |
+
+### 8.3 Delete coalescing (at enqueue for immediate deletes, at hold release for held deletes)
+
+Let D be the delete. Walk backwards from D through the topic scope while the
+immediately preceding item is for D's entity, `pending` and never attempted.
+Collect that **contiguous run R**.
+
+- If R contains the entity's `entry.create`, drop R and D in one transaction.
+  Nothing is ever sent, because the server never saw the entity.
+- Otherwise R contains only updates. Drop R and keep D.
+- If the run is empty, keep D unchanged.
+
+**Validation (C0, not coalescing).** Enqueueing an `entry.update` or
+`entry.delete` for an entity the view hides (because it has an unresolved delete
+or a tombstone) is **rejected** with "This entry was deleted". The UI can't
+reach this state; App Intents surface the error.
 
 ## 9. Undo
 
-There are two undo flows. They are separate.
-
 ### 9.1 Undo a log (the toast after quick-log, a notification action, a widget or Siri)
 
-This is undo of an `entry.create` with id E. It is implemented as "enqueue
-`entry.delete` E", and the result depends on the create's state through
-coalescing:
+Undoing a log of `entry.create` E always resolves to one of the rows below:
 
-| State of create E when Undo is tapped              | Effect                                             | Requests sent                 |
-| -------------------------------------------------- | -------------------------------------------------- | ----------------------------- |
-| `pending`, never delivered                         | C3: both are dropped                               | none                          |
-| `failed` (`rejected`, never delivered)             | C3: both are dropped                               | none                          |
-| `in_flight`                                        | C6: the delete is queued after the create          | POST (in flight), then DELETE |
-| `uncertain` (lost response, process died, or 5xx)  | C5: the create is dropped and the delete is queued | DELETE only                   |
-| **Sent** (acked; there is no item)                 | C10: the delete is queued                          | DELETE                        |
-| Retired via `entry_deleted`, or already tombstoned | Nothing to do. The toast says "Undone".            | none                          |
+| State of create E when Undo is tapped                                 | Effect                                                                                                                     | Requests                                     |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `pending`, never attempted, adjacent (no later item in the topic)     | Enqueue the delete. §8.3 drops E with its adjacent updates, and the delete itself.                                         | none                                         |
+| `pending`, never attempted, not adjacent (later items in the topic)   | The delete is appended.                                                                                                    | POST, then DELETE                            |
+| `pending` after attempts with definitive non-delivery, or `uncertain` | The delete is appended. The ordering scope sends the create first.                                                         | POST (or its idempotent replay), then DELETE |
+| `in_flight`                                                           | The delete is appended after it.                                                                                           | POST (already in flight), then DELETE        |
+| `failed`                                                              | **Discard E**, which cascades (§7.2). A terminal 4xx means E isn't on the server: a replay of a landed create returns 201. | none                                         |
+| Acked (no item)                                                       | The delete is appended.                                                                                                    | DELETE                                       |
+| Already tombstoned, or retired by `entry_deleted`                     | Nothing to do.                                                                                                             | none                                         |
 
-Unlike the PWA, the iOS client never sends a DELETE outside the outbox (compare
-`useUndoLog`, which fires a side DELETE).
+- The view hides E immediately, and the toast says "Undone".
+- A later failure of the delete shows up in the sync sheet.
+- The iOS client never sends a DELETE outside the outbox.
+- When the DELETE follows the POST, the server reserves the id (§6a rule 2). A
+  delayed POST arriving later then gets 409 `entry_deleted`.
 
-The view hides the entry immediately in every case. The toast says "Undone"
-immediately. If the delete later fails, it shows up in the sync sheet.
+### 9.2 Delete with undo
 
-Undo is available for 6 s (`UNDO_WINDOW_MS`, PWA parity), and for notification
-and widget logs until the next app activation. It can be offered as a button in
-the "Logged" confirmation notification
-([notifications.md §7](notifications.md#7-action-handler)).
+This applies to deletes from the entries list and the entry screen.
 
-### 9.2 Delete with undo (entries list, entry screen)
+1. The user deletes entry E. The client enqueues `entry.delete` E as `held`,
+   with `hold = now_ct + 6 s`. **Nothing before it is coalesced or dropped
+   (K5).** An unsent create, or edits queued for E, stay exactly as they are.
+   The view hides E.
+2. **Undo while held** removes **only the held delete**. The view shows E
+   exactly as before: the server row plus the overlay of its preceding items.
+   Nothing is sent.
+3. **Release.** The hold is released when it passes, or immediately when the app
+   goes to the background (matching the PWA's `flushUndoables` on hide). In one
+   transaction: `held → pending`, then delete coalescing (§8.3). A flush
+   follows. Any flushing process releases holds that have passed at the start of
+   its flush.
+4. After release, Undo is no longer offered, and the toast is dismissed.
 
-1. The user deletes entry E. The client enqueues `entry.delete` E with
-   `state = held` and `hold_until = now + 6 s`. The coalescing rules C3–C7 apply
-   at this moment. The row is hidden.
-2. **Undo** while `held`: discard the item, which is never sent. The row
-   reappears.
-3. The hold is released (to `pending`) when `hold_until` passes, or immediately
-   when the app moves to the background. This matches the PWA's `flushUndoables`
-   on hide. A flush is then triggered. A process that finds `held` items with
-   `hold_until < now` releases them at the start of its flush.
-4. Once the hold is released, Undo is no longer offered, and the toast is
-   dismissed along with it.
-
-Archiving uses the same pattern. Undoing an archive enqueues `topic.unarchive`,
-and C8 cancels both if the archive has not been sent yet.
+Archiving follows the same pattern without a hold. Undoing an archive enqueues
+`topic.unarchive`, and K3 cancels the pair when the archive is still adjacent
+and never attempted.
 
 ## 10. Flush triggers
 
-| Process                                                           | Trigger                                                                                                                       | Force? | Budget                                                                                | Lock if busy                                               |
-| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| **App**                                                           | Enqueue (`sendNow` waits 2.5 s for a quick-log, 8 s for the record screen, then reports "queued", like PWA `recordEntry`)     | No     | Until the outbox is empty, or a network error                                         | Poll for up to the wait time                               |
-| App                                                               | `scenePhase → active`; `NWPathMonitor` becomes satisfied; the user taps Retry                                                 | Yes    | Same                                                                                  | Poll for up to 30 s                                        |
-| App                                                               | A foreground timer at the earliest `next_attempt_at` (or `hold_until`), capped at 60 s (PWA `MAX_POLL_MS`)                    | No     | Same                                                                                  | Skip                                                       |
-| App                                                               | After a pull ([sync-protocol.md §11](sync-protocol.md#11-pull-triggers))                                                      | No     | Same                                                                                  | Skip                                                       |
-| App (background)                                                  | `scenePhase → background`: release holds, then flush inside `beginBackgroundTask`                                             | Yes    | Until the expiration handler (it cancels and releases)                                | Poll for up to 5 s                                         |
-| App (background)                                                  | `BGAppRefreshTask`: pull, then flush                                                                                          | Yes    | Until the task expires                                                                | Poll for up to 5 s                                         |
-| **Notification action** (app process, launched in the background) | After the atomic write ([notifications.md §7](notifications.md#7-action-handler))                                             | Yes    | **5 s**, then call `completionHandler`                                                | Poll within the budget                                     |
-| **Widget intent** (`perform()` in the widget extension)           | After the durable enqueue commits                                                                                             | Yes    | **4 s** total, including the enqueue. `perform()` MUST return before the budget ends. | Give up (the item stays queued; the widget shows "queued") |
-| **App Intent** (Siri, Shortcuts, Action button)                   | Same as the widget. If the intent runs in the app process and the app is in the foreground, the app's budget applies instead. | Yes    | 4 s                                                                                   | Give up                                                    |
-| **NSE**                                                           | Optional. In parallel with preparing the content, after the store is opened.                                                  | No     | **2 s**, and it never delays `contentHandler` beyond that                             | Give up                                                    |
+| Process                                                 | Trigger                                                                                              | Force? | Budget                                          | Lease busy                     |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------ | ----------------------------------------------- | ------------------------------ |
+| **App**                                                 | Enqueue. `sendNow` waits 2.5 s for a quick-log and 8 s for the record screen, then reports "queued". | No     | Until the queue drains or a network error       | Poll for up to the wait time   |
+| App                                                     | `scenePhase → active`; `NWPathMonitor` satisfied; Retry                                              | Yes    | Same                                            | Poll for up to 30 s            |
+| App                                                     | Foreground timer for the earliest due time or hold, capped at 60 s                                   | No     | Same                                            | Skip                           |
+| App                                                     | After a pull                                                                                         | No     | Same                                            | Skip                           |
+| App (background)                                        | `scenePhase → background`: release holds, then flush inside `beginBackgroundTask`                    | Yes    | Until the expiration handler                    | Poll for up to 5 s             |
+| App (background)                                        | `BGAppRefreshTask`: the coordinator pulls, then flushes                                              | Yes    | Until the task expires                          | Poll for up to 5 s             |
+| **Notification action** (app process)                   | After the atomic write ([notifications.md §7](notifications.md#7-action-handler))                    | Yes    | **5 s**                                         | Poll within the budget         |
+| **Widget intent** (`perform()` in the widget extension) | After the durable enqueue                                                                            | Yes    | **4 s** in total; `perform()` returns within it | Give up; the item stays queued |
+| **App Intent** (Siri, Shortcuts, Action button)         | As for the widget, or with the app's budget if it runs in the foreground app                         | Yes    | 4 s                                             | Give up                        |
+| **NSE**                                                 | **Never flushes.** It only prepares the notification.                                                | —      | —                                               | —                              |
 
-Every flush **releases expired holds first**, then claims in `seq` order among
-the eligible items. Every process posts the Darwin notification
-`com.bahumia.quickr.db-changed` after each commit that changed the outbox. The
-app re-runs its observations when it receives one, and on activation, because
-Darwin notifications are not durable.
+When a budget expires, the process cancels its request and releases the lease.
+On release, items it holds `in_flight` move to `uncertain`, provided they still
+have its claim token. If the process is killed first, expiry recovery (§6.3)
+handles them. Every committed outbox change posts
+`com.bahumia.quickr.db-changed`.
 
-When a widget or NSE budget runs out mid-request, the process cancels the
-request. The item stays `in_flight` until this process's release step marks it
-`uncertain` (owner = me, token matches). If the process is killed before it
-releases, the item waits for the lock to expire (§6.3).
+## 11. User actions on items (sync sheet)
 
-## 11. User actions on items (the sync sheet)
-
-| Action      | Allowed in                                                                             | Effect                                                                                                                                                                                                                                                                                                 |
-| ----------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Retry**   | `failed` (except `deleted_elsewhere`), and `pending`/`uncertain` (to skip the backoff) | `state = uncertain if maybe_delivered else pending`, `next_attempt_at = now`, then a forced flush. `rebase_count = 0`.                                                                                                                                                                                 |
-| **Fix**     | A `failed` create or update with reason `rejected`, `topic_archived` or `future_time`  | Opens the form prefilled from the payload. Saving does CAS on `row_version`, replaces the payload (S6), and resets the item to `pending`. Fix is **not offered** when `maybe_delivered = 1`; Discard plus re-entry is offered instead.                                                                 |
-| **Discard** | Any state except `in_flight`                                                           | A `pending`, `held` or `failed` item that was never delivered is removed. An `uncertain` create is converted into an undo (§9.1, C5), because it may exist on the server. Any other item that may have been delivered is removed (the next pull shows the truth). Discarding a create cascades (§7.2). |
-| **Dismiss** | `failed/deleted_elsewhere`                                                             | Removes the item. This is the only action offered for it.                                                                                                                                                                                                                                              |
-
-The sync pill counts are: "_N_ waiting to sync" (`pending` + `uncertain` +
-`in_flight`
-
-- `held`), and "_k_ failed".
+| Action      | Allowed in                                                                                             | Effect                                                                                                                                                                                                                             |
+| ----------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Retry**   | `failed` (except `deleted_elsewhere`), `pending`, `uncertain`                                          | `state = uncertain` if maybe delivered, otherwise `pending`. Clear the deadline, set `rebase_count = 0`, then force a flush.                                                                                                       |
+| **Fix**     | `failed` create or update, `maybe_delivered = 0`, reason `rejected`, `topic_archived` or `future_time` | Open the form prefilled from the payload. Saving does a CAS on `row_version`, replaces the payload, and sets the item to `pending`.                                                                                                |
+| **Discard** | Any state except `in_flight`                                                                           | Never-delivered items are removed. An `uncertain` create is turned into an undo, so a delete is appended (§9.1). Any other maybe-delivered item is removed, and the next pull shows the server state. A discarded create cascades. |
+| **Dismiss** | `failed/deleted_elsewhere`                                                                             | Remove the item                                                                                                                                                                                                                    |
 
 ## 12. Flush algorithm (pseudocode)
 
 ```
 flush(force, budget):
   deadline = now + budget
-  if !acquire(flush_lock, pollUntil: triggerPolicy): return .busy
-  defer release()
-  if !identityConfirmed(store): if !checkHealthHeader(): return .identityMismatch   // sync-protocol §8.3
-  TX { release holds where hold_until < now }
+  if !acquire("flush", pollUntil: policy): return .busy          // runs expiry recovery if needed
+  defer release("flush")                                          // in_flight-with-my-token → uncertain
+  TX { release passed holds; run §8.3 for each released delete }
   loop while now < deadline:
-    item = TX IMMEDIATE {
-      renew(flush_lock) or return .lockLost
-      if sync_state.rebuilding: return .paused
-      X = first eligible (state in pending|uncertain; force || next_attempt_at ≤ now; §7.1 scope clear)
-      X == nil ? return .drained : claim(X)                                    // S1
+    X = TX IMMEDIATE {
+      renew("flush") or return .leaseLost
+      if retired || identity_mismatch || rebuilding: return .paused
+      next eligible item (pending|uncertain; due or force; §7.1 scope clear) → claim (S1) or return .drained
     }
-    //    (inside the claim TX: S8 supersedes a create that has a later delete)
-    req = build(item)                                                          // §1, §4
-    res = send(req, timeout: min(15 s, deadline − now))
-    outcome = classify(item.kind, res)                                         // §5
-    if outcome == .rebase: outcome = rebase(item)                              // §7.4 (may resend)
-    TX IMMEDIATE { applyOutcome(item, outcome) with CAS(claim_token) }         // S2, ack per sync §6
+    loop:                                                        // one claim, possibly several sends (§7.4)
+      res = send(build(X), timeout: min(15 s, deadline − now))   // Expect-Server-Id / Expect-Epoch (§4)
+      outcome = classify(X.kind, res)                            // §5
+      if outcome == .staleRevision: outcome = verifiedRebase(X)  // §7.4; may stop or ask for resend
+      if outcome == .resend: continue
+      TX IMMEDIATE { senderCheck() or abort-and-stop; apply(outcome) }   // S2; ack per sync §6
+      break
     post Darwin db-changed
-    if outcome.isNetworkError: break                                           // stop the pass (PWA)
+    if outcome stops the pass (network error, mismatch): break
   return .budgetExhausted
 ```
 
 ## 13. Test matrix
 
-All the cases run against a file-backed store. Cases marked **MP** use the macOS
-multi-process `ProcessHelper` (PLAN M1). Cases marked **INT** also run in
-`make ios-integration` against the docker stack. The others use a fake transport
-and a fake clock.
+All cases run against a file-backed store. **MP** marks multi-process cases
+using `ProcessHelper`, and **INT** marks cases that use `make ios-integration`.
+Unmarked cases use a fake transport and fake clocks: lease time and wall time
+are faked independently.
 
-| #   | Given                                                                                                                                   | When                                                      | Then                                                                                                                                                                                                                                                                      | Proves                                            |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| 1   | An empty outbox                                                                                                                         | Enqueue `entry.create`, then a fresh pool reads the table | The item is persisted as `pending`, `attempts = 0`, with `id` = entry id, ordered by `seq`                                                                                                                                                                                | §2, PWA parity                                    |
-| 2   | Statuses 200, 201, 204, null, 0, 500, 502, 503, 408, 429, 401, 400, 404, 409, 422                                                       | Classify with the base table                              | Results identical to `outbox.test.ts` `classifyStatus`                                                                                                                                                                                                                    | §5.1                                              |
-| 3   | Fixed random 0.5, 0 and 0.999999                                                                                                        | `backoff(1, 2, 3, 30)`                                    | 2 s, 4 s, 8 s, a 5 min cap; ±20 % at the extremes                                                                                                                                                                                                                         | §5.3                                              |
-| 4   | Two pending creates; the transport returns a network error                                                                              | Flush                                                     | Only the first is attempted: `attempts = 1`, `uncertain`, `next_attempt_at = now + 2 s`. The second has `attempts = 0`.                                                                                                                                                   | §5.1 stop the pass, S3                            |
-| 5   | A pending create; the transport returns a 200 HTML body, then a 302                                                                     | Flush twice (forced)                                      | It stays queued, with "Unexpected response from the server", then status 302. `maybe_delivered` is still 0.                                                                                                                                                               | §5.1                                              |
-| 6   | A pending create; the transport returns 422 with a Problem body                                                                         | Flush, then a forced flush                                | `failed/rejected`, with the message taken from `detail`. Not resent by the forced flush.                                                                                                                                                                                  | §5.1, S5                                          |
-| 7   | A pending create                                                                                                                        | The transport returns 503                                 | `uncertain`, `maybe_delivered = 1`                                                                                                                                                                                                                                        | S3                                                |
-| 8   | A create in flight in process A (MP)                                                                                                    | A is SIGSTOPped past the TTL, and process B flushes       | B takes the lock; the create becomes `uncertain`, and B resends it. Server: one entry (idempotent replay).                                                                                                                                                                | §6.3, **lock expiry**                             |
-| 9   | Case 8, continued                                                                                                                       | A is SIGCONTed and receives its 201                       | A's CAS fails, and its bookkeeping is skipped. A's renew fails, so it claims nothing more. The server row is upserted once (the revision guard holds). No duplicate.                                                                                                      | §6.4 **late completion**                          |
-| 10  | A holds the lock, then is SIGKILLed mid-request (MP)                                                                                    | B flushes after 30 s                                      | B acquires. The item becomes `uncertain`, then is resent, then acked.                                                                                                                                                                                                     | §6.3                                              |
-| 11  | A create's POST commits on the server, but the response is lost (the transport drops it)                                                | Flush, then the user taps Undo                            | The create is `uncertain`, and Undo applies C5: the create is dropped and the delete is queued. The flush sends **only** DELETE, which returns 204. Server: the entry is gone.                                                                                            | §9.1, **lost response then undo**                 |
-| 12  | Case 11, but the POST was delayed rather than committed (INT)                                                                           | The DELETE commits first, then the delayed POST arrives   | The POST gets 409 `entry_deleted`. Server: no entry. Client: nothing resurrects.                                                                                                                                                                                          | §6a rule 2, **late POST after DELETE**            |
-| 13  | A create is `in_flight`                                                                                                                 | The user taps Undo                                        | C6: the delete is queued after it, and the create isn't touched. When the POST returns 201, it is acked, then the DELETE is sent. The view hides the entry throughout.                                                                                                    | C6, §9.1                                          |
-| 14  | A create is pending and never delivered                                                                                                 | Undo                                                      | C3: both are dropped. The transport receives **zero** requests.                                                                                                                                                                                                           | C3                                                |
-| 15  | The create was acked (sent)                                                                                                             | Undo                                                      | The delete is queued and sent. 204 acks it, and a local tombstone is inserted.                                                                                                                                                                                            | §9.1                                              |
-| 16  | The app is suspended mid-send (the `beginBackgroundTask` expiration fires)                                                              | The expiration handler runs                               | The request is cancelled. The item becomes `uncertain` (`maybe_delivered = 1`) and the lock is released. The next activation resends it.                                                                                                                                  | §10, **suspension mid-send**                      |
-| 17  | An `entry.update` is pending for E, and E is deleted on the web (INT)                                                                   | Flush (before any pull)                                   | PATCH returns 404. A local tombstone is inserted and the row removed. The item becomes `failed/deleted_elsewhere`, shown with "Dismiss" only.                                                                                                                             | §5.2, **PATCH 404 after remote delete**           |
-| 18  | Same as 17, but a pull runs first                                                                                                       | Pull                                                      | The tombstone applies. The update becomes `failed/deleted_elsewhere` without any request. No zombie row.                                                                                                                                                                  | sync §5.3                                         |
-| 19  | Pending creates and an update for topic T, plus a pending `topic.archive` for T                                                         | A pull brings T's tombstone                               | The creates and the update become `failed/deleted_elsewhere`. The archive is retired. The drafts, widget state and categories for T are cleared.                                                                                                                          | sync §5.3, **topic tombstone with pending items** |
-| 20  | A pending `entry.delete` E                                                                                                              | A pull brings E's tombstone                               | The delete is retired silently.                                                                                                                                                                                                                                           | sync §5.3                                         |
-| 21  | Create E is pending and never delivered                                                                                                 | Enqueue an update to E                                    | C1: the create's body is merged. One item; no PATCH is ever sent.                                                                                                                                                                                                         | C1, **coalescing**                                |
-| 22  | Create E is `uncertain`                                                                                                                 | Enqueue an update to E                                    | C1 is refused. A separate update with `base_revision = NULL` is appended. After the create is acked (rev 1), the update's `base_revision` is 1.                                                                                                                           | S6, §7.3                                          |
-| 23  | Create E is `in_flight` in another process (MP)                                                                                         | Enqueue an update to E from the app                       | The update is appended; the create's payload is unchanged (verified by comparing bytes).                                                                                                                                                                                  | C1 condition, S6                                  |
-| 24  | Two pending updates to E, never delivered                                                                                               | Enqueue a third update                                    | C2: merged into the latest. Its `base_revision` and `seq` are unchanged.                                                                                                                                                                                                  | C2                                                |
-| 25  | An update to E is `failed/rejected`                                                                                                     | Enqueue an update to E (Fix)                              | C2 merges it. The item becomes `pending`, with `rebase_count = 0`.                                                                                                                                                                                                        | C2, §11                                           |
-| 26  | Pending updates to E (not in flight)                                                                                                    | Enqueue a delete of E                                     | C4: the updates are dropped, and only the delete is queued.                                                                                                                                                                                                               | C4                                                |
-| 27  | A pending `topic.archive` T, never delivered                                                                                            | Enqueue `topic.unarchive` T                               | C8: both are dropped, and zero requests are sent.                                                                                                                                                                                                                         | C8                                                |
-| 28  | `topic.archive` T is `in_flight`                                                                                                        | Enqueue `topic.unarchive` T                               | Appended. It is sent after the archive resolves, with `expected_revision` = the archive's resulting revision.                                                                                                                                                             | C10, §7.3                                         |
-| 29  | `topic.unarchive` T is pending, then `entry.create` for T is enqueued                                                                   | Flush                                                     | The unarchive is sent first; the create waits (scope). Both succeed. No 409 `topic_archived`.                                                                                                                                                                             | §7.1                                              |
-| 30  | Creates E1 (`failed/rejected`) and E2 (pending) for the same topic                                                                      | Flush                                                     | E2 is sent. E1 doesn't block other entities.                                                                                                                                                                                                                              | §7.1                                              |
-| 31  | Create E is `failed`, and an update to E is pending (blocked)                                                                           | Discard the create                                        | The update is discarded in the same transaction (cascade).                                                                                                                                                                                                                | §7.2                                              |
-| 32  | Update U1 to E (base rev 3) is in flight in A; A is stopped; B takes over and sends U1 → rev 4, then U2 (expected 4) → rev 5 (MP + INT) | A's original PATCH reaches the server late                | The server returns 409 `stale_revision` and the entry stays at rev 5. A's CAS fails. No overwrite.                                                                                                                                                                        | §6a rule 6, §6.4                                  |
-| 33  | E is at rev 3 locally; another device edits it to rev 4; our update has base 3                                                          | Flush                                                     | 409 `stale_revision`, then GET (rev 4), upsert, rebase to 4, resend, then 200 with rev 5. The later own update is sent with expected 5.                                                                                                                                   | §7.4 **refetch then replay**                      |
-| 34  | The server answers `stale_revision` 4 times in a row                                                                                    | Flush                                                     | After 3 rebases the item becomes `failed/conflict`.                                                                                                                                                                                                                       | §7.4                                              |
-| 35  | The ack transaction runs while a page with an older revision of E is applied                                                            | The page applies after the ack                            | The revision guard drops the older row, and the view shows the acked state. The view never shows the edit twice or not at all.                                                                                                                                            | sync §5.2, §6a rule 7                             |
-| 36  | The POST response is lost, so the create is `uncertain`                                                                                 | A pull delivers E                                         | Pull-ack: the item is removed in the page transaction, and E shows once (no duplicate overlay).                                                                                                                                                                           | sync §5.4, rule 7                                 |
-| 37  | Pending, uncertain and `failed/rejected` items exist; the server epoch rotates (INT: `make rotate-epoch`)                               | Pull                                                      | Rebuild via staging. Claims are refused during it. After the swap, the outbox is unchanged (same ids and states), and the pending/uncertain items are sent. The failed item is still failed.                                                                              | sync §7, **epoch reset with pending/failed**      |
-| 38  | The server DB is restored to a backup taken before create E was acked (INT)                                                             | Pull (`cursor > head`), then rebuild                      | E is absent in the new layer. A later pending update to E gets 404 → `failed/deleted_elsewhere`. If E's create is still queued, it is resent and E exists again.                                                                                                          | sync §1.3, §7.4                                   |
-| 39  | App and widget processes enqueue an update and a delete for E at the same instant (MP)                                                  | Both commit                                               | The two `IMMEDIATE` transactions serialise. If the update commits first, the delete applies C4 and drops it. If the delete commits first, the update is rejected by C0. Either way, exactly one delete is queued, no item is lost, and no SQLITE_BUSY reaches the caller. | §8, **two processes, same entity**                |
-| 40  | The widget logs (MP) while the app holds the flush lock with a slow request                                                             | The widget's `perform()` runs                             | The enqueue commits, the lock is busy, and the widget gives up within 4 s with the item `pending`. The app's next claim picks it up.                                                                                                                                      | §10                                               |
-| 41  | A delete is held (6 s)                                                                                                                  | Undo at 3 s                                               | The item is discarded, zero requests are sent, and the row reappears.                                                                                                                                                                                                     | §9.2                                              |
-| 42  | A delete is held                                                                                                                        | The app moves to the background at 2 s                    | The hold is released, the delete is flushed inside the background task, and Undo is no longer offered.                                                                                                                                                                    | §9.2                                              |
-| 43  | `captured_at` = device now; the device clock is 30 h ahead (skew −30 h)                                                                 | Flush                                                     | No request is sent, and the item becomes `failed/future_time` with the fix flow offered.                                                                                                                                                                                  | sync §9                                           |
-| 44  | `sync_state.rebuilding` is set                                                                                                          | A widget flush runs                                       | It claims nothing and returns `.paused`. The enqueue still succeeded.                                                                                                                                                                                                     | §6.2 rebuild guard                                |
-| 45  | Create for topic T (never delivered); T was deleted on the server, but no pull has run yet                                              | Flush                                                     | 404, so the item becomes `failed/topic_missing` and a pull is triggered. After the pull, it is `failed/deleted_elsewhere`.                                                                                                                                                | §5.2                                              |
-| 46  | A create was undone elsewhere (another device deleted E after our POST landed; no local delete)                                         | A retry of the uncertain create gets 409 `entry_deleted`  | `failed/deleted_elsewhere`, visible. Not silently retired.                                                                                                                                                                                                                | §5.2 entry_deleted                                |
+| #   | Given                                                                                                                                                                               | When                                                                                      | Then                                                                                                                                                                                                                                                                                                    | Proves                                             |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| 1   | An empty outbox                                                                                                                                                                     | Enqueue `entry.create`; a fresh pool reads it                                             | The item is persisted: `pending`, `attempts = 0`, `id` equals the entry id, ordered by `seq`.                                                                                                                                                                                                           | §2, PWA parity                                     |
+| 2   | Statuses 200, 201, 204, null, 0, 500, 502, 503, 408, 429, 401, 400, 404, 409, 422                                                                                                   | Classify                                                                                  | Identical to `classifyStatus` in `outbox.test.ts`                                                                                                                                                                                                                                                       | §5.1                                               |
+| 3   | Random values 0.5, 0 and 0.999999                                                                                                                                                   | `backoff(1, 2, 3, 30)`                                                                    | 2 s, 4 s, 8 s, capped at 5 min; ±20 % at the extremes                                                                                                                                                                                                                                                   | §5.3                                               |
+| 4   | Two pending creates; the first send gets a network error                                                                                                                            | Flush                                                                                     | Only the first is attempted. It becomes `uncertain` with a 2 s deadline. The second still has `attempts = 0`.                                                                                                                                                                                           | §5.1, S3                                           |
+| 5   | A 200 HTML response, then a 302                                                                                                                                                     | Forced flushes                                                                            | The item stays queued with the PWA messages, and `maybe_delivered` stays 0.                                                                                                                                                                                                                             | §5.1                                               |
+| 6   | A 422 with a Problem body                                                                                                                                                           | Flush, then a forced flush                                                                | `failed/rejected` with the `detail` message. The forced flush does not resend it.                                                                                                                                                                                                                       | §5.1, S5                                           |
+| 7   | A 503 response                                                                                                                                                                      | Flush                                                                                     | `uncertain`, `maybe_delivered = 1`                                                                                                                                                                                                                                                                      | S3                                                 |
+| 8   | A create in flight in process A (MP)                                                                                                                                                | A is SIGSTOPped past 30 s of lease time; B flushes                                        | B acquires the lease; the item goes through recovery to `uncertain`; B resends it. The server has one entry.                                                                                                                                                                                            | §6.3, **lock expiry**                              |
+| 9   | Case 8, then A is SIGCONTed and receives its 201                                                                                                                                    | A tries to finish                                                                         | A's sender check fails. **A writes nothing**: no item change and no server row. A claims nothing more.                                                                                                                                                                                                  | S2, §6.4 **late completion**                       |
+| 10  | A is SIGKILLed while holding the lease (MP)                                                                                                                                         | B flushes after the TTL                                                                   | Recovery, then resend, then ack.                                                                                                                                                                                                                                                                        | §6.3                                               |
+| 11  | A create's POST commits but its response is lost, so it is `uncertain`                                                                                                              | Undo                                                                                      | The delete is appended. The flush sends the POST replay (201, idempotent) and then DELETE (204). The entry is gone from the server and the view.                                                                                                                                                        | §9.1, **lost response then undo**                  |
+| 12  | Like 11, but the original POST is delayed in the network (INT)                                                                                                                      | The DELETE commits, then the delayed POST arrives                                         | The delayed POST gets 409 `entry_deleted`. The server has no entry.                                                                                                                                                                                                                                     | §6a rule 2, **late POST after DELETE**             |
+| 13  | A create `in_flight`                                                                                                                                                                | Undo                                                                                      | The delete is appended after it. The POST returns 201 and is acked, then the DELETE is sent. The entry is hidden throughout.                                                                                                                                                                            | §9.1                                               |
+| 14  | A create, never attempted and adjacent                                                                                                                                              | Undo                                                                                      | §8.3 drops the create and the delete. **No requests.**                                                                                                                                                                                                                                                  | §8.3                                               |
+| 15  | Creates E then F for the same topic, both never attempted                                                                                                                           | Undo E                                                                                    | E is not adjacent, so the delete is appended. The flush sends POST E, POST F, DELETE E.                                                                                                                                                                                                                 | §8.1 adjacency                                     |
+| 16  | The app is suspended mid-send (background expiration)                                                                                                                               | The handler runs                                                                          | The request is cancelled and the lease is released. The item becomes `uncertain`.                                                                                                                                                                                                                       | §10, **suspension mid-send**                       |
+| 17  | Update E is pending; E is deleted on the web (INT)                                                                                                                                  | Flush                                                                                     | A 404 tombstones E. The update becomes `failed/deleted_elsewhere` (Dismiss only).                                                                                                                                                                                                                       | §5.2, **PATCH 404 after remote delete**            |
+| 18  | Same as 17                                                                                                                                                                          | Pull first                                                                                | The tombstone fails the update without sending a request. No zombie row remains.                                                                                                                                                                                                                        | sync §4.3                                          |
+| 19  | Creates and an update for topic T, plus a pending `topic.archive` T                                                                                                                 | A tombstone for T arrives                                                                 | The creates and the update become `failed/deleted_elsewhere`. The archive is retired. Drafts and widget state are cleared.                                                                                                                                                                              | sync §4.3, **topic tombstone with pending items**  |
+| 20  | A pending `entry.delete` E                                                                                                                                                          | E's tombstone arrives                                                                     | The delete is retired silently.                                                                                                                                                                                                                                                                         | sync §4.3                                          |
+| 21  | Create E is never attempted and adjacent                                                                                                                                            | Update E                                                                                  | K1 merges the update into the create. One item, and no PATCH is ever sent.                                                                                                                                                                                                                              | K1, **coalescing**                                 |
+| 22  | Create E is `uncertain`                                                                                                                                                             | Update E                                                                                  | Appended with `base_revision = NULL`. After the ack (revision 1), it becomes 1.                                                                                                                                                                                                                         | §8.1, §7.3                                         |
+| 23  | Create E is `in_flight` in another process (MP)                                                                                                                                     | Update E                                                                                  | Appended. The create's payload bytes are unchanged.                                                                                                                                                                                                                                                     | §8.1, S6                                           |
+| 24  | Topic T is archived on the server. Queue: `topic.unarchive` T, then create E for T (MP: two processes interleave)                                                                   | Enqueue `topic.archive` T                                                                 | **P is create E, so there is no K3 cancellation.** The flush sends unarchive, POST E, archive. All succeed, with no 409 `topic_archived`.                                                                                                                                                               | §8.1, **coalescing across a topic barrier**        |
+| 25  | Update U1 of E, never attempted; then `topic.archive` T; then update U2 of E                                                                                                        | Enqueue U2                                                                                | P is the archive, so U2 is **appended, not merged** into U1. The flush sends U1, then archive, then U2, in user order.                                                                                                                                                                                  | §8.1                                               |
+| 26  | Two updates to E, adjacent and never attempted                                                                                                                                      | Enqueue a third                                                                           | K2 merges it into the latest.                                                                                                                                                                                                                                                                           | K2                                                 |
+| 27  | `topic.archive` T, never attempted and adjacent                                                                                                                                     | Enqueue `topic.unarchive` T                                                               | K3 drops both. No requests.                                                                                                                                                                                                                                                                             | K3                                                 |
+| 28  | `topic.archive` T is `in_flight`                                                                                                                                                    | Enqueue `topic.unarchive` T                                                               | Appended. It is sent after the archive, with the archive's resulting revision.                                                                                                                                                                                                                          | §7.3                                               |
+| 29  | Create E is never attempted, then update E (merged by K1)                                                                                                                           | Delete E with undo (held), then **Undo** at 3 s                                           | Only the held delete is removed. The view shows E with the merged update, and the create item is byte-identical to its state before the delete.                                                                                                                                                         | §9.2, **reversible deletion of queued overlays**   |
+| 30  | Server row E (revision 3) plus a pending update U to E                                                                                                                              | Delete E with undo, then Undo                                                             | U is still queued, and the view shows E with U applied.                                                                                                                                                                                                                                                 | K5, §9.2                                           |
+| 31  | Same as 29                                                                                                                                                                          | The hold passes without Undo                                                              | At release, §8.3 drops the create, the update and the delete. No requests.                                                                                                                                                                                                                              | §8.3 at release                                    |
+| 32  | E is at revision 3. U1 (base 3) is in flight in process A. A is SIGSTOPped past the TTL. B recovers U1, sends it (revision 4), then sends U2 (expected 4, revision 5). (MP and INT) | A is SIGCONTed. Its original PATCH reaches the server late and gets 409 `stale_revision`. | **A's verify step (§7.4 step 1) fails, so A does not GET, does not rebase and does not resend.** The server stays at revision 5 with U2's content, and A writes nothing locally. The test asserts the server's request log has exactly 3 PATCHes, and no fourth PATCH carrying `expected_revision = 5`. | S2, §7.4, **stale rebasing**                       |
+| 33  | E is at revision 3 locally; another device moves it to 4; our update has base 3                                                                                                     | Flush                                                                                     | 409, then verify, then GET (revision 4), then verify and rebase, then resend, then 200 (revision 5). The next own update chains to 5.                                                                                                                                                                   | §7.4 **refetch then replay**                       |
+| 34  | Like 33, but B takes over the lease while A is between the GET and the rebase (MP)                                                                                                  | A reaches step 3                                                                          | Step 3 fails its sender check. A stops and writes nothing; B's state stands.                                                                                                                                                                                                                            | §7.4 step 3                                        |
+| 35  | `stale_revision` four times in a row                                                                                                                                                | Flush                                                                                     | `failed/conflict` after 3 rebases                                                                                                                                                                                                                                                                       | §7.4                                               |
+| 36  | A page with an older revision of E is applied after E's ack                                                                                                                         | Apply                                                                                     | The revision guard drops it. The view shows the operation exactly once.                                                                                                                                                                                                                                 | rule 7                                             |
+| 37  | The POST response was lost (`uncertain`)                                                                                                                                            | A pull delivers E                                                                         | Pull-ack removes the item in the page transaction. There is no duplicate overlay.                                                                                                                                                                                                                       | sync §4.4                                          |
+| 38  | Pending, uncertain and `failed/rejected` items; the server epoch rotates (INT)                                                                                                      | Flush                                                                                     | 409 `epoch_mismatch` restores the pre-claim state, and the rebuild runs. After the swap the items are unchanged; pending and uncertain items are resent with the new Expect-Epoch, and the failed item stays failed.                                                                                    | §5.2, sync §7, **epoch reset with pending/failed** |
+| 39  | App and widget enqueue an update and a delete for E in the same instant (MP)                                                                                                        | Both commit                                                                               | The transactions serialise. If the update commits first, it stays queued while the delete is held, and §8.3 drops it when the hold is released (it is adjacent). If the delete commits first, the update is rejected by C0. Exactly one delete remains, and no SQLITE_BUSY surfaces.                    | §8, **two processes, same entity**                 |
+| 40  | The widget logs while the app holds the lease with a slow request (MP)                                                                                                              | Widget `perform()`                                                                        | The enqueue commits, the widget gives up within 4 s, and the app picks the item up.                                                                                                                                                                                                                     | §10                                                |
+| 41  | `captured_at` is 30 h ahead of server time                                                                                                                                          | Flush                                                                                     | No request is sent. The item becomes `failed/future_time` with Fix offered.                                                                                                                                                                                                                             | sync §10                                           |
+| 42  | `rebuilding` is set                                                                                                                                                                 | A widget flush runs                                                                       | It claims nothing and returns `.paused`. The enqueue still works.                                                                                                                                                                                                                                       | §6.2                                               |
+| 43  | Create for topic T, which has been deleted on the server; no pull yet                                                                                                               | Flush                                                                                     | 404 gives `failed/topic_missing`, a pull follows, and the item becomes `deleted_elsewhere`.                                                                                                                                                                                                             | §5.2                                               |
+| 44  | Uncertain create; E was deleted on another device after the POST landed                                                                                                             | Retry gets 409 `entry_deleted`                                                            | `failed/deleted_elsewhere`, which is visible to the user                                                                                                                                                                                                                                                | §5.2                                               |
+| 45  | The lease is held; the wall clock is set **back** 3 h (MP)                                                                                                                          | The holder dies; B tries to flush after 30 s of lease time                                | B acquires the lease after 30 s, not 3 h + 30 s.                                                                                                                                                                                                                                                        | §6.1, **clock rollback**                           |
+| 46  | The lease is held and the holder is alive; the wall clock is set **forward** 3 h (MP)                                                                                               | B tries to acquire it                                                                     | B is refused, with no early takeover. The holder keeps renewing.                                                                                                                                                                                                                                        | §6.1                                               |
+| 47  | Backoff deadline is +8 s; the wall clock is set back 1 day                                                                                                                          | 8 s of lease time pass                                                                    | The item is due.                                                                                                                                                                                                                                                                                        | §2 deadlines                                       |
+| 48  | An item queued and a lease row written before a reboot                                                                                                                              | The first flush after boot                                                                | The lease is acquired immediately, and the item and holds are due (the boot id has changed).                                                                                                                                                                                                            | §2, sync §5.3                                      |
+| 49  | A queued create; the URL now reaches a different server (INT, two stacks)                                                                                                           | Flush                                                                                     | 409 `server_mismatch`. The pre-claim state is restored with `maybe_delivered = 0`, the store is in identity mismatch, and the other server has no new entry.                                                                                                                                            | §5.2, F10                                          |
+| 50  | A 2xx that is missing `X-QuickR-Server-Id` (fake proxy)                                                                                                                             | Flush                                                                                     | The outcome is discarded, the item becomes `uncertain`, and the store enters identity mismatch.                                                                                                                                                                                                         | §5.2                                               |
 
 ## Open questions
 
-1. **Undo after the toast for notification and widget logs.** §9.1 offers Undo
-   until the next app activation, through a "Logged" confirmation. Whether that
-   confirmation exists depends on the outcome of notifications.md open
-   question 1. This doesn't change the outbox rules, only where the Undo button
-   is surfaced.
+1. **Undo after the toast for notification and widget logs.** Should a "Logged ✓
+   · Undo" confirmation exist? See notifications.md open question 4. The outbox
+   rules are the same either way.
 
 ## Traceability
 
-| Source                                                                             | Where it is addressed                    |
-| ---------------------------------------------------------------------------------- | ---------------------------------------- |
-| PLAN §2 Outbox: kinds, classification, flush lock, ordering, coalescing, uncertain | §1, §5, §6, §7.1, §8, §3                 |
-| PLAN §2 Server-side safety (409, PATCH 404, DELETE 404)                            | §5.2, §6.4                               |
-| PLAN §6 test-matrix list                                                           | §13, cases 8–12, 16                      |
-| §6a rule 2, DELETE reserves the id; `entry_deleted` retires a create               | §5.2, §8 C5, §9.1, cases 11, 12, 46      |
-| §6a rule 6, `expected_revision` and `stale_revision`                               | §7.3, §7.4, cases 32–34                  |
-| §6a rule 7, atomic ack                                                             | §3 S2, sync-protocol §6, cases 35 and 36 |
-| Codex v1 B2, leases versus undo; delivery uncertain                                | §3 S3, §6.3, §6.4, §9.1, cases 8–13      |
-| Codex v1 M4 and Fable M4, failure, discard and convergence                         | §5.2, §7.2, §11, cases 17–20, 31         |
-| Codex v2 #1, DELETE before create; retire without materialising                    | §5.2, §9.1, cases 11, 12                 |
-| Codex v2 #6, expired senders overwrite newer PATCH/archive                         | §6.4, §7.3, case 32                      |
-| Fable B3, the outbox is not a port; spec and matrix                                | This document                            |
-| Fable simplification 5, a single `flush_lock` row                                  | §6                                       |
-| Codex v1 M9, widget delivery contract                                              | §10, case 40                             |
+| Source                                                          | Where it is addressed                            |
+| --------------------------------------------------------------- | ------------------------------------------------ |
+| PLAN §2 Outbox and server-side safety                           | §1–§8                                            |
+| §6a rule 2 (reserved ids, `entry_deleted`)                      | §5.2, §9.1, cases 11, 12, 44                     |
+| §6a rule 6 (`expected_revision`)                                | §7.3, §7.4, cases 32–35                          |
+| §6a rule 7 (atomic ack)                                         | S2, sync §6, cases 36, 37                        |
+| Codex spec review B1 (delete-with-undo destroys undo state)     | K5, §8.3 at release, §9.2, cases 29–31           |
+| Codex spec review B2 (a stale sender rebases over newer intent) | S2, §6.4, §7.4 (verified steps), cases 9, 32, 34 |
+| Codex spec review B3/M4 (preconditions and generations)         | §4 headers, §5.2 mismatch rows, cases 38, 49, 50 |
+| Codex spec review M6 (coalescing crosses topic barriers)        | §8.1 adjacency rule, cases 15, 24, 25            |
+| Codex spec review M7 (lease clock)                              | Glossary (lease time), §2, §6.1, cases 45–48     |
+| Codex spec review simplification: no NSE flush                  | §10                                              |
+| Codex v1 B2, M4, M9; v2 #1, #6; Fable B3, simplification 5      | §3, §6, §9, §10, §13                             |
