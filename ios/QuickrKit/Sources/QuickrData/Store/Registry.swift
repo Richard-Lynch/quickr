@@ -99,8 +99,8 @@ public struct Registry: Sendable {
 
     // MARK: - Reset (§12)
 
-    /// Step 2: persist the intent, `pending_gen = store_gen + 1` with the confirmed count and max
-    /// seq. Nothing is retired yet. Only when `store_gen` is still `storeGen` (the file the user
+    /// Step 2: persist the intent, `pending_gen = store_gen + 1` with the confirmed count, max
+    /// seq and a fresh `pending_token` that identifies this attempt. Nothing is retired yet. Only when `store_gen` is still `storeGen` (the file the user
     /// was warned about) and no reset is in progress; otherwise throws `registryChanged`.
     public func persistResetIntent(serverId: String, storeGen: Int, confirmedCount: Int, confirmedMaxSeq: Int64)
         async throws -> RegisteredServer
@@ -109,26 +109,29 @@ public struct Registry: Sendable {
             try db.execute(
                 sql: """
                     UPDATE server
-                    SET pending_gen = store_gen + 1, pending_confirmed_count = ?, pending_confirmed_max_seq = ?
+                    SET pending_gen = store_gen + 1, pending_confirmed_count = ?, pending_confirmed_max_seq = ?,
+                        pending_token = ?
                     WHERE server_id = ? AND store_gen = ? AND pending_gen IS NULL
                     """,
-                arguments: [confirmedCount, confirmedMaxSeq, serverId, storeGen])
+                arguments: [confirmedCount, confirmedMaxSeq, UUID().wireString, serverId, storeGen])
             guard db.changesCount > 0 else { throw StoreError.registryChanged(serverId) }
             return try Self.server(db, serverId)
         }
     }
 
     /// Aborts a reset (lease timeout, or writes arrived): clears the intent, only if it is still
-    /// the intent for `pendingGen`. Returns whether it cleared it.
+    /// the attempt identified by `token`. Returns whether it cleared it.
     @discardableResult
-    public func clearResetIntent(serverId: String, pendingGen: Int) async throws -> Bool {
+    public func clearResetIntent(serverId: String, token: String) async throws -> Bool {
         try await writer.write { db in
             try db.execute(
                 sql: """
-                    UPDATE server SET pending_gen = NULL, pending_confirmed_count = NULL, pending_confirmed_max_seq = NULL
-                    WHERE server_id = ? AND pending_gen = ?
+                    UPDATE server
+                    SET pending_gen = NULL, pending_confirmed_count = NULL, pending_confirmed_max_seq = NULL,
+                        pending_token = NULL
+                    WHERE server_id = ? AND pending_token = ?
                     """,
-                arguments: [serverId, pendingGen])
+                arguments: [serverId, token])
             return db.changesCount > 0
         }
     }
@@ -144,26 +147,27 @@ public struct Registry: Sendable {
     }
 
     /// Step 6: `store_gen = pending_gen`, clear the intent, record the old file in `retired_file`.
-    /// Fenced on the intent the caller inspected: `store_gen = fromGen AND pending_gen = toGen`,
-    /// compared inside the transaction, so a stale caller can never complete a newer intent whose
-    /// file it never saw retired. Any process may run it; repeats report `alreadyAdvanced`.
+    /// Fenced on the attempt the caller inspected (`store_gen = fromGen`, `pending_gen = toGen`
+    /// and `pending_token = token`), compared inside the transaction, so a stale caller can never
+    /// complete a different attempt whose file it never saw retired. Any process may run it;
+    /// repeats report `alreadyAdvanced`.
     @discardableResult
     public func completeReset(
-        serverId: String, fromGen: Int, toGen: Int, retiredAtWall: Date, retiredAt: LeaseInstant
+        serverId: String, fromGen: Int, toGen: Int, token: String, retiredAtWall: Date, retiredAt: LeaseInstant
     ) async throws -> ResetCompletion {
         try await writer.write { db in
             let server = try Self.server(db, serverId)
-            guard server.storeGen == fromGen, server.pendingGen == toGen else {
+            guard server.storeGen == fromGen, server.pendingGen == toGen, server.pendingToken == token else {
                 return server.storeGen == toGen && server.pendingGen == nil ? .alreadyAdvanced : .superseded
             }
             try db.execute(
                 sql: """
                     UPDATE server
                     SET store_gen = pending_gen, pending_gen = NULL, pending_confirmed_count = NULL,
-                        pending_confirmed_max_seq = NULL
-                    WHERE server_id = ? AND store_gen = ? AND pending_gen = ?
+                        pending_confirmed_max_seq = NULL, pending_token = NULL
+                    WHERE server_id = ? AND store_gen = ? AND pending_gen = ? AND pending_token = ?
                     """,
-                arguments: [serverId, fromGen, toGen])
+                arguments: [serverId, fromGen, toGen, token])
             try Self.insertRetired(db, path: server.storeFileName, wall: retiredAtWall, at: retiredAt)
             return .advanced
         }
@@ -264,6 +268,6 @@ extension RegisteredServer {
             createdAt: Date(unixSeconds: row["created_at"]),
             lastSyncAt: (row["last_sync_at"] as Double?).map(Date.init(unixSeconds:)), pendingGen: row["pending_gen"],
             pendingConfirmedCount: row["pending_confirmed_count"],
-            pendingConfirmedMaxSeq: row["pending_confirmed_max_seq"])
+            pendingConfirmedMaxSeq: row["pending_confirmed_max_seq"], pendingToken: row["pending_token"])
     }
 }
