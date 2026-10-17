@@ -177,15 +177,15 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md).
 
-| Wave | WP                                                                | Branch         | Status       |
-| ---- | ----------------------------------------------------------------- | -------------- | ------------ |
-| W1   | C1 contracts (models, DTOs, schema, protocols, TestSupport, GRDB) | `ios/m1-c1`    | [~] running  |
-| W1   | DS design system (lands with M2)                                  | `ios/m1-ds`    | [~] running  |
-| W1   | B6 APNs backend, dark                                             | `ios/m1-b6`    | [~] running  |
-| W1   | TOOLS integration harness and fault proxy                         | `ios/m1-tools` | [~] running  |
-| W2   | STORE · API · DUE · VAL                                           | —              | [ ] after C1 |
-| W3   | OUTBOX · SYNC · SKEL · B7                                         | —              | [ ]          |
-| W4   | MP · INT · SPIKE · FORM (M2)                                      | —              | [ ]          |
+| Wave | WP                                                                | Branch         | Status                                                                                                                                          |
+| ---- | ----------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| W1   | C1 contracts (models, DTOs, schema, protocols, TestSupport, GRDB) | `ios/m1-c1`    | [~] running                                                                                                                                     |
+| W1   | DS design system (lands with M2)                                  | `ios/m1-ds`    | [~] running                                                                                                                                     |
+| W1   | B6 APNs backend, dark                                             | `ios/m1-b6`    | [~] built (4 commits, 478 pytest). Codex round 1: 3 Majors + 1 Minor (lifespan order, delivery deadline, token logging, sandbox config); fixing |
+| W1   | TOOLS integration harness and fault proxy                         | `ios/m1-tools` | [~] running                                                                                                                                     |
+| W2   | STORE · API · DUE · VAL                                           | —              | [ ] after C1                                                                                                                                    |
+| W3   | OUTBOX · SYNC · SKEL · B7                                         | —              | [ ]                                                                                                                                             |
+| W4   | MP · INT · SPIKE · FORM (M2)                                      | —              | [ ]                                                                                                                                             |
 
 - [ ] QuickrCore: models, validation, quick-log, and the due port (all vectors
       pass)
