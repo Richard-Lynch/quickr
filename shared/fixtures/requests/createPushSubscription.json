@@ -1,0 +1,23 @@
+{
+  "operation_id": "createPushSubscription",
+  "request": {
+    "body": {
+      "endpoint": "https://web.push.apple.com/QGuQyavXutnMlB5k",
+      "keys": {
+        "auth": "x5sQe1Zl0dAuth",
+        "p256dh": "BOr8uW3hZ8t3Qn0dJ4Xq-key"
+      },
+      "user_agent": "quickR iOS"
+    },
+    "headers": {
+      "accept": "application/json",
+      "cache-control": "no-store",
+      "content-type": "application/json",
+      "x-quickr-channel": "ios",
+      "x-quickr-expect-epoch": "22222222-2222-4222-8222-222222222222",
+      "x-quickr-expect-server-id": "11111111-1111-4111-8111-111111111111"
+    },
+    "method": "POST",
+    "path": "/api/v1/push/subscriptions"
+  }
+}
