@@ -31,19 +31,21 @@ import Testing
             FileManager.default.fileExists(atPath: dir.url.appending(path: relativePath).path)
         }
 
-        /// Steps 2–5 of a reset up to the retire, as SYNC will drive them. Returns the old store.
-        func retire(_ serverId: String) async throws -> LocalStore {
+        /// Steps 2–5 of a reset up to the retire, as SYNC will drive them. Returns the old store
+        /// and the persisted intent.
+        @discardableResult
+        func retire(_ serverId: String) async throws -> (old: LocalStore, intent: RegisteredServer) {
             let old = try await partitions.openStore(serverId: serverId, role: .app).store
             let (count, maxSeq) = try await old.outbox.summary()
-            _ = try await partitions.persistResetIntent(
-                serverId: serverId, confirmedCount: count, confirmedMaxSeq: maxSeq)
+            let intent = try await partitions.persistResetIntent(
+                store: old, confirmedCount: count, confirmedMaxSeq: maxSeq)
             let pair = try #require(try await old.leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(1)))
             #expect(
                 try await old.retire(confirmedCount: count, confirmedMaxSeq: maxSeq, sync: pair.sync, flush: pair.flush)
                     == .retired)
             _ = try await old.leases.release(pair.flush)
             _ = try await old.leases.release(pair.sync)
-            return old
+            return (old, intent)
         }
     }
 
@@ -88,8 +90,8 @@ import Testing
             _ = try ServerLayer.upsert(db, topic: Make.topic())
             try db.execute(sql: "UPDATE sync_state SET epoch = 'E1', cursor = 9")
         }
-        let old = try await env.retire("s")
-        let new = try await env.partitions.completeReset(serverId: "s")
+        let (old, intent) = try await env.retire("s")
+        let new = try await env.partitions.completeReset(intent)
         #expect(new.storeGen == 2 && new.url?.lastPathComponent == "s.g2.sqlite")
         #expect(try await new.syncState.syncState() == SyncState(serverId: "s", baseURL: "https://s.example"))
         #expect(try await new.topics.topics().isEmpty)
@@ -114,7 +116,8 @@ import Testing
                 NewOutboxItem(payload: Make.createPayload(topic: Make.topic()), origin: .app))
         }
         let (count, maxSeq) = try await store.outbox.summary()
-        _ = try await env.partitions.persistResetIntent(serverId: "s", confirmedCount: count, confirmedMaxSeq: maxSeq)
+        let intent = try await env.partitions.persistResetIntent(
+            store: store, confirmedCount: count, confirmedMaxSeq: maxSeq)
         let widget = try await env.otherProcess().openStore(serverId: "s", role: .extension).store
         _ = try await widget.outbox.enqueue(
             NewOutboxItem(payload: Make.createPayload(topic: Make.topic()), origin: .widget))
@@ -124,7 +127,7 @@ import Testing
             confirmedCount: count, confirmedMaxSeq: maxSeq, sync: pair.sync, flush: pair.flush)
         #expect(outcome == .writesArrived(count: 3, maxSeq: 3))
         #expect(try await !store.isRetired())
-        try await env.partitions.abortReset(serverId: "s")
+        #expect(try await env.partitions.abortReset(intent))
         #expect(try await env.partitions.registry.repository.server(id: "s")?.pendingGen == nil)
 
         // Fewer items (some synced meanwhile) is fine.
@@ -150,7 +153,7 @@ import Testing
         let env = try Env()
         defer { env.dir.cleanup() }
         let store = try await env.partitions.createStore(serverId: "s", baseURL: "u")
-        _ = try await env.partitions.persistResetIntent(serverId: "s", confirmedCount: 0, confirmedMaxSeq: 0)
+        _ = try await env.partitions.persistResetIntent(store: store, confirmedCount: 0, confirmedMaxSeq: 0)
 
         let other = try env.otherProcess()
         guard case .opened(let extensionStore) = try await other.openStore(serverId: "s", role: .extension) else {
@@ -172,7 +175,7 @@ import Testing
         let env = try Env()
         defer { env.dir.cleanup() }
         _ = try await env.partitions.createStore(serverId: "s", baseURL: "u")
-        _ = try await env.retire("s")
+        try await env.retire("s")
 
         let widget = try env.otherProcess()
         let opened = try await widget.openStore(serverId: "s", role: .extension)
@@ -191,8 +194,9 @@ import Testing
         #expect(try await app.outbox.summary().count == 1)
         #expect(try await env.partitions.registry.retiredFiles().count == 1)
         #expect(
-            try await !env.partitions.registry.completeReset(
-                serverId: "s", retiredAtWall: Date(), retiredAt: env.clock.now()))
+            try await env.partitions.registry.completeReset(
+                serverId: "s", fromGen: 1, toGen: 2, retiredAtWall: Date(), retiredAt: env.clock.now())
+                == .alreadyAdvanced)
     }
 
     @Test func recoveryRepairsARegistryPointingAtARetiredFile() async throws {
@@ -220,8 +224,7 @@ import Testing
         let env = try Env()
         defer { env.dir.cleanup() }
         _ = try await env.partitions.createStore(serverId: "s", baseURL: "u")
-        _ = try await env.retire("s")
-        _ = try await env.partitions.completeReset(serverId: "s")
+        _ = try await env.partitions.completeReset(try await env.retire("s").intent)
         #expect(env.exists("stores/s.g1.sqlite"))
 
         env.clock.advance(by: .seconds(599))
@@ -240,8 +243,7 @@ import Testing
         let env = try Env()
         defer { env.dir.cleanup() }
         _ = try await env.partitions.createStore(serverId: "s", baseURL: "u")
-        _ = try await env.retire("s")
-        _ = try await env.partitions.completeReset(serverId: "s")
+        _ = try await env.partitions.completeReset(try await env.retire("s").intent)
         env.clock.reboot()
         #expect(try await env.partitions.deleteRetiredFiles() == ["stores/s.g1.sqlite"])
     }
@@ -255,5 +257,57 @@ import Testing
         }
         #expect(try await env.partitions.deleteRetiredFiles().isEmpty)
         #expect(env.exists("stores/s.g1.sqlite"))
+    }
+
+    @Test func aStaleRecoveryNeverCompletesANewerReset() async throws {
+        // A inspects g1 (retired, intent g1→g2) and pauses; B completes g1→g2; the app persists a
+        // new g2→g3 intent; A resumes with its g1→g2 view and must change nothing.
+        let env = try Env()
+        defer { env.dir.cleanup() }
+        _ = try await env.partitions.createStore(serverId: "s", baseURL: "u")
+        let (_, firstIntent) = try await env.retire("s")
+        let inspectedByA = try #require(try await env.partitions.registry.repository.server(id: "s"))
+        #expect(inspectedByA.storeGen == 1 && inspectedByA.pendingGen == 2)
+
+        let processB = try env.otherProcess()
+        let g2 = try await processB.openStore(serverId: "s", role: .extension).store
+        #expect(g2.storeGen == 2)
+        _ = try await g2.outbox.enqueue(
+            NewOutboxItem(payload: Make.createPayload(topic: Make.topic()), origin: .widget))
+        let secondIntent = try await env.partitions.persistResetIntent(store: g2, confirmedCount: 1, confirmedMaxSeq: 1)
+        #expect(secondIntent.storeGen == 2 && secondIntent.pendingGen == 3)
+
+        // A resumes: step 6 for the generations it inspected.
+        let completion = try await env.partitions.registry.completeReset(
+            serverId: "s", fromGen: inspectedByA.storeGen, toGen: try #require(inspectedByA.pendingGen),
+            retiredAtWall: Date(), retiredAt: env.clock.now())
+        #expect(completion == .superseded)
+        await #expect(throws: StoreError.registryChanged("s")) { try await env.partitions.completeReset(firstIntent) }
+        // Nor can it abort the newer intent.
+        #expect(try await !env.partitions.abortReset(firstIntent))
+
+        let server = try #require(try await env.partitions.registry.repository.server(id: "s"))
+        #expect(server.storeGen == 2 && server.pendingGen == 3 && server.pendingConfirmedCount == 1)
+        #expect(try await env.partitions.registry.retiredFiles().map(\.path) == ["stores/s.g1.sqlite"])
+        // g2 is live and keeps its write; a fresh recovery hands the app the pending reset of g2.
+        #expect(try await !g2.isRetired())
+        guard case .resetPending(let store, let intent) = try await env.partitions.openStore(serverId: "s", role: .app)
+        else {
+            Issue.record("expected the g2→g3 reset to be pending")
+            return
+        }
+        #expect(store.storeGen == 2 && intent.pendingGen == 3)
+        #expect(try await store.outbox.summary().count == 1)
+    }
+
+    @Test func anIntentNeedsTheCurrentGenerationAndNoResetInProgress() async throws {
+        let env = try Env()
+        defer { env.dir.cleanup() }
+        let g1 = try await env.partitions.createStore(serverId: "s", baseURL: "u")
+        _ = try await env.partitions.persistResetIntent(store: g1, confirmedCount: 0, confirmedMaxSeq: 0)
+        await #expect(throws: StoreError.registryChanged("s")) {
+            try await env.partitions.persistResetIntent(store: g1, confirmedCount: 5, confirmedMaxSeq: 5)
+        }
+        #expect(try await env.partitions.registry.repository.server(id: "s")?.pendingConfirmedCount == 0)
     }
 }

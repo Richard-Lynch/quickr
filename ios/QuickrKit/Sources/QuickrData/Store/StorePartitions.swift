@@ -72,53 +72,77 @@ public struct StorePartitions: Sendable {
     }
 
     /// Opens a server's store at its current generation, running the §12.2 recovery first. Safe
-    /// to call from any process, at any time; every recovery step is idempotent. Call it again
-    /// whenever `registry-changed` arrives, the app becomes active, an extension starts, or a
-    /// transaction fails with `StoreError.retired` (§8.1).
+    /// to call from any process, at any time; every recovery step is idempotent and fenced on the
+    /// registry state it inspected, so a step based on a stale read writes nothing and recovery
+    /// restarts from a fresh read. Call it again whenever `registry-changed` arrives, the app
+    /// becomes active, an extension starts, or a transaction fails with `StoreError.retired` (§8.1).
     public func openStore(serverId: String, role: Role) async throws -> OpenResult {
-        var server = try await requireServer(serverId)
-        if server.pendingGen != nil {
-            let old = try openExisting(server)
-            if let old, try await !old.isRetired() {
-                // Crashed between steps 2 and 4: the old file is still live.
-                return role == .app ? .resetPending(old, server) : .opened(old)
+        for _ in 0..<Self.recoveryAttempts {
+            let server = try await requireServer(serverId)
+            if let pendingGen = server.pendingGen {
+                let old = try openExisting(server)
+                if let old, try await !old.isRetired() {
+                    // Crashed between steps 2 and 4: the old file is still live.
+                    if try await registryUnchanged(server) {
+                        return role == .app ? .resetPending(old, server) : .opened(old)
+                    }
+                    continue
+                }
+                // Crashed between steps 4 and 6 (or the old file is gone): finish step 6 for
+                // exactly the generations inspected, then re-read whatever the outcome.
+                try await registry.completeReset(
+                    serverId: serverId, fromGen: server.storeGen, toGen: pendingGen, retiredAtWall: wallClock.now(),
+                    retiredAt: leaseClock.now())
+                continue
             }
-            // Crashed between steps 4 and 6 (or the old file is gone): finish step 6.
-            try await registry.completeReset(
-                serverId: serverId, retiredAtWall: wallClock.now(), retiredAt: leaseClock.now())
-            server = try await requireServer(serverId)
-        } else if let current = try openExisting(server), try await current.isRetired() {
-            // Unreachable in theory: the registry points at a retired file. Move past it.
-            try await registry.repairRetiredPointer(
-                serverId: serverId, retiredGen: server.storeGen, retiredAtWall: wallClock.now(),
-                retiredAt: leaseClock.now())
-            server = try await requireServer(serverId)
+            if let current = try openExisting(server), try await current.isRetired() {
+                // Unreachable in theory: the registry points at a retired file. Move past it.
+                try await registry.repairRetiredPointer(
+                    serverId: serverId, retiredGen: server.storeGen, retiredAtWall: wallClock.now(),
+                    retiredAt: leaseClock.now())
+                continue
+            }
+            let store = try await open(server)
+            if try await registryUnchanged(server) { return .opened(store) }
         }
-        return .opened(try await open(server))
+        throw StoreError.registryChanged(serverId)
     }
+
+    /// How many times `openStore` re-reads the registry before giving up with `registryChanged`.
+    static let recoveryAttempts = 8
 
     // MARK: - Reset primitives (§12.1)
 
-    /// Step 2. Returns the server with its intent.
-    public func persistResetIntent(serverId: String, confirmedCount: Int, confirmedMaxSeq: Int64) async throws
+    /// Step 2 for `store`'s file: fails with `registryChanged` if that file is no longer the
+    /// server's current generation or a reset is already in progress. Returns the server with
+    /// its intent; pass it to `completeReset` or `abortReset`.
+    public func persistResetIntent(store: LocalStore, confirmedCount: Int, confirmedMaxSeq: Int64) async throws
         -> RegisteredServer
     {
         try await registry.persistResetIntent(
-            serverId: serverId, confirmedCount: confirmedCount, confirmedMaxSeq: confirmedMaxSeq)
+            serverId: store.serverId, storeGen: store.storeGen, confirmedCount: confirmedCount,
+            confirmedMaxSeq: confirmedMaxSeq)
     }
 
     /// Steps 6–8 after `LocalStore.retire` returned `.retired` and both leases were released:
-    /// advance the generation (the registry commit posts `registry-changed`), then create and open
-    /// the new, empty file. The caller bootstraps it.
-    public func completeReset(serverId: String) async throws -> LocalStore {
-        try await registry.completeReset(
-            serverId: serverId, retiredAtWall: wallClock.now(), retiredAt: leaseClock.now())
-        return try await openStore(serverId: serverId, role: .app).store
+    /// advance exactly `intent`'s generations (the registry commit posts `registry-changed`),
+    /// then create and open the new, empty file. The caller bootstraps it. Throws
+    /// `registryChanged` if the intent was superseded.
+    public func completeReset(_ intent: RegisteredServer) async throws -> LocalStore {
+        guard let pendingGen = intent.pendingGen else { throw StoreError.registryChanged(intent.id) }
+        let completion = try await registry.completeReset(
+            serverId: intent.id, fromGen: intent.storeGen, toGen: pendingGen, retiredAtWall: wallClock.now(),
+            retiredAt: leaseClock.now())
+        guard completion != .superseded else { throw StoreError.registryChanged(intent.id) }
+        return try await openStore(serverId: intent.id, role: .app).store
     }
 
-    /// Abort: clear the intent (lease timeout in step 3, or writes arrived in step 4).
-    public func abortReset(serverId: String) async throws {
-        try await registry.clearResetIntent(serverId: serverId)
+    /// Abort `intent` (lease timeout in step 3, or writes arrived in step 4). Clears only that
+    /// intent; returns whether it did.
+    @discardableResult
+    public func abortReset(_ intent: RegisteredServer) async throws -> Bool {
+        guard let pendingGen = intent.pendingGen else { return false }
+        return try await registry.clearResetIntent(serverId: intent.id, pendingGen: pendingGen)
     }
 
     /// Step 9, app only: deletes retired files once retired for `retiredFileGrace` of lease time
@@ -142,6 +166,11 @@ public struct StorePartitions: Sendable {
     }
 
     // MARK: - Files
+
+    private func registryUnchanged(_ server: RegisteredServer) async throws -> Bool {
+        let now = try await requireServer(server.id)
+        return now.storeGen == server.storeGen && now.pendingGen == server.pendingGen
+    }
 
     private func requireServer(_ serverId: String) async throws -> RegisteredServer {
         guard let server = try await registry.repository.server(id: serverId) else {

@@ -16,6 +16,9 @@ public enum StoreError: Error, Sendable, Hashable, CustomStringConvertible {
     case lockOrderViolation(acquiring: LeaseName, holding: LeaseName)
     /// A stored row didn't decode.
     case corruptRow(String)
+    /// The registry row changed under a conditional step (another process advanced or started a
+    /// reset). Re-read the registry and retry.
+    case registryChanged(String)
 
     public var description: String {
         switch self {
@@ -27,6 +30,7 @@ public enum StoreError: Error, Sendable, Hashable, CustomStringConvertible {
         case .lockOrderViolation(let acquiring, let holding):
             "lock order: can't acquire \(acquiring.rawValue) while holding \(holding.rawValue)"
         case .corruptRow(let message): "corrupt row: \(message)"
+        case .registryChanged(let id): "registry changed for server \(id)"
         }
     }
 }
