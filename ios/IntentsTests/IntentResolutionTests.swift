@@ -8,8 +8,9 @@ import AppIntentsTesting
 /// AppIntentsTesting (Xcode 27) looks the types up in the metadata linkd registered for
 /// `com.bahumia.quickr` and runs the queries and the intent through it. linkd folds the widget
 /// extension's metadata into that same bundle and has no entry for the extension's own id, so the
-/// widget half is `WidgetGalleryTests`. Needs an iOS 27 runtime: on iOS 26.0 these skip, and the
-/// hosted `IntentMetadataTests` checks both bundles' metadata there.
+/// widget half is `QuickRUITests/WidgetGalleryTests`. Needs an iOS 27 runtime, so this bundle has
+/// its own plan (`Intents`), which check-ios runs only on iOS 27+; on iOS 26.0 the hosted
+/// `IntentMetadataTests` checks both bundles' metadata instead.
 final class IntentResolutionTests: XCTestCase {
     static let app = "com.bahumia.quickr"
     static let coffee = "6f1c3c1e-0c4b-4d2a-9a51-1d6a0e9b7c01"

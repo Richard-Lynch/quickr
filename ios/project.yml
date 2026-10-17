@@ -163,6 +163,22 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: QuickR
 
+  # AppIntentsTesting UI tests, apart from QuickRUITests: AppIntentsTesting.framework needs the
+  # iOS 27 runtime's AppIntentsTypeSupport, so on iOS 26 the bundle fails to load and takes the
+  # runner down. check-ios runs this plan only on iOS 27+ simulators.
+  QuickRIntentsTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - IntentsTests
+    dependencies:
+      - target: QuickR
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr.intentstests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: QuickR
+
 schemes:
   QuickR:
     build:
@@ -170,6 +186,7 @@ schemes:
         QuickR: all
         QuickRTests: [test]
         QuickRUITests: [test]
+        QuickRIntentsTests: [test]
     run:
       config: Debug
     test:
@@ -178,5 +195,6 @@ schemes:
         - path: TestPlans/Unit.xctestplan
           defaultPlan: true
         - path: TestPlans/UI.xctestplan
+        - path: TestPlans/Intents.xctestplan
     archive:
       config: Release
