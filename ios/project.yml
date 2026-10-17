@@ -1,0 +1,177 @@
+# XcodeGen spec for the quickR iOS app. `make ios-gen` turns it into quickR.xcodeproj
+# (gitignored), along with the Info.plist and .entitlements files below (also gitignored).
+# Edit this file, never the generated project. See docs/ios/PLAN.md §2–3 and ios/README.md.
+name: quickR
+
+options:
+  bundleIdPrefix: com.bahumia
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+configFiles:
+  Debug: Config/Shared.xcconfig
+  Release: Config/Shared.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    SUPPORTS_MACCATALYST: NO
+    SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+    SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # DEVELOPMENT_TEAM comes from ios/Local.xcconfig (via Config/Shared.xcconfig).
+
+packages:
+  QuickrKit:
+    path: QuickrKit
+
+# Shared by the app and both extensions. aps-environment is added to the app in M3.
+entitlementProperties: &sharedEntitlements
+  com.apple.security.application-groups:
+    - group.com.bahumia.quickr
+  keychain-access-groups:
+    - $(AppIdentifierPrefix)com.bahumia.quickr.shared
+
+targets:
+  QuickR:
+    type: application
+    platform: iOS
+    sources:
+      - App
+    dependencies:
+      - package: QuickrKit
+        products: [QuickrCore, QuickrData, QuickrUI]
+      - target: QuickRWidgets
+      - target: QuickRNotificationService
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr
+        PRODUCT_NAME: QuickR
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: quickR
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIBackgroundModes:
+          - fetch
+          - remote-notification
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.bahumia.quickr.refresh
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: quickR connects to your quickR server on the local network.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.bahumia.quickr
+            CFBundleURLSchemes:
+              - quickr
+    entitlements:
+      path: App/QuickR.entitlements
+      properties: *sharedEntitlements
+
+  QuickRWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Widgets
+    dependencies:
+      - package: QuickrKit
+        products: [QuickrCore]
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr.widgets
+    info:
+      path: Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: quickR
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Widgets/QuickRWidgets.entitlements
+      properties: *sharedEntitlements
+
+  QuickRNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - NotificationService
+    dependencies:
+      - package: QuickrKit
+        products: [QuickrCore]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr.notification-service
+    info:
+      path: NotificationService/Info.plist
+      properties:
+        CFBundleDisplayName: quickR Notification Service
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    entitlements:
+      path: NotificationService/QuickRNotificationService.entitlements
+      properties: *sharedEntitlements
+
+  QuickRTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - AppTests
+    dependencies:
+      - target: QuickR
+      - package: QuickrKit
+        products: [QuickrCore]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+  QuickRUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+    dependencies:
+      - target: QuickR
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: QuickR
+
+schemes:
+  QuickR:
+    build:
+      targets:
+        QuickR: all
+        QuickRTests: [test]
+        QuickRUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      testPlans:
+        - path: TestPlans/Unit.xctestplan
+          defaultPlan: true
+        - path: TestPlans/UI.xctestplan
+    archive:
+      config: Release

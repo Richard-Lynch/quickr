@@ -1,0 +1,7 @@
+// Copy to ios/Local.xcconfig (gitignored) and fill in. Not needed for simulator builds.
+// Your Apple Developer Team ID (Membership details on developer.apple.com).
+DEVELOPMENT_TEAM =
+// Optional: the paired iPhone's identifier, for device installs (`xcrun devicectl list devices`).
+QUICKR_DEVICE =
+// Optional: the dev server the app talks to by default (escape `//` as `/$()/` in xcconfig).
+QUICKR_DEV_SERVER_URL = http:/$()/localhost:8100
