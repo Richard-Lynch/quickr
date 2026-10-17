@@ -36,7 +36,7 @@ import Testing
                 try columns(db, "sync_state") == [
                     "id", "server_id", "base_url", "epoch", "cursor", "head_seen", "layer_gen", "rebuilding",
                     "epoch_suspect", "retired", "identity_mismatch", "last_pull_at", "skew_ms", "skew_measured_at",
-                    "bootstrap_complete", "reset_veto",
+                    "bootstrap_complete",
                 ])
             for table in StoreSchema.serverLayerTables {
                 #expect(try columns(db, "stage_" + table) == columns(db, table), "\(table)")
