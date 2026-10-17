@@ -244,8 +244,7 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 ## M4: Widgets, Controls, Siri and Shortcuts · needs H3–H5
 
 - [ ] Intents, widgets, controls, Shortcuts phrases
-- [ ] Device checks: logging with the app killed and offline, the Action button,
-      Siri; multi-process soak
+- [ ] Device checks: logging with the app killed and offline, the Action button, Siri; **a 3-question topic by voice while offline; editing and confirming in the Siri card; the one-sentence path on an Apple Intelligence phone**; multi-process soak
 - [ ] Reviews; PR with GIFs and a recording
 
 ## M5: History and entries · needs H2
