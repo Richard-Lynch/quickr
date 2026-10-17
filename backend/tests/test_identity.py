@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from typing import Any
 from uuid import uuid4
 
@@ -408,3 +409,46 @@ async def test_unreadable_identity_logs_one_line(
 async def test_prefix_is_a_path_segment(client: httpx.AsyncClient) -> None:
     assert "x-quickr-epoch" in (await client.get("http://test/api/v1")).headers  # 404, but ours
     assert "x-quickr-epoch" not in (await client.get("http://test/api/v10/health")).headers
+
+
+async def test_test_push_holds_the_lock_through_delivery(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rotation attempted after /push/test checked its expected epoch waits for the lock
+    until the push has delivered and committed: it can't land between check and send."""
+    await client.post("/push/subscriptions", json=PUSH_SUB)
+    server_id, epoch_a = await identity(client)
+    in_delivery, finish = threading.Event(), threading.Event()
+    events: list[str] = []
+
+    def slow_deliver(subscription: dict[str, Any], *_: Any) -> None:
+        in_delivery.set()
+        assert finish.wait(5)
+        events.append("delivered")
+
+    monkeypatch.setattr(push_svc, "deliver", slow_deliver)
+
+    async def rotate() -> str:
+        async with get_sessionmaker()() as other:
+            epoch = await feed.rotate_epoch(other)
+        events.append("rotated")
+        return epoch
+
+    headers = {"X-QuickR-Expect-Server-Id": server_id, "X-QuickR-Expect-Epoch": epoch_a}
+    request = asyncio.create_task(client.post("/push/test", headers=headers))
+    async with get_sessionmaker()() as watcher:
+        try:
+            assert await asyncio.to_thread(in_delivery.wait, 5), "the push never reached delivery"
+            rotation = asyncio.create_task(rotate())
+            waited = await wait_for_lock_waiter(watcher)
+            assert not rotation.done()
+        finally:
+            finish.set()
+        r = await request
+        epoch_b = await rotation
+    assert waited, "the rotation must have been waiting for the feed lock"
+    assert (r.status_code, r.json()) == (200, {"sent": 1, "failed": 0}), r.text
+    assert events == ["delivered", "rotated"]
+    assert epoch_b != epoch_a
+    async with get_sessionmaker()() as db:
+        assert await db.scalar(text("SELECT last_success_at IS NOT NULL FROM push_subscriptions"))

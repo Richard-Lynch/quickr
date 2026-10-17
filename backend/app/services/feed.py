@@ -56,9 +56,10 @@ class WriterMisuse(RuntimeError):
     """A writer was called on a session that already has work in flight."""
 
 
-def writer[**P, T](
-    fn: Callable[Concatenate[AsyncSession, P], Coroutine[Any, Any, T]],
-) -> Callable[Concatenate[AsyncSession, P], Coroutine[Any, Any, T]]:
+type _Service[**P, T] = Callable[Concatenate[AsyncSession, P], Coroutine[Any, Any, T]]
+
+
+def writer[**P, T](fn: _Service[P, T]) -> _Service[P, T]:
     """Run a mutating service function as one transaction under the feed lock.
 
     The outermost writer owns the transaction: it takes the lock as the first
@@ -75,9 +76,23 @@ def writer[**P, T](
     roll back and re-run the whole function (up to ``MAX_ATTEMPTS``); any other error
     rolls back, releasing the lock, and propagates.
     """
+    return _writer(fn, MAX_ATTEMPTS)
 
+
+def writer_once[**P, T](fn: _Service[P, T]) -> _Service[P, T]:
+    """Like :func:`writer`, but never re-runs the function: for one with external effects
+    (push delivery) that must happen under the lock and must not repeat. Any error,
+    deadlocks included, rolls back and propagates. It always owns its transaction:
+    calling it from inside another writer (which might retry) raises :class:`WriterMisuse`.
+    """
+    return _writer(fn, 1)
+
+
+def _writer[**P, T](fn: _Service[P, T], max_attempts: int) -> _Service[P, T]:
     async def run(db: AsyncSession, /, *args: P.args, **kwargs: P.kwargs) -> T:
         if db.info.get(_IN_WRITER):
+            if max_attempts == 1:
+                raise WriterMisuse(f"{fn.__name__} can't join another writer's (retried) transaction")
             return await fn(db, *args, **kwargs)  # nested: the outer writer locks and commits
         if db.new or db.dirty or db.deleted or db.in_transaction():
             raise WriterMisuse(f"{fn.__name__} needs an idle session: commit or roll back earlier work first")
@@ -91,7 +106,7 @@ def writer[**P, T](
                     await db.commit()
                 except DBAPIError as exc:
                     await db.rollback()
-                    if attempt >= MAX_ATTEMPTS or not _retryable(exc):
+                    if attempt >= max_attempts or not _retryable(exc):
                         raise
                     log.warning("%s: retrying after %s (attempt %d)", fn.__name__, exc.orig, attempt)
                     continue
@@ -195,15 +210,6 @@ class ExpectedIdentity:
 
 # Set per request from the X-QuickR-Expect-* headers (app.api.identity); None = no check.
 expected_identity: ContextVar[ExpectedIdentity | None] = ContextVar("expected_identity", default=None)
-
-
-@writer
-async def check_identity(db: AsyncSession) -> None:
-    """Check the request's expected identity under the feed lock, writing nothing.
-
-    For an action whose effects can't run inside a (retried) writer transaction, such
-    as sending push messages: check here first, then act.
-    """
 
 
 async def _check_expected_identity(db: AsyncSession) -> None:

@@ -31,7 +31,7 @@ from app.config import get_settings
 from app.models import AppSetting, PushSubscription
 from app.push_guard import PushEndpointRejected, check_endpoint, ensure_public
 from app.schemas.api import PushPayload, PushSubscriptionIn, PushSubscriptionOut, PushTestResult
-from app.services.feed import check_identity, writer
+from app.services.feed import writer, writer_once
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +75,13 @@ def generate_vapid_keys() -> VapidKeys:
 
 
 async def get_vapid_keys(db: AsyncSession) -> VapidKeys:
+    keys = await _ensure_vapid_keys(db)
+    await db.commit()
+    return keys
+
+
+async def _ensure_vapid_keys(db: AsyncSession) -> VapidKeys:
+    """The keys, generating and storing them on first use, in the caller's transaction."""
     settings = get_settings()
     if settings.vapid_private_key:
         return VapidKeys(
@@ -95,7 +102,6 @@ async def get_vapid_keys(db: AsyncSession) -> VapidKeys:
             )
             .on_conflict_do_nothing(index_elements=["key"])
         )
-        await db.commit()
         stored = await _stored_keys(db)
         assert stored is not None
     return stored
@@ -213,7 +219,7 @@ async def send_to_all(
 
     Changes are flushed but not committed; the caller owns the transaction.
     """
-    keys = await get_vapid_keys(db)
+    keys = await _ensure_vapid_keys(db)
     claims: dict[str, str | int] = {"sub": get_settings().vapid_subject}
     signer = signing_key(keys.private_key)
     data = payload.model_dump_json()
@@ -239,12 +245,16 @@ async def send_to_all(
     return PushTestResult(sent=sent, failed=failed)
 
 
+@writer_once
 async def send_test(db: AsyncSession) -> PushTestResult:
-    # The request's preconditions, before any key generation or delivery: a mismatch sends
-    # nothing and changes nothing. The deliveries can't run inside the writer (it may
-    # re-run its transaction), so a rotation after this check but before delivery isn't
-    # caught. That's acceptable: test push is a manual action and touches nothing in the feed.
-    await check_identity(db)
+    """Send a test notification to every subscription, all under the feed lock.
+
+    The writer checks the request's preconditions right after taking the lock, so a
+    mismatch sends nothing and changes nothing, and no epoch rotation can land between
+    the check and the sends: the lock is held through delivery and bookkeeping until the
+    commit (a few seconds at most, for a manual action). It never retries: a failure
+    rolls back the bookkeeping and propagates rather than sending twice.
+    """
     payload = PushPayload(
         title="quickR",
         body="Test notification: push is working.",
@@ -252,6 +262,4 @@ async def send_test(db: AsyncSession) -> PushTestResult:
         tag="test",
         topic_slug=None,
     )
-    result = await send_to_all(db, payload, ttl=3600)
-    await db.commit()
-    return result
+    return await send_to_all(db, payload, ttl=3600)
