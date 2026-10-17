@@ -170,6 +170,31 @@ The previous draft had a 60-second "identity confirmed" window and a health
 probe. **Both are removed.** The F10 preconditions make every mutation
 self-checking.
 
+### 1.5 Wire date-time profile
+
+Every date-time in a request or response body (`*_at`, `due_since`, `start`,
+`server_time`, `captured_at_min`) uses one agreed profile, a subset of RFC 3339
+that matches Python's `datetime.isoformat()` on an aware datetime:
+
+```
+YYYY-MM-DDTHH:MM:SS[.f{1,6}](Z|±HH:MM)
+```
+
+- **0–6 fractional digits.** The server sends microseconds and drops the
+  fraction when it is zero. Seven or more digits are rejected.
+- **An offset is mandatory.** A naive time is rejected (the server answers 422
+  `invalid_request`).
+- **No leap seconds.** `SS` is `00`–`59`.
+- **Precision is one microsecond** on both sides.
+- **Client output** is always UTC with an explicit `+00:00` offset, with six
+  fractional digits when the instant has a sub-second part and none otherwise.
+
+A value outside the profile is a protocol error: the page or response that
+carries it fails to decode (§2.2), and nothing is applied. The Swift
+implementation is `WireDate` in `QuickrData`. Notification slot keys use the
+stricter canonical form in
+[notifications.md §11.1](notifications.md#111-identifiers-and-canonical-slot).
+
 ## 2. Bootstrap and the page checks
 
 ### 2.1 Bootstrap

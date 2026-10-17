@@ -211,7 +211,7 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         }
         #expect(try text(TopicUpdateDTO(description: "x")) == #"{"description":"x"}"#)
         #expect(try text(TopicUpdateDTO(schedule: .null)) == #"{"schedule":null}"#)
-        let interval = ScheduleDTO(.interval(.init(everyMinutes: 60, timezone: "UTC")))
+        let interval = ScheduleInputDTO(.interval(.init(everyMinutes: 60, timezone: "UTC")))
         #expect(
             try text(TopicUpdateDTO(schedule: .value(interval)))
                 == #"{"schedule":{"every_minutes":60,"kind":"interval","notify":true,"timezone":"UTC"}}"#)
@@ -227,6 +227,40 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         #expect(decoded == create)
         #expect(try decoded.questions.toDomain() == topic.questions)
         #expect(try decoded.schedule?.toDomain() == topic.schedule)
+    }
+
+    /// A double answer of 7.0 is stored as `7` in a request-shaped map; the version's questions
+    /// type it back.
+    @Test func wholeDoubleAnswersSurviveThePayload() throws {
+        let topic = try decode(TopicDetailDTO.self, "getTopic")
+        let body = EntryCreateDTO(
+            id: nil, answers: ["hours": .double(7.0), "glasses": .int(3), "mood": .string("ok")], source: "ios",
+            capturedAt: Date(timeIntervalSince1970: 0), version: 2)
+        let payload = OutboxPayload.entryCreate(
+            topic: TopicRef(id: topic.id, slug: topic.slug, name: topic.name), body: body)
+        guard case .entryCreate(_, let stored) = try OutboxPayload.decode(kind: .entryCreate, json: payload.encoded())
+        else {
+            Issue.record("expected entry.create")
+            return
+        }
+        #expect(
+            stored.domainAnswers(for: topic.questions) == [
+                "hours": .double(7), "glasses": .int(3), "mood": .string("ok"),
+            ])
+
+        let patch = OutboxPayload.entryUpdate(
+            entryId: "e", topicId: "t", patch: EntryUpdateDTO(answers: ["hours": .double(8), "note": nil]))
+        guard
+            case .entryUpdate(_, _, let storedPatch) = try OutboxPayload.decode(
+                kind: .entryUpdate, json: patch.encoded())
+        else {
+            Issue.record("expected entry.update")
+            return
+        }
+        let expectedPatch: [String: AnswerValue?] = ["hours": .double(8), "note": nil]
+        #expect(storedPatch.domainAnswers(for: topic.questions) == expectedPatch)
+        #expect(AnswerValue.double(4).normalized(for: topic.questions[0]) == .int(4))
+        #expect(AnswerValue.double(4.5).normalized(for: topic.questions[0]) == .double(4.5))
     }
 
     @Test func outboxPayloadsRoundTrip() throws {
@@ -247,5 +281,17 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
             #expect(try OutboxPayload.decode(kind: payload.kind, json: payload.encoded()) == payload)
         }
         #expect(OutboxOrigin.allCases.map(\.source) == ["ios", "ios.widget", "ios.notification", "ios.siri"])
+    }
+}
+
+@Suite struct APNsMappingTests {
+    @Test func registerAndConfig() throws {
+        let device = try decode(ApnsDeviceDTO.self, "registerApnsDevice")
+        #expect(device.environment == .sandbox && device.bundleId == "com.bahumia.quickr")
+        #expect(device.token.count == 64 && device.token == device.token.lowercased())
+        #expect(try decode(PushConfigDTO.self, "getPushConfig").apnsEnabled)
+        let body = String(
+            decoding: try WireCoding.encoder().encode(ApnsDeviceRefDTO(token: device.token)), as: UTF8.self)
+        #expect(body == #"{"token":"\#(device.token)"}"#)
     }
 }

@@ -130,12 +130,17 @@ name, 4 options with 63-character values and 200-character multi-byte labels, a
 }
 ```
 
-- `options` holds **at most 4**, in display order.
-- With ≤ 4 active options, all of them are listed, in the question's option
-  order.
-- With 5–6 active options, the **4 most-used** are listed, counted per key over
-  the topic's entries. Ties go to option order. They are listed most-used first.
-  **[provisional: Q4]**
+- With ≤ 4 active options, `options` lists all of them, in the question's option
+  order, and there is no "More" action.
+- With 5–6 active options, `options` lists the **3 most-used**, counted per key
+  over the topic's entries, most-used first, with ties going to option order. The
+  **4th action is always "More…"**: a `.foreground` action that opens the record
+  screen (`url`) with nothing preselected. **[decided: Q4, 2026-10-17]**
+- When options are truncated, the alert body says so. The server appends
+  `" · {n} of {total} shown, More for all"` to the body, e.g. "Time to log · 3 of
+  6 shown, More for all". iOS truncates long bodies, so this suffix comes after
+  the short due message. The category hash includes the presence of "More", so a
+  topic going from 4 to 5 options gets a new category.
 - `total_options` is the number of active options.
 
 **Number** (an int or double question):
@@ -209,8 +214,8 @@ The **default action** (tapping the body) opens `url`. There is no separate
 **Two or four visible actions** (§6a rule 9). The first two actions are always
 the most useful ones:
 
-- for enums: the two most-used options (with 5–6 options), or the first two
-  (with fewer);
+- for enums: the two most-used options (with 5–6 options; "More…" is then the
+  4th action, visible only when expanded), or the first two (with fewer);
 - for numbers: "✓ last" and "Other value…".
 
 Everything else is one tap away via the body. Checkpoint D counts how many
@@ -598,10 +603,14 @@ the same vectors and `device_now + skew`.
 
 ## Open questions
 
-1. **Q2 [provisional]: authentication for Lock Screen logging.** The default is
-   no authentication.
-2. **Q4 [provisional]: topics with 5–6 options.** The default is the 4
-   most-used, most-used first.
+1. **Q2 [decided 2026-10-17]: no authentication for Lock Screen logging**, as
+   long as the experience is clean. Checkpoint D must show: a chip action logs from
+   the Lock Screen with no unlock prompt, no "Open quickR" bounce, and no failure
+   notification, whenever the phone has been unlocked once since boot. If that
+   can't be made clean, raise it with the user instead of silently adding
+   authentication.
+2. **Q4 [decided 2026-10-17]:** 3 most-used options + "More…" for 5–6 options,
+   with the truncation stated in the notification body (see the enum descriptor).
 3. **Before first unlock.** Should the content stay untouched, which is the PLAN
    default, or should the NSE clear `categoryIdentifier` so that no action can
    fail? Decide at checkpoint D, once we know whether categories survive a

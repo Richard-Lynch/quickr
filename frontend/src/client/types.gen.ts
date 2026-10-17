@@ -5,6 +5,90 @@ export type ClientOptions = {
 };
 
 /**
+ * ApnsDeviceIn
+ *
+ * An iOS app install's APNs registration, upserted by token (sent on every launch).
+ */
+export type ApnsDeviceIn = {
+    /**
+     * Token
+     *
+     * The APNs device token, hex (stored lower-case).
+     */
+    token: string;
+    /**
+     * Environment
+     *
+     * The APNs host the token belongs to: sandbox for debug builds, production for TestFlight and App Store builds.
+     */
+    environment: 'sandbox' | 'production';
+    /**
+     * Bundle Id
+     */
+    bundle_id?: string | null;
+    /**
+     * App Version
+     */
+    app_version?: string | null;
+    /**
+     * Device Name
+     */
+    device_name?: string | null;
+};
+
+/**
+ * ApnsDeviceOut
+ */
+export type ApnsDeviceOut = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Token
+     */
+    token: string;
+    /**
+     * Environment
+     */
+    environment: 'sandbox' | 'production';
+    /**
+     * Bundle Id
+     */
+    bundle_id: string | null;
+    /**
+     * App Version
+     */
+    app_version: string | null;
+    /**
+     * Device Name
+     */
+    device_name: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * ApnsDeviceRef
+ *
+ * One device, by token (unregister, test).
+ */
+export type ApnsDeviceRef = {
+    /**
+     * Token
+     *
+     * The APNs device token, hex (stored lower-case).
+     */
+    token: string;
+};
+
+/**
  * ChangesPage
  *
  * One page of the change feed, read from a single consistent snapshot.
@@ -1200,6 +1284,12 @@ export type PushConfig = {
      * VAPID public key (base64url, uncompressed P-256 point): the applicationServerKey for PushManager.subscribe().
      */
     public_key: string;
+    /**
+     * Apns Enabled
+     *
+     * Whether this server can send APNs notifications (to the iOS app). When false, devices can still register, but nothing is sent to them.
+     */
+    apns_enabled: boolean;
 };
 
 /**
@@ -3315,3 +3405,156 @@ export type SendTestPushResponses = {
 };
 
 export type SendTestPushResponse = SendTestPushResponses[keyof SendTestPushResponses];
+
+export type RegisterApnsDeviceData = {
+    body: ApnsDeviceIn;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/push/apns/devices';
+};
+
+export type RegisterApnsDeviceErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type RegisterApnsDeviceError = RegisterApnsDeviceErrors[keyof RegisterApnsDeviceErrors];
+
+export type RegisterApnsDeviceResponses = {
+    /**
+     * Successful Response
+     */
+    201: ApnsDeviceOut;
+};
+
+export type RegisterApnsDeviceResponse = RegisterApnsDeviceResponses[keyof RegisterApnsDeviceResponses];
+
+export type DeleteApnsDeviceData = {
+    body: ApnsDeviceRef;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/push/apns/devices/delete';
+};
+
+export type DeleteApnsDeviceErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type DeleteApnsDeviceError = DeleteApnsDeviceErrors[keyof DeleteApnsDeviceErrors];
+
+export type DeleteApnsDeviceResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteApnsDeviceResponse = DeleteApnsDeviceResponses[keyof DeleteApnsDeviceResponses];
+
+export type SendApnsTestPushData = {
+    body: ApnsDeviceRef;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/push/apns/devices/test';
+};
+
+export type SendApnsTestPushErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type SendApnsTestPushError = SendApnsTestPushErrors[keyof SendApnsTestPushErrors];
+
+export type SendApnsTestPushResponses = {
+    /**
+     * Successful Response
+     */
+    200: PushTestResult;
+};
+
+export type SendApnsTestPushResponse = SendApnsTestPushResponses[keyof SendApnsTestPushResponses];

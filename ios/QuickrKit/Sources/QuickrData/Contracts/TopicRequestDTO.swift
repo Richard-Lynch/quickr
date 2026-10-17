@@ -5,8 +5,8 @@ public struct TopicCreateDTO: Codable, Sendable, Hashable {
     public var name: String
     public var slug: String?
     public var description: String?
-    public var questions: [QuestionDTO]
-    public var schedule: ScheduleDTO?
+    public var questions: [QuestionInputDTO]
+    public var schedule: ScheduleInputDTO?
 
     public init(
         name: String, slug: String? = nil, description: String? = nil, questions: [Question],
@@ -15,8 +15,8 @@ public struct TopicCreateDTO: Codable, Sendable, Hashable {
         self.name = name
         self.slug = slug
         self.description = description
-        self.questions = questions.map(QuestionDTO.init)
-        self.schedule = schedule.map(ScheduleDTO.init)
+        self.questions = questions.map(QuestionInputDTO.init)
+        self.schedule = schedule.map(ScheduleInputDTO.init)
     }
 }
 
@@ -25,7 +25,7 @@ public struct TopicUpdateDTO: Codable, Sendable, Hashable {
     public var name: String?
     public var slug: String?
     public var description: String?
-    public var schedule: Nullable<ScheduleDTO>
+    public var schedule: Nullable<ScheduleInputDTO>
     public var expectedRevision: Int?
 
     enum CodingKeys: String, CodingKey {
@@ -35,7 +35,7 @@ public struct TopicUpdateDTO: Codable, Sendable, Hashable {
 
     public init(
         name: String? = nil, slug: String? = nil, description: String? = nil,
-        schedule: Nullable<ScheduleDTO> = .absent, expectedRevision: Int? = nil
+        schedule: Nullable<ScheduleInputDTO> = .absent, expectedRevision: Int? = nil
     ) {
         self.name = name
         self.slug = slug
@@ -49,7 +49,7 @@ public struct TopicUpdateDTO: Codable, Sendable, Hashable {
         name = try container.decodeIfPresent(String.self, forKey: .name)
         slug = try container.decodeIfPresent(String.self, forKey: .slug)
         description = try container.decodeIfPresent(String.self, forKey: .description)
-        schedule = try container.decodeNullable(ScheduleDTO.self, forKey: .schedule)
+        schedule = try container.decodeNullable(ScheduleInputDTO.self, forKey: .schedule)
         expectedRevision = try container.decodeIfPresent(Int.self, forKey: .expectedRevision)
     }
 
@@ -66,7 +66,7 @@ public struct TopicUpdateDTO: Codable, Sendable, Hashable {
 /// `VersionCreate` (publishTopicVersion). Online only: the 409 on a stale `base_version` must be
 /// seen live (sync-protocol.md §11).
 public struct VersionCreateDTO: Codable, Sendable, Hashable {
-    public var questions: [QuestionDTO]
+    public var questions: [QuestionInputDTO]
     public var baseVersion: Int
     public var changeNote: String?
 
@@ -77,7 +77,7 @@ public struct VersionCreateDTO: Codable, Sendable, Hashable {
     }
 
     public init(questions: [Question], baseVersion: Int, changeNote: String? = nil) {
-        self.questions = questions.map(QuestionDTO.init)
+        self.questions = questions.map(QuestionInputDTO.init)
         self.baseVersion = baseVersion
         self.changeNote = changeNote
     }
@@ -85,7 +85,7 @@ public struct VersionCreateDTO: Codable, Sendable, Hashable {
 
 /// `VersionDraft` (checkTopicVersion).
 public struct VersionDraftDTO: Codable, Sendable, Hashable {
-    public var questions: [QuestionDTO]
+    public var questions: [QuestionInputDTO]
     public var baseVersion: Int?
 
     enum CodingKeys: String, CodingKey {
@@ -94,7 +94,7 @@ public struct VersionDraftDTO: Codable, Sendable, Hashable {
     }
 
     public init(questions: [Question], baseVersion: Int?) {
-        self.questions = questions.map(QuestionDTO.init)
+        self.questions = questions.map(QuestionInputDTO.init)
         self.baseVersion = baseVersion
     }
 }

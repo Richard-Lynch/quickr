@@ -109,7 +109,7 @@ public struct ProblemDTO: Codable, Sendable, Hashable, WireResponse {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         code = try container.decode(String.self, forKey: .code)
         detail = try container.decode(String.self, forKey: .detail)
-        errors = try container.decodeIfPresent([FieldIssueDTO].self, forKey: .errors) ?? []
+        errors = try container.decode([FieldIssueDTO].self, forKey: .errors)
     }
 
     public func toDomain() -> Problem {
@@ -151,10 +151,14 @@ public struct FieldIssueDTO: Codable, Sendable, Hashable {
 /// `PushConfig` (getPushConfig).
 public struct PushConfigDTO: Codable, Sendable, Hashable, WireResponse {
     public var publicKey: String
+    public var apnsEnabled: Bool
 
-    enum CodingKeys: String, CodingKey { case publicKey = "public_key" }
+    enum CodingKeys: String, CodingKey {
+        case publicKey = "public_key"
+        case apnsEnabled = "apns_enabled"
+    }
 
-    public func toDomain() -> PushConfig { PushConfig(publicKey: publicKey) }
+    public func toDomain() -> PushConfig { PushConfig(publicKey: publicKey, apnsEnabled: apnsEnabled) }
 }
 
 /// `PushSubscriptionOut` (createPushSubscription).
@@ -201,4 +205,70 @@ public struct PushSubscriptionInDTO: Codable, Sendable, Hashable {
 /// `PushSubscriptionDelete` (deletePushSubscription request).
 public struct PushSubscriptionDeleteDTO: Codable, Sendable, Hashable {
     public var endpoint: String
+}
+
+// MARK: - APNs (B6; notifications.md §9.2)
+
+/// `ApnsDeviceIn` (registerApnsDevice request). An upsert keyed by `token`.
+public struct ApnsDeviceInDTO: Codable, Sendable, Hashable {
+    /// Lowercase hex.
+    public var token: String
+    public var environment: ApnsEnvironment
+    public var bundleId: String?
+    public var appVersion: String?
+    public var deviceName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case token, environment
+        case bundleId = "bundle_id"
+        case appVersion = "app_version"
+        case deviceName = "device_name"
+    }
+
+    public init(
+        token: String, environment: ApnsEnvironment, bundleId: String? = nil, appVersion: String? = nil,
+        deviceName: String? = nil
+    ) {
+        self.token = token
+        self.environment = environment
+        self.bundleId = bundleId
+        self.appVersion = appVersion
+        self.deviceName = deviceName
+    }
+}
+
+/// `ApnsDeviceOut` (registerApnsDevice response).
+public struct ApnsDeviceDTO: Codable, Sendable, Hashable, WireResponse {
+    public var id: String
+    public var token: String
+    public var environment: ApnsEnvironment
+    @RequiredKey public var bundleId: String?
+    @RequiredKey public var appVersion: String?
+    @RequiredKey public var deviceName: String?
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, token, environment
+        case bundleId = "bundle_id"
+        case appVersion = "app_version"
+        case deviceName = "device_name"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+
+    public func toDomain() throws -> ApnsDevice {
+        ApnsDevice(
+            id: try .wire(id, "apns_device.id"), token: token, environment: environment, bundleId: bundleId,
+            appVersion: appVersion, deviceName: deviceName, createdAt: createdAt, updatedAt: updatedAt)
+    }
+}
+
+/// `ApnsDeviceRef` (deleteApnsDevice and sendApnsTestPush requests).
+public struct ApnsDeviceRefDTO: Codable, Sendable, Hashable {
+    public var token: String
+
+    public init(token: String) {
+        self.token = token
+    }
 }

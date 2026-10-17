@@ -106,3 +106,25 @@ extension KeyedDecodingContainer {
         return .value(try decode(type, forKey: key))
     }
 }
+
+/// A response field that is **required but nullable** in `openapi.json`: decoding accepts `null`
+/// but fails when the key is missing, and encoding writes an explicit `null`. Plain optionals
+/// (`decodeIfPresent`) are for request fields, which may be omitted.
+@propertyWrapper
+public struct RequiredKey<Value: Codable & Sendable & Hashable>: Codable, Sendable, Hashable {
+    public var wrappedValue: Value?
+
+    public init(wrappedValue: Value?) {
+        self.wrappedValue = wrappedValue
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        wrappedValue = container.decodeNil() ? nil : try container.decode(Value.self)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        if let wrappedValue { try container.encode(wrappedValue) } else { try container.encodeNil() }
+    }
+}

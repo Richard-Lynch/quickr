@@ -15,23 +15,25 @@ branch.
 - `[ ]` to do
 - `[-]` skipped, with a reason
 
-**Last updated:** 2026-10-17 16:55, M0 close-out.
+**Last updated:** 2026-10-17 17:10. M0 PR #8 is open; M1 Wave 1 is running.
+
+**Execution plan:** [DAG.md](DAG.md) (Fable). Waves of ≤4 WPs with at most 2 simulator-heavy at once. Milestones are stacked (squash-merge, then `rebase --onto`).
 
 ## Now
 
-|                     |                                                                                                                           |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Active milestone    | **M0: backend foundations and specs** (branch `ios/m0-foundations`)                                                       |
-| Running             | `m0-fixes`: the last 2 items from the Codex re-check (`/push/test` holds the lock through delivery; the header read never commits handler work). Fable is building the optimised execution DAG for M1–M7. |
-| Waiting on the user | Apple enrollment activation and the Team ID; iPhone model and iOS version; answers to Q1–Q4; a session restart to load MobileBuildMCP |
-| Next up             | Merge the fixes → Codex re-check → open the M0 PR into `feat/ios-app` (first real iOS CI run) → M1 |
+|                     |                                                                                                                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Active milestone    | **M1** on `ios/m1-data`. M0 merged (#8, 6249b0e).                                                                                                                                      |
+| Running             | M1 Wave 1 sub-agents: **C1** contracts (`ios/m1-c1`), **DS** design system (`ios/m1-ds`, sim), **B6** APNs backend, dark (`ios/m1-b6`), **TOOLS** integration harness (`ios/m1-tools`) |
+| Waiting on the user | Apple enrollment activation and the Team ID; iPhone model and iOS version; a session restart to load MobileBuildMCP                                                                    |
+| Next up             | Wave 1 reviews (Codex) → merge C1 first → Wave 2: STORE, API, DUE, VAL                                                                                                                 |
 
 ## Human steps (PLAN §9)
 
 - [x] H1: upgrade macOS. The Mac is on **macOS 27.0.1**, not Tahoe; Xcode 27
       supports it.
 - [x] H2: install Xcode 27.x with `xcodes`. Installed Xcode 27.1 (27A9275) at `/Applications/Xcode-27.1.0.app`, selected, with Swift 6.4. (another agent is doing it), then run
-  `xcode-select` and accept the licence. Report the install path.
+      `xcode-select` and accept the licence. Report the install path.
 - [~] H3: Apple Developer enrollment. Submitted 2026-10-17 (order W1832720362),
   awaiting activation. Then send the Team ID.
 - [ ] H4: Xcode ▸ Settings ▸ Accounts sign-in. Needed after H3, before
@@ -47,10 +49,10 @@ branch.
 Each one is answered for now with the default shown below, marked provisional.
 The user can override any of them.
 
-- [ ] Q1: milestone PRs merge without waiting for review (default: yes)
-- [ ] Q2: lock-screen notification logging without Face ID (default: yes)
-- [ ] Q3: Siri opens the record screen for multi-question topics (default: yes)
-- [ ] Q4: notifications show the 4 most-used options (default: yes)
+- [x] Q1: milestone PRs merge without waiting for review. **Yes.**
+- [x] Q2: lock-screen logging without Face ID. **Yes, if it's clean.** Verified at checkpoint D.
+- [x] Q3: Siri opens the record screen or runs Repeat-last for multi-question topics. **Yes, and better:** research `04-siri.md` shows multi-question topics CAN be logged by voice on iOS 26 (`LogTopicIntent`: field-by-field turns plus an interactive confirmation card; one-sentence parsing on Apple Intelligence phones). Plan and DAG updated.
+- [x] Q4: **3 most-used + "More…"** (opens the app) for 5–6 options, with the truncation stated in the body.
 
 ## Environment and tooling
 
@@ -62,7 +64,7 @@ The user can override any of them.
 - [x] Simulator runtimes installed: iOS 26.0 (minimum) and iOS 27.0, with an iPhone 17 on each ("quickR iOS-26-0", "quickR iOS27"). The smoke app builds, installs, launches and screenshots on both. A stray iOS 27.1 runtime supports only "iPhone Duo"; ignore it.
 - [ ] MobileBuildMCP tools verified after a session restart; Xcode IDE bridge
       prompt approved
-- [ ] `xcode-27` GitHub runner label checked for general availability (otherwise
+- [x] First CI run green on `macos-26` / Xcode 26.6 / iOS 26.2 sim (PR #8). [ ] `xcode-27` GitHub runner label checked for general availability (otherwise
       CI stays on `macos-26` with Xcode 26.6)
 
 ## M0: Backend foundations and specs
@@ -135,12 +137,12 @@ These are the server details the specs assume. Each one must be confirmed in the
 (or fixed, or the spec changed) before M0 merges.
 
 - [x] Every `/changes` page carries `server_id`, `epoch`, `head`, `next`, `has_more` and
-  `server_time`.
+      `server_time`.
 - [x] `server_id` survives a restore. A restore or reset rotates only `epoch`.
 - [x] Feed rows are topics, versions (with `topic_id`) and entries. `deleted[]` items are
-  `{kind: entry|topic|version, id, topic_id}`.
+      `{kind: entry|topic|version, id, topic_id}`.
 - [x] `revision` exists on entries and topics, starts at 1 and only ever increases. It is returned by
-  POST, PATCH, archive and unarchive.
+      POST, PATCH, archive and unarchive.
 - [x] Deleting a topic writes the topic, its entries and its versions to `deleted_ids`. An incremental page emits only the topic deletion, and clients cascade it locally. A bootstrap emits each child deletion. This matches sync F3.
 - [x] The backfill emits topics, then versions, then entries.
 - [x] Error codes:
@@ -149,29 +151,42 @@ These are the server details the specs assume. Each one must be confirmed in the
   - 404: PATCH or GET of a deleted entry;
   - 204: DELETE of an id that is absent or already deleted.
 - [x] The `X-QuickR-Server-Id` header is on every `/api/v1` response, including errors and
-  `/health`.
+      `/health`.
 - [ ] (M3) `due_since` in push payloads is UTC truncated to whole seconds.
 - [ ] (M3) `quicklog-vectors.json` gains category-id cases, so Python and Swift produce identical
-  `quickr.t.{id}.{hash}`.
+      `quickr.t.{id}.{hash}`.
 
 ### Backlog from M0 reviews (non-blocking)
 
 - [ ] Feed: an ASGI disconnect/send-error test proving the CSV snapshot transaction closes and the connection is returned; a >500-row CSV with a mutation between pages.
 - [ ] Feed: a dedicated regression test for the commit-time retry in `@writer`.
 - [ ] Specs/fixtures: `quicklog-vectors.json` gains category-id cases (M3).
+- [ ] TILES (M2): at accessibility text sizes, badges and the sync pill truncate and the tile stays side by side. Consider a stacked tile layout at AX sizes (from DS).
 - [ ] Scaffold: confirm on the first real CI run that Xcode 26.6 honours `ios/QuickrKit/Package.resolved` (verified locally on 27.1 only). When GRDB lands in M1, run `make ios-resolve` and commit the lockfile.
 
 ### M0 integration and PR
 
 - [x] All WPs merged (vectors, specs, feed, scaffold). Integrated gates green: `make check` (401 pytest, 532 vitest), plus `alembic upgrade head && alembic check` run separately on a fresh DB and `make check-ios` (iOS 26.0 + 27.0).
 - [ ] Concurrency, feed and downgrade tests listed in the PR
-- [~] Codex review of the whole milestone diff, plus a Claude code-review sub-agent (both running)
+- [x] Codex review of the whole milestone diff (BLOCK: 2 Majors, fixed over 2 rounds) and a Claude reviewer (SHIP WITH MINORS, fixed)
 - [ ] PR body: the validation checklist, and test reports instead of media (a
       stated deviation)
-- [ ] PR opened → squash-merged into `feat/ios-app` (Q1 default)
-- [ ] STATUS updated; M1 branch cut
+- [x] PR [#8](https://github.com/Richard-Lynch/quickr/pull/8): CI green (backend, frontend, docker, and the **first iOS job**: build + Unit plan on Xcode 26.6 / iOS 26.2 in 3m32s). Squash-merged into `feat/ios-app` as 6249b0e, 2026-10-17 17:10.
+- [x] STATUS updated; M1 branch `ios/m1-data` cut (stacked) and synced with `feat/ios-app` by merge
 
 ## M1: Core and data layer, plus platform proof · needs H1, H2
+
+Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md).
+
+| Wave | WP                                                                                                                        | Branch         | Status                                                                                                                                                                                                    |
+| ---- | ------------------------------------------------------------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| W1   | C1 contracts (models, DTOs, schema, protocols, TestSupport, GRDB)                                                         | `ios/m1-c1`    | [~] built (4 commits, GRDB 7.11.1, 26 operationIds). Codex round 1: 3 Majors (notification info, ViewTopic, strict required-nullable) + 2 Minors; fixing                                                  |
+| W1   | DS design system (lands with M2)                                                                                          | `ios/m1-ds`    | [x] **Approved** by Codex round 2 (fixes a06e8dd). Merges right after C1 (needs its Package.swift resources entry plus the QuickrDesignTests target and project.yml Resources/AppIcon).                   |
+| W1   | B6 APNs backend, dark                                                                                                     | `ios/m1-b6`    | [x] **Merged** (4b398b9) after 4 Codex rounds (lifespan order, delivery deadline, token log redaction, sandbox config, slot-progress table against starvation, TTL only for abandoned slots). 494 pytest. |
+| W1   | TOOLS integration harness and fault proxy                                                                                 | `ios/m1-tools` | [~] fixes b670337. Round 2: 6/8 resolved; still open: synthetic 1xx, non-ASCII header values, stale-lock takeover. Fixing                                                                                 |
+| W2   | STORE · DUE · VAL started early from the C1 tip (`ios/m1-store`, `ios/m1-due`, `ios/m1-val`); API waits for the C1 review | —              | [~] running                                                                                                                                                                                               |
+| W3   | OUTBOX · SYNC · SKEL · B7                                                                                                 | —              | [ ]                                                                                                                                                                                                       |
+| W4   | MP · INT · SPIKE · FORM (M2)                                                                                              | —              | [ ]                                                                                                                                                                                                       |
 
 - [ ] QuickrCore: models, validation, quick-log, and the due port (all vectors
       pass)
@@ -230,8 +245,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 ## M4: Widgets, Controls, Siri and Shortcuts · needs H3–H5
 
 - [ ] Intents, widgets, controls, Shortcuts phrases
-- [ ] Device checks: logging with the app killed and offline, the Action button,
-      Siri; multi-process soak
+- [ ] Device checks: logging with the app killed and offline, the Action button, Siri; **a 3-question topic by voice while offline; editing and confirming in the Siri card; the one-sentence path on an Apple Intelligence phone**; multi-process soak
 - [ ] Reviews; PR with GIFs and a recording
 
 ## M5: History and entries · needs H2

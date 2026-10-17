@@ -9,6 +9,30 @@ public enum AnswerValue: Sendable, Hashable {
     case string(String)
     /// A multi-select `enum` answer (`enum_list` on the wire).
     case strings([String])
+
+    /// This value as `question` types it. A request-shaped `{key: value}` map (outbox payloads,
+    /// `entry.answers_json`) can't tell `7.0` from `7`, so whole numbers decode as `.int`; this
+    /// turns them back into `.double` for a double question, and an integral `.double` into
+    /// `.int` for an int question. Anything else is returned unchanged (validation reports it).
+    public func normalized(for question: Question) -> AnswerValue {
+        switch (self, question.kind) {
+        case (.int(let value), .double): .double(Double(value))
+        case (.double(let value), .int):
+            if let exact = Int(exactly: value) { .int(exact) } else { self }
+        default: self
+        }
+    }
+}
+
+extension Dictionary where Key == String, Value == AnswerValue {
+    /// Every answer normalized for its question (`AnswerValue.normalized(for:)`); keys without a
+    /// question are kept as they are.
+    public func normalized(for questions: [Question]) -> [String: AnswerValue] {
+        let byKey = [String: Question](questions.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        return reduce(into: [:]) { result, answer in
+            result[answer.key] = byKey[answer.key].map { answer.value.normalized(for: $0) } ?? answer.value
+        }
+    }
 }
 
 /// One logged entry (the server's `EntryOut`).

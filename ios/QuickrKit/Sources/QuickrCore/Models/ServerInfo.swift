@@ -126,12 +126,47 @@ public struct CompatibilityReport: Sendable, Hashable {
     }
 }
 
-/// Web Push configuration (`getPushConfig`).
+/// Push configuration (`getPushConfig`): the Web Push key, and whether the server can send APNs.
 public struct PushConfig: Sendable, Hashable {
     public var publicKey: String
+    public var apnsEnabled: Bool
 
-    public init(publicKey: String) {
+    public init(publicKey: String, apnsEnabled: Bool = false) {
         self.publicKey = publicKey
+        self.apnsEnabled = apnsEnabled
+    }
+}
+
+/// The APNs environment a device token belongs to (notifications.md §9.1).
+public enum ApnsEnvironment: String, Sendable, Hashable, CaseIterable, Codable {
+    case sandbox
+    case production
+}
+
+/// A device registered for APNs reminders (`registerApnsDevice`).
+public struct ApnsDevice: Sendable, Hashable, Identifiable {
+    public var id: UUID
+    /// Lowercase hex.
+    public var token: String
+    public var environment: ApnsEnvironment
+    public var bundleId: String?
+    public var appVersion: String?
+    public var deviceName: String?
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        id: UUID, token: String, environment: ApnsEnvironment, bundleId: String? = nil, appVersion: String? = nil,
+        deviceName: String? = nil, createdAt: Date, updatedAt: Date
+    ) {
+        self.id = id
+        self.token = token
+        self.environment = environment
+        self.bundleId = bundleId
+        self.appVersion = appVersion
+        self.deviceName = deviceName
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 }
 

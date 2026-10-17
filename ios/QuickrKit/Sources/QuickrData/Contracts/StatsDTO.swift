@@ -5,8 +5,8 @@ import QuickrCore
 public struct TopicStatsDTO: Codable, Sendable, Hashable, WireResponse {
     public var topicId: String
     public var entryCount: Int
-    public var firstCapturedAt: Date?
-    public var lastCapturedAt: Date?
+    @RequiredKey public var firstCapturedAt: Date?
+    @RequiredKey public var lastCapturedAt: Date?
     public var sources: [ValueCountDTO]
     public var questions: [QuestionStatsDTO]
 
@@ -100,12 +100,12 @@ public struct NumericStatsDTO: Codable, Sendable, Hashable {
     public var type: String
     public var count: Int
     public var missing: Int
-    public var min: Double?
-    public var max: Double?
-    public var mean: Double?
-    public var median: Double?
-    public var stddev: Double?
-    public var sum: Double?
+    @RequiredKey public var min: Double?
+    @RequiredKey public var max: Double?
+    @RequiredKey public var mean: Double?
+    @RequiredKey public var median: Double?
+    @RequiredKey public var stddev: Double?
+    @RequiredKey public var sum: Double?
     public var histogram: [HistogramBinDTO]
 }
 
@@ -166,9 +166,9 @@ public struct QuestionSeriesDTO: Codable, Sendable, Hashable, WireResponse {
     public struct Point: Codable, Sendable, Hashable {
         public var start: Date
         public var count: Int
-        public var mean: Double?
-        public var min: Double?
-        public var max: Double?
+        @RequiredKey public var mean: Double?
+        @RequiredKey public var min: Double?
+        @RequiredKey public var max: Double?
         public var optionCounts: [String: Int]
 
         enum CodingKeys: String, CodingKey {

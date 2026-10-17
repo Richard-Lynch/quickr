@@ -3,9 +3,9 @@ import QuickrCore
 
 public struct DueStatusDTO: Codable, Sendable, Hashable, DomainConvertible {
     public var isDue: Bool
-    public var dueSince: Date?
-    public var nextDueAt: Date?
-    public var lastEntryAt: Date?
+    @RequiredKey public var dueSince: Date?
+    @RequiredKey public var nextDueAt: Date?
+    @RequiredKey public var lastEntryAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case isDue = "is_due"
@@ -31,13 +31,13 @@ public struct TopicDetailDTO: Codable, Sendable, Hashable, WireResponse {
     public var revision: Int
     public var questionCount: Int
     public var entryCount: Int
-    public var lastCapturedAt: Date?
+    @RequiredKey public var lastCapturedAt: Date?
     public var createdAt: Date
     public var updatedAt: Date
-    public var archivedAt: Date?
-    public var schedule: ScheduleDTO?
-    public var scheduleUpdatedAt: Date?
-    public var due: DueStatusDTO?
+    @RequiredKey public var archivedAt: Date?
+    @RequiredKey public var schedule: ScheduleDTO?
+    @RequiredKey public var scheduleUpdatedAt: Date?
+    @RequiredKey public var due: DueStatusDTO?
     public var questions: [QuestionDTO]
 
     enum CodingKeys: String, CodingKey {
@@ -73,13 +73,13 @@ public struct TopicSummaryDTO: Codable, Sendable, Hashable, DomainConvertible {
     public var revision: Int
     public var questionCount: Int
     public var entryCount: Int
-    public var lastCapturedAt: Date?
+    @RequiredKey public var lastCapturedAt: Date?
     public var createdAt: Date
     public var updatedAt: Date
-    public var archivedAt: Date?
-    public var schedule: ScheduleDTO?
-    public var scheduleUpdatedAt: Date?
-    public var due: DueStatusDTO?
+    @RequiredKey public var archivedAt: Date?
+    @RequiredKey public var schedule: ScheduleDTO?
+    @RequiredKey public var scheduleUpdatedAt: Date?
+    @RequiredKey public var due: DueStatusDTO?
 
     enum CodingKeys: String, CodingKey {
         case id, slug, name, description, status, revision, schedule, due
@@ -151,7 +151,7 @@ public struct CompatibilityReportDTO: Codable, Sendable, Hashable, WireResponse 
 
     public struct Issue: Codable, Sendable, Hashable {
         public var level: CompatibilityReport.Level
-        public var questionKey: String?
+        @RequiredKey public var questionKey: String?
         public var message: String
 
         enum CodingKeys: String, CodingKey {

@@ -1,0 +1,12 @@
+{
+  "body": null,
+  "operation_id": "deleteApnsDevice",
+  "request": {
+    "body": {
+      "token": "7c5d0e1fa2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d"
+    },
+    "method": "POST",
+    "path": "/api/v1/push/apns/devices/delete"
+  },
+  "status": 204
+}

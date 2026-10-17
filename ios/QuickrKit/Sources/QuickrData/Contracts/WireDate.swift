@@ -1,10 +1,14 @@
 import Foundation
 
-/// The API's date-time format (RFC 3339 / ISO 8601 with a mandatory offset).
+/// The API's date-time format: the **quickR wire profile**, a deliberate subset of RFC 3339
+/// agreed in sync-protocol.md §1.5. It is what the server (Python `datetime.isoformat()`) emits,
+/// and anything outside it is a contract violation, not a format to be tolerated.
 ///
 /// - **In:** `YYYY-MM-DDTHH:MM:SS`, then 0–6 fractional digits, then `Z` or `±HH:MM`. The server
-///   sends microseconds and drops the fraction when it is zero, so both forms occur. A missing
-///   offset, a 7th fractional digit or an out-of-range field is rejected.
+///   sends microseconds and drops the fraction when it is zero, so both forms occur. Rejected:
+///   a missing offset, 7 or more fractional digits (RFC 3339 allows any number), leap seconds
+///   (`:60`, which RFC 3339 allows and Python never produces), `±HHMM` offsets and out-of-range
+///   fields.
 /// - **Out:** always UTC with an explicit `+00:00` offset; six fractional digits when the
 ///   instant has a sub-second part, none otherwise. Precision is one microsecond, like the server.
 ///
