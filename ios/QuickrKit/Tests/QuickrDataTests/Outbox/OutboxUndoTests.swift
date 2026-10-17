@@ -105,6 +105,7 @@ import Testing
         let item = try #require(h.item(id))
         #expect(item.state == .uncertain && item.maybeDelivered && item.claimToken == nil)
         #expect(try h.lease().owner == nil)
+        gate.open()
     }
 
     @Test("16b · a budget expiring mid-send does the same")
@@ -120,6 +121,7 @@ import Testing
         #expect(report.ending == .budgetExhausted)
         #expect(h.item(id)?.state == .uncertain && h.item(id)?.maybeDelivered == true)
         #expect(try h.lease().owner == nil)
+        gate.open()
     }
 
     @Test("29 · Undo of a held delete restores the queued create byte for byte")

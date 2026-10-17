@@ -93,8 +93,9 @@ import Testing
         h.server.inject(.post, .lose(.timedOut(requestStarted: true)))
         _ = try await outbox.flushNow()
         try await outbox.discard(itemId: id.wireString, origin: .app)
-        #expect(h.items.single?.kind == .entryDelete)
-        await #expect(throws: OutboxError.self) { try await outbox.dismiss(itemId: h.items[0].id) }
+        let delete = try #require(h.items.single)
+        #expect(delete.kind == .entryDelete)
+        await #expect(throws: OutboxError.self) { try await outbox.dismiss(itemId: delete.id) }
     }
 
     @Test func summaryReportsOfflineAndTheNextWake() async throws {

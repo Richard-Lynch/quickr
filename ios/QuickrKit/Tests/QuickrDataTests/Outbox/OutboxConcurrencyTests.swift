@@ -43,6 +43,52 @@ import Testing
         #expect(h.server.count(.post) == 2 && h.server.with { $0.entries.count } == 1)
     }
 
+    @Test("9b · (single process) a superseded sender's late 422 doesn't fail the item B now holds in flight")
+    func case09LateTerminal() async throws {
+        let h = try OutboxHarness()
+        let a = h.outbox(owner: "app:A")
+        let b = try h.process("widget:B")
+        let id = try await h.log(a)
+        let gateA = Gate()
+        let gateB = Gate()
+        h.server.inject(.post, .delay(gateA, override: header(FakeServer.problem(422, "invalid_answers", "late"))))
+        h.server.inject(.post, .delay(gateB))
+        let flushA = background { try await a.flushNow(budget: .seconds(120)) }
+        await gateA.arrival()
+        h.clock.advance(by: .seconds(31))
+        let flushB = background { try await b.flushNow(budget: .seconds(120)) }
+        await gateB.arrival()  // B recovered the item and has it in flight
+        let before = try snapshot(h)
+
+        gateA.open()
+        #expect(try await flushA.value.ending == .superseded)
+        #expect(try snapshot(h) == before)
+        #expect(h.item(id)?.state == .inFlight)
+        gateB.open()
+        #expect(try await flushB.value.acked == 1 && h.item(id) == nil)
+    }
+
+    @Test("S2 · the claim-token fence alone discards an outcome, even with the flush lease still valid")
+    func claimTokenFence() async throws {
+        let h = try OutboxHarness()
+        let a = h.outbox(owner: "app:A")
+        let id = try await h.log(a)
+        let gate = Gate()
+        h.server.inject(.post, .delay(gate, override: header(FakeServer.problem(422, "invalid_answers", "late"))))
+        let flush = background { try await a.flushNow() }
+        await gate.arrival()
+        // Another claim of the item, under the same valid lease (a defence-in-depth check: no
+        // reachable path does this without also changing the lease token).
+        try h.write { db in
+            try db.execute(sql: "UPDATE outbox_item SET claim_token = 'other' WHERE id = ?", arguments: [id.wireString])
+        }
+        let before = try snapshot(h)
+        gate.open()
+        #expect(try await flush.value.ending == .superseded)
+        #expect(try snapshot(h) == before)
+        #expect(h.item(id)?.state == .inFlight && h.item(id)?.claimToken == "other")
+    }
+
     @Test("10 · (single process) the holder dies: after the TTL, recovery, resend, ack")
     func case10() async throws {
         let h = try OutboxHarness()
