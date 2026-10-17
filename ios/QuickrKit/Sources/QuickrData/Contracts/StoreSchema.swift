@@ -16,15 +16,13 @@ import GRDB
 ///   recomputes them (§3.3).
 ///
 /// Migrations are append-only once a build has shipped (M7). Every process may run the migrator;
-/// STORE runs it inside one `IMMEDIATE` transaction (PLAN §2).
+/// STORE runs `migrations` inside one `IMMEDIATE` transaction (PLAN §2), recording them in
+/// `grdb_migrations` exactly as `migrator()` does, so the two agree.
 public enum StoreSchema {
-    public static func migrator() -> DatabaseMigrator {
-        var migrator = DatabaseMigrator()
-        migrator.registerMigration("v1") { db in
-            for statement in v1 { try db.execute(sql: statement) }
-        }
-        return migrator
-    }
+    /// The append-only migrations, in order: `(identifier, statements)`.
+    public static let migrations: [(identifier: String, statements: [String])] = [("v1", v1)]
+
+    public static func migrator() -> DatabaseMigrator { DatabaseMigrator(steps: migrations) }
 
     /// Every table the v1 migration creates, by layer.
     public static let serverLayerTables = ["topic", "topic_version", "entry", "tombstone"]
@@ -213,13 +211,10 @@ public enum StoreSchema {
 /// The schema of `registry.sqlite`, the app-global database next to the stores
 /// (sync-protocol.md §8.1, §12; notifications.md §5.1, §9.2).
 public enum RegistrySchema {
-    public static func migrator() -> DatabaseMigrator {
-        var migrator = DatabaseMigrator()
-        migrator.registerMigration("v1") { db in
-            for statement in v1 { try db.execute(sql: statement) }
-        }
-        return migrator
-    }
+    /// The append-only migrations, in order: `(identifier, statements)`.
+    public static let migrations: [(identifier: String, statements: [String])] = [("v1", v1)]
+
+    public static func migrator() -> DatabaseMigrator { DatabaseMigrator(steps: migrations) }
 
     public static let tables = [
         "server", "active", "retired_file", "notification_category", "pending_unregister", "apns_state",
@@ -290,4 +285,15 @@ public enum RegistrySchema {
         )
         """,
     ]
+}
+
+extension DatabaseMigrator {
+    init(steps: [(identifier: String, statements: [String])]) {
+        self.init()
+        for (identifier, statements) in steps {
+            registerMigration(identifier) { db in
+                for statement in statements { try db.execute(sql: statement) }
+            }
+        }
+    }
 }
