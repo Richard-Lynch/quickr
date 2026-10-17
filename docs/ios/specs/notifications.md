@@ -268,14 +268,19 @@ H = "quickr-cat-v1"
 - An enum title is the payload label, exactly as given.
 - The number action title is
   `"✓ " + fmt(last_value) + (unit ? " " + unit : "")`.
-- `fmt(x)`:
+- `fmt(x)` (decided 2026-10-17 after the B7 review; **no rounding anywhere**):
   - for `int`: base 10, with no grouping;
-  - for `double` with `decimals = d`: fixed-point with `d` places, rounding half
-    away from zero;
-  - for `double` with `decimals = null`: the shortest round-trip decimal, with
-    no exponent and no trailing zeros or dot.
+  - for `double`: the **shortest round-trip decimal** of the binary64 value (the
+    digits JS `String(x)` / Python `repr(float(x))` produce, which are unique), written
+    **without an exponent**, with no trailing zeros and no trailing dot, and never
+    `-0`. `decimals` is a display hint only and is **not** used here.
 - The decimal separator is always `.`. The `n` identifier value uses the same
-  `fmt`.
+  `fmt`, so "✓ {fmt}" logs exactly `last_value`.
+- `last_value` is kept whenever the server would accept it as an answer to the
+  current question (finite, in bounds, integral for `int`); extra fraction digits
+  beyond `decimals` do not drop it.
+- Cross-language vectors: `shared/fixtures/notification-vectors.json` (`fmt`
+  cases include midpoint neighbours, subnormals and extreme magnitudes).
 
 ## 5. Category registration
 
