@@ -283,3 +283,15 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         #expect(OutboxOrigin.allCases.map(\.source) == ["ios", "ios.widget", "ios.notification", "ios.siri"])
     }
 }
+
+@Suite struct APNsMappingTests {
+    @Test func registerAndConfig() throws {
+        let device = try decode(ApnsDeviceDTO.self, "registerApnsDevice")
+        #expect(device.environment == .sandbox && device.bundleId == "com.bahumia.quickr")
+        #expect(device.token.count == 64 && device.token == device.token.lowercased())
+        #expect(try decode(PushConfigDTO.self, "getPushConfig").apnsEnabled)
+        let body = String(
+            decoding: try WireCoding.encoder().encode(ApnsDeviceRefDTO(token: device.token)), as: UTF8.self)
+        #expect(body == #"{"token":"\#(device.token)"}"#)
+    }
+}

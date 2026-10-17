@@ -122,6 +122,15 @@ public enum Endpoints {
         "deletePushSubscription", .post, "/api/v1/push/subscriptions/delete")
     public static let sendTestPush = Endpoint<EmptyBody, PushTestResultDTO>("sendTestPush", .post, "/api/v1/push/test")
 
+    /// Upsert of this device's token (notifications.md §9.2). App process only.
+    public static let registerApnsDevice = Endpoint<ApnsDeviceInDTO, ApnsDeviceDTO>(
+        "registerApnsDevice", .post, "/api/v1/push/apns/devices")
+    public static let deleteApnsDevice = Endpoint<ApnsDeviceRefDTO, EmptyBody>(
+        "deleteApnsDevice", .post, "/api/v1/push/apns/devices/delete")
+    /// "Test this device". Online only.
+    public static let sendApnsTestPush = Endpoint<ApnsDeviceRefDTO, PushTestResultDTO>(
+        "sendApnsTestPush", .post, "/api/v1/push/apns/devices/test")
+
     public static let all: [AnyEndpoint] = [
         health.erased, listQuestionTypes.erased, getLimits.erased, listTopics.erased, createTopic.erased,
         getTopic.erased, updateTopic.erased, deleteTopic.erased, archiveTopic.erased, unarchiveTopic.erased,
@@ -129,6 +138,7 @@ public enum Endpoints {
         createEntry.erased, exportEntriesCsv.erased, getEntry.erased, updateEntry.erased, deleteEntry.erased,
         listChanges.erased, getTopicStats.erased, getQuestionSeries.erased, getPushConfig.erased,
         createPushSubscription.erased, deletePushSubscription.erased, sendTestPush.erased,
+        registerApnsDevice.erased, deleteApnsDevice.erased, sendApnsTestPush.erased,
     ]
 
     public static func named(_ operationId: String) -> AnyEndpoint? {
