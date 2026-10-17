@@ -179,9 +179,75 @@ Screen (iOS/iPadOS 16.4 or later), and permission must be requested from inside
 the installed app. Safari can do this via Share → Add to Home Screen. Chrome on
 iOS can too, via its share menu → Add to Home Screen.
 
-Endpoints: `GET /push/config` (VAPID public key for `PushManager.subscribe`),
-`POST /push/subscriptions` (upsert `subscription.toJSON()`),
-`POST /push/subscriptions/delete` (`{endpoint}`) and `POST /push/test`.
+Endpoints: `GET /push/config` (VAPID public key for `PushManager.subscribe`,
+and `apns_enabled`), `POST /push/subscriptions` (upsert
+`subscription.toJSON()`), `POST /push/subscriptions/delete` (`{endpoint}`) and
+`POST /push/test` (every browser and every iOS device).
+
+### APNs (the iOS app)
+
+The native iOS app gets the same notifications through Apple Push Notification
+service. APNs is **off** unless it is configured, and `GET /push/config` says
+`apns_enabled: false`. Devices can still register while it is off; nothing is
+sent to them.
+
+1. In the Apple Developer portal, under Certificates, Identifiers & Profiles ▸
+   Keys, create a key with **Apple Push Notifications service (APNs)**, enabled
+   for Sandbox & Production. Download the `.p8` file (it can only be downloaded
+   once) and note its **Key ID** and your **Team ID**. Keep the file out of the
+   repo.
+2. Set:
+
+   | Variable                                                       | Value                                                                                                                          |
+   | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+   | `QUICKR_APNS_TEAM_ID`                                          | Your Team ID                                                                                                                   |
+   | `QUICKR_APNS_KEY_ID`                                           | The key's Key ID                                                                                                               |
+   | `QUICKR_APNS_PRIVATE_KEY_FILE`                                 | Path to the `.p8` file, **or**                                                                                                 |
+   | `QUICKR_APNS_PRIVATE_KEY`                                      | the `.p8` contents (PEM; literal `\n` escapes are fine)                                                                        |
+   | `QUICKR_APNS_TOPIC`                                            | The app's bundle id. Default `com.bahumia.quickr`                                                                              |
+   | `QUICKR_APNS_SANDBOX_KEY_ID`, `..._SANDBOX_PRIVATE_KEY[_FILE]` | Optional: a separate key for the sandbox host, if your production key is limited to production. Otherwise one key serves both. |
+
+   With Docker, mount the key read-only: copy
+   `docker-compose.override.yml.example` to `docker-compose.override.yml` and
+   fill it in. The container runs as uid 10001, so the file must be readable
+   by it (for example `chmod 644`).
+
+3. Restart the API. A key that is set but can't be loaded is logged as an error
+   the first time APNs is used, and APNs stays off (`apns_enabled: false`).
+
+Each app install registers its device token on every launch with
+`POST /push/apns/devices` (`{token, environment, bundle_id?, app_version?, device_name?}`;
+an upsert by token that resets its failure count). `environment` is `sandbox`
+for debug builds and `production` for TestFlight and App Store builds, and
+picks `api.sandbox.push.apple.com` or `api.push.apple.com`.
+`POST /push/apns/devices/delete` (`{token}`) unregisters, and
+`POST /push/apns/devices/test` (`{token}`) sends a test to that one device
+("Test this device"; `409 apns_disabled` when APNs is off).
+
+Requests use HTTP/2 with an ES256 provider token that is cached and re-signed
+every 50 minutes. Responses `410` and `400 BadDeviceToken` delete the device
+(the app registers again on its next launch). `400 DeviceTokenNotForTopic`
+means `QUICKR_APNS_TOPIC` doesn't match the app's bundle id; it and any other
+`400` are logged as errors.
+
+To debug without the scheduler, send straight to a token:
+
+```sh
+cd backend && uv run python scripts/apns_send.py --token <hex token> --env sandbox
+```
+
+It prints Apple's `apns-id`, or the status and reason.
+
+### Delivery semantics
+
+Delivery is **best-effort per device, at least once per slot overall**. Each
+scheduler tick sends a due slot to every browser and device (eight at a time),
+then marks the slot as notified in the same transaction. A target that fails is
+not retried for that slot. If the tick fails before it commits, nothing is
+marked and the next tick sends the slot again; the duplicate replaces the first
+notification on the device, because both carry the same tag (`due-<topic id>`,
+the APNs collapse id). A target is deleted when its push service says it is
+gone, or after 20 failures in a row with no success for 30 days.
 
 ## Versioning rules
 
@@ -217,6 +283,7 @@ the topic's current version (optimistic concurrency, `409` otherwise).
 | `GET /api/v1/changes?after=&limit=`                                                           | change feed (sync)                                    |
 | `GET /api/v1/topics/{ref}/stats` · `GET .../questions/{key}/series`                           | aggregation and time series                           |
 | `GET /api/v1/push/config` · `POST /api/v1/push/subscriptions[/delete]` · `POST .../push/test` | Web Push                                              |
+| `POST /api/v1/push/apns/devices[/delete]` · `POST .../push/apns/devices/test`                 | APNs device tokens (the iOS app)                      |
 | `GET /api/v1/question-types` · `GET /api/v1/limits`                                           | question JSON schemas · validation limits             |
 
 Send `X-QuickR-Channel: ui|api|mcp|ios` to tag the channel (defaults to `api`).
