@@ -88,18 +88,20 @@ def _valid_number_input(q: NumericQuestion, raw: str) -> bool:
     if isinstance(q, IntQuestion):
         if not _INT_RE.fullmatch(s):
             return False
-        if abs(int(s)) > _MAX_SAFE_INTEGER:
+        n = float(int(s))  # Number(s)
+        if abs(n) > _MAX_SAFE_INTEGER:
             return False
-        n = float(int(s))
     else:
         if not _NUM_RE.fullmatch(s):
             return False
         n = float(s.replace(",", ".", 1))
         if not math.isfinite(n):
             return False
-    if q.min is not None and n < q.min:
+    # Bounds reach the client as JSON numbers, i.e. doubles: integer bounds beyond
+    # 2**53 round, so compare as floats like the client does.
+    if q.min is not None and n < float(q.min):
         return False
-    return not (q.max is not None and n > q.max)
+    return not (q.max is not None and n > float(q.max))
 
 
 def js_number_string(x: float) -> str:

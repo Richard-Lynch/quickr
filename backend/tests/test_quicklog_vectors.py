@@ -89,6 +89,9 @@ LAST_VALUES: list[Any] = [
     2**53 - 1,
     2**53,
     -0.0,
+    2**53 + 2,
+    2**53 + 4,
+    -(2**53 + 4),
     "7",
     True,
     [7],
@@ -106,6 +109,14 @@ NUMBER_QUESTIONS: dict[str, dict[str, Any]] = {
     "double-neg-min": num("double", min=-10.5, max=10),
     "double-tiny": num("double", min=1e-7),
     "double-unbounded": num("double"),
+    # Integer bounds past 2**53 round when the client parses them as doubles:
+    # 2**53 + 3 -> 2**53 + 4, 2**53 + 1 -> 2**53.
+    "double-max-above-2^53": num("double", max=2**53 + 3),
+    "double-min-above-2^53": num("double", min=2**53 + 1),
+    "double-below-neg-2^53": num("double", min=-(2**53 + 3), max=-(2**53 + 1)),
+    "int-max-above-2^53": num("int", min=0, max=2**53 + 3),
+    "int-min-above-2^53": num("int", min=2**53 + 1),
+    "int-max-safe": num("int", min=-(2**53 - 1), max=2**53 - 1),
 }
 
 
