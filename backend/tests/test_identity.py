@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import threading
 from typing import Any
 from uuid import uuid4
@@ -452,3 +453,84 @@ async def test_test_push_holds_the_lock_through_delivery(
     assert epoch_b != epoch_a
     async with get_sessionmaker()() as db:
         assert await db.scalar(text("SELECT last_success_at IS NOT NULL FROM push_subscriptions"))
+
+
+async def _write_behind_the_writers_back(db: Any, orm: bool) -> None:
+    """A handler bug: a write that is never committed."""
+    from app.models import AppSetting
+
+    if orm:
+        db.add(AppSetting(key="leaked", value="orm"))
+    else:
+        await db.execute(text("INSERT INTO app_settings (key, value) VALUES ('leaked', 'sql')"))
+
+
+async def _leaked() -> int:
+    async with get_sessionmaker()() as db:
+        return int(await db.scalar(text("SELECT count(*) FROM app_settings WHERE key = 'leaked'")) or 0)
+
+
+@pytest.mark.parametrize("orm", [False, True])
+async def test_header_read_never_commits_handler_work(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, orm: bool
+) -> None:
+    from app.services import topics as topic_svc
+
+    server_id, _ = await identity(client)
+    real_list = topic_svc.list_topics
+
+    async def list_and_leak(db: Any, *args: Any, **kwargs: Any) -> Any:
+        result = await real_list(db, *args, **kwargs)
+        await _write_behind_the_writers_back(db, orm)
+        return result
+
+    monkeypatch.setattr(topic_svc, "list_topics", list_and_leak)
+    r = await client.get("/topics")
+    assert r.status_code == 200
+    assert r.headers["x-quickr-server-id"] == server_id
+    assert await _leaked() == 0
+    assert [rec.getMessage() for rec in caplog.records if rec.name == "app.api.identity"] == [
+        "/api/v1/topics left uncommitted changes; rolling them back"
+    ]
+
+
+@pytest.mark.parametrize("orm", [False, True])
+async def test_unhandled_error_discards_handler_work(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, orm: bool
+) -> None:
+    from app.services import topics as topic_svc
+
+    server_id, _ = await identity(client)
+
+    async def leak_then_fail(db: Any, *_: Any, **__: Any) -> None:
+        await _write_behind_the_writers_back(db, orm)
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(topic_svc, "list_topics", leak_then_fail)
+    r = await client.get("/topics")
+    assert r.status_code == 500
+    assert r.headers["x-quickr-server-id"] == server_id
+    assert await _leaked() == 0
+
+
+async def test_header_read_after_a_failed_statement(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A handler that swallowed a database error left an aborted transaction: the headers
+    are still read (after a rollback)."""
+    from sqlalchemy.exc import DBAPIError
+
+    from app.services import topics as topic_svc
+
+    server_id, _ = await identity(client)
+    real_list = topic_svc.list_topics
+
+    async def list_then_fail_quietly(db: Any, *args: Any, **kwargs: Any) -> Any:
+        result = await real_list(db, *args, **kwargs)
+        with contextlib.suppress(DBAPIError):
+            await db.execute(text("SELECT 1/0"))
+        return result
+
+    monkeypatch.setattr(topic_svc, "list_topics", list_then_fail_quietly)
+    r = await client.get("/topics")
+    assert (r.status_code, r.headers.get("x-quickr-server-id")) == (200, server_id)

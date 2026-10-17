@@ -174,14 +174,17 @@ async def read_identity(db: AsyncSession) -> FeedIdentity:
 
 
 async def feed_identity(db: AsyncSession) -> FeedIdentity:
-    """The feed epoch and server id (generated on first use). One query once they exist;
-    leaves no transaction open."""
+    """The feed epoch and server id (generated on first use). One query once they exist.
+
+    Call it on an idle session. It ends its read with a rollback, never a commit, so it
+    can't commit a caller's unfinished work (only first use writes, in its own transaction).
+    """
     stored = await _stored_identity(db)
-    await db.commit()
+    await db.rollback()
     if len(stored) < 2:
         await ensure_identity(db)
         stored = await _stored_identity(db)
-        await db.commit()
+        await db.rollback()
     return FeedIdentity(epoch=stored[EPOCH_SETTING], server_id=stored[SERVER_ID_SETTING])
 
 
