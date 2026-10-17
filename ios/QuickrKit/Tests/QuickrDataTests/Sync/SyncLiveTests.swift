@@ -365,10 +365,10 @@ import Testing
         let env = try SyncEnv()
         defer { env.cleanup() }
         let delays = DelayLog()
-        let coordinator = env.coordinator {
+        let coordinator = env.coordinator(configure: {
             $0.autoRetry = true
             $0.sleep = { delay in delays.append(delay) }
-        }
+        })
         try await env.connect(coordinator)
         env.server.addEntry()
         env.server.intercept { after in after == 16 && delays.values.isEmpty ? HTTPResponse(status: 502) : nil }

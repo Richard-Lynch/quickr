@@ -61,6 +61,16 @@ enum OutboxResolution {
         }
     }
 
+    /// Flush-expiry recovery (outbox.md §6.3) with S8: the in-flight creates are captured first,
+    /// then every in-flight item becomes uncertain, then cancelled creates are removed, all in
+    /// the caller's transaction (a flush takeover, or the swap).
+    static func recoverExpiredFlush(_ db: Database, now: Date) throws {
+        let creates = try String.fetchAll(
+            db, sql: "SELECT id FROM outbox_item WHERE state = 'in_flight' AND kind = 'entry.create'")
+        try FlushRecovery.recoverInFlight(db, now: now)
+        try removeCancelledCreates(db, createIds: creates)
+    }
+
     /// outbox.md S8 at a swap: a create that just left `in_flight` without a 2xx and has a later
     /// `cancels_create` delete is removed, with the updates queued between the two, so the
     /// delete is sent on its own.

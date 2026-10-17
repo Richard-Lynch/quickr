@@ -79,6 +79,8 @@ public actor SyncCoordinator {
     private var running: Task<SyncResult, Never>?
     private var rerunRequested = false
     private var resetting = false
+    private var operationHeld = false
+    private var operationWaiters: [CheckedContinuation<Void, Never>] = []
     private var forceRebuild = false
     private var retryTask: Task<Void, Never>?
     /// The outcome of a reset resumed at launch (§12.2 row 1), for the UI to pick up.
@@ -113,8 +115,10 @@ public actor SyncCoordinator {
     /// Launch: resume an interrupted reset (§12.2), delete old retired files, then pull if the
     /// active store hasn't finished its bootstrap (or is mid-rebuild).
     public func bootstrapIfNeeded() async -> SyncResult {
+        await beginOperation()
+        defer { endOperation() }
         do {
-            guard let store = try await activeStore() else { return .noActiveStore }
+            guard let store = try await activeStore(resumingReset: true) else { return .noActiveStore }
             _ = try? await partitions.deleteRetiredFiles()
             guard let state = try await store.syncState.syncState() else { return .failed(.storage("no sync_state")) }
             refresh(state)
@@ -122,15 +126,20 @@ public actor SyncCoordinator {
         } catch {
             return .failed(.storage(String(describing: error)))
         }
-        return await sync(reason: .bootstrap)
+        return await runLocked(prefetched: nil)
     }
 
     /// Onboarding or Settings (§2.1): fetch `after=0` from `baseURL`, read its `server_id`, then
     /// activate the known store for it (discarding the page) or create one at `store_gen = 1` and
     /// apply the page as its first. Then pull to the head. Switching servers' warnings and APNs
     /// (§8.4) are the caller's.
+    ///
+    /// It holds the coordinator's operation lock from the probe to the end of its own pull, so no
+    /// run, reset or other connect interleaves; its result is always its own pull of the server
+    /// it activated, never a joined run of the previous server.
     public func connect(baseURL: URL) async -> ConnectResult {
-        if let running { _ = await running.value }
+        await beginOperation()
+        defer { endOperation() }
         let wall = partitions.wallClock
         let sentAt = wall.now()
         let response: APIResponse<ChangePage>
@@ -154,7 +163,7 @@ public actor SyncCoordinator {
                 store = try await partitions.createStore(serverId: page.serverId, baseURL: baseURL.absoluteString)
             }
             try await partitions.registry.setActive(page.serverId)
-            let result = await run(reason: .bootstrap, prefetched: isNew ? (page, timing) : nil)
+            let result = await runLocked(prefetched: isNew ? (page, timing) : nil)
             return .connected(serverId: page.serverId, isNew: isNew, sync: result)
         } catch {
             return .failed(.storage(String(describing: error)))
@@ -168,7 +177,7 @@ public actor SyncCoordinator {
     /// even if the epoch still matches. Returns at once.
     public func requestRebuild(context: RequestContext? = nil, force: Bool = false) async {
         if force { forceRebuild = true }
-        if let context, let store = try? await activeStore(), context.serverId == store.serverId,
+        if let context, let store = try? await activeStore(resumingReset: false), context.serverId == store.serverId,
             context.storeGen == store.storeGen
         {
             let clock = store.leaseClock
@@ -183,7 +192,7 @@ public actor SyncCoordinator {
     /// mismatch and sync. SYNC-UX calls it every 5 minutes while the banner shows.
     public func recheckIdentity() async -> SyncResult {
         do {
-            guard let store = try await activeStore() else { return .noActiveStore }
+            guard let store = try await activeStore(resumingReset: false) else { return .noActiveStore }
             guard let state = try await store.syncState.syncState(), state.identityMismatch else {
                 return await sync(reason: .requested)
             }
@@ -208,37 +217,46 @@ public actor SyncCoordinator {
 
     /// Reset step 1 (§12.1): what the warning shows. Nil when no server is active.
     public func resetWarning() async throws -> ResetWarning? {
-        guard let store = try await activeStore() else { return nil }
+        guard let store = try await activeStore(resumingReset: false) else { return nil }
         return try await warning(for: store)
     }
 
     /// Settings ▸ "Reset local data" (§12.1 steps 2–8) on the active store, after the user
     /// confirmed `confirmed`. Replaces the store with a fresh file at the next generation and
     /// bootstraps it; other stores, the registry's other rows and credentials are untouched.
+    ///
+    /// A run in progress stops at its next step; the reset then holds the operation lock until
+    /// the new file's first pull is done.
     public func performReset(confirmed: ResetWarning) async throws -> ResetOutcome {
         guard !resetting else { return .superseded }
-        guard let store = try await activeStore() else { return .noActiveStore }
-        guard store.serverId == confirmed.serverId, store.storeGen == confirmed.storeGen else { return .superseded }
         resetting = true
         broadcaster.update { $0.activity = .resetting }
+        await beginOperation()
+        defer { endOperation() }
         let outcome: ResetOutcome
         do {
-            let intent: RegisteredServer
-            do {
-                intent = try await partitions.persistResetIntent(
-                    store: store, confirmedCount: confirmed.count, confirmedMaxSeq: confirmed.maxSeq)
-            } catch StoreError.registryChanged {
-                endReset()
-                return .superseded
-            }
-            outcome = try await continueReset(old: store, intent: intent)
+            outcome = try await reset(confirmed: confirmed)
         } catch {
             endReset()
             throw error
         }
         endReset()
         guard case .completed(let storeGen, _) = outcome else { return outcome }
-        return .completed(storeGen: storeGen, bootstrap: await sync(reason: .bootstrap))
+        return .completed(storeGen: storeGen, bootstrap: await runLocked(prefetched: nil))
+    }
+
+    /// Steps 2–7, with the operation lock held.
+    private func reset(confirmed: ResetWarning) async throws -> ResetOutcome {
+        guard let store = try await activeStore(resumingReset: false) else { return .noActiveStore }
+        guard store.serverId == confirmed.serverId, store.storeGen == confirmed.storeGen else { return .superseded }
+        let intent: RegisteredServer
+        do {
+            intent = try await partitions.persistResetIntent(
+                store: store, confirmedCount: confirmed.count, confirmedMaxSeq: confirmed.maxSeq)
+        } catch StoreError.registryChanged {
+            return .superseded
+        }
+        return try await continueReset(old: store, intent: intent)
     }
 
     /// Listens for `sync-requested` (an extension saw a mismatch, §5.6) and `registry-changed`
@@ -263,6 +281,9 @@ public actor SyncCoordinator {
 
     private typealias Prefetched = (page: ChangePage, timing: FeedTiming)
 
+    /// A `sync` call: join the queued or running run, or queue one behind the operation lock
+    /// (a connect or reset in progress finishes first, and the run then pulls whatever store is
+    /// active).
     private func run(reason: SyncReason, prefetched: Prefetched?) async -> SyncResult {
         if resetting { return .resetInProgress }
         if let running {
@@ -275,6 +296,16 @@ public actor SyncCoordinator {
     }
 
     private func runLoop(prefetched: Prefetched?) async -> SyncResult {
+        await beginOperation()
+        let result = await runLocked(prefetched: prefetched)
+        running = nil
+        endOperation()
+        return result
+    }
+
+    /// The run itself; the caller holds the operation lock.
+    private func runLocked(prefetched: Prefetched?) async -> SyncResult {
+        if resetting { return .resetInProgress }
         var result: SyncResult
         var prefetched = prefetched
         repeat {
@@ -282,16 +313,35 @@ public actor SyncCoordinator {
             result = await runOnce(prefetched: prefetched)
             prefetched = nil
         } while rerunRequested && result == .synced
-        running = nil
         broadcaster.update { $0.activity = resetting ? .resetting : .idle }
         recordOutcome(result)
         return result
     }
 
+    // MARK: - The operation lock
+
+    /// Serializes runs, connects and resets across their awaits (FIFO). Ownership passes
+    /// directly to the next waiter.
+    private func beginOperation() async {
+        guard operationHeld else {
+            operationHeld = true
+            return
+        }
+        await withCheckedContinuation { operationWaiters.append($0) }
+    }
+
+    private func endOperation() {
+        if operationWaiters.isEmpty {
+            operationHeld = false
+        } else {
+            operationWaiters.removeFirst().resume()
+        }
+    }
+
     private func runOnce(prefetched: Prefetched?) async -> SyncResult {
         do {
             for _ in 0..<2 {
-                guard let store = try await activeStore() else { return .noActiveStore }
+                guard let store = try await activeStore(resumingReset: true) else { return .noActiveStore }
                 switch try await coordinate(store, prefetched: prefetched) {
                 case .result(let result): return result
                 case .reopen: invalidateStore()
@@ -395,8 +445,7 @@ public actor SyncCoordinator {
             case .identityMismatch:
                 return try await enterIdentityMismatch(store, state: state, claim: claim)
             case .epochMismatch:
-                return try await epochMismatch(
-                    store, response: response, conditions: [.notRetired, .layerGen(state.layerGen)])
+                return try await epochMismatch(store, response: response, conditions: context.fence)
             default:
                 return .stop(.failed(Self.failure(response) ?? .unreachable("no page")))
             }
@@ -454,10 +503,7 @@ public actor SyncCoordinator {
             return try await enterIdentityMismatch(store, state: state, claim: claim)
         case .epochMismatch:
             // Only a *different* epoch restarts staging (§5.4, S15).
-            guard let epoch = response.observed.epoch else {
-                return .stop(.failed(.protocolError("epoch mismatch without an epoch header")))
-            }
-            return .epochMismatch(epoch)
+            return try await epochMismatch(store, response: response, conditions: context.fence)
         default:
             return .stop(.failed(Self.failure(response) ?? .unreachable("no page")))
         }
@@ -494,9 +540,13 @@ public actor SyncCoordinator {
         -> Step
     {
         guard try await store.leases.renew(context.claim) else { return .stop(.superseded) }
+        // Taking over a sender's expired lease recovers its in-flight items with the S8
+        // cancelled-create cleanup in the same transaction (outbox.md §6.3, S8).
+        let wall = partitions.wallClock
         guard
             let flushClaim = try await store.leases.acquire(
-                .flush, owner: owner, holding: [context.claim], waitingUpTo: configuration.swapFlushWait)
+                .flush, owner: owner, holding: [context.claim], waitingUpTo: configuration.swapFlushWait,
+                takeover: { db, _ in try OutboxResolution.recoverExpiredFlush(db, now: wall.now()) })
         else { return .stop(.failed(.leaseBusy)) }
         let clock = store.leaseClock
         let wallNow = partitions.wallClock.now()
@@ -543,8 +593,9 @@ public actor SyncCoordinator {
         return .stop(fenced == nil ? .identityMismatch : .superseded)
     }
 
-    /// An epoch header that differs from the context's: rebuild towards it. Without one (a partial
-    /// header set), only mark the store suspect and retry later.
+    /// An epoch header that differs from the context's: rebuild towards it (`startRebuild` is
+    /// fenced). Without one, only mark the store suspect, fenced on the captured context and
+    /// its `sync` claim: a superseded coordinator writes nothing.
     private func epochMismatch(
         _ store: LocalStore, response: APIResponse<ChangePage>, conditions: [StoreFence.Condition]
     )
@@ -552,9 +603,10 @@ public actor SyncCoordinator {
     {
         if let epoch = response.observed.epoch { return .epochMismatch(epoch) }
         let clock = store.leaseClock
-        _ = try await store.writer.write { db in
+        let fenced = try await store.writer.write { db in
             try SyncTransactions.setEpochSuspect(db, conditions: conditions, now: clock.now())
         }
+        guard fenced == nil else { return .stop(.superseded) }
         return .stop(.failed(.protocolError("epoch mismatch without an epoch header")))
     }
 
@@ -607,14 +659,18 @@ public actor SyncCoordinator {
             let pair = try await old.leases.acquireSyncThenFlush(
                 owner: owner, waitingUpTo: configuration.resetLeaseWait)
         else {
-            try await partitions.abortReset(intent)
-            return .timedOut
+            // Another holder may be this same attempt's other caller, about to retire: the veto
+            // on the old file decides which of the two wins (§12.1 steps 3–4).
+            switch try await partitions.abortReset(intent, on: old) {
+            case .vetoed: return .timedOut
+            case .alreadyRetired: return try await completeRetiredReset(intent)
+            }
         }
         let retired: RetireOutcome
         do {
             retired = try await old.retire(
                 confirmedCount: intent.pendingConfirmedCount ?? 0, confirmedMaxSeq: intent.pendingConfirmedMaxSeq ?? 0,
-                sync: pair.sync, flush: pair.flush)
+                intentToken: intent.pendingToken, sync: pair.sync, flush: pair.flush)
         } catch {
             _ = try? await old.leases.release(pair.flush)
             _ = try? await old.leases.release(pair.sync)
@@ -624,48 +680,65 @@ public actor SyncCoordinator {
         _ = try? await old.leases.release(pair.sync)
         switch retired {
         case .writesArrived:
-            try await partitions.abortReset(intent)
+            guard try await partitions.abortReset(intent, on: old) == .vetoed else {
+                return try await completeRetiredReset(intent)
+            }
             return .writesArrived(try await warning(for: old))
         case .fenced:
-            try await partitions.abortReset(intent)
+            guard try await partitions.abortReset(intent, on: old) == .vetoed else {
+                return try await completeRetiredReset(intent)
+            }
             return .superseded
         case .intentAborted:
+            // Another caller aborted this attempt; make sure its registry intent is gone too.
+            try await partitions.abortReset(intent)
+            invalidateStore()
             return .superseded
         case .retired:
-            let fresh: LocalStore
-            do {
-                fresh = try await partitions.completeReset(intent)
-            } catch StoreError.registryChanged {
-                invalidateStore()
-                return .superseded
-            }
-            store = fresh
-            events.handle(.storeReset(serverId: fresh.serverId, storeGen: fresh.storeGen))
-            return .completed(storeGen: fresh.storeGen, bootstrap: .synced)
+            return try await completeRetiredReset(intent)
         }
+    }
+
+    /// Steps 6–7 once the old file is retired for `intent`.
+    private func completeRetiredReset(_ intent: RegisteredServer) async throws -> ResetOutcome {
+        let fresh: LocalStore
+        do {
+            fresh = try await partitions.completeReset(intent)
+        } catch StoreError.registryChanged {
+            invalidateStore()
+            return .superseded
+        }
+        store = fresh
+        events.handle(.storeReset(serverId: fresh.serverId, storeGen: fresh.storeGen))
+        return .completed(storeGen: fresh.storeGen, bootstrap: .synced)
     }
 
     // MARK: - Store
 
-    /// The active store, opened through the registry with its §12.2 recovery; the app resumes a
-    /// reset interrupted between steps 2 and 4 here, before any pull.
-    private func activeStore() async throws -> LocalStore? {
+    /// The active store, opened through the registry with its §12.2 recovery. With
+    /// `resumingReset` (only while holding the operation lock) the app resumes a reset
+    /// interrupted between steps 2 and 4 here, before any pull; without it, a pending reset's old
+    /// file is returned uncached, as an extension would use it.
+    private func activeStore(resumingReset: Bool) async throws -> LocalStore? {
         if let store { return store }
         guard let opened = try await partitions.openActiveStore(role: .app) else { return nil }
         switch opened {
         case .opened(let store):
             self.store = store
+        case .resetPending(let old, _) where !resumingReset:
+            return old
         case .resetPending(let old, let intent):
+            let wasResetting = resetting
             resetting = true
             broadcaster.update { $0.activity = .resetting }
             let outcome: ResetOutcome
             do {
                 outcome = try await continueReset(old: old, intent: intent)
             } catch {
-                endReset()
+                if !wasResetting { endReset() }
                 throw error
             }
-            endReset()
+            if !wasResetting { endReset() }
             resumedReset = outcome
             if store == nil {
                 // Aborted: the intent is cleared and the old file is current again.

@@ -181,12 +181,9 @@ public enum SyncTransactions {
                 """,
             arguments: [context.targetEpoch, stageCursor, head, wallNow.unixSeconds])
 
-        let leftInFlight = try String.fetchAll(
-            db, sql: "SELECT id FROM outbox_item WHERE state = 'in_flight' AND kind = 'entry.create'")
-        try FlushRecovery.recoverInFlight(db, now: wallNow)
+        try OutboxResolution.recoverExpiredFlush(db, now: wallNow)
         try pullAck(
             db, entryIds: try String.fetchAll(db, sql: "SELECT entity_id FROM outbox_item WHERE kind = 'entry.create'"))
-        try OutboxResolution.removeCancelledCreates(db, createIds: leftInFlight)
         try OutboxResolution.resolveTombstonedDependents(db, wallNow: wallNow)
 
         let topicsAfter = Set(try String.fetchAll(db, sql: "SELECT id FROM topic"))

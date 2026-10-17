@@ -342,7 +342,7 @@ struct SyncEnv {
     }
 
     func coordinator(
-        owner: String = "app:A", partitions: StorePartitions? = nil, pageLimit: Int = 500,
+        owner: String = "app:A", partitions: StorePartitions? = nil, pageLimit: Int = 500, feed: FeedFactory? = nil,
         configure: (inout SyncCoordinator.Configuration) -> Void = { _ in }
     ) -> SyncCoordinator {
         var configuration = SyncCoordinator.Configuration()
@@ -351,7 +351,8 @@ struct SyncEnv {
         configuration.jitter = { 0 }
         configure(&configuration)
         return SyncCoordinator(
-            partitions: partitions ?? self.partitions, feed: feed, flush: recorder, events: recorder, owner: owner,
+            partitions: partitions ?? self.partitions, feed: feed ?? self.feed, flush: recorder, events: recorder,
+            owner: owner,
             configuration: configuration)
     }
 

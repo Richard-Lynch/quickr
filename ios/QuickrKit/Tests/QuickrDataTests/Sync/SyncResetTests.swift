@@ -93,7 +93,7 @@ import Testing
     @Test func aResetThatCannotTakeTheLeasesTimesOutAndClearsTheIntent() async throws {
         let env = try SyncEnv()
         defer { env.cleanup() }
-        let coordinator = env.coordinator { $0.resetLeaseWait = .milliseconds(50) }
+        let coordinator = env.coordinator(configure: { $0.resetLeaseWait = .milliseconds(50) })
         let store = try await env.connect(coordinator)
         let sender = try #require(try await store.leases.tryAcquire(.flush, owner: "widget:F"))
         let warning = try #require(try await coordinator.resetWarning())
