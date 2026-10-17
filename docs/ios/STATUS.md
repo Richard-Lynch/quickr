@@ -282,6 +282,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-17 23:40: INT started (ios/m1-int from 54f0eee, ex-BUILDER agent; BUILDER accepted at 22865b8, merges at the M6 cut). OUTBOX r5 resolves r4; last item: lease polling and post-deadline DB work. Final small fix requested; residual DB-busy time documented; the orchestrator verifies, with no more Codex rounds (diminishing returns). testiso r3: 4 of 5 resolved; `--all` namespace restriction plus a min-age floor requested, then done. FORM committed 74161b0 (form engine, UI test, screenshots). SKEL unresponsive for 53 min: its xcodebuild is idle at 0% CPU.
+
 - 2026-10-17 23:35: MP started (ios/m1-mp from 99a5473, SYNC agent). OUTBOX r4: still a fresh grace per send (refetch after stale_revision) → one absolute shutdown deadline. testiso r2: worktree-name collisions (needs a path hash), prune can drop a live lazy peer, `ensure()` race on CREATE. FORM: UI test green, screenshots captured, check-ios running; xcodebuild sometimes hangs after tests (CI timeout watch → backlog). Load spiked again to ~350 (2 sims + Spotlight/photos + Docker VM).
 
 - 2026-10-17 23:10: Load ~7. SYNC APPROVED (Codex r3 on the veto table 08b2bec). OUTBOX r3: unbounded wait resolved; new Major: grace runs past the extension budget, and a commit-before-grace reconciliation test is needed. BUILDER r2: both majors resolved; Major: gen-casefold isn't wired into `make vectors`, plus pinning the Unicode/Python version. Combined SYNC+OUTBOX head: ios/m1-outbox 99a5473. testiso fixes in progress; SKEL and FORM running.
