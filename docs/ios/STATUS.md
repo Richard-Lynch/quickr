@@ -161,6 +161,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 - [ ] Feed: a dedicated regression test for the commit-time retry in `@writer`.
 - [ ] Specs/fixtures: `quicklog-vectors.json` gains category-id cases (M3).
 - [ ] App integration (SKEL/SYNC-UX): post GRDB suspension notifications on app background/foreground (`Database.suspendNotification` / `resumeNotification`) in the app and extensions, the 0xDEAD10CC guard (from the STORE review).
+- [ ] NSE links QuickrData, so it also carries App Intents metadata (from SKEL). Harmless for now. If duplicate-metadata warnings or resolution issues appear, split intents into a `QuickrIntents` package target linked only by the app and widget.
 - [ ] Backend: reject NUL in every text field the API stores (notes, source, labels, names…) with a 422 Problem instead of a Postgres 500. Today only str answers are checked (found by VAL).
 - [ ] **PRIORITY** PWA: the generated zod request validators (`frontend/src/client/zod.gen.ts`) count UTF-16 units, and `api/entries.ts` parses `zEntryCreate`, so source/notes with emoji that the form accepts can fail before sending. Fix in the generator/OpenAPI output rather than by hand (found by VAL, confirmed by Codex). Schedule as a small WP in the next free slot.
 - [ ] Notifications WP: a fake-center orchestration test for ReminderDedup L1 (pending local cancel) and L2 (suppression/activation cleanup), from the C1 review.
