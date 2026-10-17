@@ -159,6 +159,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 - [ ] Feed: an ASGI disconnect/send-error test proving the CSV snapshot transaction closes and the connection is returned; a >500-row CSV with a mutation between pages.
 - [ ] Feed: a dedicated regression test for the commit-time retry in `@writer`.
 - [ ] Specs/fixtures: `quicklog-vectors.json` gains category-id cases (M3).
+- [ ] Scaffold: confirm on the first real CI run that Xcode 26.6 honours `ios/QuickrKit/Package.resolved` (verified locally on 27.1 only). When GRDB lands in M1, run `make ios-resolve` and commit the lockfile.
 
 ### M0 integration and PR
 
