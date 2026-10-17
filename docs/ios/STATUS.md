@@ -165,8 +165,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 - [x] All WPs merged (vectors, specs, feed, scaffold). Integrated gates green: `make check` (401 pytest, 532 vitest, alembic check) and `make check-ios` (iOS 26.0 + 27.0).
 - [ ] Concurrency, feed and downgrade tests listed in the PR
-- [ ] Codex review of the whole milestone diff, plus a Claude code-review
-      sub-agent
+- [~] Codex review of the whole milestone diff, plus a Claude code-review sub-agent (both running)
 - [ ] PR body: the validation checklist, and test reports instead of media (a
       stated deviation)
 - [ ] PR opened → squash-merged into `feat/ios-app` (Q1 default)
