@@ -156,6 +156,83 @@ import Testing
         #expect(
             Due.slots(of: Self.daily(["08:00"], "Not/AZone"), from: range.0, through: range.1)
                 == Due.slots(of: Self.daily(["08:00"], "UTC"), from: range.0, through: range.1))
+        #expect(Due.usesUTCFallback(timezone: "Not/AZone"))
+        #expect(!Due.usesUTCFallback(.daily(Self.daily(["08:00"], "Asia/Kathmandu"))))
+        #expect(!Due.usesUTCFallback(timezone: "UTC"))
+    }
+}
+
+/// Transitions outside the 2026 vector grid, and sub-second edges. Expected values come from the
+/// backend's `schedule.py` (zoneinfo, `fold=0`).
+@Suite struct DueRegressionTests {
+    static func utc(_ text: String) -> Date { DueSemanticsTests.utc(text) }
+
+    static func daily(_ times: [String], _ timezone: String, days: [Int] = Schedule.Daily.everyDay) -> Schedule.Daily {
+        DueSemanticsTests.daily(times, timezone, days: days)
+    }
+
+    @Test func kathmandu1986OffsetChangeUsesTheOldOffsetInTheGap() {
+        // +05:30 → +05:45 at 1986-01-01 00:00 local: 00:00–00:15 does not exist.
+        let slots = Due.slots(
+            of: Self.daily(["00:00", "00:10", "08:00"], "Asia/Kathmandu"), from: Self.utc("1985-12-31T12:00:00Z"),
+            through: Self.utc("1986-01-01T12:00:00Z"))
+        #expect(
+            slots == [
+                Self.utc("1985-12-31T18:30:00Z"), Self.utc("1985-12-31T18:40:00Z"), Self.utc("1986-01-01T02:15:00Z"),
+            ])
+    }
+
+    @Test func apiaSkippedDayMergesIntoTheNextOne() {
+        // Samoa jumped from 2011-12-29 (UTC-10) straight to 2011-12-31 (UTC+14). The skipped 30th's
+        // 08:00 uses the old offset, which is the same instant as the 31st's 08:00.
+        let range = (Self.utc("2011-12-28T00:00:00Z"), Self.utc("2012-01-01T00:00:00Z"))
+        #expect(
+            Due.slots(of: Self.daily(["08:00"], "Pacific/Apia"), from: range.0, through: range.1) == [
+                Self.utc("2011-12-28T18:00:00Z"), Self.utc("2011-12-29T18:00:00Z"), Self.utc("2011-12-30T18:00:00Z"),
+                Self.utc("2011-12-31T18:00:00Z"),
+            ])
+        // A Friday-only schedule still has a slot on the skipped Friday.
+        let fridays = Due.slots(
+            of: Self.daily(["08:00"], "Pacific/Apia", days: [5]), from: Self.utc("2011-12-20T00:00:00Z"),
+            through: Self.utc("2012-01-10T00:00:00Z"))
+        #expect(
+            fridays == [
+                Self.utc("2011-12-23T18:00:00Z"), Self.utc("2011-12-30T18:00:00Z"), Self.utc("2012-01-05T18:00:00Z"),
+            ])
+    }
+
+    @Test func fractionalSecondsAroundSlotsAndTheEarlyWindow() {
+        // Slots 08:00 and 09:00 UTC: the window before 09:00 is 30 minutes.
+        let schedule = Schedule.daily(Self.daily(["08:00", "09:00"], "UTC"))
+        let since = Self.utc("2026-01-01T00:00:00Z")
+        let nine = Self.utc("2026-03-10T09:00:00Z")
+        func status(_ now: Date, _ last: Date? = nil) -> DueStatus {
+            Due.status(of: schedule, now: now, lastEntryAt: last, scheduleSince: since)
+        }
+        let justBefore = status(nine - 0.001)
+        #expect(justBefore.dueSince == Self.utc("2026-03-10T08:00:00Z") && justBefore.nextDueAt == nine)
+        let atSlot = status(nine)
+        #expect(atSlot.dueSince == nine && atSlot.nextDueAt == Self.utc("2026-03-11T08:00:00Z"))
+
+        let now = nine + 0.5
+        let windowStart = Self.utc("2026-03-10T08:30:00Z")
+        #expect(status(now, windowStart - 0.001).dueSince == nine)
+        #expect(!status(now, windowStart).isDue)
+        #expect(!status(now, windowStart + 0.001).isDue)
+
+        // A slot exactly at schedule_since counts; a millisecond later it does not.
+        let atSince = Due.status(of: schedule, now: now, lastEntryAt: nil, scheduleSince: nine)
+        #expect(atSince.dueSince == nine)
+        #expect(!Due.status(of: schedule, now: now, lastEntryAt: nil, scheduleSince: nine + 0.001).isDue)
+
+        // An upcoming slot strictly after `now`, to the millisecond.
+        let daily = Self.daily(["08:00", "09:00"], "UTC")
+        #expect(Due.upcomingSlots(of: daily, after: nine - 0.001, count: 1) == [nine])
+        #expect(Due.upcomingSlots(of: daily, after: nine, count: 1) == [Self.utc("2026-03-11T08:00:00Z")])
+
+        let message = Due.message(
+            timezone: "UTC", dueSince: Self.utc("2026-03-10T08:00:00Z"), now: windowStart - 0.001)
+        #expect(message == "Time to log")
     }
 }
 
@@ -172,6 +249,25 @@ import Testing
         #expect(slots[1] == Self.utc("2026-04-01T08:00:00Z"))
         #expect(slots.last == Self.utc("2026-04-22T08:00:00Z"))
         #expect(Due.upcomingSlots(of: weekly, after: now, count: 0).isEmpty)
+    }
+
+    @Test func upcomingSlotsAreBounded() {
+        let now = Self.utc("2026-03-10T00:00:00Z")
+        let hourly = Schedule.Daily(
+            times: (0..<24).map { TimeOfDay(hour: $0, minute: 0) }, timezone: "Europe/London")
+        let many = Due.upcomingSlots(of: hourly, after: now, count: 1_000_000)
+        #expect(many.count == Due.maxUpcomingSlots)
+        #expect(zip(many, many.dropFirst()).allSatisfy { $0 < $1 })
+        // No valid weekday: nothing, without walking the horizon.
+        let never = Schedule.Daily(times: [TimeOfDay(hour: 8, minute: 0)], days: [0, 8], timezone: "UTC")
+        #expect(Due.upcomingSlots(of: never, after: now, count: 10).isEmpty)
+        // Chunked search agrees with one `slots` call, including across a DST gap.
+        let multi = Schedule.Daily(
+            times: ["00:00", "01:30", "02:15", "02:30", "23:59"].map { TimeOfDay($0)! }, timezone: "Europe/London")
+        let start = Self.utc("2026-03-20T00:00:00Z")
+        let expected = Due.slots(of: multi, from: start, through: Self.utc("2026-04-30T00:00:00Z"))
+            .filter { $0 > start }
+        #expect(Due.upcomingSlots(of: multi, after: start, count: expected.count) == expected)
     }
 
     @Test func dailyTimelineHasAPointPerSlot() {
@@ -221,5 +317,28 @@ import Testing
         // About 1 ms per status would still be fine for a widget; a debug build does far better.
         #expect(elapsed < .seconds(2), "1,831 statuses took \(elapsed)")
         print("DuePerformanceTests: 1,831 statuses in \(elapsed)")
+    }
+
+    /// A due-list widget reload: 20 topics, a day of points each for a five-times-a-day schedule.
+    @Test func widgetTimelinesComputeQuickly() {
+        let schedule = Schedule.daily(
+            .init(
+                times: ["00:00", "01:30", "02:15", "02:30", "23:59"].map { TimeOfDay($0)! },
+                timezone: "America/New_York"))
+        let now = DueSemanticsTests.utc("2026-11-01T04:00:00Z")
+        let clock = ContinuousClock()
+        var points = 0
+        let elapsed = clock.measure {
+            for topic in 0..<20 {
+                points +=
+                    Due.timeline(
+                        of: schedule, now: now, lastEntryAt: now - TimeInterval(topic * 600),
+                        scheduleSince: DueSemanticsTests.since, count: 48
+                    ).count
+            }
+        }
+        #expect(points == 20 * 49)
+        #expect(elapsed < .seconds(1), "20 timelines of 48 points took \(elapsed)")
+        print("DuePerformanceTests: 20 widget timelines (48 points) in \(elapsed)")
     }
 }

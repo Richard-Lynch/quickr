@@ -26,8 +26,7 @@ public enum Due {
     /// The due status of a scheduled topic at `now` (the server's `compute_due`).
     ///
     /// `scheduleSince` is when the schedule was (last) set: nothing before it can make the topic
-    /// due. A timezone this OS does not know is treated as UTC (the server validates zones, so this
-    /// only happens if the device's tzdata lacks a newly added zone).
+    /// due. A timezone this OS does not know is treated as UTC (see `usesUTCFallback`).
     public static func status(
         of schedule: Schedule, now: Date, lastEntryAt: Date?, scheduleSince: Date, archived: Bool = false
     ) -> DueStatus {
@@ -46,32 +45,51 @@ public enum Due {
             .map { Date(timeIntervalSince1970: TimeInterval($0)) }
     }
 
-    /// The next `count` slots strictly after `now`, for widget timelines and local reminders.
-    /// Unlike `status`, this is not bounded by the lookahead; it returns fewer only if the schedule
-    /// has no times or days.
+    /// The most slots `upcomingSlots` returns (and `timeline` points it adds) in one call.
+    public static let maxUpcomingSlots = 1_000
+    /// How far ahead `upcomingSlots` looks before giving up.
+    public static let upcomingHorizonDays = 3_660
+
+    /// The next `count` slots strictly after `now`, ascending, for widget timelines and local
+    /// reminders. `count` is clamped to `maxUpcomingSlots`. Unlike `status`, this is not bounded
+    /// by the lookahead, only by `upcomingHorizonDays`; it returns fewer slots only when the
+    /// horizon runs out (for example a schedule with no valid times or days).
     public static func upcomingSlots(of schedule: Schedule.Daily, after now: Date, count: Int) -> [Date] {
-        guard count > 0, !schedule.times.isEmpty, !schedule.days.isEmpty else { return [] }
-        let start = now.timeIntervalSince1970
-        // Enough days for `count` slots at the schedule's density, plus a week's margin.
-        let perWeek = schedule.times.count * Set(schedule.days).count
-        var days = (count + perWeek - 1) / perWeek * 7 + 7
-        while true {
-            let found = slotSeconds(
-                schedule, from: start, through: start + TimeInterval(days * ZoneClock.secondsPerDay)
-            )
-            .lazy.filter { TimeInterval($0) > start }.prefix(count)
-            if found.count == count || days > 3_660 {
-                return found.map { Date(timeIntervalSince1970: TimeInterval($0)) }
-            }
-            days *= 2
+        let limit = min(count, maxUpcomingSlots)
+        guard limit > 0, !schedule.times.isEmpty, schedule.days.contains(where: { (1...7).contains($0) }) else {
+            return []
         }
+        // Week-long windows, each searched like `slots` (so gaps and merges match), until enough.
+        let week = TimeInterval(7 * ZoneClock.secondsPerDay)
+        let start = now.timeIntervalSince1970
+        let horizon = start + TimeInterval(upcomingHorizonDays * ZoneClock.secondsPerDay)
+        var found: [Int] = []
+        found.reserveCapacity(limit)
+        var lower = start
+        while found.count < limit, lower < horizon {
+            let upper = min(lower + week, horizon)
+            for slot in slotSeconds(schedule, from: lower, through: upper) where TimeInterval(slot) > lower {
+                found.append(slot)
+                if found.count == limit { break }
+            }
+            lower = upper
+        }
+        return found.map { Date(timeIntervalSince1970: TimeInterval($0)) }
     }
+
+    /// Whether `status`, `slots` and `message` read this timezone as UTC because the OS does not
+    /// know it. The server validates zones, so this only happens when the device's tzdata lacks a
+    /// newly added zone; the UI can use it to warn that reminder times may be off.
+    public static func usesUTCFallback(timezone: String) -> Bool { ZoneClock(identifier: timezone) == nil }
+
+    /// `usesUTCFallback(timezone:)` for a schedule's timezone.
+    public static func usesUTCFallback(_ schedule: Schedule) -> Bool { usesUTCFallback(timezone: schedule.timezone) }
 
     /// The instants after `now` at which `status` may change if nothing is logged meanwhile, with
     /// the status from each. The first element is the status at `now` itself. A widget timeline
     /// can use the dates as entry dates directly.
     ///
-    /// Daily: one point per upcoming slot (`count` of them). Interval: the due instant, if it is
+    /// Daily: one point per upcoming slot (`count` of them, at most `maxUpcomingSlots`). Interval: the due instant, if it is
     /// still ahead. Archived: just `now`.
     public static func timeline(
         of schedule: Schedule, now: Date, lastEntryAt: Date?, scheduleSince: Date, archived: Bool = false,
