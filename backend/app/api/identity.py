@@ -32,16 +32,30 @@ SERVER_ID_HEADER = "X-QuickR-Server-Id"
 EPOCH_HEADER = "X-QuickR-Epoch"
 
 
-async def _load_identity() -> FeedIdentity:
-    async with get_sessionmaker()() as db:
-        return await feed_identity(db)
+_SERVER_ID_KEY = SERVER_ID_HEADER.lower().encode()
+_EPOCH_KEY = EPOCH_HEADER.lower().encode()
+
+
+async def _identity_headers() -> list[tuple[bytes, bytes]]:
+    """The current identity as raw headers; none when it can't be read (database down)."""
+    try:
+        async with get_sessionmaker()() as db:
+            identity = await feed_identity(db)
+    except Exception:
+        log.exception("could not read the server identity")
+        return []
+    return [(_SERVER_ID_KEY, identity.server_id.encode()), (_EPOCH_KEY, identity.epoch.encode())]
 
 
 class IdentityHeadersMiddleware:
     """Adds the identity headers to every response under ``prefix``.
 
-    A response that already carries them keeps its own (``/changes`` sets them from the
-    page's snapshot, so headers and body always agree). The middleware also scopes the
+    The identity is read when the response starts, i.e. after the handler has produced
+    it (for a streamed response: before its body streams). A rotation during the request
+    therefore labels the response with the new epoch, which a client holding the old
+    one rejects: a response is never labelled with an epoch older than its data. A
+    response that already carries the headers keeps its own (``/changes`` sets them from
+    the page's snapshot, so headers and body always agree). The middleware also scopes the
     request's expected identity, so it never leaks into another request.
 
     Unhandled errors are answered here (500 ``internal_error``) rather than by
@@ -57,22 +71,17 @@ class IdentityHeadersMiddleware:
         if scope["type"] != "http" or not scope["path"].startswith(self.prefix):
             await self.app(scope, receive, send)
             return
-        identity = await _load_identity()
-        extra = {
-            SERVER_ID_HEADER.lower().encode(): identity.server_id.encode(),
-            EPOCH_HEADER.lower().encode(): identity.epoch.encode(),
-        }
-
         started = False
 
         async def send_with_identity(message: Message) -> None:
             nonlocal started
             if message["type"] == "http.response.start":
-                started = True
                 headers = list(message.get("headers", []))
                 present = {name.lower() for name, _ in headers}
-                headers += [(k, v) for k, v in extra.items() if k not in present]
+                if not {_SERVER_ID_KEY, _EPOCH_KEY} <= present:
+                    headers += [(k, v) for k, v in (await _identity_headers()) if k not in present]
                 message = {**message, "headers": headers}
+                started = True
             await send(message)
 
         token = expected_identity.set(None)

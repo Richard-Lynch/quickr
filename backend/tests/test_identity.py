@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -200,6 +201,7 @@ async def test_precondition_is_checked_under_the_lock(
     assert waited, "the request must have been waiting for the feed lock"
     assert epoch_b != epoch_a
     assert (r.status_code, r.json()["code"]) == (409, "epoch_mismatch"), r.text
+    assert r.headers["x-quickr-epoch"] == epoch_b  # labelled after the handler ran
     assert await _state() == before
 
 
@@ -257,3 +259,49 @@ async def test_one_identity_query_per_request(client: httpx.AsyncClient) -> None
     finally:
         event.remove(engine, "before_cursor_execute", record_sql)
     assert sum("app_settings" in sql for sql in statements) == 1
+
+
+@pytest.mark.parametrize("found", [True, False])
+async def test_headers_are_read_after_the_handler(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, found: bool
+) -> None:
+    """A rotation between the request's start and the lookup: the response (found or
+    404) carries the new epoch, never the one current when the request arrived."""
+    from app.services import entries as entry_svc
+
+    await make_topic(client)
+    entry_id = (await record(client, "sleep-log", ANSWERS))["id"] if found else str(uuid4())
+    _, old = await identity(client)
+    real_get = entry_svc.get_entry
+    rotated: list[str] = []
+
+    async def rotate_then_get(db: Any, eid: Any) -> Any:
+        async with get_sessionmaker()() as other:
+            rotated.append(await feed.rotate_epoch(other))
+        return await real_get(db, eid)
+
+    monkeypatch.setattr(entry_svc, "get_entry", rotate_then_get)
+    r = await client.get(f"/entries/{entry_id}")
+    assert r.status_code == (200 if found else 404)
+    assert r.headers["x-quickr-epoch"] == rotated[0] != old
+
+
+async def test_streamed_response_headers_are_read_after_the_handler(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services import entries as entry_svc
+
+    await make_topic(client)
+    real_export = entry_svc.export_csv
+    rotated: list[str] = []
+
+    async def rotate_then_export(*args: Any) -> Any:
+        gen = await real_export(*args)
+        async with get_sessionmaker()() as other:
+            rotated.append(await feed.rotate_epoch(other))
+        return gen
+
+    monkeypatch.setattr(entry_svc, "export_csv", rotate_then_export)
+    r = await client.get("/topics/sleep-log/entries.csv")
+    assert r.status_code == 200
+    assert r.headers["x-quickr-epoch"] == rotated[0]
