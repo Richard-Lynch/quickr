@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from fastmcp.utilities.lifespan import combine_lifespans
 
+from app.api.identity import EPOCH_HEADER, SERVER_ID_HEADER, IdentityHeadersMiddleware
 from app.api.routes import router
 from app.config import get_settings
 from app.errors import DomainError
@@ -36,7 +37,10 @@ def create_app() -> FastAPI:
         allow_origins=get_settings().cors_origins,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=[SERVER_ID_HEADER, EPOCH_HEADER],
     )
+    # Outermost, so CORS and error responses carry the identity headers too.
+    app.add_middleware(IdentityHeadersMiddleware)
 
     @app.exception_handler(RequestValidationError)
     async def _request_error(_: Request, exc: RequestValidationError) -> JSONResponse:

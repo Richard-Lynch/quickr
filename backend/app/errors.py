@@ -53,3 +53,15 @@ class StaleRevision(Conflict):
     """``expected_revision`` no longer matches: someone else changed the row first."""
 
     code = "stale_revision"
+
+
+class ServerMismatch(Conflict):
+    """``X-QuickR-Expect-Server-Id`` names another server: nothing was changed."""
+
+    code = "server_mismatch"
+
+
+class EpochMismatch(Conflict):
+    """``X-QuickR-Expect-Epoch`` names an older feed epoch (restore/reset): nothing was changed."""
+
+    code = "epoch_mismatch"

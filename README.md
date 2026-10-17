@@ -254,6 +254,11 @@ Start from `after=0` and follow `next` while `has_more`.
 - **Restores.** `epoch` changes when the database is restored or reset; a client
   that sees a new epoch, or a cursor above `head`, rebuilds from `after=0`.
   After restoring a backup, run `make rotate-epoch` (or `make rotate-epoch-docker`).
+  The `server_id` never changes, restores included.
+- **Identity headers.** Every `/api/v1` response, errors included, carries
+  `X-QuickR-Server-Id` and `X-QuickR-Epoch`. Mutations accept
+  `X-QuickR-Expect-Server-Id` / `X-QuickR-Expect-Epoch`; a mismatch is rejected
+  with `409 server_mismatch` / `409 epoch_mismatch` before anything is written.
 
 ## MCP
 

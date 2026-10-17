@@ -10,6 +10,7 @@ from pydantic import AwareDatetime, TypeAdapter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.identity import ExpectIdentity
 from app.db import get_db
 from app.models import Channel
 from app.schemas.api import (
@@ -154,7 +155,13 @@ async def list_topics(
     )
 
 
-@router.post("/topics", tags=["topics"], operation_id="createTopic", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/topics",
+    tags=["topics"],
+    operation_id="createTopic",
+    dependencies=[ExpectIdentity],
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_topic(db: Db, body: TopicCreate) -> TopicDetail:
     return await topic_svc.create_topic(db, body)
 
@@ -165,23 +172,31 @@ async def get_topic(db: Db, ref: TopicRef) -> TopicDetail:
     return await topic_svc.topic_detail(db, topic.id)
 
 
-@router.patch("/topics/{ref}", tags=["topics"], operation_id="updateTopic")
+@router.patch("/topics/{ref}", tags=["topics"], operation_id="updateTopic", dependencies=[ExpectIdentity])
 async def update_topic(db: Db, ref: TopicRef, body: TopicUpdate) -> TopicDetail:
     return await topic_svc.update_topic(db, ref, body)
 
 
-@router.post("/topics/{ref}/archive", tags=["topics"], operation_id="archiveTopic")
+@router.post(
+    "/topics/{ref}/archive", tags=["topics"], operation_id="archiveTopic", dependencies=[ExpectIdentity]
+)
 async def archive_topic(db: Db, ref: TopicRef, expected_revision: ExpectedRevision = None) -> TopicDetail:
     return await topic_svc.set_archived(db, ref, archived=True, expected_revision=expected_revision)
 
 
-@router.post("/topics/{ref}/unarchive", tags=["topics"], operation_id="unarchiveTopic")
+@router.post(
+    "/topics/{ref}/unarchive", tags=["topics"], operation_id="unarchiveTopic", dependencies=[ExpectIdentity]
+)
 async def unarchive_topic(db: Db, ref: TopicRef, expected_revision: ExpectedRevision = None) -> TopicDetail:
     return await topic_svc.set_archived(db, ref, archived=False, expected_revision=expected_revision)
 
 
 @router.delete(
-    "/topics/{ref}", tags=["topics"], operation_id="deleteTopic", status_code=status.HTTP_204_NO_CONTENT
+    "/topics/{ref}",
+    tags=["topics"],
+    operation_id="deleteTopic",
+    dependencies=[ExpectIdentity],
+    status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_topic(db: Db, ref: TopicRef) -> Response:
     """Permanently delete an archived topic and all its data."""
@@ -207,6 +222,7 @@ async def check_version(db: Db, ref: TopicRef, body: VersionDraft) -> Compatibil
     "/topics/{ref}/versions",
     tags=["versions"],
     operation_id="publishTopicVersion",
+    dependencies=[ExpectIdentity],
     status_code=status.HTTP_201_CREATED,
 )
 async def publish_version(db: Db, ref: TopicRef, body: VersionCreate) -> TopicDetail:
@@ -232,6 +248,7 @@ async def list_entries(
     "/topics/{ref}/entries",
     tags=["entries"],
     operation_id="createEntry",
+    dependencies=[ExpectIdentity],
     status_code=status.HTTP_201_CREATED,
 )
 async def create_entry(db: Db, ref: TopicRef, body: EntryCreate, channel: ChannelHeader = None) -> EntryOut:
@@ -264,6 +281,7 @@ async def get_entry(db: Db, entry_id: UUID) -> EntryOut:
     "/entries/{entry_id}",
     tags=["entries"],
     operation_id="updateEntry",
+    dependencies=[ExpectIdentity],
 )
 async def update_entry(db: Db, entry_id: UUID, body: EntryUpdate) -> EntryOut:
     return await entry_svc.update_entry(db, entry_id, body)
@@ -273,6 +291,7 @@ async def update_entry(db: Db, entry_id: UUID, body: EntryUpdate) -> EntryOut:
     "/entries/{entry_id}",
     tags=["entries"],
     operation_id="deleteEntry",
+    dependencies=[ExpectIdentity],
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_entry(db: Db, entry_id: UUID) -> Response:
@@ -335,6 +354,7 @@ async def push_config(db: Db) -> PushConfig:
     "/push/subscriptions",
     tags=["push"],
     operation_id="createPushSubscription",
+    dependencies=[ExpectIdentity],
     status_code=status.HTTP_201_CREATED,
 )
 async def create_push_subscription(db: Db, body: PushSubscriptionIn) -> PushSubscriptionOut:
@@ -346,6 +366,7 @@ async def create_push_subscription(db: Db, body: PushSubscriptionIn) -> PushSubs
     "/push/subscriptions/delete",
     tags=["push"],
     operation_id="deletePushSubscription",
+    dependencies=[ExpectIdentity],
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_push_subscription(db: Db, body: PushSubscriptionDelete) -> Response:

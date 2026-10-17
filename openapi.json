@@ -359,6 +359,44 @@
         ],
         "summary": "Create Topic",
         "operationId": "createTopic",
+        "parameters": [
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -519,6 +557,42 @@
               "title": "Ref"
             },
             "description": "Topic UUID or slug."
+          },
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
           }
         ],
         "requestBody": {
@@ -605,6 +679,42 @@
               "title": "Ref"
             },
             "description": "Topic UUID or slug."
+          },
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
           }
         ],
         "responses": {
@@ -694,6 +804,42 @@
               "title": "Expected Revision"
             },
             "description": "Optional: the topic revision this change was based on; 409 stale_revision on mismatch."
+          },
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
           }
         ],
         "responses": {
@@ -790,6 +936,42 @@
               "title": "Expected Revision"
             },
             "description": "Optional: the topic revision this change was based on; 409 stale_revision on mismatch."
+          },
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
           }
         ],
         "responses": {
@@ -946,6 +1128,42 @@
               "title": "Ref"
             },
             "description": "Topic UUID or slug."
+          },
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
           }
         ],
         "requestBody": {
@@ -1341,6 +1559,42 @@
               "title": "X-Quickr-Channel"
             },
             "description": "Client channel; defaults to 'api'."
+          },
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
           }
         ],
         "requestBody": {
@@ -1660,6 +1914,42 @@
               "format": "uuid",
               "title": "Entry Id"
             }
+          },
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
           }
         ],
         "requestBody": {
@@ -1742,6 +2032,42 @@
               "format": "uuid",
               "title": "Entry Id"
             }
+          },
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
           }
         ],
         "responses": {
@@ -2319,15 +2645,53 @@
         "summary": "Create Push Subscription",
         "description": "Register (or refresh, keyed by endpoint) a browser push subscription.",
         "operationId": "createPushSubscription",
+        "parameters": [
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/PushSubscriptionIn"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -2341,44 +2705,44 @@
             }
           },
           "400": {
-            "description": "Bad Request",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Bad Request"
           },
           "404": {
-            "description": "Not Found",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Not Found"
           },
           "409": {
-            "description": "Conflict",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Conflict"
           },
           "422": {
-            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -2391,59 +2755,97 @@
         "summary": "Delete Push Subscription",
         "description": "Remove a subscription by endpoint (idempotent). POST because DELETE bodies are poorly supported.",
         "operationId": "deletePushSubscription",
+        "parameters": [
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/PushSubscriptionDelete"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "204": {
             "description": "Successful Response"
           },
           "400": {
-            "description": "Bad Request",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Bad Request"
           },
           "404": {
-            "description": "Not Found",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Not Found"
           },
           "409": {
-            "description": "Conflict",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Conflict"
           },
           "422": {
-            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -3916,17 +4318,9 @@
             "title": "Id"
           },
           "topic_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Topic Id",
-            "description": "Null for an entry id deleted before it was ever created."
+            "type": "string",
+            "format": "uuid",
+            "title": "Topic Id"
           },
           "deleted_at": {
             "type": "string",

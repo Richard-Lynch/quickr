@@ -274,7 +274,7 @@ export const zFeedDeletion = z.object({
     ]),
     seq: z.int(),
     id: z.uuid(),
-    topic_id: z.uuid().nullable(),
+    topic_id: z.uuid(),
     deleted_at: z.iso.datetime({ offset: true })
 });
 
@@ -912,10 +912,20 @@ export const zListTopicsResponse = zTopicPage;
 
 export const zCreateTopicBody = zTopicCreate;
 
+export const zCreateTopicHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
 /**
  * Successful Response
  */
 export const zCreateTopicResponse = zTopicDetail;
+
+export const zDeleteTopicHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
 
 export const zDeleteTopicPath = z.object({
     ref: z.string()
@@ -937,6 +947,11 @@ export const zGetTopicResponse = zTopicDetail;
 
 export const zUpdateTopicBody = zTopicUpdate;
 
+export const zUpdateTopicHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
 export const zUpdateTopicPath = z.object({
     ref: z.string()
 });
@@ -945,6 +960,11 @@ export const zUpdateTopicPath = z.object({
  * Successful Response
  */
 export const zUpdateTopicResponse = zTopicDetail;
+
+export const zArchiveTopicHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
 
 export const zArchiveTopicPath = z.object({
     ref: z.string()
@@ -958,6 +978,11 @@ export const zArchiveTopicQuery = z.object({
  * Successful Response
  */
 export const zArchiveTopicResponse = zTopicDetail;
+
+export const zUnarchiveTopicHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
 
 export const zUnarchiveTopicPath = z.object({
     ref: z.string()
@@ -984,6 +1009,11 @@ export const zListTopicVersionsPath = z.object({
 export const zListTopicVersionsResponse = z.array(zTopicVersionOut);
 
 export const zPublishTopicVersionBody = zVersionCreate;
+
+export const zPublishTopicVersionHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
 
 export const zPublishTopicVersionPath = z.object({
     ref: z.string()
@@ -1033,7 +1063,9 @@ export const zListEntriesResponse = zEntryPage;
 export const zCreateEntryBody = zEntryCreate;
 
 export const zCreateEntryHeaders = z.object({
-    'X-QuickR-Channel': zChannel.nullish()
+    'X-QuickR-Channel': zChannel.nullish(),
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
 });
 
 export const zCreateEntryPath = z.object({
@@ -1062,6 +1094,11 @@ export const zExportEntriesCsvQuery = z.object({
  */
 export const zExportEntriesCsvResponse = z.string();
 
+export const zDeleteEntryHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
 export const zDeleteEntryPath = z.object({
     entry_id: z.uuid()
 });
@@ -1081,6 +1118,11 @@ export const zGetEntryPath = z.object({
 export const zGetEntryResponse = zEntryOut;
 
 export const zUpdateEntryBody = zEntryUpdate;
+
+export const zUpdateEntryHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
 
 export const zUpdateEntryPath = z.object({
     entry_id: z.uuid()
@@ -1149,12 +1191,22 @@ export const zGetPushConfigResponse = zPushConfig;
 
 export const zCreatePushSubscriptionBody = zPushSubscriptionIn;
 
+export const zCreatePushSubscriptionHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
 /**
  * Successful Response
  */
 export const zCreatePushSubscriptionResponse = zPushSubscriptionOut;
 
 export const zDeletePushSubscriptionBody = zPushSubscriptionDelete;
+
+export const zDeletePushSubscriptionHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
 
 /**
  * Successful Response

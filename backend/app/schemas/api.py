@@ -722,7 +722,7 @@ class FeedDeletion(StrictModel):
     kind: Literal["entry", "topic", "version"]
     seq: int
     id: UUID
-    topic_id: UUID | None = Field(description="Null for an entry id deleted before it was ever created.")
+    topic_id: UUID
     deleted_at: datetime
 
 

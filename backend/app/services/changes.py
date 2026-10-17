@@ -77,7 +77,10 @@ async def _page(db: AsyncSession, after: int, limit: int, epoch: str, server_id:
         else {}
     )
     deleted = [
-        FeedDeletion(kind=d.kind.value, seq=latest[i].seq, id=i, topic_id=d.topic_id, deleted_at=d.deleted_at)
+        # The log row's topic_id: a tombstone's is null only for ids that were never logged.
+        FeedDeletion(
+            kind=d.kind.value, seq=latest[i].seq, id=i, topic_id=latest[i].topic_id, deleted_at=d.deleted_at
+        )
         for i in vanished
         if (d := tombstones.get(i)) is not None
     ]
