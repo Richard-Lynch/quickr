@@ -7,7 +7,8 @@ import Testing
 
 /// Epoch rebuilds, takeover and fencing (sync-protocol.md §5, §7, §11; §13 S3–S6, S9, S15, S16,
 /// S20), file-backed. Multi-process cases are simulated in one process with a second registry
-/// pool per "process" and lease time moved by hand; the real-subprocess versions are the MP stubs.
+/// pool per "process" and lease time moved by hand; the real-subprocess versions are in
+/// `MultiProcess/SyncMultiProcessTests`.
 @Suite(.timeLimit(.minutes(1))) struct SyncRebuildTests {
     static let e2 = "00000000-0000-4000-8000-0000000000e2"
     static let e3 = "00000000-0000-4000-8000-0000000000e3"

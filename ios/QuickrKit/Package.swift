@@ -39,8 +39,6 @@ let package = Package(
             name: "QuickrDataTests",
             dependencies: [
                 "QuickrData", "QuickrTestSupport", .product(name: "GRDB", package: "GRDB.swift"),
-                // Built for the multi-process tests, which launch it (Tests/QuickrDataTests/MultiProcess).
-                "ProcessHelper",
             ]
         ),
     ],

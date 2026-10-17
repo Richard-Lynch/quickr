@@ -1,3 +1,5 @@
+// Multi-process tests run on the Mac host only: iOS has no `Process` (sync-protocol.md §13 G5).
+#if os(macOS)
 import Foundation
 import GRDB
 import QuickrCore
@@ -20,7 +22,7 @@ extension MultiProcessTests {
                 let gate = Gate()
                 w.server.inject(.post, .delay(gate))
                 let flushA = try a.start("flush", ["budgetMs": "120000"])
-                await gate.arrival()
+                try await gate.arrived()
                 a.suspend()
                 try w.world.leaseClock.advance(by: .seconds(31))
 
@@ -39,6 +41,38 @@ extension MultiProcessTests {
             }
         }
 
+        /// 9 with the item still claimable: B holds it in flight when A's late answer (a 422)
+        /// arrives. Only A's sender check (lease and claim token) stops A from failing B's item.
+        @Test("9b · MP: a SIGSTOPped sender's late 422 doesn't fail the item B now has in flight")
+        func case09LateTerminal() async throws {
+            try await OutboxWorld.run { w in
+                let a = try await w.world.spawn("app:A")
+                let b = try await w.world.spawn("widget:B", open: "extension")
+                let id = try await w.log(a)
+                let gateA = Gate()
+                let gateB = Gate()
+                w.server.inject(
+                    .post, .delay(gateA, override: header(FakeServer.problem(422, "invalid_answers", "late"))))
+                w.server.inject(.post, .delay(gateB))
+                let flushA = try a.start("flush", ["budgetMs": "120000"])
+                try await gateA.arrived()
+                a.suspend()
+                try w.world.leaseClock.advance(by: .seconds(31))
+                let flushB = try b.start("flush", ["budgetMs": "120000"])
+                try await gateB.arrived()  // B recovered the item and has it in flight
+                let before = try w.snapshot()
+
+                a.resume()
+                gateA.open()
+                #expect(try await a.reply(flushA).result["ending"] == "superseded")
+                #expect(try w.snapshot() == before)
+                #expect(w.item(id)?.state == .inFlight && w.item(id)?.claimOwner == "widget:B")
+                gateB.open()
+                #expect(try await b.reply(flushB).result["acked"] == "1")
+                #expect(w.item(id) == nil && w.server.entry(id) != nil)
+            }
+        }
+
         @Test("10 · MP: A SIGKILLed holding the lease; after the TTL B recovers, resends and acks")
         func case10() async throws {
             try await OutboxWorld.run { w in
@@ -48,7 +82,7 @@ extension MultiProcessTests {
                 let gate = Gate()
                 w.server.inject(.post, .delay(gate))
                 _ = try a.start("flush", ["budgetMs": "120000"])
-                await gate.arrival()
+                try await gate.arrived()
                 await a.killNow()
                 #expect(try await w.store.leases.record(.flush).owner == "app:A")
                 #expect(w.item(id)?.state == .inFlight)
@@ -73,7 +107,7 @@ extension MultiProcessTests {
                 let gate = Gate()
                 w.server.inject(.post, .delay(gate))
                 let flushA = try a.start("flush")
-                await gate.arrival()
+                try await gate.arrived()
                 let create = try #require(w.item(id))
                 #expect(create.state == .inFlight)
                 let result = try await b.run(
@@ -118,7 +152,7 @@ extension MultiProcessTests {
                 let gate = Gate()
                 w.server.inject(.patch, .delay(gate))
                 let flushA = try a.start("flush", ["budgetMs": "120000"])
-                await gate.arrival()  // A's PATCH (expected 3) is held in the network
+                try await gate.arrived()  // A's PATCH (expected 3) is held in the network
                 a.suspend()
                 try await b.run("update", ids.merging(["notes": "u2"]) { $1 })
                 try w.world.leaseClock.advance(by: .seconds(31))
@@ -150,7 +184,7 @@ extension MultiProcessTests {
                 let gate = Gate()
                 w.server.inject(.get, .delay(gate))
                 let flushA = try a.start("flush", ["budgetMs": "120000"])
-                await gate.arrival()  // A got 409, and its GET is held: it is between refetch and rebase
+                try await gate.arrived()  // A got 409, and its GET is held: it is between refetch and rebase
                 a.suspend()
                 try w.world.leaseClock.advance(by: .seconds(31))
 
@@ -214,7 +248,7 @@ extension MultiProcessTests {
                 let gate = Gate()
                 w.server.inject(.post, .delay(gate))
                 let flushApp = try app.start("flush")
-                await gate.arrival()
+                try await gate.arrived()
                 let logged = try await w.log(widget)
                 let started = ContinuousClock.now
                 // The widget's `perform()` flush: 4 s budget, no lease polling (§10).
@@ -236,7 +270,7 @@ extension MultiProcessTests {
                 let gate = Gate()
                 w.server.inject(.post, .delay(gate))
                 _ = try a.start("flush", ["budgetMs": "120000"])
-                await gate.arrival()
+                try await gate.arrived()
                 try w.world.wall.advance(by: -3 * 3600)
                 await a.killNow()
                 try w.world.leaseClock.advance(by: .seconds(29))
@@ -257,7 +291,7 @@ extension MultiProcessTests {
                 let gate = Gate()
                 w.server.inject(.post, .delay(gate))
                 let flushA = try a.start("flush", ["budgetMs": "120000"])
-                await gate.arrival()
+                try await gate.arrived()
                 try w.world.wall.advance(by: 3 * 3600)
                 try w.world.leaseClock.advance(by: .seconds(10))
                 #expect(try await b.run("flush")["ending"] == "busy")
@@ -294,3 +328,4 @@ extension MultiProcessTests {
         }
     }
 }
+#endif

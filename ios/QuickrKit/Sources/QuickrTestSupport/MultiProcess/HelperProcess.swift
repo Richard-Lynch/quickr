@@ -1,3 +1,5 @@
+// Multi-process tests run on the Mac host only: iOS has no `Process` (sync-protocol.md §13 G5).
+#if os(macOS)
 import Foundation
 import Synchronization
 
@@ -226,3 +228,4 @@ private final class StateBox: Sendable {
 
     var stderr: String { String(decoding: state.withLock { $0.stderr }, as: UTF8.self) }
 }
+#endif

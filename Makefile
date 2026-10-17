@@ -136,6 +136,14 @@ ios-core-test: ## iOS: swift test for ios/QuickrKit on the Mac
 	@$(IOS_SCRIPTS)/require-xcode.sh
 	@$(IOS_SCRIPTS)/swift-test.sh
 
+.PHONY: ios-mp-test
+ios-mp-test: ## iOS: the multi-process tests alone, serially, IOS_MP_RUNS times (default 1); swift test runs them too
+	@$(IOS_SCRIPTS)/require-xcode.sh
+	@for run in $$(seq 1 $${IOS_MP_RUNS:-1}); do \
+		echo "ios-mp-test: run $$run"; \
+		$(IOS_SCRIPTS)/swift-test.sh --filter MultiProcessTests --no-parallel || exit 1; \
+	done
+
 .PHONY: ios-resolve
 ios-resolve: ## iOS: update package pins in ios/QuickrKit/Package.resolved and check Xcode matches
 	@$(IOS_SCRIPTS)/resolve.sh

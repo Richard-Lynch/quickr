@@ -1,3 +1,5 @@
+// Multi-process tests run on the Mac host only: iOS has no `Process` (sync-protocol.md §13 G5).
+#if os(macOS)
 import Foundation
 import GRDB
 import QuickrCore
@@ -241,6 +243,34 @@ final class SyncRouter: Transport {
     }
 }
 
+extension Gate {
+    /// `arrival()` as a barrier that fails the test after `timeout` instead of hanging when the
+    /// request never comes (a broken process never sends it).
+    func arrived(within timeout: Duration = .seconds(30)) async throws {
+        let flag = ArrivalFlag()
+        Task { [self] in
+            await arrival()
+            flag.set()
+        }
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while !flag.isSet {
+            guard ContinuousClock.now < deadline else {
+                throw HelperError(description: "no request arrived at the gate within \(timeout)")
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+    }
+}
+
+private final class ArrivalFlag: Sendable {
+    private let value = Mutex(false)
+
+    var isSet: Bool { value.withLock { $0 } }
+
+    func set() { value.withLock { $0 = true } }
+}
+
 extension LocalStore {
     func mpState() async throws -> SyncState { try #require(try await syncState.syncState()) }
 }
+#endif
