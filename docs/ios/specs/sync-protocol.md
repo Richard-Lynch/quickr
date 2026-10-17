@@ -85,17 +85,17 @@ ChangePage {
 
 The server MUST meet these contract requirements:
 
-| #   | Requirement **[server]**                                                                                                                                                                                                                                               | Why the client needs it                                                      |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| F1  | A page is materialised in **one REPEATABLE READ snapshot**. It covers the change_log rows with `after < seq ≤ next`. For each entity in those rows it returns that entity's **latest state in the snapshot**, which may be newer than the seq that put it on the page. | The client may apply a page as an idempotent, monotone upsert set.           |
-| F2  | An entity in the page's rows that no longer exists in the snapshot is emitted in `deleted` **only if its id is in `deleted_ids`**. Otherwise it is skipped, because its own delete row comes later (§6a rule 4).                                                       | The client never sees a "vanished" entity without a tombstone.               |
-| F3  | Every deleted entity of every kind (entry, topic and version) is in `deleted_ids` permanently. A topic delete puts its child entries and versions into `deleted_ids` **before** the FK cascade (§6a rule 3).                                                           | Tombstones are complete, and ids are never reused.                           |
-| F4  | `entry` and `topic` rows carry `revision` (an integer). It starts at 1 and increases strictly with every change to that entity within an epoch. POST, PATCH, archive and unarchive responses carry it too.                                                             | It is the regression guard (§5.2).                                           |
-| F5  | Entry mutations do not log topic rows. Topic rows are logged only when the topic's own fields change (§6a rule 3).                                                                                                                                                     | The client recomputes derived fields itself (§4).                            |
-| F6  | The backfill migration writes seqs in the order topics, then versions, then entries.                                                                                                                                                                                   | The first bootstrap pages can render the home screen.                        |
-| F7  | `server_id` survives restore. A restore or reset rotates `epoch`.                                                                                                                                                                                                      | §7 and §8.                                                                   |
-| F8  | `next ≥ after`. `has_more = false` implies `next = head` as of the snapshot.                                                                                                                                                                                           | Termination of the pull loop.                                                |
-| F9  | SHOULD: every `/api/v1` response carries an `X-QuickR-Server-Id` header.                                                                                                                                                                                               | A cheap identity check before a flush (§8.3). Without it, the client probes. |
+| #   | Requirement **[server]**                                                                                                                                                                                                                                               | Why the client needs it                                            |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| F1  | A page is materialised in **one REPEATABLE READ snapshot**. It covers the change_log rows with `after < seq ≤ next`. For each entity in those rows it returns that entity's **latest state in the snapshot**, which may be newer than the seq that put it on the page. | The client may apply a page as an idempotent, monotone upsert set. |
+| F2  | An entity in the page's rows that no longer exists in the snapshot is emitted in `deleted` **only if its id is in `deleted_ids`**. Otherwise it is skipped, because its own delete row comes later (§6a rule 4).                                                       | The client never sees a "vanished" entity without a tombstone.     |
+| F3  | Every deleted entity of every kind (entry, topic and version) is in `deleted_ids` permanently. A topic delete puts its child entries and versions into `deleted_ids` **before** the FK cascade (§6a rule 3).                                                           | Tombstones are complete, and ids are never reused.                 |
+| F4  | `entry` and `topic` rows carry `revision` (an integer). It starts at 1 and increases strictly with every change to that entity within an epoch. POST, PATCH, archive and unarchive responses carry it too.                                                             | It is the regression guard (§5.2).                                 |
+| F5  | Entry mutations do not log topic rows. Topic rows are logged only when the topic's own fields change (§6a rule 3).                                                                                                                                                     | The client recomputes derived fields itself (§4).                  |
+| F6  | The backfill migration writes seqs in the order topics, then versions, then entries.                                                                                                                                                                                   | The first bootstrap pages can render the home screen.              |
+| F7  | `server_id` survives restore. A restore or reset rotates `epoch`.                                                                                                                                                                                                      | §7 and §8.                                                         |
+| F8  | `next ≥ after`. `has_more = false` implies `next = head` as of the snapshot.                                                                                                                                                                                           | Termination of the pull loop.                                      |
+| F9  | Every `/api/v1` response (including errors and `/health`) carries an `X-QuickR-Server-Id` header. This is a new contract, allowed because quickR isn't in production yet; the PWA ignores it.                                                                          | The identity check on every request (§8.3)                         |
 
 ### 1.3 What the client checks on every page
 
@@ -456,18 +456,22 @@ group, with `kSecAttrAccount = server_id` and `AfterFirstUnlock`.
 
 ### 8.3 Identity check before sending
 
-Before a flush sends its first request, the client MUST confirm that the server
-at `base_url` is still `store.server_id`. Either of these confirms it:
+Before a flush or an online-only operation sends its first write, the client
+MUST confirm that the server at `base_url` is still `store.server_id`. It is
+confirmed when a response from `base_url` in the last 60 s carried a matching
+`X-QuickR-Server-Id` header (F9). Otherwise the client first sends
+`GET /api/v1/health` and checks the header on that response.
 
-- a response from that host within the last 60 s whose `X-QuickR-Server-Id`
-  header matched (F9), or a feed page within the last 60 s whose `server_id`
-  matched; or
-- a probe, `GET /changes?after=<cursor>&limit=1`. Its `server_id` is checked,
-  and the page is otherwise ignored.
+After that, **every** response is checked:
 
-On a mismatch, flushing for that store stops (§8.4). When responses carry the
-header, every response is checked, and a mismatch stops the flush pass
-immediately.
+- A **different** header stops the pass immediately and stops flushing for that
+  store (§8.4).
+- A **2xx without the header** is treated the same way.
+- A non-2xx without the header (for example a redirect or 403 from the
+  Cloudflare Access proxy) is classified normally ([outbox.md §5](outbox.md#5-classification)),
+  because it never reached quickR.
+
+Feed pages are also checked through their `server_id` field (§1.3).
 
 ### 8.4 Switching servers
 
@@ -599,9 +603,6 @@ show "Open quickR" and retry on their next timeline.
    says no (§8.2). That is simpler, and it keeps "queued data never goes to a
    different server" trivially true. Revisit if multi-server use turns out to be
    real.
-2. **The F9 header.** If M0-feed doesn't add `X-QuickR-Server-Id`, every flush
-   pays for one probe request (§8.3). This is acceptable at single-user scale,
-   but it should be confirmed with M0-feed.
 
 ## Traceability
 

@@ -500,7 +500,7 @@ flush(force, budget):
   deadline = now + budget
   if !acquire(flush_lock, pollUntil: triggerPolicy): return .busy
   defer release()
-  if !identityConfirmed(store): if !probeIdentity(): return .identityMismatch   // sync-protocol §8.3
+  if !identityConfirmed(store): if !checkHealthHeader(): return .identityMismatch   // sync-protocol §8.3
   TX { release holds where hold_until < now }
   loop while now < deadline:
     item = TX IMMEDIATE {
