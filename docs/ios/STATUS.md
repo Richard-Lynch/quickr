@@ -15,14 +15,14 @@ branch.
 - `[ ]` to do
 - `[-]` skipped, with a reason
 
-**Last updated:** 2026-10-17, M0 in progress.
+**Last updated:** 2026-10-17 16:55, M0 close-out.
 
 ## Now
 
 |                     |                                                                                                                           |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Active milestone    | **M0: backend foundations and specs** (branch `ios/m0-foundations`)                                                       |
-| Running             | M0 review fixes (WP `ios/m0-fixes`: identity connection, `/push/test` precondition, fixture coverage, `make check` parity). Milestone reviews done: Codex said BLOCK (2 Majors), Claude said SHIP WITH MINORS. |
+| Running             | `m0-fixes`: the last 2 items from the Codex re-check (`/push/test` holds the lock through delivery; the header read never commits handler work). Fable is building the optimised execution DAG for M1–M7. |
 | Waiting on the user | Apple enrollment activation and the Team ID; iPhone model and iOS version; answers to Q1–Q4; a session restart to load MobileBuildMCP |
 | Next up             | Merge the fixes → Codex re-check → open the M0 PR into `feat/ios-app` (first real iOS CI run) → M1 |
 
