@@ -15,18 +15,29 @@ branch.
 - `[ ]` to do
 - `[-]` skipped, with a reason
 
+<<<<<<< HEAD
 **Last updated:** 2026-10-17 17:10. M0 PR #8 is open; M1 Wave 1 is running.
 
 **Execution plan:** [DAG.md](DAG.md) (Fable). Waves of ≤4 WPs with at most 2 simulator-heavy at once. Milestones are stacked (squash-merge, then `rebase --onto`).
+=======
+**Last updated:** 2026-10-17 16:55, M0 close-out.
+>>>>>>> origin/feat/ios-app
 
 ## Now
 
 |                     |                                                                                                                           |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Active milestone    | **M0 PR [#8](https://github.com/Richard-Lynch/quickr/pull/8)** (CI running, incl. the first iOS job) · **M1** on `ios/m1-data` (stacked on M0) |
+<<<<<<< HEAD
+| Active milestone    | **M1** on `ios/m1-data`. M0 merged (#8, 6249b0e). |
 | Running             | M1 Wave 1 sub-agents: **C1** contracts (`ios/m1-c1`), **DS** design system (`ios/m1-ds`, sim), **B6** APNs backend, dark (`ios/m1-b6`), **TOOLS** integration harness (`ios/m1-tools`) |
 | Waiting on the user | Apple enrollment activation and the Team ID; iPhone model and iOS version; answers to Q1–Q4; a session restart to load MobileBuildMCP |
-| Next up             | Merge M0 when CI is green → rebase M1 onto `feat/ios-app` · Wave 2: STORE, API, DUE, VAL (after C1 merges) |
+| Next up             | Wave 1 reviews (Codex) → merge C1 first → Wave 2: STORE, API, DUE, VAL |
+=======
+| Active milestone    | **M0: backend foundations and specs** (branch `ios/m0-foundations`)                                                       |
+| Running             | `m0-fixes`: the last 2 items from the Codex re-check (`/push/test` holds the lock through delivery; the header read never commits handler work). Fable is building the optimised execution DAG for M1–M7. |
+| Waiting on the user | Apple enrollment activation and the Team ID; iPhone model and iOS version; answers to Q1–Q4; a session restart to load MobileBuildMCP |
+| Next up             | Merge the fixes → Codex re-check → open the M0 PR into `feat/ios-app` (first real iOS CI run) → M1 |
+>>>>>>> origin/feat/ios-app
 
 ## Human steps (PLAN §9)
 
@@ -64,7 +75,7 @@ The user can override any of them.
 - [x] Simulator runtimes installed: iOS 26.0 (minimum) and iOS 27.0, with an iPhone 17 on each ("quickR iOS-26-0", "quickR iOS27"). The smoke app builds, installs, launches and screenshots on both. A stray iOS 27.1 runtime supports only "iPhone Duo"; ignore it.
 - [ ] MobileBuildMCP tools verified after a session restart; Xcode IDE bridge
       prompt approved
-- [ ] `xcode-27` GitHub runner label checked for general availability (otherwise
+- [x] First CI run green on `macos-26` / Xcode 26.6 / iOS 26.2 sim (PR #8). [ ] `xcode-27` GitHub runner label checked for general availability (otherwise
       CI stays on `macos-26` with Xcode 26.6)
 
 ## M0: Backend foundations and specs
@@ -167,14 +178,22 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 - [x] All WPs merged (vectors, specs, feed, scaffold). Integrated gates green: `make check` (401 pytest, 532 vitest), plus `alembic upgrade head && alembic check` run separately on a fresh DB and `make check-ios` (iOS 26.0 + 27.0).
 - [ ] Concurrency, feed and downgrade tests listed in the PR
+<<<<<<< HEAD
 - [x] Codex review of the whole milestone diff (BLOCK: 2 Majors, fixed over 2 rounds) and a Claude reviewer (SHIP WITH MINORS, fixed)
 - [ ] PR body: the validation checklist, and test reports instead of media (a
       stated deviation)
-- [~] PR [#8](https://github.com/Richard-Lynch/quickr/pull/8) opened; CI running → squash-merge into `feat/ios-app` (Q1 default)
-- [ ] STATUS updated; M1 branch cut
+- [x] PR [#8](https://github.com/Richard-Lynch/quickr/pull/8): CI green (backend, frontend, docker, and the **first iOS job**: build + Unit plan on Xcode 26.6 / iOS 26.2 in 3m32s). Squash-merged into `feat/ios-app` as 6249b0e, 2026-10-17 17:10.
+=======
+- [~] Codex review of the whole milestone diff, plus a Claude code-review sub-agent (both running)
+- [ ] PR body: the validation checklist, and test reports instead of media (a
+      stated deviation)
+- [ ] PR opened → squash-merged into `feat/ios-app` (Q1 default)
+>>>>>>> origin/feat/ios-app
+- [x] STATUS updated; M1 branch `ios/m1-data` cut (stacked) and synced with `feat/ios-app` by merge
 
 ## M1: Core and data layer, plus platform proof · needs H1, H2
 
+<<<<<<< HEAD
 Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md).
 
 | Wave | WP | Branch | Status |
@@ -188,6 +207,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 | W4 | MP · INT · SPIKE · FORM (M2) | — | [ ] |
 
 
+=======
+>>>>>>> origin/feat/ios-app
 - [ ] QuickrCore: models, validation, quick-log, and the due port (all vectors
       pass)
 - [ ] QuickrData: the API client (fixtures and request goldens), the two-layer
