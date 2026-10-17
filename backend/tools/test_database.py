@@ -15,8 +15,11 @@ their suites at the same time never truncate each other's tables. conftest.py an
 ``reset`` is the fix for a test database migrated before a migration was edited in place
 (e.g. an old ``deleted_ids`` key). Peer databases (``<base>_peer_<epoch>_<random>``) are
 created and dropped by one fixture each; ``prune-peers`` removes ones a killed run left
-behind. It skips any younger than ``--min-age`` (default an hour: a fresh one may belong to
-a running suite that hasn't connected yet) and any still in use (never force-dropped).
+behind: it is for crashed runs. It only considers ``quickr_test*_peer_<epoch>_<hex>`` names,
+skips any still in use (never force-dropped) and any younger than ``--min-age`` (default an
+hour, at least 10 minutes), since a fresh peer may belong to a running suite that hasn't
+connected to it yet. A run that keeps a peer unconnected for longer than that is the
+accepted residual risk: there is no liveness protocol beyond the age and the connections.
 """
 
 from __future__ import annotations
@@ -39,13 +42,15 @@ from sqlalchemy.ext.asyncio import create_async_engine
 SERVER_URL = "postgresql+asyncpg://quickr:quickr@localhost:5433"
 BASE_NAME = "quickr_test"
 MAX_NAME_BYTES = 63  # Postgres silently truncates longer identifiers
-PEER = re.compile(r"^(?P<stem>.+)_peer_(?P<epoch>\d{10})_[0-9a-f]{8}$")
+# Only names like this are ever pruned: nothing outside quickr_test*.
+PEER = re.compile(r"^(?P<stem>quickr_test.*)_peer_(?P<epoch>\d{10})_[0-9a-f]{8}$")
 PEER_SUFFIX_BYTES = len("_peer_") + 10 + 1 + 8
 # Room for a whole base name inside a peer name.
 MAX_BASE_BYTES = MAX_NAME_BYTES - PEER_SUFFIX_BYTES
 # Serialises check-then-create in ensure() (on the maintenance database, so server-wide).
 CREATE_LOCK_ID = 0x716B7203
 DEFAULT_MIN_AGE_SECONDS = 3600
+MIN_AGE_FLOOR_SECONDS = 600
 
 
 def _hash8(value: str) -> str:
@@ -172,7 +177,11 @@ async def prune_peers(
     url: str, *, every_checkout: bool = False, min_age: float = DEFAULT_MIN_AGE_SECONDS
 ) -> list[str]:
     """Drop the stale peer databases nobody is connected to; returns the dropped names."""
-    names = await _admin(url, "SELECT datname FROM pg_database WHERE datname LIKE '%\\_peer\\_%'")
+    if min_age < MIN_AGE_FLOOR_SECONDS:
+        raise ValueError(f"min_age must be at least {MIN_AGE_FLOOR_SECONDS} s, not {min_age:g}")
+    names = await _admin(
+        url, "SELECT datname FROM pg_database WHERE datname LIKE 'quickr\\_test%\\_peer\\_%'"
+    )
     dropped = []
     for name in stale_peers(names, url, every_checkout=every_checkout, min_age=min_age, now=time.time()):
         try:
@@ -192,6 +201,10 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--all", action="store_true", help="prune-peers: every checkout's peers")
     parser.add_argument("--min-age", type=float, default=DEFAULT_MIN_AGE_SECONDS, metavar="SECONDS")
     args = parser.parse_args(argv)
+    if args.min_age < MIN_AGE_FLOOR_SECONDS:
+        parser.error(
+            f"--min-age must be at least {MIN_AGE_FLOOR_SECONDS} seconds (pruning is for crashed runs)"
+        )
     target = url()
     if args.command == "url":
         print(target)

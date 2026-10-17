@@ -6,6 +6,7 @@ import asyncio
 import threading
 from pathlib import Path
 
+import pytest
 from sqlalchemy import make_url
 
 from tools import test_database as tdb
@@ -46,6 +47,31 @@ def test_prune_takes_only_old_peers_of_this_checkout_unless_all() -> None:
     assert tdb.stale_peers(names, mine, every_checkout=False, min_age=3600, now=now) == [old_mine]
     assert tdb.stale_peers(names, mine, every_checkout=True, min_age=3600, now=now) == [old_mine, old_other]
     assert tdb.stale_peers(names, mine, every_checkout=False, min_age=0, now=now) == [old_mine, new_mine]
+
+
+def test_prune_never_considers_names_outside_quickr_test_peers() -> None:
+    now = 2_000_000_000.0
+    old = int(now - 7200)
+    names = [
+        f"quickr_test_a_peer_{old}_0123abcd",  # the only peer
+        f"app_peer_{old}_0123abcd",
+        f"quickr_peer_{old}_0123abcd",
+        f"prod_quickr_test_peer_{old}_0123abcd",
+        f"quickr_test_a_peer_{old}_0123abcd_x",
+        f"quickr_test_a_peer_{old}_0123ABCD",
+        f"quickr_test_a_peer_{old}",
+        "quickr_test",
+        "quickr",
+    ]
+    url = f"{tdb.SERVER_URL}/quickr_test_a"
+    assert tdb.stale_peers(names, url, every_checkout=True, min_age=3600, now=now) == [names[0]]
+
+
+async def test_prune_refuses_a_min_age_under_the_floor(migrated_db: str) -> None:
+    with pytest.raises(ValueError, match="at least 600"):
+        await tdb.prune_peers(migrated_db, min_age=599)
+    with pytest.raises(SystemExit):
+        tdb.main(["prune-peers", "--all", "--min-age", "60"])
 
 
 async def _exists(url: str) -> bool:

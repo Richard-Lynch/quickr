@@ -96,7 +96,7 @@ test-db-reset: ## Drop this checkout's test database (e.g. migrated before an in
 	$(TEST_DB) reset
 
 .PHONY: test-db-prune
-test-db-prune: ## Drop this checkout's peer test databases left by killed runs (older than 1 h; all=1: every checkout's)
+test-db-prune: ## Drop peer test databases crashed runs left (this checkout's, unused, over 1 h old; all=1: every checkout's)
 	$(TEST_DB) prune-peers $(if $(all),--all)
 
 .PHONY: check-frontend
