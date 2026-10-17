@@ -1,10 +1,11 @@
 """Push notifications over every channel: Web Push (browsers) and APNs (the iOS app).
 
 A :class:`~app.services.push.base.Sender` per channel lists its targets and delivers
-one :class:`~app.services.push.base.Notification` to one target; :func:`send_to_all`
-fans a notification out to every target of every enabled channel, at most
-``MAX_CONCURRENT_SENDS`` at a time, and then does the bookkeeping in the caller's
-transaction:
+one :class:`~app.services.push.base.Notification` to one target. :func:`deliver` sends
+a notification to a list of ``(sender, target)`` pairs, at most ``MAX_CONCURRENT_SENDS``
+at a time and optionally until a deadline, then records the outcomes on the target
+rows in memory: no SQL runs, so no row is locked during the network calls, and the
+caller flushes once at the end (:func:`send_to_all` does both):
 
 - success: ``last_success_at = now``, ``failure_count = 0``;
 - :class:`PushGone` (the push service dropped the target): the target is deleted;
@@ -12,10 +13,13 @@ transaction:
   ``PRUNE_AFTER_FAILURES`` times in a row with no success for ``PRUNE_AFTER_SILENCE``
   (counting from registration when it never succeeded) is deleted.
 
+A send cut off by the deadline is neither a success nor a failure: it is left out of
+the bookkeeping and the delivery is reported incomplete.
+
 Delivery is best-effort per target, with no retry ledger: the scheduler sends a due
 slot once, then marks it, so a slot reaches every target that accepted it, at least
-once overall (a failed commit resends it on the next tick; the shared tag collapses
-the duplicate on the device).
+once overall (an incomplete delivery or a failed commit leaves the slot unmarked, and
+the next tick sends it again; the shared tag collapses the duplicate on the device).
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -45,14 +50,16 @@ from app.services.push.web import VapidKeys, generate_vapid_keys, get_vapid_keys
 
 __all__ = [
     "DEFAULT_TTL_SECONDS",
+    "Delivery",
     "Notification",
+    "Pair",
     "PushFailed",
     "PushGone",
     "PushTarget",
     "Sender",
     "VapidKeys",
     "apns_enabled",
-    "deliver_to",
+    "deliver",
     "generate_vapid_keys",
     "get_vapid_keys",
     "register_device",
@@ -61,6 +68,7 @@ __all__ = [
     "send_to_all",
     "senders",
     "subscribe",
+    "targets",
     "unregister_device",
     "unsubscribe",
 ]
@@ -80,6 +88,16 @@ def apns_enabled() -> bool:
     return apns.get_sender() is not None
 
 
+type Pair = tuple[Sender[Any], PushTarget]
+
+
+@dataclass(frozen=True, slots=True)
+class Delivery:
+    sent: int
+    failed: int
+    complete: bool  # False: the deadline cut some sends off (they are not counted)
+
+
 async def senders(db: AsyncSession) -> list[Sender[Any]]:
     """Every enabled channel: Web Push always, APNs when configured."""
     enabled: list[Sender[Any]] = [await web.WebPushSender.create(db)]
@@ -88,50 +106,82 @@ async def senders(db: AsyncSession) -> list[Sender[Any]]:
     return enabled
 
 
+async def targets(db: AsyncSession) -> list[Pair]:
+    """Every target of every enabled channel, with its sender."""
+    return [(sender, target) for sender in await senders(db) for target in await sender.targets(db)]
+
+
 async def send_to_all(db: AsyncSession, n: Notification, *, ttl: int = DEFAULT_TTL_SECONDS) -> PushTestResult:
-    """Send ``n`` to every target of every channel. See the module docstring.
+    """Send ``n`` to every target of every channel, and flush the bookkeeping.
 
-    Changes are flushed but not committed; the caller owns the transaction.
+    The caller owns the transaction.
     """
-    pairs = [(sender, target) for sender in await senders(db) for target in await sender.targets(db)]
-    return await deliver_to(db, pairs, n, ttl)
+    delivery = await deliver(db, await targets(db), n, ttl)
+    await db.flush()
+    return PushTestResult(sent=delivery.sent, failed=delivery.failed)
 
 
-async def deliver_to(
-    db: AsyncSession, pairs: Sequence[tuple[Sender[Any], PushTarget]], n: Notification, ttl: int
-) -> PushTestResult:
-    """Send ``n`` to each ``(sender, target)`` concurrently, then record the outcomes (flushed)."""
+_CUT_OFF = object()
+
+
+async def deliver(
+    db: AsyncSession, pairs: Sequence[Pair], n: Notification, ttl: int, *, deadline: float | None = None
+) -> Delivery:
+    """Send ``n`` to each live ``(sender, target)`` concurrently, then record the outcomes.
+
+    ``deadline`` is an event-loop time (``loop.time()``): sends still waiting or in
+    flight then are cancelled and left out. Targets already deleted in this session
+    (gone or pruned by an earlier delivery) are skipped. The outcomes are applied to the
+    ORM rows without flushing.
+    """
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_SENDS)
+    live = [(sender, target) for sender, target in pairs if target not in db.deleted]
+    if live and deadline is not None and asyncio.get_running_loop().time() >= deadline:
+        # Already past: a send that never awaits would otherwise finish before the timeout fires.
+        log.warning("push of %r: past the deadline, %d sends not started", n.tag, len(live))
+        return Delivery(sent=0, failed=0, complete=False)
 
-    async def attempt(sender: Sender[Any], target: PushTarget) -> Exception | None:
-        async with semaphore:
-            try:
+    async def attempt(sender: Sender[Any], target: PushTarget) -> object:
+        budget = asyncio.timeout_at(deadline)
+        try:
+            async with budget, semaphore:
                 await sender.send(target, n, ttl)
-            except Exception as exc:
-                return exc
+        except TimeoutError as exc:
+            return _CUT_OFF if budget.expired() else exc
+        except Exception as exc:
+            return exc
         return None
 
-    errors = await asyncio.gather(*(attempt(sender, target) for sender, target in pairs))
+    outcomes = await asyncio.gather(*(attempt(sender, target) for sender, target in live))
     now = datetime.now(UTC)
     sent = failed = 0
-    for (sender, target), error in zip(pairs, errors, strict=True):
-        if error is None:
+    for (sender, target), outcome in zip(live, outcomes, strict=True):
+        if outcome is _CUT_OFF:
+            continue
+        if outcome is None:
             target.last_success_at = now
             target.failure_count = 0
             sent += 1
             continue
         failed += 1
-        if isinstance(error, PushGone):
-            log.info("%s push target %s is gone; removing it: %s", sender.kind, target.id, error)
+        if isinstance(outcome, PushGone):
+            log.info("%s push target %s is gone; removing it: %s", sender.kind, target.id, outcome)
             await db.delete(target)
             continue
-        log.warning("%s push to %s failed", sender.kind, target.id, exc_info=error)
+        if isinstance(outcome, PushFailed):
+            # The message is safe to log; the chain may not be (URLs hold tokens).
+            log.warning("%s push to %s failed: %s", sender.kind, target.id, outcome)
+        else:
+            assert isinstance(outcome, Exception)
+            log.error("%s push to %s failed unexpectedly", sender.kind, target.id, exc_info=outcome)
         target.failure_count += 1
         if _dead(target, now):
             log.info("%s push target %s keeps failing; removing it", sender.kind, target.id)
             await db.delete(target)
-    await db.flush()
-    return PushTestResult(sent=sent, failed=failed)
+    cut_off = sum(outcome is _CUT_OFF for outcome in outcomes)
+    if cut_off:
+        log.warning("push of %r: the deadline cut off %d of %d sends", n.tag, cut_off, len(live))
+    return Delivery(sent=sent, failed=failed, complete=not cut_off)
 
 
 def _dead(target: PushTarget, now: datetime) -> bool:
@@ -164,4 +214,6 @@ async def send_test_to_device(db: AsyncSession, token: str) -> PushTestResult:
     device = await apns.find_device(db, token)
     if device is None:
         raise NotFound("no APNs device has this token; register it first")
-    return await deliver_to(db, [(sender, device)], TEST_NOTIFICATION, TEST_TTL_SECONDS)
+    delivery = await deliver(db, [(sender, device)], TEST_NOTIFICATION, TEST_TTL_SECONDS)
+    await db.flush()
+    return PushTestResult(sent=delivery.sent, failed=delivery.failed)

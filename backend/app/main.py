@@ -28,7 +28,8 @@ def create_app() -> FastAPI:
         title="quickR API",
         version="1.0.0",
         description="Config-driven topics, questions and answer entries.",
-        lifespan=combine_lifespans(scheduler.lifespan, apns.lifespan, mcp_app.lifespan),
+        # Entered in order, exited in reverse: the scheduler stops before APNs closes.
+        lifespan=combine_lifespans(apns.lifespan, scheduler.lifespan, mcp_app.lifespan),
         generate_unique_id_function=_operation_id,
     )
     # Innermost first. Feed pages and entry lists are large, repetitive JSON (~10x smaller

@@ -18,6 +18,10 @@ itself). Every other failure counts against the device; the ones that are our bu
 (``DeviceTokenNotForTopic``: a topic/key mismatch, never the device's fault; other
 400s) are logged as errors. 403 ``ExpiredProviderToken`` re-signs the token, if it is
 older than 20 minutes, and retries once.
+
+Device tokens never reach the logs: httpx's request log lines have the token in the
+URL redacted (:class:`RedactDeviceTokens`), and transport failures are reported by
+exception type and redacted message, without the URL-bearing exception chain.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import re
 import time
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
@@ -57,6 +62,26 @@ TOKEN_MIN_REFRESH_SECONDS = 20 * 60  # Apple's TooManyProviderTokenUpdates thres
 MAX_PAYLOAD_BYTES = 4096
 MAX_TITLE_LENGTH = 120
 TIMEOUT = httpx.Timeout(10, connect=5)
+
+_DEVICE_PATH = re.compile(r"/3/device/[0-9A-Fa-f]+")
+
+
+def redact(text: str) -> str:
+    """``text`` with any APNs device token in a request path replaced."""
+    return _DEVICE_PATH.sub("/3/device/<token>", text)
+
+
+class RedactDeviceTokens(logging.Filter):
+    """Redacts device tokens from httpx's ``HTTP Request: POST <url> ...`` lines."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        if "/3/device/" in message:
+            record.msg, record.args = redact(message), None
+        return True
+
+
+logging.getLogger("httpx").addFilter(RedactDeviceTokens())
 
 type Clock = Callable[[], float]
 
@@ -113,11 +138,15 @@ class ApnsConfig:
             if settings.apns_team_id or settings.apns_key_id or key:
                 log.warning("APNs is partly configured (team id, key id and key are all needed); it is off")
             return None
-        sandbox = _key(
-            settings.apns_sandbox_key_id,
-            settings.apns_sandbox_private_key,
-            settings.apns_sandbox_private_key_file,
-        )
+        sandbox_id = settings.apns_sandbox_key_id
+        sandbox_pem = settings.apns_sandbox_private_key or settings.apns_sandbox_private_key_file
+        if bool(sandbox_id) != bool(sandbox_pem):
+            # Never fall back to the default key here: it may be limited to production.
+            raise ValueError(
+                "the sandbox key override needs both QUICKR_APNS_SANDBOX_KEY_ID and "
+                "QUICKR_APNS_SANDBOX_PRIVATE_KEY (or _FILE), or neither"
+            )
+        sandbox = _key(sandbox_id, settings.apns_sandbox_private_key, settings.apns_sandbox_private_key_file)
         return cls(
             team_id=settings.apns_team_id,
             topic=settings.apns_topic,
@@ -208,8 +237,11 @@ class ApnsSender:
         self._transport = transport
         self._clock = clock
         self._clients: dict[ApnsEnvironment, httpx.AsyncClient] = {}
+        self._closed = False
 
     def _client(self, environment: ApnsEnvironment) -> httpx.AsyncClient:
+        if self._closed:
+            raise PushFailed("the APNs sender is closed (shutting down)")
         if environment not in self._clients:
             self._clients[environment] = httpx.AsyncClient(
                 base_url=HOSTS[environment],
@@ -221,6 +253,8 @@ class ApnsSender:
         return self._clients[environment]
 
     async def aclose(self) -> None:
+        """Close the connections. The sender can't send (or reconnect) afterwards."""
+        self._closed = True
         clients, self._clients = list(self._clients.values()), {}
         for client in clients:
             await client.aclose()
@@ -255,7 +289,8 @@ class ApnsSender:
                     headers={**headers, "authorization": f"bearer {jwt_token}"},
                 )
             except httpx.HTTPError as exc:
-                raise PushFailed(f"{type(exc).__name__}: {exc}") from exc
+                # No chain: httpx errors can carry the request URL, which holds the token.
+                raise PushFailed(f"APNs {environment} {type(exc).__name__}: {redact(str(exc))}") from None
             if response.status_code == 200:
                 apns_id = str(response.headers.get("apns-id", ""))
                 log.info("APNs %s accepted %s (apns-id %s)", environment, n.tag, apns_id)
@@ -290,29 +325,43 @@ class _Holder:
     sender: ApnsSender | None = None
 
 
+def _load() -> ApnsSender | None:
+    try:
+        config = ApnsConfig.from_settings(get_settings())
+        return ApnsSender(config) if config else None
+    except (OSError, ValueError, TypeError) as exc:
+        log.error("APNs is configured but its key can't be loaded, so it is off: %s", exc)
+        return None
+
+
 def get_sender() -> ApnsSender | None:
     """The configured sender, or None when APNs is off (configuration is read once)."""
     if not _Holder.loaded:
         _Holder.loaded = True
-        try:
-            config = ApnsConfig.from_settings(get_settings())
-            _Holder.sender = ApnsSender(config) if config else None
-        except (OSError, ValueError, TypeError) as exc:
-            log.error("APNs is configured but its key can't be loaded, so it is off: %s", exc)
-            _Holder.sender = None
+        _Holder.sender = _load()
     return _Holder.sender
 
 
 @asynccontextmanager
 async def lifespan(_app: Any) -> AsyncIterator[None]:
-    """App lifespan: close the APNs connections on shutdown."""
+    """App lifespan: close the APNs connections on shutdown.
+
+    Enter it before the scheduler's lifespan, so the scheduler (which sends) has stopped
+    before the connections close. After shutdown, :func:`get_sender` is None: nothing
+    can reopen a connection. A new lifespan reads the configuration again.
+    """
+    _Holder.loaded, _Holder.sender = False, None
     try:
         yield
     finally:
-        sender, _Holder.sender, _Holder.loaded = _Holder.sender, None, False
-        if sender is not None:
-            with contextlib.suppress(Exception):
-                await sender.aclose()
+        await _shut_down()
+
+
+async def _shut_down() -> None:
+    sender, _Holder.sender, _Holder.loaded = _Holder.sender, None, True
+    if sender is not None:
+        with contextlib.suppress(Exception):
+            await sender.aclose()
 
 
 # --- devices ----------------------------------------------------------------------------

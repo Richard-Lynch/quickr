@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -56,7 +57,7 @@ class Sent:
 
 @dataclass
 class FakeApns:
-    """Records every request. ``replies`` maps a device token to the (status, reason)
+    """Records every answered request. ``replies`` maps a device token to the (status, reason)
     replies it gets, in order; the last one repeats. Unknown tokens get 200."""
 
     key: ec.EllipticCurvePrivateKey
@@ -66,11 +67,23 @@ class FakeApns:
     replies: dict[str, list[tuple[int, str]]] = field(default_factory=dict)
     raises: dict[str, Exception] = field(default_factory=dict)
     on_send: Callable[[Sent], None] | None = None
+    delay: float = 0.0  # seconds each response takes
+    in_flight: int = 0
+    max_in_flight: int = 0
+    events: list[str] = field(default_factory=list)
+    started: int = 0  # delayed requests started
+    _start: asyncio.Event = field(default_factory=asyncio.Event)
 
     @classmethod
     def create(cls) -> FakeApns:
         key, pem = new_key()
         return cls(key=key, pem=pem)
+
+    async def wait_started(self, n: int = 1) -> None:
+        """Until ``n`` delayed requests have started."""
+        while self.started < n:
+            self._start.clear()
+            await self._start.wait()
 
     def clock(self) -> float:
         return self.now
@@ -82,10 +95,22 @@ class FakeApns:
         )
         return ApnsSender(config, transport=httpx.MockTransport(self.handle), clock=self.clock)
 
-    def handle(self, request: httpx.Request) -> httpx.Response:
+    async def handle(self, request: httpx.Request) -> httpx.Response:
         device = request.url.path.removeprefix("/3/device/")
         if device in self.raises:
             raise self.raises[device]
+        if self.delay:
+            self.started += 1
+            self._start.set()
+            self.in_flight += 1
+            self.max_in_flight = max(self.max_in_flight, self.in_flight)
+            try:
+                await asyncio.sleep(self.delay)  # a cancelled request is never recorded
+            except asyncio.CancelledError:
+                self.events.append("request cancelled")
+                raise
+            finally:
+                self.in_flight -= 1
         sent = Sent(
             host=request.url.host,
             path=request.url.path,

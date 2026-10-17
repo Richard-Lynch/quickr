@@ -7,12 +7,18 @@ rotating it would silently invalidate every browser subscription.
 
 ``deliver`` is the only function that talks to push services. It is blocking
 (pywebpush uses requests) and is run in a worker thread.
+
+Subscription endpoints are capability URLs, so they never reach the logs: delivery
+errors carry the status or exception type only (no URL-bearing message or chain), and
+urllib3's debug request lines have the path redacted.
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
+import logging
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -32,6 +38,22 @@ from app.push_guard import PushEndpointRejected, check_endpoint, ensure_public
 from app.schemas.api import PushPayload, PushSubscriptionIn, PushSubscriptionOut
 from app.services.feed import writer
 from app.services.push.base import Notification, PushFailed, PushGone
+
+_REQUEST_LINE = re.compile(r'"([A-Z]+) \S+ (HTTP/[0-9.]+)"')
+
+
+class RedactRequestPaths(logging.Filter):
+    """Redacts the path from urllib3's ``"POST /fcm/send/... HTTP/1.1" 201`` debug lines."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        redacted = _REQUEST_LINE.sub(r'"\1 <path> \2"', message)
+        if redacted != message:
+            record.msg, record.args = redacted, None
+        return True
+
+
+logging.getLogger("urllib3.connectionpool").addFilter(RedactRequestPaths())
 
 PRIVATE_KEY_SETTING = "vapid_private_key"
 PUBLIC_KEY_SETTING = "vapid_public_key"
@@ -176,11 +198,11 @@ def deliver(
     try:
         host = check_endpoint(subscription["endpoint"])
     except PushEndpointRejected as exc:
-        raise PushGone(f"endpoint no longer allowed: {exc}") from exc  # will never work: drop it
+        raise PushGone(f"endpoint no longer allowed: {exc}") from None  # will never work: drop it
     try:
         ensure_public(host)
     except PushEndpointRejected as exc:
-        raise PushFailed(str(exc)) from exc
+        raise PushFailed(str(exc)) from None  # names the host only
     try:
         webpush(
             subscription_info=subscription,
@@ -191,13 +213,14 @@ def deliver(
             ttl=ttl,
             requests_session=_NoRedirectSession(),
         )
+    # No message or chain from here on: requests' errors include the endpoint URL.
     except WebPushException as exc:
         status = getattr(exc.response, "status_code", None)
         if status in (404, 410):
-            raise PushGone(str(exc)) from exc
-        raise PushFailed(str(exc)) from exc
+            raise PushGone(f"{host} answered {status}") from None
+        raise PushFailed(f"{host} answered {status}" if status else f"{host}: {type(exc).__name__}") from None
     except (requests.RequestException, ValueError) as exc:
-        raise PushFailed(str(exc)) from exc
+        raise PushFailed(f"{host}: {type(exc).__name__}") from None
 
 
 def render(n: Notification) -> PushPayload:

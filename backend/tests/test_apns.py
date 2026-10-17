@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import argparse
+import asyncio
 import json
 import logging
 from datetime import UTC, datetime, timedelta
@@ -11,8 +13,10 @@ from typing import Any
 import httpx
 import jwt
 import pytest
+import requests
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from pywebpush import WebPushException
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +29,7 @@ from app.services.push import apns
 from app.services.push import web as web_push
 from app.services.push.apns import ApnsConfig, ApnsSender, ProviderToken, SigningKey
 from tests.fake_apns import KEY_ID, TEAM_ID, TOPIC, FakeApns, new_key, token
-from tests.helpers import make_topic
+from tests.helpers import backdate_schedule, make_topic
 
 DUE = push_svc.Notification(
     kind="due",
@@ -294,6 +298,40 @@ def test_config_reads_key_files(tmp_path: Path) -> None:
     ApnsSender(config)  # the keys load
 
 
+@pytest.mark.parametrize(
+    "sandbox",
+    [
+        {"apns_sandbox_key_id": "SANDBOXKEY"},
+        {"apns_sandbox_private_key": "pem"},
+        {"apns_sandbox_private_key_file": "/x.p8"},
+    ],
+    ids=["id-only", "pem-only", "file-only"],
+)
+def test_partial_sandbox_override_is_an_error(sandbox: dict[str, str]) -> None:
+    """Never a silent fallback to the default key, which may be limited to production."""
+    _, pem = new_key()
+    settings = Settings.model_validate(
+        {"apns_team_id": TEAM_ID, "apns_key_id": KEY_ID, "apns_private_key": pem, **sandbox}
+    )
+    with pytest.raises(ValueError, match="QUICKR_APNS_SANDBOX_KEY_ID"):
+        ApnsConfig.from_settings(settings)
+
+
+def test_partial_sandbox_override_turns_apns_off(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _, pem = new_key()
+    settings = Settings(
+        apns_team_id=TEAM_ID, apns_key_id=KEY_ID, apns_private_key=pem, apns_sandbox_key_id="S"
+    )
+    monkeypatch.setattr(apns, "get_settings", lambda: settings)
+    monkeypatch.setattr(apns._Holder, "loaded", False)
+    monkeypatch.setattr(apns._Holder, "sender", None)
+    with caplog.at_level(logging.ERROR):
+        assert apns.get_sender() is None
+    assert "sandbox key override" in caplog.text
+
+
 def _rsa_pem() -> str:
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     return key.private_bytes(
@@ -548,18 +586,82 @@ async def test_tick_commit_failure_resends_next_tick(
     assert [s.headers["apns-collapse-id"] for s in fake_apns.sent] == [f"due-{topic['id']}"] * 2
 
 
-async def test_tick_budget_leaves_the_rest_for_the_next_tick(
+async def test_tick_budget_bounds_delivery(
+    client: httpx.AsyncClient, fake_apns: FakeApns, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The budget cuts delivery off mid-topic (here in its third batch of 8) and that slot
+    stays unmarked: it goes out again, in full, on the next tick."""
+    for n in range(20):
+        await client.post("/push/apns/devices", json=device(n))
+    topic = await make_topic(client, "Water", QUESTIONS, schedule=INTERVAL)
+    fake_apns.delay = 0.1  # batches finish at 0.1 s, 0.2 s and 0.3 s
+    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 0.25)
+    later = datetime.now(UTC) + timedelta(hours=1)
+    loop = asyncio.get_running_loop()
+
+    started = loop.time()
+    assert await _tick(later) == 0
+    assert loop.time() - started < 0.29  # stopped at the budget, not after the third batch
+    assert len(fake_apns.sent) == 16
+    assert fake_apns.max_in_flight == push_svc.MAX_CONCURRENT_SENDS
+    devices = await _devices()
+    assert sum(d.last_success_at is not None for d in devices.values()) == 16
+    assert all(d.failure_count == 0 for d in devices.values())  # cut off is not a failure
+    async with get_sessionmaker()() as db:
+        assert (await db.scalar(select(Topic.last_notified_due_since))) is None
+
+    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 30.0)
+    assert await _tick(later) == 1
+    assert len(fake_apns.sent) == 36
+    assert {s.headers["apns-collapse-id"] for s in fake_apns.sent} == {f"due-{topic['id']}"}
+    assert await _tick(later) == 0
+
+
+async def test_tick_budget_leaves_later_topics_for_the_next_tick(
     client: httpx.AsyncClient, fake_apns: FakeApns, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     await client.post("/push/apns/devices", json=device(1))
     await make_topic(client, "Water", QUESTIONS, schedule=INTERVAL)
     await make_topic(client, "Meds", QUESTIONS, schedule=INTERVAL)
-    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", -1.0)
+    fake_apns.delay = 0.1
+    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", 0.15)
     later = datetime.now(UTC) + timedelta(hours=1)
-    assert await _tick(later) == 1  # always makes progress
-    assert await _tick(later) == 1
+    assert await _tick(later) == 1  # water; meds was cut off
+    assert await _tick(later) == 1  # meds
     assert await _tick(later) == 0
     assert [s.body["quickr"]["topic_slug"] for s in fake_apns.sent] == ["water", "meds"]
+
+
+async def test_tick_past_its_budget_sends_nothing_more(
+    client: httpx.AsyncClient, fake_apns: FakeApns, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await client.post("/push/apns/devices", json=device(1))
+    await make_topic(client, "Water", QUESTIONS, schedule=INTERVAL)
+    monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", -1.0)
+    assert await _tick(datetime.now(UTC) + timedelta(hours=1)) == 0
+    assert fake_apns.sent == []
+
+
+async def test_tick_holds_no_target_row_locks_while_sending(
+    client: httpx.AsyncClient, fake_apns: FakeApns
+) -> None:
+    """While a tick waits on APNs for its second topic, registering the device it already
+    notified (feed lock + upsert of that row) is not blocked: the tick's bookkeeping is
+    only written just before its commit."""
+    await client.post("/push/apns/devices", json=device(1))
+    await make_topic(client, "Water", QUESTIONS, schedule=INTERVAL)
+    await make_topic(client, "Meds", QUESTIONS, schedule=INTERVAL)
+    fake_apns.delay = 0.5
+    tick = asyncio.create_task(_tick(datetime.now(UTC) + timedelta(hours=1)))
+    async with asyncio.timeout(5):
+        await fake_apns.wait_started(2)  # water done, meds in flight
+    async with asyncio.timeout(0.3):  # well before the second send finishes
+        r = await client.post("/push/apns/devices", json={**device(1), "app_version": "2.0"})
+    assert r.status_code == 201
+    assert not tick.done()
+    assert await tick == 2
+    stored = (await _devices())[token(1)]
+    assert (stored.app_version, stored.last_success_at is not None) == ("2.0", True)
 
 
 async def test_tick_marks_slots_in_one_statement(
@@ -633,3 +735,137 @@ async def test_a_success_resets_the_failure_count(client: httpx.AsyncClient, fak
     stored = (await _devices())[token(1)]
     assert stored.failure_count == 0
     assert stored.last_success_at is not None
+
+
+async def test_a_closed_sender_never_reconnects(fake_apns: FakeApns) -> None:
+    sender = fake_apns.sender()
+    await sender.post(token(1), "sandbox", DUE, 60)
+    await sender.aclose()
+    with pytest.raises(push_svc.PushFailed, match="closed"):
+        await sender.post(token(1), "production", DUE, 60)
+    assert sender._clients == {}
+    assert len(fake_apns.sent) == 1
+
+
+async def test_app_shutdown_stops_the_scheduler_before_closing_apns(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scheduler tick suspended in an APNs request at shutdown: the scheduler is cancelled
+    (the request with it, the slot unmarked) before the connections close, and nothing
+    reopens one afterwards."""
+    from app.main import app
+
+    await client.post("/push/apns/devices", json=device(1))
+    await make_topic(client, "Water", QUESTIONS, schedule=INTERVAL)
+    await backdate_schedule("water", datetime.now(UTC) - timedelta(days=1))
+    fake = FakeApns.create()
+    fake.delay = 60
+    sender = fake.sender()
+    real_aclose = sender.aclose
+
+    async def recording_aclose() -> None:
+        fake.events.append("connections closed")
+        await real_aclose()
+
+    monkeypatch.setattr(sender, "aclose", recording_aclose)
+    monkeypatch.setattr(apns, "_load", lambda: sender)
+    monkeypatch.setattr(
+        scheduler, "get_settings", lambda: Settings(scheduler_enabled=True, scheduler_interval_seconds=3600)
+    )
+    async with app.router.lifespan_context(app):
+        async with asyncio.timeout(5):
+            await fake.wait_started()
+    assert fake.events == ["request cancelled", "connections closed"]
+    assert sender._clients == {}
+    assert apns.get_sender() is None
+    async with get_sessionmaker()() as db:
+        assert (await db.scalar(select(Topic.last_notified_due_since))) is None
+
+
+# --- tokens and endpoints stay out of the logs -----------------------------------------------
+
+
+async def test_script_logs_no_device_token(
+    fake_apns: FakeApns,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from scripts import apns_send
+
+    config = ApnsConfig(team_id=TEAM_ID, topic=TOPIC, keys={})
+    monkeypatch.setattr(ApnsConfig, "from_settings", lambda _settings: config)
+    monkeypatch.setattr(apns_send, "ApnsSender", lambda _config: fake_apns.sender())
+    caplog.set_level(logging.INFO)  # what the script's logging config turns on
+    args = argparse.Namespace(token=token(0xBEEF).upper(), env="sandbox", title="t", body="b")
+    assert await apns_send.main(args) == 0
+    assert "HTTP Request: POST https://api.sandbox.push.apple.com/3/device/<token>" in caplog.text
+    output = caplog.text + capsys.readouterr().out
+    assert "apns-id apns-1" in output
+    assert token(0xBEEF) not in output.lower()
+
+
+async def test_transport_failures_log_no_device_token(
+    client: httpx.AsyncClient, fake_apns: FakeApns, caplog: pytest.LogCaptureFixture
+) -> None:
+    url = f"https://api.sandbox.push.apple.com/3/device/{token(1)}"
+    fake_apns.raises[token(1)] = httpx.ConnectError(f"connection to {url} failed")
+    with pytest.raises(push_svc.PushFailed) as failure:
+        await fake_apns.sender().post(token(1), "sandbox", DUE, 60)
+    assert token(1) not in str(failure.value)
+    assert failure.value.__cause__ is None
+    assert failure.value.__suppress_context__
+
+    await client.post("/push/apns/devices", json=device(1))
+    with caplog.at_level(logging.DEBUG):
+        r = await client.post("/push/apns/devices/test", json={"token": token(1)})
+    assert r.json() == {"sent": 0, "failed": 1}
+    assert "ConnectError" in caplog.text
+    assert token(1) not in caplog.text
+
+
+async def test_web_push_failures_log_no_endpoint(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    secret = "fcm/send/SECRET-capability"
+    endpoint = f"https://fcm.googleapis.com/{secret}"
+    monkeypatch.setattr(web_push, "ensure_public", lambda host: None)
+    errors: list[Exception] = [
+        requests.ConnectionError(f"Max retries exceeded with url: /{secret}"),
+        WebPushException(f"Push failed: 500 {endpoint}", response=_Response(500, endpoint)),
+        WebPushException(f"Push failed: 410 {endpoint}", response=_Response(410, endpoint)),
+    ]
+
+    def failing_webpush(**_: Any) -> None:
+        raise errors.pop(0)
+
+    monkeypatch.setattr(web_push, "webpush", failing_webpush)
+    await client.post("/push/subscriptions", json={**WEB_SUB, "endpoint": endpoint})
+    with caplog.at_level(logging.DEBUG):
+        assert (await client.post("/push/test")).json() == {"sent": 0, "failed": 1}  # connection error
+        assert (await client.post("/push/test")).json() == {"sent": 0, "failed": 1}  # 500
+        assert (await client.post("/push/test")).json() == {"sent": 0, "failed": 1}  # 410: deleted
+    assert "fcm.googleapis.com answered 500" in caplog.text
+    assert "SECRET" not in caplog.text
+
+    # urllib3's debug request line (requests logs one per send) has its path redacted.
+    with caplog.at_level(logging.DEBUG):
+        logging.getLogger("urllib3.connectionpool").debug(
+            '%s://%s:%s "%s %s %s" %s %s',
+            "https",
+            "fcm.googleapis.com",
+            443,
+            "POST",
+            f"/{secret}",
+            "HTTP/1.1",
+            201,
+            0,
+        )
+    assert '"POST <path> HTTP/1.1" 201' in caplog.text
+    assert "SECRET" not in caplog.text
+
+
+class _Response:
+    def __init__(self, status_code: int, text: str) -> None:
+        self.status_code = status_code
+        self.text = text

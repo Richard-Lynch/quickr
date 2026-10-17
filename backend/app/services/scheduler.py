@@ -6,13 +6,17 @@ that are due for a slot not yet notified (``topics.last_notified_due_since``),
 pushes one notification per topic to every target (browser subscriptions and APNs
 devices, concurrently) and records the slot.
 
-Delivery semantics: send, then mark. The notified slots are written in one statement
-just before the commit, so topic row locks are held for milliseconds, not for the
-network calls. If the tick fails before its commit, nothing is marked and the next tick
-sends those slots again: every slot goes out at least once overall, and best-effort to
-each target (a target that fails is not retried; the shared tag ``due-{topic_id}``
-collapses a resent duplicate on the device). A tick that runs past ``TICK_BUDGET_SECONDS``
-leaves its remaining topics for the next tick.
+Delivery semantics: send, then mark. The tick's targets are loaded once; the delivery
+outcomes (success, failure counts, gone targets) and the notified slots are written
+only just before the commit, so no target or topic row is locked during the network
+calls. If the tick fails before its commit, nothing is marked and the next tick sends
+those slots again: every slot goes out at least once overall, and best-effort to each
+target (a target that fails is not retried; the shared tag ``due-{topic_id}``
+collapses a resent duplicate on the device).
+
+Delivery stops at ``TICK_BUDGET_SECONDS`` after the tick started, mid-topic if need be.
+The topic being delivered then is not marked (some of its sends were cut off), and it
+and the remaining topics are sent on the next tick.
 """
 
 from __future__ import annotations
@@ -40,7 +44,7 @@ log = logging.getLogger(__name__)
 
 # Arbitrary, app-wide advisory lock id ("qkr" + 1).
 ADVISORY_LOCK_ID = 0x716B7201
-# Topics are handled one at a time; past this, the rest wait for the next tick.
+# Delivery stops this long after the tick starts; unfinished topics wait for the next tick.
 TICK_BUDGET_SECONDS = 30.0
 
 
@@ -72,13 +76,10 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
             .order_by(Topic.created_at)
         )
     ).all()
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + TICK_BUDGET_SECONDS
+    deadline = asyncio.get_running_loop().time() + TICK_BUDGET_SECONDS
+    targets: list[push_svc.Pair] | None = None  # loaded on the first due topic
     marks: list[tuple[UUID, datetime]] = []
     for topic_id, slug, name, raw_schedule, since, last_notified, last_entry_at in rows:
-        if marks and loop.time() > deadline:
-            log.warning("scheduler tick over budget; the remaining due topics wait for the next tick")
-            break
         schedule = parse_schedule(raw_schedule)
         if schedule is None or not schedule.notify:
             continue
@@ -93,11 +94,19 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
             tag=f"due-{topic_id}",
             topic_slug=slug,
         )
-        result = await push_svc.send_to_all(db, notification)
-        log.info(
-            "topic %s due since %s: pushed %d, failed %d", slug, due.due_since, result.sent, result.failed
+        if targets is None:
+            targets = await push_svc.targets(db)
+        delivery = await push_svc.deliver(
+            db, targets, notification, push_svc.DEFAULT_TTL_SECONDS, deadline=deadline
         )
+        log.info(
+            "topic %s due since %s: pushed %d, failed %d", slug, due.due_since, delivery.sent, delivery.failed
+        )
+        if not delivery.complete:
+            log.warning("scheduler tick over budget; topic %s and the rest wait for the next tick", slug)
+            break
         marks.append((topic_id, due.due_since))
+    await db.flush()  # the delivery outcomes
     if marks:
         await _mark_notified(db, marks)
     await db.commit()  # also releases the advisory lock

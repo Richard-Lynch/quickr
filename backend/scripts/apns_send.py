@@ -4,7 +4,7 @@ Uses the server's APNs settings (``QUICKR_APNS_*``) and never touches the databa
 
     uv run python scripts/apns_send.py --token <hex> --env sandbox [--title ... --body ...]
 
-The app logs its token on registration, and Settings shows it. Prints Apple's
+The token is in the ``apns_devices`` table once the app has registered. Prints Apple's
 ``apns-id`` on success, or the APNs status and reason on failure.
 """
 
@@ -43,11 +43,16 @@ async def main(args: argparse.Namespace) -> int:
     return 0
 
 
+def configure_logging() -> None:
+    """INFO logs, including httpx's request lines (``app.services.push.apns`` redacts the token)."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--token", required=True, help="the device token (hex)")
     parser.add_argument("--env", required=True, choices=["sandbox", "production"])
     parser.add_argument("--title", default="quickR")
     parser.add_argument("--body", default="Test notification from apns_send.py")
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    configure_logging()
     sys.exit(asyncio.run(main(parser.parse_args())))
