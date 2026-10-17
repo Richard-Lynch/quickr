@@ -67,12 +67,36 @@ async def backdate_schedule(slug: str, to: datetime) -> None:
         await db.commit()
 
 
+# Advisory locks are scoped to their database, but pg_locks lists the whole server's:
+# other test databases on it (parallel worktrees) hold the same keys and must not count.
+_ADVISORY_LOCKS = """
+SELECT count(*) FROM pg_locks
+WHERE locktype = 'advisory'
+  AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+"""
+# A one-bigint key shows as (classid, objid) = (high, low 32 bits), objsubid 1.
+_FEED_LOCK = (
+    f"{_ADVISORY_LOCKS} AND classid = {FEED_LOCK_ID >> 32}"
+    f" AND objid = {FEED_LOCK_ID & 0xFFFFFFFF} AND objsubid = 1"
+)
+
+
+async def advisory_locks(db: AsyncSession) -> int:
+    """This database's advisory locks, held or awaited."""
+    return int(await db.scalar(text(_ADVISORY_LOCKS)) or 0)
+
+
+async def feed_locks(db: AsyncSession, *, granted: bool | None = None) -> int:
+    """This database's feed lock entries: held (``granted``), awaited (not), or both (None)."""
+    sql = _FEED_LOCK if granted is None else f"{_FEED_LOCK} AND {'' if granted else 'NOT '}granted"
+    return int(await db.scalar(text(sql)) or 0)
+
+
 async def wait_for_lock_waiter(db: AsyncSession) -> bool:
-    """Poll until some session is blocked waiting for the feed lock."""
-    stmt = text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid = :id AND NOT granted")
+    """Poll until some session is blocked waiting for this database's feed lock."""
     try:
         async with asyncio.timeout(5):
-            while not await db.scalar(stmt, {"id": FEED_LOCK_ID}):
+            while not await feed_locks(db, granted=False):
                 await db.rollback()
                 await asyncio.sleep(0.01)
     except TimeoutError:

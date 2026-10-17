@@ -11,15 +11,22 @@ import pytest
 from fastmcp import Client
 from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.db import get_sessionmaker
 from app.mcp_server import mcp
 from app.models import ChangeLog, DeletedId, Entry, FeedKind, FeedOp
 from app.schemas.api import TopicCreate
-from app.services import feed
+from app.services import feed, scheduler
 from app.services import topics as topic_svc
-from tests.helpers import make_topic, record, sleep_questions, wait_for_lock_waiter
+from tests.helpers import (
+    advisory_locks,
+    feed_locks,
+    make_topic,
+    record,
+    sleep_questions,
+    wait_for_lock_waiter,
+)
 
 ANSWERS = {"hours": 7.5, "wakeups": 1, "quality": "ok"}
 
@@ -403,6 +410,42 @@ async def test_seq_follows_commit_order() -> None:
     assert [i for _, _, i in rows][:2] == [a_id, b_topic.id]
 
 
+async def test_advisory_locks_are_per_database(db: AsyncSession, peer_engine: AsyncEngine) -> None:
+    """The feed and scheduler locks of one database don't block another database's on the
+    same server (another worktree's tests, another quickR), and this database's lock
+    checks don't count the other's locks. Within one database they still exclude."""
+    started, release = asyncio.Event(), asyncio.Event()
+
+    @feed.writer
+    async def hold(session: AsyncSession) -> None:
+        await session.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": scheduler.ADVISORY_LOCK_ID})
+        started.set()
+        await release.wait()
+
+    @feed.writer
+    async def peer_write(session: AsyncSession) -> tuple[int, int]:
+        return await feed_locks(session, granted=True), await advisory_locks(session)
+
+    try_lock = text("SELECT pg_try_advisory_xact_lock(:id)")
+    task = asyncio.create_task(hold(db))
+    try:
+        await asyncio.wait_for(started.wait(), 5)
+        async with get_sessionmaker()() as here:
+            for key in (feed.FEED_LOCK_ID, scheduler.ADVISORY_LOCK_ID):
+                assert not await here.scalar(try_lock, {"id": key})  # same database: held
+                await here.rollback()
+            assert await feed_locks(here, granted=True) == 1
+            await here.rollback()
+        async with AsyncSession(peer_engine) as peer:
+            assert await peer_write(peer) == (1, 1)  # the real writer, and only its own lock
+            assert await peer.scalar(try_lock, {"id": scheduler.ADVISORY_LOCK_ID})
+            await peer.rollback()
+        assert not task.done()
+    finally:
+        release.set()
+        await task
+
+
 @pytest.fixture(autouse=True)
 async def _isolated(clean_db: None) -> None:
     """Every test here starts from an empty database (and an empty change log)."""
@@ -419,11 +462,7 @@ async def test_writer_retries_deadlocks(db: AsyncSession) -> None:
 
     @feed.writer
     async def flaky(session: AsyncSession, fail: int, sqlstate: str) -> int:
-        held = await session.scalar(
-            text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid = :id"),
-            {"id": feed.FEED_LOCK_ID},
-        )
-        assert held == 1  # the lock is taken before the function body runs
+        assert await feed_locks(session) == 1  # the lock is taken before the function body runs
         calls.append(1)
         if len(calls) <= fail:
             raise DBAPIError("stmt", {}, _FakeOrig(sqlstate))
@@ -439,7 +478,7 @@ async def test_writer_retries_deadlocks(db: AsyncSession) -> None:
         await flaky(db, 1, "23505")  # unique violation: not retried
     assert len(calls) == 1
     # The lock is released after a failure.
-    assert not await db.scalar(text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory'"))
+    assert not await advisory_locks(db)
 
 
 # --- epoch and identity ----------------------------------------------------------
@@ -524,11 +563,7 @@ async def test_nested_writers_share_the_outer_transaction(db: AsyncSession) -> N
     async def outer(session: AsyncSession, fail: bool) -> None:
         await feed.log_change(session, FeedKind.topic, FeedOp.upsert, uuid4(), uuid4())
         await entry_svc.delete_entry(session, uuid4())  # nested: no lock re-take, no commit
-        locks = await session.scalar(
-            text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid = :id AND granted"),
-            {"id": feed.FEED_LOCK_ID},
-        )
-        assert locks == 1
+        assert await feed_locks(session, granted=True) == 1
         if fail:
             raise RuntimeError("after the inner writer")
 
