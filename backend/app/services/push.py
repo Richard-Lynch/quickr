@@ -252,7 +252,10 @@ async def send_test(db: AsyncSession) -> PushTestResult:
     The writer checks the request's preconditions right after taking the lock, so a
     mismatch sends nothing and changes nothing, and no epoch rotation can land between
     the check and the sends: the lock is held through delivery and bookkeeping until the
-    commit (a few seconds at most, for a manual action). It never retries: a failure
+    commit. Deliveries run one after another, so the lock is held for roughly the sum of
+    the per-send timeouts in the worst case (it scales with the number of subscriptions
+    and with network/DNS latency) and blocks every feed writer meanwhile. That is
+    acceptable for a manual action on a single-user server. It never retries: a failure
     rolls back the bookkeeping and propagates rather than sending twice.
     """
     payload = PushPayload(
