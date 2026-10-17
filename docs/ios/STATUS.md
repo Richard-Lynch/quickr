@@ -15,16 +15,18 @@ branch.
 - `[ ]` to do
 - `[-]` skipped, with a reason
 
-**Last updated:** 2026-10-17 16:55, M0 close-out.
+**Last updated:** 2026-10-17 17:10. M0 PR #8 is open; M1 Wave 1 is running.
+
+**Execution plan:** [DAG.md](DAG.md) (Fable). Waves of ≤4 WPs with at most 2 simulator-heavy at once. Milestones are stacked (squash-merge, then `rebase --onto`).
 
 ## Now
 
 |                     |                                                                                                                           |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Active milestone    | **M0: backend foundations and specs** (branch `ios/m0-foundations`)                                                       |
-| Running             | `m0-fixes`: the last 2 items from the Codex re-check (`/push/test` holds the lock through delivery; the header read never commits handler work). Fable is building the optimised execution DAG for M1–M7. |
+| Active milestone    | **M0 PR [#8](https://github.com/Richard-Lynch/quickr/pull/8)** (CI running, incl. the first iOS job) · **M1** on `ios/m1-data` (stacked on M0) |
+| Running             | M1 Wave 1 sub-agents: **C1** contracts (`ios/m1-c1`), **DS** design system (`ios/m1-ds`, sim), **B6** APNs backend, dark (`ios/m1-b6`), **TOOLS** integration harness (`ios/m1-tools`) |
 | Waiting on the user | Apple enrollment activation and the Team ID; iPhone model and iOS version; answers to Q1–Q4; a session restart to load MobileBuildMCP |
-| Next up             | Merge the fixes → Codex re-check → open the M0 PR into `feat/ios-app` (first real iOS CI run) → M1 |
+| Next up             | Merge M0 when CI is green → rebase M1 onto `feat/ios-app` · Wave 2: STORE, API, DUE, VAL (after C1 merges) |
 
 ## Human steps (PLAN §9)
 
@@ -165,13 +167,26 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 - [x] All WPs merged (vectors, specs, feed, scaffold). Integrated gates green: `make check` (401 pytest, 532 vitest), plus `alembic upgrade head && alembic check` run separately on a fresh DB and `make check-ios` (iOS 26.0 + 27.0).
 - [ ] Concurrency, feed and downgrade tests listed in the PR
-- [~] Codex review of the whole milestone diff, plus a Claude code-review sub-agent (both running)
+- [x] Codex review of the whole milestone diff (BLOCK: 2 Majors, fixed over 2 rounds) and a Claude reviewer (SHIP WITH MINORS, fixed)
 - [ ] PR body: the validation checklist, and test reports instead of media (a
       stated deviation)
-- [ ] PR opened → squash-merged into `feat/ios-app` (Q1 default)
+- [~] PR [#8](https://github.com/Richard-Lynch/quickr/pull/8) opened; CI running → squash-merge into `feat/ios-app` (Q1 default)
 - [ ] STATUS updated; M1 branch cut
 
 ## M1: Core and data layer, plus platform proof · needs H1, H2
+
+Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md).
+
+| Wave | WP | Branch | Status |
+| --- | --- | --- | --- |
+| W1 | C1 contracts (models, DTOs, schema, protocols, TestSupport, GRDB) | `ios/m1-c1` | [~] running |
+| W1 | DS design system (lands with M2) | `ios/m1-ds` | [~] running |
+| W1 | B6 APNs backend, dark | `ios/m1-b6` | [~] running |
+| W1 | TOOLS integration harness and fault proxy | `ios/m1-tools` | [~] running |
+| W2 | STORE · API · DUE · VAL | — | [ ] after C1 |
+| W3 | OUTBOX · SYNC · SKEL · B7 | — | [ ] |
+| W4 | MP · INT · SPIKE · FORM (M2) | — | [ ] |
+
 
 - [ ] QuickrCore: models, validation, quick-log, and the due port (all vectors
       pass)
