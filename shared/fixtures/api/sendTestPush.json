@@ -1,7 +1,7 @@
 {
   "body": {
     "failed": 0,
-    "sent": 1
+    "sent": 2
   },
   "operation_id": "sendTestPush",
   "request": {
