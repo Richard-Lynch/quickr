@@ -156,6 +156,74 @@ import Testing
     }
 }
 
+private func blockUntilSignalled(_ semaphore: DispatchSemaphore) { semaphore.wait() }
+
+/// Lease time is read inside the transaction, after `BEGIN IMMEDIATE` has the lock, never before
+/// a wait for another writer.
+@Suite struct LeaseTimeSamplingTests {
+    /// Runs `operation` while another writer holds the lock, then advances the lease clock past
+    /// every TTL before letting the queued transaction run.
+    private func behindABlockedWriter<T: Sendable>(
+        _ s: TestStore, _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        let entered = DispatchSemaphore(value: 0)
+        let gate = DispatchSemaphore(value: 0)
+        let writer = s.writer
+        let blocker = Task.detached {
+            try writer.write { _ in
+                entered.signal()
+                gate.wait()
+            }
+        }
+        await Task.detached { blockUntilSignalled(entered) }.value
+        let queued = Task { try await operation() }
+        try await Task.sleep(for: .milliseconds(50))  // the operation is now waiting for the lock
+        s.clock.advance(by: .seconds(61))
+        gate.signal()
+        try await blocker.value
+        return try await queued.value
+    }
+
+    @Test func renewalAfterExpiryFails() async throws {
+        let s = try TestStore()
+        let leases = s.store.leases
+        let claim = try #require(try await leases.tryAcquire(.flush, owner: "widget:1"))
+        #expect(try await !behindABlockedWriter(s) { try await leases.renew(claim) })
+        #expect(try await leases.tryAcquire(.flush, owner: "app:2") != nil)
+    }
+
+    @Test func ackAfterExpiryIsFenced() async throws {
+        let f = try await AtomicAckTests.Fixture()
+        let store = f.s.store
+        let (itemId, sender, effect) = (f.item.id, f.sender, AckEffect.entry(f.acked))
+        let outcome = try await behindABlockedWriter(f.s) {
+            try await store.ack(itemId: itemId, sender: sender, effect: effect)
+        }
+        #expect(outcome == .fenced(.lease(.flush)))
+        #expect(try await store.outbox.item(id: itemId) != nil)
+    }
+
+    @Test func retireAfterExpiryIsFenced() async throws {
+        let s = try TestStore()
+        let store = s.store
+        let pair = try #require(try await store.leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(1)))
+        let outcome = try await behindABlockedWriter(s) {
+            try await store.retire(confirmedCount: 0, confirmedMaxSeq: 0, sync: pair.sync, flush: pair.flush)
+        }
+        #expect(outcome == .fenced(.lease(.sync)))
+        #expect(try await !store.isRetired())
+    }
+
+    @Test func acquisitionSeesTheTimeAfterTheWait() async throws {
+        let s = try TestStore()
+        let leases = s.store.leases
+        _ = try #require(try await leases.tryAcquire(.sync, owner: "app:1"))
+        // Sampled before the wait, the old lease would still look valid.
+        let claim = try await behindABlockedWriter(s) { try await leases.tryAcquire(.sync, owner: "app:2") }
+        #expect(claim?.owner == "app:2")
+    }
+}
+
 /// The single global lock order: `sync` → `flush` (sync-protocol.md §5.2).
 @Suite struct LockOrderTests {
     @Test func flushHoldersNeverWaitForSync() async throws {
@@ -187,6 +255,30 @@ import Testing
         let leases = s.store.leases
         _ = try #require(try await leases.tryAcquire(.flush, owner: "widget:1"))
         #expect(try await leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .milliseconds(50)) == nil)
+        #expect(try await leases.record(.sync).owner == nil)
+    }
+
+    @Test func cancellationWhileWaitingForFlushReleasesSync() async throws {
+        let s = try TestStore()
+        let leases = s.store.leases
+        _ = try #require(try await leases.tryAcquire(.flush, owner: "widget:1"))
+        let waiter = Task {
+            try await leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(30))
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(try await leases.record(.sync).owner == "app:1")
+        waiter.cancel()
+        await #expect(throws: CancellationError.self) { try await waiter.value }
+        #expect(try await leases.record(.sync).owner == nil)
+    }
+
+    @Test func anErrorWhileAcquiringFlushReleasesSync() async throws {
+        let s = try TestStore()
+        let leases = s.store.leases
+        try s.write { (db: Database) throws in try db.execute(sql: "DELETE FROM lease WHERE name = 'flush'") }
+        await #expect(throws: StoreError.self) {
+            try await leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(1))
+        }
         #expect(try await leases.record(.sync).owner == nil)
     }
 

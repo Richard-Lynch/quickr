@@ -52,6 +52,8 @@ public struct LeaseClaim: Sendable, Hashable {
 
 /// The lease operations inside a transaction the caller already holds. Use these to fence or
 /// renew inside a larger transaction (a page, a claim, an ack); use `Leases` for standalone calls.
+/// Sample `now` **inside** the write closure, after `BEGIN IMMEDIATE` holds the lock: a time
+/// sampled before may be arbitrarily old by the time the transaction runs.
 public enum LeaseTable {
     /// Runs in the acquiring transaction when the previous holder left the lease behind (it is
     /// still owned but no longer valid). Receives the stale row.
@@ -161,9 +163,9 @@ public struct Leases: Sendable {
     ) async throws -> LeaseClaim? {
         try name.checkLockOrder(holding: holding)
         let takeover = takeover ?? defaultTakeover(name)
-        let now = clock.now()
+        let clock = clock
         return try await writer.write { db in
-            try LeaseTable.acquire(db, name, owner: owner, ttl: ttl, at: now, takeover: takeover)
+            try LeaseTable.acquire(db, name, owner: owner, ttl: ttl, at: clock.now(), takeover: takeover)
         }
     }
 
@@ -184,23 +186,38 @@ public struct Leases: Sendable {
     }
 
     /// `sync`, then `flush`, in the global order (§5.2 rule 2: rebuild swap and reset). If `flush`
-    /// doesn't come within the remaining time, `sync` is released and the result is nil.
+    /// doesn't come within the remaining time, or acquiring it throws (cancellation included),
+    /// `sync` is released before returning nil or rethrowing.
     public func acquireSyncThenFlush(owner: String, waitingUpTo timeout: Duration) async throws -> (
         sync: LeaseClaim, flush: LeaseClaim
     )? {
         let start = ContinuousClock.now
         guard let sync = try await acquire(.sync, owner: owner, waitingUpTo: timeout) else { return nil }
-        let remaining = max(.zero, timeout - (ContinuousClock.now - start))
-        guard let flush = try await acquire(.flush, owner: owner, holding: [sync], waitingUpTo: remaining) else {
-            _ = try await release(sync)
+        let flush: LeaseClaim?
+        do {
+            let remaining = max(.zero, timeout - (ContinuousClock.now - start))
+            flush = try await acquire(.flush, owner: owner, holding: [sync], waitingUpTo: remaining)
+        } catch {
+            await releaseUncancellably(sync)
+            throw error
+        }
+        guard let flush else {
+            await releaseUncancellably(sync)
             return nil
         }
         return (sync, flush)
     }
 
+    /// Releases `claim` from an unstructured task, so the caller's cancellation can't stop the
+    /// cleanup. Errors are dropped: an unreleased lease still expires.
+    private func releaseUncancellably(_ claim: LeaseClaim) async {
+        let leases = self
+        _ = try? await Task { try await leases.release(claim) }.value
+    }
+
     public func renew(_ claim: LeaseClaim, ttl: Duration? = nil) async throws -> Bool {
-        let now = clock.now()
-        return try await writer.write { db in try LeaseTable.renew(db, claim, ttl: ttl, at: now) }
+        let clock = clock
+        return try await writer.write { db in try LeaseTable.renew(db, claim, ttl: ttl, at: clock.now()) }
     }
 
     /// Releases `claim`. `beforeRelease` runs first in the same transaction (the flusher's
