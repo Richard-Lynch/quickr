@@ -1,0 +1,21 @@
+{
+  "body": {
+    "created_at": "2026-06-01T12:00:00.123456Z",
+    "endpoint": "https://web.push.apple.com/QGuQyavXutnMlB5k",
+    "id": "00000000-0000-4000-8000-000000000010"
+  },
+  "operation_id": "createPushSubscription",
+  "request": {
+    "body": {
+      "endpoint": "https://web.push.apple.com/QGuQyavXutnMlB5k",
+      "keys": {
+        "auth": "x5sQe1Zl0dAuth",
+        "p256dh": "BOr8uW3hZ8t3Qn0dJ4Xq-key"
+      },
+      "user_agent": "Mozilla/5.0 (iPhone)"
+    },
+    "method": "POST",
+    "path": "/api/v1/push/subscriptions"
+  },
+  "status": 201
+}

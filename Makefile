@@ -1,6 +1,6 @@
 # Common developer tasks. `make help` lists them.
 SHELL := /bin/bash
-BACKEND := cd backend && unset VIRTUAL_ENV && PYTHONPATH=.
+BACKEND := cd backend && unset VIRTUAL_ENV && export PYTHONPATH=. &&
 FRONTEND := cd frontend &&
 
 .PHONY: help
@@ -64,16 +64,37 @@ client: openapi ## Regenerate spec + typed TS client/zod schemas
 vectors: ## Regenerate shared/fixtures (due + quick-log vectors, API response fixtures)
 	$(BACKEND) QUICKR_UPDATE_VECTORS=1 uv run pytest -q tests/test_due_vectors.py tests/test_quicklog_vectors.py tests/test_api_fixtures.py
 
+# The database pytest and the migration check use (conftest.py has the same default).
+QUICKR_TEST_DATABASE_URL ?= postgresql+asyncpg://quickr:quickr@localhost:5433/quickr_test
+
 .PHONY: check
-check: check-backend check-frontend ## Run every check CI runs (except docker)
+check: check-backend check-frontend ## Run every check CI runs (except the docker smoke test)
 
 .PHONY: check-backend
-check-backend:
-	$(BACKEND) uv run ruff check . && uv run ruff format --check . && uv run mypy app scripts tests && uv run pytest -q
+check-backend: ## Backend: lint, types, openapi.json freshness, pytest, migrations match models
+	$(BACKEND) uv run ruff check . && uv run ruff format --check . && uv run mypy app scripts tests
+	@$(MAKE) --no-print-directory check-openapi
+	$(BACKEND) uv run pytest -q
+	@$(MAKE) --no-print-directory check-migrations
+
+.PHONY: check-openapi
+check-openapi: ## openapi.json matches the FastAPI app
+	$(BACKEND) out=$$(mktemp) && uv run python scripts/export_openapi.py "$$out" > /dev/null && \
+		{ diff -u ../openapi.json "$$out" || { echo "openapi.json is stale - run 'make openapi'"; exit 1; }; }
+
+.PHONY: check-migrations
+check-migrations: ## Migrate the test database to head and check the models need no new migration
+	$(BACKEND) export QUICKR_DATABASE_URL="$(QUICKR_TEST_DATABASE_URL)" && uv run alembic upgrade head && uv run alembic check
 
 .PHONY: check-frontend
-check-frontend:
+check-frontend: ## Frontend: generated client freshness, format, lint, types, tests, build
+	@$(MAKE) --no-print-directory check-client
 	$(FRONTEND) pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build
+
+.PHONY: check-client
+check-client: ## src/client matches openapi.json (regenerates it in place, like CI)
+	$(FRONTEND) before=$$(mktemp -d) && cp -R src/client "$$before" && pnpm -s gen:api > /dev/null && \
+		{ diff -r "$$before/client" src/client || { echo "src/client is stale - run 'make client'"; exit 1; }; }
 
 .PHONY: fmt
 fmt: ## Auto-format everything

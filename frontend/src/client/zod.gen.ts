@@ -1213,6 +1213,11 @@ export const zDeletePushSubscriptionHeaders = z.object({
  */
 export const zDeletePushSubscriptionResponse = z.void();
 
+export const zSendTestPushHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
 /**
  * Successful Response
  */

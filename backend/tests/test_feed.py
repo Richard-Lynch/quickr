@@ -558,3 +558,32 @@ async def test_retry_rolls_back_and_replays_real_writes(db: AsyncSession) -> Non
     assert len(attempts) == 2
     assert await _count("SELECT count(*) FROM change_log") == 1
     assert await _count("SELECT count(*) FROM deleted_ids") == 1
+
+
+async def test_writer_once_never_retries(db: AsyncSession) -> None:
+    calls: list[int] = []
+
+    @feed.writer_once
+    async def deliver_then_deadlock(session: AsyncSession) -> None:
+        calls.append(1)
+        await feed.log_change(session, FeedKind.entry, FeedOp.delete, uuid4(), uuid4())
+        raise DBAPIError("stmt", {}, _FakeOrig("40P01"))
+
+    with pytest.raises(DBAPIError):
+        await deliver_then_deadlock(db)
+    assert len(calls) == 1
+    assert await _count("SELECT count(*) FROM change_log") == 0  # rolled back
+    assert not db.in_transaction()
+
+
+async def test_writer_once_refuses_to_join_a_retried_writer(db: AsyncSession) -> None:
+    @feed.writer_once
+    async def once(session: AsyncSession) -> None:
+        pass
+
+    @feed.writer
+    async def outer(session: AsyncSession) -> None:
+        await once(session)
+
+    with pytest.raises(feed.WriterMisuse):
+        await outer(db)

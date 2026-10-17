@@ -384,7 +384,7 @@ async def delete_push_subscription(db: Db, body: PushSubscriptionDelete) -> Resp
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/push/test", tags=["push"], operation_id="sendTestPush")
+@router.post("/push/test", tags=["push"], operation_id="sendTestPush", dependencies=[ExpectIdentity])
 async def send_test_push(db: Db) -> PushTestResult:
     """Send a test notification to every subscription."""
     return await push_svc.send_test(db)

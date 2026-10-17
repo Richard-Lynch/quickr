@@ -3267,6 +3267,20 @@ export type DeletePushSubscriptionResponse = DeletePushSubscriptionResponses[key
 
 export type SendTestPushData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/api/v1/push/test';

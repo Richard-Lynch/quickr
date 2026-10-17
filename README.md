@@ -51,7 +51,7 @@ make db migrate    # Postgres in docker on :5433, apply migrations
 make api           # FastAPI on :8100 (reload)
 make web           # Vite on :5180 (proxies /api and /mcp to :8100; QUICKR_API_TARGET overrides)
 make seed          # optional demo data (scheduled topics, a multi-select question)
-make check         # everything CI runs
+make check         # everything CI runs except the docker smoke test (needs Postgres)
 make notebook      # Jupyter tour of the REST API + MCP (backend/notebooks/explore_api.ipynb)
 ```
 

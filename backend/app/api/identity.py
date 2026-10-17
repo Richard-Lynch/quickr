@@ -20,9 +20,12 @@ from typing import Annotated
 
 from fastapi import Depends, Header
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.db import get_sessionmaker
+from app.db import REQUEST_SESSION_KEY, get_sessionmaker
 from app.schemas.base import Problem
 from app.services.feed import ExpectedIdentity, FeedIdentity, expected_identity, feed_identity
 
@@ -36,27 +39,69 @@ _SERVER_ID_KEY = SERVER_ID_HEADER.lower().encode()
 _EPOCH_KEY = EPOCH_HEADER.lower().encode()
 
 
-async def _identity_headers() -> list[tuple[bytes, bytes]]:
+# Whether the open transaction has written anything (Postgres assigns an xid on first write).
+_WROTE = text("SELECT pg_current_xact_id_if_assigned() IS NOT NULL")
+_IN_FAILED_TRANSACTION = "25P02"
+
+
+async def _discard_unfinished_work(db: AsyncSession, path: str) -> None:
+    """End whatever transaction the handler left open, without committing it.
+
+    A finished handler has committed its writes (every writer does), so what's left is
+    normally a read. Pending ORM changes or an open transaction that wrote are a handler
+    bug: they are rolled back, with a warning, never committed on the handler's behalf.
+    """
+    unfinished = bool(db.new or db.dirty or db.deleted)
+    if not unfinished and db.in_transaction():
+        try:
+            unfinished = bool(await db.scalar(_WROTE))
+        except DBAPIError as exc:
+            if getattr(exc.orig, "sqlstate", None) != _IN_FAILED_TRANSACTION:
+                raise
+            unfinished = True
+    if unfinished:
+        log.warning("%s left uncommitted changes; rolling them back", path)
+    await db.rollback()
+
+
+async def _identity_headers(db: AsyncSession, path: str) -> list[tuple[bytes, bytes]]:
     """The current identity as raw headers; none when it can't be read (database down)."""
     try:
-        async with get_sessionmaker()() as db:
-            identity = await feed_identity(db)
-    except Exception:
-        log.exception("could not read the server identity")
+        await _discard_unfinished_work(db, path)
+        identity = await feed_identity(db)
+    except Exception as exc:
+        # Once per request while the database is down: no traceback, it says nothing new.
+        log.warning("could not read the server identity: %s: %s", type(exc).__name__, exc)
         return []
     return [(_SERVER_ID_KEY, identity.server_id.encode()), (_EPOCH_KEY, identity.epoch.encode())]
+
+
+def _under(path: str, prefix: str) -> bool:
+    return path == prefix or path.startswith(prefix + "/")
 
 
 class IdentityHeadersMiddleware:
     """Adds the identity headers to every response under ``prefix``.
 
+    The middleware owns the request's database session: it opens it, hands it to the
+    handler (``app.db.get_db``), reads the identity on it, and closes it after the
+    response. FastAPI closes a yield dependency only after the response is sent, so a
+    separate session here would hold the handler's connection while waiting for a second
+    one, and a saturated pool would starve. One session means at most one connection
+    per request.
+
     The identity is read when the response starts, i.e. after the handler has produced
-    it (for a streamed response: before its body streams). A rotation during the request
+    it (for a streamed response: before its body streams), in a new transaction, so it
+    sees every commit the handler's data could have seen. A rotation during the request
     therefore labels the response with the new epoch, which a client holding the old
     one rejects: a response is never labelled with an epoch older than its data. A
-    response that already carries the headers keeps its own (``/changes`` sets them from
-    the page's snapshot, so headers and body always agree). The middleware also scopes the
-    request's expected identity, so it never leaks into another request.
+    response that already carries the headers keeps its own (``/changes`` and the CSV
+    export set them from their snapshot, so headers and body always agree; a streamed
+    response that reads the database while streaming must do the same, since this read
+    ends the session's transaction). Reading the headers never commits: whatever the
+    handler left open is rolled back first (with a warning if it had written). The
+    middleware also scopes the request's expected identity, so it never leaks into
+    another request.
 
     Unhandled errors are answered here (500 ``internal_error``) rather than by
     Starlette's outer error middleware, so they carry the headers too. Only a
@@ -68,9 +113,14 @@ class IdentityHeadersMiddleware:
         self.prefix = prefix
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or not scope["path"].startswith(self.prefix):
+        if scope["type"] != "http" or not _under(scope["path"], self.prefix):
             await self.app(scope, receive, send)
             return
+        async with get_sessionmaker()() as db:
+            scope[REQUEST_SESSION_KEY] = db
+            await self._handle(db, scope, receive, send)
+
+    async def _handle(self, db: AsyncSession, scope: Scope, receive: Receive, send: Send) -> None:
         started = False
 
         async def send_with_identity(message: Message) -> None:
@@ -79,7 +129,9 @@ class IdentityHeadersMiddleware:
                 headers = list(message.get("headers", []))
                 present = {name.lower() for name, _ in headers}
                 if not {_SERVER_ID_KEY, _EPOCH_KEY} <= present:
-                    headers += [(k, v) for k, v in (await _identity_headers()) if k not in present]
+                    headers += [
+                        (k, v) for k, v in (await _identity_headers(db, scope["path"])) if k not in present
+                    ]
                 message = {**message, "headers": headers}
                 started = True
             await send(message)
@@ -91,6 +143,10 @@ class IdentityHeadersMiddleware:
             if started:
                 raise
             log.exception("unhandled error in %s %s", scope.get("method"), scope["path"])
+            try:
+                await db.rollback()  # expected after an error, so no warning from the header read
+            except Exception as exc:  # database down: the header read will say so
+                log.debug("rollback after an unhandled error failed: %s", exc)
             body = Problem(code="internal_error", detail="internal server error")
             response = JSONResponse(status_code=500, content=body.model_dump(mode="json"))
             await response(scope, receive, send_with_identity)

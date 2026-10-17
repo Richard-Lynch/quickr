@@ -2858,6 +2858,44 @@
         "summary": "Send Test Push",
         "description": "Send a test notification to every subscription.",
         "operationId": "sendTestPush",
+        "parameters": [
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2870,44 +2908,44 @@
             }
           },
           "400": {
-            "description": "Bad Request",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Bad Request"
           },
           "404": {
-            "description": "Not Found",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Not Found"
           },
           "409": {
-            "description": "Conflict",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Conflict"
           },
           "422": {
-            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           }
         }
       }

@@ -1,0 +1,27 @@
+{
+  "body": {
+    "deleted": [
+      {
+        "deleted_at": "2026-06-01T12:00:00.123456Z",
+        "id": "00000000-0000-4000-8000-000000000002",
+        "kind": "topic",
+        "seq": 20,
+        "topic_id": "00000000-0000-4000-8000-000000000002"
+      }
+    ],
+    "epoch": "00000000-0000-4000-8000-000000000008",
+    "has_more": false,
+    "head": 20,
+    "items": [],
+    "next": 20,
+    "server_id": "00000000-0000-4000-8000-000000000009",
+    "server_time": "2026-06-01T12:00:00.123456Z"
+  },
+  "operation_id": "listChanges",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/changes?after=19"
+  },
+  "status": 200
+}

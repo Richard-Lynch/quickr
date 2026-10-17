@@ -5,14 +5,17 @@ response shape the iOS client decodes, and each recorded call becomes one file:
 ``{operation_id, request: {method, path, body}, status, body}``, named
 ``<operationId>[.<variant>].json``. Adding an endpoint is one ``rec(...)`` line.
 
-The application clock is frozen at ``FROZEN_NOW`` (``datetime.now`` in the
-topic and entry services), entries carry explicit ``captured_at`` values and
-schedules are backdated to ``SCHEDULE_SET_AT``, so due state, ``archived_at``
-and defaulted ``captured_at`` are real, deterministic values. What can't be
-frozen is normalised, only at known response paths and only after checking the
-original is a timezone-aware ISO-8601 datetime:
+Only the Python clock is frozen: ``app.services.topics.datetime`` (due
+computation) reads ``FROZEN_NOW``. Schedules are backdated to
+``SCHEDULE_SET_AT``, so due state is a real, deterministic value. Every recorded
+entry carries an explicit ``captured_at``: a defaulted one would be the
+database clock, which is never stable. The database clock (Postgres ``now()``:
+``created_at``, ``updated_at``, ``archived_at``, ``deleted_at``, the feed's
+``server_time``) can't be frozen, so it is normalised, only at known response
+paths and only after checking the original is a timezone-aware ISO-8601
+datetime:
 
-- ``DB_CLOCK_KEYS`` on topics, entries and versions (Postgres ``now()``) become
+- ``DB_CLOCK_KEYS`` on topics, entries, versions and push subscriptions become
   ``SERVER_TIME`` unless they hold one of the pinned instants;
 - server-generated UUIDs become ``00000000-0000-4000-8000-<n>`` in order of first
   appearance (client-supplied ids are kept);
@@ -65,6 +68,16 @@ UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 DATETIME_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})")
 # Free-form maps whose keys are user data, never response fields.
 USER_DATA_KEYS = frozenset({"meta", "option_counts"})
+
+PUSH_SUBSCRIPTION = {
+    "endpoint": "https://web.push.apple.com/QGuQyavXutnMlB5k",
+    "keys": {"p256dh": "BOr8uW3hZ8t3Qn0dJ4Xq-key", "auth": "x5sQe1Zl0dAuth"},
+    "user_agent": "Mozilla/5.0 (iPhone)",
+}
+# Operations without a fixture. Each one says why.
+UNCOVERED_OPERATIONS = {
+    "exportEntriesCsv": "text/csv, not JSON: the client saves the bytes and never decodes them",
+}
 
 ENTRY_IDS = [f"0f1e2d3c-4b5a-4968-8778-{n:012d}" for n in range(1, 6)]
 E1, E2, E3, E4, E5 = ENTRY_IDS
@@ -383,6 +396,26 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
         status=409,
         variant="entry_deleted",
     )
+    await rec("deleteTopic", "DELETE", "/topics/water", status=409, variant="not_archived")
+    await rec("unarchiveTopic", "POST", "/topics/old-habit/unarchive", status=200)
+    await client.post("/topics/old-habit/archive")
+    await rec("deleteTopic", "DELETE", "/topics/old-habit", status=204)
+    # One topic deletion; clients cascade it to the topic's versions and entries.
+    page = (await client.get("/changes?after=0&limit=500")).json()
+    await rec(
+        "listChanges", "GET", f"/changes?after={page['head'] - 1}", status=200, variant="topic_deletion"
+    )
+
+    # --- push (delivery is mocked: every send succeeds) --------------------------------
+    await rec("createPushSubscription", "POST", "/push/subscriptions", PUSH_SUBSCRIPTION, status=201)
+    await rec("sendTestPush", "POST", "/push/test", status=200)
+    await rec(
+        "deletePushSubscription",
+        "POST",
+        "/push/subscriptions/delete",
+        {"endpoint": PUSH_SUBSCRIPTION["endpoint"]},
+        status=204,
+    )
     return rec.files
 
 
@@ -392,6 +425,7 @@ async def test_api_fixtures_match_committed(
     # Only the topic service still reads the Python clock (due computation); entry and
     # topic timestamps come from the database's now() and are normalised instead.
     monkeypatch.setattr("app.services.topics.datetime", FrozenDatetime)
+    monkeypatch.setattr("app.services.push.deliver", lambda *_: None)
     files = await scenario(client)
     existing = {p.name for p in API_DIR.glob("*.json")}
     if updating():
@@ -401,6 +435,15 @@ async def test_api_fixtures_match_committed(
         assert existing == set(files), stale_message(API_DIR)
     for name, content in files.items():
         check_or_write(API_DIR / name, content)
+
+
+def test_every_operation_has_a_fixture() -> None:
+    from app.main import app
+
+    operations = {op["operationId"] for item in app.openapi()["paths"].values() for op in item.values()}
+    covered = {p.name.split(".")[0] for p in API_DIR.glob("*.json")}
+    assert operations - covered == set(UNCOVERED_OPERATIONS), "add a rec(...) to scenario()"
+    assert set(UNCOVERED_OPERATIONS) <= operations, "a stale exclusion"
 
 
 @pytest.mark.parametrize("bad", ["2026-03-01T08:00:00", "2026-03-01", "soon", 1767225600])

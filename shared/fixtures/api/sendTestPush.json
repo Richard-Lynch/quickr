@@ -1,0 +1,13 @@
+{
+  "body": {
+    "failed": 0,
+    "sent": 1
+  },
+  "operation_id": "sendTestPush",
+  "request": {
+    "body": null,
+    "method": "POST",
+    "path": "/api/v1/push/test"
+  },
+  "status": 200
+}
