@@ -161,6 +161,8 @@ These are the server details the specs assume. Each one must be confirmed in the
 - [ ] Feed: an ASGI disconnect/send-error test proving the CSV snapshot transaction closes and the connection is returned; a >500-row CSV with a mutation between pages.
 - [ ] Feed: a dedicated regression test for the commit-time retry in `@writer`.
 - [ ] Specs/fixtures: `quicklog-vectors.json` gains category-id cases (M3).
+- [ ] Backend: reject NUL in every text field the API stores (notes, source, labels, names…) with a 422 Problem instead of a Postgres 500. Today only str answers are checked (found by VAL).
+- [ ] PWA: the generated zod request validators (`frontend/src/client/zod.gen.ts`) count UTF-16 units, so e.g. >2,500-emoji notes fail client-side. Fix in the generator/OpenAPI output rather than by hand (found by VAL).
 - [ ] Notifications WP: a fake-center orchestration test for ReminderDedup L1 (pending local cancel) and L2 (suppression/activation cleanup), from the C1 review.
 - [ ] TILES (M2): at accessibility text sizes, badges and the sync pill truncate and the tile stays side by side. Consider a stacked tile layout at AX sizes (from DS).
 - [ ] Scaffold: confirm on the first real CI run that Xcode 26.6 honours `ios/QuickrKit/Package.resolved` (verified locally on 27.1 only). When GRDB lands in M1, run `make ios-resolve` and commit the lockfile.
