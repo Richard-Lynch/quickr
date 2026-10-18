@@ -39,6 +39,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Toolchain identity
         id: toolchain
+        timeout-minutes: 2
         run: |
           xcodebuild -version && swift --version
           echo "hash=$( (xcodebuild -version; swift --version 2>&1) | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
@@ -47,7 +48,9 @@ jobs:
         with:
           path: ios/QuickrKit/.build
           key: spm-host-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.hash }}-${{ hashFiles('ios/QuickrKit/Package.swift', 'ios/**/Package.resolved') }}
+      # The job's 15 min is the outer bound; this one fails a hung `swift test` sooner.
       - name: Swift tests
+        timeout-minutes: 12
         run: ios/scripts/swift-test.sh
 
   app:
@@ -72,8 +75,10 @@ jobs:
           path: ios/build/spm
           key: spm-ios-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ios/QuickrKit/Package.swift', 'ios/**/Package.resolved') }}
       - run: xcodebuild -version && xcodegen --version
+        timeout-minutes: 2
       # Fails unless an iPhone simulator on an iOS 26.x runtime exists (PLAN §6a rule 12).
       - name: Build + Unit plan (no signing)
+        timeout-minutes: 25
         run: make ios-check-ci IOS_SIM_CI="iPhone 17"
       - name: Upload test results
         if: failure()

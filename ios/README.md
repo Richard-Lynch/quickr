@@ -48,6 +48,17 @@ goes to `ios/build/` (DerivedData in `build/dd`, package checkouts in
 `build/spm`, test results in `build/results/<plan>-<udid>.xcresult`; read one
 with `xcrun xcresulttool get test-results summary --path ...`).
 
+**Hangs and simulator load.** Every `xcodebuild` and `swift test` runs under
+`scripts/watchdog.sh`: it is killed after `IOS_WATCHDOG_SILENCE_MIN` minutes
+without output (default 10, exit 124), or 60 s (`IOS_WATCHDOG_GRACE_SECS`) after
+xcodebuild's final `** … SUCCEEDED/FAILED **` line if it hasn't exited (the
+status that line reports). Test plans also run with test timeouts
+(`IOS_TEST_ALLOWANCE`, default 300 s per test). `sim-clone.sh`, `test.sh` and
+`sim-run.sh` refuse to boot a simulator while `IOS_SIM_CAP` (default 2; 0 = off)
+other worktree clones are booted, and name them; `sim-clone.sh --wait` or
+`IOS_SIM_WAIT=1` waits for a slot instead. A clone that is already booted never
+counts against itself. `make ios-script-test` tests both (no Xcode needed).
+
 `simctl openurl` with the `quickr://` scheme shows a system "Open in quickR?"
 alert, which stays on screen until tapped. Reboot the simulator (or tap it)
 before taking screenshots.

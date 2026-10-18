@@ -169,6 +169,11 @@ ios-fmt: ## iOS: swift-format in place
 	@$(IOS_SCRIPTS)/require-xcode.sh
 	cd ios && xcrun swift-format format --in-place --recursive --parallel App AppTests UITests Widgets NotificationService QuickrKit
 
+.PHONY: ios-script-test
+ios-script-test: ## iOS: tests for the shell tooling (xcodebuild watchdog, simulator cap); no Xcode needed
+	@$(IOS_SCRIPTS)/tests/watchdog-test.sh
+	@$(IOS_SCRIPTS)/tests/sim-cap-test.sh
+
 .PHONY: check-ios
 check-ios: ## iOS gate: gen, swift test, Unit + UI plans on iOS 26.0 and 27.0, lint, Xcode version
 	@$(IOS_SCRIPTS)/check-ios.sh "$(IOS_SIM_MIN)" "$(IOS_SIM_CUR)"
