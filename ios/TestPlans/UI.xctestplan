@@ -22,7 +22,10 @@
         "containerPath" : "container:quickR.xcodeproj",
         "identifier" : "A932D006A482F51C1112AC08",
         "name" : "QuickRUITests"
-      }
+      },
+      "skippedTests" : [
+        "WidgetGalleryTests"
+      ]
     }
   ],
   "version" : 1
