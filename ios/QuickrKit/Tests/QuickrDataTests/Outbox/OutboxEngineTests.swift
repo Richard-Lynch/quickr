@@ -212,6 +212,25 @@ import Testing
         #expect(h.server.entry(id)?.source == "ios.widget" && h.server.entry(raw)?.source == "ios.siri")
     }
 
+    @Test func leasePollingNeverAttemptsPastTheRequestDeadline() async throws {
+        let h = try OutboxHarness()
+        let outbox = h.outbox()
+        try await h.log(outbox)
+        // No time for requests at all: not even one attempt, though the lease is free.
+        for leaseWait in [Duration.zero, .seconds(1)] {
+            #expect(try await outbox.flush(force: true, budget: .zero, leaseWait: leaseWait).ending == .busy)
+            #expect(try h.lease().owner == nil)
+        }
+        // Held elsewhere: polling stops at the request deadline (0.7 s of a 1 s budget), not
+        // at the 5 s lease wait, and the flush ends without the lease.
+        let holder = try #require(try await h.store.leases.tryAcquire(.flush, owner: "widget:9"))
+        let started = ContinuousClock.now
+        #expect(try await outbox.flush(force: true, budget: .seconds(1), leaseWait: .seconds(5)).ending == .busy)
+        #expect(ContinuousClock.now - started <= .seconds(1))
+        #expect(try h.lease().owner == "widget:9" && h.server.requests.isEmpty)
+        _ = try await h.store.leases.release(holder)
+    }
+
     @Test func sendNowReportsSentOrQueued() async throws {
         let h = try OutboxHarness()
         let scheduler = OutboxFlushScheduler(outbox: h.outbox())

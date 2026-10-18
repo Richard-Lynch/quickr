@@ -68,11 +68,16 @@ class FakeApns:
     raises: dict[str, Exception] = field(default_factory=dict)
     on_send: Callable[[Sent], None] | None = None
     delay: float = 0.0  # seconds each response takes
+    # Requests answered (from the first); later ones stall until cancelled or :meth:`allow`.
+    # Lets a test cut a tick off at its budget without depending on how fast the machine is.
+    quota: int | None = None
+    admitted: int = 0  # requests let through the quota
     in_flight: int = 0
     max_in_flight: int = 0
     events: list[str] = field(default_factory=list)
-    started: int = 0  # delayed requests started
+    started: int = 0  # delayed or quota-limited requests started
     _start: asyncio.Event = field(default_factory=asyncio.Event)
+    _allowed: asyncio.Event = field(default_factory=asyncio.Event)
 
     @classmethod
     def create(cls) -> FakeApns:
@@ -84,6 +89,11 @@ class FakeApns:
         while self.started < n:
             self._start.clear()
             await self._start.wait()
+
+    def allow(self, more: int | None = None) -> None:
+        """Answer ``more`` further requests (None: every request), stalled ones first."""
+        self.quota = None if more is None else self.admitted + more
+        self._allowed.set()
 
     def clock(self) -> float:
         return self.now
@@ -99,12 +109,16 @@ class FakeApns:
         device = request.url.path.removeprefix("/3/device/")
         if device in self.raises:
             raise self.raises[device]
-        if self.delay:
+        if self.delay or self.quota is not None:
             self.started += 1
             self._start.set()
             self.in_flight += 1
             self.max_in_flight = max(self.max_in_flight, self.in_flight)
             try:
+                while self.quota is not None and self.admitted >= self.quota:
+                    self._allowed.clear()
+                    await self._allowed.wait()
+                self.admitted += 1
                 await asyncio.sleep(self.delay)  # a cancelled request is never recorded
             except asyncio.CancelledError:
                 self.events.append("request cancelled")
