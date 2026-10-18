@@ -10,7 +10,14 @@ import Testing
 /// the cancelled flush's cleanup (the item made uncertain, the lease released) must have committed
 /// before the database is suspended, or a suspended GRDB refuses it and leaves the item in flight
 /// and the lease held.
-@Suite(.serialized) @MainActor struct SuspensionTests {
+/// Run on their own (`make ios-lifecycle-test`, QUICKR_LIFECYCLE_TESTS=1): GRDB's suspension is
+/// process-wide and would interrupt any other suite running in the same `swift test` process.
+@Suite(
+    .serialized,
+    .enabled(
+        if: ProcessInfo.processInfo.environment["QUICKR_LIFECYCLE_TESTS"] == "1",
+        "posts GRDB's process-wide suspension: run with make ios-lifecycle-test"))
+@MainActor struct SuspensionTests {
     @Test func expiryLetsTheCancelledFlushCommitItsCleanupBeforeSuspending() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "quickr-suspension-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -26,9 +33,9 @@ import Testing
 
         let id = try await session.log(topic: topic, answers: ["n": .int(1)], version: 1)
         await transport.waitForPost()  // the flush's POST is in flight
-        let background = Task { await session.didEnterBackground() }
-        while !session.isBackgrounded { await Task.yield() }
-        await session.backgroundTimeExpiring(within: .seconds(10))
+        let episode = session.beginBackground()
+        let background = Task { await session.didEnterBackground(episode) }
+        await session.backgroundTimeExpiring(episode, within: .seconds(10))
         _ = await background.value
 
         // Resume to look: the cleanup must already be on disk.

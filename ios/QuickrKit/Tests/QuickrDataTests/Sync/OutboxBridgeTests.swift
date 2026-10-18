@@ -138,6 +138,83 @@ import Testing
         #expect(await bridge.bound === current)
     }
 
+    /// bind(B) and bind(C) back to back while A's flush is held: neither B nor C starts a flush
+    /// while A still flushes (a reentrant bind waits for every earlier retirement), and the one
+    /// bound last stays bound.
+    @Test(.timeLimit(.minutes(1))) func backToBackBindsWaitForEveryEarlierRetirement() async throws {
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        try await env.connect(env.coordinator())
+        let store = try await env.activeStore()
+        let bridge = OutboxFlushBridge()
+        for round in 0..<10 {
+            let gate = Gate()
+            let a = OutboxFlushScheduler(
+                outbox: Outbox(store: store, sender: ParkingSender(gate), owner: "app:a\(round)"))
+            await bridge.bind(a)
+            try await store.enqueue(Payloads.create())
+            bridge.requestFlush(reason: .afterPull)
+            await gate.arrival()  // A is mid-flush
+
+            let open = Gate()
+            open.open()
+            let b = OutboxFlushScheduler(
+                outbox: Outbox(store: store, sender: ParkingSender(open), owner: "app:b\(round)"))
+            let c = OutboxFlushScheduler(
+                outbox: Outbox(store: store, sender: ParkingSender(open), owner: "app:c\(round)"))
+            let violations = Mutex(0)
+            let probe = Task {
+                while !Task.isCancelled {
+                    bridge.requestFlush(reason: .afterPull)
+                    let bStarted = await !b.started.isEmpty
+                    let cStarted = await !c.started.isEmpty
+                    if bStarted || cStarted, await a.isFlushing { violations.withLock { $0 += 1 } }
+                    await Task.yield()
+                }
+            }
+            async let bindB: Void = bridge.bind(b)
+            async let bindC: Void = bridge.bind(c)
+            _ = await (bindB, bindC)
+            probe.cancel()
+            _ = await probe.value
+            #expect(violations.withLock { $0 } == 0, "round \(round)")
+            #expect(await a.isRetired)
+            // Whichever bind ran last is bound; the other was retired.
+            let bound = await bridge.bound
+            let loser = bound === c ? b : c
+            #expect(bound === b || bound === c)
+            #expect(await loser.isRetired)
+            gate.releaseAll()
+        }
+    }
+
+    /// Pause state is ordered by scene generation: a stale episode's pause or resume never undoes
+    /// a newer one, in the scheduler and in the coordinator alike.
+    @Test func pausesAndResumesAreOrderedByGeneration() async throws {
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        let coordinator = env.coordinator()
+        try await env.connect(coordinator)
+        let scheduler = try await Self.scheduler(env)
+
+        await scheduler.pause(generation: 3)
+        await scheduler.resume(generation: 2)  // older than the pause: ignored
+        #expect(await scheduler.isPaused)
+        await scheduler.resume(generation: 4)
+        #expect(await !scheduler.isPaused)
+        await scheduler.pause(generation: 3)  // older than the resume: ignored
+        #expect(await !scheduler.isPaused)
+
+        await coordinator.pause(generation: 3)
+        #expect(await coordinator.sync(reason: .requested) == .paused)
+        await coordinator.resume(generation: 2)
+        #expect(await coordinator.sync(reason: .requested) == .paused)
+        await coordinator.resume(generation: 4)
+        #expect(await coordinator.sync(reason: .requested) == .synced)
+        await coordinator.pause(generation: 3)
+        #expect(await coordinator.sync(reason: .requested) == .synced)
+    }
+
     /// The production wiring (coordinator → bridge → scheduler → outbox → `outboxSignalHandler`)
     /// is freed once the app lets go of it: the handler holds the coordinator weakly.
     @Test func theWiringIsFreedWhenReleased() async throws {

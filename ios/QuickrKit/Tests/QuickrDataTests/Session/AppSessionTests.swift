@@ -205,7 +205,8 @@ private let otherServerURL = URL(string: "https://other.example")!
         let id = try await session.log(topic: Payloads.water, answers: ["glasses": .int(1)], version: 1)
         _ = await scheduler.waitUntilIdle()
         try await session.delete(entryId: id, topicId: UUID(uuidString: FakeFeedServer.water)!, undoable: true)
-        _ = await session.didEnterBackground()
+        let episode = session.beginBackground()
+        _ = await session.didEnterBackground(episode)
         #expect(await scheduler.started.contains(OutboxFlushReason.background.policy))
         #expect(w.env.transport.requests.contains { $0.method == .delete })
         #expect(suspended.count == 1)
@@ -222,7 +223,7 @@ private let otherServerURL = URL(string: "https://other.example")!
         try await eventually("activation pulls") { w.env.afters().count > pulls }
 
         // An expiration after the app became active is stale: nothing is paused or suspended.
-        await session.backgroundTimeExpiring()
+        await session.backgroundTimeExpiring(episode)
         #expect(suspended.count == 1)
         #expect(await !scheduler.isPaused)
         await session.shutdown()
@@ -245,9 +246,9 @@ private let otherServerURL = URL(string: "https://other.example")!
 
         _ = try await session.log(topic: Payloads.water, answers: ["glasses": .int(1)], version: 1)
         await gate.arrival()  // the POST is in flight
-        let background = Task { await session.didEnterBackground() }  // waits for that flush
-        try await eventually("backgrounded") { await MainActor.run { session.isBackgrounded } }
-        await session.backgroundTimeExpiring(within: .seconds(10))
+        let episode = session.beginBackground()
+        let background = Task { await session.didEnterBackground(episode) }  // waits for that flush
+        await session.backgroundTimeExpiring(episode, within: .seconds(10))
         _ = await background.value
         #expect(leaseFreeAtSuspend.withLock { $0 } == true)
         #expect(await scheduler.lastReport?.ending == .cancelled)
@@ -275,10 +276,10 @@ private let otherServerURL = URL(string: "https://other.example")!
         let pull = Task { await session.coordinator.sync(reason: .requested) }
         await gate.arrival()  // a pull is parked and won't end
 
-        let background = Task { await session.didEnterBackground() }  // waits for the parked pull
-        try await eventually("backgrounded") { await MainActor.run { session.isBackgrounded } }
+        let episode = session.beginBackground()
+        let background = Task { await session.didEnterBackground(episode) }  // waits for the parked pull
         let started = ContinuousClock.now
-        await session.backgroundTimeExpiring(within: .milliseconds(300))
+        await session.backgroundTimeExpiring(episode, within: .milliseconds(300))
         #expect(ContinuousClock.now - started < .seconds(10), "returned at the bound, not when the pull ends")
         #expect(suspended.count == 1)
         gate.releaseAll()
@@ -323,6 +324,42 @@ private let otherServerURL = URL(string: "https://other.example")!
         #expect(suspended.count == 0, "a stale background completion never suspends")
         #expect(await !scheduler.isPaused)
         try await eventually("the log is delivered") { try await session.store?.outbox.items().isEmpty == true }
+        await session.shutdown()
+    }
+
+    /// background₁ → active → background₂, then background₁'s expiry and completion arrive late:
+    /// background₂'s flush is not cancelled, and background₂ stays paused (flushes and pulls).
+    @Test func aStaleEpisodeNeverTouchesTheCurrentOne() async throws {
+        let w = try World()
+        defer { w.env.cleanup() }
+        let gate = Gate()
+        let suspended = w.posted(Database.suspendNotification)
+        let session = try w.session(transport: GatedTransport(w.env.transport, gate) { $0.method == .post })
+        await session.start(serverURL: SyncEnv.baseURL)
+        let scheduler = try #require(session.scheduler)
+        _ = try await session.log(topic: Payloads.water, answers: ["glasses": .int(1)], version: 1)
+        await gate.arrival()  // a flush is in flight, its sender blocked
+
+        let first = session.beginBackground()
+        let firstWork = Task { await session.didEnterBackground(first) }
+        await session.didBecomeActive()
+        let second = session.beginBackground()
+        let secondWork = Task { await session.didEnterBackground(second) }
+
+        await session.backgroundTimeExpiring(first)  // stale: must not cancel the current episode's flush
+        #expect(await scheduler.isFlushing, "background₂'s flush is still running")
+        #expect(await session.coordinator.sync(reason: .requested) == .paused)
+
+        gate.open()
+        _ = await firstWork.value  // background₁ completes late: leaves the pause state alone
+        _ = await secondWork.value
+        #expect(await scheduler.isPaused, "background₂ is paused")
+        #expect(await session.coordinator.sync(reason: .requested) == .paused)
+        #expect(suspended.count == 1, "only background₂ suspends")
+
+        await session.didBecomeActive()
+        #expect(await !scheduler.isPaused)
+        #expect(await session.coordinator.sync(reason: .requested) == .synced)
         await session.shutdown()
     }
 

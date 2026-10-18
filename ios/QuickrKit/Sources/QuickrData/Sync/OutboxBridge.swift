@@ -44,36 +44,40 @@ extension SyncCoordinator {
 /// `OutboxFlushScheduler`. A scheduler belongs to one store, so bind it when a store opens, bind
 /// the new one after a reset or a server switch, and bind nil when there is no store.
 ///
-/// `bind` never lets two stores flush at once: it unbinds first (requests meanwhile are dropped),
-/// retires the scheduler it replaces and waits for that one's flush to end, and only then
-/// publishes the new one, unless a later `bind` has superseded it, in which case it retires the
-/// new one too. Once `bind` has returned, the old store never starts another flush. A request
-/// with nothing bound is dropped (the binder requests a flush after binding).
+/// `bind` never lets two stores flush at once. Binds run one after another, each after every
+/// earlier one has finished; each unbinds first (requests meanwhile are dropped), retires the
+/// scheduler it replaces and waits for that one's flush to end, and only then publishes. Once
+/// `bind` has returned, the old store never starts another flush. A request with nothing bound is
+/// dropped (the binder requests a flush after binding).
 public actor OutboxFlushBridge: FlushRequester {
     private var scheduler: OutboxFlushScheduler?
-    /// Bumped by every `bind`; a `bind` publishes only if it is still the latest.
-    private var generation = 0
+    /// The latest `bind`; the next one starts when it has finished.
+    private var lastBind: Task<Void, Never>?
     /// A forward is scheduled and hasn't started: a burst of requests spawns one task.
     private nonisolated let pending = Mutex(false)
 
     public init() {}
 
-    /// Binds `scheduler` (or nothing), retiring the one it replaces first.
+    /// Binds `scheduler` (or nothing), after every earlier `bind`, retiring the one it replaces
+    /// before publishing.
     public func bind(_ scheduler: OutboxFlushScheduler?) async {
-        generation += 1
-        let mine = generation
-        let old = self.scheduler
-        self.scheduler = nil
-        if let old, old !== scheduler {
+        let previous = lastBind
+        let bind = Task {
+            await previous?.value
+            await self.swap(to: scheduler)
+        }
+        lastBind = bind
+        await bind.value
+    }
+
+    private func swap(to next: OutboxFlushScheduler?) async {
+        let old = scheduler
+        scheduler = nil
+        if let old, old !== next {
             await old.retire()
             _ = await old.waitUntilIdle()
         }
-        guard generation == mine else {
-            // A later bind won while the old one retired: this scheduler is never published.
-            if let scheduler, scheduler !== self.scheduler { await scheduler.retire() }
-            return
-        }
-        self.scheduler = scheduler
+        scheduler = next
     }
 
     public var bound: OutboxFlushScheduler? { scheduler }

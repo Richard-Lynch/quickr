@@ -89,9 +89,10 @@ public final class AppSession {
     @ObservationIgnored private var listeners: [Task<Void, Never>] = []
     @ObservationIgnored private var rebinding: Task<Void, Never>?
     @ObservationIgnored private var started = false
-    /// The current scene episode: background work captures its own and acts only if it is still
-    /// current, so a late background completion or an old expiration never suspends an app that
-    /// has become active since.
+    /// The current scene episode. Every activation and every background starts a new generation;
+    /// background work holds its `BackgroundEpisode` and acts only while it is current. The pause
+    /// state of the scheduler and the coordinator is ordered by generation too, so a stale
+    /// episode's pause never lands after a newer resume, and nothing stale ever resumes.
     @ObservationIgnored private var lifecycle: Lifecycle = .foreground
     @ObservationIgnored private var lifecycleGeneration = 0
 
@@ -100,8 +101,15 @@ public final class AppSession {
         case background(Int)
     }
 
-    /// Between `didEnterBackground` and the next `didBecomeActive`.
+    /// One trip to the background, from `beginBackground()` to the next activation.
+    public struct BackgroundEpisode: Sendable, Hashable {
+        fileprivate let generation: Int
+    }
+
+    /// Between `beginBackground()` and the next `didBecomeActive`.
     public var isBackgrounded: Bool { lifecycle != .foreground }
+
+    private func isCurrent(_ episode: BackgroundEpisode) -> Bool { lifecycle == .background(episode.generation) }
 
     public init(configuration: Configuration) throws {
         self.configuration = configuration
@@ -158,61 +166,67 @@ public final class AppSession {
     /// refresh the screens, flush and pull.
     public func didBecomeActive() async {
         lifecycleGeneration += 1
+        let generation = lifecycleGeneration
         lifecycle = .foreground
         configuration.notificationCenter.post(name: Database.resumeNotification, object: nil)
+        await coordinator.resume(generation: generation)
         guard started else { return }  // the launch's `start()` does the rest
-        await scheduler?.resume()
+        await scheduler?.resume(generation: generation)
         await rebind()
         refresh.poke()
         await scheduler?.requestFlush(reason: .activation)
         Task { _ = await coordinator.sync(reason: .activation) }
     }
 
-    /// `scenePhase` → `.background`, inside the app's background task: release held deletes and
-    /// flush (outbox.md §10), wait for the flush and any pull in flight to end, then suspend GRDB,
-    /// so no write transaction is open when the process is suspended (0xDEAD10CC).
-    /// If the app becomes active before this finishes, it neither pauses nor suspends.
-    @discardableResult
-    public func didEnterBackground() async -> OutboxFlushReport? {
+    /// `scenePhase` → `.background`: starts a background episode. Take it before registering the
+    /// background task's expiration handler, and pass it to `didEnterBackground(_:)` and
+    /// `backgroundTimeExpiring(_:within:)`, so an old task's callbacks never act on a newer episode.
+    public func beginBackground() -> BackgroundEpisode {
         lifecycleGeneration += 1
-        let episode = Lifecycle.background(lifecycleGeneration)
-        lifecycle = episode
+        lifecycle = .background(lifecycleGeneration)
+        return BackgroundEpisode(generation: lifecycleGeneration)
+    }
+
+    /// Inside the episode's background task: no new pull starts; release held deletes and flush
+    /// (outbox.md §10); then no new flush starts either, the pull in flight ends, and GRDB is
+    /// suspended, so no write transaction or lease is open while the process is suspended
+    /// (0xDEAD10CC). If the episode stops being current (the app became active, or went to the
+    /// background again), it stops, and leaves the pause state to the current episode.
+    @discardableResult
+    public func didEnterBackground(_ episode: BackgroundEpisode? = nil) async -> OutboxFlushReport? {
+        let episode = episode ?? beginBackground()
+        guard isCurrent(episode) else { return nil }
+        await coordinator.pause(generation: episode.generation)
         let report = await scheduler?.flushNow(reason: .background)
-        guard lifecycle == episode else { return report }
-        await scheduler?.pause()  // no new flush (a pull's, a signal's) until the app is active
+        guard isCurrent(episode) else { return report }
+        await scheduler?.pause(generation: episode.generation)
         await coordinator.waitUntilIdle()
-        await suspendIfStill(episode)
+        suspendIfCurrent(episode)
         return report
     }
 
-    /// The background task's expiration handler: cancel the flush (its item becomes uncertain and
-    /// the lease is released), wait for it and any pull in flight to end, but no longer than
-    /// `remaining` (what the system still grants), then suspend GRDB. End the background task
-    /// after it returns.
-    /// An expiration from an episode that is no longer current (the app became active) does
-    /// nothing.
-    public func backgroundTimeExpiring(within remaining: Duration = .seconds(3)) async {
-        guard case .background = lifecycle else { return }
-        let episode = lifecycle
+    /// The episode's background task is expiring: cancel the flush (its item becomes uncertain and
+    /// the lease is released) and refuse new flushes and pulls, wait for them to end, but no
+    /// longer than `remaining` (what the system still grants), then suspend GRDB. End the
+    /// background task after it returns. For an episode that is no longer current it does nothing,
+    /// so it never cancels a newer episode's work.
+    public func backgroundTimeExpiring(_ episode: BackgroundEpisode, within remaining: Duration = .seconds(3)) async {
+        guard isCurrent(episode) else { return }
         let scheduler = scheduler
         let coordinator = coordinator
-        await scheduler?.pause()  // cancels the flush, and starts no new one until activation
+        await coordinator.pause(generation: episode.generation)
+        await scheduler?.pause(generation: episode.generation)  // cancels the flush
         await Self.firstOf(remaining) {
             _ = await scheduler?.waitUntilIdle()
             await coordinator.waitUntilIdle()
         }
-        await suspendIfStill(episode)
+        suspendIfCurrent(episode)
     }
 
-    /// Posts GRDB's suspend if `episode` is still the current one. Otherwise the app became active
-    /// meanwhile: undo a pause that may have landed after activation's resume. (A coordinator run
-    /// that starts after the idle wait and before the post has its next transaction refused by the
-    /// suspended database and fails safe: it writes nothing.)
-    private func suspendIfStill(_ episode: Lifecycle) async {
-        guard lifecycle == episode else {
-            await scheduler?.resume()
-            return
-        }
+    /// Posts GRDB's suspend if `episode` is still current. Nothing can start a flush or a pull in
+    /// between: both are paused for this generation, and only a newer activation resumes them.
+    private func suspendIfCurrent(_ episode: BackgroundEpisode) {
+        guard isCurrent(episode) else { return }
         configuration.notificationCenter.post(name: Database.suspendNotification, object: nil)
     }
 
@@ -343,6 +357,7 @@ public final class AppSession {
             let outbox = Outbox(
                 store: store, sender: sender, owner: owner, onSignal: coordinator.outboxSignalHandler)
             let scheduler = OutboxFlushScheduler(outbox: outbox)
+            if case .background(let generation) = lifecycle { await scheduler.pause(generation: generation) }
             await bridge.bind(scheduler)
             self.store = store
             self.outbox = outbox

@@ -71,6 +71,8 @@ public actor OutboxFlushScheduler {
     private var followUp: OutboxFlushPolicy?
     private var retired = false
     private var paused = false
+    /// The newest scene generation a pause or resume came from: an older one is stale.
+    private var pauseGeneration = Int.min
     /// The most recent report, for the sync pill and tests.
     public private(set) var lastReport: OutboxFlushReport?
     /// The policy of every flush this scheduler started, in order.
@@ -160,15 +162,24 @@ public actor OutboxFlushScheduler {
 
     public var isRetired: Bool { retired }
 
-    /// The app is going to be suspended: cancels the running flush and starts no new one (for a
-    /// pull, a signal or an enqueue) until `resume()`, so no flush transaction is open while the
-    /// process is suspended. The queue keeps every item; activation flushes them.
-    public func pause() {
+    /// The app is going to be suspended (background episode `generation`): cancels the running flush
+    /// and starts no new one (for a pull, a signal or an enqueue) until a `resume` from a newer
+    /// generation, so no flush transaction is open while the process is suspended. A pause older
+    /// than the last resume (a stale background episode's) is ignored. The queue keeps every item.
+    public func pause(generation: Int) {
+        guard generation >= pauseGeneration else { return }
+        pauseGeneration = generation
         paused = true
         cancel()
     }
 
-    public func resume() { paused = false }
+    /// The app became active (scene generation `generation`). A resume older than the last pause is
+    /// ignored.
+    public func resume(generation: Int) {
+        guard generation >= pauseGeneration else { return }
+        pauseGeneration = generation
+        paused = false
+    }
 
     public var isPaused: Bool { paused }
 

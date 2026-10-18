@@ -10,6 +10,8 @@ here="$(dirname "$0")"
 "$here/tests/watchdog-test.sh"
 "$here/tests/sim-cap-test.sh"
 swift_test
+# GRDB's suspension is process-wide: the lifecycle tests get a swift test process of their own.
+QUICKR_LIFECYCLE_TESTS=1 swift_test --filter QuickrLifecycleTests --no-parallel
 for sim in "$1" "$2"; do
   "$here/test.sh" Unit "$sim"
   "$here/test.sh" UI "$sim"

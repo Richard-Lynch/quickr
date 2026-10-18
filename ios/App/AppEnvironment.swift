@@ -89,12 +89,15 @@ final class AppEnvironment {
     }
 
     private func flushInBackground(_ session: AppSession) {
+        // The episode is taken before the expiration handler is registered, so this task's
+        // callbacks only ever act on their own trip to the background.
+        let episode = session.beginBackground()
         let task = BackgroundTask()
         // On expiry: cancel the flush and wait (briefly) for it and any pull to end before GRDB is
         // suspended; the task ends after that.
-        task.begin(name: "quickr.flush") { await session.backgroundTimeExpiring() }
+        task.begin(name: "quickr.flush") { await session.backgroundTimeExpiring(episode) }
         Task {
-            await session.didEnterBackground()
+            await session.didEnterBackground(episode)
             task.end()
         }
     }
