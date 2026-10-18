@@ -8,7 +8,8 @@
 # On demand, not in check-ios: SpringBoard automation can stall.
 #
 # Usage: spike-proof.sh [simulator name or UDID, default: this worktree's clone] [limit s, default 900]
-# Leaves the stack up with SPIKE_KEEP_STACK=1; shuts the simulator down if it booted it.
+# Leaves the stack up with SPIKE_KEEP_STACK=1. Shuts the simulator down afterwards (this
+# worktree's clone always; another only if it booted it), unless SPIKE_KEEP_SIM=1.
 source "$(dirname "$0")/integration-common.sh"
 require_xcode
 require_docker
@@ -18,8 +19,12 @@ limit="${2:-900}"
 work="$BUILD_DIR/spike"
 rm -rf "$work"; mkdir -p "$work"
 
+# Shut the simulator down afterwards if this run booted it, and always when it is this
+# worktree's own clone (sim-clone.sh may boot it while finding it). SPIKE_KEEP_SIM=1 keeps it.
 booted_here=0
 xcrun simctl list devices booted | grep -q "$udid" || booted_here=1
+[[ -z "${1:-}" ]] && booted_here=1
+[[ "${SPIKE_KEEP_SIM:-0}" == 1 ]] && booted_here=0
 sim_boot "$udid"  # under the fleet's simulator cap (IOS_SIM_WAIT=1 queues for a slot)
 
 cleanup() {
