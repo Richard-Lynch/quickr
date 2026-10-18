@@ -1,6 +1,6 @@
 import QuickrCore
 import Testing
 
-@Test func versionIsSet() {
+@Test(.timeLimit(.minutes(2))) func versionIsSet() {
     #expect(!QuickrCore.version.isEmpty)
 }

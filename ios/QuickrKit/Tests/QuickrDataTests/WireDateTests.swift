@@ -3,7 +3,7 @@ import QuickrData
 import QuickrTestSupport
 import Testing
 
-@Suite struct WireDateTests {
+@Suite(.timeLimit(.minutes(2))) struct WireDateTests {
     @Test(arguments: [
         ("2026-06-01T12:00:00.123456Z", 1_780_315_200.123456, "2026-06-01T12:00:00.123456+00:00"),
         ("2026-03-04T08:00:00Z", 1_772_611_200, "2026-03-04T08:00:00+00:00"),

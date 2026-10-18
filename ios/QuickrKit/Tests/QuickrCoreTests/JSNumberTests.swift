@@ -1,7 +1,7 @@
 import QuickrCore
 import Testing
 
-@Suite struct JSNumberTests {
+@Suite(.timeLimit(.minutes(2))) struct JSNumberTests {
     /// Expected values are what `String(x)` prints in V8.
     @Test(arguments: [
         (0.0, "0"), (-0.0, "0"), (7.0, "7"), (-3.0, "-3"), (7.5, "7.5"), (0.1 + 0.2, "0.30000000000000004"),

@@ -6,7 +6,7 @@ import QuickrTestSupport
 import Testing
 
 /// The §4.2 upsert guards and §4.3 tombstones (sync-protocol.md).
-@Suite struct ServerLayerTests {
+@Suite(.timeLimit(.minutes(2))) struct ServerLayerTests {
     @Test func rowsRoundTripThroughTheStore() async throws {
         let s = try TestStore()
         let schedule = Schedule.daily(.init(times: [TimeOfDay(hour: 9, minute: 30)], timezone: "Europe/London"))

@@ -7,7 +7,7 @@ import Testing
 /// G1 (sync-protocol.md §13.2): every recorded response decodes into its DTO and maps to the
 /// domain, every fixture's operation is in the endpoint table, and every JSON endpoint has a
 /// fixture. A fixture without a DTO mapping fails here.
-@Suite struct FixtureCoverageTests {
+@Suite(.timeLimit(.minutes(2))) struct FixtureCoverageTests {
     @Test(arguments: try Fixtures.apiNames())
     func responseDecodesAndMaps(name: String) throws {
         let fixture = try Fixtures.api(name)

@@ -5,7 +5,7 @@ import Testing
 
 /// "server error locations" in frontend/src/lib/constraints.test.ts, frontend/src/api/errors.ts,
 /// and the entry form's fix mode.
-@Suite struct ProblemMappingTests {
+@Suite(.timeLimit(.minutes(2))) struct ProblemMappingTests {
     typealias P = FieldIssue.PathComponent
 
     @Test func keepsEntryLocsRelativeToTheBody() {
@@ -114,7 +114,7 @@ import Testing
 }
 
 /// `captured_at`, `source` and `notes` (entryMeta.ts; constraints.test.ts).
-@Suite struct EntryMetaValidationTests {
+@Suite(.timeLimit(.minutes(2))) struct EntryMetaValidationTests {
     static let limits = Limits(
         keyPattern: "", slugPattern: "", timePattern: "", maxQuestions: 50, maxEnumOptions: 50, maxStrLength: 5000,
         maxLabelLength: 200, maxHelpTextLength: 500, maxUnitLength: 20, maxDecimals: 10, maxTopicNameLength: 100,

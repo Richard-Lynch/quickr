@@ -6,7 +6,7 @@ import Testing
 /// a rotation before the lookup (`test_headers_are_read_after_the_handler`) and between the lookup
 /// and the response (`test_headers_after_a_rotation_between_lookup_and_response`), each for a 2xx
 /// and a 404.
-@Suite struct SyncMatrixStubs {
+@Suite(.timeLimit(.minutes(2))) struct SyncMatrixStubs {
     // Owner: M3 APNs registration (REG). Only `APIClient.registerApnsDevice` exists so far; the
     // register flow that turns 409 epoch_mismatch into a rebuild and a retried register is REG's.
     // Its INT test then goes in QuickrDataIntegrationTests (the coordinator side is S20).

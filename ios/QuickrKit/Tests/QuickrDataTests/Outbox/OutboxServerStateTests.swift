@@ -7,7 +7,7 @@ import Testing
 
 /// outbox.md §13 cases 17–20, 33, 35–38, 43, 44, 49, 50, 55–58: remote deletes and tombstones,
 /// `stale_revision` recovery, acks and pull-acks, and the identity/epoch checks (§5.2 step 0).
-@Suite struct OutboxServerStateTests {
+@Suite(.timeLimit(.minutes(2))) struct OutboxServerStateTests {
     @Test("17 · (fake server) PATCH 404 after a remote delete tombstones E; the update fails deleted_elsewhere")
     func case17() async throws {
         let h = try OutboxHarness()

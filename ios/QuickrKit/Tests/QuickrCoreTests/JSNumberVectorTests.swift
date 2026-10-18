@@ -6,7 +6,7 @@ import Testing
 /// Differential check of `JSNumber.string` against V8: shared/fixtures/jsnumber-vectors.json
 /// (frontend/scripts/gen-jsnumber-vectors.js) holds `String(x)` for a few thousand doubles,
 /// random bit patterns, powers of ten and typed-looking decimals among them.
-@Suite struct JSNumberVectorTests {
+@Suite(.timeLimit(.minutes(2))) struct JSNumberVectorTests {
     struct Vectors: Decodable {
         struct Case: Decodable {
             var bits: String

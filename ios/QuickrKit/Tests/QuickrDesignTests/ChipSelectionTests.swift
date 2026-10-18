@@ -1,7 +1,7 @@
 import QuickrUI
 import Testing
 
-@Suite struct ChipSelectionTests {
+@Suite(.timeLimit(.minutes(2))) struct ChipSelectionTests {
     let order = ["run", "strength", "yoga", "swim"]
 
     @Test func singleSelectReplacesAndOnlyClearsWhenOptional() {
@@ -50,7 +50,7 @@ import Testing
     }
 }
 
-@Suite struct ChipSummaryTests {
+@Suite(.timeLimit(.minutes(2))) struct ChipSummaryTests {
     @Test func hintsMatchThePWA() {
         #expect(ChipSelection.hint(min: 2, max: 2) == "Pick 2")
         #expect(ChipSelection.hint(min: 1, max: 3) == "Pick 1–3")

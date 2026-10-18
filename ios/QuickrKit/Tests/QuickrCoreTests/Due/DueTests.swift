@@ -3,7 +3,7 @@ import QuickrCore
 import Testing
 
 /// Every case in `shared/fixtures/due-vectors.json`, generated from the real `schedule.py`.
-@Suite struct DueVectorTests {
+@Suite(.timeLimit(.minutes(2))) struct DueVectorTests {
     static let vectors = DueVectors.shared
 
     @Test func vectorCountsAndConstantsMatchTheGenerator() {
@@ -38,7 +38,7 @@ import Testing
 
 /// The surprises found while generating the vectors (docs/ios/STATUS.md), pinned on their own.
 /// Expected values come from the backend's `schedule.py`.
-@Suite struct DueSemanticsTests {
+@Suite(.timeLimit(.minutes(2))) struct DueSemanticsTests {
     static let since = utc("2026-01-01T00:00:00Z")
 
     static func utc(_ text: String) -> Date { try! DueVectors.date(text) }
@@ -164,7 +164,7 @@ import Testing
 
 /// Transitions outside the 2026 vector grid, and sub-second edges. Expected values come from the
 /// backend's `schedule.py` (zoneinfo, `fold=0`).
-@Suite struct DueRegressionTests {
+@Suite(.timeLimit(.minutes(2))) struct DueRegressionTests {
     static func utc(_ text: String) -> Date { DueSemanticsTests.utc(text) }
 
     static func daily(_ times: [String], _ timezone: String, days: [Int] = Schedule.Daily.everyDay) -> Schedule.Daily {
@@ -236,7 +236,7 @@ import Testing
     }
 }
 
-@Suite struct DueTimelineTests {
+@Suite(.timeLimit(.minutes(2))) struct DueTimelineTests {
     static func utc(_ text: String) -> Date { DueSemanticsTests.utc(text) }
 
     @Test func upcomingSlotsGoPastTheLookaheadAndSkipNow() {
@@ -299,7 +299,7 @@ import Testing
     }
 }
 
-@Suite struct DuePerformanceTests {
+@Suite(.timeLimit(.minutes(2))) struct DuePerformanceTests {
     /// Widget timelines and the badge recompute every topic often; one daily status must stay cheap.
     @Test func everyDueVectorComputesQuickly() {
         let vectors = DueVectors.shared.due

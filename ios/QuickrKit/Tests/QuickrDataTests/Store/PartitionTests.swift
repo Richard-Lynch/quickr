@@ -7,7 +7,7 @@ import Testing
 
 /// Per-server store files, the registry, local reset and its crash recovery (sync-protocol.md
 /// §8, §12), file-backed.
-@Suite struct PartitionTests {
+@Suite(.timeLimit(.minutes(2))) struct PartitionTests {
     struct Env {
         let dir: TempDirectory
         let clock = FakeLeaseClock()

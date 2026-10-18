@@ -1,7 +1,7 @@
 import QuickrUI
 import Testing
 
-@Suite struct ToastTests {
+@Suite(.timeLimit(.minutes(2))) struct ToastTests {
     @Test func durations() {
         #expect(Toast("Logged", action: .init("Undo") {}).duration == .seconds(6))
         #expect(Toast("Copied").duration == .milliseconds(3500))

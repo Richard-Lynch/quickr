@@ -6,7 +6,7 @@ import Synchronization
 import Testing
 
 /// Lease primitives (sync-protocol.md §5.3, outbox.md §6) with the fake lease clock.
-@Suite struct LeaseTests {
+@Suite(.timeLimit(.minutes(2))) struct LeaseTests {
     @Test(arguments: LeaseName.allCases) func acquireRenewRelease(_ name: LeaseName) async throws {
         let s = try TestStore()
         let leases = s.store.leases
@@ -156,26 +156,35 @@ import Testing
     }
 }
 
-private func blockUntilSignalled(_ semaphore: DispatchSemaphore) { semaphore.wait() }
-
 /// Lease time is read inside the transaction, after `BEGIN IMMEDIATE` has the lock, never before
 /// a wait for another writer.
-@Suite struct LeaseTimeSamplingTests {
+@Suite(.timeLimit(.minutes(2))) struct LeaseTimeSamplingTests {
     /// Runs `operation` while another writer holds the lock, then advances the lease clock past
     /// every TTL before letting the queued transaction run.
+    ///
+    /// The blocked writer parks a thread of its own queue, never one of Swift concurrency's
+    /// cooperative pool. The pool is as wide as the CPU count, so on a 3-core CI runner these
+    /// tests' blocked writers took every pool thread, and nothing was left to open their gates.
     private func behindABlockedWriter<T: Sendable>(
         _ s: TestStore, _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        let entered = DispatchSemaphore(value: 0)
         let gate = DispatchSemaphore(value: 0)
         let writer = s.writer
-        let blocker = Task.detached {
-            try writer.write { _ in
-                entered.signal()
-                gate.wait()
+        let (entered, enter) = AsyncStream<Void>.makeStream()
+        let blocker = Task {
+            try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, any Error>) in
+                DispatchQueue(label: "LeaseTimeSamplingTests.blocker").async {
+                    done.resume(
+                        with: Result {
+                            try writer.write { _ in
+                                enter.yield()
+                                gate.wait()
+                            }
+                        })
+                }
             }
         }
-        await Task.detached { blockUntilSignalled(entered) }.value
+        for await _ in entered { break }
         let queued = Task { try await operation() }
         try await Task.sleep(for: .milliseconds(50))  // the operation is now waiting for the lock
         s.clock.advance(by: .seconds(61))
@@ -225,7 +234,7 @@ private func blockUntilSignalled(_ semaphore: DispatchSemaphore) { semaphore.wai
 }
 
 /// The single global lock order: `sync` → `flush` (sync-protocol.md §5.2).
-@Suite struct LockOrderTests {
+@Suite(.timeLimit(.minutes(2))) struct LockOrderTests {
     @Test func flushHoldersNeverWaitForSync() async throws {
         let s = try TestStore()
         let leases = s.store.leases

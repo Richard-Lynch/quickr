@@ -4,7 +4,7 @@ import Testing
 
 @testable import QuickrData
 
-@Suite struct TopicEntityQueryTests {
+@Suite(.timeLimit(.minutes(2))) struct TopicEntityQueryTests {
     let topics: [ViewTopic]
 
     init() async throws {
@@ -33,7 +33,7 @@ import Testing
 }
 
 /// The query through the registered repository, as the system calls it in the app or the widget.
-@Test func queryReadsTheRegisteredSource() async throws {
+@Test(.timeLimit(.minutes(2))) func queryReadsTheRegisteredSource() async throws {
     IntentTopicSource.register(PlaceholderTopicRepository())
     let query = TopicEntityQuery()
     #expect(try await query.allEntities().map(\.name) == ["Coffee", "Mood"])
@@ -41,7 +41,7 @@ import Testing
 }
 
 /// The returned value is asserted end to end in `QuickRUITests/IntentResolutionTests`.
-@Test func logEntryStubPerformsWithoutAStore() async throws {
+@Test(.timeLimit(.minutes(2))) func logEntryStubPerformsWithoutAStore() async throws {
     let topic = TopicEntity(id: PlaceholderTopicRepository.coffee, name: "Coffee", slug: "coffee")
     let intent = LogEntryIntent(topic: topic)
     _ = try await intent.perform()

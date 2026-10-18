@@ -8,7 +8,7 @@ import Testing
 /// The §3.2–§3.3 overlay matrix over every item state and server presence, checked through the
 /// pure overlay and through the store: visibility, sync state and error, whether the entity is
 /// counted, its version's count, and latest-entry selection.
-@Suite struct OverlayMatrixTests {
+@Suite(.timeLimit(.minutes(2))) struct OverlayMatrixTests {
     enum Kind: String, Sendable {
         case create, update, delete
     }
