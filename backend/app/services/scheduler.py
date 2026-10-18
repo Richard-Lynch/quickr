@@ -59,7 +59,8 @@ from app.services.topics import parse_questions
 
 log = logging.getLogger(__name__)
 
-# Arbitrary, app-wide advisory lock id ("qkr" + 1).
+# Arbitrary, app-wide advisory lock id ("qkr" + 1), scoped to this database like every
+# advisory lock (see feed.FEED_LOCK_ID).
 ADVISORY_LOCK_ID = 0x716B7201
 # Delivery stops this long after it starts; unfinished topics wait for the next tick.
 TICK_BUDGET_SECONDS = 30.0

@@ -41,8 +41,12 @@ public enum OutboxSuccess: Sendable, Hashable {
 /// The outbox's only way to the network. `APIClient` satisfies it (below); tests may script it.
 ///
 /// A sender never throws: every failure, including a request it refused to build, is an
-/// `APIOutcome` (outbox.md §5.1). It must honour task cancellation promptly (a budget expiry
-/// cancels the request, §10) and must never follow redirects.
+/// `APIOutcome` (outbox.md §5.1). It must never follow redirects, and it **must honour task
+/// cancellation promptly** (a budget expiry or an expiration handler cancels the request, §10),
+/// as `URLSession` does. A flusher stops listening to a sender that doesn't after its shutdown
+/// grace, so the flush still ends in time, but that sender's task, and whatever it retains,
+/// lives on until it returns: a sender that ignores cancellation leaks one task per abandoned
+/// request.
 public protocol OutboxSender: Sendable {
     func send(_ request: OutboxRequest) async -> APIResponse<OutboxSuccess>
 }

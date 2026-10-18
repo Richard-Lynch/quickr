@@ -1,7 +1,8 @@
 """Shared fixtures.
 
 The test database (``QUICKR_TEST_DATABASE_URL``, default ``quickr_test`` on the
-dev server) is created if missing and migrated with Alembic -- never
+dev server, ``quickr_test_<worktree>_<hash>`` in a git worktree: see ``tools.test_database``)
+is created if missing and migrated with Alembic -- never
 ``metadata.create_all`` -- so the migrations themselves are exercised. Tables
 are truncated before every DB-backed test.
 """
@@ -15,9 +16,9 @@ from pathlib import Path
 
 import pytest
 
-TEST_DATABASE_URL = os.environ.get(
-    "QUICKR_TEST_DATABASE_URL", "postgresql+asyncpg://quickr:quickr@localhost:5433/quickr_test"
-)
+from tools import test_database  # SQLAlchemy only: imports no app settings
+
+TEST_DATABASE_URL = test_database.url()
 # Must happen before anything calls the lru_cached get_settings()/get_engine().
 os.environ["QUICKR_DATABASE_URL"] = TEST_DATABASE_URL
 # Tests drive scheduler.tick() directly; never start the background loop.
@@ -29,8 +30,8 @@ for _name in [n for n in os.environ if n.startswith("QUICKR_APNS_")]:
 
 import httpx  # noqa: E402
 from alembic.config import Config  # noqa: E402
-from sqlalchemy import make_url, text  # noqa: E402
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine  # noqa: E402
+from sqlalchemy import text  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine  # noqa: E402
 
 from alembic import command  # noqa: E402
 from app.config import get_settings  # noqa: E402
@@ -53,20 +54,6 @@ TABLES = (
 )
 
 
-async def _ensure_database(url: str) -> None:
-    u = make_url(url)
-    admin = create_async_engine(u.set(database="postgres"), isolation_level="AUTOCOMMIT")
-    try:
-        async with admin.connect() as conn:
-            exists = await conn.scalar(
-                text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": u.database}
-            )
-            if not exists:
-                await conn.execute(text(f'CREATE DATABASE "{u.database}"'))
-    finally:
-        await admin.dispose()
-
-
 def alembic_config() -> Config:
     cfg = Config(str(BACKEND_DIR / "alembic.ini"))
     cfg.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
@@ -76,10 +63,28 @@ def alembic_config() -> Config:
 @pytest.fixture(scope="session")
 def migrated_db() -> str:
     assert get_settings().database_url == TEST_DATABASE_URL
-    asyncio.run(_ensure_database(TEST_DATABASE_URL))
+    asyncio.run(test_database.ensure(TEST_DATABASE_URL))
     # alembic/env.py drives its own event loop, so this must run outside ours.
     command.upgrade(alembic_config(), "head")
     return TEST_DATABASE_URL
+
+
+@pytest.fixture
+async def peer_engine(migrated_db: str) -> AsyncIterator[AsyncEngine]:
+    """A second, empty database on the same server, as another worktree's test database or
+    another quickR instance would be. Its name is unique to this fixture invocation, which
+    drops it afterwards (``make test-db-prune`` clears ones a killed run left, after an hour). A lock wait
+    there fails after 5 s instead of hanging."""
+    peer = test_database.peer_url(migrated_db)
+    await test_database.create(peer)
+    try:
+        engine = create_async_engine(peer, connect_args={"server_settings": {"lock_timeout": "5s"}})
+        try:
+            yield engine
+        finally:
+            await engine.dispose()
+    finally:
+        await test_database.drop(peer)
 
 
 @pytest.fixture

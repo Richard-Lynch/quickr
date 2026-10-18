@@ -35,7 +35,9 @@ from app.models import AppSetting, ChangeLog, DeletedId, FeedKind, FeedOp
 
 log = logging.getLogger(__name__)
 
-# Arbitrary, app-wide advisory lock id ("qkr" + 2); the scheduler uses "qkr" + 1.
+# Arbitrary, app-wide advisory lock id ("qkr" + 2); the scheduler uses "qkr" + 1. Postgres
+# scopes advisory locks to the current database, so other databases on the server (another
+# quickR, another worktree's tests) never contend for it.
 FEED_LOCK_ID = 0x716B7202
 MAX_ATTEMPTS = 3
 # deadlock_detected, serialization_failure

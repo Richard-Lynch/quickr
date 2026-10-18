@@ -157,6 +157,8 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- xcodebuild occasionally hangs after the tests finish (seen by FORM): add a timeout/watchdog to `ios/scripts` test runs and a CI step timeout.
+- PWA parity bugs found by BUILDER (server is authoritative; fix the PWA to match): slugify (server drops non-ASCII after NFKD, falls back to `topic`; PWA gives `stra-e`/empty); duplicate-label check (server `casefold`, PWA `toLocaleLowerCase`); whitespace strip (pydantic Unicode White_Space vs JS `trim`, e.g. U+FEFF). Use `shared/fixtures/builder-vectors.json` in the PWA tests.
 - [ ] Feed: an ASGI disconnect/send-error test proving the CSV snapshot transaction closes and the connection is returned; a >500-row CSV with a mutation between pages.
 - [ ] Feed: a dedicated regression test for the commit-time retry in `@writer`.
 - [ ] Specs/fixtures: `quicklog-vectors.json` gains category-id cases (M3).
@@ -279,6 +281,18 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-17 23:40: INT started (ios/m1-int from 54f0eee, ex-BUILDER agent; BUILDER accepted at 22865b8, merges at the M6 cut). OUTBOX r5 resolves r4; last item: lease polling and post-deadline DB work. Final small fix requested; residual DB-busy time documented; the orchestrator verifies, with no more Codex rounds (diminishing returns). testiso r3: 4 of 5 resolved; `--all` namespace restriction plus a min-age floor requested, then done. FORM committed 74161b0 (form engine, UI test, screenshots). SKEL unresponsive for 53 min: its xcodebuild is idle at 0% CPU.
+
+- 2026-10-17 23:35: MP started (ios/m1-mp from 99a5473, SYNC agent). OUTBOX r4: still a fresh grace per send (refetch after stale_revision) → one absolute shutdown deadline. testiso r2: worktree-name collisions (needs a path hash), prune can drop a live lazy peer, `ensure()` race on CREATE. FORM: UI test green, screenshots captured, check-ios running; xcodebuild sometimes hangs after tests (CI timeout watch → backlog). Load spiked again to ~350 (2 sims + Spotlight/photos + Docker VM).
+
+- 2026-10-17 23:10: Load ~7. SYNC APPROVED (Codex r3 on the veto table 08b2bec). OUTBOX r3: unbounded wait resolved; new Major: grace runs past the extension budget, and a commit-before-grace reconciliation test is needed. BUILDER r2: both majors resolved; Major: gen-casefold isn't wired into `make vectors`, plus pinning the Unicode/Python version. Combined SYNC+OUTBOX head: ios/m1-outbox 99a5473. testiso fixes in progress; SKEL and FORM running.
+
+- 2026-10-17 22:55: Load dropped to ~12; FORM resumed. Codex: SYNC r2 resolves 1,2,4,5; still Major: an overwriteable `reset_veto` (needs a monotonic veto set). OUTBOX r2 resolves all round-1 items; new Major: the shutdown wait is unbounded when the sender ignores cancellation (liveness). testiso: REQUEST CHANGES (no per-worktree default DB; unowned `_peer` DBs). BUILDER: REQUEST CHANGES (canonical-equivalence vs Python code-point equality for duplicates and compat). All four are fixing. Combined SYNC+OUTBOX head: ios/m1-outbox e29232c. SKEL committed the intents proof b4fc26b.
+
+- 2026-10-17 22:40: OUTBOX Codex r1 = REQUEST CHANGES (no blockers; all 8 author spec resolutions agreed). Majors: a definitive answer is lost when cancellation races the timer; failed deletes are missing from the C0 guard. Minors: the coalescing test is weak; `source` is filled only when nil. Stubs major declined (MP/INT). Fixes in progress on top of 69bb903. SYNC merged OUTBOX and dropped its duplicate (39b64fb). SKEL committed 5ea1e46 (debug dylib off for intents metadata).
+
+- 2026-10-17 22:45: BUILDER logic done (0d72c47 + vectors 171d5fd; 115 tests, 108+32+17 server-generated vectors); Codex review running. SYNC fixed Codex majors 1–5 (52e9b96 + Store veto 7a6d071) and is merging OUTBOX to remove the duplicate `OutboxResolution`; SYNC Codex round 2 follows. testiso `make check` green; 3× backend runs pending.
 
 - 2026-10-17 22:30: OUTBOX done (8947602): all 61 matrix cases covered (17 MP/INT stubs disabled, each pointing to its simulation), 267 Data tests green, 4 mutation checks all caught. 8 spec ambiguities resolved by the author; Codex review running (`codex-m1-outbox.md`). Its OutboxSyncEffects contract was handed to SYNC. Flake noted: `DuePerformanceTests.widgetTimelinesComputeQuickly` under load → backlog.
 
