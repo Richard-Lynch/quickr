@@ -44,27 +44,92 @@ sim_udid() {
   echo "$udid"
 }
 
+# The cap on booted worktree clones (sim-clone.sh names them "<source> <dir>-<hash6>"), so
+# parallel worktrees don't swamp the Mac. Prints one "<udid> <name>" line per booted clone
+# other than $1, or "self" alone when $1 is already booted (re-booting your own clone, or
+# using it while booted, never counts against you).
+booted_clones() {
+  xcrun simctl list -j devices | python3 -c '
+import json, re, sys
+me = sys.argv[1]
+clone = re.compile(r"^quickR .+ \S+-[0-9a-f]{6}$")
+out = []
+for devices in json.load(sys.stdin)["devices"].values():
+    for d in devices:
+        if d["state"] != "Booted":
+            continue
+        if d["udid"] == me:
+            print("self")
+            sys.exit()
+        if clone.match(d["name"]):
+            out.append(d["udid"] + " " + d["name"])
+print("\n".join(out))
+' "$1"
+}
+
+# Boots simulator $1 (if it isn't already) and waits until it is ready, admitted by the cap:
+# while IOS_SIM_CAP (default 2; 0 = no cap) other clones are booted it fails, naming them, or
+# with IOS_SIM_WAIT=1 polls every IOS_SIM_WAIT_POLL seconds (default 15) until a slot frees.
+# Admission is atomic across worktrees: one machine-wide lock is held from the check until
+# the device shows as booted, and released while waiting (then the check runs again).
+SIM_CAP_LOCK="${QUICKR_SIM_CAP_LOCK:-${TMPDIR:-/tmp}/quickr-sim-cap.lockf}"
 sim_boot() {
-  xcrun simctl bootstatus "$1" -b >/dev/null
+  local udid="$1" cap="${IOS_SIM_CAP:-2}" booted count announced=0 lock_status
+  while :; do
+    exec 8>>"$SIM_CAP_LOCK"
+    lock_status=0
+    /usr/bin/lockf -t "${IOS_SIM_LOCK_WAIT:-900}" 8 >/dev/null 2>&1 || lock_status=$?
+    (( lock_status == 0 )) || { exec 8>&-; die "could not take the simulator lock $SIM_CAP_LOCK (lockf $lock_status)"; }
+    booted="$(booted_clones "$udid")"
+    count="$(grep -c . <<<"$booted" || true)"
+    if [[ "$booted" == self || "$cap" == 0 ]] || (( count < cap )); then
+      # The boot runs without fd 8, so nothing it starts can hold the lock.
+      xcrun simctl bootstatus "$udid" -b >/dev/null 8>&-
+      exec 8>&-
+      return 0
+    fi
+    exec 8>&-
+    if [[ "${IOS_SIM_WAIT:-0}" != 1 ]]; then
+      die "$count simulator clones are booted (IOS_SIM_CAP=$cap); shut one down or wait (--wait / IOS_SIM_WAIT=1):
+$(sed 's/^/  /' <<<"$booted")"
+    fi
+    if (( !announced )); then
+      echo "ios: waiting for a simulator slot ($count booted, IOS_SIM_CAP=$cap):" >&2
+      sed 's/^/  /' <<<"$booted" >&2
+      announced=1
+    fi
+    sleep "${IOS_SIM_WAIT_POLL:-15}"
+  done
 }
 
 # Parallel compile jobs per build. Several worktrees build at once on one Mac, and each
 # build defaults to one job per core, which oversubscribes it badly. IOS_JOBS=0 = no cap.
 IOS_JOBS="${IOS_JOBS:-4}"
 
+# Runs a command under watchdog.sh: killed, with its whole process group, after
+# IOS_WATCHDOG_SILENCE_MIN minutes without any output (default 20), or 60 s after xcodebuild's
+# final "** … SUCCEEDED/FAILED **" line if it hasn't exited by then. IOS_WATCHDOG=0 turns it
+# off. Output is merged onto stdout.
+watchdog() {
+  "$IOS_DIR/scripts/watchdog.sh" "$@"
+}
+
 # xcodebuild against the generated project, with shared DerivedData and SPM checkout dirs.
-# Packages resolve only to the tracked pins when there are any. Output goes through
-# xcbeautify when it is installed.
+# Packages resolve only to the tracked pins when there are any. Runs under the watchdog;
+# output goes through xcbeautify when it is installed.
 xcb() {
   local args=(-project "$PROJECT" -scheme "$SCHEME" -derivedDataPath "$DERIVED"
     -clonedSourcePackagesDirPath "$SPM_DIR")
   [[ -f "$RESOLVED" ]] && args+=(-onlyUsePackageVersionsFromResolvedFile)
   [[ "$IOS_JOBS" != 0 ]] && args+=(-jobs "$IOS_JOBS")
   args+=("$@")
+  # The first build fetches the packages, which can be quiet for a long time.
+  local silence="${IOS_WATCHDOG_SILENCE_MIN:-20}"
+  [[ -d "$SPM_DIR/checkouts" ]] || silence="${IOS_WATCHDOG_SILENCE_MIN:-40}"
   if command -v xcbeautify >/dev/null; then
-    xcodebuild "${args[@]}" 2>&1 | xcbeautify --quiet
+    IOS_WATCHDOG_SILENCE_MIN="$silence" watchdog xcodebuild "${args[@]}" | xcbeautify --quiet
   else
-    xcodebuild "${args[@]}"
+    IOS_WATCHDOG_SILENCE_MIN="$silence" watchdog xcodebuild "${args[@]}"
   fi
 }
 
@@ -73,5 +138,5 @@ swift_test() {
   local flags=()
   [[ -f "$RESOLVED" ]] && flags+=(--only-use-versions-from-resolved-file)
   [[ "$IOS_JOBS" != 0 ]] && flags+=(--jobs "$IOS_JOBS")
-  swift test --package-path "$IOS_DIR/QuickrKit" ${flags[@]+"${flags[@]}"} "$@"
+  watchdog swift test --package-path "$IOS_DIR/QuickrKit" ${flags[@]+"${flags[@]}"} "$@"
 }

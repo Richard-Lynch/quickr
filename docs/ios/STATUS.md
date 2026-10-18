@@ -288,6 +288,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-18 02:45: WATCHDOG merged into ios/m1-data (c39e80a verified by the orchestrator; script tests green). Every xcodebuild and swift test now runs under the watchdog, and simulator boots go through the machine-wide cap lock. FLAKE root cause: at a 1 s budget the request deadline passed before the POST was sent → 16f now uses a 5 s budget and a #require; bounds measure the flush's own timestamps. Decision: tight real-time bounds stay strict, gates aren't trusted during load spikes, and `QUICKR_TIMING_SLACK` exists for knowingly loaded local runs (never CI).
+
 - 2026-10-18 02:40: Load hit ~740: FLAKE's stress test spawned 32 `yes` processes (4 were asked for), plus SPIKE's Docker stack. The orchestrator killed the `yes` processes. WATCHDOG r2: all round-1 items resolved; one new Major (the final marker can be split across 3 chunks) → final fix, orchestrator verifies. SPIKE checkpoint b750a1c (handler, categories, payloads rendered by the server's own apns.render); its first sim proof run is in progress.
 
 - 2026-10-18 02:05: SKEL merged into ios/m1-data (2891f06; **correction: the post-merge ios-core-test had 1 failure, OutboxUndoTests 16f "condition not met within 5 s". It passes 3/3 alone, so it's a load-sensitive flake while the MP suite runs concurrently; the fix is assigned.** Codex APPROVE WITH MINORS, all 4 fixed in 928f753; check-ios on 26.0 green, 440 unit). Remaining for M1: SPIKE (in progress), WATCHDOG rework, then the milestone checklist (widget-proof on 26.0 and 27, Intents plan on 27, check-ios, ios-integration), the M1 Codex+Claude review, and the PR.

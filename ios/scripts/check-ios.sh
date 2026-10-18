@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
+<<<<<<< HEAD
 # The local iOS gate: gen, swift test, the Unit and UI plans on both simulators, the Intents plan on
 # the iOS 27+ one, lint, Xcode version.
+=======
+# The local iOS gate: gen, the script tests, swift test, the Unit and UI plans on both simulators,
+# lint, Xcode version.
+>>>>>>> ios/m1-watchdog
 # Usage: check-ios.sh <min simulator> <current simulator>
 source "$(dirname "$0")/common.sh"
 require_xcode
 here="$(dirname "$0")"
 "$here/check-xcode-version.sh"
 "$here/gen.sh"
+"$here/tests/watchdog-test.sh"
+"$here/tests/sim-cap-test.sh"
 swift_test
 for sim in "$1" "$2"; do
   "$here/test.sh" Unit "$sim"

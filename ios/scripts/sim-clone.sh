@@ -4,8 +4,14 @@
 # it on first use: "<source> <worktree dir>-<hash of the canonical worktree path>", e.g.
 # "quickR iOS-26-0 ios-m1-tools-021970", so same-named directories elsewhere never share one.
 #
-#   sim-clone.sh [source]           create (or find) the clone; source defaults to "quickR iOS-26-0"
-#   sim-clone.sh --delete [source]  shut down and delete it
+#   sim-clone.sh [--wait|--no-boot] [source]  create (or find) the clone and boot it;
+#                                             source defaults to "quickR iOS-26-0"
+#   sim-clone.sh --delete [source]            shut down and delete it
+#
+# Booting is admitted by the simulator cap (common.sh `sim_boot`): it refuses (non-zero,
+# naming them) while IOS_SIM_CAP (default 2) other clones are booted, unless this clone is
+# booted already; --wait (or IOS_SIM_WAIT=1) polls until a slot frees. --no-boot only prints
+# the UDID. test.sh and sim-run.sh boot through the same admission.
 #
 # A shut-down source is cloned with `simctl clone`; a booted one (in use elsewhere) is never
 # touched: the clone is created fresh from the same device type and runtime instead.
@@ -16,6 +22,9 @@ require_xcodebuild
 
 delete=0
 if [[ "${1:-}" == --delete ]]; then delete=1; shift; fi
+boot=1
+if [[ "${1:-}" == --wait ]]; then export IOS_SIM_WAIT=1; shift; fi
+if [[ "${1:-}" == --no-boot ]]; then boot=0; shift; fi
 source_name="${1:-quickR iOS-26-0}"
 root_real="$(cd "$ROOT_DIR" && pwd -P)"
 name="$source_name $(basename "$root_real")-$(printf '%s' "$root_real" | shasum | cut -c1-6)"
@@ -65,18 +74,21 @@ if (( delete )); then
 fi
 
 if [[ -n "$existing" ]]; then
-  echo "${existing%% *}"
-  exit 0
+  udid="${existing%% *}"
+else
+  src="$(find_device "$source_name")"
+  [[ -n "$src" ]] || die "no available simulator named '$source_name' (see: xcrun simctl list devices available)"
+  read -r src_udid src_state src_type src_runtime <<<"$src"
+  if [[ "$src_state" == Shutdown ]]; then
+    udid="$(xcrun simctl clone "$src_udid" "$name")"
+    echo "sim-clone: cloned '$source_name' -> '$name'" >&2
+  else
+    udid="$(xcrun simctl create "$name" "$src_type" "$src_runtime")"
+    echo "sim-clone: '$source_name' is $src_state; created '$name' from its device type and runtime" >&2
+  fi
 fi
 
-src="$(find_device "$source_name")"
-[[ -n "$src" ]] || die "no available simulator named '$source_name' (see: xcrun simctl list devices available)"
-read -r src_udid src_state src_type src_runtime <<<"$src"
-if [[ "$src_state" == Shutdown ]]; then
-  udid="$(xcrun simctl clone "$src_udid" "$name")"
-  echo "sim-clone: cloned '$source_name' -> '$name'" >&2
-else
-  udid="$(xcrun simctl create "$name" "$src_type" "$src_runtime")"
-  echo "sim-clone: '$source_name' is $src_state; created '$name' from its device type and runtime" >&2
-fi
+# Booting (and waiting for a slot) must not hold this lock: other worktrees' lookups need it.
+exec 9>&-
+(( boot )) && sim_boot "$udid"
 echo "$udid"
