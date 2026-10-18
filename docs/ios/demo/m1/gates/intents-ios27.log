@@ -1,0 +1,23 @@
+# Intents plan on the iOS 27 clone (as check-ios runs it)
+# command: ios/scripts/test.sh Intents 64299A9D-CAC2-48AB-A7B0-C8DF7263C5CC
+# commit: 0eacee2 (ios/m1-data 01cba48, the M1 final tip with M1-FIXES, merged into this worktree at 03:06Z, just before this run)
+# host: macOS 27.0.1, Xcode 27.1 Build version 27A9275 
+# finished: 2026-10-18T03:08:38Z
+
+## script output (xcbeautify, ANSI stripped)
+ios: Intents plan on 64299A9D-CAC2-48AB-A7B0-C8DF7263C5CC -- iOS 27.0 --
+Executed 2 tests, with 0 failures (0 unexpected) in 28.629 (28.728) seconds
+Executed 2 tests, with 0 failures (0 unexpected) in 28.629 (28.732) seconds
+Test Suite 'All tests' passed at 2026-10-18 04:08:37.266.
+Executed 2 tests, with 0 failures (0 unexpected) in 28.629 (28.736) seconds
+Test session results: /Users/richie/code/quickr-worktrees/ios-m1-evidence/ios/build/results/Intents-64299A9D-CAC2-48AB-A7B0-C8DF7263C5CC.xcresult
+Test Succeeded
+exit=0
+
+## tests (xcresulttool, Intents-64299A9D-CAC2-48AB-A7B0-C8DF7263C5CC.xcresult)
+Test Plan: Intents — Passed 
+  UI test bundle: QuickRIntentsTests — Passed 
+    Test Suite: IntentResolutionTests — Passed 
+      Test Case: testLogEntryIntentRunsInTheApp() — Passed 19s
+      Test Case: testTopicEntityResolvesInTheApp() — Passed 9s
+summary: Passed, 2 passed, 0 failed, 0 skipped; devices: quickR iOS27 ios-m1-evidence-1a0aeb (iOS Simulator 27.0)

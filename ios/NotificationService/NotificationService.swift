@@ -12,10 +12,16 @@ final class NotificationService: UNNotificationServiceExtension {
     ) {
         #if DEBUG
         // Only while a spike run has opted in (SpikeGate); otherwise untouched, as in Release.
-        guard SpikeGate.isEnabled else { return contentHandler(request.content) }
+        guard SpikeGate.isEnabled else {
+            contentHandler(request.content)
+            return
+        }
+        // Only Sendable values cross into the task: Xcode 26's region-based isolation checker
+        // crashes on the non-Sendable content being extracted inside it.
         let delivery = SpikeDelivery(content: request.content, handler: contentHandler)
-        Task {
-            delivery.deliver(await Self.spikePrepare(delivery.content))
+        Task { @Sendable in
+            let prepared = await NotificationService.spikePrepare(delivery)
+            delivery.deliver(prepared)
         }
         #else
         contentHandler(request.content)
@@ -23,7 +29,8 @@ final class NotificationService: UNNotificationServiceExtension {
     }
 
     #if DEBUG
-    private static func spikePrepare(_ content: UNNotificationContent) async -> SpikeDelivery.Content {
+    private static func spikePrepare(_ delivery: SpikeDelivery) async -> SpikeDelivery.Content {
+        let content = delivery.content
         let started = Date()
         SpikeLog.append("nse.start", ["category": content.categoryIdentifier])
         guard let row = SpikeCategories.row(userInfo: content.userInfo), let location = SpikeLog.location else {
