@@ -3,6 +3,7 @@ import GRDB
 import QuickrCore
 import QuickrData
 import QuickrTestSupport
+import Synchronization
 import Testing
 
 /// `ValueObservation` helpers and the cross-process refresh.
@@ -39,11 +40,19 @@ import Testing
         try await app.writer.write { db in try LocalStore.createSyncState(db, serverId: "s", baseURL: "u") }
 
         let refresh = RefreshSignal(notifier: notifier)
-        var states = app.observeSyncState(refresh: refresh.stream()).makeAsyncIterator()
-        #expect(try await states.next()??.cursor == 0)
-        try await Task.sleep(for: .milliseconds(20))  // let the refresh forwarder subscribe
+        let cursors = Mutex<[Int?]>([])
+        let observer = Task {
+            for try await state in app.observeSyncState(refresh: refresh.stream()) {
+                cursors.withLock { $0.append(state?.cursor) }
+            }
+        }
+        defer { observer.cancel() }
+        // Readiness barrier: the first value means the observation runs, and its refresh stream
+        // (subscribed before iteration starts) is listening. Both waits are bounded.
+        try await eventually("the first value is observed") { cursors.withLock { $0 } == [0] }
         try await widget.writer.write { db in try db.execute(sql: "UPDATE sync_state SET cursor = 7") }
-        #expect(try await states.next()??.cursor == 7)
+        try await eventually("the other process's write arrives") { cursors.withLock { $0.last } == 7 }
+        #expect(cursors.withLock { $0 } == [0, 7])
     }
 
     @Test func pokeRefetchesAndEqualValuesAreDropped() async throws {

@@ -130,9 +130,11 @@ public actor SyncCoordinator {
     }
 
     /// Onboarding or Settings (§2.1): fetch `after=0` from `baseURL`, read its `server_id`, then
-    /// activate the known store for it (discarding the page) or create one at `store_gen = 1` and
-    /// apply the page as its first. Then pull to the head. Switching servers' warnings and APNs
-    /// (§8.4) are the caller's.
+    /// activate the known store for it (discarding the page, and recording `baseURL` as its address
+    /// in the registry and in the store's `sync_state`, so later pulls use it) or create one at
+    /// `store_gen = 1` and apply the page as its first. Then pull to the head. Switching servers'
+    /// warnings and APNs (§8.4) are the caller's, and so is rebuilding anything it made for the old
+    /// address (the outbox's sender).
     ///
     /// It holds the coordinator's operation lock from the probe to the end of its own pull, so no
     /// run, reset or other connect interleaves; its result is always its own pull of the server
@@ -161,8 +163,13 @@ public actor SyncCoordinator {
             invalidateStore()
             if isNew {
                 store = try await partitions.createStore(serverId: page.serverId, baseURL: baseURL.absoluteString)
+            } else {
+                try await partitions.registry.updateBaseURL(serverId: page.serverId, baseURL: baseURL.absoluteString)
             }
             try await partitions.registry.setActive(page.serverId)
+            if !isNew, let known = try await activeStore(resumingReset: false) {
+                try await known.writer.write { db in try LocalStore.setBaseURL(db, baseURL.absoluteString) }
+            }
             let result = await runLocked(prefetched: isNew ? (page, timing) : nil)
             return .connected(serverId: page.serverId, isNew: isNew, sync: result)
         } catch {
