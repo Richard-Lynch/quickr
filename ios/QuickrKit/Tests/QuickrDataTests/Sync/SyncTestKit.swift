@@ -458,6 +458,39 @@ func eventually(
     }
 }
 
+/// Awaits `work`, failing after `timeout` if it hasn't returned, so a wait that a regression
+/// deadlocks becomes a recorded issue in seconds instead of a hung job. The work runs in a task
+/// of its own and is abandoned on timeout, so it never holds the test up.
+func within<T: Sendable>(
+    _ what: String, timeout: Duration = .seconds(30), _ work: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    let outcome = Mutex<Result<T, any Error>?>(nil)
+    let finished = Mutex(false)
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        let finish: @Sendable (Result<T, any Error>?) -> Void = { result in
+            let first = finished.withLock { done in
+                defer { done = true }
+                return !done
+            }
+            guard first else { return }
+            outcome.withLock { $0 = result }
+            continuation.resume()
+        }
+        Task {
+            do { finish(.success(try await work())) } catch { finish(.failure(error)) }
+        }
+        Task {
+            try? await Task.sleep(for: timeout)
+            finish(nil)
+        }
+    }
+    guard let result = outcome.withLock({ $0 }) else {
+        Issue.record("timed out after \(timeout) waiting until \(what)")
+        throw CancellationError()
+    }
+    return try result.get()
+}
+
 enum Payloads {
     static let water = TopicRef(id: UUID(uuidString: FakeFeedServer.water)!, slug: "water", name: "Water")
 
