@@ -52,14 +52,17 @@ enum Make {
     }
 }
 
-/// A store over an in-memory database with a bootstrapped `sync_state` and fake clocks.
+/// A store over an in-memory database (or a file at `path`) with a bootstrapped `sync_state` and
+/// fake clocks.
 struct TestStore {
     let store: LocalStore
     let clock: FakeLeaseClock
     let wall: FakeClock
+    let path: String?
 
-    init(epoch: String? = "E1") throws {
-        let queue = try TestDatabase.store()
+    init(epoch: String? = "E1", path: String? = nil) throws {
+        self.path = path
+        let queue = try TestDatabase.store(path: path)
         try queue.write { db in
             try LocalStore.createSyncState(db, serverId: "server-1", baseURL: "https://q.example")
             try db.execute(sql: "UPDATE sync_state SET epoch = ?", arguments: [epoch])

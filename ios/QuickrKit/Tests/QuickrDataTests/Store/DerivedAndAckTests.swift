@@ -133,8 +133,8 @@ import Testing
         let sender: SenderContext
 
         /// A topic and an entry on the server, an `entry.update` claimed in flight with `flush` held.
-        init() async throws {
-            s = try TestStore()
+        init(path: String? = nil) async throws {
+            s = try TestStore(path: path)
             entry = Make.entry(topicId: topic.id, revision: 3)
             try s.write { [topic, entry] (db: Database) throws in
                 _ = try ServerLayer.upsert(db, topic: topic)
