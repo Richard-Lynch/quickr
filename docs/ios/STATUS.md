@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- **Milestone checklist item (from SKEL):** before every milestone PR that touches intents or widgets, run `ios/scripts/widget-proof.sh` on an iOS 26.0 clone first, then on 27; and run the Intents plan locally on 27 via check-ios. CI (iOS 26.x, Unit plan) only covers the `IntentMetadataTests` guard. Add the same requirement to the WIDGETS and INTENTS done-criteria.
 - App composition root (SKEL follow-up / M2 SYNC-UX): wire `Outbox(onSignal: coordinator.handle)` and `OutboxFlushBridge.bind(scheduler)` on every store open, reset and server switch (nil when there's no store), per INT.
 - S10 (APNs register vs a rotated epoch) is deferred to M3 REG; the stub carries an owner note.
 - DS: NumberStepper's fixed 52 pt trailing unit padding lets the value touch the unit at AX XXXL ("30min"); use @ScaledMetric (found by FORM).
@@ -286,6 +287,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-18 01:55: SKEL done (6e4c400; check-ios green on 26.0 and 27.0; widget proof green on both). Codex reviewing. CI-gap recommendation adopted: IntentMetadataTests in CI plus widget-proof on 26.0 as a milestone checklist item. Siri research and DAG amended (no AppIntentsPackage).
 
 - 2026-10-18 01:50: MP merged into ios/m1-data (85ae3b0) after the orchestrator verified the r2 minors (9257754). ios-core-test and lint green on the merge. INT r2 and WATCHDOG Codex reviews running.
 
