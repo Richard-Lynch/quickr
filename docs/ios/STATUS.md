@@ -288,6 +288,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-18 02:05: SKEL merged into ios/m1-data (2891f06; Codex APPROVE WITH MINORS, all 4 fixed in 928f753; check-ios on 26.0 green, 440 unit). Remaining for M1: SPIKE (in progress), WATCHDOG rework, then the milestone checklist (widget-proof on 26.0 and 27, Intents plan on 27, check-ios, ios-integration), the M1 Codex+Claude review, and the PR.
+
 - 2026-10-18 02:00: INT merged into ios/m1-data (0681189; stub conflict with MP resolved: OutboxMatrixStubs deleted, SyncMatrixStubs keeps only S10 → M3 REG). Gate on the merge: ios-core-test (367 data + 83 + 29 + 14 integration-target tests skipped without the harness), lint, backend and alembic all green. SKEL: APPROVE WITH MINORS, fixing 4. WATCHDOG: 5 majors, fixing. Next: SPIKE (the SYNC agent) once SKEL merges, then the M1 milestone review and PR.
 
 - 2026-10-18 01:55: SKEL done (6e4c400; check-ios green on 26.0 and 27.0; widget proof green on both). Codex reviewing. CI-gap recommendation adopted: IntentMetadataTests in CI plus widget-proof on 26.0 as a milestone checklist item. Siri research and DAG amended (no AppIntentsPackage).
