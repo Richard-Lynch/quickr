@@ -291,6 +291,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-18 04:20: Gate evidence on ios/m1-evidence: widget-proof iOS 26.0 and 27, Intents plan 27 (4ad33df); ios-integration 2/2 at 15/15, backend check 686 passed (910dcf2). An earlier run was disturbed by two agents sharing one worktree's compose project (orchestrator error); it was rerun clean. spike-proof is rerunning in ios-m1-spike; check-ios on both runtimes is next. **M2 started:** ios/m2-ui fast-forwarded to the M1 tip; WIRE assigned (ex-INT agent).
+
 - 2026-10-18 03:55: M1-FIXES merged (33c64ca, ad88eb1; Codex: all 4 resolved, no new majors; ios-core-test 375/83/29, ios-integration 2/2 at 15/15). Both milestone reviews' must-fix code items are done. Remaining before the M1 PR: gate evidence (part 1 sim proofs running; part 2 check-ios on 26.0 and 27, ios-integration ×2 on the final tip).
 
 - 2026-10-18 03:30: SPIKE merged (289fc2f; Codex fixes b446d4d plus b11f876 verified by the orchestrator: App Group opt-in gate, strict version validation, background/main-thread assertions). **All M1 work packages are now on ios/m1-data.** Codex M1 milestone review = MERGE AFTER FIXES. Must-fix: connecting via a new URL doesn't persist it (SyncCoordinator.swift:160) → M1-FIXES; final gate evidence pending. Backlog → WIRE (M2) and M3 notification items. M1-FIXES now holds 4 items (enqueue contract, offline→flush INT case, connect URL update, ObservationTests barrier).
