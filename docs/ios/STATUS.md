@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- M3 (from Codex's M1 milestone review): Swift category-id generation verified against shared vectors (notifications.md:255 MUST); `NotificationCenterProtocol` can't represent B7's `open` action (NotificationCenterProtocol.swift:63); N1/N3/N5–N15 coverage; production category reconciliation, action validation, badge/dedupe, token lifecycle.
 - M1 review backlog: one pool per (server, gen) per process (StorePartitions.swift:221 opens a new pool on every open); write façade (enqueue plus requestFlush); dead StoreLink probes and empty service protocols removed by WIRE; widget intents on placeholder topics until M4; coalesce per-call Tasks in `handle(_:)`/`requestFlush` bursts. All are folded into WIRE where they apply.
 - STORE test: `LeaseTimeSamplingTests` sleeps 50 ms assuming a writer is already waiting; under load it passes but proves less. Replace the sleep with a barrier (found by FLAKE).
 - **Milestone checklist item (from SKEL):** before every milestone PR that touches intents or widgets, run `ios/scripts/widget-proof.sh` on an iOS 26.0 clone first, then on 27; and run the Intents plan locally on 27 via check-ios. CI (iOS 26.x, Unit plan) only covers the `IntentMetadataTests` guard. Add the same requirement to the WIDGETS and INTENTS done-criteria.
@@ -289,6 +290,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-18 03:30: SPIKE merged (289fc2f; Codex fixes b446d4d plus b11f876 verified by the orchestrator: App Group opt-in gate, strict version validation, background/main-thread assertions). **All M1 work packages are now on ios/m1-data.** Codex M1 milestone review = MERGE AFTER FIXES. Must-fix: connecting via a new URL doesn't persist it (SyncCoordinator.swift:160) → M1-FIXES; final gate evidence pending. Backlog → WIRE (M2) and M3 notification items. M1-FIXES now holds 4 items (enqueue contract, offline→flush INT case, connect URL update, ObservationTests barrier).
 
 - 2026-10-18 03:25: Claude M1 milestone review = MERGE AFTER FIXES. Must-fix: SPIKE merged; gate logs captured and committed; the `OutboxRepository.enqueue` public contract (doc claims coalescing, the impl bypasses C0/K1–K5) → M1-FIXES (ex-INT agent), plus an offline→flush integration case. A new **WIRE** composition-root package is added to the DAG as the first M2 item. Codex milestone review still running.
 
