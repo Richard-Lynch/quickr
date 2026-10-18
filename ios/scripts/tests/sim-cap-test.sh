@@ -46,7 +46,7 @@ export FAKE_DEVICES="$fake/devices.json" PATH="$fake:$PATH" IOS_SIM_WAIT_POLL=1
 export QUICKR_SIM_CAP_LOCK="$fake/cap.lockf"
 # The caller's settings must not leak in: an inherited IOS_SIM_WAIT=1 (check-ios run with it)
 # turns the "refused" cases into waits that never end.
-unset IOS_SIM_WAIT IOS_SIM_CAP
+unset IOS_SIM_WAIT IOS_SIM_CAP CI  # CI skips the cap in sim_boot; these tests exercise it
 fails=0
 fail() { echo "FAIL $*"; fails=$((fails + 1)); }
 boot() {  # boot <udid>: sim_boot in a subshell; sets status and out
