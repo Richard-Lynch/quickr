@@ -87,7 +87,7 @@ need the dep before merge).
 > - scenePhase hooks;
 > - the GRDB `suspendNotification`/`resumeNotification` duty (0xDEAD10CC).
 >
-> WIRE also replaces SKEL's `StoreHandle`, `PlaceholderTopicRepository` (app and widget) and the empty service protocols, and adds a write façade (enqueue plus `requestFlush`) for TILES and RECORD. HOME, TILES, LINKS and SETTINGS depend on WIRE.
+> WIRE also replaces SKEL's `StoreHandle`, `PlaceholderTopicRepository` (app and widget) and the empty service protocols, and adds a write façade (enqueue plus `requestFlush`) for TILES and RECORD. After `connect` to a new URL for a known server, WIRE must rebuild the outbox's sender (APIClient baseURL) and rebind the flush bridge (M1-FIXES note). HOME, TILES, LINKS and SETTINGS depend on WIRE.
 
 | id           | scope                                                                                                                                              | deps                          | owns                             | class            | effort | review |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- | -------------------------------- | ---------------- | ------ | ------ |
