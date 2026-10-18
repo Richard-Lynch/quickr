@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- DS: NumberStepper's fixed 52 pt trailing unit padding lets the value touch the unit at AX XXXL ("30min"); use @ScaledMetric (found by FORM).
 - CAT: point MP's N4 test (SyncMP.n4) at the real category `register` once it exists; for now the agent runs the §5.2 procedure itself.
 - RECORD: at accessibility text sizes with the keyboard up, the sticky Save bar covers much of the form; consider hiding it while the keyboard is visible (found by FORM).
 - xcodebuild occasionally hangs after the tests finish (seen by FORM): add a timeout/watchdog to `ios/scripts` test runs and a CI step timeout.
@@ -283,6 +284,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-18 01:30: FORM DONE (tip 1f731f8; UI 2/2 incl. AX XXXL, 21 host tests; Codex r2 approved). It lands on ios/m2-ui after the M1 cut. The FORM agent is reassigned to WATCHDOG (xcodebuild timeout, sim-cap enforcement). MP merged-head gates green (fdb465b); in Codex review.
 
 - 2026-10-18 01:20: MP done (24 real-process cases, 6 mutations, 3× serial green, ~3 s); merged m1-data as c51ce9b; Codex review running. FORM's AX XXXL test found a real label-wrap bug (fixed, rerunning). INT awaiting its clean-stack gate result. SKEL overdue on its final report (6 dirty files). Load ~300 with 2 sims.
 
