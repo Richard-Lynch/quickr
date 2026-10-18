@@ -121,6 +121,27 @@ out="$(echo hi | "$lb" bash -c 'cat; exit 5' 2>&1)"
 check "linebuffered.py keeps plain newlines and the exit status" 5 $? "hi"
 [[ "$out" != *$'\r'* ]] || fail "linebuffered.py turned newlines into CRLF"
 
+# linebuffered.py passes INT and TERM on, reaps the command and exits 128 + N.
+# lbsig <signal> <child script> <name>: starts linebuffered.py, signals it once the child
+# wrote its pid, then sets status and checks the child is gone.
+lbsig() {
+  rm -f "$tmp/lbchild"
+  "$lb" bash -c "echo \$\$ > $tmp/lbchild; $2" </dev/null >/dev/null 2>&1 &
+  local w=$! i
+  for i in 1 2 3 4 5 6 7 8 9 10; do [[ -s "$tmp/lbchild" ]] && break; sleep 0.3; done
+  kill "-$1" "$w"; wait "$w"; status=$?
+  sleep 0.5
+  alive "$tmp/lbchild" && fail "$3: the command survived"
+}
+lbsig TERM "exec sleep 60" "TERM"; out=""; check "linebuffered.py: TERM reaches the command, exit 143" 143 "$status"
+lbsig INT "exec sleep 60" "INT"; out=""; check "linebuffered.py: INT reaches the command, exit 130" 130 "$status"
+start=$SECONDS
+lbsig TERM 'trap "" TERM; sleep 60' "TERM-ignoring"
+out=""; check "linebuffered.py: a command ignoring TERM is killed after 5 s" 137 "$status"
+(( SECONDS - start < 15 )) || fail "the TERM-ignoring command took $((SECONDS - start))s to go"
+out="$("$lb" bash -c 'kill -TERM $$' 2>&1)"
+check "linebuffered.py: a command ended by a signal gives 128 + N" 143 $?
+
 out="$(IOS_WATCHDOG_HEARTBEAT_SECS=2 "$wd" bash -c 'printf 12345; sleep 5' 2>&1)"
 check "a heartbeat while it runs" 0 $? "ios: still running bash:"
 [[ "$out" == *"KB of output, last output"* ]] || fail "the heartbeat names output and last activity: $out"
