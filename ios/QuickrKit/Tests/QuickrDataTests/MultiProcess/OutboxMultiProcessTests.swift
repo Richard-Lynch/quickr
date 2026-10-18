@@ -262,10 +262,11 @@ extension MultiProcessTests {
                 let flushApp = try app.start("flush")
                 try await gate.arrived()
                 let logged = try await w.log(widget)
-                let started = ContinuousClock.now
-                // The widget's `perform()` flush: 4 s budget, no lease polling (§10).
+                // The widget's `perform()` flush: 4 s budget, no lease polling (§10). Its duration
+                // is the child's own measurement, without the IPC round trip.
                 let report = try await widget.run("flush", ["budgetMs": "4000", "leaseWaitMs": "0"])
-                #expect(report["ending"] == "busy" && ContinuousClock.now - started < .seconds(4))
+                #expect(report["ending"] == "busy")
+                #expect(try #require(report["elapsedMs"].flatMap { Int($0) }) < 4000)
                 #expect(w.item(logged)?.state == .pending)
                 gate.open()
                 #expect(try await app.reply(flushApp).result["acked"] == "2")

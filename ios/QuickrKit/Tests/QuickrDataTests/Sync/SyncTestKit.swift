@@ -422,9 +422,10 @@ extension LocalStore {
     }
 }
 
-/// Polls `condition` until it holds, failing after `timeout`.
+/// Polls `condition` until it holds, failing after `timeout`: a liveness ceiling, generous because
+/// a loaded machine can delay any task; never the timing under test.
 func eventually(
-    _ what: String, timeout: Duration = .seconds(10), _ condition: @escaping @Sendable () async throws -> Bool
+    _ what: String, timeout: Duration = .seconds(30), _ condition: @escaping @Sendable () async throws -> Bool
 ) async throws {
     let deadline = ContinuousClock.now.advanced(by: timeout)
     while try await !condition() {

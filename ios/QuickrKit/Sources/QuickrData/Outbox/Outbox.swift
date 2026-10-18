@@ -43,8 +43,19 @@ public struct OutboxFlushReport: Sendable, Hashable {
     public var retried = 0
     /// Retired, cancelled (S8) or restored after a precondition 409.
     public var settled = 0
+    /// When `flush` started, and when it was done: the lease released (or never taken), before
+    /// signals are delivered. What the budget bounds (§10), measured by the flush itself, so a
+    /// caller resumed late doesn't stretch it.
+    public var startedAt: ContinuousClock.Instant?
+    public var endedAt: ContinuousClock.Instant?
 
     public init(ending: Ending) { self.ending = ending }
+
+    /// `endedAt - startedAt`, the flush's own duration.
+    public var elapsed: Duration? {
+        guard let startedAt, let endedAt else { return nil }
+        return endedAt - startedAt
+    }
 }
 
 /// The sync pill's inputs (outbox.md §11).
@@ -282,11 +293,15 @@ public struct Outbox: Sendable {
         let shutdownDeadline = requestDeadline.advanced(by: grace)
         let pollUntil = min(start.advanced(by: leaseWait), requestDeadline)
         guard let lease = try await acquireFlushLease(until: pollUntil, requestDeadline: requestDeadline) else {
-            return OutboxFlushReport(ending: .busy)
+            var report = OutboxFlushReport(ending: .busy)
+            report.startedAt = start
+            report.endedAt = ContinuousClock.now
+            return report
         }
 
         var run = FlushRun(
             lease: lease, deadline: requestDeadline, shutdownDeadline: shutdownDeadline, force: force)
+        run.report.startedAt = start
         var failure: (any Error)?
         do {
             run.report.ending = try await pass(&run)
@@ -299,6 +314,7 @@ public struct Outbox: Sendable {
         try? await uncancellable { db, _, wall in
             try OutboxFlush.release(db, lease: lease, current: current, wall: wall)
         }
+        run.report.endedAt = ContinuousClock.now
         for signal in run.signals { onSignal(signal) }
         if let failure { throw failure }
         return run.report

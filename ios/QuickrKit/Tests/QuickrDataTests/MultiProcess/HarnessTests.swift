@@ -19,7 +19,7 @@ extension MultiProcessTests {
             let hung = try child.start("hang")
             let started = ContinuousClock.now
             await #expect(throws: HelperError.self) { try await child.reply(hung, timeout: .milliseconds(300)) }
-            #expect(ContinuousClock.now - started < .seconds(10))
+            #expect(ContinuousClock.now - started < .seconds(30))  // ended at its timeout, not after 600 s
 
             // A SIGSTOPped child can't answer even a ping.
             child.suspend()
@@ -34,7 +34,7 @@ extension MultiProcessTests {
             late.cancel()
             let cancelled = ContinuousClock.now
             await #expect(throws: CancellationError.self) { try await late.value }
-            #expect(ContinuousClock.now - cancelled < .seconds(10))
+            #expect(ContinuousClock.now - cancelled < .seconds(30))  // ended by the cancel, not after 600 s
 
             // Teardown still reaps the stopped, hung child.
             await w.world.shutdown()
