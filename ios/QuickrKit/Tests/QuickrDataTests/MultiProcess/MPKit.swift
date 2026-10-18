@@ -70,8 +70,8 @@ final class MPWorld: @unchecked Sendable {
             child.resume()
             await child.killNow()
         }
-        for gate in gates.withLock({ $0 }) { gate.open() }
-        http.stop()
+        for gate in gates.withLock({ $0 }) { gate.releaseAll() }
+        await http.stop()
         dir.cleanup()
     }
 

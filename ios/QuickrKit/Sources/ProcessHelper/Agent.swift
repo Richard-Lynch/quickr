@@ -144,6 +144,16 @@ actor Agent {
             let result = await coordinator.bootstrapIfNeeded()
             let resumed = await coordinator.resumedReset
             return ["result": "\(result)", "resumedReset": resumed.map { "\($0)" } ?? "none"]
+        case "waitIdle":
+            // Waits, without starting a run, until the coordinator has no run in progress (for
+            // a run started by `listen`). Call it once the run's effect is visible.
+            let coordinator = coordinatorInstance()
+            let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+            while coordinator.status.activity != .idle {
+                guard ContinuousClock.now < deadline else { throw HelperError(description: "coordinator still busy") }
+                try await Task.sleep(for: .milliseconds(2))
+            }
+            return [:]
         case "listen":
             listener?.cancel()
             listener = coordinatorInstance().listen(to: notifier)

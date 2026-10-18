@@ -260,6 +260,7 @@ extension MultiProcessTests {
                     let state = try await store.mpState()
                     return state.layerGen == 2 && !state.epochSuspect
                 }
+                try await app.run("waitIdle")  // its live pull after the swap is done too
                 #expect(try await widget.run("flush")["acked"] == "1")
                 // The coordinator: live (held, then mismatch), staged, live after the swap.
                 #expect(Array(w.afters.dropFirst(start)) == [16, 0, 16])

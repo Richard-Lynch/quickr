@@ -36,19 +36,25 @@ public final class TransportHTTPServer: Sendable {
         }
         defer { timer.cancel() }
         do {
-            port = try await withCheckedThrowingContinuation { continuation in
-                startup.register(continuation)
-                // Only a terminal state finishes startup; `.waiting` and `.setup` keep waiting.
-                listener.stateUpdateHandler = { state in
-                    switch state {
-                    case .ready: startup.finish(.success(listener.port?.rawValue ?? 0))
-                    case .failed(let error): startup.finish(.failure(error))
-                    case .cancelled: startup.finish(.failure(HelperError(description: "listener cancelled")))
-                    default: break
+            port = try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    startup.register(continuation)
+                    // Only a terminal state finishes startup; `.waiting` and `.setup` keep waiting.
+                    listener.stateUpdateHandler = { state in
+                        switch state {
+                        case .ready: startup.finish(.success(listener.port?.rawValue ?? 0))
+                        case .failed(let error): startup.finish(.failure(error))
+                        case .cancelled: startup.finish(.failure(HelperError(description: "listener cancelled")))
+                        default: break
+                        }
                     }
+                    listener.newConnectionHandler = { $0.cancel() }
+                    listener.start(queue: queue)
                 }
-                listener.newConnectionHandler = { $0.cancel() }
-                listener.start(queue: queue)
+            } onCancel: {
+                // The caller gave up: end startup now and stop the listener.
+                startup.finish(.failure(CancellationError()))
+                listener.cancel()
             }
         } catch {
             listener.cancel()
@@ -62,12 +68,20 @@ public final class TransportHTTPServer: Sendable {
         }
     }
 
-    deinit { stop() }
+    deinit { cancel() }
 
-    public func stop() {
+    /// Stops listening, closes every connection, cancels the handler tasks and waits for them.
+    public func stop() async {
+        for handler in cancel() { await handler.value }
+    }
+
+    @discardableResult
+    private func cancel() -> [Task<Void, Never>] {
         listener.cancel()
         for connection in connections.withLock({ Array($0.values) }) { connection.cancel() }
-        for handler in handlers.withLock({ Array($0.values) }) { handler.cancel() }
+        let handlers = self.handlers.withLock { Array($0.values) }
+        for handler in handlers { handler.cancel() }
+        return handlers
     }
 
     private func receive(_ connection: NWConnection, buffer: Data, transport: any Transport) {
