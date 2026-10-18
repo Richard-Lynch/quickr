@@ -15,7 +15,7 @@ branch.
 - `[ ]` to do
 - `[-]` skipped, with a reason
 
-**Last updated:** 2026-10-17 17:10. M0 PR #8 is open; M1 Wave 1 is running.
+**Last updated:** 2026-10-18 06:00. M1 is complete and its PR into `feat/ios-app` is open; M2 started with WIRE.
 
 **Execution plan:** [DAG.md](DAG.md) (Fable). Waves of ≤4 WPs with at most 2 simulator-heavy at once. Milestones are stacked (squash-merge, then `rebase --onto`).
 
@@ -202,22 +202,22 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 | W1   | B6 APNs backend, dark                                                                                                                                                                                                                   | `ios/m1-b6`    | [x] **Merged** (4b398b9) after 4 Codex rounds (lifespan order, delivery deadline, token log redaction, sandbox config, slot-progress table against starvation, TTL only for abandoned slots). 494 pytest.                             |
 | W1   | TOOLS integration harness and fault proxy                                                                                                                                                                                               | `ios/m1-tools` | [x] **Merged** (6205724) after 4 Codex rounds (HTTP framing, hop-by-hop, control validation, docker-assigned ports, startup cleanup, kernel-lock sim-clone). Smoke 12/12 on the merged branch; 2 wording/error minors as a follow-up. |
 | W2   | [x] **Complete:** DUE, VAL, STORE and **API merged** (API after 2 Codex rounds: per-header identity checks, precondition evidence, trusted bodies, load-tolerant transport tests). Gates: 182 Swift data tests, 627 pytest, 726 vitest. | —              | [x]                                                                                                                                                                                                                                   |
-| W3   | **B7 merged** (bb4729a, 2 Codex rounds: `open` More… action, no-rounding `fmt` with bit-exact vectors, batched scheduler prep). OUTBOX, SYNC, SKEL building; test isolation in progress; **FORM** (M2) started on `ios/m2-form`         | —              | [~] running                                                                                                                                                                                                                           |
-| W4   | MP · INT · SPIKE · FORM (M2)                                                                                                                                                                                                            | —              | [ ]                                                                                                                                                                                                                                   |
+| W3   | **B7 merged** (bb4729a). OUTBOX+SYNC (b69bb6a), testiso (07b489e), SKEL (2891f06) merged after Codex rounds; FORM (M2) done on `ios/m2-form` (1f731f8)                                                                                  | —              | [x]                                                                                                                                                                                                                                   |
+| W4   | MP (85ae3b0), INT (0681189), SPIKE (289fc2f), WATCHDOG, FLAKE (065aa9f), M1-FIXES (01cba48) merged; gate evidence (183ec1a)                                                                                                             | —              | [x]                                                                                                                                                                                                                                   |
 
-- [ ] QuickrCore: models, validation, quick-log, and the due port (all vectors
+- [x] QuickrCore: models, validation, quick-log, and the due port (all vectors
       pass)
-- [ ] QuickrData: the API client (fixtures and request goldens), the two-layer
+- [x] QuickrData: the API client (fixtures and request goldens), the two-layer
       GRDB store, the sync engine, and the outbox (spec matrix)
-- [ ] B5 request goldens validated by pytest
-- [ ] Multi-process subprocess tests: concurrent writers, migrating while others
+- [x] B5 request goldens validated by pytest
+- [x] Multi-process subprocess tests (24 cases): concurrent writers, migrating while others
       are connected, a process killed holding the lock, lock takeover
-- [ ] App skeleton: App Intents resolve from the app and the widget
-- [ ] Simulator spike: notification actions with the app killed. Findings
+- [x] App skeleton: App Intents resolve from the app and the widget
+- [x] Simulator spike: notification actions with the app killed. Findings
       recorded.
-- [ ] `make ios-integration`, all 5 scenarios
+- [x] `make ios-integration`, all 5 scenarios (S1; offline→flush; 17/18; 12/51/59; S9/38), 2/2 at 15/15
 - [ ] `ios.yml` green
-- [ ] Codex and Claude reviews; PR with test reports
+- [~] Codex and Claude reviews done (both MERGE AFTER FIXES → fixed); PR with test reports opening
 
 ## D: Device checkpoint · needs H3–H5
 
@@ -290,6 +290,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-18 06:00: **M1 evidence complete** (183ec1a): check-ios on iOS 26.0 and 27 green (446 unit + UI each, Intents 2/2 on 27); ios-integration 2/2 at 15/15; widget-proof 26.0 and 27; spike-proof 26.0; backend 686. check-ios needed 3 attempts (sim-cap env leak, fixed 39eb3ec; 16d/16f load flake, slack made scalable 8ba77e7). Opening the M1 PR into feat/ios-app.
 
 - 2026-10-18 04:20: Gate evidence on ios/m1-evidence: widget-proof iOS 26.0 and 27, Intents plan 27 (4ad33df); ios-integration 2/2 at 15/15, backend check 686 passed (910dcf2). An earlier run was disturbed by two agents sharing one worktree's compose project (orchestrator error); it was rerun clean. spike-proof is rerunning in ios-m1-spike; check-ios on both runtimes is next. **M2 started:** ios/m2-ui fast-forwarded to the M1 tip; WIRE assigned (ex-INT agent).
 
