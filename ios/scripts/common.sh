@@ -48,6 +48,10 @@ sim_boot() {
   xcrun simctl bootstatus "$1" -b >/dev/null
 }
 
+# Parallel compile jobs per build. Several worktrees build at once on one Mac, and each
+# build defaults to one job per core, which oversubscribes it badly. IOS_JOBS=0 = no cap.
+IOS_JOBS="${IOS_JOBS:-4}"
+
 # xcodebuild against the generated project, with shared DerivedData and SPM checkout dirs.
 # Packages resolve only to the tracked pins when there are any. Output goes through
 # xcbeautify when it is installed.
@@ -55,6 +59,7 @@ xcb() {
   local args=(-project "$PROJECT" -scheme "$SCHEME" -derivedDataPath "$DERIVED"
     -clonedSourcePackagesDirPath "$SPM_DIR")
   [[ -f "$RESOLVED" ]] && args+=(-onlyUsePackageVersionsFromResolvedFile)
+  [[ "$IOS_JOBS" != 0 ]] && args+=(-jobs "$IOS_JOBS")
   args+=("$@")
   if command -v xcbeautify >/dev/null; then
     xcodebuild "${args[@]}" 2>&1 | xcbeautify --quiet
@@ -67,5 +72,6 @@ xcb() {
 swift_test() {
   local flags=()
   [[ -f "$RESOLVED" ]] && flags+=(--only-use-versions-from-resolved-file)
+  [[ "$IOS_JOBS" != 0 ]] && flags+=(--jobs "$IOS_JOBS")
   swift test --package-path "$IOS_DIR/QuickrKit" ${flags[@]+"${flags[@]}"} "$@"
 }

@@ -21,12 +21,12 @@ branch.
 
 ## Now
 
-|                     |                                                                                                                                                                                        |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Active milestone    | **M1** on `ios/m1-data`. M0 merged (#8, 6249b0e).                                                                                                                                      |
-| Running             | M1 Wave 1 sub-agents: **C1** contracts (`ios/m1-c1`), **DS** design system (`ios/m1-ds`, sim), **B6** APNs backend, dark (`ios/m1-b6`), **TOOLS** integration harness (`ios/m1-tools`) |
-| Waiting on the user | Apple enrollment activation and the Team ID; iPhone model and iOS version; a session restart to load MobileBuildMCP                                                                    |
-| Next up             | Wave 1 reviews (Codex) → merge C1 first → Wave 2: STORE, API, DUE, VAL                                                                                                                 |
+|                     |                                                                                                                                                                |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Active milestone    | **M1** on `ios/m1-data`. M0 merged (#8, 6249b0e).                                                                                                              |
+| Running             | Cap raised to **6 agents** (simulator-heavy ≤2; Mac has 14 cores). STORE (last Codex fix: intent token), API, B7, SKEL (sim), OUTBOX, SYNC, PWA zod length fix |
+| Waiting on the user | Apple enrollment activation and the Team ID; a session restart to load MobileBuildMCP                                                                          |
+| Next up             | Wave 1 reviews (Codex) → merge C1 first → Wave 2: STORE, API, DUE, VAL                                                                                         |
 
 ## Human steps (PLAN §9)
 
@@ -38,8 +38,7 @@ branch.
   awaiting activation. Then send the Team ID.
 - [ ] H4: Xcode ▸ Settings ▸ Accounts sign-in. Needed after H3, before
       checkpoint D.
-- [ ] H5: phone. Trust this Mac, turn on Developer Mode, and send the model and
-      iOS version.
+- [~] H5: phone is an **iPhone 16 Pro Max on iOS 26.6.2**. It has the Action button and Apple Intelligence (A18 Pro), so one-sentence Siri logging is available. Still to do: trust this Mac and turn on Developer Mode (after enrollment).
 - [ ] H6: APNs `.p8` key, with its Key ID (M3).
 - [ ] H7: App Store Connect app record and API key (M7).
 - [ ] H8: Cloudflare tunnel, Access app and service token (M7).
@@ -158,11 +157,23 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- **Milestone checklist item (from SKEL):** before every milestone PR that touches intents or widgets, run `ios/scripts/widget-proof.sh` on an iOS 26.0 clone first, then on 27; and run the Intents plan locally on 27 via check-ios. CI (iOS 26.x, Unit plan) only covers the `IntentMetadataTests` guard. Add the same requirement to the WIDGETS and INTENTS done-criteria.
+- App composition root (SKEL follow-up / M2 SYNC-UX): wire `Outbox(onSignal: coordinator.handle)` and `OutboxFlushBridge.bind(scheduler)` on every store open, reset and server switch (nil when there's no store), per INT.
+- S10 (APNs register vs a rotated epoch) is deferred to M3 REG; the stub carries an owner note.
+- DS: NumberStepper's fixed 52 pt trailing unit padding lets the value touch the unit at AX XXXL ("30min"); use @ScaledMetric (found by FORM).
+- CAT: point MP's N4 test (SyncMP.n4) at the real category `register` once it exists; for now the agent runs the §5.2 procedure itself.
+- RECORD: at accessibility text sizes with the keyboard up, the sticky Save bar covers much of the form; consider hiding it while the keyboard is visible (found by FORM).
+- xcodebuild occasionally hangs after the tests finish (seen by FORM): add a timeout/watchdog to `ios/scripts` test runs and a CI step timeout.
+- PWA parity bugs found by BUILDER (server is authoritative; fix the PWA to match): slugify (server drops non-ASCII after NFKD, falls back to `topic`; PWA gives `stra-e`/empty); duplicate-label check (server `casefold`, PWA `toLocaleLowerCase`); whitespace strip (pydantic Unicode White_Space vs JS `trim`, e.g. U+FEFF). Use `shared/fixtures/builder-vectors.json` in the PWA tests.
 - [ ] Feed: an ASGI disconnect/send-error test proving the CSV snapshot transaction closes and the connection is returned; a >500-row CSV with a mutation between pages.
 - [ ] Feed: a dedicated regression test for the commit-time retry in `@writer`.
 - [ ] Specs/fixtures: `quicklog-vectors.json` gains category-id cases (M3).
+- [ ] App integration (SKEL/SYNC-UX): post GRDB suspension notifications on app background/foreground (`Database.suspendNotification` / `resumeNotification`) in the app and extensions, the 0xDEAD10CC guard (from the STORE review).
+- [ ] NSE links QuickrData, so it also carries App Intents metadata (from SKEL). Harmless for now. If duplicate-metadata warnings or resolution issues appear, split intents into a `QuickrIntents` package target linked only by the app and widget.
+- [~] Backend test isolation (`ios/m1-testiso`): advisory locks ARE per-database (verified), so there's no deployment hazard. The cross-talk is the tests' `pg_locks` queries not filtering by database, plus wall-clock APNs budget tests. Fixing the tests only.
+- [ ] Registry can't update a known server's `base_url`: connecting to the same `server_id` at a new URL keeps the stored URL. Needed when hosting moves behind Cloudflare (M7) or the LAN address changes (from SYNC).
 - [ ] Backend: reject NUL in every text field the API stores (notes, source, labels, names…) with a 422 Problem instead of a Postgres 500. Today only str answers are checked (found by VAL).
-- [ ] PWA: the generated zod request validators (`frontend/src/client/zod.gen.ts`) count UTF-16 units, so e.g. >2,500-emoji notes fail client-side. Fix in the generator/OpenAPI output rather than by hand (found by VAL).
+- [x] ~~PWA zod UTF-16 lengths~~: not a bug. zod 4.6.7 counts code points. Regression tests merged (b760fdf) so that a zod or generator change back to UTF-16 counting is caught.
 - [ ] Notifications WP: a fake-center orchestration test for ReminderDedup L1 (pending local cancel) and L2 (suppression/activation cleanup), from the C1 review.
 - [ ] TILES (M2): at accessibility text sizes, badges and the sync pill truncate and the tile stays side by side. Consider a stacked tile layout at AX sizes (from DS).
 - [ ] Scaffold: confirm on the first real CI run that Xcode 26.6 honours `ios/QuickrKit/Package.resolved` (verified locally on 27.1 only). When GRDB lands in M1, run `make ios-resolve` and commit the lockfile.
@@ -181,15 +192,15 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md).
 
-| Wave | WP                                                                                                                                                     | Branch         | Status                                                                                                                                                                                                                                |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| W1   | C1 contracts (models, DTOs, schema, protocols, TestSupport, GRDB)                                                                                      | `ios/m1-c1`    | [x] **Merged** (77d0e72) after 2 Codex rounds. Minor deferred: a dedup orchestration test (notifications WP).                                                                                                                         |
-| W1   | DS design system (lands with M2)                                                                                                                       | `ios/m1-ds`    | [x] **Merged** (6a579a4 + integration d6f367b: QuickrDesignTests, Resources/AppIcon, DEBUG catalogue hook). check-ios green on iOS 26.0 + 27.0.                                                                                       |
-| W1   | B6 APNs backend, dark                                                                                                                                  | `ios/m1-b6`    | [x] **Merged** (4b398b9) after 4 Codex rounds (lifespan order, delivery deadline, token log redaction, sandbox config, slot-progress table against starvation, TTL only for abandoned slots). 494 pytest.                             |
-| W1   | TOOLS integration harness and fault proxy                                                                                                              | `ios/m1-tools` | [x] **Merged** (6205724) after 4 Codex rounds (HTTP framing, hop-by-hop, control validation, docker-assigned ports, startup cleanup, kernel-lock sim-clone). Smoke 12/12 on the merged branch; 2 wording/error minors as a follow-up. |
-| W2   | **DUE merged** (7bfe207: 1,831 + 63 + 360 vectors plus regression tests); STORE building; VAL fixing round 1 + PWA parity; API building (`ios/m1-api`) | —              | [~] running                                                                                                                                                                                                                           |
-| W3   | OUTBOX · SYNC · SKEL · B7                                                                                                                              | —              | [ ]                                                                                                                                                                                                                                   |
-| W4   | MP · INT · SPIKE · FORM (M2)                                                                                                                           | —              | [ ]                                                                                                                                                                                                                                   |
+| Wave | WP                                                                                                                                                                                                                                      | Branch         | Status                                                                                                                                                                                                                                |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| W1   | C1 contracts (models, DTOs, schema, protocols, TestSupport, GRDB)                                                                                                                                                                       | `ios/m1-c1`    | [x] **Merged** (77d0e72) after 2 Codex rounds. Minor deferred: a dedup orchestration test (notifications WP).                                                                                                                         |
+| W1   | DS design system (lands with M2)                                                                                                                                                                                                        | `ios/m1-ds`    | [x] **Merged** (6a579a4 + integration d6f367b: QuickrDesignTests, Resources/AppIcon, DEBUG catalogue hook). check-ios green on iOS 26.0 + 27.0.                                                                                       |
+| W1   | B6 APNs backend, dark                                                                                                                                                                                                                   | `ios/m1-b6`    | [x] **Merged** (4b398b9) after 4 Codex rounds (lifespan order, delivery deadline, token log redaction, sandbox config, slot-progress table against starvation, TTL only for abandoned slots). 494 pytest.                             |
+| W1   | TOOLS integration harness and fault proxy                                                                                                                                                                                               | `ios/m1-tools` | [x] **Merged** (6205724) after 4 Codex rounds (HTTP framing, hop-by-hop, control validation, docker-assigned ports, startup cleanup, kernel-lock sim-clone). Smoke 12/12 on the merged branch; 2 wording/error minors as a follow-up. |
+| W2   | [x] **Complete:** DUE, VAL, STORE and **API merged** (API after 2 Codex rounds: per-header identity checks, precondition evidence, trusted bodies, load-tolerant transport tests). Gates: 182 Swift data tests, 627 pytest, 726 vitest. | —              | [x]                                                                                                                                                                                                                                   |
+| W3   | **B7 merged** (bb4729a, 2 Codex rounds: `open` More… action, no-rounding `fmt` with bit-exact vectors, batched scheduler prep). OUTBOX, SYNC, SKEL building; test isolation in progress; **FORM** (M2) started on `ios/m2-form`         | —              | [~] running                                                                                                                                                                                                                           |
+| W4   | MP · INT · SPIKE · FORM (M2)                                                                                                                                                                                                            | —              | [ ]                                                                                                                                                                                                                                   |
 
 - [ ] QuickrCore: models, validation, quick-log, and the due port (all vectors
       pass)
@@ -276,6 +287,46 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-18 01:55: SKEL done (6e4c400; check-ios green on 26.0 and 27.0; widget proof green on both). Codex reviewing. CI-gap recommendation adopted: IntentMetadataTests in CI plus widget-proof on 26.0 as a milestone checklist item. Siri research and DAG amended (no AppIntentsPackage).
+
+- 2026-10-18 01:50: MP merged into ios/m1-data (85ae3b0) after the orchestrator verified the r2 minors (9257754). ios-core-test and lint green on the merge. INT r2 and WATCHDOG Codex reviews running.
+
+- 2026-10-18 01:40: MP r2: all 3 majors resolved, no new majors; 3 minors left (S16 sync gap, gate arrival-waiter cleanup, listener-startup cancellation) → final fix, orchestrator verifies. INT fixes committed 7bcf492 (retain cycle, revocable forwarding). WATCHDOG committed d367c64; check-ios result pending. SKEL is active (new xcodebuild run) but hasn't replied in ~2.5 h.
+
+- 2026-10-18 01:40: Codex MP = REQUEST CHANGES: unbounded reply-timeout waiter; N4 lacks forced overlap and final-union checks; the surviving live-page mutation (epoch/rebuilding) isn't covered single-process; plus 3 minors. Codex INT = REQUEST CHANGES: a coordinator↔outbox retain cycle; the bridge can forward a stale flush after unbind; plus 2 minors. Both are fixing. WATCHDOG in progress; SKEL still pending.
+
+- 2026-10-18 01:35: INT done (13 tests / 14 cases, 2×2 clean-stack runs green, 2 mutations killed, S21 backend test added, S10 → M3). Codex reviewing INT and MP.
+
+- 2026-10-18 01:30: FORM DONE (tip 1f731f8; UI 2/2 incl. AX XXXL, 21 host tests; Codex r2 approved). It lands on ios/m2-ui after the M1 cut. The FORM agent is reassigned to WATCHDOG (xcodebuild timeout, sim-cap enforcement). MP merged-head gates green (fdb465b); in Codex review.
+
+- 2026-10-18 01:20: MP done (24 real-process cases, 6 mutations, 3× serial green, ~3 s); merged m1-data as c51ce9b; Codex review running. FORM's AX XXXL test found a real label-wrap bug (fixed, rerunning). INT awaiting its clean-stack gate result. SKEL overdue on its final report (6 dirty files). Load ~300 with 2 sims.
+
+- 2026-10-18 01:00: FORM Codex r2: all resolved, no new majors (awaiting the watchdog UI rerun). INT checkpoint ffbd1ab: 13/13 against live docker twice; clean-stack `make ios-integration` ×2 running. MP checkpoint d172f7d (sync MP cases, N4). SKEL 8b6895c (widget gallery stall fix); final report pending. Load ~36.
+
+- 2026-10-18 00:45: Load ~275. The simulator cap was breached (SKEL booted iOS 26 and 27 together); the orchestrator shut down SKEL's idle iOS 26 clone. FORM's UI-plan xcodebuild has hung 41 min at 0% CPU after the tests (a recurring post-test hang) → the backlog item for an xcodebuild watchdog is promoted to next. FORM review fixes are in a845530 (21 host tests); Codex r2 is running. MP and INT have no new commits for 65 min; status requested.
+
+- 2026-10-18 00:05: FORM Codex r1 = REQUEST CHANGES. Major: duplicate auto-save on rapid chip taps (needs an in-flight latch). Minors: the 400 ms initial focus can steal focus; Same-as-last leaves stale errors. An AX-size UI check was added to the scope. SKEL tree clean at d41e97e, awaiting its final report. MP checkpoint b3e793a (ProcessHelper agent, loopback server); INT checkpoint de4ff8c (OutboxSignal routed to the coordinator).
+
+- 2026-10-17 23:50: **Merged into ios/m1-data:** testiso (07b489e) and SYNC+OUTBOX combined (b69bb6a, through 424e656). Gate on the merge: backend 684 passed + alembic check clean; ios-core-test green; ios-lint clean. OUTBOX r5 residual (mandatory DB transactions can wait out the busy timeout) is documented in outbox.md §10. SKEL findings: AppIntentsPackage on static QuickrData breaks iOS 26.0 (intents dropped); AppIntentsTesting can't load on the iOS 26 runtime → Intents plan runs only on iOS 27+ (CI gap to decide).
+
+- 2026-10-17 23:40: INT started (ios/m1-int from 54f0eee, ex-BUILDER agent; BUILDER accepted at 22865b8, merges at the M6 cut). OUTBOX r5 resolves r4; last item: lease polling and post-deadline DB work. Final small fix requested; residual DB-busy time documented; the orchestrator verifies, with no more Codex rounds (diminishing returns). testiso r3: 4 of 5 resolved; `--all` namespace restriction plus a min-age floor requested, then done. FORM committed 74161b0 (form engine, UI test, screenshots). SKEL unresponsive for 53 min: its xcodebuild is idle at 0% CPU.
+
+- 2026-10-17 23:35: MP started (ios/m1-mp from 99a5473, SYNC agent). OUTBOX r4: still a fresh grace per send (refetch after stale_revision) → one absolute shutdown deadline. testiso r2: worktree-name collisions (needs a path hash), prune can drop a live lazy peer, `ensure()` race on CREATE. FORM: UI test green, screenshots captured, check-ios running; xcodebuild sometimes hangs after tests (CI timeout watch → backlog). Load spiked again to ~350 (2 sims + Spotlight/photos + Docker VM).
+
+- 2026-10-17 23:10: Load ~7. SYNC APPROVED (Codex r3 on the veto table 08b2bec). OUTBOX r3: unbounded wait resolved; new Major: grace runs past the extension budget, and a commit-before-grace reconciliation test is needed. BUILDER r2: both majors resolved; Major: gen-casefold isn't wired into `make vectors`, plus pinning the Unicode/Python version. Combined SYNC+OUTBOX head: ios/m1-outbox 99a5473. testiso fixes in progress; SKEL and FORM running.
+
+- 2026-10-17 22:55: Load dropped to ~12; FORM resumed. Codex: SYNC r2 resolves 1,2,4,5; still Major: an overwriteable `reset_veto` (needs a monotonic veto set). OUTBOX r2 resolves all round-1 items; new Major: the shutdown wait is unbounded when the sender ignores cancellation (liveness). testiso: REQUEST CHANGES (no per-worktree default DB; unowned `_peer` DBs). BUILDER: REQUEST CHANGES (canonical-equivalence vs Python code-point equality for duplicates and compat). All four are fixing. Combined SYNC+OUTBOX head: ios/m1-outbox e29232c. SKEL committed the intents proof b4fc26b.
+
+- 2026-10-17 22:40: OUTBOX Codex r1 = REQUEST CHANGES (no blockers; all 8 author spec resolutions agreed). Majors: a definitive answer is lost when cancellation races the timer; failed deletes are missing from the C0 guard. Minors: the coalescing test is weak; `source` is filled only when nil. Stubs major declined (MP/INT). Fixes in progress on top of 69bb903. SYNC merged OUTBOX and dropped its duplicate (39b64fb). SKEL committed 5ea1e46 (debug dylib off for intents metadata).
+
+- 2026-10-17 22:45: BUILDER logic done (0d72c47 + vectors 171d5fd; 115 tests, 108+32+17 server-generated vectors); Codex review running. SYNC fixed Codex majors 1–5 (52e9b96 + Store veto 7a6d071) and is merging OUTBOX to remove the duplicate `OutboxResolution`; SYNC Codex round 2 follows. testiso `make check` green; 3× backend runs pending.
+
+- 2026-10-17 22:30: OUTBOX done (8947602): all 61 matrix cases covered (17 MP/INT stubs disabled, each pointing to its simulation), 267 Data tests green, 4 mutation checks all caught. 8 spec ambiguities resolved by the author; Codex review running (`codex-m1-outbox.md`). Its OutboxSyncEffects contract was handed to SYNC. Flake noted: `DuePerformanceTests.widgetTimelinesComputeQuickly` under load → backlog.
+
+- 2026-10-17 22:10: load ~340, mostly from simulator daemons (SKEL's iOS 27 clone) plus mediaanalysisd and other sessions' MCP servers; CPU itself isn't pegged. Mitigation: `IOS_JOBS=4` (ed91119); FORM paused at WIP 844f0bf; BUILDER asked to pause. Critical path still running: SYNC (Codex majors 1–4 in progress), OUTBOX (matrix), SKEL (intents/widget UI tests), testiso (1b157fe → Codex review next).
+
+- 2026-10-17 17:04–21:00: every agent stopped at the account usage limit (reset 20:40). No work lost: uncommitted changes stayed in the worktrees, and all 6 agents were resumed at 21:00. B7 finished just before the limit; Codex round 1 → `open` (More…) action accepted into the spec; `fmt` simplified to shortest round-trip with no rounding.
 
 - 2026-10-17: WP vectors done and gate green. Findings to carry into the Swift due port: DST gaps can merge slots, slots must be sorted by UTC instant, the early window can be tiny, `next_due_at` ignores `schedule_since`.
 - 2026-10-17: Plan v3 finalised (PR #6). Notebook merged to `main` (PR #7).

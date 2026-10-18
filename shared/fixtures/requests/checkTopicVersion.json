@@ -1,0 +1,62 @@
+{
+  "operation_id": "checkTopicVersion",
+  "request": {
+    "body": {
+      "base_version": 1,
+      "questions": [
+        {
+          "key": "glasses",
+          "label": "Glasses of water",
+          "max": 30,
+          "min": 0,
+          "required": true,
+          "type": "int",
+          "unit": "glasses"
+        },
+        {
+          "decimals": 1,
+          "help_text": "Time actually asleep.",
+          "key": "hours",
+          "label": "Hours slept",
+          "max": 24,
+          "min": 0,
+          "required": true,
+          "type": "double",
+          "unit": "h"
+        },
+        {
+          "key": "mood",
+          "label": "Mood",
+          "multiple": false,
+          "options": [
+            {
+              "archived": false,
+              "label": "Great",
+              "value": "great"
+            },
+            {
+              "archived": false,
+              "label": "OK",
+              "value": "ok"
+            },
+            {
+              "archived": true,
+              "label": "Poor",
+              "value": "poor"
+            }
+          ],
+          "required": true,
+          "type": "enum"
+        }
+      ]
+    },
+    "headers": {
+      "accept": "application/json",
+      "cache-control": "no-store",
+      "content-type": "application/json",
+      "x-quickr-channel": "ios"
+    },
+    "method": "POST",
+    "path": "/api/v1/topics/33333333-3333-4333-8333-333333333333/versions/check"
+  }
+}

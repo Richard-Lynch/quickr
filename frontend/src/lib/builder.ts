@@ -26,6 +26,7 @@ import {
   type ScheduleDraft,
   type ScheduleInput,
 } from './schedule';
+import { charCount } from './text';
 
 export interface DraftOption {
   uid: string;
@@ -314,10 +315,11 @@ function parseConstraint(
 }
 
 function maxLength(issues: Issue[], path: Path, value: string, max: number): void {
-  if (value.length > max)
+  const count = charCount(value);
+  if (count > max)
     issues.push({
       path,
-      message: `At most ${String(max)} characters (${String(value.length)} now)`,
+      message: `At most ${String(max)} characters (${String(count)} now)`,
     });
 }
 
@@ -608,8 +610,8 @@ function nameSchema(limits: Limits) {
     .string()
     .trim()
     .min(1, 'Give the topic a name')
-    .max(
-      limits.max_topic_name_length,
+    .refine(
+      (v) => charCount(v) <= limits.max_topic_name_length,
       `At most ${String(limits.max_topic_name_length)} characters`,
     );
 }
@@ -618,8 +620,8 @@ function descriptionSchema(limits: Limits) {
   return z
     .string()
     .trim()
-    .max(
-      limits.max_description_length,
+    .refine(
+      (v) => charCount(v) <= limits.max_description_length,
       `At most ${String(limits.max_description_length)} characters`,
     );
 }
@@ -675,8 +677,8 @@ export function makeVersionDraftSchema(limits: Limits = FALLBACK_LIMITS) {
       change_note: z
         .string()
         .trim()
-        .max(
-          limits.max_change_note_length,
+        .refine(
+          (v) => charCount(v) <= limits.max_change_note_length,
           `At most ${String(limits.max_change_note_length)} characters`,
         ),
       // Not part of a version (edited in topic settings); shape-checked only.

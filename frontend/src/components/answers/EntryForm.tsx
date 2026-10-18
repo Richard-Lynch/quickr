@@ -17,6 +17,7 @@ import { capturedAtSchema, notesSchema, sourceSchema } from '../../lib/entryMeta
 import { formatWhen } from '../../lib/schedule';
 import { useUnsavedChangesGuard } from '../../lib/unsavedChanges';
 import type { Question } from '../../lib/questions';
+import { inputMaxLength } from '../../lib/text';
 import { StickyActions } from '../AppShell';
 import { Button } from '../ui/Button';
 import { Banner, Card } from '../ui/Card';
@@ -301,7 +302,7 @@ export function EntryForm({
                 aria-invalid={invalid || undefined}
                 autoCapitalize="none"
                 autoComplete="off"
-                maxLength={limits.max_source_length}
+                maxLength={inputMaxLength(limits.max_source_length)}
                 list="quickr-sources"
                 {...form.register('source')}
               />

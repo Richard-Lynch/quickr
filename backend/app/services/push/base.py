@@ -10,6 +10,8 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.schemas.api import QuickLogDescriptor
+
 # How long a push service keeps an undelivered message (e.g. phone offline).
 DEFAULT_TTL_SECONDS = 12 * 3600
 
@@ -28,9 +30,10 @@ class Notification:
 
     ``tag`` identifies what the notification is about (``due-{topic_id}``, ``test``): a
     newer one with the same tag replaces the older on the device (the Web Push tag, the
-    APNs collapse id). The actionable fields (topic id, version, slot, quick-log
-    descriptor, server id) are added here, with defaults, by B7, and rendered by
-    ``web.render`` and ``apns.render``.
+    APNs collapse id). A due notification also carries what an action needs to log it:
+    the server, the topic and its version, the slot (``due_since``) and the ``quick_log``
+    descriptor (None when the topic can't be logged from a notification). A test
+    notification leaves them None. ``web.render`` and ``apns.render`` lay them out.
     """
 
     kind: Literal["due", "test"]
@@ -39,6 +42,11 @@ class Notification:
     url: str
     tag: str
     topic_slug: str | None = None
+    server_id: str | None = None
+    topic_id: UUID | None = None
+    version: int | None = None
+    due_since: datetime | None = None
+    quick_log: QuickLogDescriptor | None = None
 
 
 class PushTarget(Protocol):

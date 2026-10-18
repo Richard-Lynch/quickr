@@ -61,11 +61,16 @@ client: openapi ## Regenerate spec + typed TS client/zod schemas
 	$(FRONTEND) pnpm gen:api
 
 .PHONY: vectors
-vectors: ## Regenerate shared/fixtures (due + quick-log vectors, API response fixtures)
-	$(BACKEND) QUICKR_UPDATE_VECTORS=1 uv run pytest -q tests/test_due_vectors.py tests/test_quicklog_vectors.py tests/test_api_fixtures.py
+vectors: ## Regenerate shared/fixtures (due, quick-log, answer-text and notification vectors, API response fixtures)
+	$(BACKEND) QUICKR_UPDATE_VECTORS=1 uv run pytest -q tests/test_due_vectors.py tests/test_quicklog_vectors.py \
+		tests/test_answer_text_vectors.py tests/test_notification_vectors.py tests/test_api_fixtures.py
 
-# The database pytest and the migration check use (conftest.py has the same default).
-QUICKR_TEST_DATABASE_URL ?= postgresql+asyncpg://quickr:quickr@localhost:5433/quickr_test
+# The database pytest and the migration check use: $QUICKR_TEST_DATABASE_URL if set, else
+# quickr_test, or quickr_test_<worktree>_<path hash> in a git worktree (backend/tools/test_database.py).
+ifdef QUICKR_TEST_DATABASE_URL
+export QUICKR_TEST_DATABASE_URL
+endif
+TEST_DB := $(BACKEND) uv run python -m tools.test_database
 
 .PHONY: check
 check: check-backend check-frontend ## Run every check CI runs (except the docker smoke test)
@@ -84,7 +89,15 @@ check-openapi: ## openapi.json matches the FastAPI app
 
 .PHONY: check-migrations
 check-migrations: ## Migrate the test database to head and check the models need no new migration
-	$(BACKEND) export QUICKR_DATABASE_URL="$(QUICKR_TEST_DATABASE_URL)" && uv run alembic upgrade head && uv run alembic check
+	$(BACKEND) export QUICKR_DATABASE_URL="$$(uv run python -m tools.test_database ensure)" && uv run alembic upgrade head && uv run alembic check
+
+.PHONY: test-db-reset
+test-db-reset: ## Drop this checkout's test database (e.g. migrated before an in-place migration edit); tests recreate it
+	$(TEST_DB) reset
+
+.PHONY: test-db-prune
+test-db-prune: ## Drop peer test databases crashed runs left (this checkout's, unused, over 1 h old; all=1: every checkout's)
+	$(TEST_DB) prune-peers $(if $(all),--all)
 
 .PHONY: check-frontend
 check-frontend: ## Frontend: generated client freshness, format, lint, types, tests, build
@@ -134,6 +147,14 @@ ios-build: ios-gen ## iOS: simulator Debug build (IOS_SIM=name or UDID)
 ios-core-test: ## iOS: swift test for ios/QuickrKit on the Mac
 	@$(IOS_SCRIPTS)/require-xcode.sh
 	@$(IOS_SCRIPTS)/swift-test.sh
+
+.PHONY: ios-mp-test
+ios-mp-test: ## iOS: the multi-process tests alone, serially, IOS_MP_RUNS times (default 1); swift test runs them too
+	@$(IOS_SCRIPTS)/require-xcode.sh
+	@for run in $$(seq 1 $${IOS_MP_RUNS:-1}); do \
+		echo "ios-mp-test: run $$run"; \
+		$(IOS_SCRIPTS)/swift-test.sh --filter MultiProcessTests --no-parallel || exit 1; \
+	done
 
 .PHONY: ios-resolve
 ios-resolve: ## iOS: update package pins in ios/QuickrKit/Package.resolved and check Xcode matches
