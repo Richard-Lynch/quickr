@@ -157,6 +157,8 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- CAT: point MP's N4 test (SyncMP.n4) at the real category `register` once it exists; for now the agent runs the §5.2 procedure itself.
+- RECORD: at accessibility text sizes with the keyboard up, the sticky Save bar covers much of the form; consider hiding it while the keyboard is visible (found by FORM).
 - xcodebuild occasionally hangs after the tests finish (seen by FORM): add a timeout/watchdog to `ios/scripts` test runs and a CI step timeout.
 - PWA parity bugs found by BUILDER (server is authoritative; fix the PWA to match): slugify (server drops non-ASCII after NFKD, falls back to `topic`; PWA gives `stra-e`/empty); duplicate-label check (server `casefold`, PWA `toLocaleLowerCase`); whitespace strip (pydantic Unicode White_Space vs JS `trim`, e.g. U+FEFF). Use `shared/fixtures/builder-vectors.json` in the PWA tests.
 - [ ] Feed: an ASGI disconnect/send-error test proving the CSV snapshot transaction closes and the connection is returned; a >500-row CSV with a mutation between pages.
@@ -281,6 +283,16 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-18 01:20: MP done (24 real-process cases, 6 mutations, 3× serial green, ~3 s); merged m1-data as c51ce9b; Codex review running. FORM's AX XXXL test found a real label-wrap bug (fixed, rerunning). INT awaiting its clean-stack gate result. SKEL overdue on its final report (6 dirty files). Load ~300 with 2 sims.
+
+- 2026-10-18 01:00: FORM Codex r2: all resolved, no new majors (awaiting the watchdog UI rerun). INT checkpoint ffbd1ab: 13/13 against live docker twice; clean-stack `make ios-integration` ×2 running. MP checkpoint d172f7d (sync MP cases, N4). SKEL 8b6895c (widget gallery stall fix); final report pending. Load ~36.
+
+- 2026-10-18 00:45: Load ~275. The simulator cap was breached (SKEL booted iOS 26 and 27 together); the orchestrator shut down SKEL's idle iOS 26 clone. FORM's UI-plan xcodebuild has hung 41 min at 0% CPU after the tests (a recurring post-test hang) → the backlog item for an xcodebuild watchdog is promoted to next. FORM review fixes are in a845530 (21 host tests); Codex r2 is running. MP and INT have no new commits for 65 min; status requested.
+
+- 2026-10-18 00:05: FORM Codex r1 = REQUEST CHANGES. Major: duplicate auto-save on rapid chip taps (needs an in-flight latch). Minors: the 400 ms initial focus can steal focus; Same-as-last leaves stale errors. An AX-size UI check was added to the scope. SKEL tree clean at d41e97e, awaiting its final report. MP checkpoint b3e793a (ProcessHelper agent, loopback server); INT checkpoint de4ff8c (OutboxSignal routed to the coordinator).
+
+- 2026-10-17 23:50: **Merged into ios/m1-data:** testiso (07b489e) and SYNC+OUTBOX combined (b69bb6a, through 424e656). Gate on the merge: backend 684 passed + alembic check clean; ios-core-test green; ios-lint clean. OUTBOX r5 residual (mandatory DB transactions can wait out the busy timeout) is documented in outbox.md §10. SKEL findings: AppIntentsPackage on static QuickrData breaks iOS 26.0 (intents dropped); AppIntentsTesting can't load on the iOS 26 runtime → Intents plan runs only on iOS 27+ (CI gap to decide).
 
 - 2026-10-17 23:40: INT started (ios/m1-int from 54f0eee, ex-BUILDER agent; BUILDER accepted at 22865b8, merges at the M6 cut). OUTBOX r5 resolves r4; last item: lease polling and post-deadline DB work. Final small fix requested; residual DB-busy time documented; the orchestrator verifies, with no more Codex rounds (diminishing returns). testiso r3: 4 of 5 resolved; `--all` namespace restriction plus a min-age floor requested, then done. FORM committed 74161b0 (form engine, UI test, screenshots). SKEL unresponsive for 53 min: its xcodebuild is idle at 0% CPU.
 
