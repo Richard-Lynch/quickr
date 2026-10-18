@@ -35,6 +35,15 @@ let package = Package(
         // Design-system logic tests (not "QuickrUITests": that would collide with the QuickRUITests
         // UI-test bundle on case-insensitive disks).
         .testTarget(name: "QuickrDesignTests", dependencies: ["QuickrUI"]),
+        // Against the real backend through `make ios-integration` (sync-protocol.md §13.2, G4). Every
+        // test skips itself unless the harness's environment is set, and fails instead with
+        // QUICKR_IT_REQUIRED=1.
+        .testTarget(
+            name: "QuickrDataIntegrationTests",
+            dependencies: [
+                "QuickrData", "QuickrTestSupport", .product(name: "GRDB", package: "GRDB.swift"),
+            ]
+        ),
         .testTarget(
             name: "QuickrDataTests",
             dependencies: [

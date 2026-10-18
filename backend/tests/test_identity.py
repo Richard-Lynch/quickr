@@ -313,6 +313,34 @@ async def test_headers_are_read_after_the_handler(
     assert r.headers["x-quickr-epoch"] == rotated[0] != old
 
 
+@pytest.mark.parametrize("found", [True, False])
+async def test_headers_after_a_rotation_between_lookup_and_response(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, found: bool
+) -> None:
+    """S21 (sync-protocol.md §13.1), the other half: the epoch rotates after the lookup has
+    run (found, or raising 404) and before the response is built. The response still carries
+    the new epoch, so the client discards a result read in the old one."""
+    from app.services import entries as entry_svc
+
+    await make_topic(client)
+    entry_id = (await record(client, "sleep-log", ANSWERS))["id"] if found else str(uuid4())
+    _, old = await identity(client)
+    real_get = entry_svc.get_entry
+    rotated: list[str] = []
+
+    async def get_then_rotate(db: Any, eid: Any) -> Any:
+        try:
+            return await real_get(db, eid)
+        finally:
+            async with get_sessionmaker()() as other:
+                rotated.append(await feed.rotate_epoch(other))
+
+    monkeypatch.setattr(entry_svc, "get_entry", get_then_rotate)
+    r = await client.get(f"/entries/{entry_id}")
+    assert r.status_code == (200 if found else 404)
+    assert r.headers["x-quickr-epoch"] == rotated[0] != old
+
+
 async def test_csv_export_streams_one_snapshot(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

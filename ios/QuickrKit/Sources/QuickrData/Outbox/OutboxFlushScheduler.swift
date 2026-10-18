@@ -69,6 +69,7 @@ public actor OutboxFlushScheduler {
     public let outbox: Outbox
     private var running: Task<OutboxFlushReport?, Never>?
     private var followUp: OutboxFlushPolicy?
+    private var retired = false
     /// The most recent report, for the sync pill and tests.
     public private(set) var lastReport: OutboxFlushReport?
     /// The policy of every flush this scheduler started, in order.
@@ -112,6 +113,7 @@ public actor OutboxFlushScheduler {
     }
 
     private func request(_ policy: OutboxFlushPolicy) {
+        guard !retired else { return }
         guard running == nil else {
             followUp = followUp.map { $0.merged(with: policy) } ?? policy
             return
@@ -134,7 +136,7 @@ public actor OutboxFlushScheduler {
     private func finished(_ report: OutboxFlushReport?) {
         if let report { lastReport = report }
         running = nil
-        if let next = followUp {
+        if !retired, let next = followUp {
             followUp = nil
             start(next)
         }
@@ -146,4 +148,14 @@ public actor OutboxFlushScheduler {
         followUp = nil
         running?.cancel()
     }
+
+    /// Ends this scheduler for good (its store was reset, or the app switched servers): cancels
+    /// the running flush, and refuses every later request, so once it returns no flush of this
+    /// store starts again. `OutboxFlushBridge.bind` retires the scheduler it replaces.
+    public func retire() {
+        retired = true
+        cancel()
+    }
+
+    public var isRetired: Bool { retired }
 }

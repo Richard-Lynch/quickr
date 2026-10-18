@@ -149,7 +149,7 @@ extension MultiProcessTests {
         }
 
         /// The MP half of 32. The INT half (the real backend's 409 `stale_revision` and revision
-        /// numbers) is `make ios-integration` (OutboxMatrixStubs 32 INT).
+        /// numbers) is `make ios-integration` (QuickrDataIntegrationTests, Outbox case 32).
         @Test("32 · MP: a SIGSTOPped sender's late stale_revision doesn't rebase or resend")
         func case32() async throws {
             try await OutboxWorld.run { w in

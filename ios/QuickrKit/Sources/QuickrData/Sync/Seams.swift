@@ -36,13 +36,8 @@ public protocol FlushRequester: Sendable {
     func requestFlush(reason: FlushRequestReason)
 }
 
-// TODO(INT): route `OutboxSignal`s from the app's `Outbox` to the coordinator. The flag is already
-// set by the outbox's fenced outcome transaction, and `flush` released, before the signal is
-// delivered (§5.6), so the coordinator is only asked to run, asynchronously:
-// `.epochSuspect` and `.pullRequested` → `sync(reason: .requested)`; `.identityMismatch` →
-// `sync(reason: .requested)` too (it returns `.identityMismatch` and SYNC-UX shows the banner).
-// Extensions post `ChangeSignalName.syncRequested` instead, which `SyncCoordinator.listen(to:)`
-// handles.
+// The app routes its `Outbox`'s signals to the coordinator with `SyncCoordinator.handle(_:)`, and
+// the coordinator's flush requests to the outbox with `OutboxFlushBridge` (OutboxBridge.swift).
 
 /// What the coordinator reports after it commits, for the parts of the app that react outside
 /// the store: notifications (§4.3 step 4), widgets, categories and APNs (§2.1, §12.1 step 8).
