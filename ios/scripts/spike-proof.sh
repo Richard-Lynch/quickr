@@ -19,18 +19,22 @@ work="$BUILD_DIR/spike"
 rm -rf "$work"; mkdir -p "$work"
 
 booted_here=0
-if ! xcrun simctl list devices booted | grep -q "$udid"; then
-  others="$(xcrun simctl list devices booted | grep -c "quickR" || true)"
-  (( others < 2 )) || die "two quickR simulators are already booted (the fleet's limit); try later"
-  xcrun simctl boot "$udid"; booted_here=1
-fi
-sim_boot "$udid"
+xcrun simctl list devices booted | grep -q "$udid" || booted_here=1
+sim_boot "$udid"  # under the fleet's simulator cap (IOS_SIM_WAIT=1 queues for a slot)
 
 cleanup() {
-  [[ -n "${coordinator:-}" ]] && kill "$coordinator" 2>/dev/null
-  [[ -n "${recorder:-}" ]] && kill -INT "$recorder" 2>/dev/null && wait "$recorder" 2>/dev/null
-  (( booted_here )) && xcrun simctl shutdown "$udid" 2>/dev/null
-  [[ "${SPIKE_KEEP_STACK:-0}" == 1 ]] || "$here/integration-down.sh" >/dev/null 2>&1
+  set +e
+  if [[ -n "${coordinator:-}" ]]; then kill "$coordinator" 2>/dev/null; fi
+  if [[ -n "${recorder:-}" ]]; then kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null; fi
+  if (( booted_here )); then
+    for _ in 1 2 3; do
+      xcrun simctl shutdown "$udid" 2>/dev/null
+      xcrun simctl list devices booted | grep -q "$udid" || break
+      sleep 5
+    done
+    if xcrun simctl list devices booted | grep -q "$udid"; then warn "couldn't shut down $udid"; fi
+  fi
+  if [[ "${SPIKE_KEEP_STACK:-0}" != 1 ]]; then "$here/integration-down.sh" >/dev/null 2>&1; fi
 }
 trap cleanup EXIT
 

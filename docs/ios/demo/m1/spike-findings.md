@@ -15,8 +15,8 @@ artefacts in `ios/build/spike`.
 
 **A reminder's action logs an entry with the app not running, and the entry
 reaches the server.** The entry is written durably first and then flushed, and
-the app stays in the background throughout. This held in 3 of 3 runs after the
-fixes below (runs 4–6).
+the app stays in the background throughout. This held in 4 of 4 runs after the
+fixes below: runs 4–6, and run 7 on the merged final SKEL and WATCHDOG base.
 
 | Step                                                                                                      | Observed                                                                                                                                                                                                      |
 | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -115,6 +115,13 @@ The App Group store and registry (`StorePartitions.open`, `openStore`),
 `Outbox.createEntry` and `Outbox.flush`, and `URLSession` to the server
 (127.0.0.1 via the integration proxy) all work in a background launch with no
 scene. Opening the store took most of the 137 ms.
+
+Under heavy machine load (run 7, load average about 250), the same steps took
+**21 s** from the handler's start to the committed enqueue, and the flush then
+took 0.3 s. Nothing failed, but a device's background-launch window (≈30 s) would
+leave little margin at that speed. D should measure the handler's time on a
+device, and HANDLER should keep the work before the enqueue minimal: open the
+registry and store, and nothing else.
 
 ### F8. Before first unlock: not testable here
 
