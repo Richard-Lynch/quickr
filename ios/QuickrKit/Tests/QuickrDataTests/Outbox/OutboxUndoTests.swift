@@ -154,7 +154,8 @@ import Testing
         let problem = header(FakeServer.problem(422, "invalid_answers", "mood is required"))
         h.server.inject(.post, .answerOnCancel(Gate(), override: problem))
         let report = try await outbox.flush(force: true, budget: .seconds(2))
-        #expect(try #require(report.elapsed) <= .seconds(2) + timingSlack(.milliseconds(150)))  // the answer came inside the budget
+        // The answer came inside the budget.
+        #expect(try #require(report.elapsed) <= .seconds(2) + timingSlack(.milliseconds(150)))
         #expect(report.ending == .budgetExhausted && report.failed == 1)
         let item = try #require(try h.item(id))
         #expect(item.state == .failed && item.failureReason == .rejected && !item.maybeDelivered)
@@ -170,7 +171,8 @@ import Testing
         let second = try await h.log(outbox, minutes: 1)
         h.server.inject(.post, .answerOnCancel(Gate()))
         let report = try await outbox.flush(force: true, budget: .seconds(2))
-        #expect(try #require(report.elapsed) <= .seconds(2) + timingSlack(.milliseconds(150)))  // the answer came inside the budget
+        // The answer came inside the budget.
+        #expect(try #require(report.elapsed) <= .seconds(2) + timingSlack(.milliseconds(150)))
         #expect(report.ending == .budgetExhausted && report.acked == 1)
         #expect(try h.item(id) == nil && h.server.entry(id) != nil)
         // The pass stops at the deadline: the next item is never claimed.
