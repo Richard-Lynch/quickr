@@ -33,6 +33,11 @@ public struct LocalStore: Sendable {
             arguments: [serverId, baseURL])
     }
 
+    /// Records the server's new address in this store's `sync_state` (pulls read it there).
+    public static func setBaseURL(_ db: Database, _ baseURL: String) throws {
+        try db.execute(sql: "UPDATE sync_state SET base_url = ? WHERE id = 1", arguments: [baseURL])
+    }
+
     // MARK: - Repositories
 
     public var topics: GRDBTopicRepository { GRDBTopicRepository(reader: writer) }

@@ -255,14 +255,47 @@ struct WebServer: Sendable {
 final class RecordingTransport: Transport {
     private let inner: any Transport
     private let sent = Mutex<[HTTPRequest]>([])
+    private let unreachablePort = Mutex<Int?>(nil)
 
     init(_ inner: any Transport = URLSessionTransport()) { self.inner = inner }
 
     var requests: [HTTPRequest] { sent.withLock { $0 } }
 
+    /// Takes the device offline: until `goOnline()`, every request really goes to a loopback port
+    /// where nothing listens, so URLSession gets "connection refused", as with the server down.
+    func goOffline() throws { unreachablePort.withLock { $0 = Self.freePort() } }
+
+    func goOnline() { unreachablePort.withLock { $0 = nil } }
+
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         sent.withLock { $0.append(request) }
+        var request = request
+        if let port = unreachablePort.withLock({ $0 }),
+            var components = URLComponents(url: request.url, resolvingAgainstBaseURL: false)
+        {
+            components.host = "127.0.0.1"
+            components.port = port
+            request.url = components.url ?? request.url
+        }
         return try await inner.send(request)
+    }
+
+    /// A loopback port nothing listens on: bound, read back, closed.
+    private static func freePort() -> Int {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        defer { close(fd) }
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        address.sin_port = 0
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        _ = withUnsafeMutablePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, length) }
+        }
+        _ = withUnsafeMutablePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &length) }
+        }
+        return Int(UInt16(bigEndian: address.sin_port))
     }
 }
 

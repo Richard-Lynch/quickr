@@ -33,10 +33,9 @@ public protocol EntryRepository: Sendable {
     func latestEntry(topicId: UUID) async throws -> ViewEntry?
 }
 
+/// Reads of the outbox. Writes go through `Outbox` (OUTBOX), which applies the coalescing rules
+/// (outbox.md §8), the C0 visibility check and the K1–K5 undo semantics.
 public protocol OutboxRepository: Sendable {
-    /// Durably enqueues one item in one `IMMEDIATE` transaction, applying coalescing
-    /// (outbox.md §8). Safe from any process; returns the stored row.
-    func enqueue(_ item: NewOutboxItem) async throws -> OutboxItem
     /// Every unresolved item, by `seq`.
     func items() async throws -> [OutboxItem]
     func items(topicId: String) async throws -> [OutboxItem]

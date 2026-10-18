@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 import QuickrCore
-import QuickrData
+@_spi(Testing) import QuickrData
 import QuickrTestSupport
 import Testing
 
@@ -82,7 +82,7 @@ import Testing
         let gone = "0f1e2d3c-4b5a-4968-8778-000000000004"
         let inFlight = try await store.enqueue(Payloads.update("0f1e2d3c-4b5a-4968-8778-000000000002"))
         let cancelled = try await store.enqueue(Payloads.create())
-        let cancel = try await store.outbox.enqueue(
+        let cancel = try await store.outbox.appendRawForTesting(
             NewOutboxItem(
                 payload: Payloads.delete(cancelled.id), origin: .app, cancelsCreate: true))
         let doomedUpdate = try await store.enqueue(Payloads.update(gone))

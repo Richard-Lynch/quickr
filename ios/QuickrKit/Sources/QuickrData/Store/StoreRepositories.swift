@@ -55,8 +55,8 @@ public struct GRDBEntryRepository: EntryRepository {
     }
 }
 
-/// CRUD and queries over `outbox_item`. `enqueue` is a plain append (with the §7.3 base revision)
-/// that refuses a retired file; OUTBOX wraps it with coalescing (§8) and validation.
+/// Queries over `outbox_item`. Production writes go through `Outbox`; `appendRawForTesting` is
+/// a test seam.
 public struct GRDBOutboxRepository: OutboxRepository {
     private let writer: any DatabaseWriter
     private let wallClock: any WallClock
@@ -66,7 +66,11 @@ public struct GRDBOutboxRepository: OutboxRepository {
         self.wallClock = wallClock
     }
 
-    public func enqueue(_ item: NewOutboxItem) async throws -> OutboxItem {
+    /// Appends one item as is, for tests that need a row in a given shape: **no** coalescing
+    /// (outbox.md §8), **no** visibility check (C0), no undo semantics; only the §7.3 base revision
+    /// and the retired-file check. Never use it for a real enqueue: that is `Outbox.enqueue`.
+    @_spi(Testing)
+    public func appendRawForTesting(_ item: NewOutboxItem) async throws -> OutboxItem {
         let now = wallClock.now()
         return try await writer.write { db in
             if try StoreFence.isRetired(db) { throw StoreError.retired }
