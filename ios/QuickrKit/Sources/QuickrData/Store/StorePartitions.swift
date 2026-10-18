@@ -69,13 +69,13 @@ public struct StorePartitions: Sendable {
         return try await openStore(serverId: serverId, role: .app).store
     }
 
-    /// The active server's current file for a read-only caller (the widget, App Intents queries):
-    /// nil when no server is selected or its file doesn't exist yet. Never creates a file, runs
-    /// no reset recovery and takes no lease; the app's open (`openActiveStore(role: .app)`) does
-    /// those.
+    /// The active server's current file for a caller that only reads (App Intents queries in the
+    /// app): nil when no server is selected, its file doesn't exist yet, or a reset is in
+    /// progress. Never creates a file, runs no reset recovery and takes no lease; the app's open
+    /// (`openActiveStore(role: .app)`) does those. Extensions use `ReadOnlyStores` instead.
     public func openActiveStoreIfExists() async throws -> LocalStore? {
         guard let serverId = try await registry.repository.activeServerId(),
-            let server = try await registry.repository.server(id: serverId)
+            let server = try await registry.repository.server(id: serverId), server.pendingGen == nil
         else { return nil }
         return try openExisting(server)
     }

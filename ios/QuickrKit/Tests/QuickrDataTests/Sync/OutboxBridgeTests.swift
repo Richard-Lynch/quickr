@@ -2,6 +2,7 @@ import Foundation
 import QuickrCore
 import QuickrData
 import QuickrTestSupport
+import Synchronization
 import Testing
 
 /// `SyncCoordinator.handle(_:)` and `OutboxFlushBridge` (sync-protocol.md §5.6, §7). The
@@ -93,6 +94,50 @@ import Testing
         #expect(await bridge.bound == nil)
     }
 
+    /// While `bind` swaps schedulers, the new one never starts a flush while the old one's flush
+    /// is still running (two stores never flush at once), with forwards arriving throughout.
+    @Test func theNewSchedulerNeverFlushesBeforeTheOldOneStopped() async throws {
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        try await env.connect(env.coordinator())
+        let store = try await env.activeStore()
+        let bridge = OutboxFlushBridge()
+        let violations = Mutex(0)
+        var current = OutboxFlushScheduler(outbox: Outbox(store: store, sender: NeverSends(), owner: "app:A"))
+        await bridge.bind(current)
+        for round in 0..<20 {
+            // The old scheduler is mid-flush: its request is parked in the network.
+            let gate = Gate()
+            let parked = OutboxFlushScheduler(
+                outbox: Outbox(store: store, sender: ParkingSender(gate), owner: "app:round\(round)"))
+            await bridge.bind(parked)
+            try await store.enqueue(Payloads.create())
+            bridge.requestFlush(reason: .afterPull)
+            await gate.arrival()
+
+            let open = Gate()
+            open.open()
+            let next = OutboxFlushScheduler(
+                outbox: Outbox(store: store, sender: ParkingSender(open), owner: "app:next\(round)"))
+            let probe = Task {
+                while !Task.isCancelled {
+                    bridge.requestFlush(reason: .afterPull)
+                    if await !next.started.isEmpty, await parked.isFlushing { violations.withLock { $0 += 1 } }
+                    await Task.yield()
+                }
+            }
+            await bridge.bind(next)
+            probe.cancel()
+            _ = await probe.value
+            #expect(await parked.isRetired)
+            #expect(await !parked.isFlushing)
+            gate.releaseAll()
+            current = next
+        }
+        #expect(violations.withLock { $0 } == 0)
+        #expect(await bridge.bound === current)
+    }
+
     /// The production wiring (coordinator → bridge → scheduler → outbox → `outboxSignalHandler`)
     /// is freed once the app lets go of it: the handler holds the coordinator weakly.
     @Test func theWiringIsFreedWhenReleased() async throws {
@@ -137,6 +182,18 @@ private final class WeakRefs: @unchecked Sendable {
 private struct NeverSends: OutboxSender {
     func send(_ request: OutboxRequest) async -> APIResponse<OutboxSuccess> {
         Issue.record("unexpected send \(request.operation)")
+        return await withUnsafeContinuation { _ in }
+    }
+}
+
+/// A sender whose requests wait at `gate` and are never answered (the flush gives up on them).
+private struct ParkingSender: OutboxSender {
+    let gate: Gate
+
+    init(_ gate: Gate) { self.gate = gate }
+
+    func send(_ request: OutboxRequest) async -> APIResponse<OutboxSuccess> {
+        await gate.arrive()
         return await withUnsafeContinuation { _ in }
     }
 }

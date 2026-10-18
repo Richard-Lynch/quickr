@@ -89,6 +89,19 @@ public final class AppSession {
     @ObservationIgnored private var listeners: [Task<Void, Never>] = []
     @ObservationIgnored private var rebinding: Task<Void, Never>?
     @ObservationIgnored private var started = false
+    /// The current scene episode: background work captures its own and acts only if it is still
+    /// current, so a late background completion or an old expiration never suspends an app that
+    /// has become active since.
+    @ObservationIgnored private var lifecycle: Lifecycle = .foreground
+    @ObservationIgnored private var lifecycleGeneration = 0
+
+    private enum Lifecycle: Equatable {
+        case foreground
+        case background(Int)
+    }
+
+    /// Between `didEnterBackground` and the next `didBecomeActive`.
+    public var isBackgrounded: Bool { lifecycle != .foreground }
 
     public init(configuration: Configuration) throws {
         self.configuration = configuration
@@ -144,6 +157,8 @@ public final class AppSession {
     /// `scenePhase` → `.active`: resume GRDB, pick up a store another process reset or switched,
     /// refresh the screens, flush and pull.
     public func didBecomeActive() async {
+        lifecycleGeneration += 1
+        lifecycle = .foreground
         configuration.notificationCenter.post(name: Database.resumeNotification, object: nil)
         guard started else { return }  // the launch's `start()` does the rest
         await scheduler?.resume()
@@ -156,12 +171,17 @@ public final class AppSession {
     /// `scenePhase` → `.background`, inside the app's background task: release held deletes and
     /// flush (outbox.md §10), wait for the flush and any pull in flight to end, then suspend GRDB,
     /// so no write transaction is open when the process is suspended (0xDEAD10CC).
+    /// If the app becomes active before this finishes, it neither pauses nor suspends.
     @discardableResult
     public func didEnterBackground() async -> OutboxFlushReport? {
+        lifecycleGeneration += 1
+        let episode = Lifecycle.background(lifecycleGeneration)
+        lifecycle = episode
         let report = await scheduler?.flushNow(reason: .background)
+        guard lifecycle == episode else { return report }
         await scheduler?.pause()  // no new flush (a pull's, a signal's) until the app is active
         await coordinator.waitUntilIdle()
-        configuration.notificationCenter.post(name: Database.suspendNotification, object: nil)
+        await suspendIfStill(episode)
         return report
     }
 
@@ -169,13 +189,29 @@ public final class AppSession {
     /// the lease is released), wait for it and any pull in flight to end, but no longer than
     /// `remaining` (what the system still grants), then suspend GRDB. End the background task
     /// after it returns.
+    /// An expiration from an episode that is no longer current (the app became active) does
+    /// nothing.
     public func backgroundTimeExpiring(within remaining: Duration = .seconds(3)) async {
+        guard case .background = lifecycle else { return }
+        let episode = lifecycle
         let scheduler = scheduler
         let coordinator = coordinator
         await scheduler?.pause()  // cancels the flush, and starts no new one until activation
         await Self.firstOf(remaining) {
             _ = await scheduler?.waitUntilIdle()
             await coordinator.waitUntilIdle()
+        }
+        await suspendIfStill(episode)
+    }
+
+    /// Posts GRDB's suspend if `episode` is still the current one. Otherwise the app became active
+    /// meanwhile: undo a pause that may have landed after activation's resume. (A coordinator run
+    /// that starts after the idle wait and before the post has its next transaction refused by the
+    /// suspended database and fails safe: it writes nothing.)
+    private func suspendIfStill(_ episode: Lifecycle) async {
+        guard lifecycle == episode else {
+            await scheduler?.resume()
+            return
         }
         configuration.notificationCenter.post(name: Database.suspendNotification, object: nil)
     }
@@ -313,6 +349,8 @@ public final class AppSession {
             self.scheduler = scheduler
             binding = next
             phase = .ready
+            // A request the coordinator made during the swap was dropped; kept items go out now.
+            await scheduler.requestFlush(reason: .afterPull)
         } catch {
             phase = .failed(String(describing: error))
         }
@@ -373,17 +411,23 @@ private final class SessionEvents: SyncEventSink, @unchecked Sendable {
     }
 }
 
-/// The topics of whichever store is active, read through the partitions' shared pool: what App
-/// Intents and the widget read (the widget's partitions are its own process's). Read-only: no
-/// active server, or no store file yet, is an empty list; it never creates a file or recovers.
+/// The topics of whichever store is active. In the app it reads through the session's partitions
+/// (their shared pool, never creating a file); in the widget through `ReadOnlyStores` (read-only
+/// opens). No store yet reads as no topics.
 public struct ActiveStoreTopicRepository: TopicRepository {
-    public let partitions: StorePartitions
+    private let open: @Sendable () async throws -> LocalStore?
 
-    public init(partitions: StorePartitions) { self.partitions = partitions }
-
-    private func repository() async throws -> GRDBTopicRepository? {
-        try await partitions.openActiveStoreIfExists()?.topics
+    /// The app's: the partitions it already writes through.
+    public init(partitions: StorePartitions) {
+        open = { try await partitions.openActiveStoreIfExists() }
     }
+
+    /// An extension's that only reads.
+    public init(readOnly stores: ReadOnlyStores) {
+        open = { try stores.activeStore() }
+    }
+
+    private func repository() async throws -> GRDBTopicRepository? { try await open()?.topics }
 
     public func topics() async throws -> [ViewTopic] { try await repository()?.topics() ?? [] }
 

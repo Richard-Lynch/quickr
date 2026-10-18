@@ -171,4 +171,7 @@ public actor OutboxFlushScheduler {
     public func resume() { paused = false }
 
     public var isPaused: Bool { paused }
+
+    /// A flush is running (or its follow-up is about to start).
+    public var isFlushing: Bool { running != nil }
 }

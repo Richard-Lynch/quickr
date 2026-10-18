@@ -221,8 +221,10 @@ private let otherServerURL = URL(string: "https://other.example")!
         }
         try await eventually("activation pulls") { w.env.afters().count > pulls }
 
+        // An expiration after the app became active is stale: nothing is paused or suspended.
         await session.backgroundTimeExpiring()
-        #expect(suspended.count == 2)
+        #expect(suspended.count == 1)
+        #expect(await !scheduler.isPaused)
         await session.shutdown()
     }
 
@@ -243,7 +245,10 @@ private let otherServerURL = URL(string: "https://other.example")!
 
         _ = try await session.log(topic: Payloads.water, answers: ["glasses": .int(1)], version: 1)
         await gate.arrival()  // the POST is in flight
+        let background = Task { await session.didEnterBackground() }  // waits for that flush
+        try await eventually("backgrounded") { await MainActor.run { session.isBackgrounded } }
         await session.backgroundTimeExpiring(within: .seconds(10))
+        _ = await background.value
         #expect(leaseFreeAtSuspend.withLock { $0 } == true)
         #expect(await scheduler.lastReport?.ending == .cancelled)
         // Paused until activation: a pull's flush request starts nothing.
@@ -270,12 +275,15 @@ private let otherServerURL = URL(string: "https://other.example")!
         let pull = Task { await session.coordinator.sync(reason: .requested) }
         await gate.arrival()  // a pull is parked and won't end
 
+        let background = Task { await session.didEnterBackground() }  // waits for the parked pull
+        try await eventually("backgrounded") { await MainActor.run { session.isBackgrounded } }
         let started = ContinuousClock.now
         await session.backgroundTimeExpiring(within: .milliseconds(300))
         #expect(ContinuousClock.now - started < .seconds(10), "returned at the bound, not when the pull ends")
         #expect(suspended.count == 1)
         gate.releaseAll()
         _ = await pull.value
+        _ = await background.value
         await session.shutdown()
     }
 
@@ -294,6 +302,28 @@ private let otherServerURL = URL(string: "https://other.example")!
         // No active server at all: empty too.
         try await w.env.partitions.registry.setActive(nil)
         #expect(try await topics.topics().isEmpty)
+    }
+
+    @Test func aBackgroundFlushEndingAfterActivationDoesntSuspend() async throws {
+        let w = try World()
+        defer { w.env.cleanup() }
+        let gate = Gate()
+        let suspended = w.posted(Database.suspendNotification)
+        let session = try w.session(transport: GatedTransport(w.env.transport, gate) { $0.method == .post })
+        await session.start(serverURL: SyncEnv.baseURL)
+        let scheduler = try #require(session.scheduler)
+        _ = try await session.log(topic: Payloads.water, answers: ["glasses": .int(1)], version: 1)
+        await gate.arrival()  // the sender is blocked
+
+        let background = Task { await session.didEnterBackground() }
+        try await eventually("backgrounded") { await MainActor.run { session.isBackgrounded } }
+        await session.didBecomeActive()  // foreground work starts while the background flush waits
+        gate.open()
+        _ = await background.value  // the old background call completes now
+        #expect(suspended.count == 0, "a stale background completion never suspends")
+        #expect(await !scheduler.isPaused)
+        try await eventually("the log is delivered") { try await session.store?.outbox.items().isEmpty == true }
+        await session.shutdown()
     }
 
     @Test func aShutDownSessionIsFreed() async throws {
