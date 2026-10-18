@@ -104,6 +104,11 @@ public actor SyncCoordinator {
 
     // MARK: - Public API
 
+    /// Returns when no run is in progress (a run started meanwhile is waited for too).
+    public func waitUntilIdle() async {
+        while let running { _ = await running.value }
+    }
+
     /// The current status, and every change to it (the latest is replayed to a new subscriber).
     public nonisolated func statusUpdates() -> AsyncStream<SyncStatus> { broadcaster.stream() }
 

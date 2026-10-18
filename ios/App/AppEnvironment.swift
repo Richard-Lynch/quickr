@@ -90,7 +90,9 @@ final class AppEnvironment {
 
     private func flushInBackground(_ session: AppSession) {
         let task = BackgroundTask()
-        task.begin(name: "quickr.flush") { session.backgroundTimeExpiring() }
+        // On expiry: cancel the flush and wait (briefly) for it and any pull to end before GRDB is
+        // suspended; the task ends after that.
+        task.begin(name: "quickr.flush") { await session.backgroundTimeExpiring() }
         Task {
             await session.didEnterBackground()
             task.end()
@@ -107,16 +109,16 @@ final class AppEnvironment {
     }
 }
 
-/// One `beginBackgroundTask`, ended once: by the work, or by the expiration handler after it ran
-/// `expiring`.
+/// One `beginBackgroundTask`, ended once: by the work, or after the expiration handler's
+/// `expiring` has finished.
 @MainActor
 private final class BackgroundTask {
     private var id = UIBackgroundTaskIdentifier.invalid
 
-    func begin(name: String, expiring: @escaping @MainActor () -> Void) {
+    func begin(name: String, expiring: @escaping @MainActor () async -> Void) {
         id = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
-            MainActor.assumeIsolated {
-                expiring()
+            Task { @MainActor in
+                await expiring()
                 self?.end()
             }
         }

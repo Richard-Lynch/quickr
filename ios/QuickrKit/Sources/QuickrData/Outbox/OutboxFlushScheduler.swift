@@ -70,6 +70,7 @@ public actor OutboxFlushScheduler {
     private var running: Task<OutboxFlushReport?, Never>?
     private var followUp: OutboxFlushPolicy?
     private var retired = false
+    private var paused = false
     /// The most recent report, for the sync pill and tests.
     public private(set) var lastReport: OutboxFlushReport?
     /// The policy of every flush this scheduler started, in order.
@@ -113,7 +114,7 @@ public actor OutboxFlushScheduler {
     }
 
     private func request(_ policy: OutboxFlushPolicy) {
-        guard !retired else { return }
+        guard !retired, !paused else { return }
         guard running == nil else {
             followUp = followUp.map { $0.merged(with: policy) } ?? policy
             return
@@ -136,7 +137,7 @@ public actor OutboxFlushScheduler {
     private func finished(_ report: OutboxFlushReport?) {
         if let report { lastReport = report }
         running = nil
-        if !retired, let next = followUp {
+        if !retired, !paused, let next = followUp {
             followUp = nil
             start(next)
         }
@@ -158,4 +159,16 @@ public actor OutboxFlushScheduler {
     }
 
     public var isRetired: Bool { retired }
+
+    /// The app is going to be suspended: cancels the running flush and starts no new one (for a
+    /// pull, a signal or an enqueue) until `resume()`, so no flush transaction is open while the
+    /// process is suspended. The queue keeps every item; activation flushes them.
+    public func pause() {
+        paused = true
+        cancel()
+    }
+
+    public func resume() { paused = false }
+
+    public var isPaused: Bool { paused }
 }

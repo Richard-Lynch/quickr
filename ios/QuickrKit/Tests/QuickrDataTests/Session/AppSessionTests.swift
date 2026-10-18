@@ -45,13 +45,14 @@ private let otherServerURL = URL(string: "https://other.example")!
             env.transport.stub(where: { $0.url.path == "/api/v1/changes" }, { try server.respond($0) })
         }
 
-        @MainActor func session() throws -> AppSession {
+        @MainActor func session(transport: (any Transport)? = nil) throws -> AppSession {
             var coordinator = SyncCoordinator.Configuration()
             coordinator.autoRetry = false
             coordinator.jitter = { 0 }
             return try AppSession(
                 configuration: .init(
-                    location: StoreLocation(root: env.dir.url), transport: env.transport, notifier: env.notifier,
+                    location: StoreLocation(root: env.dir.url), transport: transport ?? env.transport,
+                    notifier: env.notifier,
                     leaseClock: env.clock, wallClock: env.wall, coordinator: coordinator,
                     notificationCenter: notifications))
         }
@@ -220,9 +221,79 @@ private let otherServerURL = URL(string: "https://other.example")!
         }
         try await eventually("activation pulls") { w.env.afters().count > pulls }
 
-        session.backgroundTimeExpiring()
+        await session.backgroundTimeExpiring()
         #expect(suspended.count == 2)
         await session.shutdown()
+    }
+
+    @Test func expiryWaitsForTheCancelledFlushBeforeSuspending() async throws {
+        let w = try World()
+        defer { w.env.cleanup() }
+        let gate = Gate()
+        let session = try w.session(transport: GatedTransport(w.env.transport, gate) { $0.method == .post })
+        await session.start(serverURL: SyncEnv.baseURL)
+        let store = try #require(session.store)
+        let scheduler = try #require(session.scheduler)
+        // When suspend is posted, the flush must have ended and released its lease.
+        let leaseFreeAtSuspend = Mutex<Bool?>(nil)
+        w.notifications.addObserver(forName: Database.suspendNotification, object: nil, queue: nil) { _ in
+            let free = (try? store.writer.read { db in try LeaseTable.record(db, .flush).owner == nil }) ?? false
+            leaseFreeAtSuspend.withLock { $0 = free }
+        }
+
+        _ = try await session.log(topic: Payloads.water, answers: ["glasses": .int(1)], version: 1)
+        await gate.arrival()  // the POST is in flight
+        await session.backgroundTimeExpiring(within: .seconds(10))
+        #expect(leaseFreeAtSuspend.withLock { $0 } == true)
+        #expect(await scheduler.lastReport?.ending == .cancelled)
+        // Paused until activation: a pull's flush request starts nothing.
+        let started = await scheduler.started.count
+        _ = await session.coordinator.sync(reason: .requested)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await scheduler.started.count == started)
+        #expect(await scheduler.isPaused)
+        await session.didBecomeActive()
+        #expect(await !scheduler.isPaused)
+        gate.releaseAll()
+        await session.shutdown()
+    }
+
+    @Test func expiryIsBoundedByTheRemainingTime() async throws {
+        let w = try World()
+        defer { w.env.cleanup() }
+        let gate = Gate()
+        let suspended = w.posted(Database.suspendNotification)
+        let session = try w.session(
+            transport: GatedTransport(w.env.transport, gate) { $0.url.path == "/api/v1/changes" && gate.armed })
+        await session.start(serverURL: SyncEnv.baseURL)
+        gate.arm()
+        let pull = Task { await session.coordinator.sync(reason: .requested) }
+        await gate.arrival()  // a pull is parked and won't end
+
+        let started = ContinuousClock.now
+        await session.backgroundTimeExpiring(within: .milliseconds(300))
+        #expect(ContinuousClock.now - started < .seconds(10), "returned at the bound, not when the pull ends")
+        #expect(suspended.count == 1)
+        gate.releaseAll()
+        _ = await pull.value
+        await session.shutdown()
+    }
+
+    @Test func theReadOnlyTopicsNeverCreateAStoreFile() async throws {
+        let w = try World()
+        defer { w.env.cleanup() }
+        // Registered and active, but its file isn't there yet (onboarding in another process).
+        _ = try await w.env.partitions.registry.register(
+            serverId: "s-new", baseURL: "https://new.example", now: Make.t0)
+        try await w.env.partitions.registry.setActive("s-new")
+        let topics = ActiveStoreTopicRepository(partitions: try w.env.otherProcess())
+        #expect(try await topics.topics().isEmpty)
+        let server = try #require(try await w.env.partitions.registry.repository.server(id: "s-new"))
+        let file = StoreLocation(root: w.env.dir.url).storeURL(for: server)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        // No active server at all: empty too.
+        try await w.env.partitions.registry.setActive(nil)
+        #expect(try await topics.topics().isEmpty)
     }
 
     @Test func aShutDownSessionIsFreed() async throws {
@@ -250,4 +321,31 @@ private final class WeakRefs: @unchecked Sendable {
     weak var session: AppSession?
     weak var coordinator: SyncCoordinator?
     weak var scheduler: OutboxFlushScheduler?
+}
+
+/// Parks the requests `matches` selects at `gate` (until it opens), then sends them on.
+private final class GatedTransport: Transport {
+    private let inner: any Transport
+    private let gate: Gate
+    private let matches: @Sendable (HTTPRequest) -> Bool
+
+    init(_ inner: any Transport, _ gate: Gate, matches: @escaping @Sendable (HTTPRequest) -> Bool) {
+        self.inner = inner
+        self.gate = gate
+        self.matches = matches
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        if matches(request) { await gate.arrive() }
+        return try await inner.send(request)
+    }
+}
+
+extension Gate {
+    private static let armedGates = Mutex<Set<ObjectIdentifier>>([])
+
+    /// Whether `arm()` was called: lets a gate let earlier requests through.
+    var armed: Bool { Self.armedGates.withLock { $0.contains(ObjectIdentifier(self)) } }
+
+    func arm() { _ = Self.armedGates.withLock { $0.insert(ObjectIdentifier(self)) } }
 }

@@ -146,6 +146,7 @@ public final class AppSession {
     public func didBecomeActive() async {
         configuration.notificationCenter.post(name: Database.resumeNotification, object: nil)
         guard started else { return }  // the launch's `start()` does the rest
+        await scheduler?.resume()
         await rebind()
         refresh.poke()
         await scheduler?.requestFlush(reason: .activation)
@@ -153,20 +154,53 @@ public final class AppSession {
     }
 
     /// `scenePhase` → `.background`, inside the app's background task: release held deletes and
-    /// flush (outbox.md §10), then suspend GRDB so no lock is held while suspended (0xDEAD10CC).
+    /// flush (outbox.md §10), wait for the flush and any pull in flight to end, then suspend GRDB,
+    /// so no write transaction is open when the process is suspended (0xDEAD10CC).
     @discardableResult
     public func didEnterBackground() async -> OutboxFlushReport? {
         let report = await scheduler?.flushNow(reason: .background)
+        await scheduler?.pause()  // no new flush (a pull's, a signal's) until the app is active
+        await coordinator.waitUntilIdle()
         configuration.notificationCenter.post(name: Database.suspendNotification, object: nil)
         return report
     }
 
     /// The background task's expiration handler: cancel the flush (its item becomes uncertain and
-    /// the lease is released) and suspend GRDB. Returns at once.
-    public func backgroundTimeExpiring() {
+    /// the lease is released), wait for it and any pull in flight to end, but no longer than
+    /// `remaining` (what the system still grants), then suspend GRDB. End the background task
+    /// after it returns.
+    public func backgroundTimeExpiring(within remaining: Duration = .seconds(3)) async {
         let scheduler = scheduler
-        Task { await scheduler?.cancel() }
+        let coordinator = coordinator
+        await scheduler?.pause()  // cancels the flush, and starts no new one until activation
+        await Self.firstOf(remaining) {
+            _ = await scheduler?.waitUntilIdle()
+            await coordinator.waitUntilIdle()
+        }
         configuration.notificationCenter.post(name: Database.suspendNotification, object: nil)
+    }
+
+    /// Runs `work` and returns when it ends or after `timeout`, whichever is first (the work keeps
+    /// running if the timeout wins).
+    private static func firstOf(_ timeout: Duration, _ work: @escaping @Sendable () async -> Void) async {
+        let done = Mutex(false)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let finish: @Sendable () -> Void = {
+                let first = done.withLock { finished in
+                    defer { finished = true }
+                    return !finished
+                }
+                if first { continuation.resume() }
+            }
+            Task {
+                await work()
+                finish()
+            }
+            Task {
+                try? await Task.sleep(for: timeout)
+                finish()
+            }
+        }
     }
 
     /// Stops listening and unbinds (retiring the scheduler). For tests and teardown.
@@ -182,6 +216,12 @@ public final class AppSession {
     }
 
     // MARK: - Writes (TILES, RECORD, the entry screens)
+    //
+    // Each write returns once its outbox item is durably committed (so an undo toast can follow
+    // at once), then asks for a flush. Errors: `SessionError.noStore` before onboarding;
+    // `OutboxError` from the enqueue rules, notably `.entryDeleted` (C0: the entry was deleted
+    // here or on the server; show "This entry was deleted"); `StoreError.retired` if the store was
+    // reset meanwhile (retry after `binding` changes).
 
     /// Logs an entry and asks for a flush. Returns the new entry's id (also its outbox item id).
     @discardableResult
@@ -314,8 +354,10 @@ public final class AppSession {
     /// The coordinator's events that change what the session is bound to.
     fileprivate func handle(_ event: SyncEvent) {
         switch event {
-        case .storeReset, .bootstrapped:
+        case .storeReset:
             Task { await rebind() }
+        case .bootstrapped:
+            break  // only connect and start bootstrap a store, and both rebind themselves
         case .layerSwapped, .layerChanged, .topicsDeleted:
             refresh.poke()
         }
@@ -332,14 +374,15 @@ private final class SessionEvents: SyncEventSink, @unchecked Sendable {
 }
 
 /// The topics of whichever store is active, read through the partitions' shared pool: what App
-/// Intents and the widget read (the widget's partitions are its own process's).
+/// Intents and the widget read (the widget's partitions are its own process's). Read-only: no
+/// active server, or no store file yet, is an empty list; it never creates a file or recovers.
 public struct ActiveStoreTopicRepository: TopicRepository {
     public let partitions: StorePartitions
 
     public init(partitions: StorePartitions) { self.partitions = partitions }
 
     private func repository() async throws -> GRDBTopicRepository? {
-        try await partitions.openActiveStore(role: .extension)?.store.topics
+        try await partitions.openActiveStoreIfExists()?.topics
     }
 
     public func topics() async throws -> [ViewTopic] { try await repository()?.topics() ?? [] }
