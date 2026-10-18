@@ -291,6 +291,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-18 06:20: PR #9 CI: backend/frontend/docker green; iOS `build + Unit plan` failed: Xcode 26.6's region-isolation checker crashed compiling the DEBUG spike code in NotificationService.swift (Xcode 27.1 compiles it). Fix ae90611 passes only Sendable values into the task; CI rerunning. WIRE done (fdcdb1e, 0dc1762, design-note fixes 60bce0b); Codex = REQUEST CHANGES: stale background suspend after activation, expiration suspend before cleanup, bridge publishes the new scheduler before the old retires, widget opens are writable/recovering. Fixing.
+
 - 2026-10-18 06:05: **M1 PR #9 opened** into feat/ios-app (https://github.com/Richard-Lynch/quickr/pull/9). CI running.
 
 - 2026-10-18 06:00: **M1 evidence complete** (183ec1a): check-ios on iOS 26.0 and 27 green (446 unit + UI each, Intents 2/2 on 27); ios-integration 2/2 at 15/15; widget-proof 26.0 and 27; spike-proof 26.0; backend 686. check-ios needed 3 attempts (sim-cap env leak, fixed 39eb3ec; 16d/16f load flake, slack made scalable 8ba77e7). Opening the M1 PR into feat/ios-app.
