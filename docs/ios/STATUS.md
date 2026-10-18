@@ -282,6 +282,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-18 01:00: FORM Codex r2: all resolved, no new majors (awaiting the watchdog UI rerun). INT checkpoint ffbd1ab: 13/13 against live docker twice; clean-stack `make ios-integration` ×2 running. MP checkpoint d172f7d (sync MP cases, N4). SKEL 8b6895c (widget gallery stall fix); final report pending. Load ~36.
+
 - 2026-10-18 00:45: Load ~275. The simulator cap was breached (SKEL booted iOS 26 and 27 together); the orchestrator shut down SKEL's idle iOS 26 clone. FORM's UI-plan xcodebuild has hung 41 min at 0% CPU after the tests (a recurring post-test hang) → the backlog item for an xcodebuild watchdog is promoted to next. FORM review fixes are in a845530 (21 host tests); Codex r2 is running. MP and INT have no new commits for 65 min; status requested.
 
 - 2026-10-18 00:05: FORM Codex r1 = REQUEST CHANGES. Major: duplicate auto-save on rapid chip taps (needs an in-flight latch). Minors: the 400 ms initial focus can steal focus; Same-as-last leaves stale errors. An AX-size UI check was added to the scope. SKEL tree clean at d41e97e, awaiting its final report. MP checkpoint b3e793a (ProcessHelper agent, loopback server); INT checkpoint de4ff8c (OutboxSignal routed to the coordinator).
