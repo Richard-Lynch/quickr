@@ -34,7 +34,7 @@ name or UDID.
 | `make ios-core-test`        | `swift test` for `QuickrKit` on the Mac (fast; Core and Data only)                                                                                                                            |
 | `make ios-test`             | Unit test plan on the iOS 26.0 simulator                                                                                                                                                      |
 | `make ios-uitest`           | UI test plan on `IOS_SIM`                                                                                                                                                                     |
-| `make check-ios`            | The local gate: gen, swift test, Unit and UI plans on **both** simulators, lint, Xcode version                                                                                                |
+| `make check-ios`            | The local gate: gen, swift test, Unit and UI plans on **both** simulators, Intents plan on iOS 27, lint, Xcode version                                                                        |
 | `make ios-check-ci`         | What CI runs on a ready PR: gen, build and Unit plan with signing off, on an iPhone with an **iOS 26.x** runtime (fails if none; `IOS_SIM_CI` picks the preferred model, default `iPhone 17`) |
 | `make ios-sim-run`          | Build, install and launch; `URL=quickr://...` then opens a link                                                                                                                               |
 | `make ios-shots`            | Clean status bar, light and dark screenshots into `IOS_SHOTS` (default `docs/ios/demo/m0`)                                                                                                    |
@@ -54,22 +54,23 @@ before taking screenshots.
 
 ## Package versions
 
-Once `QuickrKit` has remote dependencies (GRDB in M1), **one** lockfile is tracked:
-`ios/QuickrKit/Package.resolved`. Host SwiftPM (`swift test`) and Xcode both resolve from it:
+Once `QuickrKit` has remote dependencies (GRDB in M1), **one** lockfile is
+tracked: `ios/QuickrKit/Package.resolved`. Host SwiftPM (`swift test`) and Xcode
+both resolve from it:
 
-- Xcode 27 seeds its resolution from a local package's lockfile. Verified with a GRDB probe: it
-  checked out the pinned older version, not the newest match.
+- Xcode 27 seeds its resolution from a local package's lockfile. Verified with a
+  GRDB probe: it checked out the pinned older version, not the newest match.
 - `make ios-gen` also copies it into the generated, gitignored
   `quickR.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`.
-- Builds run with `-onlyUsePackageVersionsFromResolvedFile` and `swift test` with
-  `--only-use-versions-from-resolved-file`, so a pin that no longer satisfies `Package.swift`
-  fails the build instead of silently moving.
-- After the Xcode runs, `check-ios` and `ios-check-ci` check that Xcode's workspace pins still
-  match the tracked file (`scripts/resolved-check.sh`).
+- Builds run with `-onlyUsePackageVersionsFromResolvedFile` and `swift test`
+  with `--only-use-versions-from-resolved-file`, so a pin that no longer
+  satisfies `Package.swift` fails the build instead of silently moving.
+- After the Xcode runs, `check-ios` and `ios-check-ci` check that Xcode's
+  workspace pins still match the tracked file (`scripts/resolved-check.sh`).
 
-To add or bump a dependency, edit `QuickrKit/Package.swift`, run `make ios-resolve` (it runs
-`swift package update`, regenerates, and checks that Xcode resolves to the same pins), then
-commit `ios/QuickrKit/Package.resolved`.
+To add or bump a dependency, edit `QuickrKit/Package.swift`, run
+`make ios-resolve` (it runs `swift package update`, regenerates, and checks that
+Xcode resolves to the same pins), then commit `ios/QuickrKit/Package.resolved`.
 
 ## Layout
 
@@ -102,45 +103,101 @@ target is renamed or added, regenerate and update the `identifier` in the
 
 ## Data layer: Swift 6 and GRDB
 
-`QuickrData` uses GRDB 7 (pinned in `QuickrKit/Package.resolved`). The app, the widget extension
-and the NSE all link it; each has a `StoreLink.swift` that opens a pool and reads through a
-repository, and `QuickRTests` runs the app's copy on the simulator. The rules, so the three
-processes and every work package use one pattern:
+`QuickrData` uses GRDB 7 (pinned in `QuickrKit/Package.resolved`). The app, the
+widget extension and the NSE all link it; each has a `StoreLink.swift` that
+opens a pool and reads through a repository, and `QuickRTests` runs the app's
+copy on the simulator. The rules, so the three processes and every work package
+use one pattern:
 
-- **Connections.** One `DatabasePool` (WAL) per store file per process, opened with
-  `StoreDatabase.openPool(at:)` and its `configuration(label:)` (busy timeout for the other
-  processes). `DatabasePool`, `DatabaseQueue` and `any DatabaseReader`/`DatabaseWriter` are
-  `Sendable`, so a pool can be shared by any actor or task. Tests use
-  `TestDatabase.store()`/`registry()` (in-memory, real migrators); multi-process tests use files.
-- **Repositories** are `Sendable` structs holding `any DatabaseReader` (or `DatabaseWriter`),
-  behind the protocols in `QuickrData/Contracts/Repositories.swift`. Their methods are `async`
-  and call `try await reader.read { db in ... }` / `writer.write { db in ... }`: the database work
-  runs on GRDB's own queue, never on the caller's executor (in particular not the main actor).
-  `GRDBSyncStateRepository` is the template.
-- **Values out, never records or rows.** Closures build `Sendable` value types (QuickrCore models,
-  `StoreRecords`) inside the read and return them. `Row`, `Database` and statements never escape
-  a closure.
-- **No awaits inside a transaction.** A closure passed to `read`/`write` is synchronous; network
-  calls, lease waits and `UNUserNotificationCenter` calls happen before or after it
-  (sync-protocol.md §5.2 rule 3). The one exception is the synchronous
-  `setNotificationCategories`, called inside the registry write (notifications.md §5.2).
+- **Connections.** One `DatabasePool` (WAL) per store file per process, opened
+  with `StoreDatabase.openPool(at:)` and its `configuration(label:)` (busy
+  timeout for the other processes). `DatabasePool`, `DatabaseQueue` and
+  `any DatabaseReader`/`DatabaseWriter` are `Sendable`, so a pool can be shared
+  by any actor or task. Tests use `TestDatabase.store()`/`registry()`
+  (in-memory, real migrators); multi-process tests use files.
+- **Repositories** are `Sendable` structs holding `any DatabaseReader` (or
+  `DatabaseWriter`), behind the protocols in
+  `QuickrData/Contracts/Repositories.swift`. Their methods are `async` and call
+  `try await reader.read { db in ... }` / `writer.write { db in ... }`: the
+  database work runs on GRDB's own queue, never on the caller's executor (in
+  particular not the main actor). `GRDBSyncStateRepository` is the template.
+- **Values out, never records or rows.** Closures build `Sendable` value types
+  (QuickrCore models, `StoreRecords`) inside the read and return them. `Row`,
+  `Database` and statements never escape a closure.
+- **No awaits inside a transaction.** A closure passed to `read`/`write` is
+  synchronous; network calls, lease waits and `UNUserNotificationCenter` calls
+  happen before or after it (sync-protocol.md §5.2 rule 3). The one exception is
+  the synchronous `setNotificationCategories`, called inside the registry write
+  (notifications.md §5.2).
 - **Columns.** Instants are `REAL` Unix seconds, converted with
-  `Date(timeIntervalSince1970:)` (never GRDB's default `Date` string encoding); lease-time
-  deadlines are `(boot_id, ct)` pairs; ids are lowercase UUID strings (`UUID.wireString`). The
-  schema and its conventions are in `StoreSchema.swift` (store) and the same file's
-  `RegistrySchema` (registry).
-- **Migrations** are `StoreSchema.migrator()` and `RegistrySchema.migrator()`; any process may run
-  them. They are append-only once a build ships.
+  `Date(timeIntervalSince1970:)` (never GRDB's default `Date` string encoding);
+  lease-time deadlines are `(boot_id, ct)` pairs; ids are lowercase UUID strings
+  (`UUID.wireString`). The schema and its conventions are in `StoreSchema.swift`
+  (store) and the same file's `RegistrySchema` (registry).
+- **Migrations** are `StoreSchema.migrator()` and `RegistrySchema.migrator()`;
+  any process may run them. They are append-only once a build ships.
 
-API contracts live next to the schema: wire DTOs (`*DTO.swift`, explicit `CodingKeys`, no key
-strategy), `WireCoding` (dates in with 0–6 fractional digits and `Z` or an offset, out as UTC with
-`+00:00`), and the `Endpoints` table keyed by `operationId`. `FixtureCoverageTests` decodes every
-`shared/fixtures/api/*.json` through it, so a new fixture without a DTO fails `swift test`.
+API contracts live next to the schema: wire DTOs (`*DTO.swift`, explicit
+`CodingKeys`, no key strategy), `WireCoding` (dates in with 0–6 fractional
+digits and `Z` or an offset, out as UTC with `+00:00`), and the `Endpoints`
+table keyed by `operationId`. `FixtureCoverageTests` decodes every
+`shared/fixtures/api/*.json` through it, so a new fixture without a DTO fails
+`swift test`.
 
-`QuickrTestSupport` (test targets only) has `Fixtures` (reads `shared/fixtures` from the checkout
-via `#filePath`, on the Mac and the simulator; `QUICKR_FIXTURES_DIR` overrides), `FakeTransport`,
-`FakeClock`, `FakeLeaseClock`, `FakeNotificationCenter` and `TestDatabase`. `ProcessHelper` is the
-child process for the multi-process tests (`swift run ProcessHelper version`).
+`QuickrTestSupport` (test targets only) has `Fixtures` (reads `shared/fixtures`
+from the checkout via `#filePath`, on the Mac and the simulator;
+`QUICKR_FIXTURES_DIR` overrides), `FakeTransport`, `FakeClock`,
+`FakeLeaseClock`, `FakeNotificationCenter` and `TestDatabase`. `ProcessHelper`
+is the child process for the multi-process tests
+(`swift run ProcessHelper version`).
+
+## App Intents
+
+- **Declared once, in the package.** `TopicEntity`, its query, `LogEntryIntent`
+  and `SelectTopicIntent` live in `QuickrData/Intents`. Xcode merges a static
+  library's intents metadata into every binary that links it, so the app and
+  the widget extension get them with no extra declaration.
+- **No `AppIntentsPackage`** (contrary to research/02 §1 and 04). On iOS 26.0,
+  linkd resolves an `includedPackages` entry against the binary's *imported*
+  symbols. A static library's never are, so linkd logs "did not match any
+  imported symbol" and drops all of the bundle's intents: no App Shortcuts, and
+  widgets that can't be configured. iOS 27 accepts it, which is why this only
+  shows on the 26.0 simulator. `IntentMetadataTests` fails if an
+  `extract.packagedata` reappears.
+- **`AppShortcutsProvider`** exists only in the app (`QuickRShortcuts`).
+- **Data source.** Queries read the repository registered with
+  `IntentTopicSource.register(_:)`. Each process registers it at launch
+  (`QuickRApp.init`, the `WidgetBundle` init), and an unregistered query throws.
+  This is not `@Dependency`, which traps outside the system's intent flow
+  (timeline providers, tests).
+- **Metadata.** Xcode writes `Metadata.appintents` into the app and every
+  extension that _links_ `QuickrData`, the NSE included (harmless: an NSE is
+  never an intent executor). linkd merges them all under the app's bundle id;
+  extensions have no metadata identity of their own. `ENABLE_DEBUG_DYLIB` is off
+  because the Xcode 27 debug/preview dylibs race on the linker's dependency file
+  and silently skip extraction (`project.yml`). An incremental build that reruns
+  extraction but not phrase training can also leave the app's metadata without
+  `nlu/` and `root.ssu.yaml`, so clean-build before judging Siri phrases.
+- **Tests.**
+  - `IntentMetadataTests` (Unit plan, every runtime) checks both bundles'
+    metadata.
+  - `IntentResolutionTests` (`QuickRIntentsTests`, `Intents` plan) runs the
+    queries and intents through AppIntentsTesting:
+    `IntentDefinitions(bundleIdentifier: "com.bahumia.quickr")`, then
+    `entities[...]`, `intents[...].makeIntent(...).run()`. AppIntentsTesting
+    needs the iOS 27 runtime's `AppIntentsTypeSupport`, and on iOS 26 the bundle
+    fails to load and kills the runner. That's why it is a separate bundle, run
+    by `check-ios` only on iOS 27+ (`make ios-uitest`-style:
+    `ios/scripts/test.sh Intents <sim>`).
+  - `WidgetGalleryTests` (`Widgets` plan, on demand:
+    `ios/scripts/widget-proof.sh <sim>`) adds the widget from SpringBoard's
+    gallery, picks a topic from the extension's query and checks the widget
+    renders it. It removes its widgets at both ends. It is skipped in the UI
+    plan and kept out of `check-ios` because SpringBoard automation sometimes
+    stalls indefinitely (an accessibility snapshot that never returns), which
+    XCTest's test timeouts don't catch. Run it when intents, the widget or
+    their metadata change; the script enforces a wall-clock limit. If it
+    stalls, erase the simulator and rerun.
 
 ## Integration tests
 
@@ -173,8 +230,8 @@ worktrees never race for ports and nothing collides with the dev stack (:8100,
 before the env file is written, `integration-up.sh` removes the stack again.
 
 **`ios/build/integration.env`** holds `KEY=value` lines, one per line, with each
-value shell-escaped (`printf %q`; URLs, ids and ports need no escaping). Source it
-from a shell; prefer the environment over parsing it. `make ios-integration`
+value shell-escaped (`printf %q`; URLs, ids and ports need no escaping). Source
+it from a shell; prefer the environment over parsing it. `make ios-integration`
 exports these variables to `swift test`:
 
 | Variable                                | Value                                                                                                                             |
@@ -248,17 +305,18 @@ The clone is named `<source> <worktree dir>-<hash of its canonical path>`, so
 running the script again finds the same device, and `--delete` can only ever
 remove this worktree's clone. A kernel advisory lock (`lockf` on fd 9)
 serialises concurrent runs. The OS drops it when the last process holding fd 9
-exits or dies: the script and any child that inherited the descriptor. If the source simulator is shut down, the script copies it with
-`simctl clone`. If it is booted (in use), the script never touches it and
-creates a fresh device with the same device type and runtime instead.
+exits or dies: the script and any child that inherited the descriptor. If the
+source simulator is shut down, the script copies it with `simctl clone`. If it
+is booted (in use), the script never touches it and creates a fresh device with
+the same device type and runtime instead.
 
 ## CI
 
 `.github/workflows/ios.yml` runs on `macos-26` with Xcode 26.6 pinned through
 `DEVELOPER_DIR`, and downloads a pinned, checksummed xcodegen release. A push
 runs `swift test`; a non-draft PR or a manual dispatch runs `make ios-check-ci`
-(Unit plan on an "iPhone 17" simulator with an iOS 26.x runtime, the oldest one available;
-`ios/scripts/sim-ios26.sh` fails the job if the runner has none).
+(Unit plan on an "iPhone 17" simulator with an iOS 26.x runtime, the oldest one
+available; `ios/scripts/sim-ios26.sh` fails the job if the runner has none).
 
 ## Interactive loop
 

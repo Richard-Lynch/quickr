@@ -3,17 +3,20 @@ import QuickrData
 import QuickrUI
 import SwiftUI
 
-/// M0 placeholder: proves the app links QuickrCore, QuickrData and QuickrUI.
+/// The navigation root. LINKS fills `Route` and the destinations; the home screen replaces
+/// `placeholder` in M2.
 struct RootView: View {
+    @Environment(AppEnvironment.self) private var environment
+
     var body: some View {
         #if DEBUG
         if let page = Self.catalogPage {
             DesignCatalogView(page: page)
         } else {
-            placeholder
+            stack
         }
         #else
-        placeholder
+        stack
         #endif
     }
 
@@ -27,6 +30,18 @@ struct RootView: View {
     }
     #endif
 
+    private var stack: some View {
+        @Bindable var router = environment.router
+        return NavigationStack(path: $router.path) {
+            placeholder
+                .navigationDestination(for: Route.self, destination: destination(for:))
+        }
+    }
+
+    private func destination(for route: Route) -> Never {
+        switch route {}
+    }
+
     private var placeholder: some View {
         VStack(spacing: 8) {
             Text("quickR")
@@ -37,12 +52,22 @@ struct RootView: View {
             Text("Data → Core \(QuickrData.coreVersion)")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
+            Text(storeStatus)
+                .font(.footnote)
+                .foregroundStyle(.tertiary)
+                .accessibilityIdentifier("root.storeStatus")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemBackground))
+    }
+
+    private var storeStatus: String {
+        if let error = environment.storeError { return "Store failed: \(error)" }
+        return environment.store == nil ? "Store opening…" : "Store ready"
     }
 }
 
 #Preview {
     RootView()
+        .environment(AppEnvironment(settings: AppSettings(defaults: .standard), topics: PlaceholderTopicRepository()))
 }
