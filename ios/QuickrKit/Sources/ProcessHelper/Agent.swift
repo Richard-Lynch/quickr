@@ -96,6 +96,7 @@ actor Agent {
             return [
                 "ending": "\(report.ending)", "requests": String(report.requests), "acked": String(report.acked),
                 "failed": String(report.failed), "retried": String(report.retried), "settled": String(report.settled),
+                "elapsedMs": report.elapsed.map { String(Int(($0 / .milliseconds(1)).rounded(.up))) } ?? "",
             ]
 
         // MARK: Leases

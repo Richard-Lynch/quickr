@@ -132,10 +132,11 @@ import Testing
         h.server.inject(.post, .answerOnCancel(Gate()))
         let flush = background { try await outbox.flushNow() }
         try await waitUntil { h.server.requests.count == 1 }
-        let started = ContinuousClock.now
+        let cancelled = ContinuousClock.now
         flush.cancel()
         let report = try await flush.value
-        #expect(ContinuousClock.now - started < .milliseconds(500))  // no grace on cancellation
+        // No grace on cancellation: measured to the flush's own end, not to this task's resumption.
+        #expect(try #require(report.endedAt) - cancelled < timingSlack(.milliseconds(500)))
         #expect(report.ending == .cancelled && report.acked == 0)
         #expect(try h.item(id)?.state == .uncertain && h.lease().owner == nil)
         #expect(h.server.entry(id) != nil)  // the POST committed
@@ -152,9 +153,8 @@ import Testing
         let id = try await h.log(outbox)
         let problem = header(FakeServer.problem(422, "invalid_answers", "mood is required"))
         h.server.inject(.post, .answerOnCancel(Gate(), override: problem))
-        let started = ContinuousClock.now
         let report = try await outbox.flush(force: true, budget: .seconds(2))
-        #expect(ContinuousClock.now - started <= .seconds(2))  // the answer came inside the budget
+        #expect(try #require(report.elapsed) <= .seconds(2))  // the answer came inside the budget
         #expect(report.ending == .budgetExhausted && report.failed == 1)
         let item = try #require(try h.item(id))
         #expect(item.state == .failed && item.failureReason == .rejected && !item.maybeDelivered)
@@ -169,9 +169,8 @@ import Testing
         let id = try await h.log(outbox)
         let second = try await h.log(outbox, minutes: 1)
         h.server.inject(.post, .answerOnCancel(Gate()))
-        let started = ContinuousClock.now
         let report = try await outbox.flush(force: true, budget: .seconds(2))
-        #expect(ContinuousClock.now - started <= .seconds(2))  // the answer came inside the budget
+        #expect(try #require(report.elapsed) <= .seconds(2))  // the answer came inside the budget
         #expect(report.ending == .budgetExhausted && report.acked == 1)
         #expect(try h.item(id) == nil && h.server.entry(id) != nil)
         // The pass stops at the deadline: the next item is never claimed.
@@ -181,17 +180,21 @@ import Testing
     @Test("16f · a sender that ignores cancellation can't hold a budget-expired flush past the grace")
     func case16StuckSenderAtDeadline() async throws {
         let h = try OutboxHarness()
-        let outbox = h.outbox(shutdownGrace: .milliseconds(300))
+        // Budget 5 s: the grace is 1 s (capped at 20 % of the budget, below the 3 s shutdown grace)
+        // and requests stop at 3.75 s, leaving a loaded machine ample time to have the POST in
+        // flight when the deadline passes; that is the premise, checked first.
+        let outbox = h.outbox(shutdownGrace: .seconds(3))
         let id = try await h.log(outbox)
         let gate = Gate()
         h.server.inject(.post, .hang(gate))
-        let started = ContinuousClock.now
-        let report = try await outbox.flush(force: true, budget: .seconds(1))
-        // The grace (200 ms: 20 % of the budget) and the release fit inside the budget.
-        #expect(ContinuousClock.now - started <= .seconds(1) + .milliseconds(250))
+        let report = try await outbox.flush(force: true, budget: .seconds(5))
+        try #require(h.server.requests.count == 1, "the POST was in flight when the request deadline passed")
+        // The grace and the release fit inside the budget, by the flush's own clock.
+        let elapsed = try #require(report.elapsed)
+        #expect(elapsed <= .seconds(5) + timingSlack(.milliseconds(250)), "elapsed \(elapsed)")
         #expect(report.ending == .budgetExhausted)
         let item = try #require(try h.item(id))
-        #expect(item.state == .uncertain && item.maybeDelivered && item.claimToken == nil)
+        #expect(item.state == .uncertain && item.maybeDelivered && item.claimToken == nil, "\(item)")
         #expect(try h.lease().owner == nil)
         // The stuck request finally completes: nobody listens, nothing is written.
         let before = try h.snapshot()
@@ -210,10 +213,11 @@ import Testing
         h.server.inject(.post, .hang(gate))
         await scheduler.requestFlush(reason: .background)
         await gate.arrival()
-        let started = ContinuousClock.now
+        let cancelled = ContinuousClock.now
         await scheduler.cancel()
         let report = await scheduler.waitUntilIdle()
-        #expect(ContinuousClock.now - started < .milliseconds(500))  // released at once, no grace
+        // Released at once, no grace: measured to the flush's own end.
+        #expect(try #require(report?.endedAt) - cancelled < timingSlack(.milliseconds(500)))
         #expect(report?.ending == .cancelled)
         #expect(try h.item(id)?.state == .uncertain && h.lease().owner == nil)
         gate.open()
@@ -249,9 +253,8 @@ import Testing
         let outbox = h.outbox()
         let id = try await h.log(outbox)
         h.server.inject(.post, .commitThenDeliver(after: .seconds(3)))
-        let started = ContinuousClock.now
         let report = try await outbox.flush(force: true, budget: .seconds(2))
-        #expect(ContinuousClock.now - started <= .seconds(2) + .milliseconds(250))
+        #expect(try #require(report.elapsed) <= .seconds(2) + timingSlack(.milliseconds(250)))
         #expect(report.ending == .budgetExhausted)
         #expect(try h.item(id)?.state == .uncertain && h.server.entry(id) != nil)
         // The resend is an idempotent replay: one entry, an empty outbox.
@@ -284,9 +287,8 @@ import Testing
         h.server.inject(.patch, .answerOnCancel(Gate(), override: stale, after: .milliseconds(300)))
         let stuck = Gate()
         h.server.inject(.get, .hang(stuck))
-        let started = ContinuousClock.now
         let report = try await outbox.flush(force: true, budget: .seconds(2))
-        #expect(ContinuousClock.now - started <= .seconds(2) + .milliseconds(100))
+        #expect(try #require(report.elapsed) <= .seconds(2) + timingSlack(.milliseconds(100)))
         #expect(report.ending == .budgetExhausted)
         #expect(h.server.count(.patch) == 1 && h.server.count(.get) == 0)
         let item = try #require(try h.items.single)
@@ -474,12 +476,14 @@ extension Array {
     var single: Element? { count == 1 ? first : nil }
 }
 
-/// Polls `condition` for up to 5 s.
-func waitUntil(_ condition: @Sendable () -> Bool) async throws {
-    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+/// Polls `condition` until it holds. `timeout` is a liveness ceiling (so a broken test fails
+/// instead of hanging), never the timing under test: generous, because a loaded machine can delay
+/// any task. Assert a real bound separately, from the flush's own `startedAt`/`endedAt`.
+func waitUntil(timeout: Duration = .seconds(30), _ condition: @Sendable () -> Bool) async throws {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
     while !condition() {
         guard ContinuousClock.now < deadline else {
-            Issue.record("condition not met within 5 s")
+            Issue.record("condition not met within \(timeout)")
             return
         }
         try await Task.sleep(for: .milliseconds(10))

@@ -224,9 +224,9 @@ import Testing
         // Held elsewhere: polling stops at the request deadline (0.7 s of a 1 s budget), not
         // at the 5 s lease wait, and the flush ends without the lease.
         let holder = try #require(try await h.store.leases.tryAcquire(.flush, owner: "widget:9"))
-        let started = ContinuousClock.now
-        #expect(try await outbox.flush(force: true, budget: .seconds(1), leaseWait: .seconds(5)).ending == .busy)
-        #expect(ContinuousClock.now - started <= .seconds(1))
+        let polled = try await outbox.flush(force: true, budget: .seconds(1), leaseWait: .seconds(5))
+        #expect(polled.ending == .busy)
+        #expect(try #require(polled.elapsed) <= .seconds(1))
         #expect(try h.lease().owner == "widget:9" && h.server.requests.isEmpty)
         _ = try await h.store.leases.release(holder)
     }

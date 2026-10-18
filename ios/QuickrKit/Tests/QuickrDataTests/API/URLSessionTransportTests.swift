@@ -116,9 +116,9 @@ import Testing
         #expect(ContinuousClock.now - started < .seconds(5))
     }
 
-    /// Polls `condition` every 10 ms for up to 10 s.
+    /// Polls `condition` every 10 ms: a liveness ceiling of 30 s, never the timing under test.
     static func waitUntil(_ condition: @Sendable () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(10)
+        let deadline = ContinuousClock.now + .seconds(30)
         while !condition() {
             guard ContinuousClock.now < deadline else {
                 Issue.record("condition not met in time")

@@ -183,3 +183,11 @@ extension Outbox {
         try await flush(force: force, budget: budget)
     }
 }
+
+/// `QUICKR_TIMING_SLACK` (a multiplier, default 1, never below 1) scales the slack of a timing
+/// bound, never the budget it is added to: a run on a knowingly loaded machine can set it to 3.
+/// CI never sets it.
+func timingSlack(_ slack: Duration) -> Duration {
+    let factor = ProcessInfo.processInfo.environment["QUICKR_TIMING_SLACK"].flatMap(Double.init) ?? 1
+    return slack * max(1, factor)
+}

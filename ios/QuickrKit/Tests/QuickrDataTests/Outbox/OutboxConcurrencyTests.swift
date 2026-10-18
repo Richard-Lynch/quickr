@@ -235,10 +235,10 @@ import Testing
         let flushApp = background { try await app.flushNow() }
         await gate.arrival()
         let logged = try await h.log(widget)
-        let started = ContinuousClock.now
         let policy = OutboxFlushPolicy.extensionFlush(budget: .seconds(4))
         let report = try await widget.flush(force: policy.force, budget: policy.budget, leaseWait: policy.leaseWait)
-        #expect(report.ending == .busy && ContinuousClock.now - started < .seconds(4))
+        #expect(report.ending == .busy)
+        #expect(try #require(report.elapsed) < .seconds(4))
         #expect(try h.item(logged)?.state == .pending)
         gate.open()
         _ = try await flushApp.value
