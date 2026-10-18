@@ -287,6 +287,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-18 01:50: MP merged into ios/m1-data (85ae3b0) after the orchestrator verified the r2 minors (9257754). ios-core-test and lint green on the merge. INT r2 and WATCHDOG Codex reviews running.
+
 - 2026-10-18 01:40: MP r2: all 3 majors resolved, no new majors; 3 minors left (S16 sync gap, gate arrival-waiter cleanup, listener-startup cancellation) → final fix, orchestrator verifies. INT fixes committed 7bcf492 (retain cycle, revocable forwarding). WATCHDOG committed d367c64; check-ios result pending. SKEL is active (new xcodebuild run) but hasn't replied in ~2.5 h.
 
 - 2026-10-18 01:40: Codex MP = REQUEST CHANGES: unbounded reply-timeout waiter; N4 lacks forced overlap and final-union checks; the surviving live-page mutation (epoch/rebuilding) isn't covered single-process; plus 3 minors. Codex INT = REQUEST CHANGES: a coordinator↔outbox retain cycle; the bridge can forward a stale flush after unbind; plus 2 minors. Both are fixing. WATCHDOG in progress; SKEL still pending.
