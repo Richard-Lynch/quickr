@@ -71,5 +71,35 @@ import Testing
             #expect(throws: SpikeError.self) { try SpikeHandler.validate(action: forged, userInfo: ["quickr": quickr]) }
         }
     }
+
+    /// Both versions must parse: a payload without a version (missing or null) never matches an
+    /// action, and a malformed action version never matches a payload's.
+    @Test func versionsMustBothParse() throws {
+        let vector = try #require(try Self.vectors().first { $0["name"] as? String == "enum-4" })
+        let expected = try #require(vector["expected"] as? [String: Any])
+        let action = try #require((expected["actions"] as? [[String: String]])?.first?["identifier"])
+        var quickr: [String: Any] = [
+            "v": 1, "kind": "due", "server_id": try #require(vector["server_id"]),
+            "topic_id": try #require(vector["topic_id"]), "quick_log": try #require(expected["quick_log"]),
+        ]
+        let garbage = action.replacingOccurrences(of: "|1|mood|", with: "|garbage|mood|")
+        for version in [nil, NSNull()] as [Any?] {  // missing, then null
+            quickr["version"] = version
+            for candidate in [action, garbage] {
+                #expect(throws: SpikeError.self) {
+                    try SpikeHandler.validate(action: candidate, userInfo: ["quickr": quickr])
+                }
+            }
+        }
+        quickr["version"] = 1
+        #expect(throws: SpikeError.self) { try SpikeHandler.validate(action: garbage, userInfo: ["quickr": quickr]) }
+        _ = try SpikeHandler.validate(action: action, userInfo: ["quickr": quickr])
+    }
+
+    @Test func defaultAndDismissActionsLogNothing() {
+        #expect(!SpikeHandler.isLogAction("com.apple.UNNotificationDefaultActionIdentifier"))
+        #expect(!SpikeHandler.isLogAction("com.apple.UNNotificationDismissActionIdentifier"))
+        #expect(SpikeHandler.isLogAction("q1|s|t|1|mood|o|calm"))
+    }
 }
 #endif

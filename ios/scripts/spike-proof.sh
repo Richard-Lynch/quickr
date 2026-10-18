@@ -26,6 +26,10 @@ cleanup() {
   set +e
   if [[ -n "${coordinator:-}" ]]; then kill "$coordinator" 2>/dev/null; fi
   if [[ -n "${recorder:-}" ]]; then kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null; fi
+  # Turn the spike off again (SpikeGate): only an explicit run enables it.
+  local group
+  group="$(xcrun simctl get_app_container "$udid" com.bahumia.quickr group.com.bahumia.quickr 2>/dev/null)"
+  if [[ -n "$group" ]]; then rm -f "$group/Library/quickr/spike-enabled"; fi
   if (( booted_here )); then
     for _ in 1 2 3; do
       xcrun simctl shutdown "$udid" 2>/dev/null
@@ -65,14 +69,28 @@ python3 - "$work" "$QUICKR_IT_BASE_URL" "$topic_a" "$topic_b" <<'EOF'
 import base64, json, sys
 from pathlib import Path
 work, server, a, b = Path(sys.argv[1]), sys.argv[2], json.loads(sys.argv[3]), json.loads(sys.argv[4])
-registered = [json.loads((work / "payload-app-registered.json").read_text())]
-case = lambda name, topic, label, registered: {
-    "name": name, "topicId": topic["id"], "topicName": topic["name"], "optionLabel": label,
-    "optionValue": label.lower(), "appRegistered": registered}
+app_registered = json.loads((work / "payload-app-registered.json").read_text())
+# error: the same category, but the reminder names another version, so the handler's
+# validation must refuse the action (notifications.md §7.1 step 1) and post "Couldn't log".
+error = json.loads(json.dumps(app_registered))
+error["quickr"]["version"] = 99
+(work / "payload-error.json").write_text(json.dumps(error))
+# default: another reminder for the same topic, whose body the test taps (opens the app).
+default = json.loads(json.dumps(app_registered))
+default["quickr"]["due_since"] = "2026-10-18T09:00:00Z"
+(work / "payload-default.json").write_text(json.dumps(default))
+case = lambda name, kind, topic, label: {
+    "name": name, "kind": kind, "topicId": topic["id"], "topicName": topic["name"], "optionLabel": label,
+    "optionValue": label.lower()}
 (work / "setup.json").write_text(json.dumps({
     "server": server,
-    "register": base64.b64encode(json.dumps(registered).encode()).decode(),
-    "cases": [case("app-registered", a, "Busy", True), case("nse-only", b, "Tired", False)],
+    "register": base64.b64encode(json.dumps([app_registered]).encode()).decode(),
+    "cases": [
+        case("app-registered", "log", a, "Busy"),
+        case("error", "error", a, "Calm"),
+        case("default", "default", a, "Calm"),
+        case("nse-only", "observe", b, "Tired"),
+    ],
 }))
 EOF
 
@@ -85,6 +103,7 @@ xcrun simctl io "$udid" recordVideo --force "$work/spike.mov" 2>/dev/null &
 recorder=$!
 
 export TEST_RUNNER_SPIKE_COORDINATOR="http://127.0.0.1:$(cat "$work/port")"
+"$here/gen.sh"  # a clean checkout has no quickR.xcodeproj
 "$here/test.sh" Spike "$udid" &
 pid=$!
 ( sleep "$limit"; pkill -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null ) &
@@ -98,7 +117,7 @@ group="$(xcrun simctl get_app_container "$udid" com.bahumia.quickr group.com.bah
 [[ -n "$group" && -f "$group/Library/quickr/spike-log.jsonl" ]] && cp "$group/Library/quickr/spike-log.jsonl" "$work/"
 result="$BUILD_DIR/results/Spike-$udid.xcresult"
 [[ -d "$result" ]] && xcrun xcresulttool export attachments --path "$result" --output-path "$work/attachments" >/dev/null 2>&1
-for case in app-registered nse-only; do
+for case in app-registered error default nse-only; do
   echo "--- $case: $(cat "$work/result-$case.json" 2>/dev/null || echo 'no result')"
   echo "    entries on the server: $(curl -fsS "$api/topics/$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["quickr"]["topic_id"])' "$work/payload-$case.json")/entries" | python3 -c 'import json,sys;print(len(json.load(sys.stdin)["items"]))')"
 done

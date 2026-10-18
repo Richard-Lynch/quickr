@@ -11,6 +11,8 @@ final class NotificationService: UNNotificationServiceExtension {
         withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
     ) {
         #if DEBUG
+        // Only while a spike run has opted in (SpikeGate); otherwise untouched, as in Release.
+        guard SpikeGate.isEnabled else { return contentHandler(request.content) }
         let delivery = SpikeDelivery(content: request.content, handler: contentHandler)
         Task {
             delivery.deliver(await Self.spikePrepare(delivery.content))

@@ -3,6 +3,7 @@
 A tiny HTTP server on 127.0.0.1 that the UI test, running in the simulator, calls:
 
   GET  /cases          the test setup (setup.json in the work directory)
+  GET  /log            the app group's spike-log.jsonl (the handler's events, completion included)
   GET  /push/<case>    `xcrun simctl push <udid> com.bahumia.quickr payload-<case>.json`; answers
                        once the push has been delivered (a barrier, not a sleep)
   POST /result/<case>  what the test observed, saved as result-<case>.json
@@ -44,6 +45,16 @@ class Handler(BaseHTTPRequestHandler):
                 200 if done.returncode == 0 else 500,
                 json.dumps({"exit": done.returncode}).encode(),
             )
+        elif self.path == "/log":
+            # The app group's spike log (one JSON object per line), as JSON lines.
+            group = subprocess.run(
+                ["xcrun", "simctl", "get_app_container", udid, "com.bahumia.quickr", "group.com.bahumia.quickr"],
+                capture_output=True,
+                text=True,
+                check=False,
+            ).stdout.strip()
+            log = Path(group) / "Library/quickr/spike-log.jsonl"
+            self._reply(200, log.read_bytes() if group and log.exists() else b"")
         else:
             self._reply(404)
 

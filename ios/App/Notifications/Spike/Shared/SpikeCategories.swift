@@ -138,6 +138,24 @@ enum SpikeCategories {
     }
 }
 
+/// The spike's opt-in: a marker file in the App Group (`Library/quickr/spike-enabled`). The app
+/// creates it when launched with `-spikeServer`; `spike-proof.sh` removes it when it finishes.
+/// A file, not a launch argument, because a notification action launches the app in the
+/// background with no arguments, and the NSE never gets any: both check it. Without it the spike
+/// does nothing, in every process, even in Debug builds.
+enum SpikeGate {
+    static var marker: URL? { SpikeLog.location?.root.appending(path: "spike-enabled") }
+
+    static var isEnabled: Bool { marker.map { FileManager.default.fileExists(atPath: $0.path) } ?? false }
+
+    static func enable() {
+        guard let marker else { return }
+        try? FileManager.default.createDirectory(
+            at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: marker.path, contents: Data())
+    }
+}
+
 /// Where the spike's shared files live, and its event log: one JSON line per event, from any
 /// process, for the findings (handler launch state, timings, NSE runs).
 enum SpikeLog {

@@ -3,7 +3,7 @@
 **Work package:** SPIKE (M1, `docs/ios/DAG.md`). **Date:** 2026-10-18.
 **Where:** iOS 26.0 simulator (this worktree's clone), Xcode 27.1, against this
 worktree's integration stack (`make ios-integration-up`). **Code:**
-`ios/App/Notifications/Spike` (DEBUG only, inert without `-spikeServer`),
+`ios/App/Notifications/Spike` (DEBUG only, and inert unless a spike run opts in; see "Limits"),
 `ios/NotificationService/NotificationService.swift` (DEBUG block),
 `ios/UITests/SpikeNotificationTests.swift` (own `Spike` plan),
 `ios/AppTests/SpikeCategoryTests.swift`, and
@@ -36,9 +36,10 @@ second case.
 
 ## Findings
 
-### F1. The NSE never runs for `simctl push` on the iOS 26 simulator
+### F1. In these runs, the NSE never ran for `simctl push` on the iOS 26 simulator
 
-A payload with `"mutable-content": 1` is delivered without launching
+This is an **observation from this machine and runtime** (iOS 26.0 simulator,
+Xcode 27.1), not a documented limitation. A payload with `"mutable-content": 1` is delivered without launching
 `QuickRNotificationService`. The unified log has no process launch and no NSE
 log lines, and the spike's `nse.*` events never appear. That held with and
 without a category and with and without `quickr`. So the `nse-only` case (a
@@ -71,8 +72,10 @@ further.
 The async variant, `userNotificationCenter(_:didReceive:) async`, implemented
 `nonisolated` in a `@MainActor` delegate, **crashed the app after every
 action**. UIKit hit an `NSAssertionHandler` failure in
-`-[UIApplication _performBlockAfterCATransactionCommitSynchronizes:]`, because
-the compiler-generated thunk calls the completion from a background executor.
+`-[UIApplication _performBlockAfterCATransactionCommitSynchronizes:]`, with the
+crashing frame in the compiler-generated `@objc` thunk of that method. **The
+likely cause, inferred and not proven,** is that the thunk calls the completion
+from a background executor, and UIKit asserts that it runs on the main thread.
 
 In the same runs, the handler's flush also **stalled for 25–26 s** before
 sending, while the process was running (RunningBoard reported `running-active`,
@@ -82,7 +85,9 @@ of the stall.
 
 With the completion-handler variant
 (`Task { await handle(); await MainActor.run { completion() } }`), both problems
-went away: there was no crash, and the flush took 58 ms.
+went away: there was no crash, and the flush took 58 ms. The UI test now asserts
+that the completion ran on the main thread for every action, including the error
+and default ones (`handler.completed` with `mainThread: true`).
 
 ### F4. Set the delegate in `didFinishLaunching`
 
@@ -196,10 +201,33 @@ D (open question 3).
 
 ## Limits of this spike
 
+**The spike's handler is not a complete §7.1 reference.** It covers steps 1–3,
+step 5 (one transaction), step 7 (remove delivered) and step 10 (the forced
+5 s flush). It **omits**:
+
+- **step 4's preconditions:** a topic that is tombstoned or **archived** isn't
+  rejected; only a topic missing from the store is;
+- **step 5's retired-store retry:** it doesn't reopen through the registry and
+  retry when the store file was retired by a reset;
+- **step 10's condition:** it flushes whichever server's store the action names,
+  not only when that store is the **active** one;
+- step 6 (the explicit Darwin post; the store's pool posts it on commit), and
+  steps 8 and 9 (badge and widgets);
+- step 7.3's number text input.
+
+HANDLER must implement all of them.
+
+**The spike is opt-in, even in Debug builds.** It runs only when
+`Library/quickr/spike-enabled` exists in the App Group. The app creates that
+file when it is launched with `-spikeServer`, and `spike-proof.sh` removes it
+when it finishes. Without it, the app installs no notification delegate and
+the NSE leaves notifications untouched. The file, not a launch argument, is the
+gate, because an action's background launch, and the NSE, get no arguments.
+
 - Simulator only.
 - Pushes went through `simctl push`, not APNs, so no NSE ran (F1).
 - Enum descriptors only.
 - One server; reachable on loopback.
 - The run uses the integration stack's proxy.
-- Release builds don't contain any of this: every spike source is `#if DEBUG`,
-  and the app only reacts to `-spikeServer`.
+- Release builds don't contain any of this: every spike source is `#if DEBUG`.
+  Debug builds run it only after an explicit opt-in (the App Group marker above).

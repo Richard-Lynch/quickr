@@ -4,7 +4,7 @@ import SwiftUI
 struct QuickRApp: App {
     @State private var environment: AppEnvironment
     #if DEBUG
-    /// SPIKE: the notification action handler (App/Notifications/Spike), inert without `-spikeServer`.
+    /// SPIKE: the notification action handler (App/Notifications/Spike), inert unless a spike run opted in (SpikeGate).
     @UIApplicationDelegateAdaptor(SpikeAppDelegate.self) private var spikeDelegate
     #endif
     @Environment(\.scenePhase) private var scenePhase

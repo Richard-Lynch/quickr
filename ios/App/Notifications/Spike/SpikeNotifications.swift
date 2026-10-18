@@ -8,8 +8,8 @@ import UIKit
 import UserNotifications
 
 // SPIKE (M1): a notification action logs from a killed app (notifications.md §7.1, outbox.md §10).
-// DEBUG only, and inert unless the app is launched with `-spikeServer`: it doesn't ship and
-// doesn't change the app's normal launch. HANDLER (M3) replaces it; findings in
+// DEBUG only, and inert unless a spike run opted in (SpikeGate: `-spikeServer` creates the App
+// Group marker, spike-proof.sh removes it): it doesn't ship and doesn't change a normal launch. HANDLER (M3) replaces it; findings in
 // docs/ios/demo/m1/spike-findings.md.
 
 /// Launch arguments: `-spikeServer <base URL>` connects the app to a server (§2.1 bootstrap);
@@ -58,9 +58,14 @@ final class SpikeAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     func application(
         _ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+        // Opt-in only (SpikeGate): `-spikeServer` turns the spike on; a later background launch
+        // for an action finds the marker. Otherwise the app is untouched.
+        let configuration = SpikeConfiguration.fromArguments()
+        if configuration != nil { SpikeGate.enable() }
+        guard SpikeGate.isEnabled else { return true }
         UNUserNotificationCenter.current().delegate = self
         SpikeLog.append("app.launch", ["state": application.applicationState.spikeName])
-        if let configuration = SpikeConfiguration.fromArguments() {
+        if let configuration {
             Task { await SpikeSetup.run(configuration) }
         }
         return true
@@ -80,8 +85,16 @@ final class SpikeAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     ) {
         let call = SpikeCall(response: response, completion: completionHandler)
         Task {
-            await SpikeHandler.handle(call.response)
-            await MainActor.run { call.completion() }
+            let outcome = await SpikeHandler.handle(call.response)
+            await MainActor.run {
+                call.completion()
+                SpikeLog.append(
+                    "handler.completed",
+                    [
+                        "action": call.response.actionIdentifier, "outcome": outcome.rawValue,
+                        "mainThread": String(Thread.isMainThread),
+                    ])
+            }
         }
     }
 }
@@ -131,7 +144,16 @@ enum SpikeHandler {
             baseURL: url, transport: URLSessionTransport(), identity: StaticServerIdentity(nil), origin: .notification)
     }
 
-    static func handle(_ response: UNNotificationResponse) async {
+    /// What a response led to (logged with the completion, for the UI test).
+    enum Outcome: String, Sendable {
+        /// The default (body) or dismiss action: nothing to log.
+        case ignored
+        case logged
+        case failed
+    }
+
+    @discardableResult
+    static func handle(_ response: UNNotificationResponse) async -> Outcome {
         let started = ContinuousClock.now
         let task = await MainActor.run { UIApplication.shared.beginBackgroundTask(withName: "quickr.action") }
         defer { Task { @MainActor in UIApplication.shared.endBackgroundTask(task) } }
@@ -139,9 +161,7 @@ enum SpikeHandler {
         let action = response.actionIdentifier
         let userInfo = response.notification.request.content.userInfo
         SpikeLog.append("handler.start", ["action": action, "state": state])
-        guard action != UNNotificationDefaultActionIdentifier, action != UNNotificationDismissActionIdentifier else {
-            return
-        }
+        guard isLogAction(action) else { return .ignored }
         do {
             let (info, answer) = try validate(action: action, userInfo: userInfo)
             guard let location = SpikeLog.location else { throw SpikeError("no App Group container") }
@@ -178,11 +198,19 @@ enum SpikeHandler {
             SpikeLog.append(
                 "handler.flushed",
                 ["ending": "\(report.ending)", "acked": String(report.acked), "ms": ms(since: started)])
+            return .logged
         } catch {
             SpikeLog.append("handler.failed", ["error": String(describing: error), "ms": ms(since: started)])
             await fail(
                 String(describing: error), topicId: (SpikeCategories.info(userInfo: userInfo)?.topicId) ?? "unknown")
+            return .failed
         }
+    }
+
+    /// The default action (tapping the body) opens the app and the dismiss action closes the
+    /// notification: neither logs anything (§7.1).
+    static func isLogAction(_ action: String) -> Bool {
+        action != UNNotificationDefaultActionIdentifier && action != UNNotificationDismissActionIdentifier
     }
 
     /// §7.1 step 1: the identifier must name this notification's server, topic, version and key,
@@ -191,8 +219,10 @@ enum SpikeHandler {
         QuickrNotificationInfo, (key: String, value: String)
     ) {
         let parts = action.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        // Both versions must parse: a missing payload version must not equal a malformed one.
         guard parts.count == 7, parts[0] == "q1", parts[5] == "o", let info = SpikeCategories.info(userInfo: userInfo),
-            parts[1] == info.serverId, parts[2] == info.topicId, Int(parts[3]) == info.version,
+            let version = info.version, let actionVersion = Int(parts[3]), actionVersion == version,
+            parts[1] == info.serverId, parts[2] == info.topicId,
             case .choice(let choice) = info.quickLog, parts[4] == choice.key,
             choice.options.contains(where: { $0.value == parts[6] })
         else { throw SpikeError("Couldn't log — open quickR to log") }
