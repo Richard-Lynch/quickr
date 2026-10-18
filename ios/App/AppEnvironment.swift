@@ -2,91 +2,129 @@ import Foundation
 import Observation
 import QuickrData
 import SwiftUI
+import UIKit
 
-/// The app's services, built once in `QuickRApp.init` and injected with `.environment(_:)`.
-/// SKEL wires the shape; STORE, SYNC, OUTBOX and SETTINGS replace the stand-ins at integration.
+/// The app's services, built once in `QuickRApp.init` and injected with `.environment(_:)`. The
+/// composition root is `session` (QuickrData's `AppSession`): store, sync, outbox and the write
+/// façade. This type adds what needs UIKit or SwiftUI: settings, navigation, and the scene-phase
+/// hooks with their background task.
 @MainActor @Observable
 final class AppEnvironment {
     let settings: AppSettings
     let router = Router()
-    /// What the App Intents queries and the screens read topics from. SKEL: the placeholder list;
-    /// STORE: the active server's `GRDBTopicRepository`.
-    let topics: any TopicRepository
-    /// Nil until `start()` has opened it, or when opening failed (`storeError`).
-    private(set) var store: StoreHandle?
-    private(set) var storeError: String?
-    /// SYNC and OUTBOX plug in here.
-    var sync: (any SyncEngineService)?
-    var outbox: (any OutboxEngineService)?
+    /// Nil only when it couldn't be created (`sessionError`); `start()` tries again.
+    private(set) var session: AppSession?
+    private(set) var sessionError: String?
     private(set) var lastScenePhase: ScenePhase?
 
-    init(settings: AppSettings, topics: any TopicRepository) {
+    @ObservationIgnored private let makeSession: @MainActor () throws -> AppSession
+    @ObservationIgnored private var starting: Task<Void, Never>?
+
+    init(settings: AppSettings, makeSession: @escaping @MainActor () throws -> AppSession) {
         self.settings = settings
-        self.topics = topics
+        self.makeSession = makeSession
+        openSession()
     }
 
-    static func live() -> AppEnvironment {
-        AppEnvironment(settings: AppSettings(defaults: AppGroup.defaults), topics: PlaceholderTopicRepository())
+    /// The live session over the App Group's files, sending through URLSession.
+    static func live(location: StoreLocation = .shared(appGroup: AppGroup.identifier)) -> AppEnvironment {
+        AppEnvironment(settings: AppSettings(defaults: AppGroup.defaults)) {
+            // Cloudflare Access credentials come from the Keychain once SETTINGS adds them.
+            try AppSession(configuration: .init(location: location, transport: URLSessionTransport()))
+        }
     }
 
-    /// The app's launch path: builds the live environment and registers its topics for App Intents.
-    /// Siri, Shortcuts and widget buttons can launch the app for an intent without a scene, so this
-    /// runs in `QuickRApp.init`, before anything can query an entity.
-    static func bootstrap() -> AppEnvironment {
-        let environment = live()
-        IntentTopicSource.register(environment.topics)
+    /// The app's launch path: builds the live environment and registers the active store's topics
+    /// for App Intents. Siri, Shortcuts and widget buttons can launch the app for an intent without
+    /// a scene, so this runs in `QuickRApp.init`, before anything can query an entity. It opens
+    /// the registry only; the store opens on first use.
+    static func bootstrap(location: StoreLocation = .shared(appGroup: AppGroup.identifier)) -> AppEnvironment {
+        let environment = live(location: location)
+        environment.registerIntentTopics()
         return environment
     }
 
-    /// Opens the store off the main actor and refreshes the App Shortcuts' topic parameters. Runs
-    /// from the root view's `.task`, so a launch for an intent alone (no scene) never opens it.
-    /// Concurrent callers share one attempt; a call after a failure tries again.
+    /// What the App Intents queries and the screens read topics from: the active store's.
+    var topics: any TopicRepository { session?.topics ?? NoTopicRepository() }
+
+    func registerIntentTopics() {
+        IntentTopicSource.register(topics)
+    }
+
+    /// From the root view's `.task`: starts the session (finishing a bootstrap, or connecting to
+    /// the configured server) and refreshes the App Shortcuts' topic parameters. A launch for an
+    /// intent alone (no scene) never runs it. Concurrent callers share one attempt.
     func start() async {
         if let starting {
             await starting.value
             return
         }
-        guard store == nil else { return }
-        let attempt = Task { await openStore() }
+        let attempt = Task {
+            if session == nil {
+                openSession()
+                registerIntentTopics()
+            }
+            await session?.start(serverURL: settings.serverURL)
+            QuickRShortcuts.updateAppShortcutParameters()
+        }
         starting = attempt
         await attempt.value
         starting = nil
     }
 
-    @ObservationIgnored private var starting: Task<Void, Never>?
-    @ObservationIgnored private(set) var storeOpenAttempts = 0
-
-    private func openStore() async {
-        storeOpenAttempts += 1
-        do {
-            let url = AppGroup.storeDirectory.appendingPathComponent("skel.sqlite")
-            store = try await Task.detached { try StoreHandle.open(at: url) }.value
-            storeError = nil
-        } catch {
-            storeError = String(describing: error)
-        }
-        QuickRShortcuts.updateAppShortcutParameters()
-    }
-
-    /// The `scenePhase` hooks. SYNC: pull and flush on `.active`; schedule the background refresh
-    /// on `.background`. SKEL only records the phase.
+    /// The `scenePhase` hooks (outbox.md §10, sync-protocol.md §9): on `.active`, resume, rebind,
+    /// flush and pull; on `.background`, flush inside a background task whose expiration handler
+    /// cancels the flush, then suspend the database (0xDEAD10CC).
     func scenePhaseChanged(_ phase: ScenePhase) {
         lastScenePhase = phase
+        guard let session else { return }
+        switch phase {
+        case .active:
+            Task { await session.didBecomeActive() }
+        case .background:
+            flushInBackground(session)
+        default:
+            break
+        }
+    }
+
+    private func flushInBackground(_ session: AppSession) {
+        let task = BackgroundTask()
+        task.begin(name: "quickr.flush") { session.backgroundTimeExpiring() }
+        Task {
+            await session.didEnterBackground()
+            task.end()
+        }
+    }
+
+    private func openSession() {
+        do {
+            session = try makeSession()
+            sessionError = nil
+        } catch {
+            sessionError = String(describing: error)
+        }
     }
 }
 
-/// SKEL's store: the C1 `StoreDatabase.openPool` and its repositories. STORE replaces it with the
-/// registry and per-server partitions (`StorePartitions.openStore`).
-struct StoreHandle: Sendable {
-    let syncState: any SyncStateRepository
+/// One `beginBackgroundTask`, ended once: by the work, or by the expiration handler after it ran
+/// `expiring`.
+@MainActor
+private final class BackgroundTask {
+    private var id = UIBackgroundTaskIdentifier.invalid
 
-    static func open(at url: URL) throws -> StoreHandle {
-        let pool = try StoreDatabase.openPool(at: url)
-        return StoreHandle(syncState: GRDBSyncStateRepository(reader: pool))
+    func begin(name: String, expiring: @escaping @MainActor () -> Void) {
+        id = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+            MainActor.assumeIsolated {
+                expiring()
+                self?.end()
+            }
+        }
+    }
+
+    func end() {
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
     }
 }
-
-/// Filled in by SYNC.
-protocol SyncEngineService: Sendable {}
-/// Filled in by OUTBOX.
-protocol OutboxEngineService: Sendable {}

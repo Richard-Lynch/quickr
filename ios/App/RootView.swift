@@ -62,12 +62,18 @@ struct RootView: View {
     }
 
     private var storeStatus: String {
-        if let error = environment.storeError { return "Store failed: \(error)" }
-        return environment.store == nil ? "Store opening…" : "Store ready"
+        if let error = environment.sessionError { return "Store failed: \(error)" }
+        switch environment.session?.phase {
+        case .ready: return "Store ready"
+        case .noServer: return "No server yet"
+        case .failed(let error): return "Store failed: \(error)"
+        case .starting, nil: return "Store opening…"
+        }
     }
 }
 
 #Preview {
     RootView()
-        .environment(AppEnvironment(settings: AppSettings(defaults: .standard), topics: PlaceholderTopicRepository()))
+        .environment(
+            AppEnvironment.live(location: StoreLocation(root: URL.temporaryDirectory.appending(path: "preview"))))
 }

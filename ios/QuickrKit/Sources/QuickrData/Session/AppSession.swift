@@ -145,6 +145,7 @@ public final class AppSession {
     /// refresh the screens, flush and pull.
     public func didBecomeActive() async {
         configuration.notificationCenter.post(name: Database.resumeNotification, object: nil)
+        guard started else { return }  // the launch's `start()` does the rest
         await rebind()
         refresh.poke()
         await scheduler?.requestFlush(reason: .activation)

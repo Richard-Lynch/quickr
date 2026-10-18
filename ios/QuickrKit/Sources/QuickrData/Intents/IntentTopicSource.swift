@@ -25,9 +25,17 @@ public enum IntentTopicSource {
     }
 }
 
-/// SKEL stand-in until STORE is integrated: a fixed topic list, so the intents have something to
-/// resolve in the app and the widget. Integration replaces it with the store's
-/// `GRDBTopicRepository` over the active server's pool.
+/// No topics: what a process registers when it can't open its store (the next launch retries).
+public struct NoTopicRepository: TopicRepository {
+    public init() {}
+
+    public func topics() async throws -> [ViewTopic] { [] }
+    public func topic(id: UUID) async throws -> ViewTopic? { nil }
+    public func topic(slug: String) async throws -> ViewTopic? { nil }
+}
+
+/// A fixed topic list for package tests and previews. The app and the widget register the active
+/// store's topics (`ActiveStoreTopicRepository`), never this.
 public struct PlaceholderTopicRepository: TopicRepository {
     public static let coffee = UUID(uuidString: "6f1c3c1e-0c4b-4d2a-9a51-1d6a0e9b7c01")!
     public static let mood = UUID(uuidString: "6f1c3c1e-0c4b-4d2a-9a51-1d6a0e9b7c02")!
