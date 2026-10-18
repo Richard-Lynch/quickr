@@ -4,7 +4,7 @@ import QuickrData
 import QuickrTestSupport
 import Testing
 
-@Suite struct SharedDatabaseTests {
+@Suite(.timeLimit(.minutes(2))) struct SharedDatabaseTests {
     private func open(_ url: URL, notifier: (any ChangeNotifier)? = nil) throws -> DatabasePool {
         try SharedDatabase.openPool(
             at: url, migrations: StoreSchema.migrations, notifier: notifier, commitSignal: .dbChanged)
@@ -111,7 +111,7 @@ import Testing
     }
 }
 
-@Suite struct ChangeSignalTests {
+@Suite(.timeLimit(.minutes(2))) struct ChangeSignalTests {
     @Test func darwinNotificationsRoundTrip() async throws {
         let notifier = DarwinNotifier()
         let name = ChangeSignalName(rawValue: "com.bahumia.quickr.test.\(UUID().uuidString)")

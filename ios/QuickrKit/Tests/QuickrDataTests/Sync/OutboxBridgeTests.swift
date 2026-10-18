@@ -7,7 +7,7 @@ import Testing
 
 /// `SyncCoordinator.handle(_:)` and `OutboxFlushBridge` (sync-protocol.md §5.6, §7). The
 /// end-to-end versions against the real backend are in QuickrDataIntegrationTests (S8, S9, 38, 49).
-@Suite struct OutboxBridgeTests {
+@Suite(.timeLimit(.minutes(2))) struct OutboxBridgeTests {
     @Test(arguments: [OutboxSignal.epochSuspect, .pullRequested, .identityMismatch])
     func everySignalRunsTheCoordinator(_ signal: OutboxSignal) async throws {
         let env = try SyncEnv()

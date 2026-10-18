@@ -6,7 +6,7 @@ import QuickrTestSupport
 import Testing
 
 /// §3.3 derived fields (rule 3), recomputed locally from the view.
-@Suite struct DerivedFieldTests {
+@Suite(.timeLimit(.minutes(2))) struct DerivedFieldTests {
     @Test func countsAndLastCapturedFollowTheView() async throws {
         let s = try TestStore()
         let topic = Make.topic()
@@ -65,7 +65,7 @@ import Testing
 }
 
 /// The outbox repository: CRUD, the enqueue base revision (§7.3) and the retired refusal.
-@Suite struct OutboxStorageTests {
+@Suite(.timeLimit(.minutes(2))) struct OutboxStorageTests {
     @Test func appendAssignsSeqStateAndBaseRevision() async throws {
         let s = try TestStore()
         let topic = Make.topic(revision: 4)
@@ -123,7 +123,7 @@ import Testing
 }
 
 /// The atomic ack (sync-protocol.md §6, rule 7).
-@Suite struct AtomicAckTests {
+@Suite(.timeLimit(.minutes(2))) struct AtomicAckTests {
     struct Fixture {
         let s: TestStore
         let topic = Make.topic()
@@ -133,8 +133,8 @@ import Testing
         let sender: SenderContext
 
         /// A topic and an entry on the server, an `entry.update` claimed in flight with `flush` held.
-        init() async throws {
-            s = try TestStore()
+        init(path: String? = nil) async throws {
+            s = try TestStore(path: path)
             entry = Make.entry(topicId: topic.id, revision: 3)
             try s.write { [topic, entry] (db: Database) throws in
                 _ = try ServerLayer.upsert(db, topic: topic)

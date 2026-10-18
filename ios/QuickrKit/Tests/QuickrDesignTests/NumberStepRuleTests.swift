@@ -1,7 +1,7 @@
 import QuickrUI
 import Testing
 
-@Suite struct NumberStepRuleTests {
+@Suite(.timeLimit(.minutes(2))) struct NumberStepRuleTests {
     let glasses = NumberStepRule(integer: true, min: 0, max: 20)
     let weight = NumberStepRule(integer: false, min: 30, max: 200, decimals: 1)
 
@@ -75,7 +75,7 @@ import Testing
 }
 
 /// Values beyond `Int`'s range must never trap (a pasted "1e30" used to crash on ±).
-@Suite struct NumberStepRuleOverflowTests {
+@Suite(.timeLimit(.minutes(2))) struct NumberStepRuleOverflowTests {
     let open = NumberStepRule(integer: true)
 
     @Test func hugePositiveAndNegativeValuesStep() {

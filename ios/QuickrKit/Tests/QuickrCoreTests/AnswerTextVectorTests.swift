@@ -6,7 +6,7 @@ import Testing
 /// Every case in shared/fixtures/answer-text-vectors.json (generated from the server's
 /// services/answers.py; the PWA asserts the same cases): acceptance, the stored value, and the
 /// message.
-@Suite struct AnswerTextVectorTests {
+@Suite(.timeLimit(.minutes(2))) struct AnswerTextVectorTests {
     @Test func hasCases() {
         #expect(AnswerTextVectors.shared.cases.count > 150)
     }

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 
 /// The colour sets must match the PWA's tokens in `frontend/src/index.css`, light and dark.
-@Suite struct TokenDriftTests {
+@Suite(.timeLimit(.minutes(2))) struct TokenDriftTests {
     static let repo = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../../../..").standardized
     static let catalog = repo.appending(path: "ios/QuickrKit/Sources/QuickrUI/Resources/Colors.xcassets")
 

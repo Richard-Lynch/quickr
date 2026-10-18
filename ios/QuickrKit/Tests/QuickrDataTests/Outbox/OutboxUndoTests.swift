@@ -7,7 +7,7 @@ import Testing
 
 /// outbox.md §13 cases 11–16, 29–31, 51–54, 59–61: Undo of a log (`cancelCreate`, §9.1),
 /// delete-with-undo (§9.2), S8 and suspension mid-send.
-@Suite struct OutboxUndoTests {
+@Suite(.timeLimit(.minutes(2))) struct OutboxUndoTests {
     @Test("11 · lost response then Undo: only a standalone DELETE is sent")
     func case11() async throws {
         let h = try OutboxHarness()
