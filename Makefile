@@ -210,7 +210,7 @@ ios-integration-down: ## iOS: stop this worktree's integration stacks
 	@$(IOS_SCRIPTS)/integration-down.sh
 
 .PHONY: ios-sim-clone
-ios-sim-clone: ## iOS: UDID of this worktree's own simulator (created from IOS_SIM_MIN on first use)
+ios-sim-clone: ## iOS: boot this worktree's own simulator under the cap (created from IOS_SIM_MIN on first use); print its UDID
 	@$(IOS_SCRIPTS)/sim-clone.sh "$(IOS_SIM_MIN)"
 
 .PHONY: ios-clean

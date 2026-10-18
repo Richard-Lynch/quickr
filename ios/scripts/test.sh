@@ -8,7 +8,7 @@ result="$BUILD_DIR/results/$plan-$udid.xcresult"
 rm -rf "$result"; mkdir -p "$BUILD_DIR/results"
 runtime="$(xcrun simctl list devices | awk -v id="$udid" '/^-- /{rt=$0} index($0, id){print rt; exit}')"
 echo "ios: $plan plan on $udid ${runtime}"
-sim_cap "$udid"  # xcodebuild boots it
+sim_boot "$udid"  # under the simulator cap, before xcodebuild would boot it
 # A hung test fails after IOS_TEST_ALLOWANCE seconds (default 300; a test may raise its own
 # executionTimeAllowance up to IOS_TEST_MAX_ALLOWANCE, default 600) instead of stalling the run.
 xcb -destination "id=$udid" -testPlan "$plan" -resultBundlePath "$result" \

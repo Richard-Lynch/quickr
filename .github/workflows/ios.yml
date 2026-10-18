@@ -48,6 +48,9 @@ jobs:
         with:
           path: ios/QuickrKit/.build
           key: spm-host-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.hash }}-${{ hashFiles('ios/QuickrKit/Package.swift', 'ios/**/Package.resolved') }}
+      - name: Script tests (watchdog, simulator cap)
+        timeout-minutes: 3
+        run: make ios-script-test
       # The job's 15 min is the outer bound; this one fails a hung `swift test` sooner.
       - name: Swift tests
         timeout-minutes: 12
@@ -76,6 +79,9 @@ jobs:
           key: spm-ios-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ios/QuickrKit/Package.swift', 'ios/**/Package.resolved') }}
       - run: xcodebuild -version && xcodegen --version
         timeout-minutes: 2
+      - name: Script tests (watchdog, simulator cap)
+        timeout-minutes: 3
+        run: make ios-script-test
       # Fails unless an iPhone simulator on an iOS 26.x runtime exists (PLAN §6a rule 12).
       - name: Build + Unit plan (no signing)
         timeout-minutes: 25

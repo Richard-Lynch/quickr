@@ -4,12 +4,14 @@
 # it on first use: "<source> <worktree dir>-<hash of the canonical worktree path>", e.g.
 # "quickR iOS-26-0 ios-m1-tools-021970", so same-named directories elsewhere never share one.
 #
-#   sim-clone.sh [--wait] [source]  create (or find) the clone; source defaults to "quickR iOS-26-0"
-#   sim-clone.sh --delete [source]  shut down and delete it
+#   sim-clone.sh [--wait|--no-boot] [source]  create (or find) the clone and boot it;
+#                                             source defaults to "quickR iOS-26-0"
+#   sim-clone.sh --delete [source]            shut down and delete it
 #
-# It refuses (non-zero, naming them) while IOS_SIM_CAP (default 2) other clones are booted,
-# unless this clone is booted already; --wait (or IOS_SIM_WAIT=1) polls until a slot frees.
-# test.sh and sim-run.sh apply the same cap before they boot (common.sh `sim_cap`).
+# Booting is admitted by the simulator cap (common.sh `sim_boot`): it refuses (non-zero,
+# naming them) while IOS_SIM_CAP (default 2) other clones are booted, unless this clone is
+# booted already; --wait (or IOS_SIM_WAIT=1) polls until a slot frees. --no-boot only prints
+# the UDID. test.sh and sim-run.sh boot through the same admission.
 #
 # A shut-down source is cloned with `simctl clone`; a booted one (in use elsewhere) is never
 # touched: the clone is created fresh from the same device type and runtime instead.
@@ -20,7 +22,9 @@ require_xcodebuild
 
 delete=0
 if [[ "${1:-}" == --delete ]]; then delete=1; shift; fi
+boot=1
 if [[ "${1:-}" == --wait ]]; then export IOS_SIM_WAIT=1; shift; fi
+if [[ "${1:-}" == --no-boot ]]; then boot=0; shift; fi
 source_name="${1:-quickR iOS-26-0}"
 root_real="$(cd "$ROOT_DIR" && pwd -P)"
 name="$source_name $(basename "$root_real")-$(printf '%s' "$root_real" | shasum | cut -c1-6)"
@@ -84,7 +88,7 @@ else
   fi
 fi
 
-# Waiting for a slot must not hold the lock (other worktrees' lookups and deletes need it).
+# Booting (and waiting for a slot) must not hold this lock: other worktrees' lookups need it.
 exec 9>&-
-sim_cap "$udid"
+(( boot )) && sim_boot "$udid"
 echo "$udid"
