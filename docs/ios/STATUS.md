@@ -288,6 +288,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-18 02:40: Load hit ~740: FLAKE's stress test spawned 32 `yes` processes (4 were asked for), plus SPIKE's Docker stack. The orchestrator killed the `yes` processes. WATCHDOG r2: all round-1 items resolved; one new Major (the final marker can be split across 3 chunks) → final fix, orchestrator verifies. SPIKE checkpoint b750a1c (handler, categories, payloads rendered by the server's own apns.render); its first sim proof run is in progress.
+
 - 2026-10-18 02:05: SKEL merged into ios/m1-data (2891f06; **correction: the post-merge ios-core-test had 1 failure, OutboxUndoTests 16f "condition not met within 5 s". It passes 3/3 alone, so it's a load-sensitive flake while the MP suite runs concurrently; the fix is assigned.** Codex APPROVE WITH MINORS, all 4 fixed in 928f753; check-ios on 26.0 green, 440 unit). Remaining for M1: SPIKE (in progress), WATCHDOG rework, then the milestone checklist (widget-proof on 26.0 and 27, Intents plan on 27, check-ios, ios-integration), the M1 Codex+Claude review, and the PR.
 
 - 2026-10-18 02:00: INT merged into ios/m1-data (0681189; stub conflict with MP resolved: OutboxMatrixStubs deleted, SyncMatrixStubs keeps only S10 → M3 REG). Gate on the merge: ios-core-test (367 data + 83 + 29 + 14 integration-target tests skipped without the harness), lint, backend and alembic all green. SKEL: APPROVE WITH MINORS, fixing 4. WATCHDOG: 5 majors, fixing. Next: SPIKE (the SYNC agent) once SKEL merges, then the M1 milestone review and PR.
