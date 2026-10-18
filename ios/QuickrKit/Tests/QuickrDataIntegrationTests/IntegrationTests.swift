@@ -38,11 +38,16 @@ struct IT {
         return it
     }
 
-    /// A device onboarded to server a, with a topic of its own.
-    func device(pageLimit: Int = APIClient.feedPageLimit) async throws -> (Device, LocalStore, TopicRef) {
+    /// Runs `body` with a device onboarded to server a and a topic of its own, and shuts the
+    /// device down afterwards on every path.
+    func withDevice(
+        pageLimit: Int = APIClient.feedPageLimit, _ body: (Device, LocalStore, TopicRef) async throws -> Void
+    ) async throws {
         let topic = try await a.createTopic()
         let device = try Device(config, pageLimit: pageLimit)
-        let store = try await device.connect()
-        return (device, store, topic)
+        try await device.run {
+            let store = try await device.connect()
+            try await body(device, store, topic)
+        }
     }
 }

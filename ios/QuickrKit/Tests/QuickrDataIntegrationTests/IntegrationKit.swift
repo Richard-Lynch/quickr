@@ -320,7 +320,25 @@ final class Device: Sendable {
             flush: bridge, owner: "app:A", configuration: configuration)
     }
 
-    func cleanup() { try? FileManager.default.removeItem(at: dir) }
+    /// Teardown: unbinds the bridge (retiring the bound scheduler, which cancels a running flush and
+    /// refuses later requests), then deletes the files. `IT.withDevice` and `Device.run` call it on
+    /// every path.
+    func shutdown() async {
+        await bridge.bind(nil)
+        try? FileManager.default.removeItem(at: dir)
+    }
+
+    /// Runs `body`, then `shutdown()`, whether `body` returns or throws.
+    func run<T>(_ body: () async throws -> T) async throws -> T {
+        do {
+            let result = try await body()
+            await shutdown()
+            return result
+        } catch {
+            await shutdown()
+            throw error
+        }
+    }
 
     /// Onboards the proxy's server (a) and pulls to its head.
     @discardableResult
@@ -344,13 +362,13 @@ final class Device: Sendable {
         Outbox(
             store: try await store(),
             sender: APIClient(baseURL: config.proxyURL, transport: transport, identity: StaticServerIdentity(nil)),
-            owner: owner, onSignal: { [coordinator] in coordinator.handle($0) })
+            owner: owner, onSignal: coordinator.outboxSignalHandler)
     }
 
     /// The outbox's scheduler, bound to the coordinator's flush bridge (as the app wires it).
-    func scheduler(_ outbox: Outbox) -> OutboxFlushScheduler {
+    func scheduler(_ outbox: Outbox) async -> OutboxFlushScheduler {
         let scheduler = OutboxFlushScheduler(outbox: outbox)
-        bridge.bind(scheduler)
+        await bridge.bind(scheduler)
         return scheduler
     }
 

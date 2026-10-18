@@ -1,9 +1,13 @@
 import Foundation
-import Synchronization
 
 // The two directions between the app's outbox and its coordinator (sync-protocol.md §5.6, §7,
 // outbox.md §10). Extensions don't use these: they post `ChangeSignalName.syncRequested`, which
 // `SyncCoordinator.listen(to:)` handles.
+//
+// Ownership: the coordinator holds the bridge, the bridge holds the bound scheduler, the
+// scheduler holds its outbox, and the outbox holds its `onSignal`. Pass `outboxSignalHandler`
+// (which holds the coordinator weakly) as `onSignal`, never a closure that captures the
+// coordinator, or the four keep each other alive.
 
 extension SyncCoordinator {
     /// The app's `Outbox.onSignal`. By the time a signal arrives the outbox has set its flag in
@@ -18,27 +22,41 @@ extension SyncCoordinator {
             Task { _ = await self.sync(reason: .requested) }
         }
     }
+
+    /// `handle(_:)` with the coordinator held weakly: what to pass as `Outbox.onSignal` (see the
+    /// ownership note above). A signal after the coordinator is gone is dropped.
+    public nonisolated var outboxSignalHandler: @Sendable (OutboxSignal) -> Void {
+        { [weak self] signal in self?.handle(signal) }
+    }
 }
 
 /// The coordinator's `FlushRequester` in the app: forwards to the active store's
-/// `OutboxFlushScheduler`, which runs the flush under its own `flush` lease. The scheduler belongs
-/// to a store, so bind it when a store opens and again after a reset or a server switch; a request
-/// with nothing bound is dropped (the next enqueue, activation or timer flushes).
-public final class OutboxFlushBridge: FlushRequester {
-    private let scheduler = Mutex<OutboxFlushScheduler?>(nil)
+/// `OutboxFlushScheduler`. A scheduler belongs to one store, so bind it when a store opens, bind
+/// the new one after a reset or a server switch, and bind nil when there is no store. `bind`
+/// retires the scheduler it replaces before it returns, so once it has returned the old store
+/// never starts another flush, even for a request that was already on its way. A request with
+/// nothing bound is dropped (the next enqueue, activation or timer flushes).
+public actor OutboxFlushBridge: FlushRequester {
+    private var scheduler: OutboxFlushScheduler?
 
-    public init(_ scheduler: OutboxFlushScheduler? = nil) {
-        self.scheduler.withLock { $0 = scheduler }
+    public init() {}
+
+    /// Binds `scheduler` (or nothing), retiring the one it replaces.
+    public func bind(_ scheduler: OutboxFlushScheduler?) async {
+        let old = self.scheduler
+        self.scheduler = scheduler
+        if let old, old !== scheduler { await old.retire() }
     }
 
-    public func bind(_ scheduler: OutboxFlushScheduler?) {
-        self.scheduler.withLock { $0 = scheduler }
-    }
+    public var bound: OutboxFlushScheduler? { scheduler }
 
     /// After a pull and after a swap alike, a non-forced flush that doesn't wait for the lease
     /// (outbox.md §10 "after a pull"): kept items are due and go out with the new epoch.
-    public func requestFlush(reason: FlushRequestReason) {
-        guard let scheduler = scheduler.withLock({ $0 }) else { return }
-        Task { await scheduler.requestFlush(reason: .afterPull) }
+    public nonisolated func requestFlush(reason: FlushRequestReason) {
+        Task { await self.forward() }
+    }
+
+    private func forward() async {
+        await scheduler?.requestFlush(reason: .afterPull)
     }
 }
