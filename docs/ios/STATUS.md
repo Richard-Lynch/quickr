@@ -291,6 +291,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-18 10:50: PR #9 CI run 39114982916: no hang any more (it fails fast, CI-HANG works). Real-time tests fail on the 3-core runner: all MP cases (30 s reply timeouts; STRICT leaks into the child processes), Outbox 16b–16k, sendNow, lease polling, and a transport timing test (also on the simulator, without STRICT). Root cause: parallel Swift Testing suites plus few cores starve real-time deadlines. CI-TIMING (SYNC agent) isolates timing tests into a serialized `make ios-timing-test` step without STRICT; logic tests stay under STRICT; the simulator Unit plan skips the timing tests.
+
 - 2026-10-18 10:30: CI-HANG merged (bf1d773: the blocked writer runs on its own queue; real barrier replaces the 50 ms sleep; .timeLimit on all suites; STRICT pool in swift-test.sh; CI Build + Unit 15 min with a 5-min silence watchdog; the host `swift test` job now runs on PRs). Gate green on the merge. Pushing to PR #9 for one CI run.
 
 - 2026-10-18 10:10: Streaming fix merged into ios/m1-data (d7e7ddb; Codex major fixed: process-group signal forwarding; exit 128+N). CI-HANG root cause: `LeaseTimeSamplingTests` parked cooperative threads on DispatchSemaphore inside sync GRDB writes, so 4 parallel tests starved a 3-thread pool. Production is clean. Fix fba4e2e is being verified. WIRE r2: read-only opens and cleanup ordering resolved; still open: a stale episode resumes background₂'s pause, reentrant bind publishes before the prior retirement, lifecycle tests aren't process-isolated, plus a coordinator pause for the residual. c978616 (-shm guard) is done. Not pushed to PR #9 until CI-HANG is verified, to save CI minutes.
