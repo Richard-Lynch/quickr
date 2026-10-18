@@ -1,0 +1,54 @@
+# spike-proof.sh on the iOS 26.0 clone (run in the ios-m1-spike worktree: its own integration stack)
+# command: IOS_SIM_WAIT=1 ios/scripts/spike-proof.sh "" 1800 (simulator: quickR iOS-26-0 ios-m1-spike-3a8a60)
+# commit: 01cba48 (= ios/m1-data 01cba48, the M1 final tip with M1-FIXES)
+# host: macOS 27.0.1, Xcode 27.1 Build version 27A9275 
+# finished: 2026-10-18T03:12:25Z
+# (an earlier run in ios-m1-evidence passed its first three cases, then the INT agent's run restarted that
+#  worktree's shared compose project under it; this rerun is the evidence)
+
+## script output (ANSI stripped; compose/build noise removed)
+integration: project quickr-it-ios-m1-spike-3a8a60
+integration: ports proxy=52302 control=52303 a=52276 b=52275
+integration: up; wrote /Users/richie/code/quickr-worktrees/ios-m1-spike/ios/build/integration.env
+ios: Spike plan on 6A524431-04AA-4ADC-A5D3-B5A7B4DE9555 -- iOS 26.0 --
+Executed 1 test, with 0 failures (0 unexpected) in 44.171 (44.173) seconds
+Executed 1 test, with 0 failures (0 unexpected) in 44.171 (44.174) seconds
+Executed 1 test, with 0 failures (0 unexpected) in 44.171 (44.176) seconds
+Test session results: /Users/richie/code/quickr-worktrees/ios-m1-spike/ios/build/results/Spike-6A524431-04AA-4ADC-A5D3-B5A7B4DE9555.xcresult
+Test Succeeded
+Wrote video to: /Users/richie/code/quickr-worktrees/ios-m1-spike/ios/build/spike/spike.mov
+--- app-registered: {"case":"app-registered","event":"handler.completed","appStateAfterTap":"background","at":"2026-10-18T03:11:44.719","process":"QuickR","buttons":"now, Spike app, Time to log,Calm,Busy,now, Spike app, Time to log,Spike app","actionsShown":"true","appStateBeforeTap":"notRunning","action":"q1|fa4aa007-0256-42d9-9c33-07f93adf2d82|de13df40-434e-46e8-b4da-4e3952490472|1|mood|o|busy",
+    entries on the server: 1
+--- error: {"mainThread":"true","case":"error","appStateAfterTap":"background","buttons":"now, Spike app, Time to log,Calm,Busy,now, Spike app, Time to log,Spike app","actionsShown":"true","outcome":"failed","at":"2026-10-18T03:11:53.484","process":"QuickR","event":"handler.completed","action":"q1|fa4aa007-0256-42d9-9c33-07f93adf2d82|de13df40-434e-46e8-b4da-4e3952490472|1|mood|o|calm","appStateBef
+    entries on the server: 1
+--- default: {"case":"default","outcome":"ignored","process":"QuickR","at":"2026-10-18T03:12:00.833","event":"handler.completed","appStateAfterTap":"foreground","mainThread":"true","action":"com.apple.UNNotificationDefaultActionIdentifier"}
+    entries on the server: 1
+--- nse-only: {"buttons":"now, Spike NSE, Time to log,now, Spike NSE, Time to log,Spike NSE","actionsShown":"false","case":"nse-only"}
+    entries on the server: 0
+ios: spike proof passed on 6A524431-04AA-4ADC-A5D3-B5A7B4DE9555; artefacts in /Users/richie/code/quickr-worktrees/ios-m1-spike/ios/build/spike
+ios/scripts/spike-proof.sh: line 30: 39771 Terminated: 15          python3 "$here/spike-coordinator.py" "$udid" "$work" "$work/port" 2> "$work/coordinator.log"
+exit=0
+2026-10-18T03:12:25Z
+
+## tests (xcresulttool)
+Test Plan: Spike — Passed 
+  UI test bundle: QuickRUITests — Passed 
+    Test Suite: SpikeNotificationTests — Passed 
+      Test Case: testActionLogsFromAKilledApp() — Passed 44s
+
+## per-case observations (result-*.json, entry bodies elided)
+app-registered: {"action": "q1|fa4aa007-0256-42d9-9c33-07f93adf2d82|de13df40-434e-46e8-b4da-4e3952490472|1|mood|o|busy", "actionsShown": "true", "appStateAfterTap": "background", "appStateBeforeTap": "notRunning", "case": "app-registered", "event": "handler.completed", "mainThread": "true", "outcome": "logged", "process": "QuickR"}
+error: {"action": "q1|fa4aa007-0256-42d9-9c33-07f93adf2d82|de13df40-434e-46e8-b4da-4e3952490472|1|mood|o|calm", "actionsShown": "true", "appStateAfterTap": "background", "appStateBeforeTap": "notRunning", "case": "error", "event": "handler.completed", "mainThread": "true", "outcome": "failed", "process": "QuickR"}
+default: {"action": "com.apple.UNNotificationDefaultActionIdentifier", "appStateAfterTap": "foreground", "case": "default", "event": "handler.completed", "mainThread": "true", "outcome": "ignored", "process": "QuickR"}
+nse-only: {"actionsShown": "false", "case": "nse-only"}
+
+## handler timings (App Group spike-log.jsonl, this run)
+{"action": "q1|fa4aa007-0256-42d9-9c33-07f93adf2d82|de13df40-434e-46e8-b4da-4e3952490472|1|mood|o|busy", "at": "2026-10-18T03:11:44.533", "event": "handler.start", "state": "background"}
+{"at": "2026-10-18T03:11:44.609", "entry": "e6b841d3-685c-46bd-8500-7fd70d48abe3", "event": "handler.enqueued", "ms": "170"}
+{"acked": "1", "at": "2026-10-18T03:11:44.715", "ending": "drained", "event": "handler.flushed", "ms": "275"}
+{"action": "q1|fa4aa007-0256-42d9-9c33-07f93adf2d82|de13df40-434e-46e8-b4da-4e3952490472|1|mood|o|busy", "at": "2026-10-18T03:11:44.719", "event": "handler.completed", "mainThread": "true", "outcome": "logged"}
+{"action": "q1|fa4aa007-0256-42d9-9c33-07f93adf2d82|de13df40-434e-46e8-b4da-4e3952490472|1|mood|o|calm", "at": "2026-10-18T03:11:53.468", "event": "handler.start", "state": "background"}
+{"at": "2026-10-18T03:11:53.473", "error": "Couldn't log \u2014 open quickR to log", "event": "handler.failed", "ms": "86"}
+{"action": "q1|fa4aa007-0256-42d9-9c33-07f93adf2d82|de13df40-434e-46e8-b4da-4e3952490472|1|mood|o|calm", "at": "2026-10-18T03:11:53.484", "event": "handler.completed", "mainThread": "true", "outcome": "failed"}
+{"action": "com.apple.UNNotificationDefaultActionIdentifier", "at": "2026-10-18T03:12:00.831", "event": "handler.start", "state": "active"}
+{"action": "com.apple.UNNotificationDefaultActionIdentifier", "at": "2026-10-18T03:12:00.833", "event": "handler.completed", "mainThread": "true", "outcome": "ignored"}
