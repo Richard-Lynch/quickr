@@ -49,8 +49,12 @@ import Testing
 
         await bridge.bind(scheduler)
         bridge.requestFlush(reason: .afterSwap)
-        bridge.requestFlush(reason: .afterPull)
-        try await eventually("both flushes start") { await scheduler.started.count == 2 }
+        bridge.requestFlush(reason: .afterPull)  // same burst: coalesced into one forward
+        try await eventually("a flush starts") { await scheduler.started.count >= 1 }
+        _ = await scheduler.waitUntilIdle()
+        let burst = await scheduler.started.count
+        bridge.requestFlush(reason: .afterPull)  // after the forward: another one
+        try await eventually("another flush starts") { await scheduler.started.count > burst }
         #expect(await scheduler.started.allSatisfy { $0 == OutboxFlushReason.afterPull.policy })
 
         await bridge.bind(nil)

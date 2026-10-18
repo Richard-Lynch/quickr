@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import QuickrCore
+import Synchronization
 
 /// The single sync coordinator of the active store (sync-protocol.md §5.4). App process only.
 ///
@@ -74,6 +75,8 @@ public actor SyncCoordinator {
     private let owner: String
     private let configuration: Configuration
     private let broadcaster = StatusBroadcaster(SyncStatus())
+    /// `handle(_:)` has a run scheduled that hasn't started (coalesces signal bursts).
+    nonisolated let signalRunPending = Mutex(false)
 
     private var store: LocalStore?
     private var running: Task<SyncResult, Never>?

@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import Synchronization
 
 /// One store file per `server_id` and store generation, found through the registry
 /// (sync-protocol.md §8), with the storage-level parts of local reset and its crash recovery
@@ -33,6 +34,9 @@ public struct StorePartitions: Sendable {
     public let leaseClock: any LeaseClock
     public let wallClock: any WallClock
     public let notifier: (any ChangeNotifier)?
+    /// One `LocalStore` (one pool) per store file for this instance: a process opens one
+    /// `StorePartitions` and every open of the same (server, generation) shares its pool.
+    private let pools = PoolCache()
 
     public init(
         location: StoreLocation, registry: Registry, leaseClock: any LeaseClock, wallClock: any WallClock,
@@ -173,6 +177,7 @@ public struct StorePartitions: Sendable {
         for file in try await registry.retiredFiles() where !live.contains(file.path) {
             guard now.hasPassed(deadline: file.retiredAt.adding(Self.retiredFileGrace)) else { continue }
             let url = location.url(file.path)
+            pools.evict(path: url.path)
             for path in [url.path, url.path + "-wal", url.path + "-shm"]
             where FileManager.default.fileExists(atPath: path) {
                 try FileManager.default.removeItem(atPath: path)
@@ -220,10 +225,32 @@ public struct StorePartitions: Sendable {
 
     private func openPool(_ server: RegisteredServer) throws -> LocalStore {
         let url = location.storeURL(for: server)
-        let pool = try SharedDatabase.openPool(
-            at: url, migrations: StoreSchema.migrations, notifier: notifier, commitSignal: .dbChanged)
-        return LocalStore(
-            serverId: server.id, storeGen: server.storeGen, url: url, writer: pool, leaseClock: leaseClock,
-            wallClock: wallClock)
+        return try pools.store(serverId: server.id, storeGen: server.storeGen, path: url.path) {
+            let pool = try SharedDatabase.openPool(
+                at: url, migrations: StoreSchema.migrations, notifier: notifier, commitSignal: .dbChanged)
+            return LocalStore(
+                serverId: server.id, storeGen: server.storeGen, url: url, writer: pool, leaseClock: leaseClock,
+                wallClock: wallClock)
+        }
+    }
+}
+
+/// The open stores of one `StorePartitions`, by file. Opening a newer generation of a server drops
+/// the older ones (their pools close when the last user lets go); so does deleting a file.
+private final class PoolCache: Sendable {
+    private let stores = Mutex<[String: LocalStore]>([:])
+
+    func store(serverId: String, storeGen: Int, path: String, open: () throws -> LocalStore) throws -> LocalStore {
+        try stores.withLock { stores in
+            if let store = stores[path] { return store }
+            let store = try open()
+            stores = stores.filter { $0.value.serverId != serverId || $0.value.storeGen > storeGen }
+            stores[path] = store
+            return store
+        }
+    }
+
+    func evict(path: String) {
+        _ = stores.withLock { $0.removeValue(forKey: path) }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 // The two directions between the app's outbox and its coordinator (sync-protocol.md §5.6, §7,
 // outbox.md §10). Extensions don't use these: they post `ChangeSignalName.syncRequested`, which
@@ -19,7 +20,16 @@ extension SyncCoordinator {
     public nonisolated func handle(_ signal: OutboxSignal) {
         switch signal {
         case .epochSuspect, .pullRequested, .identityMismatch:
-            Task { _ = await self.sync(reason: .requested) }
+            // A burst of signals spawns one run; a signal once it has started schedules another.
+            let alreadyScheduled = signalRunPending.withLock { scheduled in
+                defer { scheduled = true }
+                return scheduled
+            }
+            guard !alreadyScheduled else { return }
+            Task {
+                self.signalRunPending.withLock { $0 = false }
+                _ = await self.sync(reason: .requested)
+            }
         }
     }
 
@@ -38,6 +48,8 @@ extension SyncCoordinator {
 /// nothing bound is dropped (the next enqueue, activation or timer flushes).
 public actor OutboxFlushBridge: FlushRequester {
     private var scheduler: OutboxFlushScheduler?
+    /// A forward is scheduled and hasn't started: a burst of requests spawns one task.
+    private nonisolated let pending = Mutex(false)
 
     public init() {}
 
@@ -53,10 +65,16 @@ public actor OutboxFlushBridge: FlushRequester {
     /// After a pull and after a swap alike, a non-forced flush that doesn't wait for the lease
     /// (outbox.md §10 "after a pull"): kept items are due and go out with the new epoch.
     public nonisolated func requestFlush(reason: FlushRequestReason) {
+        let alreadyScheduled = pending.withLock { scheduled in
+            defer { scheduled = true }
+            return scheduled
+        }
+        guard !alreadyScheduled else { return }
         Task { await self.forward() }
     }
 
     private func forward() async {
+        pending.withLock { $0 = false }  // a request from now on schedules another forward
         await scheduler?.requestFlush(reason: .afterPull)
     }
 }

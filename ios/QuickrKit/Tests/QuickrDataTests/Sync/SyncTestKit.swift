@@ -194,6 +194,27 @@ final class FakeFeedServer: @unchecked Sendable {
 
     func liveTopicIds() -> Set<String> { locked { Set(state.topics.keys) } }
 
+    // MARK: Logs
+
+    /// `POST /api/v1/topics/{id}/entries`: records the entry under the id the client sent (so a
+    /// pull carries it) and answers 201 with it, as the server would (the `glasses` answer only).
+    func respondToCreate(_ request: HTTPRequest) throws -> HTTPResponse {
+        let body = try #require(
+            try request.body.flatMap { try JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        let parts = request.url.pathComponents  // ["/", "api", "v1", "topics", id, "entries"]
+        let topicId = try #require(parts.count == 6 ? parts[4] : nil)
+        let id = try #require((body["id"] as? String).flatMap(UUID.init(uuidString:)))
+        let glasses = (body["answers"] as? [String: Any])?["glasses"] as? Int ?? 0
+        let existing = locked { state.entries[id.wireString] }
+        if existing == nil { addEntry(id: id, topicId: topicId, glasses: glasses) }
+        return try locked {
+            HTTPResponse(
+                status: existing == nil ? 201 : 200,
+                headers: [QuickrHeader.serverId: serverIdValue, QuickrHeader.epoch: state.epoch],
+                body: try JSONSerialization.data(withJSONObject: state.entries[id.wireString]!, options: [.sortedKeys]))
+        }
+    }
+
     // MARK: The feed
 
     func respond(_ request: HTTPRequest) throws -> HTTPResponse {
