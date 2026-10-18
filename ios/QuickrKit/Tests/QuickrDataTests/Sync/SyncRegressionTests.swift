@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 import QuickrCore
-import QuickrData
+@_spi(Testing) import QuickrData
 import QuickrTestSupport
 import Synchronization
 import Testing
@@ -36,7 +36,7 @@ import Testing
                     """,
                 arguments: [sender.token, sender.owner, FakeFeedServer.fixtureEpoch, create.id, update.id])
         }
-        let cancel = try await store.outbox.enqueue(
+        let cancel = try await store.outbox.appendRawForTesting(
             NewOutboxItem(payload: Payloads.delete(create.id), origin: .app, cancelsCreate: true))
         // The sender dies; its 30 s lease expires (the coordinator's own lease is fresh).
         env.clock.advance(by: .seconds(31))

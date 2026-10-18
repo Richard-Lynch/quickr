@@ -354,6 +354,52 @@ extension IntegrationTests {
             }
         }
 
+        // MARK: Offline, then back online (M1 scenario 2)
+
+        @Test("offline: two logs stay durable and pending, nothing reaches the server; back online, each lands once")
+        func offlineThenFlush() async throws {
+            let it = try await IT.start()
+            try await it.withDevice { device, store, topic in
+                let outbox = try await device.outbox()
+                let scheduler = await device.scheduler(outbox)
+                // The server is down: connections are refused (nothing listens where the requests go).
+                let logBefore = try await it.proxy.log().count
+                let sentBefore = device.sent().count
+                try device.transport.goOffline()
+
+                let first = UUID()
+                let second = UUID()
+                for (id, n) in [(first, 1), (second, 2)] {
+                    try await outbox.createEntry(id: id, topic: topic, body: logBody(n: n), origin: .app)
+                    _ = await scheduler.flushNow(reason: .enqueue)  // as the app flushes after a log
+                }
+                // Durable and pending: a refused connection sent nothing, so nothing may have been
+                // delivered; the device shows both logs.
+                let offline = try await store.items
+                #expect(offline.map(\.id) == [first.wireString, second.wireString])
+                #expect(offline.allSatisfy { $0.state == .pending && !$0.maybeDelivered }, "\(offline)")
+                #expect(try await store.view(first) != nil)
+                #expect(try await store.view(second) != nil)
+                #expect(device.sent(from: sentBefore, .post).count >= 1, "the flushes did try")
+                let log = try await it.proxy.log().dropFirst(logBefore)
+                #expect(log.isEmpty, "nothing reached the proxy or a server: \(Array(log))")
+                #expect(try await it.a.entry(first) == nil)
+                #expect(try await it.a.entry(second) == nil)
+
+                // Back online: the network-available flush sends both, each exactly once.
+                device.transport.goOnline()
+                _ = await scheduler.flushNow(reason: .networkAvailable)
+                try await eventually("the outbox drains") { try await store.items.isEmpty }
+                let posts = try await it.proxy.log().dropFirst(logBefore).filter { $0.method == "POST" }
+                #expect(posts.count == 2 && posts.allSatisfy { $0.upstream == "a" && $0.upstreamStatus == 201 })
+                #expect(try await it.a.entry(first)?["revision"] as? Int == 1)
+                #expect(try await it.a.entry(second)?["revision"] as? Int == 1)
+                #expect(WebServer.answer(try await it.a.entry(second)) == 2)
+                let live = try await it.a.live()
+                #expect(live.entries[first.wireString] == 1 && live.entries[second.wireString] == 1)
+            }
+        }
+
         // MARK: The production wiring under overlap
 
         @Test("wiring: scheduler bound from the store's opening; logs, web writes and pulls overlap and converge")

@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 import QuickrCore
-import QuickrData
+@_spi(Testing) import QuickrData
 import QuickrTestSupport
 import Testing
 
@@ -76,14 +76,14 @@ import Testing
         }
         let update = OutboxPayload.entryUpdate(
             entryId: entry.id.wireString, topicId: topic.id.wireString, patch: EntryUpdateDTO(notes: "x"))
-        let first = try await s.store.outbox.enqueue(NewOutboxItem(payload: update, origin: .widget))
-        let second = try await s.store.outbox.enqueue(NewOutboxItem(payload: update, origin: .app))
+        let first = try await s.store.outbox.appendRawForTesting(NewOutboxItem(payload: update, origin: .widget))
+        let second = try await s.store.outbox.appendRawForTesting(NewOutboxItem(payload: update, origin: .app))
         let hold = s.clock.now().adding(.seconds(6))
-        let held = try await s.store.outbox.enqueue(
+        let held = try await s.store.outbox.appendRawForTesting(
             NewOutboxItem(
                 payload: .entryDelete(entryId: entry.id.wireString, topicId: topic.id.wireString), origin: .app,
                 hold: hold))
-        let archive = try await s.store.outbox.enqueue(
+        let archive = try await s.store.outbox.appendRawForTesting(
             NewOutboxItem(payload: .topicArchive(topicId: topic.id.wireString), origin: .siri))
 
         #expect([first.seq, second.seq, held.seq, archive.seq] == [1, 2, 3, 4])
@@ -103,14 +103,15 @@ import Testing
         let s = try TestStore()
         let topic = Make.topic()
         let id = UUID()
-        let created = try await s.store.outbox.enqueue(
+        let created = try await s.store.outbox.appendRawForTesting(
             NewOutboxItem(id: id, payload: Make.createPayload(topic: topic), origin: .notification))
         #expect(created.id == id.wireString && created.entityId == id.wireString)
         #expect(created.topicId == topic.id.wireString && created.baseRevision == nil)
 
         try s.write { (db: Database) throws in try db.execute(sql: "UPDATE sync_state SET retired = 1") }
         await #expect(throws: StoreError.retired) {
-            try await s.store.outbox.enqueue(NewOutboxItem(payload: Make.createPayload(topic: topic), origin: .app))
+            try await s.store.outbox.appendRawForTesting(
+                NewOutboxItem(payload: Make.createPayload(topic: topic), origin: .app))
         }
     }
 

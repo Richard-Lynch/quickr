@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 import QuickrCore
-import QuickrData
+@_spi(Testing) import QuickrData
 import QuickrTestSupport
 import Synchronization
 import Testing
@@ -408,7 +408,7 @@ extension LocalStore {
 
     @discardableResult
     func enqueue(_ payload: OutboxPayload, id: UUID = UUID(), hold: LeaseInstant? = nil) async throws -> OutboxItem {
-        try await outbox.enqueue(NewOutboxItem(id: id, payload: payload, origin: .app, hold: hold))
+        try await outbox.appendRawForTesting(NewOutboxItem(id: id, payload: payload, origin: .app, hold: hold))
     }
 
     func setItemState(_ id: String, _ state: OutboxState) async throws {
