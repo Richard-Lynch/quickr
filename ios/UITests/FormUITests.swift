@@ -72,24 +72,36 @@ final class FormUITests: XCTestCase {
         let duration = app.textFields["form.field.duration"]
         XCTAssertTrue(waitForFocus(duration))
         duration.typeText("30")
-        app.buttons["Next"].firstMatch.tap()
 
-        // The last question is reachable by scrolling.
+        // Every typed question is reachable with the keyboard's Next, down to the last one.
+        app.buttons["Next"].firstMatch.tap()
+        XCTAssertTrue(waitForFocus(app.textFields["form.field.distance"]))
+        app.buttons["Next"].firstMatch.tap()
         let note = app.textFields["form.field.note"]
-        for _ in 0..<6 where !note.isHittable { app.swipeUp() }
-        XCTAssertTrue(note.isHittable, "the last question must be reachable")
+        XCTAssertTrue(waitForFocus(note), "Next should reach the last question")
+        note.typeText("ok\n")
+        XCTAssertTrue(waitForKeyboard(app, shown: false))
+
+        // With the keyboard down, scrolling (in the top half, clear of the Save bar) reaches it too.
+        for _ in 0..<6 where !note.isHittable { dragUp(app) }
+        XCTAssertTrue(note.isHittable, "the last question must be reachable by scrolling")
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "form-workout-ax"
         shot.lifetime = .keepAlways
         add(shot)
 
-        app.swipeDown()
-        XCTAssertTrue(save.isHittable)
+        XCTAssertTrue(save.isHittable, "Save must stay tappable")
         save.tap()
         let body = app.staticTexts["formDemo.body"]
-        for _ in 0..<6 where !body.exists { app.swipeUp() }
+        for _ in 0..<6 where !body.isHittable { dragUp(app) }
         XCTAssertTrue(body.waitForExistence(timeout: 5))
-        XCTAssertEqual(body.label, #"{"duration":30,"type":"run"}"#)
+        XCTAssertEqual(body.label, #"{"duration":30,"note":"ok","type":"run"}"#)
+    }
+
+    /// A swipe up in the top half of the screen, where the sticky Save bar can't swallow it.
+    private func dragUp(_ app: XCUIApplication) {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)))
     }
 
     private func waitForFocus(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {

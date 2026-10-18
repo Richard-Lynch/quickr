@@ -63,30 +63,41 @@ public struct AnswerField: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The label and "optional" flow as one text, so a long label wraps between words; the
+    /// trailing hint or counter moves under it when both don't fit on one line.
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(question.label)
-                .font(.qr(.label))
-                .foregroundStyle(.qr.ink)
-            if !question.required {
-                Text("optional")
-                    .font(.qr(.sansMedium, size: 12, relativeTo: .caption))
-                    .foregroundStyle(.qr.muted)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                title.fixedSize()
+                Spacer(minLength: 0)
+                trailing
             }
-            Spacer(minLength: 0)
-            if let bounds = SelectionBounds(question), case .selection(let picked) = input {
-                Text(
-                    picked.isEmpty ? bounds.hint.lowercased() : "\(picked.count) selected · \(bounds.hint.lowercased())"
-                )
+            VStack(alignment: .leading, spacing: 2) {
+                title.fixedSize(horizontal: false, vertical: true)
+                trailing
+            }
+        }
+    }
+
+    private var title: Text {
+        let label = Text(question.label).font(.qr(.label)).foregroundStyle(.qr.ink)
+        guard !question.required else { return label }
+        let tag = Text("optional").font(.qr(.sansMedium, size: 12, relativeTo: .caption)).foregroundStyle(.qr.muted)
+        return label + Text("  ") + tag
+    }
+
+    @ViewBuilder
+    private var trailing: some View {
+        if let bounds = SelectionBounds(question), case .selection(let picked) = input {
+            Text(picked.isEmpty ? bounds.hint.lowercased() : "\(picked.count) selected · \(bounds.hint.lowercased())")
                 .font(.qr(.monoCaption))
                 .foregroundStyle(.qr.muted)
                 .accessibilityHidden(true)
-            } else if let characterCount {
-                Text(characterCount.text)
-                    .font(.qr(.monoCaption))
-                    .foregroundStyle(characterCount.isOver ? .qr.danger : .qr.muted)
-                    .accessibilityLabel("\(characterCount.count) of \(characterCount.max) characters")
-            }
+        } else if let characterCount {
+            Text(characterCount.text)
+                .font(.qr(.monoCaption))
+                .foregroundStyle(characterCount.isOver ? .qr.danger : .qr.muted)
+                .accessibilityLabel("\(characterCount.count) of \(characterCount.max) characters")
         }
     }
 
