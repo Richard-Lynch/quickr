@@ -284,6 +284,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-18 01:20: MP done (24 real-process cases, 6 mutations, 3× serial green, ~3 s); merged m1-data as c51ce9b; Codex review running. FORM's AX XXXL test found a real label-wrap bug (fixed, rerunning). INT awaiting its clean-stack gate result. SKEL overdue on its final report (6 dirty files). Load ~300 with 2 sims.
+
 - 2026-10-18 01:00: FORM Codex r2: all resolved, no new majors (awaiting the watchdog UI rerun). INT checkpoint ffbd1ab: 13/13 against live docker twice; clean-stack `make ios-integration` ×2 running. MP checkpoint d172f7d (sync MP cases, N4). SKEL 8b6895c (widget gallery stall fix); final report pending. Load ~36.
 
 - 2026-10-18 00:45: Load ~275. The simulator cap was breached (SKEL booted iOS 26 and 27 together); the orchestrator shut down SKEL's idle iOS 26 clone. FORM's UI-plan xcodebuild has hung 41 min at 0% CPU after the tests (a recurring post-test hang) → the backlog item for an xcodebuild watchdog is promoted to next. FORM review fixes are in a845530 (21 host tests); Codex r2 is running. MP and INT have no new commits for 65 min; status requested.
