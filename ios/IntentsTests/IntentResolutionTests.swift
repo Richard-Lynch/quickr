@@ -1,8 +1,6 @@
-import XCTest
-
-#if canImport(AppIntentsTesting)
+#if canImport(AppIntentsTesting)  // Xcode 27+ SDKs only; CI's Xcode 26 builds an empty bundle.
 import AppIntentsTesting
-#endif
+import XCTest
 
 /// PLAN M1 platform proof, app half: the package's App Intents resolve through the system.
 /// AppIntentsTesting (Xcode 27) looks the types up in the metadata linkd registered for
@@ -42,3 +40,4 @@ final class IntentResolutionTests: XCTestCase {
         XCTAssertEqual(name, "Coffee")
     }
 }
+#endif

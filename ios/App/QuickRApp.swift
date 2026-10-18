@@ -1,4 +1,3 @@
-import QuickrData
 import SwiftUI
 
 @main
@@ -7,11 +6,7 @@ struct QuickRApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-        let environment = AppEnvironment.live()
-        // Siri, Shortcuts and widget buttons can launch the app for an intent without a scene, so
-        // the intents' topic source is registered here, before anything can query it.
-        IntentTopicSource.register(environment.topics)
-        _environment = State(initialValue: environment)
+        _environment = State(initialValue: AppEnvironment.bootstrap())
     }
 
     var body: some Scene {
