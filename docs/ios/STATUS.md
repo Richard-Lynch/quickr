@@ -291,6 +291,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-18 09:50: Network outage ~08:00–09:50 (API ENOTFOUND) failed CI-HANG's and the streaming WP's turns; all agents resumed at 09:50. Streaming committed b8d0b20; WIRE merged m1-data (10c2a28), report pending; CI-HANG has a 47-file WIP (checkpoint requested).
+
 - 2026-10-18 07:15: PR #9 iOS CI failed twice more on the 25-min step limit. **Corrected diagnosis:** not a simulator-boot stall. The log looked silent only because the watchdog/xcbeautify output is flushed at exit. The partial xcresult shows the build finished in ~2 min and QuickRTests/QuickrCoreTests ran, then **QuickrDataTests hung** after a connection-refused URLSession test (05:51:42 onwards). Hypothesis: blocking waits on the cooperative pool deadlock with ~3 CPUs, and Swift Testing ignores xcodebuild's per-test allowance. The CI-HANG package (SYNC agent) reproduces with LIBDISPATCH_COOPERATIVE_POOL_STRICT=1, fixes it, and adds .timeLimit. The 3c269c5 sim_boot change stays (harmless, bounded). Backlog: make CI output stream (watchdog/xcbeautify buffering).
 
 - 2026-10-18 06:20: PR #9 CI: backend/frontend/docker green; iOS `build + Unit plan` failed: Xcode 26.6's region-isolation checker crashed compiling the DEBUG spike code in NotificationService.swift (Xcode 27.1 compiles it). Fix ae90611 passes only Sendable values into the task; CI rerunning. WIRE done (fdcdb1e, 0dc1762, design-note fixes 60bce0b); Codex = REQUEST CHANGES: stale background suspend after activation, expiration suspend before cleanup, bridge publishes the new scheduler before the old retires, widget opens are writable/recovering. Fixing.
