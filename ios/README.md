@@ -54,7 +54,11 @@ everything it started, after `IOS_WATCHDOG_SILENCE_MIN` minutes without any
 output, even part of a line (default 20; 40 for package resolution and a first
 build; exit 124), or 60 s (`IOS_WATCHDOG_GRACE_SECS`) after xcodebuild's final
 `** … SUCCEEDED/FAILED **` line if it hasn't exited (the status that line
-reports). `IOS_WATCHDOG=0` turns it off. Test plans also run with test timeouts
+reports). `IOS_WATCHDOG=0` turns it off. Every 60 s
+(`IOS_WATCHDOG_HEARTBEAT_SECS`) it prints `ios: still running …` with the output so far
+and the time since the last output, since `xcbeautify --quiet` hides most of a healthy
+run. xcbeautify writes to a pseudo-terminal (`scripts/linebuffered.py`) so its lines
+stream instead of arriving all at once when it exits. Test plans also run with test timeouts
 (`IOS_TEST_ALLOWANCE`, default 300 s per test).
 
 Simulators boot through one admission (`sim-clone.sh`, `test.sh`, `sim-run.sh`):
