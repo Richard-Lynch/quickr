@@ -287,6 +287,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-18 01:40: Codex MP = REQUEST CHANGES: unbounded reply-timeout waiter; N4 lacks forced overlap and final-union checks; the surviving live-page mutation (epoch/rebuilding) isn't covered single-process; plus 3 minors. Codex INT = REQUEST CHANGES: a coordinator↔outbox retain cycle; the bridge can forward a stale flush after unbind; plus 2 minors. Both are fixing. WATCHDOG in progress; SKEL still pending.
+
 - 2026-10-18 01:35: INT done (13 tests / 14 cases, 2×2 clean-stack runs green, 2 mutations killed, S21 backend test added, S10 → M3). Codex reviewing INT and MP.
 
 - 2026-10-18 01:30: FORM DONE (tip 1f731f8; UI 2/2 incl. AX XXXL, 21 host tests; Codex r2 approved). It lands on ios/m2-ui after the M1 cut. The FORM agent is reassigned to WATCHDOG (xcodebuild timeout, sim-cap enforcement). MP merged-head gates green (fdb465b); in Codex review.
