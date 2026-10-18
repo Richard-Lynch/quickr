@@ -446,6 +446,20 @@ final class Gate: Sendable {
     }
 
     func abandon() { state.withLock { $0.abandoned = true } }
+
+    /// Teardown: opens the gate and also releases anyone still waiting for an arrival that will
+    /// never come, so no waiter outlives the test.
+    func releaseAll() {
+        let waiters = state.withLock { state in
+            state.open = true
+            defer {
+                state.openWaiters = []
+                state.arrivalWaiters = []
+            }
+            return state.openWaiters + state.arrivalWaiters
+        }
+        for waiter in waiters { waiter.resume() }
+    }
 }
 
 /// The first of a delivery and a cancellation, handed to one waiting client.

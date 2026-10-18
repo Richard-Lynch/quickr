@@ -7,7 +7,8 @@ import Testing
 
 /// Epoch rebuilds, takeover and fencing (sync-protocol.md §5, §7, §11; §13 S3–S6, S9, S15, S16,
 /// S20), file-backed. Multi-process cases are simulated in one process with a second registry
-/// pool per "process" and lease time moved by hand; the real-subprocess versions are the MP stubs.
+/// pool per "process" and lease time moved by hand; the real-subprocess versions are in
+/// `MultiProcess/SyncMultiProcessTests`.
 @Suite(.timeLimit(.minutes(1))) struct SyncRebuildTests {
     static let e2 = "00000000-0000-4000-8000-0000000000e2"
     static let e3 = "00000000-0000-4000-8000-0000000000e3"
@@ -203,6 +204,32 @@ import Testing
         #expect(await sync.value == .superseded)
         #expect(try await store.fingerprint() == before)
         #expect(try await store.count("entry", "id = '\(added)'") == 0)
+    }
+
+    /// The live-epoch fence alone: the epoch changes, or a rebuild starts, while A still validly
+    /// holds `sync` and `layer_gen` is unchanged, so only the `liveEpoch` condition (epoch, and
+    /// `rebuilding IS NULL`) can reject A's page.
+    @Test(arguments: [
+        "UPDATE sync_state SET epoch = '00000000-0000-4000-8000-0000000000ee'",
+        "UPDATE sync_state SET rebuilding = '00000000-0000-4000-8000-0000000000e2'",
+    ])
+    func livePageIsDiscardedWhenOnlyTheEpochFenceChangedUnderAHeldLease(change: String) async throws {
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        let coordinator = env.coordinator()
+        let store = try await env.connect(coordinator)
+        let added = env.server.addEntry()
+        env.gate.arm { $0 == 16 }
+        let sync = Task { await coordinator.sync(reason: .timer) }
+        try await env.gate.waitUntilParked()
+        let layerGen = try await store.state().layerGen
+        try await store.writer.write { db in try db.execute(sql: change) }
+        let before = try await store.fingerprint()
+        env.gate.release()
+        #expect(await sync.value == .superseded)
+        #expect(try await store.fingerprint() == before)
+        #expect(try await store.count("entry", "id = '\(added)'") == 0)
+        #expect(try await store.state().layerGen == layerGen)
     }
 
     @Test func stagedPageIsDiscardedWhenLayerGenMovedUnderAHeldLease() async throws {

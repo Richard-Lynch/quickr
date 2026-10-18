@@ -8,7 +8,7 @@ import Testing
 /// outbox.md §13 multi-process cases 8–10, 23, 32, 34, 39, 40, 45, 46, simulated in one process: two
 /// `Outbox` instances on two pools over one file, sharing the lease clock. "SIGSTOP" is a request
 /// held in the network by a `Gate` while lease time passes; "SIGCONT" opens it. The real
-/// multi-process runs are stubbed in `OutboxMatrixStubs` for the MP WP.
+/// multi-process runs are in `MultiProcess/OutboxMultiProcessTests`.
 @Suite struct OutboxConcurrencyTests {
     @Test("8, 9 · (single process) lock expiry: B recovers and resends; A's late 201 writes nothing")
     func case08And09() async throws {
