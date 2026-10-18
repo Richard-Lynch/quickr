@@ -72,10 +72,17 @@ final class SpikeAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         [.banner, .list, .sound]
     }
 
+    // The completion-handler variant: the async one calls its completion from a background
+    // executor, and UIKit asserts that it runs on the main thread (a crash after every action).
     nonisolated func userNotificationCenter(
-        _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
-    ) async {
-        await SpikeHandler.handle(response)
+        _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let call = SpikeCall(response: response, completion: completionHandler)
+        Task {
+            await SpikeHandler.handle(call.response)
+            await MainActor.run { call.completion() }
+        }
     }
 }
 
@@ -158,6 +165,15 @@ enum SpikeHandler {
             SpikeLog.append(
                 "handler.enqueued", ["entry": entryId.wireString, "result": "\(enqueued)", "ms": ms(since: started)])
             await removeDelivered(serverId: info.serverId, topicId: topic.id.wireString)
+            let lease = try await store.leases.record(.flush)
+            SpikeLog.append(
+                "handler.removed",
+                [
+                    "ms": ms(since: started), "flushOwner": lease.owner ?? "none",
+                    "leaseNow": "\(store.leaseClock.now())", "leaseExpires": lease.expires.map { "\($0)" } ?? "none",
+                ])
+            try await store.writer.write { _ in }
+            SpikeLog.append("handler.write-probe", ["ms": ms(since: started)])
             let report = try await outbox.flush(force: true, budget: .seconds(5), leaseWait: .seconds(5))
             SpikeLog.append(
                 "handler.flushed",
@@ -185,10 +201,18 @@ enum SpikeHandler {
 
     private static func removeDelivered(serverId: String, topicId: String) async {
         let center = UNUserNotificationCenter.current()
-        let ids = await center.deliveredNotifications().compactMap { notification -> String? in
+        let delivered = await center.deliveredNotifications()
+        let ids = delivered.compactMap { notification -> String? in
             let info = SpikeCategories.info(userInfo: notification.request.content.userInfo)
             return info?.serverId == serverId && info?.topicId == topicId ? notification.request.identifier : nil
         }
+        SpikeLog.append(
+            "handler.delivered",
+            [
+                "delivered": String(delivered.count), "matching": String(ids.count),
+                "parsed": String(
+                    delivered.filter { SpikeCategories.info(userInfo: $0.request.content.userInfo) != nil }.count),
+            ])
         center.removeDeliveredNotifications(withIdentifiers: ids)
     }
 
@@ -204,6 +228,13 @@ enum SpikeHandler {
         let elapsed = ContinuousClock.now - start
         return String(Int(Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15))
     }
+}
+
+/// The response and completion handler, carried into the handling task (UserNotifications
+/// doesn't mark them Sendable; the task is their only user).
+struct SpikeCall: @unchecked Sendable {
+    let response: UNNotificationResponse
+    let completion: () -> Void
 }
 
 struct SpikeError: Error, CustomStringConvertible {

@@ -77,10 +77,12 @@ final class SpikeNotificationTests: XCTestCase {
         _ = try await get("push/\(spikeCase.name)")  // returns once `simctl push` has delivered
         var observed: [String: String] = ["case": spikeCase.name]
 
-        let banner = springboard.otherElements.matching(
+        // The simulator's notification pipeline holds a reminder for up to ~10 s (an Apple
+        // Intelligence inference step that waits out its timer) before the banner shows.
+        let banner = springboard.descendants(matching: .any).matching(
             NSPredicate(format: "label CONTAINS %@", spikeCase.topicName)
         ).firstMatch
-        if !banner.waitForExistence(timeout: 10) {
+        if !banner.waitForExistence(timeout: 30) {
             // The banner may have gone already: open Notification Center.
             springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.005))
                 .press(
