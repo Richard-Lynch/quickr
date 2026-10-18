@@ -31,8 +31,10 @@ silence=$(( ${IOS_WATCHDOG_SILENCE_MIN:-20} * 60 ))
 grace="${IOS_WATCHDOG_GRACE_SECS:-60}"
 poll="${IOS_WATCHDOG_POLL_SECS:-1}"
 name="${1##*/}"
+command -v perl >/dev/null || { echo "ios: watchdog needs perl (to give the command its own process group)" >&2; exit 127; }
 
 dir="$(mktemp -d "${TMPDIR:-/tmp}/quickr-watchdog.XXXXXX")"
+trap 'rm -rf "$dir"' EXIT
 log="$dir/log"
 : >"$log"
 # setpgrp(0, 0): a process group of its own, whose id is the command's pid.
@@ -55,7 +57,9 @@ stop_group() {
 sent=0        # bytes of the log already copied to stdout
 final=""      # SUCCEEDED or FAILED once the final line was seen
 final_at=0
-carry=""      # the end of the previous chunk, so a final line split across two polls is found
+# The last 120 bytes seen so far (longer than any final line), so a final line split across
+# any number of polls is still found.
+carry=""
 # Copies what the log gained since the last call to stdout and looks for the final line in it.
 # Fails when nothing new arrived.
 pump() {
@@ -72,7 +76,7 @@ pump() {
       final_at=$SECONDS
     fi
   fi
-  carry="$(tail -c 120 "$chunk" | tr '\n' ' ')"
+  carry="$( { printf '%s' "$carry"; cat "$chunk"; } | tail -c 120)"
   return 0
 }
 

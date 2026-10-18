@@ -36,6 +36,11 @@ check "kills a hang after a SUCCEEDED final line, status 0" 0 $? "after its fina
 out="$(IOS_WATCHDOG_GRACE_SECS=2 "$wd" bash -c 'echo "** TEST FAILED **"; sleep 30' 2>&1)"
 check "kills a hang after a FAILED final line, status 65" 65 $? "watchdog killed"
 
+# A final line that arrives in three pieces, each in its own poll, still counts.
+out="$(IOS_WATCHDOG_GRACE_SECS=2 IOS_WATCHDOG_POLL_SECS=0.5 "$wd" bash -c \
+  'printf "** TEST "; sleep 1.2; printf "SUCC"; sleep 1.2; printf "EEDED **\n"; sleep 30' 2>&1)"
+check "a final line split across three polls is found" 0 $? "after its final line"
+
 # Output after the final line doesn't move its deadline.
 start=$SECONDS
 out="$(IOS_WATCHDOG_GRACE_SECS=3 "$wd" bash -c 'echo "** TEST SUCCEEDED **"; while :; do echo diag; sleep 1; done' 2>&1)"
