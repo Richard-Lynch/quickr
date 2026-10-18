@@ -288,6 +288,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-18 03:10: SPIKE done (49a90ac; spike-proof 3/3 on iOS 26.0 against the INT stack). A notification action logs from a killed app: background launch, entry committed in ~135 ms, total ~205 ms, server source ios.notification. Findings: F1 the NSE never runs for simctl push on the sim; F2 the sim delays real reminders ~10 s; F3 the async didReceive variant crashes, so HANDLER must use the completion-handler variant; F4 set the delegate in didFinishLaunching; F6 action counts need device D. Codex reviewing.
+
 - 2026-10-18 02:45: WATCHDOG merged into ios/m1-data (c39e80a verified by the orchestrator; script tests green). Every xcodebuild and swift test now runs under the watchdog, and simulator boots go through the machine-wide cap lock. FLAKE root cause: at a 1 s budget the request deadline passed before the POST was sent → 16f now uses a 5 s budget and a #require; bounds measure the flush's own timestamps. Decision: tight real-time bounds stay strict, gates aren't trusted during load spikes, and `QUICKR_TIMING_SLACK` exists for knowingly loaded local runs (never CI).
 
 - 2026-10-18 02:40: Load hit ~740: FLAKE's stress test spawned 32 `yes` processes (4 were asked for), plus SPIKE's Docker stack. The orchestrator killed the `yes` processes. WATCHDOG r2: all round-1 items resolved; one new Major (the final marker can be split across 3 chunks) → final fix, orchestrator verifies. SPIKE checkpoint b750a1c (handler, categories, payloads rendered by the server's own apns.render); its first sim proof run is in progress.
