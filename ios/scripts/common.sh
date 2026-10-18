@@ -133,9 +133,10 @@ xcb() {
   [[ -f "$RESOLVED" ]] && args+=(-onlyUsePackageVersionsFromResolvedFile)
   [[ "$IOS_JOBS" != 0 ]] && args+=(-jobs "$IOS_JOBS")
   args+=("$@")
-  # The first build fetches the packages, which can be quiet for a long time.
+  # The first build fetches the packages, which can be quiet for a long time: at least 40 min
+  # then, even when IOS_WATCHDOG_SILENCE_MIN is lower (CI sets 5 for the test step).
   local silence="${IOS_WATCHDOG_SILENCE_MIN:-20}"
-  [[ -d "$SPM_DIR/checkouts" ]] || silence="${IOS_WATCHDOG_SILENCE_MIN:-40}"
+  [[ -d "$SPM_DIR/checkouts" ]] || (( silence >= 40 )) || silence=40
   if command -v xcbeautify >/dev/null; then
     IOS_WATCHDOG_SILENCE_MIN="$silence" watchdog xcodebuild "${args[@]}" | "$IOS_DIR/scripts/linebuffered.py" xcbeautify --quiet
   else
