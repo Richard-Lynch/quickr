@@ -10,13 +10,11 @@
   ],
   "defaultOptions" : {
     "codeCoverage" : false,
-    "defaultTestExecutionTimeAllowance" : 300,
     "targetForVariableExpansion" : {
       "containerPath" : "container:quickR.xcodeproj",
       "identifier" : "FBF13E34ED2D154BC1EAF4DE",
       "name" : "QuickR"
-    },
-    "testTimeoutsEnabled" : true
+    }
   },
   "testTargets" : [
     {
@@ -24,7 +22,10 @@
         "containerPath" : "container:quickR.xcodeproj",
         "identifier" : "A932D006A482F51C1112AC08",
         "name" : "QuickRUITests"
-      }
+      },
+      "skippedTests" : [
+        "WidgetGalleryTests"
+      ]
     }
   ],
   "version" : 1

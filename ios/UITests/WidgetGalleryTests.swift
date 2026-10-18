@@ -8,6 +8,10 @@ import XCTest
 /// - the configuration's topic picker lists the extension's `TopicEntityQuery.allEntities()`;
 /// - after picking, the extension's timeline renders the resolved `TopicEntity`'s name.
 /// Screenshots of each step are attached to the result bundle.
+///
+/// Not in the UI plan: SpringBoard automation intermittently stalls for many minutes (an
+/// accessibility snapshot of SpringBoard that never returns, on iOS 26 and 27), which XCTest's
+/// timeouts don't catch. It has its own plan, run on demand: `ios/scripts/widget-proof.sh <sim>`.
 final class WidgetGalleryTests: XCTestCase {
     @MainActor private var springboard: XCUIApplication { XCUIApplication(bundleIdentifier: "com.apple.springboard") }
     @MainActor private var quickRWidgets: XCUIElementQuery {
@@ -28,11 +32,6 @@ final class WidgetGalleryTests: XCTestCase {
         }
     }
 
-    override func setUp() {
-        // Bounded even if SpringBoard stalls; the plan enables test timeouts.
-        executionTimeAllowance = 300
-    }
-
     @MainActor
     func testTopicWidgetResolvesTopicEntityInTheExtension() throws {
         XCUIApplication().launch()  // installs the build, registering the widget
@@ -42,10 +41,18 @@ final class WidgetGalleryTests: XCTestCase {
         // Home Screen edit mode → Edit → Add Widget → search → quickR.
         springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)).press(forDuration: 2)
         tap(springboard.buttons["Edit"])
-        tap(springboard.buttons["Add Widget"])
-        let search = springboard.searchFields.firstMatch
-        tap(search)
-        search.typeText("quickR")
+        // Right after an install the gallery may not list the extension yet: reopen it until it does.
+        for attempt in 1...4 {
+            tap(springboard.buttons["Add Widget"])
+            let search = springboard.searchFields.firstMatch
+            tap(search)
+            search.typeText("quickR")
+            // The first-run keyboard tip covers the results.
+            if springboard.buttons["Continue"].exists { springboard.buttons["Continue"].tap() }
+            if springboard.cells["quickR"].waitForExistence(timeout: 10) || attempt == 4 { break }
+            tap(springboard.buttons["Close"])
+            sleep(5)
+        }
         tap(springboard.cells["quickR"])
         sleep(2)  // the preview renders asynchronously
         attach("gallery")

@@ -189,9 +189,15 @@ is the child process for the multi-process tests
     fails to load and kills the runner. That's why it is a separate bundle, run
     by `check-ios` only on iOS 27+ (`make ios-uitest`-style:
     `ios/scripts/test.sh Intents <sim>`).
-  - `WidgetGalleryTests` (UI plan) adds the widget from SpringBoard's gallery,
-    picks a topic and checks the widget renders it. It removes its widgets at
-    both ends, so a reused simulator stays clean.
+  - `WidgetGalleryTests` (`Widgets` plan, on demand:
+    `ios/scripts/widget-proof.sh <sim>`) adds the widget from SpringBoard's
+    gallery, picks a topic from the extension's query and checks the widget
+    renders it. It removes its widgets at both ends. It is skipped in the UI
+    plan and kept out of `check-ios` because SpringBoard automation sometimes
+    stalls indefinitely (an accessibility snapshot that never returns), which
+    XCTest's test timeouts don't catch. Run it when intents, the widget or
+    their metadata change; the script enforces a wall-clock limit. If it
+    stalls, erase the simulator and rerun.
 
 ## Integration tests
 

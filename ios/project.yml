@@ -196,5 +196,6 @@ schemes:
           defaultPlan: true
         - path: TestPlans/UI.xctestplan
         - path: TestPlans/Intents.xctestplan
+        - path: TestPlans/Widgets.xctestplan
     archive:
       config: Release
