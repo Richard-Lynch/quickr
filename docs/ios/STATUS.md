@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- STORE test: `LeaseTimeSamplingTests` sleeps 50 ms assuming a writer is already waiting; under load it passes but proves less. Replace the sleep with a barrier (found by FLAKE).
 - **Milestone checklist item (from SKEL):** before every milestone PR that touches intents or widgets, run `ios/scripts/widget-proof.sh` on an iOS 26.0 clone first, then on 27; and run the Intents plan locally on 27 via check-ios. CI (iOS 26.x, Unit plan) only covers the `IntentMetadataTests` guard. Add the same requirement to the WIDGETS and INTENTS done-criteria.
 - App composition root (SKEL follow-up / M2 SYNC-UX): wire `Outbox(onSignal: coordinator.handle)` and `OutboxFlushBridge.bind(scheduler)` on every store open, reset and server switch (nil when there's no store), per INT.
 - S10 (APNs register vs a rotated epoch) is deferred to M3 REG; the stub carries an owner note.
@@ -287,6 +288,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-18 03:15: FLAKE merged (065aa9f; 5/5 serial green under load 270–390). Gate on the merge green (374 data + 83 + 29; lint). SPIKE Codex = REQUEST CHANGES (4 P2: debug gating, version-validation nil==nil, spike-proof gen, assert background state; 1 P3 doc scope); fixing.
 
 - 2026-10-18 03:10: SPIKE done (49a90ac; spike-proof 3/3 on iOS 26.0 against the INT stack). A notification action logs from a killed app: background launch, entry committed in ~135 ms, total ~205 ms, server source ios.notification. Findings: F1 the NSE never runs for simctl push on the sim; F2 the sim delays real reminders ~10 s; F3 the async didReceive variant crashes, so HANDLER must use the completion-handler variant; F4 set the delegate in didFinishLaunching; F6 action counts need device D. Codex reviewing.
 
