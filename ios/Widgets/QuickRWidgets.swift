@@ -1,4 +1,3 @@
-import QuickrData
 import SwiftUI
 import WidgetKit
 
@@ -7,8 +6,7 @@ import WidgetKit
 @main
 struct QuickRWidgets: WidgetBundle {
     init() {
-        // Before WidgetKit asks for a configuration or a timeline, both of which query topics.
-        IntentTopicSource.register(PlaceholderTopicRepository())
+        WidgetBootstrap.register()
     }
 
     var body: some Widget {

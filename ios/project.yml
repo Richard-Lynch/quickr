@@ -143,6 +143,9 @@ targets:
     platform: iOS
     sources:
       - AppTests
+      # The widget's bootstrap and timeline rules, so its intent path runs in CI's Unit plan.
+      - Widgets/WidgetBootstrap.swift
+      - Widgets/TopicWidget.swift
     dependencies:
       - target: QuickR
       - package: QuickrKit

@@ -12,14 +12,24 @@ struct TopicProvider: AppIntentTimelineProvider {
         TopicEntry(date: .now, topic: nil)
     }
 
+    func snapshot(for configuration: SelectTopicIntent, in context: Context) async -> TopicEntry {
+        await Self.snapshotEntry(for: configuration)
+    }
+
+    func timeline(for configuration: SelectTopicIntent, in context: Context) async -> Timeline<TopicEntry> {
+        Self.timeline(for: configuration)
+    }
+
+    // The rules, without WidgetKit's `Context` (which tests can't make).
+
     /// The gallery asks before the user has chosen a topic: show the first suggestion, read
     /// through `TopicEntityQuery` in this process.
-    func snapshot(for configuration: SelectTopicIntent, in context: Context) async -> TopicEntry {
+    static func snapshotEntry(for configuration: SelectTopicIntent) async -> TopicEntry {
         let suggested = try? await TopicEntityQuery().suggestedEntities().first
         return TopicEntry(date: .now, topic: configuration.topic ?? suggested)
     }
 
-    func timeline(for configuration: SelectTopicIntent, in context: Context) async -> Timeline<TopicEntry> {
+    static func timeline(for configuration: SelectTopicIntent) -> Timeline<TopicEntry> {
         Timeline(entries: [TopicEntry(date: .now, topic: configuration.topic)], policy: .never)
     }
 }

@@ -48,6 +48,23 @@ goes to `ios/build/` (DerivedData in `build/dd`, package checkouts in
 `build/spm`, test results in `build/results/<plan>-<udid>.xcresult`; read one
 with `xcrun xcresulttool get test-results summary --path ...`).
 
+**Hangs and simulator load.** Every `xcodebuild` and `swift test` runs under
+`scripts/watchdog.sh`, in a process group of its own. It is killed, with
+everything it started, after `IOS_WATCHDOG_SILENCE_MIN` minutes without any
+output, even part of a line (default 20; 40 for package resolution and a first
+build; exit 124), or 60 s (`IOS_WATCHDOG_GRACE_SECS`) after xcodebuild's final
+`** … SUCCEEDED/FAILED **` line if it hasn't exited (the status that line
+reports). `IOS_WATCHDOG=0` turns it off. Test plans also run with test timeouts
+(`IOS_TEST_ALLOWANCE`, default 300 s per test).
+
+Simulators boot through one admission (`sim-clone.sh`, `test.sh`, `sim-run.sh`):
+it refuses while `IOS_SIM_CAP` (default 2; 0 = off) other worktree clones are
+booted, and names them; `sim-clone.sh --wait` or `IOS_SIM_WAIT=1` waits for a
+slot instead. A machine-wide lock covers the check and the boot, so two
+worktrees can't both take the last slot. A clone that is already booted never
+counts against itself. `sim-clone.sh` boots its clone; `--no-boot` only prints
+the UDID. `make ios-script-test` tests both (no Xcode needed).
+
 `simctl openurl` with the `quickr://` scheme shows a system "Open in quickR?"
 alert, which stays on screen until tapped. Reboot the simulator (or tap it)
 before taking screenshots.
@@ -214,7 +231,7 @@ Until that target exists it says so and stops after the smoke test.
 | `make ios-integration`      | Up, smoke, integration tests, down                                        |
 | `make ios-integration-up`   | Start (or restart clean) the stacks and write `ios/build/integration.env` |
 | `make ios-integration-down` | Stop them and delete their data                                           |
-| `make ios-sim-clone`        | Print the UDID of this worktree's own simulator, creating it on first use |
+| `make ios-sim-clone`        | Boot this worktree's own simulator (under the cap) and print its UDID     |
 
 **What runs.** Compose project `quickr-it-<worktree dir>-<hash of its path>`,
 from `docker-compose.integration.yml`. One throwaway Postgres (tmpfs) holds two
