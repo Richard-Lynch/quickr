@@ -117,6 +117,8 @@ targets:
     platform: iOS
     sources:
       - NotificationService
+      # SPIKE (DEBUG only): category registration through the registry table, shared with the app.
+      - App/Notifications/Spike/Shared
     dependencies:
       - package: QuickrKit
         products: [QuickrCore, QuickrData]
@@ -162,6 +164,13 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr.uitests
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: QuickR
+    info:
+      path: UITests/Info.plist
+      properties:
+        # SpikeNotificationTests talks to the host's integration stack and spike coordinator over
+        # plain HTTP on 127.0.0.1.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
 
   # AppIntentsTesting UI tests, apart from QuickRUITests: AppIntentsTesting.framework needs the
   # iOS 27 runtime's AppIntentsTypeSupport, so on iOS 26 the bundle fails to load and takes the
@@ -197,5 +206,6 @@ schemes:
         - path: TestPlans/UI.xctestplan
         - path: TestPlans/Intents.xctestplan
         - path: TestPlans/Widgets.xctestplan
+        - path: TestPlans/Spike.xctestplan
     archive:
       config: Release
