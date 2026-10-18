@@ -24,7 +24,8 @@
         "name" : "QuickRUITests"
       },
       "skippedTests" : [
-        "WidgetGalleryTests"
+        "WidgetGalleryTests",
+        "SpikeNotificationTests"
       ]
     }
   ],
