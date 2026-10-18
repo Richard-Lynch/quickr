@@ -124,7 +124,9 @@ watchdog() {
 
 # xcodebuild against the generated project, with shared DerivedData and SPM checkout dirs.
 # Packages resolve only to the tracked pins when there are any. Runs under the watchdog;
-# output goes through xcbeautify when it is installed.
+# output goes through xcbeautify when it is installed. xcbeautify block-buffers a pipe (a CI
+# log saw nothing until it exited), so it writes to a terminal of its own (linebuffered.py)
+# and its lines stream.
 xcb() {
   local args=(-project "$PROJECT" -scheme "$SCHEME" -derivedDataPath "$DERIVED"
     -clonedSourcePackagesDirPath "$SPM_DIR")
@@ -135,7 +137,7 @@ xcb() {
   local silence="${IOS_WATCHDOG_SILENCE_MIN:-20}"
   [[ -d "$SPM_DIR/checkouts" ]] || silence="${IOS_WATCHDOG_SILENCE_MIN:-40}"
   if command -v xcbeautify >/dev/null; then
-    IOS_WATCHDOG_SILENCE_MIN="$silence" watchdog xcodebuild "${args[@]}" | xcbeautify --quiet
+    IOS_WATCHDOG_SILENCE_MIN="$silence" watchdog xcodebuild "${args[@]}" | "$IOS_DIR/scripts/linebuffered.py" xcbeautify --quiet
   else
     IOS_WATCHDOG_SILENCE_MIN="$silence" watchdog xcodebuild "${args[@]}"
   fi

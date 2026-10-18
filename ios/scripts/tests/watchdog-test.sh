@@ -75,4 +75,54 @@ out="$("$wd" bash -c 'echo "** TEST SUCCEEDED **"; exit 0' 2>&1)"
 check "exits normally right after its final line" 0 $?
 [[ "$out" != *watchdog* ]] || fail "a watchdog message on a clean exit"
 
+# Streaming: a line shows up downstream within about 2 s while the command is still running.
+# shows <file> <text> <pid>: waits up to 2.5 s for <text> in <file>; fails if it doesn't come
+# or <pid> (the command) is already gone.
+shows() {
+  local i
+  for i in 1 2 3 4 5; do
+    sleep 0.5
+    if grep -q "$2" "$1" 2>/dev/null; then kill -0 "$3" 2>/dev/null; return; fi
+  done
+  return 1
+}
+lb="$(cd "$(dirname "$0")/.." && pwd)/linebuffered.py"
+"$wd" bash -c 'echo first-line; sleep 8' >"$tmp/raw.out" 2>&1 &
+p=$!
+shows "$tmp/raw.out" first-line "$p" && echo "ok   the watchdog streams a line within 2 s" \
+  || fail "the watchdog held a line back: $(cat "$tmp/raw.out")"
+wait "$p"
+
+# A program that block-buffers a pipe (as xcbeautify does) streams through linebuffered.py.
+buffered='import sys, time
+for line in sys.stdin:
+    print("seen " + line, end="")'
+"$wd" bash -c 'echo first-line; sleep 8' | "$lb" python3 -c "$buffered" >"$tmp/lb.out" 2>&1 &
+p=$!
+shows "$tmp/lb.out" "seen first-line" "$p" && echo "ok   a block-buffering filter streams through linebuffered.py" \
+  || fail "linebuffered.py held a line back: $(cat "$tmp/lb.out")"
+wait "$p"
+"$wd" bash -c 'echo first-line; sleep 4' | python3 -c "$buffered" >"$tmp/nolb.out" 2>&1 &
+p=$!
+shows "$tmp/nolb.out" "seen first-line" "$p" && fail "the control should have buffered (the test proves nothing)" \
+  || echo "ok   (control: without it the same filter holds the line back)"
+wait "$p"
+
+if command -v xcbeautify >/dev/null; then
+  "$wd" bash -c "echo \"Test Case '-[QuickRTests.T testA]' passed (0.100 seconds).\"; sleep 8" \
+    | "$lb" xcbeautify >"$tmp/xcb.out" 2>&1 &
+  p=$!
+  shows "$tmp/xcb.out" testA "$p" && echo "ok   xcbeautify's lines stream within 2 s" \
+    || fail "xcbeautify held a line back: $(cat "$tmp/xcb.out")"
+  wait "$p"
+fi
+
+out="$(echo hi | "$lb" bash -c 'cat; exit 5' 2>&1)"
+check "linebuffered.py keeps plain newlines and the exit status" 5 $? "hi"
+[[ "$out" != *$'\r'* ]] || fail "linebuffered.py turned newlines into CRLF"
+
+out="$(IOS_WATCHDOG_HEARTBEAT_SECS=2 "$wd" bash -c 'printf 12345; sleep 5' 2>&1)"
+check "a heartbeat while it runs" 0 $? "ios: still running bash:"
+[[ "$out" == *"KB of output, last output"* ]] || fail "the heartbeat names output and last activity: $out"
+
 (( fails == 0 )) && echo "watchdog: all passed" || { echo "watchdog: $fails failed"; exit 1; }

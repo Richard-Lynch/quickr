@@ -18,6 +18,11 @@
 # Exits with the command's own status. When it had to kill: the status the final line reports
 # (0 for SUCCEEDED, 65 like xcodebuild for FAILED), or 124 (as timeout(1)) after silence.
 # Interrupted: 130 (INT) or 143 (TERM), after passing that signal on.
+#
+# Every IOS_WATCHDOG_HEARTBEAT_SECS (default 60; 0 = off) it prints a liveness line to stderr,
+# "ios: still running xcodebuild: 120s, 3.4 MB of output, last output 2s ago", whatever the
+# output: xcbeautify --quiet hides nearly all of a healthy run, so a CI log would otherwise
+# look stalled, and "last output" tells a busy run from a silent one.
 # Usage: watchdog.sh <command> [args...]
 set -uo pipefail
 
@@ -30,6 +35,7 @@ silence=$(( ${IOS_WATCHDOG_SILENCE_MIN:-20} * 60 ))
 [[ -n "${IOS_WATCHDOG_SILENCE_SECS:-}" ]] && silence="$IOS_WATCHDOG_SILENCE_SECS"
 grace="${IOS_WATCHDOG_GRACE_SECS:-60}"
 poll="${IOS_WATCHDOG_POLL_SECS:-1}"
+heartbeat="${IOS_WATCHDOG_HEARTBEAT_SECS:-60}"
 name="${1##*/}"
 command -v perl >/dev/null || { echo "ios: watchdog needs perl (to give the command its own process group)" >&2; exit 127; }
 
@@ -94,9 +100,15 @@ trap 'stop_group INT; finish 130' INT
 trap 'stop_group TERM; finish 143' TERM
 
 last=$SECONDS
+started=$SECONDS
+beat=$SECONDS
 while kill -0 "$pid" 2>/dev/null; do
   sleep "$poll"
   pump && last=$SECONDS
+  if (( heartbeat > 0 && SECONDS - beat >= heartbeat )); then
+    beat=$SECONDS
+    echo "ios: still running $name: $((SECONDS - started))s, $(awk -v b="$sent" 'BEGIN { printf (b >= 1048576 ? "%.1f MB" : "%d KB"), (b >= 1048576 ? b / 1048576 : b / 1024) }') of output, last output $((SECONDS - last))s ago" >&2
+  fi
   kill -0 "$pid" 2>/dev/null || break
   # The final line's deadline holds even while output continues.
   if [[ -n "$final" ]] && (( SECONDS - final_at >= grace )); then
