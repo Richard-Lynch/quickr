@@ -25,6 +25,7 @@ final class MPWorld: @unchecked Sendable {
     let partitions: StorePartitions
     let http: TransportHTTPServer
     private let children = Mutex<[HelperProcess]>([])
+    private let gates = Mutex<[Gate]>([])
 
     var root: URL { dir.url }
     var baseURL: URL { http.baseURL }
@@ -56,11 +57,20 @@ final class MPWorld: @unchecked Sendable {
         return child
     }
 
+    /// A gate that `shutdown` opens, so a failed test never leaves a request, a server handler or
+    /// an `arrived()` waiter blocked on it.
+    func gate() -> Gate {
+        let gate = Gate()
+        gates.withLock { $0.append(gate) }
+        return gate
+    }
+
     func shutdown() async {
         for child in children.withLock({ $0 }) where child.isRunning {
             child.resume()
             await child.killNow()
         }
+        for gate in gates.withLock({ $0 }) { gate.open() }
         http.stop()
         dir.cleanup()
     }

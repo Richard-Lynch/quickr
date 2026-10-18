@@ -14,11 +14,13 @@ public final class TransportHTTPServer: Sendable {
     private let listener: NWListener
     private let queue: DispatchQueue
     private let connections = Mutex<[ObjectIdentifier: NWConnection]>([:])
+    /// Handler tasks still running (a request held at a gate), cancelled by `stop()`.
+    private let handlers = Mutex<[UUID: Task<Void, Never>]>([:])
     public let port: UInt16
 
     public var baseURL: URL { URL(string: "http://127.0.0.1:\(port)")! }
 
-    public init(serving transport: any Transport) async throws {
+    public init(serving transport: any Transport, startupTimeout: Duration = .seconds(10)) async throws {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
         parameters.allowLocalEndpointReuse = true
@@ -26,21 +28,31 @@ public final class TransportHTTPServer: Sendable {
         let queue = DispatchQueue(label: "TransportHTTPServer")
         self.listener = listener
         self.queue = queue
-        port = try await withCheckedThrowingContinuation { continuation in
-            let resumed = Mutex(false)
-            listener.stateUpdateHandler = { state in
-                let first = resumed.withLock { done in
-                    defer { done = true }
-                    return !done
+        let startup = Startup()
+        let timer = Task {
+            try await Task.sleep(for: startupTimeout)
+            startup.finish(
+                .failure(HelperError(description: "TransportHTTPServer: not ready within \(startupTimeout)")))
+        }
+        defer { timer.cancel() }
+        do {
+            port = try await withCheckedThrowingContinuation { continuation in
+                startup.register(continuation)
+                // Only a terminal state finishes startup; `.waiting` and `.setup` keep waiting.
+                listener.stateUpdateHandler = { state in
+                    switch state {
+                    case .ready: startup.finish(.success(listener.port?.rawValue ?? 0))
+                    case .failed(let error): startup.finish(.failure(error))
+                    case .cancelled: startup.finish(.failure(HelperError(description: "listener cancelled")))
+                    default: break
+                    }
                 }
-                switch state {
-                case .ready where first: continuation.resume(returning: listener.port?.rawValue ?? 0)
-                case .failed(let error) where first: continuation.resume(throwing: error)
-                default: break
-                }
+                listener.newConnectionHandler = { $0.cancel() }
+                listener.start(queue: queue)
             }
-            listener.newConnectionHandler = { $0.cancel() }
-            listener.start(queue: queue)
+        } catch {
+            listener.cancel()
+            throw error
         }
         listener.newConnectionHandler = { [weak self] connection in
             guard let self else { return connection.cancel() }
@@ -55,6 +67,7 @@ public final class TransportHTTPServer: Sendable {
     public func stop() {
         listener.cancel()
         for connection in connections.withLock({ Array($0.values) }) { connection.cancel() }
+        for handler in handlers.withLock({ Array($0.values) }) { handler.cancel() }
     }
 
     private func receive(_ connection: NWConnection, buffer: Data, transport: any Transport) {
@@ -63,14 +76,17 @@ public final class TransportHTTPServer: Sendable {
             var buffer = buffer
             if let data { buffer.append(data) }
             if let request = Self.parse(buffer, base: self.baseURL) {
-                Task {
+                let id = UUID()
+                let handler = Task {
                     do {
                         let response = try await transport.send(request)
                         self.respond(response, on: connection)
                     } catch {
                         self.close(connection)
                     }
+                    _ = self.handlers.withLock { $0.removeValue(forKey: id) }
                 }
+                self.handlers.withLock { $0[id] = handler }
             } else if complete || error != nil {
                 self.close(connection)
             } else {
@@ -115,5 +131,32 @@ public final class TransportHTTPServer: Sendable {
         return HTTPRequest(
             method: method, url: url, headers: headers, body: length > 0 ? Data(body.prefix(length)) : nil,
             timeout: .seconds(30))
+    }
+}
+
+/// The listener's first terminal state, or the startup timeout, whichever comes first.
+private final class Startup: Sendable {
+    private let state = Mutex<
+        (continuation: CheckedContinuation<UInt16, any Error>?, result: Result<UInt16, any Error>?)
+    >(
+        (nil, nil))
+
+    func register(_ continuation: CheckedContinuation<UInt16, any Error>) {
+        let result = state.withLock { state -> Result<UInt16, any Error>? in
+            if let result = state.result { return result }
+            state.continuation = continuation
+            return nil
+        }
+        if let result { continuation.resume(with: result) }
+    }
+
+    func finish(_ result: Result<UInt16, any Error>) {
+        let continuation = state.withLock { state -> CheckedContinuation<UInt16, any Error>? in
+            guard state.result == nil else { return nil }
+            state.result = result
+            defer { state.continuation = nil }
+            return state.continuation
+        }
+        continuation?.resume(with: result)
     }
 }

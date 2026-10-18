@@ -173,7 +173,15 @@ actor Agent {
         case "registerCategories":
             return try await registerCategories(
                 prefix: try required(args["prefix"]), count: Int(args["count"] ?? "1") ?? 1,
-                log: URL(fileURLWithPath: try required(args["log"])))
+                log: URL(fileURLWithPath: try required(args["log"])),
+                participants: Int(args["participants"] ?? "1") ?? 1)
+
+        // MARK: Test of the harness
+
+        case "hang":
+            // Never replies (until the process dies): a child that is stuck.
+            try await Task.sleep(for: .seconds(86_400))
+            return [:]
 
         default:
             throw HelperError(description: "unknown command \(command.name)")
@@ -253,24 +261,50 @@ actor Agent {
     /// §5.2: one registry `IMMEDIATE` transaction per call inserts the new rows, reads the whole
     /// table and "registers" it. The registration is an `O_APPEND` line in `log`, written inside
     /// the transaction, so the log's line order is the transactions' commit order.
-    private func registerCategories(prefix: String, count: Int, log: URL) async throws -> [String: String] {
-        let owner = owner
+    ///
+    /// `participants` processes run in lockstep: registration `k` starts only once the log holds
+    /// `participants × k` lines (every process finished round `k − 1`), so the processes overlap
+    /// in every round. After its `count` rows, each process registers once more without inserting
+    /// (when every process is done): its final registration must carry the whole table.
+    private func registerCategories(prefix: String, count: Int, log: URL, participants: Int) async throws
+        -> [String: String]
+    {
         for index in 0..<count {
-            try await partitions.registry.writer.writeWithoutTransaction { db in
-                try db.inTransaction(.immediate) {
+            try await waitForLines(participants * index, in: log)
+            try await register(row: "\(prefix)-\(index)", topic: prefix, log: log)
+        }
+        try await waitForLines(participants * count, in: log)
+        try await register(row: nil, topic: prefix, log: log)
+        return ["registered": String(count + 1)]
+    }
+
+    private func register(row: String?, topic: String, log: URL) async throws {
+        let owner = owner
+        try await partitions.registry.writer.writeWithoutTransaction { db in
+            try db.inTransaction(.immediate) {
+                if let row {
                     try db.execute(
                         sql: """
                             INSERT OR IGNORE INTO notification_category (id, server_id, topic_id, actions_json, created_at)
                             VALUES (?, 'server-1', ?, '[]', 0)
                             """,
-                        arguments: ["\(prefix)-\(index)", prefix])
-                    let ids = try String.fetchAll(db, sql: "SELECT id FROM notification_category ORDER BY id")
-                    try Self.append("\(owner)|\(prefix)-\(index)|\(ids.joined(separator: ","))\n", to: log)
-                    return .commit
+                        arguments: [row, topic])
                 }
+                let ids = try String.fetchAll(db, sql: "SELECT id FROM notification_category ORDER BY id")
+                try Self.append("\(owner)|\(row ?? "final")|\(ids.joined(separator: ","))\n", to: log)
+                return .commit
             }
         }
-        return ["registered": String(count)]
+    }
+
+    /// Polls the log until it has `count` lines (a cross-process barrier on durable state).
+    private func waitForLines(_ count: Int, in log: URL) async throws {
+        guard count > 0 else { return }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(60))
+        while ((try? String(contentsOf: log, encoding: .utf8))?.split(separator: "\n").count ?? 0) < count {
+            guard ContinuousClock.now < deadline else { throw HelperError(description: "lockstep: no \(count) lines") }
+            try await Task.sleep(for: .milliseconds(1))
+        }
     }
 
     private static func append(_ line: String, to url: URL) throws {

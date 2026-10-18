@@ -19,7 +19,7 @@ extension MultiProcessTests {
                 let a = try await w.world.spawn("app:A")
                 let b = try await w.world.spawn("widget:B", open: "extension")
                 let id = try await w.log(a)
-                let gate = Gate()
+                let gate = w.world.gate()
                 w.server.inject(.post, .delay(gate))
                 let flushA = try a.start("flush", ["budgetMs": "120000"])
                 try await gate.arrived()
@@ -29,6 +29,7 @@ extension MultiProcessTests {
                 let reportB = try await b.run("flush")
                 #expect(reportB["acked"] == "1" && w.items.isEmpty && w.server.entry(id) != nil)
                 #expect(w.item(id) == nil)
+                #expect(w.server.requests.count == 2)  // A's POST (held) and B's resend
                 let before = try w.snapshot()
 
                 a.resume()
@@ -37,6 +38,7 @@ extension MultiProcessTests {
                 #expect(reportA.result["ending"] == "superseded" && reportA.result["acked"] == "0")
                 #expect(try w.snapshot() == before)
                 #expect(w.server.count(.post) == 2 && w.server.with { $0.entries.count } == 1)
+                #expect(w.server.requests.count == 2)  // nothing after the supersession
                 #expect(try await w.store.leases.record(.flush).owner == nil)
             }
         }
@@ -49,8 +51,8 @@ extension MultiProcessTests {
                 let a = try await w.world.spawn("app:A")
                 let b = try await w.world.spawn("widget:B", open: "extension")
                 let id = try await w.log(a)
-                let gateA = Gate()
-                let gateB = Gate()
+                let gateA = w.world.gate()
+                let gateB = w.world.gate()
                 w.server.inject(
                     .post, .delay(gateA, override: header(FakeServer.problem(422, "invalid_answers", "late"))))
                 w.server.inject(.post, .delay(gateB))
@@ -60,6 +62,7 @@ extension MultiProcessTests {
                 try w.world.leaseClock.advance(by: .seconds(31))
                 let flushB = try b.start("flush", ["budgetMs": "120000"])
                 try await gateB.arrived()  // B recovered the item and has it in flight
+                #expect(w.server.requests.count == 2)
                 let before = try w.snapshot()
 
                 a.resume()
@@ -70,6 +73,7 @@ extension MultiProcessTests {
                 gateB.open()
                 #expect(try await b.reply(flushB).result["acked"] == "1")
                 #expect(w.item(id) == nil && w.server.entry(id) != nil)
+                #expect(w.server.requests.count == 2)  // A sent nothing after its late 422
             }
         }
 
@@ -79,7 +83,7 @@ extension MultiProcessTests {
                 let a = try await w.world.spawn("app:A")
                 let b = try await w.world.spawn("widget:B", open: "extension")
                 let id = try await w.log(a)
-                let gate = Gate()
+                let gate = w.world.gate()
                 w.server.inject(.post, .delay(gate))
                 _ = try a.start("flush", ["budgetMs": "120000"])
                 try await gate.arrived()
@@ -92,7 +96,7 @@ extension MultiProcessTests {
                 try w.world.leaseClock.advance(by: .seconds(1))
                 let report = try await b.run("flush")
                 #expect(report["acked"] == "1" && w.item(id) == nil && w.server.entry(id) != nil)
-                #expect(w.server.count(.post) == 2)
+                #expect(w.server.count(.post) == 2 && w.server.requests.count == 2)
                 gate.open()  // the dead process's request finally lands: a replay of the same id
                 #expect(w.server.with { $0.entries.count } == 1)
             }
@@ -104,7 +108,7 @@ extension MultiProcessTests {
                 let a = try await w.world.spawn("app:A")
                 let b = try await w.world.spawn("widget:B", open: "extension")
                 let id = try await w.log(a)
-                let gate = Gate()
+                let gate = w.world.gate()
                 w.server.inject(.post, .delay(gate))
                 let flushA = try a.start("flush")
                 try await gate.arrived()
@@ -117,6 +121,11 @@ extension MultiProcessTests {
                 gate.open()
                 #expect(try await a.reply(flushA).result["acked"] == "2")
                 #expect(w.server.entry(id)?.notes == "n" && w.items.isEmpty)
+                #expect(
+                    w.server.calls == [
+                        "POST /api/v1/topics/\(w.topic.id.wireString)/entries",
+                        "PATCH /api/v1/entries/\(id.wireString)",
+                    ])
             }
         }
 
@@ -149,7 +158,7 @@ extension MultiProcessTests {
                 let entry = try w.seedEntry(revision: 3)
                 let ids = ["id": entry.id.wireString, "topicId": w.topic.id.wireString]
                 try await a.run("update", ids.merging(["notes": "u1"]) { $1 })
-                let gate = Gate()
+                let gate = w.world.gate()
                 w.server.inject(.patch, .delay(gate))
                 let flushA = try a.start("flush", ["budgetMs": "120000"])
                 try await gate.arrived()  // A's PATCH (expected 3) is held in the network
@@ -159,6 +168,7 @@ extension MultiProcessTests {
 
                 let reportB = try await b.run("flush")
                 #expect(reportB["acked"] == "2" && w.server.entry(entry.id)?.revision == 5)
+                #expect(w.server.requests.count == 3)  // A's held PATCH, B's two
                 let before = try w.snapshot()
 
                 a.resume()
@@ -166,7 +176,7 @@ extension MultiProcessTests {
                 let reportA = try await a.reply(flushA)
                 #expect(reportA.result["ending"] == "superseded")
                 #expect(w.server.handled.contains("PATCH /api/v1/entries/\(entry.id.wireString) → 409"))
-                #expect(w.server.count(.patch) == 3 && w.server.count(.get) == 0)
+                #expect(w.server.count(.patch) == 3 && w.server.count(.get) == 0 && w.server.requests.count == 3)
                 #expect(!w.server.requests.contains { $0.method == .patch && $0.expectedRevision == 5 })
                 #expect(w.server.entry(entry.id)?.revision == 5 && w.server.entry(entry.id)?.notes == "u2")
                 #expect(try w.snapshot() == before)
@@ -181,7 +191,7 @@ extension MultiProcessTests {
                 let entry = try w.seedEntry(revision: 3)
                 try await a.run("update", ["id": entry.id.wireString, "topicId": w.topic.id.wireString, "mood": "1"])
                 w.server.edit(entry.id)  // revision 4 elsewhere
-                let gate = Gate()
+                let gate = w.world.gate()
                 w.server.inject(.get, .delay(gate))
                 let flushA = try a.start("flush", ["budgetMs": "120000"])
                 try await gate.arrived()  // A got 409, and its GET is held: it is between refetch and rebase
@@ -190,6 +200,7 @@ extension MultiProcessTests {
 
                 let reportB = try await b.run("flush")
                 #expect(reportB["acked"] == "1" && w.server.entry(entry.id)?.revision == 5 && w.items.isEmpty)
+                let requests = w.server.calls
                 let before = try w.snapshot()
 
                 a.resume()
@@ -197,6 +208,7 @@ extension MultiProcessTests {
                 #expect(try await a.reply(flushA).result["ending"] == "superseded")
                 #expect(try w.snapshot() == before)
                 #expect(w.server.count(.patch) == 3)
+                #expect(w.server.calls == requests)  // A's step 3 sent nothing
             }
         }
 
@@ -245,7 +257,7 @@ extension MultiProcessTests {
                 let app = try await w.world.spawn("app:A")
                 let widget = try await w.world.spawn("widget:B", open: "extension")
                 let first = try await w.log(app)
-                let gate = Gate()
+                let gate = w.world.gate()
                 w.server.inject(.post, .delay(gate))
                 let flushApp = try app.start("flush")
                 try await gate.arrived()
@@ -258,6 +270,7 @@ extension MultiProcessTests {
                 gate.open()
                 #expect(try await app.reply(flushApp).result["acked"] == "2")
                 #expect(w.server.entry(first) != nil && w.server.entry(logged) != nil && w.items.isEmpty)
+                #expect(w.server.requests.map(\.method) == [.post, .post])  // the widget sent nothing
             }
         }
 
@@ -267,7 +280,7 @@ extension MultiProcessTests {
                 let a = try await w.world.spawn("app:A")
                 let b = try await w.world.spawn("widget:B", open: "extension")
                 let id = try await w.log(a)
-                let gate = Gate()
+                let gate = w.world.gate()
                 w.server.inject(.post, .delay(gate))
                 _ = try a.start("flush", ["budgetMs": "120000"])
                 try await gate.arrived()
@@ -278,6 +291,7 @@ extension MultiProcessTests {
                 try w.world.leaseClock.advance(by: .seconds(1))
                 #expect(try await b.run("flush")["acked"] == "1")
                 #expect(w.item(id) == nil && w.server.entry(id) != nil)
+                #expect(w.server.requests.count == 2)  // A's (held, dead) and B's
                 gate.open()
             }
         }
@@ -288,7 +302,7 @@ extension MultiProcessTests {
                 let a = try await w.world.spawn("app:A")
                 let b = try await w.world.spawn("widget:B", open: "extension")
                 let id = try await w.log(a)
-                let gate = Gate()
+                let gate = w.world.gate()
                 w.server.inject(.post, .delay(gate))
                 let flushA = try a.start("flush", ["budgetMs": "120000"])
                 try await gate.arrived()
@@ -299,6 +313,7 @@ extension MultiProcessTests {
                 gate.open()
                 #expect(try await a.reply(flushA).result["acked"] == "1")
                 #expect(w.item(id) == nil && w.server.entry(id) != nil)
+                #expect(w.server.requests.count == 1)  // B, refused, sent nothing
             }
         }
 
@@ -323,6 +338,7 @@ extension MultiProcessTests {
                 #expect(report["ending"] == "drained")
                 #expect(w.items.isEmpty)
                 #expect(w.server.entry(id) != nil && w.server.entry(entry.id) == nil)
+                #expect(w.server.requests.map(\.method) == [.post, .post, .delete])
                 _ = a
             }
         }

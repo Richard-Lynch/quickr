@@ -14,6 +14,9 @@ public final class HelperProcess: @unchecked Sendable {
         var replies: [Int: HelperReply] = [:]
         var exited = false
         var stderr = Data()
+        /// Ids whose wait was cancelled or timed out before it registered: a late registration
+        /// fails at once instead of waiting forever.
+        var abandoned: [Int: any Error] = [:]
     }
 
     public let name: String
@@ -105,29 +108,31 @@ public final class HelperProcess: @unchecked Sendable {
         return id
     }
 
-    /// Waits for the reply to command `id`.
+    /// Waits for the reply to command `id`. Bounded: after `timeout`, or when the calling task is
+    /// cancelled, the waiter is removed and resumed with an error, whether it registered yet or
+    /// not, so a hung or SIGSTOPped child can never block the test (or its teardown).
     public func reply(_ id: Int, timeout: Duration = .seconds(30)) async throws -> HelperReply {
         let name = self.name
         let box = box
-        return try await withThrowingTaskGroup(of: HelperReply.self) { group in
-            group.addTask {
-                try await withCheckedThrowingContinuation { continuation in
-                    let action: Result<HelperReply, any Error>? = box.state.withLock { state in
-                        if let reply = state.replies.removeValue(forKey: id) { return .success(reply) }
-                        if state.exited { return .failure(HelperError(description: "\(name) exited")) }
-                        state.waiters[id] = continuation
-                        return nil
-                    }
-                    if let action { continuation.resume(with: action) }
+        let timer = Task {
+            try await Task.sleep(for: timeout)
+            box.abandon(
+                id, HelperError(description: "\(name): no reply to #\(id) within \(timeout); stderr: \(box.stderr)"))
+        }
+        defer { timer.cancel() }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let action: Result<HelperReply, any Error>? = box.state.withLock { state in
+                    if let reply = state.replies.removeValue(forKey: id) { return .success(reply) }
+                    if let error = state.abandoned.removeValue(forKey: id) { return .failure(error) }
+                    if state.exited { return .failure(HelperError(description: "\(name) exited")) }
+                    state.waiters[id] = continuation
+                    return nil
                 }
+                if let action { continuation.resume(with: action) }
             }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw HelperError(description: "\(name): no reply to #\(id) within \(timeout); stderr: \(box.stderr)")
-            }
-            let reply = try await group.next()!
-            group.cancelAll()
-            return reply
+        } onCancel: {
+            box.abandon(id, CancellationError())
         }
     }
 
@@ -189,6 +194,17 @@ public final class HelperProcess: @unchecked Sendable {
 
 private final class StateBox: Sendable {
     let state = Mutex(HelperProcess.State())
+
+    /// Resumes the waiter for `id` with `error`, or, if it hasn't registered yet, records the
+    /// error for it to find. A reply that already arrived wins.
+    func abandon(_ id: Int, _ error: any Error) {
+        let waiter = state.withLock { state -> CheckedContinuation<HelperReply, any Error>? in
+            if let waiter = state.waiters.removeValue(forKey: id) { return waiter }
+            if state.replies[id] == nil { state.abandoned[id] = error }
+            return nil
+        }
+        waiter?.resume(throwing: error)
+    }
 
     var stderr: String { String(decoding: state.withLock { $0.stderr }, as: UTF8.self) }
 }

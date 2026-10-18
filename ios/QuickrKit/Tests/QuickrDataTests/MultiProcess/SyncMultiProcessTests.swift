@@ -23,10 +23,11 @@ extension MultiProcessTests {
         func s3() async throws {
             try await SyncWorld.run { w in
                 let store = try await w.connect()
+                let start = w.afters.count
                 let a = try await w.world.spawn("app:A")
                 let b = try await w.world.spawn("app:B")
                 w.feed.addEntry()
-                let gate = Gate()
+                let gate = w.world.gate()
                 w.router.holdFeed(where: { $0 == 16 }, at: gate)
                 let syncA = try a.start("sync")
                 try await gate.arrived()  // A has its page (built now), the answer is held
@@ -37,12 +38,15 @@ extension MultiProcessTests {
                 #expect(try await b.run("sync")["result"] == "synced")
                 let rebuilt = try await store.mpState()
                 #expect(rebuilt.layerGen == 2 && rebuilt.epoch == Self.e2)
+                // A's page; B's live page (epoch mismatch), staged page, live page after the swap.
+                #expect(Array(w.afters.dropFirst(start)) == [16, 16, 0, 17])
                 let before = try await store.fingerprint()
 
                 a.resume()
                 gate.open()
                 #expect(try await a.reply(syncA).result["result"] == "superseded")
                 #expect(try await store.fingerprint() == before)
+                #expect(Array(w.afters.dropFirst(start)) == [16, 16, 0, 17])  // A sent nothing more
             }
         }
 
@@ -59,7 +63,7 @@ extension MultiProcessTests {
                 for minute in 0..<30 { w.feed.addEntry(minutes: minute) }
                 let head = w.feed.head
                 let a = try await w.world.spawn("app:A", pageLimit: 5)
-                let gate = Gate()
+                let gate = w.world.gate()
                 w.router.holdFeed(where: { $0 > 20 && $0 != 16 }, at: gate)
                 _ = try a.start("sync")
                 try await gate.arrived()  // A is mid-staging, holding `sync`
@@ -102,8 +106,10 @@ extension MultiProcessTests {
                 let nse = try await w.world.spawn("nse:N", open: "extension")
                 let app = try await w.world.spawn("app:A")
                 #expect(try await app.run("resetWarning")["count"] == "0")
+                let start = w.afters.count
                 let outcome = try await app.run("performReset")["outcome"] ?? ""
                 #expect(outcome.hasPrefix("completed(storeGen: 2"))
+                #expect(Array(w.afters.dropFirst(start)) == [0])  // g2's bootstrap
                 #expect(try await widget.run("isRetired")["retired"] == "true")
                 #expect(try await nse.run("isRetired")["retired"] == "true")
 
@@ -170,11 +176,13 @@ extension MultiProcessTests {
                 #expect(try await old.run("leaseAcquire", ["name": "sync"])["acquired"] == "true")
                 await old.killNow()
                 let app = try await w.world.spawn("app:A")
+                let start = w.afters.count
                 #expect(try await app.run("sync")["result"] == "busy")
                 try w.world.leaseClock.reboot(bootId: "boot-2", ct: 5)
                 w.feed.addEntry()
                 #expect(try await app.run("sync")["result"] == "synced")
                 #expect(try await store.mpState().cursor == 17)
+                #expect(Array(w.afters.dropFirst(start)) == [16])  // busy sent nothing
             }
         }
 
@@ -184,10 +192,11 @@ extension MultiProcessTests {
         func s13() async throws {
             try await SyncWorld.run { w in
                 let g1 = try await w.connect()
+                let start = w.afters.count
                 let a = try await w.world.spawn("app:A")
                 let b = try await w.world.spawn("app:B")
                 w.rotateEpoch(to: Self.e2)
-                let gate = Gate()
+                let gate = w.world.gate()
                 w.router.holdFeed(where: { $0 == 0 }, at: gate)  // A's first staged page
                 let rebuild = try a.start("sync")
                 try await gate.arrived()
@@ -207,6 +216,8 @@ extension MultiProcessTests {
                 #expect(try await g1.isRetired())
                 let server = try await w.world.server(Self.serverId)
                 #expect(server.storeGen == 2 && server.pendingGen == nil)
+                // A: live (mismatch), staged, live after its swap; then B bootstraps g2.
+                #expect(Array(w.afters.dropFirst(start)) == [16, 0, 16, 0])
                 let g2 = try await w.world.activeStore()
                 let g2State = try await g2.mpState()
                 #expect(g2State.epoch == Self.e2 && g2State.bootstrapComplete)
@@ -222,6 +233,7 @@ extension MultiProcessTests {
         func s16() async throws {
             try await SyncWorld.run { w in
                 let store = try await w.connect()
+                let start = w.afters.count
                 let water = try #require(try await store.topics.topic(id: UUID(uuidString: FakeFeedServer.water)!))
                 w.api.put(water.topic)
                 let app = try await w.world.spawn("app:A")
@@ -230,7 +242,7 @@ extension MultiProcessTests {
                 let id = UUID()
                 try await widget.run("log", Self.water.merging(["id": id.wireString]) { $1 })
                 w.rotateEpoch(to: Self.e2)
-                let gate = Gate()
+                let gate = w.world.gate()
                 w.router.holdFeed(where: { $0 == 16 }, at: gate)  // the coordinator's live page
 
                 let report = try await widget.run("flush")
@@ -249,6 +261,9 @@ extension MultiProcessTests {
                     return state.layerGen == 2 && !state.epochSuspect
                 }
                 #expect(try await widget.run("flush")["acked"] == "1")
+                // The coordinator: live (held, then mismatch), staged, live after the swap.
+                #expect(Array(w.afters.dropFirst(start)) == [16, 0, 16])
+                #expect(w.api.requests.count == 2)
                 let posts = w.api.requests.filter { $0.method == .post }
                 #expect(posts.count == 2)
                 #expect(posts.first?.headers[QuickrHeader.expectEpoch] == FakeFeedServer.fixtureEpoch)
@@ -273,8 +288,10 @@ extension MultiProcessTests {
                 #expect(try await w.world.server(Self.serverId).storeGen == 1)
 
                 let relaunched = try await w.world.spawn("app:B", open: nil)
+                let start = w.afters.count
                 let result = try await relaunched.run("bootstrap")
                 #expect(result["result"] == "synced")
+                #expect(Array(w.afters.dropFirst(start)) == [0])  // g2's bootstrap, once
                 #expect(result["resumedReset"]?.hasPrefix("completed(storeGen: 2") == true)
                 #expect(try await g1.isRetired())
                 let server = try await w.world.server(Self.serverId)
@@ -311,7 +328,9 @@ extension MultiProcessTests {
                 #expect(try await !g2.mpState().bootstrapComplete)
 
                 let relaunched = try await w.world.spawn("app:B", open: nil)
+                let start = w.afters.count
                 #expect(try await relaunched.run("bootstrap")["result"] == "synced")
+                #expect(Array(w.afters.dropFirst(start)) == [0])  // g2's bootstrap, once
                 let state = try await g2.mpState()
                 #expect(state.bootstrapComplete && state.cursor == 16)
                 #expect(try await g2.item(id.wireString)?.state == .pending)
@@ -334,6 +353,7 @@ extension MultiProcessTests {
                     try await app.run("log", Self.water.merging(["id": UUID().wireString]) { $1 })
                 }
                 #expect(try await app.run("resetWarning")["count"] == "2")
+                let start = w.afters.count
                 try await widget.run("log", Self.water.merging(["id": UUID().wireString]) { $1 })
                 let outcome = try await app.run("performReset")["outcome"] ?? ""
                 #expect(outcome.hasPrefix("writesArrived") && outcome.contains("count: 3"))
@@ -341,13 +361,15 @@ extension MultiProcessTests {
                 let server = try await w.world.server(Self.serverId)
                 #expect(server.storeGen == 1 && server.pendingGen == nil)
                 #expect(try await g1.outbox.summary().count == 3)
+                #expect(w.afters.count == start && w.api.requests.isEmpty)  // an aborted reset pulls nothing
             }
         }
 
-        /// N4: two processes insert and register categories at the same time, 100 times each. Each
-        /// registration (one registry `IMMEDIATE` transaction: insert, read all, register) saw
-        /// exactly the union of everything inserted before it, in commit order; the table holds the
-        /// union, and the last registration overall received all of it.
+        /// N4: two processes insert and register categories at the same time, 100 times each, in
+        /// lockstep (both register in every round, in whichever order the registry lock grants).
+        /// Each registration (one registry `IMMEDIATE` transaction: insert, read all, register) saw
+        /// exactly the union of everything committed before it; the table holds the union; and the
+        /// final registration in each process carries the whole durable table.
         @Test("N4 · MP: concurrent category registration always registers the union")
         func n4() async throws {
             try await SyncWorld.run { w in
@@ -355,26 +377,33 @@ extension MultiProcessTests {
                 let app = try await w.world.spawn("app:A", open: nil)
                 let nse = try await w.world.spawn("nse:N", open: nil)
                 let log = w.world.root.appending(path: "registrations.log")
-                let first = try app.start("registerCategories", ["prefix": "a", "count": "100", "log": log.path])
-                let second = try nse.start("registerCategories", ["prefix": "b", "count": "100", "log": log.path])
-                #expect(try await app.reply(first, timeout: .seconds(60)).ok)
-                #expect(try await nse.reply(second, timeout: .seconds(60)).ok)
+                let args = ["count": "100", "log": log.path, "participants": "2"]
+                let first = try app.start("registerCategories", args.merging(["prefix": "a"]) { $1 })
+                let second = try nse.start("registerCategories", args.merging(["prefix": "b"]) { $1 })
+                #expect(try await app.reply(first, timeout: .seconds(90)).ok)
+                #expect(try await nse.reply(second, timeout: .seconds(90)).ok)
 
-                let lines = try String(contentsOf: log, encoding: .utf8).split(separator: "\n")
-                #expect(lines.count == 200)
-                var inserted: Set<String> = []
-                var owners: Set<String> = []
-                for line in lines {
-                    let parts = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
-                    try #require(parts.count == 3)
-                    owners.insert(parts[0])
-                    inserted.insert(parts[1])
-                    #expect(Set(parts[2].split(separator: ",").map(String.init)) == inserted, "\(line)")
+                let lines = try String(contentsOf: log, encoding: .utf8).split(separator: "\n").map {
+                    $0.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
                 }
-                #expect(owners == ["app:A", "nse:N"])
-                #expect(inserted.count == 200)
-                let table = try await w.world.partitions.registry.repository.notificationCategories()
-                #expect(Set(table.map(\.id)) == inserted)
+                try #require(lines.count == 202 && lines.allSatisfy { $0.count == 3 })
+                let table = Set(try await w.world.partitions.registry.repository.notificationCategories().map(\.id))
+                #expect(table.count == 200)
+                var inserted: Set<String> = []
+                for (index, line) in lines.enumerated() {
+                    if line[1] != "final" { inserted.insert(line[1]) }
+                    #expect(Set(line[2].split(separator: ",").map(String.init)) == inserted, "line \(index)")
+                }
+                // Overlap: every round has one registration from each process.
+                for round in 0..<100 {
+                    #expect(
+                        Set([lines[2 * round][0], lines[2 * round + 1][0]]) == ["app:A", "nse:N"], "round \(round)")
+                }
+                // The last registration in each process received the final union.
+                let finals = lines.suffix(2)
+                #expect(Set(finals.map { $0[0] }) == ["app:A", "nse:N"] && finals.allSatisfy { $0[1] == "final" })
+                for final in finals { #expect(Set(final[2].split(separator: ",").map(String.init)) == table) }
+                #expect(inserted == table)
             }
         }
     }
