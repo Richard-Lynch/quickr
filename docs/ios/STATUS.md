@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- M1 review backlog: one pool per (server, gen) per process (StorePartitions.swift:221 opens a new pool on every open); write façade (enqueue plus requestFlush); dead StoreLink probes and empty service protocols removed by WIRE; widget intents on placeholder topics until M4; coalesce per-call Tasks in `handle(_:)`/`requestFlush` bursts. All are folded into WIRE where they apply.
 - STORE test: `LeaseTimeSamplingTests` sleeps 50 ms assuming a writer is already waiting; under load it passes but proves less. Replace the sleep with a barrier (found by FLAKE).
 - **Milestone checklist item (from SKEL):** before every milestone PR that touches intents or widgets, run `ios/scripts/widget-proof.sh` on an iOS 26.0 clone first, then on 27; and run the Intents plan locally on 27 via check-ios. CI (iOS 26.x, Unit plan) only covers the `IntentMetadataTests` guard. Add the same requirement to the WIDGETS and INTENTS done-criteria.
 - App composition root (SKEL follow-up / M2 SYNC-UX): wire `Outbox(onSignal: coordinator.handle)` and `OutboxFlushBridge.bind(scheduler)` on every store open, reset and server switch (nil when there's no store), per INT.
@@ -288,6 +289,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-18 03:25: Claude M1 milestone review = MERGE AFTER FIXES. Must-fix: SPIKE merged; gate logs captured and committed; the `OutboxRepository.enqueue` public contract (doc claims coalescing, the impl bypasses C0/K1–K5) → M1-FIXES (ex-INT agent), plus an offline→flush integration case. A new **WIRE** composition-root package is added to the DAG as the first M2 item. Codex milestone review still running.
 
 - 2026-10-18 03:15: FLAKE merged (065aa9f; 5/5 serial green under load 270–390). Gate on the merge green (374 data + 83 + 29; lint). SPIKE Codex = REQUEST CHANGES (4 P2: debug gating, version-validation nil==nil, spike-proof gen, assert background state; 1 P3 doc scope); fixing.
 
