@@ -291,6 +291,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-18 10:30: CI-HANG merged (bf1d773: the blocked writer runs on its own queue; real barrier replaces the 50 ms sleep; .timeLimit on all suites; STRICT pool in swift-test.sh; CI Build + Unit 15 min with a 5-min silence watchdog; the host `swift test` job now runs on PRs). Gate green on the merge. Pushing to PR #9 for one CI run.
+
 - 2026-10-18 10:10: Streaming fix merged into ios/m1-data (d7e7ddb; Codex major fixed: process-group signal forwarding; exit 128+N). CI-HANG root cause: `LeaseTimeSamplingTests` parked cooperative threads on DispatchSemaphore inside sync GRDB writes, so 4 parallel tests starved a 3-thread pool. Production is clean. Fix fba4e2e is being verified. WIRE r2: read-only opens and cleanup ordering resolved; still open: a stale episode resumes background₂'s pause, reentrant bind publishes before the prior retirement, lifecycle tests aren't process-isolated, plus a coordinator pause for the residual. c978616 (-shm guard) is done. Not pushed to PR #9 until CI-HANG is verified, to save CI minutes.
 
 - 2026-10-18 09:50: Network outage ~08:00–09:50 (API ENOTFOUND) failed CI-HANG's and the streaming WP's turns; all agents resumed at 09:50. Streaming committed b8d0b20; WIRE merged m1-data (10c2a28), report pending; CI-HANG has a 47-file WIP (checkpoint requested).
