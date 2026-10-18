@@ -6,7 +6,7 @@ import Synchronization
 import Testing
 
 /// Lease primitives (sync-protocol.md §5.3, outbox.md §6) with the fake lease clock.
-@Suite struct LeaseTests {
+@Suite(.timeLimit(.minutes(2))) struct LeaseTests {
     @Test(arguments: LeaseName.allCases) func acquireRenewRelease(_ name: LeaseName) async throws {
         let s = try TestStore()
         let leases = s.store.leases
@@ -156,36 +156,59 @@ import Testing
     }
 }
 
-private func blockUntilSignalled(_ semaphore: DispatchSemaphore) { semaphore.wait() }
-
 /// Lease time is read inside the transaction, after `BEGIN IMMEDIATE` has the lock, never before
 /// a wait for another writer.
-@Suite struct LeaseTimeSamplingTests {
-    /// Runs `operation` while another writer holds the lock, then advances the lease clock past
-    /// every TTL before letting the queued transaction run.
+@Suite(.timeLimit(.minutes(2))) struct LeaseTimeSamplingTests {
+    /// Runs `operation` while a second connection to `s`'s file holds the write lock. Once the
+    /// operation's `BEGIN IMMEDIATE` is waiting for that lock (seen by a statement trace, not
+    /// guessed with a sleep), advances the lease clock past every TTL and lets it run.
+    ///
+    /// The blocking connection parks a thread of its own queue, never one of Swift concurrency's
+    /// cooperative pool. The pool is as wide as the CPU count, so on a 3-core CI runner these
+    /// tests' blocked writers once took every pool thread, and nothing was left to open their gates.
     private func behindABlockedWriter<T: Sendable>(
         _ s: TestStore, _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        let entered = DispatchSemaphore(value: 0)
+        let path = try #require(s.path, "needs a file-backed store, so a second connection can lock it")
+        let other = try DatabaseQueue(path: path, configuration: StoreDatabase.configuration(label: "blocker"))
         let gate = DispatchSemaphore(value: 0)
-        let writer = s.writer
-        let blocker = Task.detached {
-            try writer.write { _ in
-                entered.signal()
-                gate.wait()
+        let (locked, lock) = AsyncStream<Void>.makeStream()
+        let blocker = Task {
+            try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, any Error>) in
+                DispatchQueue(label: "LeaseTimeSamplingTests.blocker").async {
+                    done.resume(
+                        with: Result {
+                            try other.write { _ in  // BEGIN IMMEDIATE: holds the write lock until the gate opens
+                                lock.yield()
+                                gate.wait()
+                            }
+                        })
+                }
             }
         }
-        await Task.detached { blockUntilSignalled(entered) }.value
+        for await _ in locked { break }
+        let (waiting, wait) = AsyncStream<Void>.makeStream()
+        try await s.writer.writeWithoutTransaction { db in
+            // A statement is traced as it starts, before SQLite's busy handler waits for the lock.
+            db.trace { event in if "\(event)".hasPrefix("BEGIN IMMEDIATE") { wait.yield() } }
+        }
         let queued = Task { try await operation() }
-        try await Task.sleep(for: .milliseconds(50))  // the operation is now waiting for the lock
+        for await _ in waiting { break }
         s.clock.advance(by: .seconds(61))
         gate.signal()
         try await blocker.value
         return try await queued.value
     }
 
+    /// A store in a file of its own, so `behindABlockedWriter` can lock it from a second connection.
+    private func fileStore(_ directory: TempDirectory) -> String {
+        directory.url.appending(path: "store.sqlite").path
+    }
+
     @Test func renewalAfterExpiryFails() async throws {
-        let s = try TestStore()
+        let directory = try TempDirectory()
+        defer { directory.cleanup() }
+        let s = try TestStore(path: fileStore(directory))
         let leases = s.store.leases
         let claim = try #require(try await leases.tryAcquire(.flush, owner: "widget:1"))
         #expect(try await !behindABlockedWriter(s) { try await leases.renew(claim) })
@@ -193,7 +216,9 @@ private func blockUntilSignalled(_ semaphore: DispatchSemaphore) { semaphore.wai
     }
 
     @Test func ackAfterExpiryIsFenced() async throws {
-        let f = try await AtomicAckTests.Fixture()
+        let directory = try TempDirectory()
+        defer { directory.cleanup() }
+        let f = try await AtomicAckTests.Fixture(path: fileStore(directory))
         let store = f.s.store
         let (itemId, sender, effect) = (f.item.id, f.sender, AckEffect.entry(f.acked))
         let outcome = try await behindABlockedWriter(f.s) {
@@ -204,7 +229,9 @@ private func blockUntilSignalled(_ semaphore: DispatchSemaphore) { semaphore.wai
     }
 
     @Test func retireAfterExpiryIsFenced() async throws {
-        let s = try TestStore()
+        let directory = try TempDirectory()
+        defer { directory.cleanup() }
+        let s = try TestStore(path: fileStore(directory))
         let store = s.store
         let pair = try #require(try await store.leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(1)))
         let outcome = try await behindABlockedWriter(s) {
@@ -215,7 +242,9 @@ private func blockUntilSignalled(_ semaphore: DispatchSemaphore) { semaphore.wai
     }
 
     @Test func acquisitionSeesTheTimeAfterTheWait() async throws {
-        let s = try TestStore()
+        let directory = try TempDirectory()
+        defer { directory.cleanup() }
+        let s = try TestStore(path: fileStore(directory))
         let leases = s.store.leases
         _ = try #require(try await leases.tryAcquire(.sync, owner: "app:1"))
         // Sampled before the wait, the old lease would still look valid.
@@ -225,7 +254,7 @@ private func blockUntilSignalled(_ semaphore: DispatchSemaphore) { semaphore.wai
 }
 
 /// The single global lock order: `sync` → `flush` (sync-protocol.md §5.2).
-@Suite struct LockOrderTests {
+@Suite(.timeLimit(.minutes(2))) struct LockOrderTests {
     @Test func flushHoldersNeverWaitForSync() async throws {
         let s = try TestStore()
         let leases = s.store.leases

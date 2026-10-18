@@ -4,7 +4,7 @@ import Synchronization
 import Testing
 
 /// `URLSessionTransport` against a real loopback HTTP server.
-@Suite struct URLSessionTransportTests {
+@Suite(.timeLimit(.minutes(2))) struct URLSessionTransportTests {
     static func request(
         _ server: LoopbackServer, _ path: String = "/api/v1/health", method: HTTPMethod = .get,
         headers: HTTPHeaders = [:], body: Data? = nil, timeout: Duration = .seconds(5)

@@ -42,7 +42,7 @@ enum AnswerFixtures {
     }
 }
 
-@Suite struct AnswerValidatorTests {
+@Suite(.timeLimit(.minutes(2))) struct AnswerValidatorTests {
     typealias F = AnswerFixtures
 
     private func errors(

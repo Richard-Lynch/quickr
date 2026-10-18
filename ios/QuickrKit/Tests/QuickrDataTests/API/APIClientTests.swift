@@ -4,7 +4,7 @@ import QuickrData
 import QuickrTestSupport
 import Testing
 
-@Suite struct APIClientTests {
+@Suite(.timeLimit(.minutes(2))) struct APIClientTests {
     static let topicId = UUID(uuidString: "33333333-3333-4333-8333-333333333333")!
     static let entryId = UUID(uuidString: "0f1e2d3c-4b5a-4968-8778-000000000001")!
 

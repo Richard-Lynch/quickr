@@ -12,7 +12,7 @@ import Testing
 /// Each golden is built by the real `APIClient` (headers, path, query, `WireCoding` body) and
 /// captured from a `FakeTransport`. With `QUICKR_UPDATE_VECTORS=1` the files are rewritten (stale
 /// ones removed); otherwise they must match.
-@Suite struct RequestGoldenTests {
+@Suite(.timeLimit(.minutes(2))) struct RequestGoldenTests {
     /// Placeholders the pytest replay swaps for real values.
     static let identity = ServerIdentity(
         serverId: "11111111-1111-4111-8111-111111111111", epoch: "22222222-2222-4222-8222-222222222222")

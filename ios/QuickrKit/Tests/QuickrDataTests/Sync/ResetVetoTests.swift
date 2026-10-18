@@ -7,7 +7,7 @@ import Testing
 /// Retirement belongs to the still-current reset attempt (sync-protocol.md §12.1 steps 3–4): an
 /// attempt aborted on the old file can't retire it afterwards, and an abort that comes after the
 /// retire doesn't clear the intent.
-@Suite struct ResetVetoTests {
+@Suite(.timeLimit(.minutes(2))) struct ResetVetoTests {
     static let serverId = "veto-server"
 
     @Test func anAttemptAbortedJustBeforeItsRetireDoesNotRetire() async throws {

@@ -7,7 +7,7 @@ import Testing
 
 /// Engine behaviour outside the §13 matrix: the §5.2 rows the matrix doesn't name, S8 under
 /// expiry recovery, the sync sheet's actions, the summary and the flush scheduler.
-@Suite struct OutboxEngineTests {
+@Suite(.timeLimit(.minutes(2))) struct OutboxEngineTests {
     @Test func archive404RetiresAndUnarchive404FailsBothAskForAPull() async throws {
         let h = try OutboxHarness()
         let outbox = h.outbox()

@@ -8,7 +8,7 @@ import Testing
 /// lease removes a cancelled create in the takeover transaction, so the create's POST is never
 /// resent ahead of its cancellation DELETE. (The rebuild swap takes over through the same
 /// `OutboxSyncEffects.recoverExpiredFlush`; see SyncRegressionTests.)
-@Suite struct OutboxTakeoverTests {
+@Suite(.timeLimit(.minutes(2))) struct OutboxTakeoverTests {
     @Test("S8 · a takeover of an expired lease removes a cancelled in-flight create")
     func takeoverRemovesCancelledCreate() async throws {
         let h = try OutboxHarness()

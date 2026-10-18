@@ -6,7 +6,7 @@ import QuickrTestSupport
 import Testing
 
 /// outbox.md §13 cases 1–7, 41, 42, 47, 48: persistence, classification, backoff and the flush loop.
-@Suite struct OutboxBasicsTests {
+@Suite(.timeLimit(.minutes(2))) struct OutboxBasicsTests {
     @Test("1 · an enqueued create is durable, pending, never attempted, keyed by the entry id")
     func case01() async throws {
         let h = try OutboxHarness()
