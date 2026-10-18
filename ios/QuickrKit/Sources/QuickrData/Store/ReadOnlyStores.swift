@@ -1,13 +1,18 @@
 import Foundation
 import GRDB
 import Synchronization
+import os
 
 /// The active store, for a process that only reads (the widget extension): the registry and the
 /// store file are opened **read-only** (GRDB `readonly`), so nothing is migrated, initialized,
 /// recovered or repaired, no file is created and no lease is taken. Whatever needs the app (no
 /// registry yet, no active server, a store file not created yet, a reset in progress) reads as
-/// "no store". One pool per file, kept for the process.
+/// "no store", and so does a file this process can't or mustn't open read-only (no `-shm` beside
+/// it yet, which SQLite would create; an unreadable container): the widget shows no topics instead
+/// of an error until the app has opened the store. One pool per file, kept for the process.
 public final class ReadOnlyStores: Sendable {
+    private static let log = Logger(subsystem: "com.bahumia.quickr", category: "store")
+
     public let location: StoreLocation
     private let pools = Mutex<[String: DatabasePool]>([:])
 
@@ -31,17 +36,39 @@ public final class ReadOnlyStores: Sendable {
             leaseClock: SystemLeaseClock(), wallClock: SystemWallClock())
     }
 
-    /// A read-only pool on an existing file, or nil when the file isn't there.
+    /// SQLite can't open the file read-only right now (`SQLITE_CANTOPEN`, or `SQLITE_READONLY` such
+    /// as `READONLY_CANTINIT`: a WAL file without its `-shm`, which only a writer can create).
+    static func isUnavailable(_ error: DatabaseError) -> Bool {
+        error.resultCode == .SQLITE_CANTOPEN || error.resultCode == .SQLITE_READONLY
+    }
+
+    /// A read-only pool on an existing file that this process can read, or nil.
     private func pool(at url: URL) throws -> DatabasePool? {
         try pools.withLock { pools in
             if let pool = pools[url.path] { return pool }
             guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            // Every shared file is a persistent-WAL file, so once a writer has opened it its
+            // `-shm` is there. Without it, SQLite would create one even for a read-only
+            // connection; that is the app's to do.
+            guard FileManager.default.fileExists(atPath: url.path + "-shm") else {
+                Self.log.notice("read-only open of \(url.lastPathComponent, privacy: .public) skipped: no -shm yet")
+                return nil
+            }
             var configuration = Configuration()
             configuration.readonly = true
             configuration.busyMode = .timeout(5)
-            let pool = try DatabasePool(path: url.path, configuration: configuration)
-            pools[url.path] = pool
-            return pool
+            do {
+                let pool = try DatabasePool(path: url.path, configuration: configuration)
+                // The open is lazy: read once so a file that can't be read now fails here.
+                try pool.read { db in _ = try Int.fetchOne(db, sql: "SELECT 1") }
+                pools[url.path] = pool
+                return pool
+            } catch let error as DatabaseError where Self.isUnavailable(error) {
+                Self.log.notice(
+                    "read-only open of \(url.lastPathComponent, privacy: .public) unavailable: \(error.description, privacy: .public)"
+                )
+                return nil
+            }
         }
     }
 }

@@ -8,7 +8,10 @@ import Testing
 /// `ReadOnlyStores` (the widget's read path): read-only opens that never create, migrate, recover
 /// or change anything, and read as "no store" whenever the app has to act first.
 @Suite struct ReadOnlyStoresTests {
-    /// Every file under the root (path, size, modification time) and the registry's rows.
+    /// Every file under the root (path, size, modification time) and the registry's rows. A `-shm`
+    /// is compared by presence and size only: it is SQLite's wal-index, whose read marks every WAL
+    /// reader updates (a reader rebuilds it when no other connection has the file open), so its
+    /// modification time moves on any read; it holds no data.
     static func fingerprint(_ root: URL) throws -> String {
         var out: [String] = []
         let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
@@ -17,8 +20,8 @@ import Testing
                 let values = try url.resourceValues(forKeys: Set(keys))
                 guard values.isRegularFile == true else { continue }
                 let path = url.path.replacingOccurrences(of: root.path, with: "")
-                out.append(
-                    "\(path) \(values.fileSize ?? -1) \(values.contentModificationDate?.timeIntervalSince1970 ?? 0)")
+                let mtime = path.hasSuffix("-shm") ? 0 : values.contentModificationDate?.timeIntervalSince1970 ?? 0
+                out.append("\(path) \(values.fileSize ?? -1) \(mtime)")
             }
         }
         let registry = root.appending(path: "registry.sqlite")
@@ -37,7 +40,8 @@ import Testing
     func expectUnchanged(_ root: URL, _ body: () async throws -> Void) async throws {
         let before = try Self.fingerprint(root)
         try await body()
-        #expect(try Self.fingerprint(root) == before)
+        let after = try Self.fingerprint(root)
+        #expect(after == before, "\nbefore:\n\(before)\nafter:\n\(after)")
     }
 
     @Test func aFreshInstallHasNoStoreAndNothingIsCreated() async throws {
@@ -85,6 +89,32 @@ import Testing
         }
         // The app's partitions don't read it as a plain store either.
         #expect(try await partitions.openActiveStoreIfExists() == nil)
+    }
+
+    /// A WAL store whose `-shm` is gone (only a writer recreates it): read-only, SQLite can't open
+    /// it, which reads as no store, not an error, and nothing is created.
+    @Test func aStoreWithoutItsShmReadsAsNoStore() async throws {
+        let dir = try TempDirectory()
+        defer { dir.cleanup() }
+        let location = StoreLocation(root: dir.url)
+        let storeURL: URL
+        do {  // the app writes, then lets go of its pools
+            let partitions = try StorePartitions.open(at: location, notifier: nil)
+            let store = try await partitions.createStore(serverId: "s", baseURL: "https://q.example")
+            try await partitions.registry.setActive("s")
+            try await store.writer.write { db in _ = try ServerLayer.upsert(db, topic: Make.topic()) }
+            storeURL = try #require(store.url)
+        }
+        let shm = URL(fileURLWithPath: storeURL.path + "-shm")
+        try FileManager.default.removeItem(at: shm)
+        let stores = ReadOnlyStores(location: location)
+        try await expectUnchanged(dir.url) {
+            let store = try stores.activeStore()
+            let topics = try await ActiveStoreTopicRepository(readOnly: stores).topics()
+            #expect(store == nil)
+            #expect(topics.isEmpty)
+        }
+        #expect(!FileManager.default.fileExists(atPath: shm.path), "a read-only open never creates the -shm")
     }
 
     @Test func aReadyStoreIsReadWithoutChangingAnything() async throws {
