@@ -31,4 +31,5 @@ differences:
    toolbar is the native place for it, and it keeps the field being typed in
    visible at every text size, which covers FORM's accessibility-size note.
    Tap counts don't change: Save is one tap either way.
+   `formSaveBar` (QuickrUI/Form) does this for every form screen;
    `testSaveIsInTheKeyboardToolbarWhileTyping` guards it.

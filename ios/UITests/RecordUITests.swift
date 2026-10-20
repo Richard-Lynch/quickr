@@ -126,7 +126,10 @@ final class RecordUITests: XCTestCase {
             let save = saves.firstMatch
             XCTAssertTrue(save.isHittable, when)
             XCTAssertFalse(save.frame.intersects(advance.frame), when)
+            // Not covered: on screen, below the field and above the keys.
+            XCTAssertTrue(app.windows.firstMatch.frame.contains(save.frame), when)
             XCTAssertGreaterThanOrEqual(save.frame.minY, duration.frame.maxY, "below the field: \(when)")
+            XCTAssertLessThanOrEqual(save.frame.maxY, app.keyboards.keys["1"].frame.minY, "above the keys: \(when)")
         }
         checkSave("before the edit")
         app.buttons["Swim"].tap()

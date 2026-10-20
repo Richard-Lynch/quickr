@@ -12,7 +12,6 @@ struct RecordView: View {
     let settings: AppSettings
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
-    @State private var keyboardUp = false
     @State private var confirmingLeave = false
 
     var body: some View {
@@ -49,18 +48,19 @@ struct RecordView: View {
                 rejectionBanner(message)
             }
         }
-        // Above the keyboard, a bar of our own slid under the keyboard's Next/Done whenever the form
-        // changed (SwiftUI's keyboard safe area dropped the toolbar), so there Save is a toolbar item.
-        .safeAreaInset(edge: .bottom) {
-            if !keyboardUp { saveBar }
-        }
+        // Toasts sit above the bar (measured: it grows with the text size). Only the screen leaving
+        // puts them back down: Log another's fresh form rebuilds the bar, and its old copy going
+        // must not undo the new one's measure.
+        .formSaveBar(
+            saveTitle, identifier: "record.save", isSaving: model.isSaving,
+            onBarHeight: { environment.toastBottomInset = $0 + 8 }, save: save
+        )
         .qrPaperBackground()
         .navigationTitle(model.isFixing ? "Fix entry · \(model.topic.name)" : model.topic.name)
         .navigationBarTitleDisplayMode(.inline)
-        // One back button the whole time: swapping the system's for a guarded one on the first edit
-        // changed the navigation bar while the keyboard was up, and the Save bar then dropped under
-        // the keyboard's Next/Done until the screen was laid out again. The edge swipe goes back
-        // only while there is nothing to lose.
+        // One back button the whole time, guarded (the navigation bar doesn't change on the first
+        // edit); the swipes back go back only while there is nothing to lose, and so does
+        // VoiceOver's escape.
         .navigationBarBackButtonHidden()
         .background(SwipeBack(isEnabled: !model.hasUnsavedChanges))
         .toolbar {
@@ -69,16 +69,6 @@ struct RecordView: View {
                     Label("Back", systemImage: "chevron.left")
                 }
                 .accessibilityIdentifier("record.back")
-            }
-            ToolbarItem(placement: .keyboard) {
-                Button(action: save) {
-                    Label(saveTitle, systemImage: "checkmark").labelStyle(.titleAndIcon)
-                }
-                .font(.qr(.callout))
-                .fontWeight(.semibold)
-                .tint(.qr.accent)
-                .disabled(model.isSaving)
-                .accessibilityIdentifier("record.save")
             }
             if model.loggedCount > 0 {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -97,12 +87,6 @@ struct RecordView: View {
             Text("What you’ve entered hasn’t been saved.")
         }
         .onDisappear { environment.toastBottomInset = 8 }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            keyboardUp = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            keyboardUp = false
-        }
     }
 
     private var saveTitle: String { model.isFixing ? "Save again" : "Save" }
@@ -125,19 +109,6 @@ struct RecordView: View {
                 model.logAnother = value
                 settings.logAnother = value
             })
-    }
-
-    private var saveBar: some View {
-        PrimaryButton(saveTitle, icon: .check, isLoading: model.isSaving, action: save)
-            .accessibilityIdentifier("record.save")
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            // Toasts sit above the bar (measured: it grows with the text size). Only the screen leaving
-            // puts them back down: Log another's fresh form rebuilds the bar, and its old copy going
-            // must not undo the new one's measure.
-            .onGeometryChange(
-                for: CGFloat.self, of: { $0.size.height },
-                action: { height in environment.toastBottomInset = height + 8 })
     }
 
     /// A refusal the form can't show on a field (no `Problem` came back).
