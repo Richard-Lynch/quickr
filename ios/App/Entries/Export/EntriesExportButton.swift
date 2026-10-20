@@ -6,21 +6,23 @@ import UIKit
 
 /// "Export CSV" on a topic's entries (the PWA's, beside the filters): the server's CSV of the
 /// entries the list's filters select, through the share sheet. Online only: offline it says so
-/// and sends nothing. The file is temporary, removed once the share sheet closes.
+/// and sends nothing. The export belongs to the store bound when it started: leaving the screen
+/// cancels it, and one that finishes after a server switch is deleted, never shared. Its file is
+/// removed once its share sheet closes.
 struct EntriesExportButton: View {
     let session: AppSession
     let slug: String
     let filters: EntryListFilters
     @Environment(AppEnvironment.self) private var environment
-    @State private var exporting = false
+    @State private var running: Task<Void, Never>?
     private let export = EntriesExport()
 
     var body: some View {
         Button {
-            Task { await run() }
+            running = Task { await run() }
         } label: {
             HStack(spacing: 6) {
-                if exporting {
+                if running != nil {
                     ProgressView().controlSize(.small)
                 } else {
                     QIcon.download.view(size: 16, weight: .bold)
@@ -29,35 +31,49 @@ struct EntriesExportButton: View {
             }
         }
         .buttonStyle(.qr(.secondary, size: .small))
-        .disabled(exporting)
+        .disabled(running != nil)
         .accessibilityHint("Shares these entries as a CSV file")
         .accessibilityIdentifier("entries.export")
+        .onDisappear {
+            running?.cancel()
+            running = nil
+        }
     }
 
     private func run() async {
+        defer { running = nil }
         guard environment.sync.online else {
             showOffline()
             return
         }
-        guard let binding = session.binding, let store = session.store else { return }
-        exporting = true
-        defer { exporting = false }
-        let identity = try? await store.requestContext().identity
-        let client = APIClient(
-            baseURL: binding.baseURL, transport: session.configuration.transport,
-            identity: StaticServerIdentity(identity), credentials: session.configuration.credentials, origin: .app)
+        let store = session.store
+        guard
+            let scope = await EntriesExport.scope(
+                binding: session.binding,
+                context: {
+                    guard let store else { throw AppSession.SessionError.noStore }
+                    return try await store.requestContext()
+                })
+        else {
+            _ = environment.toasts.show(
+                Toast("Couldn’t export", message: EntriesExport.notReadyMessage, tone: .danger))
+            return
+        }
         let now = Date()
+        let session = session
         let outcome = await export.export(
-            client: client, slug: slug, filters: EntriesExport.filters(filters, now: now, calendar: .current),
-            identity: identity, now: now, calendar: .current)
+            scope: scope, transport: session.configuration.transport, credentials: session.configuration.credentials,
+            slug: slug, filters: EntriesExport.filters(filters, now: now, calendar: .current), now: now,
+            calendar: .current, isCurrent: { session.binding == scope.binding })
         switch outcome {
-        case .file(let url):
-            let export = export
-            SharePresenter.share(url) { export.cleanUp() }
+        case .file(let file):
+            SharePresenter.share(file.url) { file.remove() }
         case .offline:
             showOffline()
         case .failed(let message):
             _ = environment.toasts.show(Toast("Couldn’t export", message: message, tone: .danger))
+        case .discarded:
+            break
         }
     }
 
