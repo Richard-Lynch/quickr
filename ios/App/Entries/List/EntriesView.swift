@@ -211,13 +211,14 @@ struct EntriesView: View {
         environment.router.open(.record(ref, fix: entry.id.wireString))
     }
 
-    /// Deletes with Undo, in the store this list shows: the scope is taken before the await.
+    /// Deletes with Undo, in the store the row came from (the model's binding, not the active
+    /// store's: after a rebind an old row is refused rather than deleting its id elsewhere).
     private func delete(_ entry: ViewEntry) {
         let writer = environment.entryWriter
-        guard let scope = writer.scope else { return }
+        guard let binding = model.binding else { return }
         Task {
             do {
-                try await writer.delete(entryId: entry.id, topicId: entry.entry.topicId, in: scope)
+                let scope = try await writer.delete(entry, from: binding)
                 environment.entryToasts.deleted(entryId: entry.id, in: scope)
             } catch {
                 let message =

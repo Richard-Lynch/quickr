@@ -13,6 +13,8 @@ import Testing
             var name: String
             var now: Date
             var range: String
+            /// Another zone than the file's, for this case.
+            var timezone: String?
             var expected: String?
             var testDescription: String { name }
         }
@@ -45,12 +47,13 @@ import Testing
 
     @Test(arguments: vectors.cases)
     func startsLikeThePWA(_ vector: Vectors.Case) throws {
+        let zone = TimeZone(identifier: vector.timezone ?? Self.vectors.meta.timezone)!
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = Self.zone
+        calendar.timeZone = zone
         let range = try #require(EntryRange(rawValue: vector.range))
         let start = range.start(now: vector.now, calendar: calendar)
         // The PWA's `toOffsetIso`: local wall time with the offset at that instant.
-        #expect(start.map(Self.offsetISO) == vector.expected)
+        #expect(start.map { Self.offsetISO($0, in: zone) } == vector.expected)
     }
 
     @Test(arguments: vectors.parse)
@@ -59,7 +62,7 @@ import Testing
     }
 
     /// `2026-10-15T00:00:00+01:00`: wall time and offset, `+00:00` rather than `Z`.
-    static func offsetISO(_ date: Date) -> String {
+    static func offsetISO(_ date: Date, in zone: TimeZone) -> String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = zone
         let c = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)

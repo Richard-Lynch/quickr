@@ -46,6 +46,8 @@ interface RangeCase {
   name: string;
   now: string;
   range: RangePreset;
+  /** Another zone than TIMEZONE for this case (written out only when set). */
+  timezone?: string;
 }
 
 const NOW = '2026-10-20T12:00:00Z'; // 13:00 BST, Tuesday
@@ -171,6 +173,44 @@ const CASES: RangeCase[] = [
   { name: 'leap day: 30d start lands on 29 Feb', now: '2028-03-29T12:00:00Z', range: '30d' },
   { name: 'non-leap: 30d on 15 Mar 2027', now: '2027-03-15T12:00:00Z', range: '30d' },
   { name: 'leap day: 90d on 29 May 2028', now: '2028-05-29T11:00:00Z', range: '90d' },
+  // America/Santiago: DST starts at local midnight (2026-09-06 00:00 -04 -> 01:00 -03), so
+  // that day has no midnight. `setHours(0)` lands on 01:00, and `setDate` keeps the hour.
+  {
+    name: 'Santiago: 7d on the gap day (its midnight is 01:00)',
+    now: '2026-09-06T15:00:00Z',
+    range: '7d',
+    timezone: 'America/Santiago',
+  },
+  {
+    name: 'Santiago: 30d on the gap day',
+    now: '2026-09-06T15:00:00Z',
+    range: '30d',
+    timezone: 'America/Santiago',
+  },
+  {
+    name: 'Santiago: 7d start lands on the gap day',
+    now: '2026-09-12T15:00:00Z',
+    range: '7d',
+    timezone: 'America/Santiago',
+  },
+  {
+    name: 'Santiago: 7d the day after the gap',
+    now: '2026-09-07T15:00:00Z',
+    range: '7d',
+    timezone: 'America/Santiago',
+  },
+  {
+    name: 'Santiago: 7d on the fall-back day (midnight once, after 23:00 repeats)',
+    now: '2026-04-05T16:00:00Z',
+    range: '7d',
+    timezone: 'America/Santiago',
+  },
+  {
+    name: 'Santiago: 90d spanning the gap',
+    now: '2026-10-01T15:00:00Z',
+    range: '90d',
+    timezone: 'America/Santiago',
+  },
 ];
 
 interface ParseCase {
@@ -200,9 +240,14 @@ const PARSE_CASES: ParseCase[] = [
 // ---------------------------------------------------------------------------
 
 /** The `captured_from` the PWA sends for a range at `now`, or null when it sends none. */
-function capturedFrom(range: RangePreset, now: string): string | null {
-  const q = filterQuery({ range, version: null, source: null }, new Date(now));
-  return q.captured_from ?? null;
+function capturedFrom(range: RangePreset, now: string, timezone?: string): string | null {
+  if (timezone) nodeProcess.env.TZ = timezone;
+  try {
+    const q = filterQuery({ range, version: null, source: null }, new Date(now));
+    return q.captured_from ?? null;
+  } finally {
+    nodeProcess.env.TZ = TIMEZONE;
+  }
 }
 
 function build(): Record<string, unknown> {
@@ -212,7 +257,7 @@ function build(): Record<string, unknown> {
       version: 1,
       timezone: TIMEZONE,
     },
-    cases: CASES.map((c) => ({ ...c, expected: capturedFrom(c.range, c.now) })),
+    cases: CASES.map((c) => ({ ...c, expected: capturedFrom(c.range, c.now, c.timezone) })),
     parse: PARSE_CASES.map((c) => ({ ...c, expected: parseRange(c.raw) })),
   };
 }
@@ -256,11 +301,12 @@ describe('entries range vectors (shared with iOS)', () => {
     expect(new Set(CASES.map((c) => c.range))).toEqual(new Set(RANGE_PRESETS.map((p) => p.value)));
     expect(new Set(CASES.map((c) => c.name)).size).toBe(CASES.length);
     expect(new Set(PARSE_CASES.map((c) => c.raw)).size).toBe(PARSE_CASES.length);
-    const starts = CASES.map((c) => capturedFrom(c.range, c.now));
+    const starts = CASES.map((c) => capturedFrom(c.range, c.now, c.timezone));
     expect(starts.some((s) => s?.endsWith('+00:00'))).toBe(true);
     expect(starts.some((s) => s?.endsWith('+01:00'))).toBe(true);
-    // Every start is a local midnight.
-    for (const s of starts) if (s !== null) expect(s).toMatch(/T00:00:00[+-]\d\d:\d\d$/);
+    // Every start is a local midnight, except where a DST gap skips it: then 01:00.
+    for (const s of starts) if (s !== null) expect(s).toMatch(/T0[01]:00:00[+-]\d\d:\d\d$/);
+    expect(starts.some((s) => s?.includes('T01:00:00'))).toBe(true);
   });
 
   it(`${FILE_LABEL} is up to date`, async () => {

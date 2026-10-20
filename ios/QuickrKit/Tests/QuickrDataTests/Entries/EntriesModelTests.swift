@@ -54,13 +54,14 @@ import Testing
         let session: AppSession
         let partitions: StorePartitions
 
-        init(active: Bool = true) async throws {
+        /// - Parameter seeded: false leaves the store empty (the topic arrives later).
+        init(active: Bool = true, seeded: Bool = true) async throws {
             root = URL.temporaryDirectory.appending(path: "quickr-entries-\(UUID().uuidString)")
             let location = StoreLocation(root: root)
             partitions = try StorePartitions.open(at: location, notifier: nil)
             let store = try await partitions.createStore(serverId: "s", baseURL: "https://quickr.example")
             if active { try await partitions.registry.setActive("s") }
-            try await EntriesModelTests.seed(store)
+            if seeded { try await EntriesModelTests.seed(store) }
             var coordinator = SyncCoordinator.Configuration()
             coordinator.autoRetry = false
             session = try AppSession(
@@ -74,7 +75,8 @@ import Testing
             let model = EntriesModel(
                 session: session, topicRef: ref, now: EntriesModelTests.now, calendar: EntriesModelTests.utc)
             let observing = Task { await model.observe() }
-            try await eventually("the entries are read") { await MainActor.run { model.loaded } }
+            // Ready, or settled on "not found".
+            try await eventually("the entries are read") { await MainActor.run { model.phase != .loading } }
             return (model, observing)
         }
     }
@@ -221,14 +223,55 @@ import Testing
         await w.session.rebind()
         let second = Task { await model.observe() }
         defer { second.cancel() }
-        try await eventually("the new store is read") { await MainActor.run { model.loaded } }
-        #expect(model.phase == .missing)
+        try await eventually("the new store is read") { await MainActor.run { model.phase == .missing } }
         #expect(model.rows.isEmpty && model.pinned.isEmpty && model.sources.isEmpty)
 
         try await old.writer.write { db in _ = try ServerLayer.upsert(db, entry: Self.entry(9, daysAgo: 0.1)) }
         try await Task.sleep(for: .milliseconds(300))  // settle: an emission takes milliseconds
         #expect(model.rows.isEmpty, "the old store's change doesn't land")
         #expect(model.phase == .missing)
+    }
+
+    /// A link opened before the first sync: "Topic not found" until the topic arrives, then the
+    /// list, without starting over.
+    @Test func aTopicThatArrivesLaterShowsUp() async throws {
+        let w = try await World(seeded: false)
+        defer { w.cleanup() }
+        let model = EntriesModel(session: w.session, topicRef: "water", now: Self.now, calendar: Self.utc)
+        let observing = Task { await model.observe() }
+        defer { observing.cancel() }
+        try await eventually("the topic list is read") { await MainActor.run { model.phase == .missing } }
+
+        // The first sync brings it, through the session's own store.
+        try await Self.seed(try #require(w.session.store))
+        try await eventually("the list appears") { await MainActor.run { model.phase == .ready } }
+        #expect(Self.ids(model.rows) == [4, 2, 3, 5, 7])
+        #expect(model.columns.map(\.key) == ["glasses", "mood", "note"])
+    }
+
+    /// The rows keep the binding of the store they came from: after a rebind, until the
+    /// observation restarts, a write on a row on screen targets the old store (and is refused).
+    @Test func theRowsKeepTheirStoresBinding() async throws {
+        let w = try await World()
+        defer { w.cleanup() }
+        let (model, first) = try await w.model()
+        defer { first.cancel() }
+        let a = try #require(w.session.binding)
+        #expect(model.binding == a)
+
+        _ = try await w.partitions.createStore(serverId: "t", baseURL: "https://other.example")
+        try await w.partitions.registry.setActive("t")
+        await w.session.rebind()
+        #expect(w.session.binding != a)
+        #expect(model.binding == a, "the rows on screen are still A's")
+        #expect(!model.rows.isEmpty)
+
+        // Restarted on the new binding: B's, with A's rows gone.
+        let second = Task { await model.observe() }
+        defer { second.cancel() }
+        try await eventually("the observation restarts") {
+            await MainActor.run { model.binding == w.session.binding && model.rows.isEmpty }
+        }
     }
 
     @Test func aTopicByIdAndAMissingOne() async throws {

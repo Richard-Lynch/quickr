@@ -33,12 +33,14 @@ public enum EntryRange: String, Sendable, Hashable, CaseIterable {
 
     /// The first instant in range (the PWA's `captured_from`): local midnight today, minus
     /// `days - 1` days, so "7 days" is today and the 6 before. Nil for all time.
+    ///
+    /// Like the PWA's `setHours(0)` then `setDate`: on a day whose midnight a DST gap skips,
+    /// "midnight" is the day's first instant (01:00), and going back keeps that wall time; a
+    /// time a gap skips on the day it lands moves forward too.
     public func start(now: Date, calendar: Calendar) -> Date? {
         guard let days else { return nil }
         let today = calendar.startOfDay(for: now)
-        guard let day = calendar.date(byAdding: .day, value: -(days - 1), to: today) else { return nil }
-        // A day that starts in a DST gap has no midnight: startOfDay gives its first instant.
-        return calendar.startOfDay(for: day)
+        return calendar.date(byAdding: .day, value: -(days - 1), to: today)
     }
 }
 

@@ -48,6 +48,15 @@ final class SessionEntryWriter: EntryWriter {
         try await requireSession(scope).delete(entryId: entryId, topicId: topicId, undoable: true)
     }
 
+    /// Deletes a row shown from the store `binding` names (a list's own binding, not the active
+    /// store's), and returns the scope for the Undo toast. A row left over from before a server
+    /// switch or reset is refused (`scopeChanged`) instead of deleting its id in the new store.
+    func delete(_ entry: ViewEntry, from binding: AppSession.Binding) async throws -> EntryScope {
+        let scope = Self.scope(binding)
+        try await delete(entryId: entry.id, topicId: entry.entry.topicId, in: scope)
+        return scope
+    }
+
     func failure(_ error: any Error) -> EntryWriteFailure { Self.failure(error) }
 
     static func scope(_ binding: AppSession.Binding) -> EntryScope {

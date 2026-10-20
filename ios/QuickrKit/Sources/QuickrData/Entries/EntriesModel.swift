@@ -41,6 +41,12 @@ public final class EntriesModel {
     public private(set) var sources: [(value: String, count: Int)] = []
     /// The answer columns: current questions, then keys only older versions have.
     public private(set) var columns: [Question] = []
+    /// The store the topic and rows come from (taken with it when `observe()` starts). Writes on
+    /// a row go to this store: after a rebind, a row still on screen belongs to the old one.
+    public private(set) var binding: AppSession.Binding?
+    /// The topic list has been read: `topic` nil now means it isn't in this store (yet).
+    public private(set) var topicResolved = false
+    /// The entries have been read.
     public private(set) var loaded = false
     public private(set) var loadError: String?
     /// Bumped by `retry()`: key the observing task by it too.
@@ -66,8 +72,9 @@ public final class EntriesModel {
         case .failed(let message): return .failed(message)
         case .ready:
             if let loadError { return .failed(loadError) }
-            guard loaded else { return .loading }
-            return topic == nil ? .missing : .ready
+            guard topicResolved else { return .loading }
+            guard topic != nil else { return .missing }
+            return loaded ? .ready : .loading
         }
     }
 
@@ -97,65 +104,55 @@ public final class EntriesModel {
     }
 
     /// Reads the topic, its versions and its entries until cancelled; starts over from nothing,
-    /// and drops a superseded observation's late values.
+    /// and drops a superseded observation's late values. A topic that isn't there yet (a link
+    /// opened before the first sync) is waited for: the list appears when it arrives.
     public func observe() async {
         generation += 1
         let generation = generation
         topic = nil
         entries = []
         versions = []
+        topicResolved = false
         loaded = false
         loadError = nil
+        binding = session.binding
         relist()
         guard let store = session.store else { return }
-        do {
-            let topic = try await Self.find(topicRef, in: store)
-            guard isCurrent(generation) else { return }
-            guard let topic else {
-                loaded = true
-                return
+        await withTaskGroup(of: Void.self) { group in
+            var watching: UUID?
+            do {
+                for try await topics in store.observeTopics(refresh: session.refresh.stream()) {
+                    guard isCurrent(generation) else { break }
+                    // By id once found: a slug can change.
+                    let found = topics.first { topic in watching.map { topic.topic.id == $0 } ?? self.matches(topic) }
+                    // A new version brings new questions: read the versions (before the entries
+                    // arrive the first time, so the first list has every column).
+                    if let found, found.topic.currentVersion != topic?.topic.currentVersion || versions.isEmpty {
+                        let versions = try await store.versions.versions(topicId: found.topic.id)
+                        guard isCurrent(generation) else { break }
+                        self.versions = versions
+                    }
+                    topic = found
+                    topicResolved = true
+                    if let found, watching == nil {
+                        watching = found.topic.id
+                        group.addTask { await self.observeEntries(store, found.topic.id, generation) }
+                    }
+                    relist()
+                }
+            } catch {
+                if isCurrent(generation), !(error is CancellationError) { loadError = String(describing: error) }
             }
-            let topicId = topic.topic.id
-            // Before the entries arrive, so the first list has every column.
-            let versions = try await store.versions.versions(topicId: topicId)
-            guard isCurrent(generation) else { return }
-            self.topic = topic
-            self.versions = versions
-            relist()
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { await self.observeTopic(store, topicId, generation) }
-                group.addTask { await self.observeEntries(store, topicId, generation) }
-            }
-        } catch is CancellationError {
-        } catch {
-            if isCurrent(generation) { loadError = String(describing: error) }
+            group.cancelAll()
         }
     }
 
     private func isCurrent(_ observation: Int) -> Bool { observation == generation && !Task.isCancelled }
 
-    static func find(_ ref: String, in store: LocalStore) async throws -> ViewTopic? {
-        if let id = UUID(uuidString: ref) { return try await store.topics.topic(id: id) }
-        return try await store.topics.topic(slug: ref)
-    }
-
-    private func observeTopic(_ store: LocalStore, _ topicId: UUID, _ observation: Int) async {
-        do {
-            for try await topics in store.observeTopics(refresh: session.refresh.stream()) {
-                guard isCurrent(observation) else { return }
-                let topic = topics.first { $0.topic.id == topicId }
-                // A new version brings new questions: read the versions again.
-                if topic?.topic.currentVersion != self.topic?.topic.currentVersion || versions.isEmpty {
-                    let versions = try await store.versions.versions(topicId: topicId)
-                    guard isCurrent(observation) else { return }
-                    self.versions = versions
-                }
-                self.topic = topic
-                relist()
-            }
-        } catch {
-            if isCurrent(observation), !(error is CancellationError) { loadError = String(describing: error) }
-        }
+    /// `topicRef` names this topic: its id, or its slug.
+    private func matches(_ topic: ViewTopic) -> Bool {
+        if let id = UUID(uuidString: topicRef) { return topic.topic.id == id }
+        return topic.topic.slug == topicRef
     }
 
     private func observeEntries(_ store: LocalStore, _ topicId: UUID, _ observation: Int) async {

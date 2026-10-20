@@ -44,7 +44,13 @@
     {"expected":"2028-02-15T00:00:00+00:00","name":"leap day: 30d on 15 Mar 2028","now":"2028-03-15T12:00:00Z","range":"30d"},
     {"expected":"2028-02-29T00:00:00+00:00","name":"leap day: 30d start lands on 29 Feb","now":"2028-03-29T12:00:00Z","range":"30d"},
     {"expected":"2027-02-14T00:00:00+00:00","name":"non-leap: 30d on 15 Mar 2027","now":"2027-03-15T12:00:00Z","range":"30d"},
-    {"expected":"2028-03-01T00:00:00+00:00","name":"leap day: 90d on 29 May 2028","now":"2028-05-29T11:00:00Z","range":"90d"}
+    {"expected":"2028-03-01T00:00:00+00:00","name":"leap day: 90d on 29 May 2028","now":"2028-05-29T11:00:00Z","range":"90d"},
+    {"expected":"2026-08-31T01:00:00-04:00","name":"Santiago: 7d on the gap day (its midnight is 01:00)","now":"2026-09-06T15:00:00Z","range":"7d","timezone":"America/Santiago"},
+    {"expected":"2026-08-08T01:00:00-04:00","name":"Santiago: 30d on the gap day","now":"2026-09-06T15:00:00Z","range":"30d","timezone":"America/Santiago"},
+    {"expected":"2026-09-06T01:00:00-03:00","name":"Santiago: 7d start lands on the gap day","now":"2026-09-12T15:00:00Z","range":"7d","timezone":"America/Santiago"},
+    {"expected":"2026-09-01T00:00:00-04:00","name":"Santiago: 7d the day after the gap","now":"2026-09-07T15:00:00Z","range":"7d","timezone":"America/Santiago"},
+    {"expected":"2026-03-30T00:00:00-03:00","name":"Santiago: 7d on the fall-back day (midnight once, after 23:00 repeats)","now":"2026-04-05T16:00:00Z","range":"7d","timezone":"America/Santiago"},
+    {"expected":"2026-07-04T00:00:00-04:00","name":"Santiago: 90d spanning the gap","now":"2026-10-01T15:00:00Z","range":"90d","timezone":"America/Santiago"}
   ],
   "meta": {
     "generator": "frontend/src/lib/entries.vectors.test.ts",
