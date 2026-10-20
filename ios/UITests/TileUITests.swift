@@ -86,7 +86,9 @@ final class TileUITests: XCTestCase {
         let tile = app.otherElements["tile.headache"]
         XCTAssertTrue(tile.waitForExistence(timeout: 15))
         attach(app, "tiles-ax")
-        try app.performAccessibilityAudit(for: [.dynamicType, .elementDetection, .hitRegion, .sufficientElementDescription])
+        try app.performAccessibilityAudit(for: [
+            .dynamicType, .elementDetection, .hitRegion, .sufficientElementDescription,
+        ])
 
         let chip = tile.buttons["chip.severe"]
         XCTAssertTrue(chip.isHittable)

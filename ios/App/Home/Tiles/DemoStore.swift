@@ -25,6 +25,9 @@ enum DemoStore {
             let now = Date()
             let (topics, entries) = demo(now: now)
             try await store.writer.write { db in
+                // As after a bootstrap: with an epoch the outbox attempts its sends (and fails
+                // them fast against the closed port), so a log reports "queued" at once.
+                try db.execute(sql: "UPDATE sync_state SET epoch = 'demo-epoch' WHERE id = 1")
                 for topic in topics { _ = try ServerLayer.upsert(db, topic: topic) }
                 for entry in entries { _ = try ServerLayer.upsert(db, entry: entry) }
             }
@@ -35,6 +38,7 @@ enum DemoStore {
 
     static func demo(now: Date) -> ([Topic], [Entry]) {
         let severity = ["None", "Mild", "Moderate", "Severe"].map { EnumOption(value: $0.lowercased(), label: $0) }
+        let moods = ["Low", "OK", "Good"].map { EnumOption(value: $0.lowercased(), label: $0) }
         let headache = topic(
             "headache", "Headache", now: now, created: now - 86_400,
             schedule: .interval(.init(everyMinutes: 180, timezone: "UTC")), scheduleSet: now - 5 * 3600,
@@ -46,14 +50,16 @@ enum DemoStore {
             "water", "Water", now: now, created: now - 86_400,
             schedule: .interval(.init(everyMinutes: 120, timezone: "UTC")), scheduleSet: now - 86_400,
             questions: [
-                Question(key: "glasses", label: "Glasses", required: true, kind: .int(.init(min: 0, max: 20, unit: "glasses")))
+                Question(
+                    key: "glasses", label: "Glasses", required: true,
+                    kind: .int(.init(min: 0, max: 20, unit: "glasses")))
             ])
         let mood = topic(
             "mood", "Mood", now: now, created: now - 86_400, schedule: nil, scheduleSet: nil,
             questions: [
                 Question(
                     key: "mood", label: "Mood", required: true,
-                    kind: .choice(.init(options: ["Low", "OK", "Good"].map { EnumOption(value: $0.lowercased(), label: $0) })))
+                    kind: .choice(.init(options: moods)))
             ])
         let workout = topic(
             "workout", "Workout", now: now, created: now - 86_400, schedule: nil, scheduleSet: nil,

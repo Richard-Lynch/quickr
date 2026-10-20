@@ -18,9 +18,12 @@ import Testing
 
     @Test func dueReadsDueNowForHalfAnHourThenOverdue() {
         let fresh = DueStatus(isDue: true, dueSince: Self.at(-29))
-        #expect(Self.text.dueView(fresh, now: Self.now) == DueView(tone: .due, label: "Due now · since 11:31\u{202F}AM"))
+        #expect(
+            Self.text.dueView(fresh, now: Self.now) == DueView(tone: .due, label: "Due now · since 11:31\u{202F}AM"))
         let old = DueStatus(isDue: true, dueSince: Self.at(-30))
-        #expect(Self.text.dueView(old, now: Self.now) == DueView(tone: .overdue, label: "Overdue · since 11:30\u{202F}AM"))
+        #expect(
+            Self.text.dueView(old, now: Self.now)
+                == DueView(tone: .overdue, label: "Overdue · since 11:30\u{202F}AM"))
         #expect(Self.text.dueView(DueStatus(isDue: true), now: Self.now) == DueView(tone: .due, label: "Due now"))
         #expect(Self.text.dueView(old, now: Self.now).isDue)
     }

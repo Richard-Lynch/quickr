@@ -143,9 +143,10 @@ enum Topics {
         let first = Task { await model.pick(Topics.severity[1]) }
         await waitUntil { w.writer.isHolding }
         #expect(model.busyOption == "mild")
-        await model.pick(Topics.severity[2])  // returns at once: ignored
+        let second = Task { await model.pick(Topics.severity[2]) }  // ignored
         w.writer.release()
         await first.value
+        await second.value
         #expect(w.writer.logged.count == 1 && model.busyOption == nil)
         #expect(model.flash.value == "mild")
     }

@@ -37,7 +37,7 @@ struct TopicTile: View {
             if let model { QuickLogArea(model: model) }
         }
         .accessibilityIdentifier("tile.\(topic.slug)")
-        .task(id: ObservationKey(binding: environment.session?.binding, quick: quickTopic, hasEntries: topic.entryCount > 0)) {
+        .task(id: observationKey) {
             await follow()
         }
     }
@@ -45,7 +45,14 @@ struct TopicTile: View {
     private var quickTopic: QuickLogTopic? {
         let topic = topic.topic
         guard topic.status != .archived, let quick = QuickLog(questions: topic.questions) else { return nil }
-        return QuickLogTopic(id: topic.id, slug: topic.slug, name: topic.name, version: topic.currentVersion, quick: quick)
+        return QuickLogTopic(
+            id: topic.id, slug: topic.slug, name: topic.name, version: topic.currentVersion, quick: quick)
+    }
+
+    /// Restarts the observation when the store, the quick-log or "has entries" changes.
+    private var observationKey: ObservationKey {
+        ObservationKey(
+            binding: environment.session?.binding, quick: quickTopic, hasEntries: topic.topic.entryCount > 0)
     }
 
     private func meta(_ due: DueView) -> some View {

@@ -63,7 +63,9 @@ public struct TopicText: Sendable {
     public func dueView(_ due: DueStatus?, now: Date) -> DueView {
         guard let due else { return DueView(tone: .none, label: "") }
         if Self.isDueNow(due, now: now) {
-            guard let since = due.isDue ? due.dueSince : due.nextDueAt else { return DueView(tone: .due, label: "Due now") }
+            guard let since = due.isDue ? due.dueSince : due.nextDueAt else {
+                return DueView(tone: .due, label: "Due now")
+            }
             return now.timeIntervalSince(since) < Self.freshDue
                 ? DueView(tone: .due, label: "Due now · since \(when(since, now: now))")
                 : DueView(tone: .overdue, label: "Overdue · since \(when(since, now: now))")
@@ -79,20 +81,19 @@ public struct TopicText: Sendable {
 
     /// "8:00 AM", "yesterday 9:00 PM", "Mon 8:00 AM", "12 Oct", relative to `now` (`formatWhen`).
     public func when(_ date: Date, now: Date) -> String {
-        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: date))
+        let days =
+            calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: date))
             .day ?? 0
-        let time = date.formatted(Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone).hour().minute())
+        let style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone)
+        let time = date.formatted(style.hour().minute())
         switch days {
         case 0: return time
         case -1: return "yesterday \(time)"
         case 1: return "tomorrow \(time)"
         case -6...6:
-            let weekday = date.formatted(
-                Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone).weekday(.abbreviated))
-            return "\(weekday) \(time)"
+            return "\(date.formatted(style.weekday(.abbreviated))) \(time)"
         default:
-            return date.formatted(
-                Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone).day().month(.abbreviated))
+            return date.formatted(style.day().month(.abbreviated))
         }
     }
 
