@@ -10,11 +10,11 @@ final class LinksUITests: XCTestCase {
 
     @MainActor
     func testAQuickrLinkOpensItsScreenAndBackReturnsToTheList() {
-        // A screen still to be built shows its route's path.
-        let app = launch(open: "quickr://t/workout/entries")
+        // A screen still to be built shows its route's path (Entries is LIST's now).
+        let app = launch(open: "quickr://t/workout/versions")
         let path = app.staticTexts["route.path"]
         XCTAssertTrue(path.waitForExistence(timeout: 15))
-        XCTAssertEqual(path.label, "/t/workout/entries")
+        XCTAssertEqual(path.label, "/t/workout/versions")
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 5))
     }
