@@ -178,6 +178,16 @@ final class FakeTopicWriter: TopicWriter {
         #expect(model.topic.schedule == Self.daily)
     }
 
+    @Test func afterASaveTheFormReopensFromTheSavedSchedule() async {
+        model.schedule.kind = .interval
+        model.schedule.every = "120"
+        model.schedule.unit = .minutes
+        await model.saveSchedule()
+        #expect(writer.calls == [.schedule(.interval(.init(everyMinutes: 120, timezone: "Europe/London")))])
+        #expect(model.schedule.every == "2" && model.schedule.unit == .hours, "the PWA's form remounts")
+        #expect(!model.scheduleDirty)
+    }
+
     @Test func choosingNoneRemovesTheSchedule() async {
         var scheduled = Self.topic
         scheduled.schedule = Self.daily
