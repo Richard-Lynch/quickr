@@ -21,6 +21,12 @@ public enum QuickrFonts {
     @discardableResult
     public static func register() -> Bool { registered }
 
+    /// A bundled font's licence text (`Resources/Fonts/*-OFL.txt`), for Settings ▸ Licences.
+    public static func licenceText(_ file: String) -> String? {
+        guard let url = Bundle.module.url(forResource: file, withExtension: nil) else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
     private static let registered: Bool = {
         var ok = true
         for face in Face.allCases {
