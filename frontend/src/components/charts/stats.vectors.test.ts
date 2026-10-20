@@ -15,7 +15,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 
 import type { EnumStats, NumericStats, QuestionSeries, StrStats, TopicStats } from '../../client';
-import { RANGE_PRESETS, formatDate } from '../../lib/dates';
+import { RANGE_PRESETS } from '../../lib/dates';
 import { formatNumber, formatPercent, plural } from '../../lib/format';
 import { optionColors } from './EnumBars';
 import {
@@ -59,6 +59,10 @@ const GENERATOR_VERSION = 1;
 const WIDTHS = [320, 600];
 /** The zone the summaries' dates are shown in. */
 const SUMMARY_TZ = 'Europe/London';
+const summaryDate = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeZone: SUMMARY_TZ,
+});
 
 interface InputCase {
   name: string;
@@ -237,7 +241,9 @@ function statsCase(c: InputCase) {
   return {
     name: c.name,
     entries: stats.entry_count.toLocaleString(),
-    first: first ? inZone(SUMMARY_TZ, () => formatDate(first)) : '—',
+    // formatDate's options in the summary zone: its formatter is built at import, in whatever
+    // zone the machine running this has, so TZ can't reach it.
+    first: first ? summaryDate.format(new Date(first)) : '—',
     sources: stats.sources.slice(0, 4).map((s) => [s.value, s.count]),
     empty: stats.entry_count === 0,
     questions: stats.questions.map((q) => ({
