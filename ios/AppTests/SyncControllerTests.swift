@@ -245,6 +245,30 @@ import Testing
         await session.shutdown()
     }
 
+    /// Settings' "Sync now" (`refresh`): with nothing to send it still pulls, so the last sync
+    /// moves; after failing pulls, a successful one clears the failure.
+    @Test func syncNowPullsEvenWithNothingToSend() async throws {
+        let (environment, session, observing) = try await started()
+        defer { observing.cancel() }
+        try await eventually("first pull") { session.syncStatus.lastSyncAt != nil }
+        let first = try #require(session.syncStatus.lastSyncAt)
+        #expect(environment.sync.summary.map { $0.queued + $0.failed } ?? 0 == 0)
+
+        UITestLaunch.server.offline = true
+        await environment.sync.refresh()
+        try await eventually("the pull failed") { session.syncStatus.lastFailure != nil }
+        #expect(session.syncStatus.lastSyncAt == first)
+
+        UITestLaunch.server.offline = false
+        let requests = UITestLaunch.server.requestCount
+        await environment.sync.refresh()
+        try await eventually("pulled again") {
+            (session.syncStatus.lastSyncAt ?? first) > first && session.syncStatus.lastFailure == nil
+        }
+        #expect(UITestLaunch.server.requestCount > requests, "it asked the server")
+        await session.shutdown()
+    }
+
     @Test func backgroundRefreshPullsSendsAndCompletes() async throws {
         let (environment, session, observing) = try await started()
         defer { observing.cancel() }

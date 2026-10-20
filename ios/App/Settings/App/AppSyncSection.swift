@@ -20,9 +20,12 @@ struct AppSyncSection: View {
             LabeledContent("Status") {
                 Text(summary.headline).accessibilityIdentifier("settings.sync.headline")
             }
-            LabeledContent("Last synced") {
-                Text(summary.lastSyncAt.map(Self.relative) ?? "Never")
-                    .accessibilityIdentifier("settings.sync.last")
+            // Re-read every 30 s, so "2 minutes ago" doesn't stand still while the screen is open.
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                LabeledContent("Last synced") {
+                    Text(summary.lastSyncAt.map { Self.relative($0, now: context.date) } ?? "Never")
+                        .accessibilityIdentifier("settings.sync.last")
+                }
             }
             if let problem = summary.problem {
                 Text(problem)
@@ -32,7 +35,9 @@ struct AppSyncSection: View {
             Button {
                 Task {
                     syncing = true
-                    await environment.sync.syncNow()
+                    // Sends what waits and pulls (pull to refresh's), so "Last synced" moves even
+                    // with nothing to send.
+                    await environment.sync.refresh()
                     syncing = false
                 }
             } label: {
@@ -68,9 +73,9 @@ struct AppSyncSection: View {
     }
 
     /// "5 minutes ago".
-    static func relative(_ date: Date) -> String {
+    static func relative(_ date: Date, now: Date) -> String {
         let formatter = RelativeDateTimeFormatter()
         formatter.dateTimeStyle = .named
-        return formatter.localizedString(for: date, relativeTo: Date())
+        return formatter.localizedString(for: date, relativeTo: now)
     }
 }

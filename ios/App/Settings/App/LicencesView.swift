@@ -29,16 +29,7 @@ struct LicencesView: View {
 private struct LicenceText: View {
     let licence: Licence
 
-    private var text: String {
-        let loaded: String? =
-            switch licence.kind {
-            case .font: QuickrFonts.licenceText(licence.file)
-            case .package:
-                Bundle.main.url(forResource: licence.file, withExtension: nil)
-                    .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-            }
-        return loaded ?? "The licence text is missing from this build."
-    }
+    private var text: String { LicenceTexts.text(licence) ?? "The licence text is missing from this build." }
 
     var body: some View {
         ScrollView {
@@ -54,5 +45,18 @@ private struct LicenceText: View {
         .qrPaperBackground()
         .navigationTitle(licence.name)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// Where each licence's text ships in the built app: a font's in QuickrUI's bundle, a package's in
+/// the app's (`ios/Resources/Licences`). `LicenceBundleTests` reads them back.
+enum LicenceTexts {
+    static func text(_ licence: Licence) -> String? {
+        switch licence.kind {
+        case .font: QuickrFonts.licenceText(licence.file)
+        case .package:
+            Bundle.main.url(forResource: licence.file, withExtension: nil)
+                .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        }
     }
 }

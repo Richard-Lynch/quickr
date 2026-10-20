@@ -11,7 +11,7 @@ final class AppSettingsUITests: XCTestCase {
     func testSyncSectionFollowsTheOutboxAndTheNetwork() {
         let app = launch(extra: ["-QuickrSyncControls"])
         let headline = element(app, "settings.sync.headline")
-        XCTAssertTrue(headline.waitForExistence(timeout: 20))
+        XCTAssertTrue(reveal(headline, in: app))
         XCTAssertTrue(wait(for: headline, label: "All changes synced"))
         XCTAssertEqual(element(app, "settings.sync.connection").label, "Online")
         XCTAssertNotEqual(element(app, "settings.sync.last").label, "Never", "the launch pulled")
@@ -22,49 +22,82 @@ final class AppSettingsUITests: XCTestCase {
         XCTAssertTrue(wait(for: element(app, "settings.sync.connection"), label: "Offline"))
         app.buttons["debug.log"].tap()
         XCTAssertTrue(wait(for: headline, label: "Offline · 1 waiting to sync"))
-        XCTAssertTrue(element(app, "settings.sync.review").exists)
+        let review = element(app, "settings.sync.review")
+        XCTAssertTrue(reveal(review, in: app))
         snap(app, "appset-2-offline")
-        element(app, "settings.sync.review").tap()
+        review.tap()
         XCTAssertTrue(app.descendants(matching: .any)["sync.sheet"].firstMatch.waitForExistence(timeout: 5))
         app.buttons["sync.done"].tap()
 
-        // Back online: Sync now sends it.
+        // Back online: Sync now sends it and pulls.
         app.buttons["debug.online"].tap()
-        element(app, "settings.syncNow").tap()
+        let syncNow = element(app, "settings.syncNow")
+        XCTAssertTrue(reveal(syncNow, in: app))
+        syncNow.tap()
         XCTAssertTrue(wait(for: headline, label: "All changes synced", timeout: 20))
-        XCTAssertFalse(element(app, "settings.sync.review").exists)
+        XCTAssertTrue(wait(for: element(app, "settings.sync.connection"), label: "Online"))
+        XCTAssertFalse(review.exists)
     }
 
+    /// Every licence opens and shows its text.
     @MainActor
-    func testLicencesShowEachText() {
+    func testEveryLicenceOpens() {
         let app = launch()
-        let licences = element(app, "settings.licences")
-        XCTAssertTrue(element(app, "settings.sync.headline").waitForExistence(timeout: 20))
-        for _ in 0..<6 where !licences.isHittable { app.swipeUp() }
-        licences.tap()
-        XCTAssertTrue(element(app, "licences.list").waitForExistence(timeout: 5))
+        openLicences(app)
         snap(app, "appset-3-licences")
         for (name, marker) in [
-            ("GRDB.swift", "Permission is hereby granted"), ("Bricolage Grotesque", "SIL OPEN FONT LICENSE"),
+            ("GRDB.swift", "Permission is hereby granted"),
+            ("Bricolage Grotesque", "The Bricolage Grotesque Project Authors"),
+            ("Instrument Sans", "The Instrument Sans Project Authors"),
+            ("JetBrains Mono", "The JetBrains Mono Project Authors"),
         ] {
-            element(app, "licence.\(name)").tap()
-            let text = element(app, "licence.text")
-            XCTAssertTrue(text.waitForExistence(timeout: 5))
-            XCTAssertTrue(text.label.contains(marker), "\(name): \(text.label.prefix(80))")
-            app.navigationBars.buttons.element(boundBy: 0).tap()
+            openLicence(name, marker: marker, in: app)
         }
     }
 
+    /// At XXXL the section's actions are reachable and a licence opens.
     @MainActor
     func testAccessibilityXXXL() {
         let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
-        let headline = element(app, "settings.sync.headline")
-        for _ in 0..<6 where !(headline.exists && headline.isHittable) { app.swipeUp() }
-        XCTAssertTrue(headline.waitForExistence(timeout: 20))
+        XCTAssertTrue(reveal(element(app, "settings.sync.headline"), in: app))
+        XCTAssertTrue(reveal(element(app, "settings.syncNow"), in: app), "Sync now is reachable")
         snap(app, "appset-4-ax")
+        element(app, "settings.syncNow").tap()
+        openLicences(app)
+        openLicence("GRDB.swift", marker: "Permission is hereby granted", in: app)
     }
 
     // MARK: - Helpers
+
+    @MainActor
+    private func openLicences(_ app: XCUIApplication) {
+        let licences = element(app, "settings.licences")
+        XCTAssertTrue(reveal(licences, in: app), "Licences is reachable")
+        licences.tap()
+        XCTAssertTrue(element(app, "licences.list").waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    private func openLicence(_ name: String, marker: String, in app: XCUIApplication) {
+        let row = element(app, "licence.\(name)")
+        XCTAssertTrue(reveal(row, in: app), "\(name) is listed")
+        row.tap()
+        let text = element(app, "licence.text")
+        XCTAssertTrue(text.waitForExistence(timeout: 5), name)
+        XCTAssertTrue(text.label.contains(marker), "\(name): \(text.label.prefix(80))")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+    }
+
+    /// Scrolls until `element` is on screen and hittable (lists build rows lazily).
+    @MainActor
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        if element.waitForExistence(timeout: 10), element.isHittable { return true }
+        for _ in 0..<12 {
+            if element.exists && element.isHittable { return true }
+            app.swipeUp()
+        }
+        return element.exists && element.isHittable
+    }
 
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement {
         app.descendants(matching: .any)[id].firstMatch

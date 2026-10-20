@@ -83,4 +83,21 @@ import Testing
         #expect(summary.headline == "Different server")
         #expect(summary.connection == .online)
     }
+
+    /// The badge says offline whatever the headline ranks first: failed items, a different server.
+    @Test func offlineWithFailedItemsOrADifferentServer() {
+        let failed = SettingsSyncSummary(summary: Self.outbox(queued: 1, failed: 1), status: Self.synced, online: false)
+        #expect(failed.headline == "1 failed to sync")
+        #expect(failed.connection == .offline)
+        var mismatch = Self.synced
+        mismatch.identityMismatch = true
+        let different = SettingsSyncSummary(summary: Self.outbox(), status: mismatch, online: false)
+        #expect(different.headline == "Different server")
+        #expect(different.connection == .offline)
+        // Reachable network, server unreachable, items failed: offline too.
+        var unreachable = Self.synced
+        unreachable.lastFailure = .unreachable("timed out")
+        let both = SettingsSyncSummary(summary: Self.outbox(failed: 2), status: unreachable, online: true)
+        #expect(both.headline == "2 failed to sync" && both.connection == .offline)
+    }
 }

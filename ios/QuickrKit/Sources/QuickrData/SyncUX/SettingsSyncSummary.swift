@@ -23,7 +23,10 @@ public struct SettingsSyncSummary: Sendable, Hashable {
 
     public init(summary: OutboxSummary?, status: SyncStatus, online: Bool) {
         let pill = SyncPillState.make(summary: summary, status: status, online: online)
-        connection = if case .offline = pill { .offline } else { .online }
+        // The badge is the connection alone: the pill ranks failed items and a different server
+        // above "offline", but the device is offline all the same.
+        let unreachable = if case .unreachable = status.lastFailure { true } else { false }
+        connection = online && !unreachable ? .online : .offline
         headline = pill == .hidden ? "All changes synced" : pill.label
         lastSyncAt = status.lastSyncAt
         problem = pill == .syncError ? status.lastFailure.map(Self.describe) : nil
