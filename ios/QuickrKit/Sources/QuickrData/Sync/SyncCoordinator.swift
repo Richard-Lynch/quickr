@@ -360,6 +360,14 @@ public actor SyncCoordinator {
         } while rerunRequested && result == .synced
         broadcaster.update { $0.activity = resetting ? .resetting : .idle }
         recordOutcome(result)
+        // The run's last page isn't in the status yet (each step publishes the state it starts
+        // from). Read it before returning, from the active store: the cached one may have been
+        // dropped meanwhile (connecting posts registryChanged, which invalidates it).
+        if result == .synced, let store = try? await activeStore(resumingReset: false),
+            let state = try? await store.syncState.syncState()
+        {
+            refresh(state)
+        }
         return result
     }
 
@@ -818,11 +826,6 @@ public actor SyncCoordinator {
                 $0.lastFailure = nil
                 $0.consecutiveFailures = 0
                 $0.retryDelay = nil
-            }
-            if let store {
-                Task { [weak self] in
-                    if let state = try? await store.syncState.syncState() { await self?.refresh(state) }
-                }
             }
         case .failed(let failure):
             var delay: Duration = .zero

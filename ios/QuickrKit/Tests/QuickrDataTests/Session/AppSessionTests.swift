@@ -229,6 +229,16 @@ private let otherServerURL = URL(string: "https://other.example")!
         await session.shutdown()
     }
 
+    @Test func afterStartTheStatusHasTheLastPull() async throws {
+        let w = try World()
+        defer { w.env.cleanup() }
+        let session = try w.session()
+        await session.start(serverURL: SyncEnv.baseURL)
+        try await eventually("last pull published") { @MainActor in session.syncStatus.lastSyncAt != nil }
+        #expect(session.coordinator.status.lastSyncAt != nil)
+        await session.shutdown()
+    }
+
     @Test func backgroundRefreshPullsThenSendsThenSuspends() async throws {
         let w = try World()
         defer { w.env.cleanup() }
