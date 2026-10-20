@@ -101,7 +101,9 @@ export function stackSegments(
   p: SeriesPoint,
   legend: readonly { value: string; label: string }[],
 ): { value: string; n: number }[] {
-  return legend.map((o) => ({ value: o.value, n: p.option_counts[o.value] ?? 0 })).filter((s) => s.n > 0);
+  return legend
+    .map((o) => ({ value: o.value, n: p.option_counts[o.value] ?? 0 }))
+    .filter((s) => s.n > 0);
 }
 
 export interface EnumView {
