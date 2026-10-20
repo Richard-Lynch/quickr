@@ -203,10 +203,11 @@ import Testing
         environment.scenePhaseChanged(.active)
         let session = try #require(environment.session)
         try await eventually("activated") { !session.isBackgrounded }
+        let cancelled = UITestLaunch.server.cancelledCount
         task.expire()
         try await eventually("completed") { task.completions == [false] }
         try await Task.sleep(for: .milliseconds(300))
-        #expect(UITestLaunch.server.heldCount == 1, "the expiry cancelled the foreground's connect")
+        #expect(UITestLaunch.server.cancelledCount == cancelled, "the expiry cancelled the foreground's connect")
 
         UITestLaunch.server.releaseFeed()
         await refresh.value

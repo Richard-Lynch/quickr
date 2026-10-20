@@ -60,6 +60,7 @@ final class FakeServerState: Sendable {
         var rejectNext = false
         var holdFeed = false
         var requests = 0
+        var cancelled = 0
         var held: [UUID: CheckedContinuation<Void, any Error>] = [:]
     }
 
@@ -75,6 +76,9 @@ final class FakeServerState: Sendable {
 
     /// Feed requests waiting while `holdFeed` is on.
     var heldCount: Int { state.withLock { $0.held.count } }
+
+    /// Held feed requests that were cancelled while waiting.
+    var cancelledCount: Int { state.withLock { $0.cancelled } }
 
     func rejectNextCreate() { state.withLock { $0.rejectNext = true } }
 
@@ -112,7 +116,11 @@ final class FakeServerState: Sendable {
                 if proceed { continuation.resume() }
             }
         } onCancel: {
-            let waiter = state.withLock { $0.held.removeValue(forKey: id) }
+            let waiter = state.withLock { state in
+                let waiter = state.held.removeValue(forKey: id)
+                if waiter != nil { state.cancelled += 1 }
+                return waiter
+            }
             waiter?.resume(throwing: TransportError.cancelled(requestStarted: true))
         }
         if Task.isCancelled { throw TransportError.cancelled(requestStarted: true) }
