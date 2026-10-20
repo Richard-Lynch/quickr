@@ -62,6 +62,18 @@ public struct EntriesExport: Sendable {
         FileManager.default.temporaryDirectory.appending(path: "Exports", directoryHint: .isDirectory)
     }
 
+    /// Removes export folders older than `age` (by modification date): ones whose share sheet
+    /// never closed (the app was killed). Run at launch, when no export can still be in use.
+    public func sweep(olderThan age: TimeInterval = 24 * 3600, now: Date) {
+        let fm = FileManager.default
+        let folders =
+            (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        for folder in folders {
+            let modified = try? folder.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            if let modified, now.timeIntervalSince(modified) > age { try? fm.removeItem(at: folder) }
+        }
+    }
+
     /// The scope of an export starting now: the binding and its store's identity. Nil (so no
     /// export) when there's no binding, or the store's identity can't be read or isn't known.
     public static func scope(

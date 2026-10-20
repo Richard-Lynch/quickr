@@ -253,6 +253,24 @@ import Testing
         file.remove()
     }
 
+    /// At launch: folders older than a day go (a share sheet the app was killed under); newer
+    /// ones stay.
+    @Test func theLaunchSweepRemovesDayOldExports() throws {
+        let w = World()
+        let fm = FileManager.default
+        let old = w.root.appending(path: "old")
+        let recent = w.root.appending(path: "recent")
+        for folder in [old, recent] {
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: folder.appending(path: "mood-20261020.csv"))
+        }
+        try fm.setAttributes([.modificationDate: Self.now.addingTimeInterval(-25 * 3600)], ofItemAtPath: old.path())
+        try fm.setAttributes([.modificationDate: Self.now.addingTimeInterval(-23 * 3600)], ofItemAtPath: recent.path())
+        w.export.sweep(now: Self.now)
+        #expect(w.folders.map(\.lastPathComponent) == ["recent"])
+        try? fm.removeItem(at: w.root)
+    }
+
     // MARK: - Failures
 
     @Test func noConnectionIsOffline() async {

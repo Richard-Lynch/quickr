@@ -159,6 +159,8 @@ final class AppEnvironment {
             // Not after an expiry: the OS took the time back (the next `.active` activates it).
             if !Task.isCancelled { await activatePush() }
             QuickRShortcuts.updateAppShortcutParameters()
+            // CSV exports a killed app never cleaned up (a day old, so none still being shared).
+            Task.detached(priority: .background) { EntriesExport().sweep(now: Date()) }
         }
         starting = attempt
         await attempt.value
