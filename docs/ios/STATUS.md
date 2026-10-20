@@ -300,6 +300,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 06:10 (EDT): LIST: Codex r3 = Major RESOLVED, no new findings. m2-ui (SYNC-UX) is merged in (7ef3163), and a semantic build break (Binding.scope) is fixed in 7bf0452. Final Unit, UI and integration runs are going, then the merge. STATS started (SYNC-UX agent, ios/m2-stats): the server buckets; the plan is server and PWA chart vectors, models, an epoch-checked StatsLoader, then the views, which wait for LIST's TopicTabsView in m2-ui. REG: simulator gates running on 676567b, but on the base device "quickR iOS-26-0", which bypasses the clone cap (load peaked around 54). Follow-up: make sim_boot/test.sh refuse the base device. UIT-2: E2E rerun not running yet; asked.
+
 - 2026-10-20 06:05 (EDT): **SYNC-UX merged into ios/m2-ui** (6f206a1; Codex ×4; on 8f7171f: UI 30/30, Unit 570 ×2; lint, core and the app build pass on the merge). It brings the process-wide SystemCategoriesLock for app tests, and test environments pass `categoryCenter: nil`. W6 is complete (RECORD, SYNC-UX, CAT). Remaining for M2a/M2b: LIST (Codex r3 pending), REG (r2 pending), UIT-2.
 
 - 2026-10-20 05:55 (EDT): SYNC-UX: Unit green ×2 on 8f7171f (570, with CAT's test passing); its UI run seems to have ended with the clone still booted, and I've asked for the results and a shutdown. LIST: Codex r2 fix committed (305a17e: rows carry their binding; EntryDeleter); full gates running. REG: r1 fixes in 676567b (lint and core green, mutations 8/8; registry v2 adds register_attempts/register_due); simulator gates queued. UIT-2: test bugs fixed (88b761f); all six tap-count scenarios equal the PWA; table drafted; E2E rerun queued for a slot.
