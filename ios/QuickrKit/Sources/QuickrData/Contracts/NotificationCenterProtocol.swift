@@ -61,10 +61,15 @@ public struct NotificationActionSpec: Sendable, Hashable, Identifiable {
     }
 
     public enum Kind: Sendable, Hashable {
-        /// Logs a fixed answer (`UNNotificationAction`).
+        /// Logs a fixed answer (`UNNotificationAction`, no options: it runs in the background).
         case log
         /// Asks for a number (`UNTextInputNotificationAction`).
         case input(buttonTitle: String, placeholder: String)
+        /// "More…": opens the record screen (`UNNotificationAction` with `.foreground`, §4.1).
+        case open
+
+        /// Whether the action opens the app (`UNNotificationActionOptions.foreground`).
+        public var opensApp: Bool { self == .open }
     }
 }
 
@@ -213,15 +218,17 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
         public var key: String
         public var label: String
         public var unit: String?
-        public var min: Double?
-        public var max: Double?
+        /// Bounds, typed like the question: exact for an int (they may exceed 2^53).
+        public var min: QuickLogNumber?
+        public var max: QuickLogNumber?
         public var decimals: Int?
-        /// nil when there is no previous entry or it no longer validates.
-        public var lastValue: Double?
+        /// nil when there is no previous entry or it no longer validates. An int question's is an
+        /// exact `.int` (it may exceed 2^53), a double question's a `.double`.
+        public var lastValue: QuickLogNumber?
 
         public init(
-            type: String, key: String, label: String, unit: String? = nil, min: Double? = nil, max: Double? = nil,
-            decimals: Int? = nil, lastValue: Double? = nil
+            type: String, key: String, label: String, unit: String? = nil, min: QuickLogNumber? = nil,
+            max: QuickLogNumber? = nil, decimals: Int? = nil, lastValue: QuickLogNumber? = nil
         ) {
             self.type = type
             self.key = key
@@ -236,6 +243,41 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
         enum CodingKeys: String, CodingKey {
             case type, key, label, unit, min, max, decimals
             case lastValue = "last_value"
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            type = try c.decode(String.self, forKey: .type)
+            key = try c.decode(String.self, forKey: .key)
+            label = try c.decode(String.self, forKey: .label)
+            unit = try c.decodeIfPresent(String.self, forKey: .unit)
+            decimals = try c.decodeIfPresent(Int.self, forKey: .decimals)
+            // Typed by the question: an int's numbers stay exact (JSON ints beyond 2^53).
+            let isInt = type == "int"
+            func number(_ key: CodingKeys) throws -> QuickLogNumber? {
+                isInt
+                    ? try c.decodeIfPresent(Int.self, forKey: key).map(QuickLogNumber.int)
+                    : try c.decodeIfPresent(Double.self, forKey: key).map(QuickLogNumber.double)
+            }
+            min = try number(.min)
+            max = try number(.max)
+            lastValue = try number(.lastValue)
+        }
+
+        public func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(type, forKey: .type)
+            try c.encode(key, forKey: .key)
+            try c.encode(label, forKey: .label)
+            try c.encode(unit, forKey: .unit)
+            try c.encode(decimals, forKey: .decimals)
+            for (key, number) in [(CodingKeys.min, min), (.max, max), (.lastValue, lastValue)] {
+                switch number {
+                case .int(let n): try c.encode(n, forKey: key)
+                case .double(let x): try c.encode(x, forKey: key)
+                case nil: try c.encodeNil(forKey: key)
+                }
+            }
         }
     }
 
@@ -328,4 +370,10 @@ public struct LocalNotificationRequest: Sendable, Hashable, Identifiable {
         self.quickr = quickr
         self.fireDate = fireDate
     }
+}
+
+/// A number quick-log's value: exact for an int question, binary64 for a double one.
+public enum QuickLogNumber: Sendable, Hashable {
+    case int(Int)
+    case double(Double)
 }

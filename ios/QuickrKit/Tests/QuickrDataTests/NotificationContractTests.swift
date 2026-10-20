@@ -42,8 +42,9 @@ import Testing
             number.quickLog
                 == .number(
                     .init(
-                        type: "double", key: "hours", label: "Sleep", unit: "h", min: 0, max: 24, decimals: 1,
-                        lastValue: 7.5)))
+                        type: "double", key: "hours", label: "Sleep", unit: "h", min: .double(0), max: .double(24),
+                        decimals: 1,
+                        lastValue: .double(7.5))))
         #expect(try info(String(decoding: JSONEncoder().encode(number), as: UTF8.self)) == number)
     }
 

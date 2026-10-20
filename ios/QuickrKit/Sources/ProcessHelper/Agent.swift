@@ -269,9 +269,11 @@ actor Agent {
         }
     }
 
-    /// §5.2: one registry `IMMEDIATE` transaction per call inserts the new rows, reads the whole
-    /// table and "registers" it. The registration is an `O_APPEND` line in `log`, written inside
-    /// the transaction, so the log's line order is the transactions' commit order.
+    /// §5.2 through the real `NotificationCategories.register`: one registry `IMMEDIATE`
+    /// transaction per call inserts the new row, reads the whole table and hands it to the center.
+    /// The center here is `RegistrationLog`: each `setNotificationCategories` is an `O_APPEND`
+    /// line in `log`, written inside the transaction, so the log's line order is the transactions'
+    /// commit order and each line is exactly what that call registered.
     ///
     /// `participants` processes run in lockstep: registration `k` starts only once the log holds
     /// `participants × k` lines (every process finished round `k − 1`), so the processes overlap
@@ -282,30 +284,30 @@ actor Agent {
     {
         for index in 0..<count {
             try await waitForLines(participants * index, in: log)
-            try await register(row: "\(prefix)-\(index)", topic: prefix, log: log)
+            try await register(row: Self.categoryRow(prefix: prefix, index: index), log: log)
         }
         try await waitForLines(participants * count, in: log)
-        try await register(row: nil, topic: prefix, log: log)
+        try await register(row: nil, log: log)
         return ["registered": String(count + 1)]
     }
 
-    private func register(row: String?, topic: String, log: URL) async throws {
-        let owner = owner
-        try await partitions.registry.writer.writeWithoutTransaction { db in
-            try db.inTransaction(.immediate) {
-                if let row {
-                    try db.execute(
-                        sql: """
-                            INSERT OR IGNORE INTO notification_category (id, server_id, topic_id, actions_json, created_at)
-                            VALUES (?, 'server-1', ?, '[]', 0)
-                            """,
-                        arguments: [row, topic])
-                }
-                let ids = try String.fetchAll(db, sql: "SELECT id FROM notification_category ORDER BY id")
-                try Self.append("\(owner)|\(row ?? "final")|\(ids.joined(separator: ","))\n", to: log)
-                return .commit
-            }
-        }
+    private func register(row: NotificationCategories.Row?, log: URL) async throws {
+        let center = RegistrationLog(owner: owner, label: row?.category.id ?? "final", log: log)
+        try await NotificationCategories(registry: partitions.registry, center: center).register(row.map { [$0] } ?? [])
+    }
+
+    /// A real category (a two-option enum) for topic `prefix`-`index`: distinct topics, distinct ids.
+    private static func categoryRow(prefix: String, index: Int) -> NotificationCategories.Row {
+        let topicId = UUID(
+            uuidString: String(format: "00000000-0000-4000-8%03d-%012d", Int(prefix.unicodeScalars.first!.value), index)
+        )!
+        .wireString
+        let question = Question(
+            key: "mood", label: "Mood",
+            kind: .choice(.init(options: [.init(value: "good", label: "Good"), .init(value: "bad", label: "Bad")])))
+        let category = NotificationCategory(
+            serverId: "server-1", topicId: topicId, version: 1, questions: [question])!
+        return .init(serverId: "server-1", topicId: topicId, category: category)
     }
 
     /// Polls the log until it has `count` lines (a cross-process barrier on durable state).
@@ -315,16 +317,6 @@ actor Agent {
         while ((try? String(contentsOf: log, encoding: .utf8))?.split(separator: "\n").count ?? 0) < count {
             guard ContinuousClock.now < deadline else { throw HelperError(description: "lockstep: no \(count) lines") }
             try await Task.sleep(for: .milliseconds(1))
-        }
-    }
-
-    private static func append(_ line: String, to url: URL) throws {
-        let descriptor = open(url.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
-        guard descriptor >= 0 else { throw HelperError(description: "can't open \(url.path)") }
-        defer { close(descriptor) }
-        let bytes = Array(line.utf8)
-        guard write(descriptor, bytes, bytes.count) == bytes.count else {
-            throw HelperError(description: "short write to \(url.path)")
         }
     }
 
@@ -410,4 +402,31 @@ final class ReplyWriter: Sendable {
         defer { lock.unlock() }
         FileHandle.standardOutput.write(line)
     }
+}
+
+/// N4's notification center: records each `setNotificationCategories` as one line,
+/// `{owner}|{inserted category id, or "final"}|{registered ids, comma-separated}`.
+private struct RegistrationLog: NotificationCenterProtocol {
+    let owner: String
+    let label: String
+    let log: URL
+
+    func setNotificationCategories(_ categories: [NotificationCategorySpec]) {
+        let line = "\(owner)|\(label)|\(categories.map(\.id).sorted().joined(separator: ","))\n"
+        let descriptor = open(log.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+        guard descriptor >= 0 else { fatalError("can't open \(log.path)") }
+        defer { close(descriptor) }
+        let bytes = Array(line.utf8)
+        precondition(write(descriptor, bytes, bytes.count) == bytes.count, "short write to \(log.path)")
+    }
+
+    func notificationCategories() async -> [NotificationCategorySpec] { [] }
+    func deliveredNotifications() async -> [NotificationSnapshot] { [] }
+    func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {}
+    func pendingNotificationRequests() async -> [NotificationSnapshot] { [] }
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {}
+    func add(_ request: LocalNotificationRequest) async throws {}
+    func setBadgeCount(_ count: Int) async throws {}
+    func authorizationStatus() async -> NotificationAuthorization { .notDetermined }
+    func requestAuthorization() async throws -> Bool { false }
 }

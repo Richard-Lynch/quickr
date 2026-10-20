@@ -64,8 +64,12 @@ final class AppEnvironment {
     ) -> AppEnvironment {
         let credentials = KeychainAccessCredentials(keychain: keychain)
         return AppEnvironment(settings: AppSettings(defaults: defaults), credentials: credentials) {
+            // Reminder categories go to the system center from launch, ahead of any push (spike F1);
+            // registering them needs no notification permission.
             let session = try AppSession(
-                configuration: .init(location: location, transport: transport, credentials: credentials))
+                configuration: .init(
+                    location: location, transport: transport, credentials: credentials,
+                    categoryCenter: SystemNotificationCenter()))
             // Addresses resolve to servers through the registry, so each request gets its server's token.
             credentials.directory.attach(session.partitions.registry.repository)
             return session
