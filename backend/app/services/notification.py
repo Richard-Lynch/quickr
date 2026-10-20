@@ -11,12 +11,17 @@ docs/ios/specs/notifications.md §2.3 (the descriptor) and §4 (actions and cate
   ``MAX_LABEL_LENGTH`` here, so every channel and the category hash see the same text.
 - :func:`actions` renders a descriptor as the ordered notification actions, and
   :func:`category_id` hashes them into the immutable category id.
+- :func:`action_entry_id` is the id every client gives the entry a reminder action logs
+  (§7.4), so one reminder logs once across the iOS app and the PWA. The server never
+  calls it; it is here so ``shared/fixtures/action-entry-id-vectors.json`` comes from
+  the reference implementation.
 """
 
 from __future__ import annotations
 
 import hashlib
 import unicodedata
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -37,6 +42,7 @@ OTHER_VALUE_TITLE = "Other value…"
 TEXT_INPUT_BUTTON_TITLE = "Log"
 ACTION_SCHEME = "q1"
 CATEGORY_HASH_PREFIX = "quickr-cat-v1"
+ACTION_ENTRY_ID_PREFIX = "quickr-action-entry-v1"
 _RECORD_SEPARATOR = "\u001e"
 _UNIT_SEPARATOR = "\u001f"
 
@@ -194,3 +200,19 @@ def more_suffix(quick_log: QuickLogDescriptor | None) -> str:
     if isinstance(quick_log, QuickLogEnum) and quick_log.total_options > len(quick_log.options):
         return f" · {len(quick_log.options)} of {quick_log.total_options} shown, More for all"
     return ""
+
+
+def action_entry_id(server_id: str, topic_id: str, due_since: str) -> uuid.UUID:
+    """The id of the entry a reminder action logs (notifications.md §7.4).
+
+    A version-8 UUID from the first 16 bytes of
+    ``SHA-256(UTF-8("quickr-action-entry-v1|{server_id}|{topic_id}|{due_since}"))``, with
+    both ids lowercased and ``due_since`` exactly as the payload carries it, then the
+    version (8) and RFC 9562 variant bits set. One reminder slot, one entry: a second action
+    on any client replays the same create, which the server answers with the first entry.
+    """
+    name = "|".join((ACTION_ENTRY_ID_PREFIX, server_id.lower(), topic_id.lower(), due_since))
+    raw = bytearray(hashlib.sha256(name.encode()).digest()[:16])
+    raw[6] = (raw[6] & 0x0F) | 0x80
+    raw[8] = (raw[8] & 0x3F) | 0x80
+    return uuid.UUID(bytes=bytes(raw))

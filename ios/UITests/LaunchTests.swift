@@ -1,13 +1,14 @@
 import XCTest
 
 final class LaunchTests: XCTestCase {
-    /// The app launches into the home screen (a fresh install asks to connect a server).
+    /// A first launch (a clean slate: `-QuickrUITest`) opens onboarding. The topic list after it
+    /// is checked by `SettingsUITests`.
     @MainActor
-    func testTheAppLaunchesIntoTheHomeScreen() {
+    func testFirstLaunchShowsOnboarding() {
         let app = XCUIApplication()
+        app.launchArguments = ["-QuickrUITest"]
         app.launch()
-        let any = app.descendants(matching: .any)
-        XCTAssertTrue(any["home.list"].waitForExistence(timeout: 20))
-        XCTAssertTrue(any["home.settings"].exists)
+        XCTAssertTrue(app.textFields["server.address"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["server.connect"].exists)
     }
 }

@@ -8,7 +8,8 @@ import { getEntryOptions, listTopicVersionsOptions } from '../../client/@tanstac
 import { Page, TopBar } from '../../components/AppShell';
 import { EntryForm, type EntryFormValues } from '../../components/answers/EntryForm';
 import { Button } from '../../components/ui/Button';
-import { Badge, Banner, VersionTag } from '../../components/ui/Card';
+import { ChannelBadge } from '../../components/ChannelBadge';
+import { Banner, VersionTag } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
 import { PageSpinner } from '../../components/ui/Spinner';
 import { useToast } from '../../components/ui/Toast';
@@ -81,7 +82,7 @@ export function EntryEditPage() {
       <Page className="mx-auto max-w-2xl">
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
           <VersionTag version={s.version} />
-          <Badge>{s.channel}</Badge>
+          <ChannelBadge channel={s.channel} />
           <span>logged {formatDateTime(s.created_at)}</span>
         </div>
         {outdated ? (
