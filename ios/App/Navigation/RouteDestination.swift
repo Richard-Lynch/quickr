@@ -2,8 +2,8 @@ import QuickrCore
 import QuickrUI
 import SwiftUI
 
-/// The screen for each `Route`. Settings is SETTINGS's; the topic screens are placeholders that
-/// HOME, RECORD, EDIT, BUILDER, STATS and the topic settings package replace as they land.
+/// The screen for each `Route`. Settings and Record are built; the other topic screens are
+/// placeholders that HOME, EDIT, BUILDER, STATS and the topic settings package replace.
 struct RouteDestination: View {
     let route: Route
 
@@ -16,7 +16,7 @@ struct RouteDestination: View {
         case .topic(let ref, let tab):
             Pending(title: "\(ref) · \(tab.rawValue.capitalized)", route: route)
         case .record(let ref, let fix):
-            Pending(title: fix == nil ? "Record · \(ref)" : "Fix entry · \(ref)", route: route)
+            RecordScreen(ref: ref, fix: fix)
         case .entry(let ref, _):
             Pending(title: "Edit entry · \(ref)", route: route)
         case .editQuestions(let ref):

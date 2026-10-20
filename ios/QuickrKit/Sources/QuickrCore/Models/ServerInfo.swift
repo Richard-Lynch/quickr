@@ -204,3 +204,17 @@ public struct Health: Sendable, Hashable {
 
     public var isOK: Bool { values["status"] == "ok" }
 }
+
+extension Limits {
+    /// The server's defaults (`GET /limits`, `shared/fixtures/api/getLimits.json`), for checks made
+    /// before any limits are fetched; the server enforces its own anyway. A test keeps them in
+    /// step with the fixture.
+    public static let serverDefaults = Limits(
+        keyPattern: "^[a-z][a-z0-9_]{0,62}$", slugPattern: "^[a-z0-9][a-z0-9-]{0,63}$",
+        timePattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$", maxQuestions: 100, maxEnumOptions: 200, maxStrLength: 10_000,
+        maxLabelLength: 200, maxHelpTextLength: 1000, maxUnitLength: 32, maxDecimals: 10, maxTopicNameLength: 200,
+        maxDescriptionLength: 5000, maxChangeNoteLength: 2000, maxSourceLength: 100, maxNotesLength: 5000,
+        maxMetaEntries: 50, maxMetaKeyLength: 64, maxMetaValueLength: 500,
+        capturedAtMin: Date(timeIntervalSince1970: 946_684_800),  // 2000-01-01T00:00:00Z
+        capturedAtMaxFutureHours: 24, scheduleMaxTimes: 24, intervalMinMinutes: 15, intervalMaxMinutes: 129_600)
+}

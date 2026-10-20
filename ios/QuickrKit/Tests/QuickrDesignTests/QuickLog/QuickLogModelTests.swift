@@ -26,7 +26,7 @@ import Testing
     private var held: [CheckedContinuation<Void, Never>] = []
     let ids = (0..<8).map { _ in UUID() }
 
-    func log(_ topic: QuickLogTopic, answers: [String: AnswerValue], capturedAt: Date?, notes: String?)
+    func log(_ topic: EntryTopic, answers: [String: AnswerValue], capturedAt: Date?, notes: String?)
         async throws -> LoggedEntry
     {
         if holdLog { await withCheckedContinuation { held.append($0) } }

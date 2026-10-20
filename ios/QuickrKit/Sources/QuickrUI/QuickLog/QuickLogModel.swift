@@ -11,6 +11,9 @@ public struct QuickLogTopic: Sendable, Hashable {
     public var version: Int
     public var quick: QuickLog
 
+    /// The topic as entries are logged against it.
+    public var entryTopic: EntryTopic { EntryTopic(id: id, slug: slug, name: name, version: version) }
+
     public init(id: UUID, slug: String, name: String, version: Int, quick: QuickLog) {
         self.id = id
         self.slug = slug
@@ -151,7 +154,7 @@ public final class QuickLogModel {
         case .queued:
             toasts.logged(entry, label: label, topicName: topic.name, sent: false)
             return true
-        case .failed(let message):
+        case .failed(let message, _):
             toasts.logFailed(topicName: topic.name, .message(message))
             return false
         case .notSaved:
