@@ -89,6 +89,8 @@ public final class AppSession {
     @ObservationIgnored private var listeners: [Task<Void, Never>] = []
     @ObservationIgnored private var rebinding: Task<Void, Never>?
     @ObservationIgnored private var started = false
+    /// Tests: runs before a new scheduler is bound, to hold a rebind mid-swap.
+    @_spi(Testing) @ObservationIgnored public var beforeBindForTesting: (@MainActor () async -> Void)?
     /// The current scene episode. Every activation and every background starts a new generation;
     /// background work holds its `BackgroundEpisode` and acts only while it is current. The pause
     /// state of the scheduler and the coordinator is ordered by generation too, so a stale
@@ -357,13 +359,23 @@ public final class AppSession {
             let outbox = Outbox(
                 store: store, sender: sender, owner: owner, onSignal: coordinator.outboxSignalHandler)
             let scheduler = OutboxFlushScheduler(outbox: outbox)
-            if case .background(let generation) = lifecycle { await scheduler.pause(generation: generation) }
+            // Paused until it is published and matched to the scene below, so it starts nothing
+            // while the bind waits.
+            await scheduler.pause(generation: lifecycleGeneration)
+            await beforeBindForTesting?()
             await bridge.bind(scheduler)
             self.store = store
             self.outbox = outbox
             self.scheduler = scheduler
             binding = next
             phase = .ready
+            // The scene may have changed while the bind waited (an activation resumed the old
+            // scheduler), so match the current episode now. Later scene calls reach this scheduler,
+            // and generations order them against this one.
+            switch lifecycle {
+            case .foreground: await scheduler.resume(generation: lifecycleGeneration)
+            case .background(let generation): await scheduler.pause(generation: generation)
+            }
             // A request the coordinator made during the swap was dropped; kept items go out now.
             await scheduler.requestFlush(reason: .afterPull)
         } catch {

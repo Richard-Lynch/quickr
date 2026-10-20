@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 import QuickrCore
-import QuickrData
+@_spi(Testing) import QuickrData
 import QuickrTestSupport
 import Synchronization
 import Testing
@@ -360,6 +360,42 @@ private let otherServerURL = URL(string: "https://other.example")!
         await session.didBecomeActive()
         #expect(await !scheduler.isPaused)
         #expect(await session.coordinator.sync(reason: .requested) == .synced)
+        await session.shutdown()
+    }
+
+    /// A rebind starts in the background and its bind is held; the app becomes active meanwhile
+    /// (resuming the old scheduler), then the bind completes: the new scheduler is published
+    /// resumed, matching the scene, and a log goes out.
+    @Test func aSchedulerPublishedAfterAnActivationIsResumed() async throws {
+        let w = try World()
+        defer { w.env.cleanup() }
+        let session = try w.session()
+        await session.start(serverURL: SyncEnv.baseURL)
+        let old = try #require(session.scheduler)
+        let gate = Gate()
+        defer { gate.releaseAll() }
+        session.beforeBindForTesting = { await gate.arrive() }
+        let episode = session.beginBackground()
+        _ = await session.didEnterBackground(episode)
+        #expect(await old.isPaused)
+
+        let rebind = Task { await session.connect(baseURL: SyncEnv.baseURL) }  // forced: a new scheduler
+        try await within("the rebind holds its bind", timeout: .seconds(10)) { await gate.arrival() }
+        let activation = Task { await session.didBecomeActive() }  // its rebind queues behind the held one
+        try await eventually("the activation resumed the old scheduler", timeout: .seconds(10)) {
+            await !old.isPaused
+        }
+        gate.open()
+        _ = try await within("the rebind finished", timeout: .seconds(10)) { await rebind.value }
+        try await within("the activation finished", timeout: .seconds(10)) { await activation.value }
+
+        let scheduler = try #require(session.scheduler)
+        #expect(scheduler !== old)
+        #expect(await !scheduler.isPaused, "published resumed: the scene is in the foreground")
+        _ = try await session.log(topic: Payloads.water, answers: ["glasses": .int(1)], version: 1)
+        try await eventually("the log is delivered", timeout: .seconds(10)) {
+            try await session.store?.outbox.items().isEmpty == true
+        }
         await session.shutdown()
     }
 
