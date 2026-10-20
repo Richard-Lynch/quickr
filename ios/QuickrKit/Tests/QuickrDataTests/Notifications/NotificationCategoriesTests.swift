@@ -36,7 +36,11 @@ import Testing
         }
 
         var table: [String] {
-            get throws { try registry.writer.read { db in try String.fetchAll(db, sql: "SELECT id FROM notification_category ORDER BY id") } }
+            get throws {
+                try registry.writer.read { db in
+                    try String.fetchAll(db, sql: "SELECT id FROM notification_category ORDER BY id")
+                }
+            }
         }
 
         var registrations: [[String]] { center.withState { $0.categoryRegistrations.map { $0.map(\.id).sorted() } } }
@@ -92,7 +96,9 @@ import Testing
         try await w.registry.writer.write { db in
             try db.execute(
                 sql: "INSERT INTO notification_category VALUES ('quickr.t.x.0', 's', 't', ?, 0)",
-                arguments: [#"[{"kind":"log","identifier":"q1|a","title":"A"},{"kind":"future","identifier":"q1|b","title":"B"}]"#])
+                arguments: [
+                    #"[{"kind":"log","identifier":"q1|a","title":"A"},{"kind":"future","identifier":"q1|b","title":"B"}]"#
+                ])
             try db.execute(sql: "INSERT INTO notification_category VALUES ('quickr.t.y.0', 's', 't', 'not json', 0)")
         }
         try await w.categories.register([])
@@ -167,11 +173,15 @@ import Testing
         old.questions = [Self.severity(2)]
         try s.write { db in
             for topic in [water, mood, notes, old] { _ = try ServerLayer.upsert(db, topic: topic) }
-            _ = try ServerLayer.upsert(db, entry: Make.entry(topicId: water.id, minutes: 1, answers: ["glasses": .int(3)]))
-            _ = try ServerLayer.upsert(db, entry: Make.entry(topicId: water.id, minutes: 2, answers: ["glasses": .int(5)]))
+            _ = try ServerLayer.upsert(
+                db, entry: Make.entry(topicId: water.id, minutes: 1, answers: ["glasses": .int(3)]))
+            _ = try ServerLayer.upsert(
+                db, entry: Make.entry(topicId: water.id, minutes: 2, answers: ["glasses": .int(5)]))
             for (minutes, value) in [(1, "s5"), (2, "s5"), (3, "s4"), (4, "s4"), (5, "s0"), (6, "s5")] {
                 _ = try ServerLayer.upsert(
-                    db, entry: Make.entry(topicId: mood.id, minutes: Double(minutes), answers: ["severity": .string(value)]))
+                    db,
+                    entry: Make.entry(topicId: mood.id, minutes: Double(minutes), answers: ["severity": .string(value)])
+                )
             }
         }
         let ids = try await w.categories.refresh(from: s.store)
@@ -182,7 +192,10 @@ import Testing
             counts: ["s5": 3, "s4": 2, "s0": 1])!
         #expect(Set(ids) == [expectedWater.id, expectedMood.id], "no category for a text topic or an archived one")
         #expect(try w.table == [expectedWater.id, expectedMood.id].sorted())
-        guard case .choice(let choice) = expectedMood.descriptor else { Issue.record("an enum"); return }
+        guard case .choice(let choice) = expectedMood.descriptor else {
+            Issue.record("an enum")
+            return
+        }
         #expect(choice.options.map(\.value) == ["s5", "s4", "s0"], "the 3 most used, most used first")
         #expect(expectedWater.actions.first?.title == "✓ 5 glasses", "the latest answer")
 
@@ -192,7 +205,8 @@ import Testing
 
         // A new last value is a new category; the old one stays registered (append-only).
         try s.write { db in
-            _ = try ServerLayer.upsert(db, entry: Make.entry(topicId: water.id, minutes: 9, answers: ["glasses": .int(8)]))
+            _ = try ServerLayer.upsert(
+                db, entry: Make.entry(topicId: water.id, minutes: 9, answers: ["glasses": .int(8)]))
         }
         let after = try await w.categories.refresh(from: s.store)
         #expect(w.registrations.count == 2)

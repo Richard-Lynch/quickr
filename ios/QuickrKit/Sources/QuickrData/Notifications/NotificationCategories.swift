@@ -18,7 +18,9 @@ public struct NotificationCategories: Sendable {
     public let center: any NotificationCenterProtocol
     let wallClock: any WallClock
 
-    public init(registry: Registry, center: any NotificationCenterProtocol, wallClock: any WallClock = SystemWallClock()) {
+    public init(
+        registry: Registry, center: any NotificationCenterProtocol, wallClock: any WallClock = SystemWallClock()
+    ) {
         self.registry = registry
         self.center = center
         self.wallClock = wallClock
@@ -93,7 +95,7 @@ public struct NotificationCategories: Sendable {
 
     /// One row per quick-loggable active topic of the store (its current version), with the
     /// option counts and last value read from the store's view (queued entries included).
-    static func rows(in store: LocalStore) async throws -> [Row] {
+    public static func rows(in store: LocalStore) async throws -> [Row] {
         let serverId = store.serverId
         return try await store.writer.read { db in
             try StoreView.topics(db).compactMap { view -> Row? in
@@ -122,7 +124,8 @@ public struct NotificationCategories: Sendable {
     /// Every row of the table, as the system registers them. A row this build can't read (an
     /// unknown action kind from a newer build) keeps its readable actions.
     static func union(_ db: Database) throws -> [NotificationCategorySpec] {
-        try GRDB.Row.fetchAll(db, sql: "SELECT id, actions_json FROM notification_category ORDER BY created_at, id").map {
+        try GRDB.Row.fetchAll(db, sql: "SELECT id, actions_json FROM notification_category ORDER BY created_at, id").map
+        {
             row in
             let actions = (try? decode(row["actions_json"])) ?? []
             return NotificationCategorySpec(id: row["id"], actions: actions.compactMap(\.spec))

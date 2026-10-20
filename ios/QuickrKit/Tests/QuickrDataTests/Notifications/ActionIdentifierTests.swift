@@ -50,7 +50,8 @@ import Testing
     @Test func anActionMustMatchTheReminderItCameWith() throws {
         let choice = Self.info(
             .choice(.init(key: "mood", label: "Mood", options: [.init(value: "good", label: "Good")], totalOptions: 5)))
-        let good = ActionIdentifier(serverId: Self.server, topicId: Self.topic, version: 3, key: "mood", kind: .option, value: "good")
+        let good = ActionIdentifier(
+            serverId: Self.server, topicId: Self.topic, version: 3, key: "mood", kind: .option, value: "good")
         #expect(good.matches(choice))
         var tampered = good
         tampered.value = "bad"
@@ -69,7 +70,8 @@ import Testing
         #expect(more.matches(choice))
 
         let number = Self.info(.number(.init(type: "double", key: "mood", label: "Hours", lastValue: .double(7.5))))
-        let last = ActionIdentifier(serverId: Self.server, topicId: Self.topic, version: 3, key: "mood", kind: .number, value: "7.5")
+        let last = ActionIdentifier(
+            serverId: Self.server, topicId: Self.topic, version: 3, key: "mood", kind: .number, value: "7.5")
         #expect(last.matches(number))
         var otherValue = last
         otherValue.value = "8"

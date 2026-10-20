@@ -48,7 +48,8 @@ public struct NotificationCategory: Sendable, Hashable {
             case "input":
                 NotificationActionSpec(
                     id: identifier, title: title,
-                    kind: .input(buttonTitle: textInputButtonTitle ?? "Log", placeholder: textInputPlaceholder ?? "Value"))
+                    kind: .input(
+                        buttonTitle: textInputButtonTitle ?? "Log", placeholder: textInputPlaceholder ?? "Value"))
             default: nil
             }
         }
@@ -178,7 +179,9 @@ public struct NotificationCategory: Sendable, Hashable {
         }
         switch descriptor {
         case .choice(let choice):
-            var actions = choice.options.map { Action(kind: "log", identifier: id(choice.key, .option, $0.value), title: $0.label) }
+            var actions = choice.options.map {
+                Action(kind: "log", identifier: id(choice.key, .option, $0.value), title: $0.label)
+            }
             if choice.totalOptions > choice.options.count {
                 actions.append(Action(kind: "open", identifier: id(choice.key, .more), title: "More…"))
             }
@@ -321,15 +324,12 @@ public enum NumberFormat {
         }
         let point = text.firstIndex(of: ".").map { text.distance(from: text.startIndex, to: $0) } ?? text.count
         var digits = text.replacingOccurrences(of: ".", with: "")
-        // Position of the decimal point within `digits`, after applying the exponent.
-        var pointAt = point + exponent
-        // Leading zeros carry no value; keep the point position consistent.
-        while digits.count > 1, digits.first == "0" {
-            digits.removeFirst()
-            pointAt -= 1
-        }
+        // Position of the decimal point within `digits`, after applying the exponent. (Swift writes
+        // at most one leading zero, "0.3", which the positional forms below keep as it is.)
+        let pointAt = point + exponent
+        // Trailing zeros of the fraction ("7.0" → "7").
         while digits.count > 1, digits.last == "0", digits.count > pointAt { digits.removeLast() }
-        var out: String
+        let out: String
         if pointAt <= 0 {
             out = "0." + String(repeating: "0", count: -pointAt) + digits
         } else if pointAt >= digits.count {
@@ -337,10 +337,6 @@ public enum NumberFormat {
         } else {
             let i = digits.index(digits.startIndex, offsetBy: pointAt)
             out = digits[..<i] + "." + digits[i...]
-        }
-        if out.contains(".") {
-            while out.last == "0" { out.removeLast() }
-            if out.last == "." { out.removeLast() }
         }
         return (x < 0 ? "-" : "") + out
     }

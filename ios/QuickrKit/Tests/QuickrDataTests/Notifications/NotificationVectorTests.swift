@@ -31,7 +31,8 @@ import Testing
         #expect(category?.descriptor == vector.expected.quickLog, "\(vector.name): descriptor")
         #expect(category?.actions ?? [] == vector.expected.actions, "\(vector.name): actions")
         #expect(category?.id == vector.expected.categoryId, "\(vector.name): category id")
-        #expect(category.map { NotificationCategory.hashInput($0.actions) } == vector.expected.hashInput, "\(vector.name)")
+        #expect(
+            category.map { NotificationCategory.hashInput($0.actions) } == vector.expected.hashInput, "\(vector.name)")
         #expect(category?.bodySuffix ?? "" == vector.expected.bodySuffix, "\(vector.name): body suffix")
         // The push's own descriptor (decoded from its JSON) renders the same category.
         if let quickLog = vector.expected.quickLog {
@@ -40,6 +41,30 @@ import Testing
             #expect(fromPush.id == vector.expected.categoryId)
             let reencoded = try JSONDecoder().decode(QuickLogDescriptor.self, from: JSONEncoder().encode(quickLog))
             #expect(reencoded == quickLog, "\(vector.name): the descriptor survives JSON")
+        }
+    }
+
+    /// The cut's boundary, which the vectors (all far longer) don't pin: 64 scalars stay, 65 don't.
+    @Test func labelsAreCutPastSixtyFourScalars() {
+        let sixtyFour = String(repeating: "é", count: 64)
+        #expect(NotificationCategory.cut(sixtyFour) == sixtyFour)
+        let cut = NotificationCategory.cut(sixtyFour + "x")
+        #expect(cut.unicodeScalars.count == 64 && cut.hasSuffix("…") && cut.dropLast() == sixtyFour.dropLast())
+    }
+
+    /// Beyond the vectors: across the whole binary64 range, fmt round-trips exactly, is canonical
+    /// and never writes an exponent (a fixed-seed walk over random bit patterns).
+    @Test func fmtRoundTripsAcrossTheRange() {
+        var state: UInt64 = 0x9E37_79B9_7F4A_7C15
+        var checked = 0
+        while checked < 5000 {
+            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            let x = Double(bitPattern: state)
+            guard x.isFinite else { continue }
+            let text = NumberFormat.fmt(x)
+            #expect(Double(text) == x, "\(x) → \(text)")
+            #expect(NumberFormat.isCanonical(text) && !text.contains("e"), "\(x) → \(text)")
+            checked += 1
         }
     }
 

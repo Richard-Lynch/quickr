@@ -45,7 +45,9 @@ private let otherServerURL = URL(string: "https://other.example")!
             env.transport.stub(where: { $0.url.path == "/api/v1/changes" }, { try server.respond($0) })
         }
 
-        @MainActor func session(transport: (any Transport)? = nil) throws -> AppSession {
+        @MainActor func session(
+            transport: (any Transport)? = nil, categoryCenter: (any NotificationCenterProtocol)? = nil
+        ) throws -> AppSession {
             var coordinator = SyncCoordinator.Configuration()
             coordinator.autoRetry = false
             coordinator.jitter = { 0 }
@@ -54,7 +56,7 @@ private let otherServerURL = URL(string: "https://other.example")!
                     location: StoreLocation(root: env.dir.url), transport: transport ?? env.transport,
                     notifier: env.notifier,
                     leaseClock: env.clock, wallClock: env.wall, coordinator: coordinator,
-                    notificationCenter: notifications))
+                    notificationCenter: notifications, categoryCenter: categoryCenter))
         }
 
         func posted(_ name: Notification.Name) -> Counter {
@@ -118,6 +120,39 @@ private let otherServerURL = URL(string: "https://other.example")!
 
         #expect(await session.coordinator.sync(reason: .requested) == .synced)
         #expect(try await store.entries.entry(id: id)?.syncState == .synced)
+        await session.shutdown()
+    }
+
+    /// notifications.md §5.2 callers: binding registers the store's categories, and so does a sync
+    /// that changes data; activation reconciles (§5.3). The NSE may never run (spike F1).
+    @Test func theBoundStoresCategoriesAreRegisteredAndReconciledOnActivation() async throws {
+        let w = try World()
+        defer { w.env.cleanup() }
+        let center = FakeNotificationCenter()
+        let session = try w.session(categoryCenter: center)
+        await session.start(serverURL: SyncEnv.baseURL)
+        await session.categoryRefreshSettled()
+        let store = try #require(session.store)
+        let expected = Set(try await NotificationCategories.rows(in: store).map(\.category.id))
+        #expect(!expected.isEmpty, "the fixture has quick-loggable topics")
+        #expect(Set(center.withState { $0.categories.map(\.id) }) == expected)
+
+        // A log changes the water topic's last value: a new category after the next sync.
+        _ = try await session.log(topic: Payloads.water, answers: ["glasses": .int(4)], version: 1)
+        try await eventually("the log is flushed") { try await store.outbox.items().isEmpty }
+        #expect(await session.coordinator.sync(reason: .requested) == .synced)
+        try await eventually("the new category is registered") {
+            await session.categoryRefreshSettled()
+            let now = Set(try await NotificationCategories.rows(in: store).map(\.category.id))
+            return !now.isSubset(of: expected) && Set(center.withState { $0.categories.map(\.id) }).isSuperset(of: now)
+        }
+
+        // The system lost them (a reboot): activation re-registers the union.
+        center.withState { $0.categories = [] }
+        await session.didBecomeActive()
+        try await eventually("reconciled") { !center.withState { $0.categories }.isEmpty }
+        let table = Set(try await session.partitions.registry.repository.notificationCategories().map(\.id))
+        #expect(Set(center.withState { $0.categories.map(\.id) }) == table)
         await session.shutdown()
     }
 
