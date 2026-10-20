@@ -27,3 +27,7 @@ ios/Local.xcconfig
 DerivedData/
 xcuserdata/
 *.xcresult
+
+# Local compose overrides (may name secret paths)
+docker-compose.override.yml
+ios/UITests/Info.plist

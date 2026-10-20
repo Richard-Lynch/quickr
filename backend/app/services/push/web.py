@@ -1,4 +1,4 @@
-"""Web Push: VAPID keys, subscriptions, and delivery.
+"""Web Push: VAPID keys, browser subscriptions, and delivery.
 
 VAPID keys come from ``QUICKR_VAPID_PRIVATE_KEY`` / ``QUICKR_VAPID_PUBLIC_KEY``
 when set. Otherwise a key pair is generated on first use and stored in
@@ -7,6 +7,10 @@ rotating it would silently invalidate every browser subscription.
 
 ``deliver`` is the only function that talks to push services. It is blocking
 (pywebpush uses requests) and is run in a worker thread.
+
+Subscription endpoints are capability URLs, so they never reach the logs: delivery
+errors carry the status or exception type only (no URL-bearing message or chain), and
+urllib3's debug request lines have the path redacted.
 """
 
 from __future__ import annotations
@@ -14,8 +18,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -30,30 +35,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models import AppSetting, PushSubscription
 from app.push_guard import PushEndpointRejected, check_endpoint, ensure_public
-from app.schemas.api import PushPayload, PushSubscriptionIn, PushSubscriptionOut, PushTestResult
-from app.services.feed import writer, writer_once
+from app.schemas.api import PushPayload, PushSubscriptionIn, PushSubscriptionOut
+from app.services.feed import writer
+from app.services.notification import canonical_instant
+from app.services.push.base import Notification, PushFailed, PushGone
 
-log = logging.getLogger(__name__)
+_REQUEST_LINE = re.compile(r'"([A-Z]+) \S+ (HTTP/[0-9.]+)"')
+
+
+class RedactRequestPaths(logging.Filter):
+    """Redacts the path from urllib3's ``"POST /fcm/send/... HTTP/1.1" 201`` debug lines."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        redacted = _REQUEST_LINE.sub(r'"\1 <path> \2"', message)
+        if redacted != message:
+            record.msg, record.args = redacted, None
+        return True
+
+
+logging.getLogger("urllib3.connectionpool").addFilter(RedactRequestPaths())
 
 PRIVATE_KEY_SETTING = "vapid_private_key"
 PUBLIC_KEY_SETTING = "vapid_public_key"
 SEND_TIMEOUT_SECONDS = 10
-# How long a push service keeps an undelivered message (e.g. phone offline).
-DEFAULT_TTL_SECONDS = 12 * 3600
 
 
 @dataclass(frozen=True, slots=True)
 class VapidKeys:
     private_key: str  # base64url raw private value (what pywebpush/py_vapid accept)
     public_key: str  # base64url uncompressed point (the browser's applicationServerKey)
-
-
-class PushGone(Exception):
-    """The push service says the subscription no longer exists (404/410)."""
-
-
-class PushFailed(Exception):
-    """Any other delivery failure."""
 
 
 def _b64url(raw: bytes) -> str:
@@ -188,11 +199,11 @@ def deliver(
     try:
         host = check_endpoint(subscription["endpoint"])
     except PushEndpointRejected as exc:
-        raise PushGone(f"endpoint no longer allowed: {exc}") from exc  # will never work: drop it
+        raise PushGone(f"endpoint no longer allowed: {exc}") from None  # will never work: drop it
     try:
         ensure_public(host)
     except PushEndpointRejected as exc:
-        raise PushFailed(str(exc)) from exc
+        raise PushFailed(str(exc)) from None  # names the host only
     try:
         webpush(
             subscription_info=subscription,
@@ -203,66 +214,55 @@ def deliver(
             ttl=ttl,
             requests_session=_NoRedirectSession(),
         )
+    # No message or chain from here on: requests' errors include the endpoint URL.
     except WebPushException as exc:
         status = getattr(exc.response, "status_code", None)
         if status in (404, 410):
-            raise PushGone(str(exc)) from exc
-        raise PushFailed(str(exc)) from exc
+            raise PushGone(f"{host} answered {status}") from None
+        raise PushFailed(f"{host} answered {status}" if status else f"{host}: {type(exc).__name__}") from None
     except (requests.RequestException, ValueError) as exc:
-        raise PushFailed(str(exc)) from exc
+        raise PushFailed(f"{host}: {type(exc).__name__}") from None
 
 
-async def send_to_all(
-    db: AsyncSession, payload: PushPayload, *, ttl: int = DEFAULT_TTL_SECONDS
-) -> PushTestResult:
-    """Send ``payload`` to every subscription. Gone subscriptions are deleted.
+def render(n: Notification) -> PushPayload:
+    """The Web Push JSON for ``n`` (what the service worker reads).
 
-    Changes are flushed but not committed; the caller owns the transaction.
+    The body is the plain due message: the "More…" suffix belongs to the APNs actions.
     """
-    keys = await _ensure_vapid_keys(db)
-    claims: dict[str, str | int] = {"sub": get_settings().vapid_subject}
-    signer = signing_key(keys.private_key)
-    data = payload.model_dump_json()
-    sent = failed = 0
-    subs = (await db.execute(select(PushSubscription).order_by(PushSubscription.created_at))).scalars().all()
-    for sub in subs:
-        info = {"endpoint": sub.endpoint, "keys": {"p256dh": sub.p256dh, "auth": sub.auth}}
-        try:
-            await asyncio.to_thread(deliver, info, data, signer, claims, ttl)
-        except PushGone:
-            log.info("push subscription %s is gone; removing it", sub.id)
-            await db.delete(sub)
-            failed += 1
-        except Exception:
-            log.warning("push to subscription %s failed", sub.id, exc_info=True)
-            sub.failure_count += 1
-            failed += 1
-        else:
-            sub.last_success_at = datetime.now(UTC)
-            sub.failure_count = 0
-            sent += 1
-    await db.flush()
-    return PushTestResult(sent=sent, failed=failed)
-
-
-@writer_once
-async def send_test(db: AsyncSession) -> PushTestResult:
-    """Send a test notification to every subscription, all under the feed lock.
-
-    The writer checks the request's preconditions right after taking the lock, so a
-    mismatch sends nothing and changes nothing, and no epoch rotation can land between
-    the check and the sends: the lock is held through delivery and bookkeeping until the
-    commit. Deliveries run one after another, so the lock is held for roughly the sum of
-    the per-send timeouts in the worst case (it scales with the number of subscriptions
-    and with network/DNS latency) and blocks every feed writer meanwhile. That is
-    acceptable for a manual action on a single-user server. It never retries: a failure
-    rolls back the bookkeeping and propagates rather than sending twice.
-    """
-    payload = PushPayload(
-        title="quickR",
-        body="Test notification: push is working.",
-        url="/",
-        tag="test",
-        topic_slug=None,
+    return PushPayload(
+        title=n.title,
+        body=n.body,
+        url=n.url,
+        tag=n.tag,
+        topic_slug=n.topic_slug,
+        kind=n.kind,
+        server_id=n.server_id,
+        topic_id=str(n.topic_id) if n.topic_id else None,
+        version=n.version,
+        due_since=canonical_instant(n.due_since) if n.due_since else None,
+        quick_log=n.quick_log,
     )
-    return await send_to_all(db, payload, ttl=3600)
+
+
+class WebPushSender:
+    """Web Push to every browser subscription, signed with the VAPID key."""
+
+    kind = "web"
+
+    def __init__(self, keys: VapidKeys) -> None:
+        self._signer = signing_key(keys.private_key)
+        self._claims: dict[str, str | int] = {"sub": get_settings().vapid_subject}
+
+    @classmethod
+    async def create(cls, db: AsyncSession) -> WebPushSender:
+        """A sender with the VAPID keys (generated on first use, in the caller's transaction)."""
+        return cls(await _ensure_vapid_keys(db))
+
+    async def targets(self, db: AsyncSession) -> Sequence[PushSubscription]:
+        return (
+            (await db.execute(select(PushSubscription).order_by(PushSubscription.created_at))).scalars().all()
+        )
+
+    async def send(self, target: PushSubscription, n: Notification, ttl: int) -> None:
+        info = {"endpoint": target.endpoint, "keys": {"p256dh": target.p256dh, "auth": target.auth}}
+        await asyncio.to_thread(deliver, info, render(n).model_dump_json(), self._signer, self._claims, ttl)

@@ -1,0 +1,94 @@
+# Isolated backend stacks for the iOS integration tests (`make ios-integration`).
+# Started by ios/scripts/integration-up.sh, which picks a per-worktree project name; Docker
+# picks free loopback host ports, which the script reads back. Don't `docker compose up`
+# this by hand. Two independent servers (own database, own server id) share one throwaway
+# Postgres, and the fault proxy fronts them:
+#   proxy          -> backend-a by default; PUT /upstream on its control port switches to b
+#   backend-a / -b -> also published directly, for tests that bypass the proxy
+# Everything is bound to 127.0.0.1 and nothing is persisted (Postgres runs on tmpfs).
+
+x-backend-env: &backend-env
+  QUICKR_CORS_ORIGINS: "[]"
+  QUICKR_SCHEDULER_ENABLED: "false"
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: quickr
+      POSTGRES_PASSWORD: quickr
+      POSTGRES_DB: quickr
+    tmpfs:
+      - /var/lib/postgresql
+    volumes:
+      - ./backend/tools/integration-initdb.sql:/docker-entrypoint-initdb.d/10-second-server.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quickr -d quickr_b"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
+  backend-a:
+    build: ./backend
+    image: ${QUICKR_IT_IMAGE:?run ios/scripts/integration-up.sh}
+    environment:
+      <<: *backend-env
+      QUICKR_DATABASE_URL: postgresql+asyncpg://quickr:quickr@db:5432/quickr
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1::8000"
+    healthcheck: &backend-health
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/v1/health')",
+        ]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
+  backend-b:
+    image: ${QUICKR_IT_IMAGE:?}
+    pull_policy: never
+    environment:
+      <<: *backend-env
+      QUICKR_DATABASE_URL: postgresql+asyncpg://quickr:quickr@db:5432/quickr_b
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1::8000"
+    healthcheck: *backend-health
+
+  proxy:
+    image: ${QUICKR_IT_IMAGE:?}
+    pull_policy: never
+    entrypoint: ["python", "tools/faultproxy.py"]
+    command:
+      - --listen=0.0.0.0:8080
+      - --control=0.0.0.0:8081
+      - --upstream=a=http://backend-a:8000
+      - --upstream=b=http://backend-b:8000
+    depends_on:
+      backend-a:
+        condition: service_healthy
+      backend-b:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1::8080"
+      - "127.0.0.1::8081"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request;urllib.request.urlopen('http://localhost:8081/health')",
+        ]
+      interval: 1s
+      timeout: 3s
+      retries: 30

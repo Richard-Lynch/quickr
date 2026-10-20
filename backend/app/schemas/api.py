@@ -25,13 +25,17 @@ from app.models import Channel, TopicStatus
 from app.push_guard import PushEndpointRejected, check_endpoint
 from app.schemas.base import FieldIssue, Problem, StrictModel, field_error
 from app.schemas.limits import (
+    APNS_TOKEN_PATTERN,
+    BUNDLE_ID_PATTERN,
     CAPTURED_AT_MAX_FUTURE_HOURS,
     CAPTURED_AT_MIN,
     INTERVAL_MAX_MINUTES,
     INTERVAL_MIN_MINUTES,
+    MAX_APP_VERSION_LENGTH,
     MAX_CHANGE_NOTE_LENGTH,
     MAX_DECIMALS,
     MAX_DESCRIPTION_LENGTH,
+    MAX_DEVICE_NAME_LENGTH,
     MAX_ENUM_OPTIONS,
     MAX_HELP_TEXT_LENGTH,
     MAX_LABEL_LENGTH,
@@ -638,6 +642,10 @@ class PushConfig(StrictModel):
         description="VAPID public key (base64url, uncompressed P-256 point): the applicationServerKey "
         "for PushManager.subscribe()."
     )
+    apns_enabled: bool = Field(
+        description="Whether this server can send APNs notifications (to the iOS app). When false, "
+        "devices can still register, but nothing is sent to them."
+    )
 
 
 class PushKeys(StrictModel):
@@ -673,14 +681,105 @@ class PushTestResult(StrictModel):
     failed: int
 
 
+class QuickLogOption(StrictModel):
+    value: str
+    label: str
+
+
+class QuickLogEnum(StrictModel):
+    """A single-select enum a notification can log: the options it offers as actions.
+
+    With 1-4 active options, all of them, in question order. With 5-6, the 3 most-used
+    (most-used first, ties in question order), and a "More…" action opens the record
+    screen (docs/ios/specs/notifications.md §2.3).
+    """
+
+    type: Literal["enum"] = "enum"
+    key: str
+    label: str
+    options: list[QuickLogOption]
+    total_options: int  # the number of active options
+
+
+class QuickLogNumber(StrictModel):
+    """An int or double question a notification can log, with its latest valid value."""
+
+    type: Literal["int", "double"]
+    key: str
+    label: str
+    unit: str | None
+    min: int | float | None
+    max: int | float | None
+    decimals: int | None
+    last_value: int | float | None
+
+
+type QuickLogDescriptor = QuickLogEnum | QuickLogNumber
+
+
 class PushPayload(StrictModel):
-    """JSON body of every push message (consumed by the service worker)."""
+    """JSON body of every Web Push message (consumed by the service worker).
+
+    The first five fields are the original contract. The rest carry the actionable
+    fields, with the same shapes as the APNs payload's ``quickr`` dict (null on a test
+    push); older service workers ignore them.
+    """
 
     title: str
     body: str
     url: str
     tag: str
     topic_slug: str | None = None
+    v: int = 1
+    kind: Literal["due", "test"] = "due"
+    server_id: str | None = None
+    topic_id: str | None = None
+    version: int | None = None
+    due_since: str | None = None  # canonical: UTC, whole seconds, "Z"
+    quick_log: QuickLogEnum | QuickLogNumber | None = None
+
+
+ApnsToken = Annotated[
+    str,
+    Field(pattern=APNS_TOKEN_PATTERN, description="The APNs device token, hex (stored lower-case)."),
+    AfterValidator(str.lower),
+]
+ApnsEnvironment = Literal["sandbox", "production"]
+
+
+class ApnsDeviceIn(StrictModel):
+    """An iOS app install's APNs registration, upserted by token (sent on every launch)."""
+
+    token: ApnsToken
+    environment: ApnsEnvironment = Field(
+        description="The APNs host the token belongs to: sandbox for debug builds, production for "
+        "TestFlight and App Store builds."
+    )
+    bundle_id: Annotated[str | None, Field(pattern=BUNDLE_ID_PATTERN)] = None
+    app_version: Annotated[str | None, Field(max_length=MAX_APP_VERSION_LENGTH)] = None
+    device_name: Annotated[str | None, Field(max_length=MAX_DEVICE_NAME_LENGTH)] = None
+
+    @field_validator("app_version", "device_name")
+    @classmethod
+    def _blank_is_none(cls, v: str | None) -> str | None:
+        return v or None
+
+
+class ApnsDeviceOut(StrictModel):
+    id: UUID
+    token: str
+    environment: ApnsEnvironment
+    bundle_id: str | None
+    app_version: str | None
+    device_name: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ApnsDeviceRef(StrictModel):
+    """One device, by token (unregister, test)."""
+
+    token: ApnsToken
 
 
 # ---------------------------------------------------------------------------

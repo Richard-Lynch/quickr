@@ -1,0 +1,15 @@
+{
+  "body": {
+    "failed": 0,
+    "sent": 1
+  },
+  "operation_id": "sendApnsTestPush",
+  "request": {
+    "body": {
+      "token": "7c5d0e1fa2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d"
+    },
+    "method": "POST",
+    "path": "/api/v1/push/apns/devices/test"
+  },
+  "status": 200
+}

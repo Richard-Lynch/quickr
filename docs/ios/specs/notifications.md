@@ -130,12 +130,17 @@ name, 4 options with 63-character values and 200-character multi-byte labels, a
 }
 ```
 
-- `options` holds **at most 4**, in display order.
-- With ≤ 4 active options, all of them are listed, in the question's option
-  order.
-- With 5–6 active options, the **4 most-used** are listed, counted per key over
-  the topic's entries. Ties go to option order. They are listed most-used first.
-  **[provisional: Q4]**
+- With ≤ 4 active options, `options` lists all of them, in the question's option
+  order, and there is no "More" action.
+- With 5–6 active options, `options` lists the **3 most-used**, counted per key
+  over the topic's entries, most-used first, with ties going to option order. The
+  **4th action is always "More…"**: a `.foreground` action that opens the record
+  screen (`url`) with nothing preselected. **[decided: Q4, 2026-10-17]**
+- When options are truncated, the alert body says so. The server appends
+  `" · {n} of {total} shown, More for all"` to the body, e.g. "Time to log · 3 of
+  6 shown, More for all". iOS truncates long bodies, so this suffix comes after
+  the short due message. The category hash includes the presence of "More", so a
+  topic going from 4 to 5 options gets a new category.
 - `total_options` is the number of active options.
 
 **Number** (an int or double question):
@@ -182,16 +187,17 @@ due list and the badge are the safety net.
 
 ### 4.1 Actions per descriptor
 
-| Descriptor                            | Actions, in order                                                             |
-| ------------------------------------- | ----------------------------------------------------------------------------- |
-| `enum` with _n_ options (1 ≤ _n_ ≤ 4) | One action per option. The title is the label.                                |
-| `int`/`double`, `last_value ≠ null`   | 1. "✓ {fmt(last)}", which logs `last_value`. 2. "Other value…", a text input. |
-| `int`/`double`, `last_value = null`   | 1. "Other value…", a text input.                                              |
-| `null`                                | No category. Tapping opens `url`.                                             |
+| Descriptor                            | Actions, in order                                                                                                      |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `enum` with _n_ options (1 ≤ _n_ ≤ 4) | One action per option. The title is the label.                                                                         |
+| `enum` with 5–6 options (Q4)          | The 3 most-used options, then **"More…"**: an `open` action (`.foreground`) that opens `url` with nothing preselected. |
+| `int`/`double`, `last_value ≠ null`   | 1. "✓ {fmt(last)}", which logs `last_value`. 2. "Other value…", a text input.                                          |
+| `int`/`double`, `last_value = null`   | 1. "Other value…", a text input.                                                                                       |
+| `null`                                | No category. Tapping opens `url`.                                                                                      |
 
 All actions have these properties:
 
-- **No `.foreground`.** Logging runs in the background.
+- **No `.foreground`** on log and input actions; logging runs in the background. The `open` ("More…") action is the one `.foreground` exception.
 - **No `.destructive`.**
 - **No `.authenticationRequired`.** **[provisional: Q2]** If the user opts into
   authentication, the app sets `.authenticationRequired` on every log action at
@@ -209,8 +215,8 @@ The **default action** (tapping the body) opens `url`. There is no separate
 **Two or four visible actions** (§6a rule 9). The first two actions are always
 the most useful ones:
 
-- for enums: the two most-used options (with 5–6 options), or the first two
-  (with fewer);
+- for enums: the two most-used options (with 5–6 options; "More…" is then the
+  4th action, visible only when expanded), or the first two (with fewer);
 - for numbers: "✓ last" and "Other value…".
 
 Everything else is one tap away via the body. Checkpoint D counts how many
@@ -222,14 +228,14 @@ actions iOS actually shows.
 q1|{server_id}|{topic_id}|{version}|{key}|{k}|{value}
 ```
 
-| Part                    | Rule                                                                      |
-| ----------------------- | ------------------------------------------------------------------------- |
-| `q1`                    | The scheme version                                                        |
-| `server_id`, `topic_id` | Lowercase canonical UUIDs                                                 |
-| `version`               | A decimal integer, `quickr.version`                                       |
-| `key`                   | The question key (`^[a-z][a-z0-9_]{0,62}$`)                               |
-| `k`                     | `o` for an enum option, `n` for a fixed number, `i` for number text input |
-| `value`                 | `o`: the option value. `n`: `fmt(last_value)` (§4.4). `i`: empty.         |
+| Part                    | Rule                                                                                              |
+| ----------------------- | ------------------------------------------------------------------------------------------------- |
+| `q1`                    | The scheme version                                                                                |
+| `server_id`, `topic_id` | Lowercase canonical UUIDs                                                                         |
+| `version`               | A decimal integer, `quickr.version`                                                               |
+| `key`                   | The question key (`^[a-z][a-z0-9_]{0,62}$`)                                                       |
+| `k`                     | `o` for an enum option, `n` for a fixed number, `i` for number text input, `m` for "More…" (open) |
+| `value`                 | `o`: the option value. `n`: `fmt(last_value)` (§4.4). `i` and `m`: empty.                         |
 
 ### 4.3 Category id and hash (§6a rule 9)
 
@@ -241,36 +247,40 @@ H = "quickr-cat-v1"
         + (kind == "input" ? "\u001F" + textInputButtonTitle + "\u001F" + textInputPlaceholder : "")
 ```
 
-- `kind` is `log` or `input`. Strings are NFC-normalised and UTF-8 encoded. Hex
+- `kind` is `log`, `input` or `open` (the "More…" action, added in B7 and accepted 2026-10-17). It is hashed like any other action, so a topic going from 4 to 5 options gets a new category id. Strings are NFC-normalised and UTF-8 encoded. Hex
   is lowercase.
 - The hash covers the **complete ordered action descriptor**. A change of
   version, label, last value or order produces a new id, so **a category is
   never changed in place**. The one exception is the authentication flag (§4.1).
 - Python (B7) and Swift MUST produce identical ids. The **category-id vectors**
-  are added to `shared/fixtures/quicklog-vectors.json` **in M3, together with
-  B7**. They cover:
+  live in `shared/fixtures/notification-vectors.json` (added by B7, 30 cases plus
+  21 `fmt` cases). They cover:
   - enums with 1, 4 and 6 options;
   - int and double, with and without `last_value`;
   - a null unit and null decimals;
   - non-ASCII labels;
   - truncation.
 
-  Until then the algorithm here is the contract. The M0 vectors don't include
-  category ids.
+  The algorithm here, together with those vectors, is the contract.
 
 ### 4.4 Title and number formatting (normative, part of the hash)
 
 - An enum title is the payload label, exactly as given.
 - The number action title is
   `"✓ " + fmt(last_value) + (unit ? " " + unit : "")`.
-- `fmt(x)`:
+- `fmt(x)` (decided 2026-10-17 after the B7 review; **no rounding anywhere**):
   - for `int`: base 10, with no grouping;
-  - for `double` with `decimals = d`: fixed-point with `d` places, rounding half
-    away from zero;
-  - for `double` with `decimals = null`: the shortest round-trip decimal, with
-    no exponent and no trailing zeros or dot.
+  - for `double`: the **shortest round-trip decimal** of the binary64 value (the
+    digits JS `String(x)` / Python `repr(float(x))` produce, which are unique), written
+    **without an exponent**, with no trailing zeros and no trailing dot, and never
+    `-0`. `decimals` is a display hint only and is **not** used here.
 - The decimal separator is always `.`. The `n` identifier value uses the same
-  `fmt`.
+  `fmt`, so "✓ {fmt}" logs exactly `last_value`.
+- `last_value` is kept whenever the server would accept it as an answer to the
+  current question (finite, in bounds, integral for `int`); extra fraction digits
+  beyond `decimals` do not drop it.
+- Cross-language vectors: `shared/fixtures/notification-vectors.json` (`fmt`
+  cases include midpoint neighbours, subnormals and extreme magnitudes).
 
 ## 5. Category registration
 
@@ -598,10 +608,14 @@ the same vectors and `device_now + skew`.
 
 ## Open questions
 
-1. **Q2 [provisional]: authentication for Lock Screen logging.** The default is
-   no authentication.
-2. **Q4 [provisional]: topics with 5–6 options.** The default is the 4
-   most-used, most-used first.
+1. **Q2 [decided 2026-10-17]: no authentication for Lock Screen logging**, as
+   long as the experience is clean. Checkpoint D must show: a chip action logs from
+   the Lock Screen with no unlock prompt, no "Open quickR" bounce, and no failure
+   notification, whenever the phone has been unlocked once since boot. If that
+   can't be made clean, raise it with the user instead of silently adding
+   authentication.
+2. **Q4 [decided 2026-10-17]:** 3 most-used options + "More…" for 5–6 options,
+   with the truncation stated in the notification body (see the enum descriptor).
 3. **Before first unlock.** Should the content stay untouched, which is the PLAN
    default, or should the NSE clear `categoryIdentifier` so that no action can
    fail? Decide at checkpoint D, once we know whether categories survive a

@@ -1,5 +1,6 @@
 {
   "body": {
+    "apns_enabled": true,
     "public_key": "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
   },
   "operation_id": "getPushConfig",

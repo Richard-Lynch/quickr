@@ -65,3 +65,9 @@ class EpochMismatch(Conflict):
     """``X-QuickR-Expect-Epoch`` names an older feed epoch (restore/reset): nothing was changed."""
 
     code = "epoch_mismatch"
+
+
+class ApnsDisabled(Conflict):
+    """APNs is not configured on this server (``GET /push/config`` says ``apns_enabled: false``)."""
+
+    code = "apns_disabled"

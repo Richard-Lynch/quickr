@@ -14,7 +14,8 @@ from sqlalchemy import text
 
 from app.db import get_sessionmaker
 from app.services import feed
-from app.services import push as push_svc
+from app.services.push import web as web_push
+from tests.fake_apns import FakeApns, token
 from tests.helpers import make_topic, record, sleep_questions, wait_for_lock_waiter
 
 ANSWERS = {"hours": 7.5, "wakeups": 1, "quality": "ok"}
@@ -22,13 +23,15 @@ PUSH_SUB = {
     "endpoint": "https://fcm.googleapis.com/fcm/send/1",
     "keys": {"p256dh": "p256dh-1", "auth": "auth-1"},
 }
+APNS_DEVICE = {"token": token(1), "environment": "sandbox", "app_version": "1.0 (1)"}
 
 
 @pytest.fixture(autouse=True)
-def deliveries(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Push delivery is mocked: the endpoints that would have been sent to."""
+def deliveries(monkeypatch: pytest.MonkeyPatch, fake_apns: FakeApns) -> list[str]:
+    """Push delivery is mocked: the endpoints and device tokens that would have been sent to."""
     sent: list[str] = []
-    monkeypatch.setattr(push_svc, "deliver", lambda subscription, *_: sent.append(subscription["endpoint"]))
+    monkeypatch.setattr(web_push, "deliver", lambda subscription, *_: sent.append(subscription["endpoint"]))
+    fake_apns.on_send = lambda request: sent.append(request.device)
     return sent
 
 
@@ -92,6 +95,8 @@ async def _state() -> dict[str, Any]:
         "log": "SELECT seq FROM change_log",
         "tombstones": "SELECT id FROM deleted_ids",
         "push": "SELECT endpoint, failure_count, last_success_at FROM push_subscriptions",
+        "apns": "SELECT token, environment, app_version, updated_at, failure_count, last_success_at"
+        " FROM apns_devices",
         # VAPID keys, server id (the epoch is left out: the lock test rotates it on purpose)
         "settings": f"SELECT key, value FROM app_settings WHERE key <> '{feed.EPOCH_SETTING}'",
     }
@@ -105,6 +110,7 @@ async def _fixture(client: httpx.AsyncClient) -> dict[str, str]:
     await make_topic(client, "Old")
     await client.post("/topics/old/archive")
     await client.post("/push/subscriptions", json=PUSH_SUB)
+    await client.post("/push/apns/devices", json=APNS_DEVICE)
     return {"entry": entry["id"]}
 
 
@@ -124,10 +130,13 @@ def _mutations(ids: dict[str, str]) -> list[tuple[str, str, dict[str, Any] | Non
         ("POST", "/push/subscriptions", {**PUSH_SUB, "endpoint": "https://fcm.googleapis.com/fcm/send/2"}),
         ("POST", "/push/subscriptions/delete", {"endpoint": PUSH_SUB["endpoint"]}),
         ("POST", "/push/test", None),
+        ("POST", "/push/apns/devices", {**APNS_DEVICE, "token": token(2)}),
+        ("POST", "/push/apns/devices/delete", {"token": token(1)}),
+        ("POST", "/push/apns/devices/test", {"token": token(1)}),
     ]
 
 
-MUTATIONS = range(12)
+MUTATIONS = range(15)
 
 
 @pytest.mark.parametrize("which", MUTATIONS)
@@ -183,6 +192,7 @@ async def test_every_mutating_operation_declares_the_preconditions() -> None:
         ("POST", "/topics/sleep-log/entries", {"answers": ANSWERS}),
         ("POST", "/push/subscriptions", PUSH_SUB),
         ("POST", "/push/test", None),
+        ("POST", "/push/apns/devices", APNS_DEVICE),
     ],
 )
 async def test_precondition_is_checked_under_the_lock(
@@ -298,6 +308,34 @@ async def test_headers_are_read_after_the_handler(
         return await real_get(db, eid)
 
     monkeypatch.setattr(entry_svc, "get_entry", rotate_then_get)
+    r = await client.get(f"/entries/{entry_id}")
+    assert r.status_code == (200 if found else 404)
+    assert r.headers["x-quickr-epoch"] == rotated[0] != old
+
+
+@pytest.mark.parametrize("found", [True, False])
+async def test_headers_after_a_rotation_between_lookup_and_response(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, found: bool
+) -> None:
+    """S21 (sync-protocol.md §13.1), the other half: the epoch rotates after the lookup has
+    run (found, or raising 404) and before the response is built. The response still carries
+    the new epoch, so the client discards a result read in the old one."""
+    from app.services import entries as entry_svc
+
+    await make_topic(client)
+    entry_id = (await record(client, "sleep-log", ANSWERS))["id"] if found else str(uuid4())
+    _, old = await identity(client)
+    real_get = entry_svc.get_entry
+    rotated: list[str] = []
+
+    async def get_then_rotate(db: Any, eid: Any) -> Any:
+        try:
+            return await real_get(db, eid)
+        finally:
+            async with get_sessionmaker()() as other:
+                rotated.append(await feed.rotate_epoch(other))
+
+    monkeypatch.setattr(entry_svc, "get_entry", get_then_rotate)
     r = await client.get(f"/entries/{entry_id}")
     assert r.status_code == (200 if found else 404)
     assert r.headers["x-quickr-epoch"] == rotated[0] != old
@@ -427,7 +465,7 @@ async def test_test_push_holds_the_lock_through_delivery(
         assert finish.wait(5)
         events.append("delivered")
 
-    monkeypatch.setattr(push_svc, "deliver", slow_deliver)
+    monkeypatch.setattr(web_push, "deliver", slow_deliver)
 
     async def rotate() -> str:
         async with get_sessionmaker()() as other:
