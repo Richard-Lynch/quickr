@@ -98,4 +98,22 @@ final class HomeTests: XCTestCase {
         shot.lifetime = .keepAlways
         add(shot)
     }
+
+    /// The header's wordmark and sync pill grow with Dynamic Type (bar items wouldn't).
+    @MainActor
+    func testTheHeaderScalesWithDynamicType() {
+        func heights(_ extra: [String]) -> (wordmark: CGFloat, pill: CGFloat) {
+            let app = launch(extra)
+            defer { app.terminate() }
+            let wordmark = app.staticTexts["home.wordmark"]
+            let pill = app.buttons["home.syncPill"]
+            XCTAssertTrue(wordmark.waitForExistence(timeout: 5))
+            XCTAssertTrue(pill.waitForExistence(timeout: 10), "the demo store is offline: the pill shows")
+            return (wordmark.frame.height, pill.frame.height)
+        }
+        let normal = heights([])
+        let large = heights(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        XCTAssertGreaterThan(large.wordmark, normal.wordmark * 1.5, "the wordmark scales")
+        XCTAssertGreaterThan(large.pill, normal.pill * 1.3, "the sync pill scales")
+    }
 }
