@@ -51,6 +51,27 @@ final class HomeTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["home.section.upcoming"].exists)
     }
 
+    /// A tile opens its topic and its Log block opens record, through the router; back returns.
+    @MainActor
+    func testATileOpensItsTopicAndLogOpensRecord() {
+        let app = launch()
+        let meds = tile(app, "meds")
+        XCTAssertTrue(meds.waitForExistence(timeout: 5))
+        meds.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.15)).tap()  // the title, not a control
+        let path = app.staticTexts["route.path"]
+        XCTAssertTrue(path.waitForExistence(timeout: 5))
+        XCTAssertEqual(path.label, "/t/meds")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        let log = app.buttons["Log Medication"]
+        XCTAssertTrue(log.waitForExistence(timeout: 5))
+        log.tap()
+        XCTAssertTrue(path.waitForExistence(timeout: 5))
+        XCTAssertEqual(path.label, "/t/meds/record")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 5))
+    }
+
     @MainActor
     func testSearchMatchesQuestionsAndClears() {
         let app = launch()
