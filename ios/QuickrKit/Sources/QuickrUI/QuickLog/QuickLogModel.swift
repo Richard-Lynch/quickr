@@ -30,7 +30,8 @@ public final class QuickLogDrafts {
 
     public subscript(topic: UUID) -> String? {
         get { values[topic] }
-        set { values[topic] = newValue }
+        // Every write redraws whatever reads it, so an unchanged value isn't written.
+        set { if values[topic] != newValue { values[topic] = newValue } }
     }
 }
 
@@ -81,8 +82,11 @@ public final class QuickLogModel {
     public var numberText: String {
         get { drafts[topic.id] ?? QuickLog.initialText(for: topic.quick.question, last: last) }
         set {
+            // A text field can hand back the text it was given (as it is rebuilt while a list
+            // scrolls); writing it anyway redraws the field, which hands it back again.
+            guard newValue != numberText else { return }
             drafts[topic.id] = newValue
-            numberError = nil
+            if numberError != nil { numberError = nil }
         }
     }
 
@@ -142,5 +146,40 @@ public final class QuickLogModel {
             toasts.logFailed(topicName: topic.name, .notSaved)
             return false
         }
+    }
+}
+
+/// Every tile's `QuickLogModel`, kept for the app run. A lazy list drops a tile's views when it
+/// scrolls away; with the model (and its last value) kept here, the tile comes back at its final
+/// height at once. A tile that grew only after its model loaded made a fling at accessibility
+/// sizes thrash: the height change moved the list, which dropped and rebuilt the tile again.
+/// It also keeps a chip's busy and confirmation state across the scroll.
+@MainActor
+public final class QuickLogModels {
+    private var models: [UUID: QuickLogModel] = [:]
+    private let writer: any EntryWriter
+    private let toasts: EntryToasts
+    private let drafts: QuickLogDrafts
+
+    public init(writer: any EntryWriter, toasts: EntryToasts, drafts: QuickLogDrafts) {
+        self.writer = writer
+        self.toasts = toasts
+        self.drafts = drafts
+    }
+
+    /// The topic's model, made on first use. Reading it from a view's body is fine: making one
+    /// changes nothing a view observes. Bring an existing model up to date with ``update(_:with:)``.
+    public func model(for topic: QuickLogTopic) -> QuickLogModel {
+        if let model = models[topic.id] { return model }
+        let model = QuickLogModel(topic: topic, writer: writer, toasts: toasts, drafts: drafts)
+        models[topic.id] = model
+        return model
+    }
+
+    /// Updates a model's topic and last value, touching only what changed (each write redraws).
+    public func update(_ topic: QuickLogTopic, last: AnswerValue?) {
+        let model = model(for: topic)
+        if model.topic != topic { model.topic = topic }
+        if model.last != last { model.last = last }
     }
 }

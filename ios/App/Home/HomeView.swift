@@ -163,13 +163,23 @@ struct HomeView: View {
         }
     }
 
+    /// Lazy at the usual sizes. At the accessibility sizes a quick-log tile can be taller than the
+    /// screen, and a LazyVStack of such rows kept re-laying itself out after a fling (the main
+    /// thread busy for 80 s), so there the list is an ordinary stack.
+    @ViewBuilder
     private func tiles(_ rows: [HomeModel.Row]) -> some View {
-        LazyVStack(spacing: 12) {
-            ForEach(rows, id: \.value.id) { row in
-                TopicTile(
-                    topic: row.value, now: model.now, onOpen: { actions.open(row.value) },
-                    onRecord: { actions.record(row.value) })
-            }
+        if typeSize.isAccessibilitySize {
+            VStack(spacing: 12) { tileRows(rows) }
+        } else {
+            LazyVStack(spacing: 12) { tileRows(rows) }
+        }
+    }
+
+    private func tileRows(_ rows: [HomeModel.Row]) -> some View {
+        ForEach(rows, id: \.value.id) { row in
+            TopicTile(
+                topic: row.value, now: model.now, onOpen: { actions.open(row.value) },
+                onRecord: { actions.record(row.value) })
         }
     }
 

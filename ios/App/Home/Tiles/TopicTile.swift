@@ -20,13 +20,13 @@ struct TopicTile: View {
     let onRecord: () -> Void
 
     @Environment(AppEnvironment.self) private var environment
-    @State private var model: QuickLogModel?
-    /// The latest entry (server or queued), observed only for quick-log topics, like the PWA.
-    @State private var lastEntry: Entry?
 
     private let text = TopicText()
 
     var body: some View {
+        // From the app-wide cache, so a tile the lazy list rebuilds has its model and last value
+        // at once (QuickLogModels); the task below keeps them current.
+        let model = quickTopic.map(environment.quickLogModels.model(for:))
         let topic = topic.topic
         // Recomputed from the schedule and the last entry (queued ones too), so a log clears
         // "Due now" at once, even offline, like the PWA's `dueAfterLogging`.
@@ -35,7 +35,7 @@ struct TopicTile: View {
             title: topic.name, isDue: due.tone == .due || due.tone == .overdue, onOpen: onOpen,
             onLog: topic.status == .archived ? nil : onRecord
         ) {
-            meta(due)
+            meta(due, last: model?.last)
         } quick: {
             if let model { QuickLogArea(model: model) }
         }
@@ -58,7 +58,7 @@ struct TopicTile: View {
             binding: environment.session?.binding, quick: quickTopic, hasEntries: topic.topic.entryCount > 0)
     }
 
-    private func meta(_ due: DueView) -> some View {
+    private func meta(_ due: DueView, last: AnswerValue?) -> some View {
         let archived = topic.topic.status == .archived
         return VStack(alignment: .leading, spacing: 4) {
             if due.kind != .none || archived {
@@ -67,54 +67,38 @@ struct TopicTile: View {
                     if archived { QuickrBadge("Archived", icon: .archive, tone: .warn) }
                 }
             }
-            lastLine
+            lastLine(last)
         }
     }
 
-    private var lastLine: Text {
+    /// `last`: the latest entry's answer to the quick question (quick-log topics only, like the PWA).
+    private func lastLine(_ last: AnswerValue?) -> Text {
         let topic = topic.topic
         guard topic.entryCount > 0 else { return Text("No entries yet") }
         let when = text.relative(topic.lastCapturedAt, now: now)
-        if let quick = quickTopic?.quick, let value = lastEntry?.answers[quick.question.key],
-            let answer = text.answer(value, for: quick.question)
-        {
+        if let quick = quickTopic?.quick, let last, let answer = text.answer(last, for: quick.question) {
             return Text("Last \(Text(answer).fontWeight(.semibold).foregroundStyle(.qr.inkSoft)) · \(when)")
         }
         return Text("\(text.count(topic.entryCount, "entry", "entries")) · \(when)")
     }
 
-    /// Keeps the quick-log model in step with the topic, and its last value with the store.
+    /// Keeps the cached model in step with the topic, and its last value with the store.
     private func follow() async {
-        guard let quickTopic else {
-            model = nil
-            lastEntry = nil
-            return
-        }
-        if let model {
-            model.topic = quickTopic
-        } else {
-            model = QuickLogModel(
-                topic: quickTopic, writer: environment.entryWriter, toasts: environment.entryToasts,
-                drafts: environment.quickLogDrafts)
-        }
+        guard let quickTopic else { return }
+        let models = environment.quickLogModels
         guard let session = environment.session, let store = session.store, topic.topic.entryCount > 0 else {
-            setLast(nil)
+            models.update(quickTopic, last: nil)
             return
         }
         do {
             for try await entries in store.observeEntries(
                 topicId: quickTopic.id, limit: 1, refresh: session.refresh.stream())
             {
-                setLast(entries.first?.entry)
+                models.update(quickTopic, last: entries.first?.entry.answers[quickTopic.quick.question.key])
             }
         } catch {
             // The observation ends with its store (a reset or a switch); the next binding restarts it.
         }
-    }
-
-    private func setLast(_ entry: Entry?) {
-        lastEntry = entry
-        model?.last = quickTopic.flatMap { entry?.answers[$0.quick.question.key] }
     }
 
     private struct ObservationKey: Hashable {

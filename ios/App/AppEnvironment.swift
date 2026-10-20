@@ -25,6 +25,8 @@ final class AppEnvironment {
     /// Entry writes for tiles and Undo, over `session`.
     let entryWriter = SessionEntryWriter()
     let entryToasts: EntryToasts
+    /// Every tile's quick-log model, kept while the app runs (QuickLogModels).
+    let quickLogModels: QuickLogModels
     /// Nil only when it couldn't be created (`sessionError`); `start()` tries again.
     private(set) var session: AppSession?
     private(set) var sessionError: String?
@@ -49,6 +51,7 @@ final class AppEnvironment {
         self.makeSession = makeSession
         self.prepare = prepare
         entryToasts = EntryToasts(center: toasts, writer: entryWriter)
+        quickLogModels = QuickLogModels(writer: entryWriter, toasts: entryToasts, drafts: quickLogDrafts)
         if prepare == nil { openSession() }
         entryWriter.session = { [weak self] in self?.session }
     }

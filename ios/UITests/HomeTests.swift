@@ -145,6 +145,8 @@ final class HomeTests: XCTestCase {
         flung.name = "home-ax-xxxl-after-fling"
         flung.lifetime = .keepAlways
         add(flung)
+        // With real tiles the list at XXXL is many screens long: fling back first, then settle.
+        for _ in 0..<10 where !filter.exists { app.swipeDown(velocity: .fast) }
         for _ in 0..<20 where !(filter.exists && filter.isHittable && filter.frame.minY > 60) {
             scroll(app, by: -150)
         }

@@ -265,6 +265,21 @@ enum Topics {
         #expect(model.numberError == "Required" && w.writer.logged.isEmpty)
     }
 
+    /// A text field handing back the text it shows changes nothing: no draft, no redraw.
+    @Test func writingTheSameTextBackIsANoOp() async {
+        let w = QuickLogWorld()
+        let topic = Topics.water()
+        let model = w.model(topic, last: .int(3))
+        model.numberText = "3"
+        #expect(w.drafts[topic.id] == nil)
+        model.numberText = "21"
+        await model.logNumber()
+        let error = model.numberError
+        #expect(error != nil)
+        model.numberText = "21"  // the same text again: the message stays
+        #expect(model.numberError == error)
+    }
+
     @Test func theLabelAddsTheUnitOnlyWhenItSaysSomethingNew() {
         let w = QuickLogWorld()
         #expect(w.model(Topics.water()).numberLabel == "Glasses")  // same word
@@ -339,5 +354,22 @@ enum Topics {
         w.writer.restores = false
         await w.toasts.undoDelete(entryId: UUID(), in: w.writer.scope!)
         #expect(w.lastToast?.title == "Couldn’t undo" && w.lastToast?.message == "The delete was already sent.")
+    }
+}
+
+@MainActor @Suite(.timeLimit(.minutes(2))) struct QuickLogModelsTests {
+    @Test func aTopicKeepsItsModelAndLastValueAcrossLookups() {
+        let w = QuickLogWorld()
+        let models = QuickLogModels(writer: w.writer, toasts: w.toasts, drafts: w.drafts)
+        let first = models.model(for: Topics.headache)
+        models.update(Topics.headache, last: .string("mild"))
+        let again = models.model(for: Topics.headache)
+        #expect(first === again && again.lastOption == "mild")
+        #expect(models.model(for: Topics.water()) !== first)
+
+        var renamed = Topics.headache
+        renamed.name = "Head"
+        models.update(renamed, last: .string("mild"))
+        #expect(again.topic.name == "Head")
     }
 }
