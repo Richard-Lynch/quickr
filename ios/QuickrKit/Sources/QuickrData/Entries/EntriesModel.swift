@@ -115,9 +115,13 @@ public final class EntriesModel {
                 loaded = true
                 return
             }
-            self.topic = topic
-            relist()
             let topicId = topic.topic.id
+            // Before the entries arrive, so the first list has every column.
+            let versions = try await store.versions.versions(topicId: topicId)
+            guard isCurrent(generation) else { return }
+            self.topic = topic
+            self.versions = versions
+            relist()
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { await self.observeTopic(store, topicId, generation) }
                 group.addTask { await self.observeEntries(store, topicId, generation) }
