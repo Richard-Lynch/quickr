@@ -73,6 +73,24 @@ import Testing
         #expect(Self.text.answer(.string("70"), for: free) == nil)
     }
 
+    @Test func dueIsRecomputedFromTheLastEntrySoALogClearsIt() throws {
+        func topic(last: Date?, status: TopicStatus = .active) -> Topic {
+            Topic(
+                id: UUID(), slug: "water", name: "Water", status: status, currentVersion: 1, revision: 1,
+                questionCount: 1, lastCapturedAt: last, createdAt: Self.at(-24 * 60), updatedAt: Self.at(-24 * 60),
+                schedule: .interval(.init(everyMinutes: 120, timezone: "UTC")), scheduleUpdatedAt: Self.at(-5 * 60),
+                questions: [])
+        }
+        let stale = try #require(TopicText.dueStatus(topic(last: Self.at(-3 * 60)), now: Self.now))
+        #expect(stale.isDue)
+        let logged = try #require(TopicText.dueStatus(topic(last: Self.at(-1)), now: Self.now))
+        #expect(!logged.isDue && logged.nextDueAt == Self.at(119))
+        #expect(TopicText.dueStatus(topic(last: nil, status: .archived), now: Self.now)?.isDue == false)
+        var unscheduled = topic(last: nil)
+        unscheduled.schedule = nil
+        #expect(TopicText.dueStatus(unscheduled, now: Self.now) == nil)
+    }
+
     @Test func countsUsePlurals() {
         #expect(Self.text.count(1, "entry", "entries") == "1 entry")
         #expect(Self.text.count(1234, "entry", "entries") == "1,234 entries")

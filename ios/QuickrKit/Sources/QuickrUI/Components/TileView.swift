@@ -129,6 +129,7 @@ public struct QuickNumberRow: View {
             HStack(spacing: 6) {
                 NumberStepper(text: $text, rule: rule, label: label, size: .compact, isInvalid: error != nil)
                     .disabled(isBusy)
+                    .accessibilityIdentifier("quick.number")
                 Button(action: onLog) {
                     QIcon.check.view(size: 20, weight: .heavy)
                         .foregroundStyle(.qr.paper)
@@ -140,6 +141,7 @@ public struct QuickNumberRow: View {
                 .disabled(isBusy || text.trimmingCharacters(in: .whitespaces).isEmpty)
                 .opacity(isBusy || text.isEmpty ? 0.4 : 1)
                 .accessibilityLabel("Log \(text.isEmpty ? label : text)")
+                .accessibilityIdentifier("quick.check")
             }
             if let error {
                 Text(error)

@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import QuickrData
+import QuickrUI
 import SwiftUI
 import UIKit
 
@@ -12,6 +13,13 @@ import UIKit
 final class AppEnvironment {
     let settings: AppSettings
     let router = Router()
+    /// Every screen's toasts, hosted once at the root so a toast outlives navigation.
+    let toasts = ToastCenter()
+    /// Numbers typed into tiles but not logged yet (kept while the app runs, like the PWA's).
+    let quickLogDrafts = QuickLogDrafts()
+    /// Entry writes for tiles and Undo, over `session`.
+    let entryWriter = SessionEntryWriter()
+    let entryToasts: EntryToasts
     /// Nil only when it couldn't be created (`sessionError`); `start()` tries again.
     private(set) var session: AppSession?
     private(set) var sessionError: String?
@@ -23,7 +31,9 @@ final class AppEnvironment {
     init(settings: AppSettings, makeSession: @escaping @MainActor () throws -> AppSession) {
         self.settings = settings
         self.makeSession = makeSession
+        entryToasts = EntryToasts(center: toasts, writer: entryWriter)
         openSession()
+        entryWriter.session = { [weak self] in self?.session }
     }
 
     /// The live session over the App Group's files, sending through URLSession.
@@ -39,6 +49,10 @@ final class AppEnvironment {
     /// a scene, so this runs in `QuickRApp.init`, before anything can query an entity. It opens
     /// the registry only; the store opens on first use.
     static func bootstrap(location: StoreLocation = .shared(appGroup: AppGroup.identifier)) -> AppEnvironment {
+        #if DEBUG
+        // `-QuickrDemoStore`: a throwaway store with demo topics (screenshots, UI tests).
+        let location = DemoStore.isRequested ? DemoStore.location : location
+        #endif
         let environment = live(location: location)
         environment.registerIntentTopics()
         return environment
@@ -64,6 +78,9 @@ final class AppEnvironment {
                 openSession()
                 registerIntentTopics()
             }
+            #if DEBUG
+            if DemoStore.isRequested, let session { await DemoStore.seed(session.partitions) }
+            #endif
             await session?.start(serverURL: settings.serverURL)
             QuickRShortcuts.updateAppShortcutParameters()
         }

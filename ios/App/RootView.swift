@@ -9,11 +9,20 @@ struct RootView: View {
     @Environment(AppEnvironment.self) private var environment
 
     var body: some View {
+        content
+            // One host for every screen's toasts, so a toast outlives navigation.
+            .toastHost(environment.toasts)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         #if DEBUG
         if let page = Self.catalogPage {
             DesignCatalogView(page: page)
         } else if let demo = Self.formDemo {
             FormDemoView(demo: demo)
+        } else if ProcessInfo.processInfo.arguments.contains("-QuickrTilesDemo") {
+            TilesDemoView()
         } else {
             stack
         }

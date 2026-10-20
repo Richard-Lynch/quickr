@@ -42,6 +42,17 @@ public struct TopicText: Sendable {
         self.locale = locale
     }
 
+    /// The topic's due status at `now`, recomputed from its schedule and its last entry as the
+    /// server does (`schedule_since` = when the schedule was set, else the topic's creation). The
+    /// last entry includes queued ones, so logging clears "Due now" at once, even offline, like
+    /// the PWA's `dueAfterLogging`. Nil without a schedule.
+    public static func dueStatus(_ topic: Topic, now: Date) -> DueStatus? {
+        guard let schedule = topic.schedule else { return nil }
+        return Due.status(
+            of: schedule, now: now, lastEntryAt: topic.lastCapturedAt,
+            scheduleSince: topic.scheduleUpdatedAt ?? topic.createdAt, archived: topic.status == .archived)
+    }
+
     /// Due right now: the server says so, or the next slot has passed since it last looked.
     public static func isDueNow(_ due: DueStatus?, now: Date) -> Bool {
         guard let due else { return false }
