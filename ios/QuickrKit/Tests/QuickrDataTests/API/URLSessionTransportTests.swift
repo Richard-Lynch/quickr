@@ -71,6 +71,32 @@ import Testing
         }
     }
 
+    /// A download's 2xx body goes to the file, not the response; a problem stays in the response
+    /// and writes nothing.
+    @Test func aDownloadWritesTheBodyToTheFile() async throws {
+        let csv = Data(repeating: UInt8(ascii: "x"), count: 1024 * 1024)
+        let server = try await LoopbackServer { request in
+            let problem = Data(#"{"code":"not_found"}"#.utf8)
+            return request.target.hasPrefix("/missing")
+                ? .init(status: 404, headers: ["Content-Type": "application/json"], body: problem)
+                : .init(status: 200, headers: ["Content-Type": "text/csv"], body: csv)
+        }
+        let folder = FileManager.default.temporaryDirectory.appending(path: "download-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let transport = URLSessionTransport()
+
+        let file = folder.appending(path: "a.csv")
+        let ok = try await transport.download(Self.request(server, "/api/v1/topics/a/entries.csv"), to: file)
+        #expect(ok.status == 200 && ok.body.isEmpty && ok.headers["Content-Type"] == "text/csv")
+        #expect(try Data(contentsOf: file) == csv)
+
+        let missing = folder.appending(path: "b.csv")
+        let problem = try await transport.download(Self.request(server, "/missing"), to: missing)
+        #expect(problem.status == 404 && problem.body == Data(#"{"code":"not_found"}"#.utf8))
+        #expect(!FileManager.default.fileExists(atPath: missing.path()))
+    }
+
     @Test func aRefusedConnectionIsUnreachable() async throws {
         let transport = URLSessionTransport()
         let request = HTTPRequest(
@@ -197,6 +223,22 @@ extension TimingTests {
             }
             let elapsed = ContinuousClock.now - started
             #expect(elapsed >= .milliseconds(590) && elapsed < .seconds(4), "\(elapsed)")
+        }
+
+        /// A download has the same whole-exchange deadline.
+        @Test func aDownloadHasTheDeadlineToo() async throws {
+            let server = try await LoopbackServer { _ in
+                .init(status: 200, body: Data(repeating: 0x61, count: 200), trickle: .milliseconds(50))  // 10 s
+            }
+            let file = FileManager.default.temporaryDirectory.appending(path: "download-\(UUID().uuidString).csv")
+            let started = ContinuousClock.now
+            await #expect(throws: TransportError.timedOut(requestStarted: true)) {
+                try await URLSessionTransport().download(
+                    URLSessionTransportTests.request(server, timeout: .milliseconds(600)), to: file)
+            }
+            let elapsed = ContinuousClock.now - started
+            #expect(elapsed >= .milliseconds(590) && elapsed < .seconds(4), "\(elapsed)")
+            #expect(!FileManager.default.fileExists(atPath: file.path()))
         }
 
         /// Cancelled after the server has the mutation: started, and the connection is torn down.
