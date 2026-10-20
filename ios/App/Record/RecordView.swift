@@ -5,15 +5,13 @@ import UIKit
 
 /// The record screen (the PWA's `RecordPage`): the answers, Details (captured at, notes, source),
 /// Log another, and a sticky Save. In fix mode it says the entry wasn't saved and saves again.
-/// Leaving with unsaved changes asks first. At accessibility text sizes the Save bar steps aside
-/// while the keyboard is up, so the field being typed in stays visible.
+/// Leaving with unsaved changes asks first. While the keyboard is up, Save moves into the
+/// keyboard's toolbar, so nothing sits between the keyboard and the field being typed in.
 struct RecordView: View {
     @Bindable var model: RecordModel
     let settings: AppSettings
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.dynamicTypeSize) private var typeSize
-    @State private var keyboardUp = false
     @State private var confirmingLeave = false
 
     var body: some View {
@@ -50,23 +48,27 @@ struct RecordView: View {
                 rejectionBanner(message)
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            if !(keyboardUp && typeSize.isAccessibilitySize) { saveBar }
-        }
+        // Toasts sit above the bar (measured: it grows with the text size). Only the screen leaving
+        // puts them back down: Log another's fresh form rebuilds the bar, and its old copy going
+        // must not undo the new one's measure.
+        .formSaveBar(
+            saveTitle, identifier: "record.save", isSaving: model.isSaving,
+            onBarHeight: { environment.toastBottomInset = $0 + 8 }, save: save
+        )
         .qrPaperBackground()
         .navigationTitle(model.isFixing ? "Fix entry · \(model.topic.name)" : model.topic.name)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(model.hasUnsavedChanges)
+        // One back button the whole time, guarded (the navigation bar doesn't change on the first
+        // edit); the swipes back go back only while there is nothing to lose, and so does
+        // VoiceOver's escape.
+        .navigationBarBackButtonHidden()
+        .background(SwipeBack(isEnabled: !model.hasUnsavedChanges))
         .toolbar {
-            if model.hasUnsavedChanges {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        confirmingLeave = true
-                    } label: {
-                        Label("Back", systemImage: "chevron.left")
-                    }
-                    .accessibilityIdentifier("record.back")
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: leave) {
+                    Label("Back", systemImage: "chevron.left")
                 }
+                .accessibilityIdentifier("record.back")
             }
             if model.loggedCount > 0 {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -76,6 +78,8 @@ struct RecordView: View {
                 }
             }
         }
+        // VoiceOver's escape (two-finger scrub) is a back too, guarded the same way.
+        .accessibilityAction(.escape, leave)
         .alert("Discard this entry?", isPresented: $confirmingLeave) {
             Button("Discard", role: .destructive) { dismiss() }
             Button("Keep editing", role: .cancel) {}
@@ -83,12 +87,19 @@ struct RecordView: View {
             Text("What you’ve entered hasn’t been saved.")
         }
         .onDisappear { environment.toastBottomInset = 8 }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            keyboardUp = true
+    }
+
+    private var saveTitle: String { model.isFixing ? "Save again" : "Save" }
+
+    private func save() {
+        Task {
+            if await model.save() == .leave { dismiss() }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            keyboardUp = false
-        }
+    }
+
+    /// Back: straight away when nothing changed, else asks first.
+    private func leave() {
+        if model.hasUnsavedChanges { confirmingLeave = true } else { dismiss() }
     }
 
     private var logAnother: Binding<Bool> {
@@ -98,23 +109,6 @@ struct RecordView: View {
                 model.logAnother = value
                 settings.logAnother = value
             })
-    }
-
-    private var saveBar: some View {
-        PrimaryButton(model.isFixing ? "Save again" : "Save", icon: .check, isLoading: model.isSaving) {
-            Task {
-                if await model.save() == .leave { dismiss() }
-            }
-        }
-        .accessibilityIdentifier("record.save")
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        // Toasts sit above the bar (measured: it grows with the text size). Only the screen leaving
-        // puts them back down: Log another's fresh form rebuilds the bar, and its old copy going
-        // must not undo the new one's measure.
-        .onGeometryChange(
-            for: CGFloat.self, of: { $0.size.height },
-            action: { height in environment.toastBottomInset = height + 8 })
     }
 
     /// A refusal the form can't show on a field (no `Problem` came back).
@@ -148,5 +142,48 @@ struct RecordView: View {
         .background(QuickrTone.info.background)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("record.fixBanner")
+    }
+}
+
+/// The navigation controller's swipes back (the edge swipe, and iOS 26's swipe from anywhere in
+/// the content), which hiding the system back button turns off: on while `isEnabled`, and their
+/// previous delegates back when the screen goes.
+private struct SwipeBack: UIViewControllerRepresentable {
+    let isEnabled: Bool
+
+    func makeUIViewController(context: Context) -> Controller { Controller() }
+
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.isEnabled = isEnabled
+    }
+
+    final class Controller: UIViewController, UIGestureRecognizerDelegate {
+        var isEnabled = true
+        private var previousDelegates: [(UIGestureRecognizer, UIGestureRecognizerDelegate?)] = []
+
+        private var swipes: [UIGestureRecognizer] {
+            [
+                navigationController?.interactivePopGestureRecognizer,
+                navigationController?.interactiveContentPopGestureRecognizer,
+            ].compactMap { $0 }
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            for swipe in swipes where swipe.delegate !== self {
+                previousDelegates.append((swipe, swipe.delegate))
+                swipe.delegate = self
+            }
+        }
+
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            for (swipe, delegate) in previousDelegates where swipe.delegate === self { swipe.delegate = delegate }
+            previousDelegates = []
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            isEnabled && (navigationController?.viewControllers.count ?? 0) > 1
+        }
     }
 }
