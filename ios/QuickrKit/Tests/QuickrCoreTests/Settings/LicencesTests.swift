@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import QuickrCore
 import Testing
@@ -123,6 +124,31 @@ import Testing
             let source = try #require(upstream, "no checkout of \(directory) to compare \(licence.file) with")
             let shipped = try String(contentsOf: Self.appLicences.appending(path: licence.file), encoding: .utf8)
             #expect(shipped == (try String(contentsOf: source, encoding: .utf8)), "\(licence.file) is \(source.path)")
+        }
+    }
+
+    /// SHA-256 of the SIL Open Font License 1.1 body, from "This Font Software is licensed under"
+    /// to the end, with runs of whitespace collapsed to one space (upstream copies differ only in
+    /// blank lines and wrapping). To regenerate from a font's release: take its OFL.txt, drop the
+    /// copyright lines above that sentence, collapse whitespace, and hash; it matches
+    /// https://openfontlicense.org/documents/OFL.txt the same way.
+    static let oflBodySHA256 = "d1c8b32367bb9941ef915f6f8fce38c4e77d6a3b45faacd297cba21fbbb6de25"
+
+    /// Every font's text is the whole OFL 1.1: only its copyright lines are its own, and the body
+    /// hashes to the canonical one, so a dropped or changed clause fails.
+    @Test func fontTextsAreTheCanonicalOFL() throws {
+        let opening = "This Font Software is licensed under the SIL Open Font License, Version 1.1."
+        for licence in Licence.all {
+            guard case .font = licence.kind else { continue }
+            let text = try String(contentsOf: Self.fonts.appending(path: licence.file), encoding: .utf8)
+            let start = try #require(text.range(of: opening), "\(licence.file) has the OFL's opening")
+            let header = text[..<start.lowerBound].split(separator: "\n").map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            #expect(!header.isEmpty && header.allSatisfy { $0.hasPrefix("Copyright") }, "\(licence.file): \(header)")
+            let body = text[start.lowerBound...].split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            let digest = SHA256.hash(data: Data(body.utf8)).map { String(format: "%02x", $0) }.joined()
+            #expect(digest == Self.oflBodySHA256, "\(licence.file)'s licence text isn't the OFL 1.1's")
         }
     }
 
