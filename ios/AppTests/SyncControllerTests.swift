@@ -43,7 +43,7 @@ import Testing
         UITestLaunch.server.offline = true
         UITestLaunch.network.set(online: false)
         try await eventually("offline") { environment.sync.pill(status: session.syncStatus) == .offline(waiting: 0) }
-        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .int(3)], version: 1)
+        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .string("good")], version: 1)
         try await eventually("one waiting") {
             environment.sync.pill(status: session.syncStatus) == .offline(waiting: 1)
         }
@@ -67,7 +67,7 @@ import Testing
         let (environment, session, observing) = try await started()
         defer { observing.cancel() }
         UITestLaunch.server.rejectNextCreate()
-        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .int(3)], version: 1)
+        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .string("good")], version: 1)
         try await eventually("failed") { environment.sync.pill(status: session.syncStatus) == .failed(count: 1) }
         let row = try #require(environment.sync.sheet(lastSyncAt: nil).rows.first)
         #expect(row.status == "Failed — Mood is required" && row.fix != nil)
@@ -76,7 +76,7 @@ import Testing
         try await eventually("retried and sent") { environment.sync.items.isEmpty }
 
         UITestLaunch.server.rejectNextCreate()
-        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .int(4)], version: 1)
+        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .string("ok")], version: 1)
         try await eventually("failed again") { environment.sync.summary?.failed == 1 }
         let failed = try #require(environment.sync.sheet(lastSyncAt: nil).rows.first)
         try await environment.sync.discard(failed)
@@ -90,7 +90,7 @@ import Testing
         let (environment, session, observing) = try await started()
         defer { observing.cancel() }
         UITestLaunch.server.rejectNextCreate()
-        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .int(3)], version: 1)
+        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .string("good")], version: 1)
         try await eventually("failed") { environment.sync.summary?.failed == 1 }
         var stale = try #require(environment.sync.sheet(lastSyncAt: nil).rows.first)
         #expect(stale.scope == EntryScope(serverId: UITestLaunch.fakeServerId, storeGen: 1))
@@ -257,7 +257,7 @@ import Testing
 
         // In the background: pull, send, complete; the expiration handler is in place.
         UITestLaunch.server.offline = true
-        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .int(5)], version: 1)
+        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .string("bad")], version: 1)
         try await eventually("queued") { environment.sync.summary?.queued == 1 }
         // The background flush can't send it (still unreachable); then the refresh can.
         environment.scenePhaseChanged(.background)

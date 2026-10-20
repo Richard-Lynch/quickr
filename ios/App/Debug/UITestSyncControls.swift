@@ -7,8 +7,8 @@ import SwiftUI
 /// (the fake server and the network path together), log an entry and reject the next create.
 struct UITestSyncControls: View {
     @Environment(AppEnvironment.self) private var environment
-    static let topic = TopicRef(
-        id: UUID(uuidString: "6f1c0000-0000-4000-8000-000000000001")!, slug: "mood", name: "Mood")
+    /// The fake server's Mood topic.
+    static let topic = TopicRef(id: FakeServer.moodId, slug: "mood", name: "Mood")
 
     var body: some View {
         HStack(spacing: 8) {
@@ -21,7 +21,8 @@ struct UITestSyncControls: View {
                 UITestLaunch.network.set(online: true)
             }
             control("Log", "debug.log") {
-                _ = try? await environment.session?.log(topic: Self.topic, answers: ["mood": .int(3)], version: 1)
+                _ = try? await environment.session?.log(
+                    topic: Self.topic, answers: ["mood": .string("good")], version: 1)
             }
             control("Reject", "debug.reject") { UITestLaunch.server.rejectNextCreate() }
         }

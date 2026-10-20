@@ -22,6 +22,9 @@ final class AppEnvironment {
     let sync: SyncController
     /// Every screen's toasts, hosted once at the root so a toast outlives navigation.
     let toasts = ToastCenter()
+    /// How far above the bottom toasts sit: a screen with a sticky bar (Record's Save) raises them
+    /// above it, like the PWA's.
+    var toastBottomInset: CGFloat = 8
     /// Numbers typed into tiles but not logged yet (kept while the app runs, like the PWA's).
     let quickLogDrafts = QuickLogDrafts()
     /// Entry writes for tiles and Undo, over `session`.

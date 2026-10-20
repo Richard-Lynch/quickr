@@ -8,13 +8,13 @@ import QuickrUI
 /// tied to the store they went to (`EntryScope`: server and store generation), so a toast's Undo
 /// after a server switch or a reset is refused instead of reaching another store's outbox.
 @MainActor
-final class SessionEntryWriter: EntryWriter {
+final class SessionEntryWriter: EntryFixing {
     /// The session of the moment (nil before it opens). Set by `AppEnvironment`.
     var session: @MainActor () -> AppSession? = { nil }
 
     var scope: EntryScope? { session()?.binding?.scope }
 
-    func log(_ topic: QuickLogTopic, answers: [String: AnswerValue], capturedAt: Date?, notes: String?)
+    func log(_ topic: EntryTopic, answers: [String: AnswerValue], capturedAt: Date?, notes: String?)
         async throws -> LoggedEntry
     {
         let session = try requireSession()
@@ -42,13 +42,45 @@ final class SessionEntryWriter: EntryWriter {
         try await requireSession(scope).undoDelete(entryId: entryId) == .restored
     }
 
+    // MARK: Record screen (EntryFixing)
+
+    func discard(_ entry: LoggedEntry) async throws {
+        let session = try requireSession(entry.scope)
+        guard let outbox = session.outbox else { throw AppSession.SessionError.noStore }
+        try await outbox.discard(itemId: entry.id.wireString, origin: .app)
+    }
+
+    func fix(
+        itemId: String, rowVersion: Int, topic: EntryTopic, answers: [String: AnswerValue], capturedAt: Date,
+        notes: String?, in scope: EntryScope
+    ) async throws -> LoggedEntry {
+        let session = try requireSession(scope)
+        guard let outbox = session.outbox, let id = UUID(uuidString: itemId) else {
+            throw AppSession.SessionError.noStore
+        }
+        let body = EntryCreateDTO(
+            id: nil, answers: answers, source: OutboxOrigin.app.source, capturedAt: capturedAt, notes: notes,
+            version: topic.version)
+        try await outbox.fix(
+            itemId: itemId,
+            payload: .entryCreate(topic: TopicRef(id: topic.id, slug: topic.slug, name: topic.name), body: body),
+            rowVersion: rowVersion)
+        await session.scheduler?.requestFlush(reason: .enqueue)
+        return LoggedEntry(id: id, scope: scope)
+    }
+
+    func rowVersion(itemId: String, in scope: EntryScope) async throws -> Int? {
+        let session = try requireSession(scope)
+        return try await session.store?.outbox.item(id: itemId)?.rowVersion
+    }
+
     func failure(_ error: any Error) -> EntryWriteFailure { Self.failure(error) }
 
     static func delivery(_ result: OutboxSendNowResult) -> EntryDelivery {
         switch result {
         case .sent: .sent
         case .queued: .queued
-        case .failed(let info): .failed(info?.message ?? "The server refused it")
+        case .failed(let info): .failed(info?.message ?? "The server refused it", problem: info?.problem)
         case .retired: .notSaved
         }
     }
@@ -56,6 +88,7 @@ final class SessionEntryWriter: EntryWriter {
     static func failure(_ error: any Error) -> EntryWriteFailure {
         switch error {
         case OutboxError.entryDeleted: .notSaved
+        case OutboxError.itemChanged: .message("This entry changed meanwhile. Check it and save again.")
         case EntryWriteError.scopeChanged: .scopeChanged
         case StoreError.retired: .message("This device’s data was just reset. Try again.")
         case AppSession.SessionError.noStore: .message("Connect to a server first.")

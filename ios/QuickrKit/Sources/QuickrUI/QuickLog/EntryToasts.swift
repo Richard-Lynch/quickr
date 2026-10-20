@@ -20,7 +20,7 @@ public protocol EntryWriter: AnyObject {
     var scope: EntryScope? { get }
     /// Enqueues the entry durably and returns its id (also its outbox item's id) and store.
     /// `capturedAt` nil is now; the record screen passes its own time and notes.
-    func log(_ topic: QuickLogTopic, answers: [String: AnswerValue], capturedAt: Date?, notes: String?)
+    func log(_ topic: EntryTopic, answers: [String: AnswerValue], capturedAt: Date?, notes: String?)
         async throws -> LoggedEntry
     /// Asks for a flush and waits up to `wait` for the outcome (`OutboxFlushScheduler.sendNow`).
     /// `.queued` when `scope` is no longer the active store: the entry waits in its own.
@@ -39,8 +39,47 @@ public protocol EntryWriter: AnyObject {
 extension EntryWriter {
     /// A quick-log: captured now, without notes.
     public func log(_ topic: QuickLogTopic, answers: [String: AnswerValue]) async throws -> LoggedEntry {
-        try await log(topic, answers: answers, capturedAt: nil, notes: nil)
+        try await log(topic.entryTopic, answers: answers, capturedAt: nil, notes: nil)
     }
+}
+
+/// The topic an entry is logged against: any topic, not only a quick-log one.
+public struct EntryTopic: Sendable, Hashable {
+    public var id: UUID
+    public var slug: String
+    public var name: String
+    /// The version the answers are given against (the topic's current one for a new entry).
+    public var version: Int
+
+    public init(id: UUID, slug: String, name: String, version: Int) {
+        self.id = id
+        self.slug = slug
+        self.name = name
+        self.version = version
+    }
+
+    public init(_ topic: Topic) {
+        self.init(id: topic.id, slug: topic.slug, name: topic.name, version: topic.currentVersion)
+    }
+}
+
+/// The record screen's writes beyond `EntryWriter` (the tiles never need them): dropping a
+/// refused new entry, fixing a refused one, and reading back the item's version. Every one is
+/// tied to the store it acts in, and throws `EntryWriteError.scopeChanged` once that isn't the
+/// active one, like Undo.
+@MainActor
+public protocol EntryFixing: EntryWriter {
+    /// Drops a refused new entry from the queue (the record screen keeps the answers on the form;
+    /// tiles keep theirs for the sync sheet).
+    func discard(_ entry: LoggedEntry) async throws
+    /// Replaces a refused entry's body and queues it again (CAS on `rowVersion`). Returns the
+    /// entry to `sendNow`.
+    func fix(
+        itemId: String, rowVersion: Int, topic: EntryTopic, answers: [String: AnswerValue], capturedAt: Date,
+        notes: String?, in scope: EntryScope
+    ) async throws -> LoggedEntry
+    /// The item's current version (every fix moves it), or nil once it is gone.
+    func rowVersion(itemId: String, in scope: EntryScope) async throws -> Int?
 }
 
 /// Writer errors of the UI layer's own.
@@ -54,8 +93,9 @@ public enum EntryDelivery: Sendable, Hashable {
     case sent
     /// Saved on this device; it syncs later.
     case queued
-    /// The server refused it, with its message.
-    case failed(String)
+    /// The server refused it, with its message and, when its body had one, its `Problem` (the
+    /// record screen puts that on the fields).
+    case failed(String, problem: Problem? = nil)
     /// The entry was deleted meanwhile and will never be recorded.
     case notSaved
 }
@@ -89,6 +129,26 @@ public final class EntryToasts {
                 action: Toast.Action("Undo") { [weak self] in
                     Task { await self?.undoLog(entry, topicName: topicName) }
                 }))
+    }
+
+    /// The record screen's save (the PWA's texts): "Logged Workout", or "Saved on this device …",
+    /// with Undo tied to the entry's store.
+    public func recorded(_ entry: LoggedEntry, topicName: String, sent: Bool) {
+        center.show(
+            Toast(
+                sent ? "Logged \(topicName)" : "Saved on this device",
+                message: sent ? nil : "It will sync automatically when you’re back online.", tone: sent ? .ok : .info,
+                action: Toast.Action("Undo") { [weak self] in
+                    Task { await self?.undoLog(entry, topicName: topicName) }
+                }))
+    }
+
+    /// A fixed entry went out again (no Undo: it is the user's correction).
+    public func fixed(topicName: String, sent: Bool) {
+        center.show(
+            Toast(
+                sent ? "Logged \(topicName)" : "Saved on this device",
+                message: sent ? nil : "It will sync automatically when you’re back online.", tone: sent ? .ok : .info))
     }
 
     public func logFailed(topicName: String, _ failure: EntryWriteFailure) {
