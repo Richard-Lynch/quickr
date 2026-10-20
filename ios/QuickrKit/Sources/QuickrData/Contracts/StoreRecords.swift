@@ -93,12 +93,19 @@ public struct ViewEntry: Sendable, Hashable, Identifiable {
     public var syncState: RecordSyncState
     /// The error of the failed item behind `.failed`, for display and Fix.
     public var lastError: OutboxErrorInfo?
+    /// The `seq` of its create when the server doesn't have the entry yet (pending or failed); nil
+    /// for a server row, edited or not. The entries list pins these, in outbox order.
+    public var createSeq: Int64?
 
-    public init(entry: Entry, syncState: RecordSyncState, lastError: OutboxErrorInfo? = nil) {
+    public init(entry: Entry, syncState: RecordSyncState, lastError: OutboxErrorInfo? = nil, createSeq: Int64? = nil) {
         self.entry = entry
         self.syncState = syncState
         self.lastError = lastError
+        self.createSeq = createSeq
     }
+
+    /// Only on this device so far: its create is queued or failed.
+    public var isLocalOnly: Bool { createSeq != nil }
 
     public var id: UUID { entry.id }
 }

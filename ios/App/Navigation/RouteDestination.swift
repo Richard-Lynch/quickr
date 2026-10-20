@@ -14,7 +14,7 @@ struct RouteDestination: View {
         case .newTopic:
             Pending(title: "New topic", route: route)
         case .topic(let ref, let tab):
-            Pending(title: "\(ref) · \(tab.rawValue.capitalized)", route: route)
+            TopicTabsView(ref: ref, tab: tab)
         case .record(let ref, let fix):
             RecordScreen(ref: ref, fix: fix)
         case .entry(let ref, _):
@@ -28,7 +28,7 @@ struct RouteDestination: View {
 }
 
 /// A screen that isn't built yet: names the route so links can be checked end to end.
-private struct Pending: View {
+struct Pending: View {
     let title: String
     let route: Route
 

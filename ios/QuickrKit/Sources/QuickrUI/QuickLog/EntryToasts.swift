@@ -192,6 +192,12 @@ public final class EntryToasts {
     /// Call it right after the delete, so the Undo is tied to that store.
     public func deleted(entryId: UUID) {
         guard let scope = writer.scope else { return }
+        deleted(entryId: entryId, in: scope)
+    }
+
+    /// `deleted(entryId:)` for a delete made in `scope` (taken before the delete's await, so a
+    /// rebind meanwhile can't point the Undo at another store).
+    public func deleted(entryId: UUID, in scope: EntryScope) {
         center.show(
             Toast(
                 "Entry deleted",
