@@ -120,6 +120,8 @@ public struct EntryFilters: Sendable, Hashable {
 public struct APIClient: Sendable {
     public static let defaultTimeout: Duration = .seconds(15)
     public static let feedTimeout: Duration = .seconds(30)
+    /// A CSV export streams the whole topic: minutes are fine, 15 s is not.
+    public static let exportTimeout: Duration = .seconds(120)
     public static let feedPageLimit = 500
 
     public var baseURL: URL
@@ -260,6 +262,35 @@ public struct APIClient: Sendable {
         async throws -> APIResponse<Data>
     {
         try await send(Endpoints.exportEntriesCsv, path: ["ref": ref], query: filters.queryItems, options: options)
+    }
+
+    /// The CSV written to `destination` as it arrives (never held in memory), checked like any
+    /// read: a 2xx from another server, or one that isn't `text/csv`, is not a success, and then
+    /// nothing is left at `destination`. 120 s unless `options` says otherwise.
+    public func downloadEntriesCsv(
+        ref: String, filters: EntryFilters = .init(), to destination: URL, options: RequestOptions = .init()
+    ) async throws -> APIResponse<URL> {
+        var options = options
+        options.timeout = options.timeout ?? Self.exportTimeout
+        let expected = try await expectedIdentity(options)
+        let request = try await build(
+            Endpoints.exportEntriesCsv, path: ["ref": ref], query: filters.queryItems, body: nil, options: options,
+            expected: expected)
+        let result: Result<HTTPResponse, TransportError>
+        do {
+            result = .success(try await transport.download(request, to: destination))
+        } catch let error as TransportError {
+            result = .failure(error)
+        } catch {
+            result = .failure(.failed(String(describing: error), requestStarted: true))
+        }
+        let response = APIClassifier.classify(result, expected: expected) { response in
+            let type = response.headers["Content-Type"]?.lowercased() ?? ""
+            guard type.hasPrefix("text/csv") else { throw ContractError.invalid("not text/csv: \(type)") }
+            return destination
+        }
+        if case .success = response.outcome {} else { try? FileManager.default.removeItem(at: destination) }
+        return response
     }
 
     public func getEntry(id: UUID, options: RequestOptions = .init()) async throws -> APIResponse<Entry> {
