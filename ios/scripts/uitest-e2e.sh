@@ -18,10 +18,30 @@ teardown() {
   exit "$status"
 }
 trap teardown EXIT
+# A signal ends the run through the teardown too. Bash runs a trap only after its foreground
+# child exits, so the slow steps run in the background (their own process group, killed whole)
+# and the script waits for them.
+child=""
+on_signal() {
+  [[ -n "$child" ]] && kill -TERM -- "-$child" 2>/dev/null
+  exit "$1"
+}
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
+run() {  # run <command...>: in the background, in its own process group; its status
+  set -m
+  "$@" &
+  child=$!
+  set +m
+  local status=0
+  wait "$child" || status=$?
+  child=""
+  return "$status"
+}
 
-"$SCRIPTS/integration-up.sh" >/dev/null
+run "$SCRIPTS/integration-up.sh" >/dev/null
 it_load_env
-"$SCRIPTS/integration-smoke.sh"
+run "$SCRIPTS/integration-smoke.sh"
 
 # xcodebuild hands TEST_RUNNER_<name> to the test runner as <name>. The tests fail, not skip,
 # without the stack.
@@ -29,5 +49,7 @@ export TEST_RUNNER_QUICKR_IT_BASE_URL="$QUICKR_IT_BASE_URL"
 export TEST_RUNNER_QUICKR_IT_DIRECT_URL="$QUICKR_IT_DIRECT_URL"
 export TEST_RUNNER_QUICKR_IT_PROXY_CONTROL_URL="$QUICKR_IT_PROXY_CONTROL_URL"
 export TEST_RUNNER_QUICKR_IT_REQUIRED=1
-"$SCRIPTS/test.sh" UI "$sim" -only-testing:QuickRUITests/EndToEndUITests \
+# QUICKR_UIT_DEMO=1 also runs the demo scenarios (screenshots for docs/ios/demo/m2).
+export TEST_RUNNER_QUICKR_UIT_DEMO="${QUICKR_UIT_DEMO:-0}"
+run "$SCRIPTS/test.sh" UI "$sim" -only-testing:QuickRUITests/EndToEndUITests \
   -only-testing:QuickRUITests/TapCountUITests "$@"

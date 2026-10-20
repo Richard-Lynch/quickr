@@ -6,9 +6,14 @@ import XCTest
 /// `make ios-uitest-e2e` starts the stack and passes its URLs to the test runner (as
 /// `TEST_RUNNER_QUICKR_IT_*`). Without them these tests skip, so the UI plan runs anywhere; with
 /// `QUICKR_IT_REQUIRED=1` they fail instead.
+///
+/// The demo screenshots (docs/ios/demo/m2) come from the `testDemo…` scenarios, which replay the
+/// same flows with `capture` on; they run only with `QUICKR_UIT_DEMO=1`. The tests themselves take
+/// no screenshots, so no fixed wait eats into a time limit such as Undo's.
 @MainActor
 final class EndToEndUITests: XCTestCase {
     private var stack: Stack!
+    private var capture = false
 
     override func setUp() async throws {
         continueAfterFailure = false
@@ -19,7 +24,31 @@ final class EndToEndUITests: XCTestCase {
 
     /// Design loop row a, online: one tap on a chip logs, the server has the entry, and Undo
     /// removes it there too.
-    func testAChipLogReachesTheServerAndUndoRemovesIt() async throws {
+    func testAChipLogReachesTheServerAndUndoRemovesIt() async throws { try await chipAndUndo() }
+
+    /// Design loop row g: offline, the record screen saves on the device; back online, the entry
+    /// syncs when the app comes back to the foreground.
+    func testAnEntryRecordedOfflineSyncsOnReconnect() async throws { try await offlineThenSync() }
+
+    /// "Same as last time" offers the latest entry the server has, even one logged elsewhere.
+    func testSameAsLastOffersTheEntryLoggedOnTheWeb() async throws { try await sameAsLast() }
+
+    func testDemoChipAndUndo() async throws {
+        try demoOnly()
+        try await chipAndUndo()
+    }
+
+    func testDemoOfflineThenSync() async throws {
+        try demoOnly()
+        try await offlineThenSync()
+    }
+
+    func testDemoSameAsLast() async throws {
+        try demoOnly()
+        try await sameAsLast()
+    }
+
+    private func chipAndUndo() async throws {
         let topic = try await stack.createTopic(
             "Mood", questions: [Stack.choice("mood", "Mood", ["good": "Good", "meh": "Meh"])])
         let app = launch()
@@ -34,7 +63,6 @@ final class EndToEndUITests: XCTestCase {
         XCTAssertTrue(toast.label.hasPrefix("Logged Good"), toast.label)
         XCTAssertFalse(toast.label.contains("saved on this device"), "online, it is sent: \(toast.label)")
         snap(app, "e2e-chip-2-logged")
-        snapBoth(app, "uit2-home-logged")
         let entries = try await stack.eventually("the entry on the server") {
             let entries = try await self.stack.entries(topic)
             return entries.count == 1 ? entries : nil
@@ -47,11 +75,14 @@ final class EndToEndUITests: XCTestCase {
         _ = try await stack.eventually("Undo deletes it on the server") {
             try await self.stack.entries(topic).isEmpty ? true : nil
         }
+        if capture {  // the light/dark pair, on a second log: after Undo, so it never waits on them
+            chip.tap()
+            XCTAssertTrue(toast.waitForLabel(prefix: "Logged Good"))
+            snapBoth(app, "uit2-home-logged")
+        }
     }
 
-    /// Design loop row g: offline, the record screen saves on the device; back online, the entry
-    /// syncs when the app comes back to the foreground.
-    func testAnEntryRecordedOfflineSyncsOnReconnect() async throws {
+    private func offlineThenSync() async throws {
         let topic = try await stack.createTopic("Water", questions: [Stack.int("glasses", "Glasses", max: 20)])
         let app = launch()
         _ = try tile(app, topic.slug)  // the first sync has the topic
@@ -107,8 +138,7 @@ final class EndToEndUITests: XCTestCase {
         }
     }
 
-    /// "Same as last time" offers the latest entry the server has, even one logged elsewhere.
-    func testSameAsLastOffersTheEntryLoggedOnTheWeb() async throws {
+    private func sameAsLast() async throws {
         let topic = try await stack.createTopic(
             "Sleep",
             questions: [
@@ -151,8 +181,16 @@ final class EndToEndUITests: XCTestCase {
         return element
     }
 
-    /// A screenshot kept with the results (the demo GIFs are made from them).
+    private func demoOnly() throws {
+        guard ProcessInfo.processInfo.environment["QUICKR_UIT_DEMO"] == "1" else {
+            throw XCTSkip("Demo screenshots only (QUICKR_UIT_DEMO=1 make ios-uitest-e2e)")
+        }
+        capture = true
+    }
+
+    /// A screenshot kept with the results (the demo GIFs are made from them), when capturing.
     private func snap(_ app: XCUIApplication, _ name: String) {
+        guard capture else { return }
         usleep(700_000)  // let the animations settle
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = name
@@ -162,6 +200,7 @@ final class EndToEndUITests: XCTestCase {
 
     /// `<name>-light` and `<name>-dark` for docs/ios/demo/m2 (then back to light).
     private func snapBoth(_ app: XCUIApplication, _ name: String) {
+        guard capture else { return }
         for (appearance, suffix) in [(XCUIDevice.Appearance.light, "light"), (.dark, "dark")] {
             XCUIDevice.shared.appearance = appearance
             usleep(800_000)

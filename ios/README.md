@@ -281,7 +281,9 @@ are the app against the real backend, with the server checked: chip → Undo,
 offline → reconnect, links, same-as-last, and the design loop's tap counts. The
 script passes the stack's URLs to the test runner as `TEST_RUNNER_QUICKR_IT_*`
 (xcodebuild strips the prefix), with `QUICKR_IT_REQUIRED=1`. In the ordinary UI
-plan these classes skip. Results and tap counts:
+plan these classes skip. `QUICKR_UIT_DEMO=1` also runs the demo scenarios, which
+take the screenshots for `docs/ios/demo/m2`. A signal (Ctrl-C, TERM) stops the run
+and still takes the stacks down. Results and tap counts:
 [docs/ios/demo/m2/tap-counts.md](../docs/ios/demo/m2/tap-counts.md).
 
 **Fault proxy control API** (JSON, at `QUICKR_IT_PROXY_CONTROL_URL`):

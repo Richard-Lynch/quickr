@@ -64,7 +64,8 @@ the server:
 
 ## Demo
 
-From the end-to-end run (`make ios-uitest-e2e`), against a real backend:
+From the end-to-end demo scenarios (`QUICKR_UIT_DEMO=1 make ios-uitest-e2e`), against a
+real backend:
 
 | Chip → Undo                    | Offline → reconnect               | Same as last time                 |
 | ------------------------------ | --------------------------------- | --------------------------------- |
