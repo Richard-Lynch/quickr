@@ -108,6 +108,8 @@ public struct NotificationActionHandler: Sendable {
     /// §7.1 step 9: widgets show due state and last values.
     let reloadWidgets: @Sendable () -> Void
     let flushBudget: Duration
+    /// Tests: runs between the preconditions and the write (step 4 → 5), to retire the store there.
+    var beforeWriteForTesting: (@Sendable () async -> Void)?
 
     public init(
         partitions: StorePartitions, center: any NotificationCenterProtocol,
@@ -143,6 +145,33 @@ public struct NotificationActionHandler: Sendable {
         case .custom(let identifier):
             return await act(identifier, response, q)
         }
+    }
+
+    // MARK: - §7.2
+
+    /// `willPresent`: whether a notification arriving in the foreground is shown. A reminder whose
+    /// slot the active store's view already satisfies is not, and it is removed: the topic has an
+    /// entry captured at or after the slot (local, queued or synced), or the slot's shared action
+    /// entry id is already used (queued, on the server or deleted). Anything else is shown,
+    /// including a reminder from another server or one the store can't confirm.
+    public func shouldPresent(_ notification: NotificationSnapshot) async -> Bool {
+        guard let slot = notification.quickr?.slot,
+            (try? await partitions.registry.repository.activeServerId()) == slot.serverId,
+            await isProtectedDataAvailable(),
+            let store = try? await partitions.openStore(serverId: slot.serverId, role: .app).store,
+            let due = try? Date(slot.dueSince, strategy: .iso8601)
+        else { return true }
+        let entryId = ActionEntryId.make(serverId: slot.serverId, topicId: slot.topicId, dueSince: slot.dueSince)
+            .wireString
+        let satisfied = try? await store.writer.read { db -> Bool in
+            if let last = try StoreView.topic(db, id: slot.topicId)?.topic.lastCapturedAt, last >= due { return true }
+            return try !OutboxStorage.items(db, entityKind: .entry, entityId: entryId).isEmpty
+                || ServerLayer.isTombstoned(db, kind: .entry, id: entryId)
+                || ServerLayer.revision(db, entityKind: .entry, id: entryId) != nil
+        }
+        guard satisfied == true else { return true }
+        center.removeDeliveredNotifications(withIdentifiers: [notification.id])
+        return false
     }
 
     // MARK: - §7.1
@@ -213,6 +242,7 @@ public struct NotificationActionHandler: Sendable {
             return await fail(.storeUnavailable, topicId: topicId, topic: topicName, q)
         }
 
+        await beforeWriteForTesting?()
         // 5. One IMMEDIATE transaction, with the shared action entry id (§7.4).
         let entryId = ActionEntryId.make(serverId: action.serverId, topicId: topicId, dueSince: dueSince)
         guard let topicUUID = UUID(uuidString: topicId) else {

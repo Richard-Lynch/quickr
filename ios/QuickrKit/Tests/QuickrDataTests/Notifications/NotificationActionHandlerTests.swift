@@ -5,7 +5,7 @@ import QuickrTestSupport
 import Synchronization
 import Testing
 
-@testable import QuickrData
+@_spi(Testing) @testable import QuickrData
 
 /// The notification action handler (notifications.md §7; N7, N8, N10, N14, N15, N16's Swift side),
 /// against file-backed stores, a fake notification center and the fake server through the real
@@ -423,6 +423,99 @@ import Testing
         w.center.withState { $0.delivered = [NotificationSnapshot(id: "again", quickr: r.info)] }
         #expect(await w.tap(r, 1) == .alreadyLogged(entryId: w.entryId(w.moodTopic), .onServer))
         #expect(w.center.withState { $0.delivered }.isEmpty)
+    }
+
+    // MARK: - §7.1 step 5: a store retired between the open and the write
+
+    @Test func aStoreRetiredBeforeTheWriteIsReopenedAndLogsOnce() async throws {
+        let w = try await World()
+        let r = w.reminder(w.moodTopic)
+        let retired = Mutex<LocalStore?>(nil)
+        var handler = w.handler
+        handler.beforeWriteForTesting = { [partitions = w.partitions] in
+            guard retired.withLock({ $0 == nil }) else { return }
+            // A local reset retires the file the handler just checked (sync-protocol.md §12.1).
+            let old = try! await partitions.openStore(serverId: Self.serverA, role: .app).store
+            let (count, maxSeq) = try! await old.outbox.summary()
+            _ = try! await partitions.persistResetIntent(store: old, confirmedCount: count, confirmedMaxSeq: maxSeq)
+            let pair = try! await old.leases.acquireSyncThenFlush(owner: "app:reset", waitingUpTo: .seconds(1))!
+            _ = try! await old.retire(
+                confirmedCount: count, confirmedMaxSeq: maxSeq, sync: pair.sync, flush: pair.flush)
+            _ = try! await old.leases.release(pair.flush)
+            _ = try! await old.leases.release(pair.sync)
+            retired.withLock { $0 = old }
+        }
+        let action = NotificationActionResponse(
+            action: .custom(r.category.actions[0].identifier), title: "Mood", quickr: r.info)
+        let outcome = await handler.handle(action)
+        guard case .logged(let id, _, _) = outcome else { throw Failure("logs after reopening: \(outcome)") }
+        let old = try #require(retired.withLock { $0 })
+        let current = try await w.partitions.openStore(serverId: Self.serverA, role: .app).store
+        #expect(current.storeGen == old.storeGen + 1)
+        #expect(try await old.writer.read { db in try OutboxStorage.items(db) }.isEmpty, "nothing in the retired file")
+        #expect(try await current.writer.read { db in try OutboxStorage.items(db) }.map(\.id) == [id.wireString])
+        // Once: the same reminder again writes nothing more.
+        #expect(await handler.handle(action) == .alreadyLogged(entryId: id, .queued))
+        #expect(try await current.writer.read { db in try OutboxStorage.items(db) }.count == 1)
+    }
+
+    // MARK: - §7.2 willPresent
+
+    @Test func aReminderTheActiveStoreAlreadySatisfiesIsNotPresented() async throws {
+        let w = try await World()
+        let r = w.reminder(w.moodTopic)
+        let snapshot = NotificationSnapshot(id: "due-mood", quickr: r.info)
+        #expect(await w.handler.shouldPresent(snapshot), "not logged yet")
+        #expect(await w.handler.shouldPresent(NotificationSnapshot(id: "x")), "not quickR's")
+        var test = r.info
+        test.kind = "test"
+        #expect(await w.handler.shouldPresent(NotificationSnapshot(id: "t", quickr: test)), "not a reminder")
+
+        // An entry captured before the slot doesn't satisfy it; one at or after it does.
+        let store = w.stores[Self.serverA]!
+        let topicId = w.moodTopic.id
+        try await store.writer.write { db in
+            _ = try ServerLayer.upsert(
+                db, entry: Make.entry(topicId: topicId, minutes: -61, answers: ["mood": .string("ok")]))
+        }
+        #expect(await w.handler.shouldPresent(snapshot))
+        try await store.writer.write { db in
+            _ = try ServerLayer.upsert(
+                db, entry: Make.entry(topicId: topicId, minutes: -60, answers: ["mood": .string("ok")]))
+        }
+        w.center.withState { $0.delivered = [snapshot] }
+        #expect(await !w.handler.shouldPresent(snapshot))
+        #expect(w.center.withState { $0.delivered }.isEmpty, "and removed")
+
+        // Another server's reminder is shown whatever its store says.
+        let fromB = w.reminder(w.moodTopic, serverId: Self.serverB)
+        try await w.stores[Self.serverB]!.writer.write { db in
+            _ = try ServerLayer.upsert(
+                db, entry: Make.entry(topicId: topicId, minutes: 1, answers: ["mood": .string("ok")]))
+        }
+        #expect(await w.handler.shouldPresent(NotificationSnapshot(id: "b", quickr: fromB.info)))
+    }
+
+    @Test func aReminderWhoseSharedIdIsUsedIsNotPresented() async throws {
+        let w = try await World()
+        let r = w.reminder(w.water, last: .int(5))
+        let snapshot = NotificationSnapshot(id: "due-water", quickr: r.info)
+        // Logged from this reminder and deleted since: the view has no entry, the id is spent.
+        try await w.stores[Self.serverA]!.writer.write { db in
+            try ServerLayer.applyDeletion(db, kind: .entry, id: w.entryId(w.water), topicId: w.water.id, seq: nil)
+        }
+        #expect(await !w.handler.shouldPresent(snapshot))
+
+        // Queued: the PWA or another tap logged it, not yet synced.
+        let w2 = try await World()
+        w2.server.inject(nil, .respond(FakeServer.problem(503, "unavailable")))
+        let r2 = w2.reminder(w2.water, last: .int(5))
+        guard case .logged = await w2.tap(r2, 0) else { throw Failure("logs") }
+        #expect(await !w2.handler.shouldPresent(NotificationSnapshot(id: "due-water", quickr: r2.info)))
+        #expect(
+            await w2.handler.shouldPresent(
+                NotificationSnapshot(id: "next", quickr: w2.reminder(w2.water, dueSince: "2026-03-04T23:00:00Z").info)),
+            "the next slot is due")
     }
 
     struct Failure: Error, CustomStringConvertible {

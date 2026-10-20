@@ -18,11 +18,19 @@ final class NotificationResponder: NSObject, UNUserNotificationCenterDelegate {
         self.environment = environment
     }
 
-    /// §7.2: shown in the foreground too.
+    /// §7.2: shown in the foreground too, unless it is a reminder the active store already
+    /// satisfies (then it is suppressed and removed).
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+        let snapshot = NotificationSnapshot(
+            id: notification.request.identifier,
+            quickr: SystemNotificationCenter.quickr(notification.request.content.userInfo))
+        return await shouldPresent(snapshot) ? [.banner, .list, .sound] : []
+    }
+
+    private func shouldPresent(_ snapshot: NotificationSnapshot) async -> Bool {
+        await environment?.shouldPresentNotification(snapshot) ?? true
     }
 
     // The completion-handler variant: UIKit asserts the completion runs on the main thread, which

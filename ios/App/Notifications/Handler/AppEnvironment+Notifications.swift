@@ -15,6 +15,12 @@ extension AppEnvironment {
         router.handle(path: path)
     }
 
+    /// §7.2: whether a notification arriving in the foreground is shown.
+    func shouldPresentNotification(_ notification: NotificationSnapshot) async -> Bool {
+        guard let session else { return true }
+        return await notificationHandler(session).shouldPresent(notification)
+    }
+
     /// The tap-to-fix text for `topicId`'s record screen, once.
     func takeRecordPrefill(topicId: UUID) -> [String: String]? {
         guard let prefill = recordPrefill, prefill.topicId == topicId.wireString else { return nil }
