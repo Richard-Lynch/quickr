@@ -6,40 +6,148 @@ import Testing
 
 private let token = AccessCredentials(clientId: "abc123.access", clientSecret: "s3cr3t-value")
 
+private let tokenB = AccessCredentials(clientId: "b.access", clientSecret: "b-s3cr3t")
+private let urlA = URL(string: "https://a.example.com")!
+private let urlB = URL(string: "https://b.example.com/quickr/")!
+
+/// A registry that knows servers a and b at their addresses.
+private struct FakeRegistry: RegistryRepository {
+    var known: [String: URL]
+
+    func servers() async throws -> [RegisteredServer] {
+        known.map { RegisteredServer(id: $0.key, baseURL: $0.value.absoluteString, createdAt: Date()) }
+    }
+
+    func server(id: String) async throws -> RegisteredServer? { try await servers().first { $0.id == id } }
+    func activeServerId() async throws -> String? { nil }
+    func notificationCategories() async throws -> [NotificationCategoryRecord] { [] }
+}
+
 @Suite struct KeychainAccessCredentialsTests {
-    @Test func savesReadsAndRemovesTheToken() async throws {
+    @Test func addressesNormalise() {
+        #expect(
+            KeychainAccessCredentials.addressKey(URL(string: "HTTPS://A.Example.com:443/")!) == "https://a.example.com")
+        #expect(KeychainAccessCredentials.addressKey(urlB) == "https://b.example.com/quickr")
+        #expect(KeychainAccessCredentials.addressKey(URL(string: "http://nas.local:8100")!) == "http://nas.local:8100")
+        #expect(KeychainAccessCredentials.addressKey(URL(string: "http://nas.local:80/")!) == "http://nas.local")
+    }
+
+    @Test func tokensArePerServerAndRemovingOneKeepsTheOther() async throws {
         let keychain = InMemoryKeychain()
         let provider = KeychainAccessCredentials(keychain: keychain)
-        #expect(try await provider.accessCredentials() == nil)
+        #expect(try await provider.accessCredentials(for: urlA) == nil)
 
-        try provider.save(token)
-        #expect(keychain.accounts == [KeychainAccessCredentials.account])
-        #expect(try await provider.accessCredentials() == token)
-        // A second provider over the same Keychain (another process) sees it.
-        #expect(try KeychainAccessCredentials(keychain: keychain).stored() == token)
+        // Before the registry knows them: filed by address.
+        try await provider.save(token, for: urlA)
+        try await provider.save(tokenB, for: urlB)
+        #expect(try await provider.accessCredentials(for: urlA) == token)
+        #expect(try await provider.accessCredentials(for: URL(string: "https://a.example.com/")!) == token)
+        #expect(try await provider.accessCredentials(for: URL(string: "https://b.example.com/quickr")!) == tokenB)
+        #expect(try await provider.accessCredentials(for: URL(string: "https://c.example.com")!) == nil)
 
-        try provider.save(AccessCredentials(clientId: "new.access", clientSecret: "other"))
-        #expect(try provider.stored()?.clientId == "new.access")
+        try await provider.save(nil, for: urlA)
+        #expect(try await provider.accessCredentials(for: urlA) == nil)
+        #expect(try await provider.accessCredentials(for: urlB) == tokenB)
+        try await provider.save(nil, for: urlA)  // removing nothing is fine
+    }
 
-        try provider.save(nil)
-        #expect(keychain.accounts.isEmpty)
-        #expect(try await provider.accessCredentials() == nil)
-        try provider.save(nil)  // removing nothing is fine
+    @Test func connectingFilesTheTokenUnderTheServerId() async throws {
+        let keychain = InMemoryKeychain()
+        let directory = ServerDirectory()
+        let provider = KeychainAccessCredentials(keychain: keychain, directory: directory)
+        try await provider.save(tokenB, for: urlB)
+        try provider.adopt(baseURL: urlB, serverId: "server-b")
+        #expect(keychain.accounts == ["cloudflare-access:server:server-b"])
+        #expect(try provider.stored(serverId: "server-b") == tokenB)
+
+        // Once the registry records b's address, requests to it resolve to b's token...
+        directory.attach(FakeRegistry(known: ["server-b": urlB]))
+        #expect(try await provider.accessCredentials(for: urlB) == tokenB)
+        // ...and saving for that address replaces b's, not a new address item.
+        try await provider.save(token, for: urlB)
+        #expect(keychain.accounts == ["cloudflare-access:server:server-b"])
+        #expect(try provider.stored(serverId: "server-b") == token)
+        // Removing b's clears only b's.
+        try provider.save(tokenB, serverId: "server-a")
+        try await provider.save(nil, for: urlB)
+        #expect(keychain.accounts == ["cloudflare-access:server:server-a"])
+        // Nothing filed under the address to adopt: nothing changes.
+        try provider.adopt(baseURL: urlA, serverId: "server-c")
+        #expect(keychain.accounts == ["cloudflare-access:server:server-a"])
+    }
+
+    /// A flush to a running while b connects: each request carries its own target's token, however
+    /// they interleave.
+    @Test func concurrentRequestsToTwoServersEachCarryTheirOwnToken() async throws {
+        let keychain = InMemoryKeychain()
+        let directory = ServerDirectory()
+        let provider = KeychainAccessCredentials(keychain: keychain, directory: directory)
+        try provider.save(token, serverId: "server-a")
+        directory.attach(FakeRegistry(known: ["server-a": urlA]))
+        try await provider.save(tokenB, for: urlB)  // b is new: filed by address
+
+        let transport = FakeTransport()
+        let page = try Fixtures.api("listChanges.bootstrap").response()
+        transport.stub(where: { _ in true }, { _ in page })
+        await withTaskGroup(of: Void.self) { group in
+            for i in 0..<40 {
+                group.addTask {
+                    _ = await ServerProbe.serverId(
+                        at: i % 2 == 0 ? urlA : urlB, transport: transport, credentials: provider)
+                }
+            }
+        }
+        #expect(transport.requests.count == 40)
+        for request in transport.requests {
+            let expected = request.url.host() == "a.example.com" ? token : tokenB
+            #expect(request.headers[QuickrHeader.cfAccessClientId] == expected.clientId)
+            #expect(request.headers[QuickrHeader.cfAccessClientSecret] == expected.clientSecret)
+        }
+    }
+
+    @Test func theLegacySingleTokenMovesToTheActiveServer() throws {
+        let legacy = try JSONEncoder().encode(["clientId": "old.access", "clientSecret": "old"])
+        // To the active server, by id.
+        let keychain = InMemoryKeychain([KeychainAccessCredentials.legacyAccount: legacy])
+        let provider = KeychainAccessCredentials(keychain: keychain)
+        try provider.migrateLegacy(serverId: "server-a", baseURL: urlA)
+        #expect(keychain.accounts == ["cloudflare-access:server:server-a"])
+        #expect(try provider.stored(serverId: "server-a")?.clientId == "old.access")
+        try provider.migrateLegacy(serverId: "server-a", baseURL: urlA)  // done once; nothing left
+        #expect(keychain.accounts == ["cloudflare-access:server:server-a"])
+
+        // Before any store: to the configured address.
+        let early = InMemoryKeychain([KeychainAccessCredentials.legacyAccount: legacy])
+        try KeychainAccessCredentials(keychain: early).migrateLegacy(serverId: nil, baseURL: urlB)
+        #expect(early.accounts == ["cloudflare-access:url:https://b.example.com/quickr"])
+
+        // No server at all: it waits.
+        let waiting = InMemoryKeychain([KeychainAccessCredentials.legacyAccount: legacy])
+        try KeychainAccessCredentials(keychain: waiting).migrateLegacy(serverId: nil, baseURL: nil)
+        #expect(waiting.accounts == [KeychainAccessCredentials.legacyAccount])
+
+        // A server's own newer token wins; the legacy item still goes.
+        let both = InMemoryKeychain([KeychainAccessCredentials.legacyAccount: legacy])
+        let bothProvider = KeychainAccessCredentials(keychain: both)
+        try bothProvider.save(tokenB, serverId: "server-a")
+        try bothProvider.migrateLegacy(serverId: "server-a", baseURL: nil)
+        #expect(try bothProvider.stored(serverId: "server-a") == tokenB)
+        #expect(both.accounts == ["cloudflare-access:server:server-a"])
     }
 
     @Test func keychainFailuresSurfaceWithoutTheSecret() async throws {
         let keychain = InMemoryKeychain()
         let provider = KeychainAccessCredentials(keychain: keychain)
-        try provider.save(token)
+        try await provider.save(token, for: urlA)
         keychain.fail(with: KeychainError(-25308))  // errSecInteractionNotAllowed (locked)
-        await #expect(throws: KeychainError(-25308)) { try await provider.accessCredentials() }
-        #expect(throws: KeychainError(-25308)) { try provider.save(token) }
+        await #expect(throws: KeychainError(-25308)) { try await provider.accessCredentials(for: urlA) }
+        await #expect(throws: KeychainError(-25308)) { try await provider.save(token, for: urlA) }
         #expect(!KeychainError(-25308).description.contains("s3cr3t"))
     }
 
-    @Test func aMalformedItemReadsAsNoToken() throws {
-        let keychain = InMemoryKeychain([KeychainAccessCredentials.account: Data("not json".utf8)])
-        #expect(try KeychainAccessCredentials(keychain: keychain).stored() == nil)
+    @Test func aMalformedItemReadsAsNoToken() async throws {
+        let keychain = InMemoryKeychain(["cloudflare-access:url:https://a.example.com": Data("not json".utf8)])
+        #expect(try await KeychainAccessCredentials(keychain: keychain).accessCredentials(for: urlA) == nil)
     }
 
     @Test func requestsCarryTheStoredToken() async throws {
@@ -48,13 +156,12 @@ private let token = AccessCredentials(clientId: "abc123.access", clientSecret: "
         let transport = FakeTransport()
         transport.enqueue(.success(try Fixtures.api("listChanges.bootstrap").response()))
         transport.enqueue(.success(try Fixtures.api("listChanges.bootstrap").response()))
-        let url = URL(string: "https://quickr.example.com")!
 
-        _ = await ServerProbe.serverId(at: url, transport: transport, credentials: provider)
+        _ = await ServerProbe.serverId(at: urlA, transport: transport, credentials: provider)
         #expect(transport.requests.last?.headers[QuickrHeader.cfAccessClientId] == nil)
 
-        try provider.save(token)  // applies to the next request, nothing rebuilt
-        _ = await ServerProbe.serverId(at: url, transport: transport, credentials: provider)
+        try await provider.save(token, for: urlA)  // applies to the next request, nothing rebuilt
+        _ = await ServerProbe.serverId(at: urlA, transport: transport, credentials: provider)
         #expect(transport.requests.last?.headers[QuickrHeader.cfAccessClientId] == "abc123.access")
         #expect(transport.requests.last?.headers[QuickrHeader.cfAccessClientSecret] == "s3cr3t-value")
     }
@@ -77,7 +184,8 @@ private let token = AccessCredentials(clientId: "abc123.access", clientSecret: "
         let transport = FakeTransport()
         transport.enqueue(.success(try Fixtures.api("listChanges.bootstrap").response()))
         let keychain = InMemoryKeychain()
-        try KeychainAccessCredentials(keychain: keychain).save(token)
+        try await KeychainAccessCredentials(keychain: keychain).save(
+            token, for: URL(string: "https://quickr.example.com")!)
         _ = await ServerProbe.serverId(
             at: URL(string: "https://quickr.example.com")!, transport: transport,
             credentials: KeychainAccessCredentials(keychain: keychain))

@@ -32,7 +32,7 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .task {
             if reset == nil, let session = environment.session { reset = ResetFlow(session: session) }
-            loadToken()
+            await loadToken()
         }
         .sheet(item: $changingServer) { setup in
             NavigationStack {
@@ -47,14 +47,14 @@ struct SettingsView: View {
                 }
                 .onChange(of: setup.state) { _, state in
                     if case .connected = state {
-                        loadToken()
                         changingServer = nil
+                        Task { await loadToken() }
                     }
                 }
             }
         }
-        .sheet(isPresented: $editingToken, onDismiss: loadToken) {
-            AccessTokenEditor(credentials: environment.credentials, current: token)
+        .sheet(isPresented: $editingToken, onDismiss: reloadToken) {
+            AccessTokenEditor(credentials: environment.credentials, target: tokenTarget, current: token)
         }
     }
 
@@ -103,7 +103,7 @@ struct SettingsView: View {
                 .accessibilityIdentifier("settings.accessClientId")
                 LabeledContent("Client Secret", value: "Stored in the Keychain")
                 Button("Replace token…") { editingToken = true }
-                Button("Remove token", role: .destructive) { removeToken() }
+                Button("Remove token", role: .destructive) { Task { await removeToken() } }
                     .accessibilityIdentifier("settings.removeToken")
             } else {
                 Text("None. Only needed when the server is behind Cloudflare Access.")
@@ -117,23 +117,41 @@ struct SettingsView: View {
         } header: {
             Text("Cloudflare Access")
         } footer: {
-            Text("Sent with every request as CF-Access-Client-Id and CF-Access-Client-Secret. Never synced or shared.")
+            Text(
+                "For this server only: sent with its requests as CF-Access-Client-Id and CF-Access-Client-Secret. Never synced or shared."
+            )
         }
     }
 
-    private func loadToken() {
+    /// The server whose token this section shows and edits.
+    private var tokenTarget: TokenTarget? {
+        if let serverId = environment.session?.binding?.serverId { return .server(serverId) }
+        return environment.settings.serverURL.map(TokenTarget.address)
+    }
+
+    private func reloadToken() {
+        Task { await loadToken() }
+    }
+
+    private func loadToken() async {
+        guard let credentials = environment.credentials, let target = tokenTarget else {
+            token = nil
+            return
+        }
         do {
-            token = try environment.credentials?.stored()
-            tokenError = nil
+            token = try await target.load(from: credentials)
+            tokenError = environment.credentialsIssue
         } catch {
             tokenError = "Couldn’t read the Keychain: \(error)"
         }
     }
 
-    private func removeToken() {
+    /// Removes this server's token only.
+    private func removeToken() async {
+        guard let credentials = environment.credentials, let target = tokenTarget else { return }
         do {
-            try environment.credentials?.save(nil)
-            loadToken()
+            try await target.save(nil, to: credentials)
+            await loadToken()
         } catch {
             tokenError = "Couldn’t remove the token: \(error)"
         }
@@ -169,13 +187,15 @@ struct SettingsView: View {
 /// Enter or replace the Cloudflare Access service token.
 private struct AccessTokenEditor: View {
     let credentials: KeychainAccessCredentials?
+    let target: TokenTarget?
     @State private var clientId: String
     @State private var clientSecret = ""
     @State private var error: String?
     @Environment(\.dismiss) private var dismiss
 
-    init(credentials: KeychainAccessCredentials?, current: AccessCredentials?) {
+    init(credentials: KeychainAccessCredentials?, target: TokenTarget?, current: AccessCredentials?) {
         self.credentials = credentials
+        self.target = target
         _clientId = State(initialValue: current?.clientId ?? "")
     }
 
@@ -203,17 +223,21 @@ private struct AccessTokenEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save", action: save).accessibilityIdentifier("token.save")
+                    Button("Save") { Task { await save() } }.accessibilityIdentifier("token.save")
                 }
             }
         }
     }
 
-    private func save() {
+    private func save() async {
         switch AccessCredentials.validated(clientId: clientId, clientSecret: clientSecret) {
         case .success(let token?):
+            guard let credentials, let target else {
+                error = "Connect to a server first."
+                return
+            }
             do {
-                try credentials?.save(token)
+                try await target.save(token, to: credentials)
                 dismiss()
             } catch {
                 self.error = "Couldn’t save the token: \(error)"
@@ -228,4 +252,25 @@ private struct AccessTokenEditor: View {
 
 extension ServerSetup: Identifiable {
     nonisolated var id: ObjectIdentifier { ObjectIdentifier(self) }
+}
+
+/// Whose token Settings shows and edits: the active server's (by id), or, before a store is
+/// bound, the configured address's.
+enum TokenTarget: Equatable {
+    case server(String)
+    case address(URL)
+
+    func load(from credentials: KeychainAccessCredentials) async throws -> AccessCredentials? {
+        switch self {
+        case .server(let id): try credentials.stored(serverId: id)
+        case .address(let url): try await credentials.stored(for: url)
+        }
+    }
+
+    func save(_ token: AccessCredentials?, to credentials: KeychainAccessCredentials) async throws {
+        switch self {
+        case .server(let id): try credentials.save(token, serverId: id)
+        case .address(let url): try await credentials.save(token, for: url)
+        }
+    }
 }

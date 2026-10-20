@@ -43,9 +43,10 @@ extension AppSession: ServerSwitcher {
 /// warns before leaving unsynced changes behind on another server, then connects (which switches
 /// stores) and remembers the address.
 ///
-/// A typed token is only used to probe until the switch is confirmed: the active server keeps its
-/// own token for everything before that (including "Sync now"'s flush). It goes into the Keychain
-/// just before the connect, and the previous one comes back if the connect fails.
+/// Tokens are per server (`KeychainAccessCredentials`): a typed token only probes until the switch
+/// is confirmed, then is stored for the new address (re-keyed to its `server_id` once connected).
+/// The active server's token is never touched, and its requests (a flush during the switch
+/// included) only ever carry its own.
 @MainActor @Observable
 final class ServerSetup {
     enum State: Equatable {
@@ -128,7 +129,11 @@ final class ServerSetup {
         // The probe sends the typed token, or the stored one when nothing was typed.
         let probeToken: AccessCredentials?
         do {
-            probeToken = try typed ?? credentials?.stored()
+            if let typed {
+                probeToken = typed
+            } else {
+                probeToken = try await credentials?.stored(for: url)
+            }
         } catch {
             fail("Couldn’t read the token from the Keychain.", detail: String(describing: error))
             return
@@ -177,37 +182,34 @@ final class ServerSetup {
         }
     }
 
-    /// Stores `token` (if one was typed), connects, and puts the previous token back if the connect
-    /// fails, so the server that stays active keeps its own.
+    /// Stores `token` (if one was typed) for `url` only, connects, and on success files it under
+    /// the server's id. A failed connect leaves every token as it was (and the typed one ready
+    /// for a retry at that address).
     private func finish(_ url: URL, token: AccessCredentials?) async {
         state = .working("Connecting…")
-        var previous: AccessCredentials??
         if let token {
             do {
-                previous = .some(try credentials?.stored())
-                try credentials?.save(token)
+                try await credentials?.save(token, for: url)
             } catch {
                 fail("Couldn’t save the token on this iPhone.", detail: String(describing: error))
                 return
             }
         }
         switch await switcher.connect(url) {
-        case .connected(_, _, let note):
+        case .connected(let serverId, _, let note):
+            var note = note
+            do {
+                try credentials?.adopt(baseURL: url, serverId: serverId)
+            } catch {
+                // Not fatal: requests still find the token under the address.
+                note = [note, "The token stays filed under this address (\(error))."].compactMap { $0 }.joined(
+                    separator: " ")
+            }
             settings.serverURL = url
             address = url.absoluteString
             clientSecret = ""
             state = .connected(note: note)
         case .failed(let problem):
-            if let previous {
-                do {
-                    try credentials?.save(previous)
-                } catch {
-                    fail(
-                        "\(problem.description) The previous Cloudflare Access token couldn’t be put back; check it in Settings.",
-                        detail: String(describing: error))
-                    return
-                }
-            }
             fail(problem)
         }
     }

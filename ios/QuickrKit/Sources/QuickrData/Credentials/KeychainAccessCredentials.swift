@@ -109,36 +109,139 @@ public final class InMemoryKeychain: KeychainStore {
     }
 }
 
-/// The Cloudflare Access service token, in the Keychain (never in `UserDefaults`, `AppSettings`
-/// or a log). One token for the app: it is sent to whichever server is active. Read on every
-/// request, so a change in Settings applies to the next request without rebuilding anything.
+/// Which server an address belongs to, from the registry (`base_url` → `server_id`). Attached
+/// once the session's registry is open; until then every address is unknown.
+public final class ServerDirectory: Sendable {
+    private let registry = Mutex<(any RegistryRepository)?>(nil)
+
+    public init() {}
+
+    public func attach(_ repository: any RegistryRepository) {
+        registry.withLock { $0 = repository }
+    }
+
+    /// The server whose recorded address is `baseURL`, or nil.
+    public func serverId(for baseURL: URL) async throws -> String? {
+        guard let repository = registry.withLock({ $0 }) else { return nil }
+        let key = KeychainAccessCredentials.addressKey(baseURL)
+        return try await repository.servers().first { server in
+            URL(string: server.baseURL).map(KeychainAccessCredentials.addressKey) == key
+        }?.id
+    }
+}
+
+/// Cloudflare Access service tokens in the Keychain (never in `UserDefaults`, `AppSettings` or a
+/// log), one per server: each request gets the token of the server it goes to, so switching
+/// servers never sends one server's secret to another, and changing one leaves the others alone.
+///
+/// An item is keyed by the server's `server_id` once the registry knows the address, and by the
+/// normalised address before that (onboarding, a switch to a new server); `adopt` re-keys it to
+/// the `server_id` once connected. Reads try the server's key, then its address's. Read on every
+/// request, so a change applies to the next one without rebuilding anything.
 public struct KeychainAccessCredentials: AccessCredentialsProvider {
-    public static let account = "cloudflare-access-service-token"
+    /// The single, app-wide item of the first SETTINGS build; `migrateLegacy` moves it.
+    public static let legacyAccount = "cloudflare-access-service-token"
+    static let prefix = "cloudflare-access"
 
     public let keychain: any KeychainStore
+    public let directory: ServerDirectory
 
-    public init(keychain: any KeychainStore = SystemKeychain()) {
+    public init(keychain: any KeychainStore = SystemKeychain(), directory: ServerDirectory = ServerDirectory()) {
         self.keychain = keychain
+        self.directory = directory
     }
 
-    public func accessCredentials() async throws -> AccessCredentials? {
-        try stored()
+    // MARK: Keys
+
+    /// scheme://host[:port][/path], lowercased scheme and host, no default port or trailing slash.
+    public static func addressKey(_ url: URL) -> String {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            let scheme = components.scheme?.lowercased(), let host = components.host?.lowercased()
+        else { return url.absoluteString }
+        let defaultPort = scheme == "https" ? 443 : scheme == "http" ? 80 : nil
+        let port = components.port.flatMap { $0 == defaultPort ? nil : ":\($0)" } ?? ""
+        var path = components.percentEncodedPath
+        while path.hasSuffix("/") { path.removeLast() }
+        return "\(scheme)://\(host)\(port)\(path)"
     }
 
-    /// The stored token, or nil. A malformed item reads as none.
-    public func stored() throws -> AccessCredentials? {
-        guard let data = try keychain.data(for: Self.account) else { return nil }
+    static func account(serverId: String) -> String { "\(prefix):server:\(serverId)" }
+    static func account(address url: URL) -> String { "\(prefix):url:\(addressKey(url))" }
+
+    // MARK: Reading
+
+    public func accessCredentials(for baseURL: URL) async throws -> AccessCredentials? {
+        try await stored(for: baseURL)
+    }
+
+    /// The token for requests to `baseURL`: its server's, else its address's.
+    public func stored(for baseURL: URL) async throws -> AccessCredentials? {
+        if let serverId = try await directory.serverId(for: baseURL), let token = try stored(serverId: serverId) {
+            return token
+        }
+        return try read(Self.account(address: baseURL))
+    }
+
+    public func stored(serverId: String) throws -> AccessCredentials? {
+        try read(Self.account(serverId: serverId))
+    }
+
+    // MARK: Writing
+
+    /// Stores (or, for nil, removes) the token for `baseURL`: under its server when the registry
+    /// knows the address, else under the address. Removing clears both keys of that server only.
+    public func save(_ credentials: AccessCredentials?, for baseURL: URL) async throws {
+        let serverId = try await directory.serverId(for: baseURL)
+        guard let credentials else {
+            if let serverId { try keychain.delete(Self.account(serverId: serverId)) }
+            try keychain.delete(Self.account(address: baseURL))
+            return
+        }
+        try write(credentials, serverId.map(Self.account(serverId:)) ?? Self.account(address: baseURL))
+    }
+
+    /// Stores (or removes) a known server's token.
+    public func save(_ credentials: AccessCredentials?, serverId: String) throws {
+        guard let credentials else {
+            try keychain.delete(Self.account(serverId: serverId))
+            return
+        }
+        try write(credentials, Self.account(serverId: serverId))
+    }
+
+    /// After connecting `baseURL` to `serverId`: a token saved under the address becomes the
+    /// server's (replacing an older one of that server's).
+    public func adopt(baseURL: URL, serverId: String) throws {
+        guard let token = try read(Self.account(address: baseURL)) else { return }
+        try write(token, Self.account(serverId: serverId))
+        try keychain.delete(Self.account(address: baseURL))
+    }
+
+    /// The first SETTINGS build kept one app-wide item: it becomes the active server's (by id, or
+    /// by its address before the store is bound). Nothing happens with no legacy item, or with no
+    /// server to give it to (it waits for the next launch).
+    public func migrateLegacy(serverId: String?, baseURL: URL?) throws {
+        guard let data = try keychain.data(for: Self.legacyAccount) else { return }
+        let account: String
+        if let serverId {
+            account = Self.account(serverId: serverId)
+        } else if let baseURL {
+            account = Self.account(address: baseURL)
+        } else {
+            return
+        }
+        if try keychain.data(for: account) == nil { try keychain.set(data, for: account) }
+        try keychain.delete(Self.legacyAccount)
+    }
+
+    private func read(_ account: String) throws -> AccessCredentials? {
+        guard let data = try keychain.data(for: account) else { return nil }
+        // A malformed item reads as none.
         return try? JSONDecoder().decode(Stored.self, from: data).credentials
     }
 
-    /// Stores `credentials`, or removes the token for nil.
-    public func save(_ credentials: AccessCredentials?) throws {
-        guard let credentials else {
-            try keychain.delete(Self.account)
-            return
-        }
-        let data = try JSONEncoder().encode(Stored(credentials))
-        try keychain.set(data, for: Self.account)
+    private func write(_ credentials: AccessCredentials, _ account: String) throws {
+        try keychain.set(try JSONEncoder().encode(Stored(credentials)), for: account)
     }
 
     private struct Stored: Codable {

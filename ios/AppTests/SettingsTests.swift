@@ -21,10 +21,11 @@ import Testing
 
     let credentials = KeychainAccessCredentials(keychain: keychain)
     let token = AccessCredentials(clientId: "abc.access", clientSecret: "secret")
-    try credentials.save(token)
-    #expect(try KeychainAccessCredentials(keychain: keychain).stored() == token)
-    try credentials.save(nil)
-    #expect(try credentials.stored() == nil)
+    try credentials.save(token, serverId: "server-a")
+    #expect(try KeychainAccessCredentials(keychain: keychain).stored(serverId: "server-a") == token)
+    try credentials.save(nil, serverId: "server-a")
+    #expect(try credentials.stored(serverId: "server-a") == nil)
+    try keychain.delete("cloudflare-access:server:server-a")
 }
 
 /// `AppEnvironment.live` gives the session the Keychain token: a request carries it.
@@ -39,7 +40,8 @@ import Testing
     let environment = AppEnvironment.live(
         location: location, defaults: defaults, keychain: InMemoryKeychain(), transport: transport)
     let session = try #require(environment.session)
-    try environment.credentials?.save(AccessCredentials(clientId: "abc.access", clientSecret: "secret"))
+    try await environment.credentials?.save(
+        AccessCredentials(clientId: "abc.access", clientSecret: "secret"), for: URL(string: "https://quickr.example")!)
 
     _ = await session.probeServer(at: URL(string: "https://quickr.example")!)
     let request = try #require(transport.requests.last)
@@ -85,7 +87,8 @@ import Testing
     #expect(setup.state == .connected(note: nil))
     #expect(setup.settings.serverURL == URL(string: "https://quickr.example"))
     #expect(setup.clientSecret.isEmpty)
-    #expect(try setup.credentials?.stored()?.clientId == "abc.access")
+    // Filed under the server's id once connected.
+    #expect(try setup.credentials?.stored(serverId: "00000000-0000-4000-8000-0000000000aa")?.clientId == "abc.access")
     #expect(transport.requests.allSatisfy { $0.url.host() == "quickr.example" })
     #expect((setup.switcher as? AppSession)?.binding?.serverId == "00000000-0000-4000-8000-0000000000aa")
 }
@@ -199,6 +202,21 @@ import Testing
 
 private let tokenA = AccessCredentials(clientId: "a.access", clientSecret: "secret-a")
 private let tokenB = AccessCredentials(clientId: "b.access", clientSecret: "secret-b")
+private let urlA = URL(string: "https://a.example")!
+private let urlB = URL(string: "https://b.example")!
+
+/// A registry that knows servers at fixed addresses.
+private struct FakeRegistry: RegistryRepository {
+    var known: [String: URL]
+
+    func servers() async throws -> [RegisteredServer] {
+        known.map { RegisteredServer(id: $0.key, baseURL: $0.value.absoluteString, createdAt: Date()) }
+    }
+
+    func server(id: String) async throws -> RegisteredServer? { try await servers().first { $0.id == id } }
+    func activeServerId() async throws -> String? { nil }
+    func notificationCategories() async throws -> [NotificationCategoryRecord] { [] }
+}
 
 @MainActor
 @Test func aFailedProbeLeavesTheActiveServersToken() async throws {
@@ -213,7 +231,8 @@ private let tokenB = AccessCredentials(clientId: "b.access", clientSecret: "secr
         return
     }
     #expect(switcher.probedWith == [tokenB], "the probe used the typed token")
-    #expect(try credentials.stored() == tokenA, "A keeps its token")
+    #expect(try credentials.stored(serverId: "server-a") == tokenA, "A keeps its token")
+    #expect(try await credentials.stored(for: urlB) == nil, "nothing stored for B")
     #expect(switcher.connected.isEmpty)
 }
 
@@ -229,44 +248,49 @@ private let tokenB = AccessCredentials(clientId: "b.access", clientSecret: "secr
         return
     }
     #expect(warning.count == 2 && warning.failedCount == 1 && warning.oldServer == "a.example")
-    #expect(try credentials.stored() == tokenA)
+    #expect(try credentials.stored(serverId: "server-a") == tokenA)
     setup.edit()
-    #expect(try credentials.stored() == tokenA)
+    #expect(try credentials.stored(serverId: "server-a") == tokenA)
+    #expect(try await credentials.stored(for: urlB) == nil)
     #expect(switcher.connected.isEmpty && switcher.flushes.isEmpty)
 }
 
 @MainActor
 @Test func syncNowFlushesWithTheActiveServersTokenThenSwitches() async throws {
     let (setup, switcher, credentials) = try fakeSetup(pending: 2)
-    setup.address = "https://b.example"
+    setup.address = urlB.absoluteString
     setup.clientId = tokenB.clientId
     setup.clientSecret = tokenB.clientSecret
     await setup.connect()
     setup.confirmSwitch(syncFirst: true)
     try await settle(setup)
-    #expect(switcher.flushes == [tokenA], "the flush ran with A's token stored")
-    #expect(switcher.connected == [URL(string: "https://b.example")!])
-    #expect(switcher.tokenAtConnect == [tokenB], "B's token is stored for B's connect")
+    #expect(switcher.flushes == [tokenA], "the flush to A carried A's token")
+    #expect(switcher.connected == [urlB])
+    // During B's connect, a background flush to A still gets A's token; B's connect gets B's.
+    #expect(switcher.atConnect.map(\.toA) == [tokenA])
+    #expect(switcher.atConnect.map(\.toB) == [tokenB])
     #expect(setup.state == .connected(note: nil))
-    #expect(try credentials.stored() == tokenB)
+    #expect(try credentials.stored(serverId: "server-b") == tokenB, "filed under B's id")
+    #expect(try credentials.stored(serverId: "server-a") == tokenA, "A's untouched")
 }
 
 @MainActor
-@Test func aFailedConnectPutsTheActiveServersTokenBack() async throws {
+@Test func aFailedConnectLeavesBothTokens() async throws {
     let (setup, switcher, credentials) = try fakeSetup(pending: 2)
     switcher.connectResult = .failed(.unreachable("timed out"))
-    setup.address = "https://b.example"
+    setup.address = urlB.absoluteString
     setup.clientId = tokenB.clientId
     setup.clientSecret = tokenB.clientSecret
     await setup.connect()
     setup.confirmSwitch(syncFirst: false)
     try await settle(setup)
-    #expect(switcher.tokenAtConnect == [tokenB])
+    #expect(switcher.atConnect.map(\.toA) == [tokenA])
     guard case .failed = setup.state else {
         Issue.record("the connect failed")
         return
     }
-    #expect(try credentials.stored() == tokenA)
+    #expect(try credentials.stored(serverId: "server-a") == tokenA)
+    #expect(try await credentials.stored(for: urlB) == tokenB, "kept under B's address for a retry")
     #expect(setup.settings.serverURL == nil)
 }
 
@@ -282,17 +306,24 @@ private let tokenB = AccessCredentials(clientId: "b.access", clientSecret: "secr
     }
     #expect(failure.message.contains("nothing was switched"))
     #expect(switcher.connected.isEmpty)
-    #expect(try credentials.stored() == tokenA)
+    #expect(try credentials.stored(serverId: "server-a") == tokenA)
 }
 
 @MainActor
-@Test func nothingTypedProbesWithTheStoredToken() async throws {
-    let (setup, switcher, _) = try fakeSetup(pending: 0)
-    setup.address = "https://b.example"
+@Test func nothingTypedProbesWithTheTargetsOwnToken() async throws {
+    let (setup, switcher, credentials) = try fakeSetup(pending: 0)
+    setup.address = urlB.absoluteString
     await setup.connect()
     try await settle(setup)
-    #expect(switcher.probedWith == [tokenA])
-    #expect(switcher.connected == [URL(string: "https://b.example")!])
+    #expect(switcher.probedWith == [nil], "never A's token for B")
+    #expect(switcher.connected == [urlB])
+
+    // A token saved earlier for B's address (a failed attempt) is B's to use.
+    try await credentials.save(tokenB, for: URL(string: "https://c.example")!)
+    setup.address = "https://c.example"
+    await setup.connect()
+    try await settle(setup)
+    #expect(switcher.probedWith.last == tokenB)
 }
 
 // MARK: - Reset (fakes)
@@ -402,8 +433,10 @@ private func settle(_ flow: ResetFlow) async throws {
 /// server B.
 @MainActor
 private func fakeSetup(pending: Int) throws -> (ServerSetup, FakeSwitcher, KeychainAccessCredentials) {
-    let credentials = KeychainAccessCredentials(keychain: InMemoryKeychain())
-    try credentials.save(tokenA)
+    let directory = ServerDirectory()
+    directory.attach(FakeRegistry(known: ["server-a": urlA]))
+    let credentials = KeychainAccessCredentials(keychain: InMemoryKeychain(), directory: directory)
+    try credentials.save(tokenA, serverId: "server-a")
     let switcher = FakeSwitcher(credentials: credentials, pending: pending)
     let defaults = try #require(UserDefaults(suiteName: "settings-fake-\(UUID().uuidString)"))
     return (
@@ -420,9 +453,10 @@ private final class FakeSwitcher: ServerSwitcher {
     var connectResult: ConnectOutcome = .connected(serverId: "server-b", isNew: true, note: nil)
     var warningError: (any Error)?
     private(set) var probedWith: [AccessCredentials?] = []
-    /// The stored token at each flush and each connect.
+    /// The token a request to A gets at each flush.
     private(set) var flushes: [AccessCredentials?] = []
-    private(set) var tokenAtConnect: [AccessCredentials?] = []
+    /// What requests to A (a background flush) and to the target get, during each connect.
+    private(set) var atConnect: [(toA: AccessCredentials?, toB: AccessCredentials?)] = []
     private(set) var connected: [URL] = []
 
     init(credentials: KeychainAccessCredentials, pending: Int) {
@@ -430,10 +464,10 @@ private final class FakeSwitcher: ServerSwitcher {
         self.pending = pending
     }
 
-    var activeServer: (id: String, baseURL: URL)? { ("server-a", URL(string: "https://a.example")!) }
+    var activeServer: (id: String, baseURL: URL)? { ("server-a", urlA) }
 
     func probe(_ url: URL, credentials: any AccessCredentialsProvider) async -> Result<String, ConnectProblem> {
-        probedWith.append(try? await credentials.accessCredentials())
+        probedWith.append(try? await credentials.accessCredentials(for: url))
         return probeResult
     }
 
@@ -443,13 +477,16 @@ private final class FakeSwitcher: ServerSwitcher {
     }
 
     func flush() async {
-        flushes.append(try? credentials.stored())
+        flushes.append(try? await credentials.accessCredentials(for: urlA))
     }
 
     func connect(_ url: URL) async -> ConnectOutcome {
-        tokenAtConnect.append(try? credentials.stored())
+        let toA = try? await credentials.accessCredentials(for: urlA)
+        let toB = try? await credentials.accessCredentials(for: url)
+        atConnect.append((toA, toB))
         connected.append(url)
-        return connectResult
+        guard case .connected = connectResult, case .success(let id) = probeResult else { return connectResult }
+        return .connected(serverId: id, isNew: true, note: nil)
     }
 }
 

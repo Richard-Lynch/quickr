@@ -11,8 +11,11 @@ import UIKit
 @MainActor @Observable
 final class AppEnvironment {
     let settings: AppSettings
-    /// The Cloudflare Access token in the Keychain; the session reads it on every request.
+    /// The Cloudflare Access tokens in the Keychain, one per server; the session reads the target
+    /// server's on every request.
     let credentials: KeychainAccessCredentials?
+    /// A Keychain problem from launch (the legacy token's migration), for Settings to show.
+    private(set) var credentialsIssue: String?
     let router = Router()
     /// Nil only when it couldn't be created (`sessionError`); `start()` tries again.
     private(set) var session: AppSession?
@@ -43,7 +46,11 @@ final class AppEnvironment {
     ) -> AppEnvironment {
         let credentials = KeychainAccessCredentials(keychain: keychain)
         return AppEnvironment(settings: AppSettings(defaults: defaults), credentials: credentials) {
-            try AppSession(configuration: .init(location: location, transport: transport, credentials: credentials))
+            let session = try AppSession(
+                configuration: .init(location: location, transport: transport, credentials: credentials))
+            // Addresses resolve to servers through the registry, so each request gets its server's token.
+            credentials.directory.attach(session.partitions.registry.repository)
+            return session
         }
     }
 
@@ -81,6 +88,8 @@ final class AppEnvironment {
                 openSession()
                 registerIntentTopics()
             }
+            // Before the first request, so it already carries the migrated token.
+            await migrateLegacyToken()
             await session?.start(serverURL: settings.serverURL)
             hasStarted = true
             QuickRShortcuts.updateAppShortcutParameters()
@@ -117,6 +126,18 @@ final class AppEnvironment {
         Task {
             await session.didEnterBackground(episode)
             task.end()
+        }
+    }
+
+    /// The first SETTINGS build kept one token for every server: it becomes the active server's
+    /// (the registry's active one, or the configured address before any store exists).
+    private func migrateLegacyToken() async {
+        guard let credentials, let session else { return }
+        do {
+            let active = try await session.partitions.registry.repository.activeServerId()
+            try credentials.migrateLegacy(serverId: active, baseURL: settings.serverURL)
+        } catch {
+            credentialsIssue = "Couldn’t move the Cloudflare Access token to this server’s: \(error)"
         }
     }
 

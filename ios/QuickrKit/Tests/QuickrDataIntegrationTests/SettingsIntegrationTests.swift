@@ -8,20 +8,24 @@ import Testing
 /// Keychain's Cloudflare Access token, and connecting to another address switches stores (and back).
 extension IntegrationTests {
     @Suite("Settings") @MainActor struct SettingsCases {
-        @Test("Probe, connect with a Keychain token, switch to server b and back to a")
+        @Test("Probe, connect, switch to server b and back to a: each request carries its server's token")
         func probeConnectAndSwitch() async throws {
             let it = try await IT.start()
             let root = FileManager.default.temporaryDirectory.appending(path: "quickr-it-settings-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: root) }
             let transport = RecordingTransport()
             let credentials = KeychainAccessCredentials(keychain: InMemoryKeychain())
-            try credentials.save(AccessCredentials(clientId: "it.access", clientSecret: "it-secret"))
+            let tokenA = AccessCredentials(clientId: "a.access", clientSecret: "a-secret")
+            let tokenB = AccessCredentials(clientId: "b.access", clientSecret: "b-secret")
+            try await credentials.save(tokenA, for: it.config.proxyURL)
+            try await credentials.save(tokenB, for: it.config.serverBURL)
             var coordinator = SyncCoordinator.Configuration()
             coordinator.autoRetry = false
             let session = try AppSession(
                 configuration: .init(
                     location: StoreLocation(root: root), transport: transport, credentials: credentials, notifier: nil,
                     coordinator: coordinator))
+            credentials.directory.attach(session.partitions.registry.repository)
             await session.start()
             #expect(session.phase == .noServer)
 
@@ -33,8 +37,7 @@ extension IntegrationTests {
                 return
             }
             #expect(a == it.config.serverId && session.phase == .ready)
-            #expect(transport.requests.allSatisfy { $0.headers[QuickrHeader.cfAccessClientId] == "it.access" })
-            #expect(transport.requests.allSatisfy { $0.headers[QuickrHeader.cfAccessClientSecret] == "it-secret" })
+            try credentials.adopt(baseURL: it.config.proxyURL, serverId: a)
 
             guard case .connected(let b, true, nil) = await session.connect(baseURL: it.config.serverBURL).outcome
             else {
@@ -42,6 +45,7 @@ extension IntegrationTests {
                 return
             }
             #expect(b == it.config.serverIdB && session.binding?.serverId == b)
+            try credentials.adopt(baseURL: it.config.serverBURL, serverId: b)
 
             // Back to a: its store is known, so it is reactivated, not recreated.
             guard case .connected(_, false, nil) = await session.connect(baseURL: it.config.proxyURL).outcome else {
@@ -49,6 +53,13 @@ extension IntegrationTests {
                 return
             }
             #expect(session.binding?.serverId == it.config.serverId)
+            // Every request carried the token of the server it went to, never the other's.
+            for request in transport.requests {
+                let expected = request.url.port == it.config.serverBURL.port ? tokenB : tokenA
+                #expect(request.headers[QuickrHeader.cfAccessClientId] == expected.clientId, "\(request)")
+                #expect(request.headers[QuickrHeader.cfAccessClientSecret] == expected.clientSecret)
+            }
+            #expect(transport.requests.contains { $0.url.port == it.config.serverBURL.port })
             await session.shutdown()
         }
 
