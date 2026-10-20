@@ -149,11 +149,12 @@ import Testing
         let suspendsBefore = suspends.count
 
         task.expire()
-        await refresh.value
         try await eventually("completed") { task.completions == [false] }
         try await eventually("the held request is cancelled") { UITestLaunch.server.heldCount == 0 }
         let requests = UITestLaunch.server.requestCount
+        // Released before awaiting the refresh, so a start that kept going fails here, not hangs.
         UITestLaunch.server.releaseFeed()
+        await refresh.value
         try await Task.sleep(for: .milliseconds(500))
         #expect(UITestLaunch.server.requestCount == requests, "startup went on after the expiry")
         #expect(environment.session?.phase != .ready)
