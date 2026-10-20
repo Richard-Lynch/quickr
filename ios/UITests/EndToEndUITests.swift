@@ -38,7 +38,7 @@ final class EndToEndUITests: XCTestCase {
             let entries = try await self.stack.entries(topic)
             return entries.count == 1 ? entries : nil
         }
-        XCTAssertEqual((entries[0]["answers"] as? [String: Any])?["mood"] as? String, "good")
+        XCTAssertEqual(Stack.answer(entries[0], "mood") as? String, "good")
 
         app.buttons["toast.action"].tap()
         XCTAssertTrue(toast.waitForLabel(prefix: "Undone"))
@@ -59,13 +59,12 @@ final class EndToEndUITests: XCTestCase {
         app.buttons["Log \(topic.name)"].firstMatch.tap()
         let glasses = app.textFields["form.field.glasses"]
         XCTAssertTrue(glasses.waitForExistence(timeout: 15))
-        glasses.tap()
-        glasses.typeText("3")
+        glasses.replaceText("3")  // it starts at 0, like its tile
         snap(app, "e2e-offline-1-record")
         app.buttons["record.save"].tap()
 
         let toast = app.staticTexts.matching(identifier: "toast.text").firstMatch
-        XCTAssertTrue(toast.waitForLabel(prefix: "Saved on this device", timeout: 15), toast.label)
+        XCTAssertTrue(toast.waitForLabel(prefix: "Saved on this device", timeout: 15))
         snap(app, "e2e-offline-2-saved")
         snapBoth(app, "uit2-offline-saved")
         XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 10))
@@ -80,7 +79,7 @@ final class EndToEndUITests: XCTestCase {
             return entries.isEmpty ? nil : entries
         }
         XCTAssertEqual(entries.count, 1)
-        XCTAssertEqual((entries[0]["answers"] as? [String: Any])?["glasses"] as? Int, 3)
+        XCTAssertEqual(Stack.answer(entries[0], "glasses") as? Int, 3)
         XCTAssertEqual(entries[0]["source"] as? String, "ios")
         snap(app, "e2e-offline-3-synced")
     }
@@ -133,9 +132,8 @@ final class EndToEndUITests: XCTestCase {
             return entries.count == 2 ? entries : nil
         }
         for entry in entries {
-            let answers = entry["answers"] as? [String: Any]
-            XCTAssertEqual(answers?["hours"] as? Int, 7)
-            XCTAssertEqual(answers?["quality"] as? String, "great")
+            XCTAssertEqual(Stack.answer(entry, "hours") as? Int, 7)
+            XCTAssertEqual(Stack.answer(entry, "quality") as? String, "great")
         }
     }
 

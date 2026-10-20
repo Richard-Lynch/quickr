@@ -84,6 +84,11 @@ struct Stack {
         return items
     }
 
+    /// One answer's value from an entry (`answers` is a list of `{key, type, value}`).
+    static func answer(_ entry: [String: Any], _ key: String) -> Any? {
+        (entry["answers"] as? [[String: Any]])?.first { $0["key"] as? String == key }?["value"]
+    }
+
     func resetProxy() async throws { _ = try await call(controlURL, "POST", "/reset") }
 
     /// Every request through the proxy fails as if the network were down.
@@ -130,6 +135,13 @@ struct Stack {
 }
 
 extension XCUIElement {
+    /// Replaces a text field's contents: the cursor goes to the end, the old text is deleted.
+    func replaceText(_ text: String) {
+        coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        let current = value as? String ?? ""
+        typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count) + text)
+    }
+
     func waitForLabel(prefix: String, timeout: TimeInterval = 10) -> Bool {
         let predicate = NSPredicate(format: "label BEGINSWITH %@", prefix)
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: self)
