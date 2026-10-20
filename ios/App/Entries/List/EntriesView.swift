@@ -33,6 +33,11 @@ struct EntriesView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.tick() }
         }
+        // The topic's filters are shared with its Overview tab.
+        .onAppear {
+            if let shared = environment.topicFilters[ref.rawValue] { model.filters = shared }
+        }
+        .onChange(of: model.filters) { _, filters in environment.topicFilters[ref.rawValue] = filters }
     }
 
     private struct ObservationKey: Hashable {
