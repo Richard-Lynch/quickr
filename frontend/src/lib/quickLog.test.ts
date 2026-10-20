@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { dueCount } from '../api/dueBadge';
 import type { TopicSummary } from '../client';
-import { splitByDue } from '../pages/TopicsPage';
+import { splitByDue } from './home';
 import type { IntQuestionOutput, Question } from './questions';
 import { initialNumber, parseQuickNumber, quickLogFor } from './quickLog';
 import { describeSchedule, dueAfterLogging, dueView, formatWhen, isDueNow } from './schedule';

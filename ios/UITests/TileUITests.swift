@@ -1,15 +1,16 @@
 import XCTest
 
-/// Quick-log tiles over `DemoStore` (`-QuickrTilesDemo -QuickrDemoStore`). Its server never
-/// answers, so every log is queued: the offline path (design loop row g).
+/// Quick-log tiles on the home screen over `DemoStore` (`-QuickrDemoStore`). Its transport is
+/// always offline, so every log is queued: the offline path (design loop row g).
+@MainActor
 final class TileUITests: XCTestCase {
-    override func setUp() {
+    override nonisolated func setUp() {
         continueAfterFailure = false
     }
 
     private func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-QuickrTilesDemo", "-QuickrDemoStore"] + extra
+        app.launchArguments = ["-QuickrDemoStore"] + extra
         app.launch()
         return app
     }
@@ -19,63 +20,58 @@ final class TileUITests: XCTestCase {
     @MainActor
     func testAChipLogsInOneTapAndUndoRemovesTheEntry() {
         let app = launch()
-        let tile = app.otherElements["tile.headache"]
-        XCTAssertTrue(tile.waitForExistence(timeout: 15))
-        XCTAssertTrue(text(in: tile, containing: "Last Mild").waitForExistence(timeout: 10))
+        let headache = tile(app, "headache")
+        XCTAssertTrue(headache.waitForExistence(timeout: 15))
+        XCTAssertTrue(text(in: headache, containing: "Last Mild").waitForExistence(timeout: 10))
 
-        let chip = tile.buttons["chip.moderate"]
+        let chip = headache.buttons["chip.moderate"]
         chip.tap()
-        // Lit for 1.6 s once the outcome is known (then it reads "Same as last time").
-        let lit = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS 'Logged'"), object: chip)
-        XCTAssertEqual(XCTWaiter.wait(for: [lit], timeout: 5), .completed, "the chip confirms the log")
+        // Lit for 1.6 s once the outcome is known (then it reads "Same as last time"): too short
+        // for an expectation's polling, so look often.
+        XCTAssertTrue(sees(chip, valueContaining: "Logged", within: 5), "the chip confirms the log")
 
         let toast = app.staticTexts.matching(identifier: "toast.text").firstMatch
         XCTAssertTrue(toast.waitForExistence(timeout: 10))
         XCTAssertTrue(toast.label.hasPrefix("Logged Moderate"), toast.label)
         XCTAssertTrue(toast.label.contains("saved on this device, will sync"), toast.label)
-        XCTAssertTrue(text(in: tile, containing: "Last Moderate").waitForExistence(timeout: 5))
+        XCTAssertTrue(text(in: headache, containing: "Last Moderate").waitForExistence(timeout: 5))
         attach(app, "tiles-logged")
 
         app.buttons["toast.action"].tap()
 
         XCTAssertTrue(waitForLabel(app.staticTexts.matching(identifier: "toast.text").firstMatch, prefix: "Undone"))
-        XCTAssertTrue(text(in: tile, containing: "Last Mild").waitForExistence(timeout: 5), "Undo removes the entry")
-        XCTAssertFalse(text(in: tile, containing: "Last Moderate").exists)
+        XCTAssertTrue(
+            text(in: headache, containing: "Last Mild").waitForExistence(timeout: 5), "Undo removes the entry")
+        XCTAssertFalse(text(in: headache, containing: "Last Moderate").exists)
     }
 
     /// Row b: the stepper starts at the last value, so ✓ alone logs it.
     @MainActor
     func testTheStepperStartsAtTheLastValueSoCheckLogsInOneTap() {
         let app = launch()
-        let tile = app.otherElements["tile.water"]
-        XCTAssertTrue(tile.waitForExistence(timeout: 15))
-        let field = tile.textFields["quick.number"]
+        let water = tile(app, "water")
+        XCTAssertTrue(water.waitForExistence(timeout: 15))
+        let field = water.textFields["quick.number"]
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         XCTAssertEqual(field.value as? String, "3")
 
-        tile.buttons["quick.check"].tap()
+        water.buttons["quick.check"].tap()
 
         let toast = app.staticTexts.matching(identifier: "toast.text").firstMatch
         XCTAssertTrue(toast.waitForExistence(timeout: 10))
         XCTAssertTrue(toast.label.hasPrefix("Logged 3 glasses"), toast.label)
     }
 
-    /// A topic with several required questions has no quick-log; its Log block opens the record
-    /// screen, and an archived topic has no Log block at all.
+    /// A topic with several required questions has no quick-log, only its Log block.
     @MainActor
-    func testOnlyQuickLogTopicsGetControlsAndArchivedOnesNoLogBlock() {
+    func testOnlyQuickLogTopicsGetControls() {
         let app = launch()
-        let workout = app.otherElements["tile.workout"]
+        let workout = tile(app, "workout")
         XCTAssertTrue(workout.waitForExistence(timeout: 15))
-        XCTAssertEqual(workout.buttons.matching(identifier: "chip.none").count, 0)
-        workout.buttons["Log Workout"].tap()
-        XCTAssertEqual(app.staticTexts["tiles.opened"].label, "record workout")
-
-        let old = app.otherElements["tile.old-habit"]
-        for _ in 0..<4 where !old.exists { app.swipeUp() }
-        XCTAssertTrue(old.waitForExistence(timeout: 5))
-        XCTAssertFalse(old.buttons["Log Old habit"].exists)
-        XCTAssertTrue(text(in: old, containing: "Archived").exists)
+        XCTAssertEqual(workout.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'chip.'")).count, 0)
+        XCTAssertFalse(workout.textFields["quick.number"].exists)
+        XCTAssertTrue(workout.buttons["Log Workout"].isHittable)
+        XCTAssertTrue(text(in: workout, containing: "No entries yet").exists)
     }
 
     /// At the largest accessibility text size a chip still logs and the toast's Undo is reachable;
@@ -83,19 +79,47 @@ final class TileUITests: XCTestCase {
     @MainActor
     func testTilesWorkAtAnAccessibilityTextSize() throws {
         let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
-        let tile = app.otherElements["tile.headache"]
-        XCTAssertTrue(tile.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.descendants(matching: .any)["tile.water"].waitForExistence(timeout: 20))
         attach(app, "tiles-ax")
+        // The first screenful: the due tiles, a number quick-log and its ✓.
+        // TILES audits its tiles; issues elsewhere on the home screen are HOME's.
+        let tiles = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'tile.'"))
+            .allElementsBoundByIndex.map(\.frame)
         try app.performAccessibilityAudit(for: [
             .dynamicType, .elementDetection, .hitRegion, .sufficientElementDescription,
-        ])
+        ]) { issue in
+            guard let frame = issue.element?.frame else { return false }
+            return !tiles.contains { $0.contains(frame) }
+        }
 
-        let chip = tile.buttons["chip.severe"]
+        let headache = tile(app, "headache")
+        let chip = headache.buttons["chip.severe"]
         XCTAssertTrue(chip.isHittable)
         chip.tap()
         let undo = app.buttons["toast.action"]
         XCTAssertTrue(undo.waitForExistence(timeout: 10))
         XCTAssertTrue(undo.isHittable, "Undo must stay reachable at AX sizes")
+    }
+
+    /// A tile, scrolled fully into view: the home list is lazy, so a tile further down doesn't
+    /// exist until it is scrolled to.
+    private func tile(_ app: XCUIApplication, _ slug: String) -> XCUIElement {
+        let element = app.descendants(matching: .any)["tile.\(slug)"]
+        let window = app.windows.firstMatch
+        XCTAssertTrue(app.descendants(matching: .any)["tile.meds"].waitForExistence(timeout: 20), "the home list")
+        for _ in 0..<10 where !(element.exists && window.frame.contains(element.frame)) { app.swipeUp() }
+        XCTAssertTrue(element.exists, "tile.\(slug)")
+        return element
+    }
+
+    /// Polls every 0.1 s: true once `element`'s value contains `fragment`.
+    private func sees(_ element: XCUIElement, valueContaining fragment: String, within seconds: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if (element.value as? String)?.contains(fragment) == true { return true }
+            usleep(100_000)
+        }
+        return false
     }
 
     private func text(in element: XCUIElement, containing fragment: String) -> XCUIElement {

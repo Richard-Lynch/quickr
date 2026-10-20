@@ -16,39 +16,6 @@ import Testing
 
     static func at(_ minutes: Double) -> Date { now.addingTimeInterval(minutes * 60) }
 
-    @Test func dueReadsDueNowForHalfAnHourThenOverdue() {
-        let fresh = DueStatus(isDue: true, dueSince: Self.at(-29))
-        #expect(
-            Self.text.dueView(fresh, now: Self.now) == DueView(tone: .due, label: "Due now · since 11:31\u{202F}AM"))
-        let old = DueStatus(isDue: true, dueSince: Self.at(-30))
-        #expect(
-            Self.text.dueView(old, now: Self.now)
-                == DueView(tone: .overdue, label: "Overdue · since 11:30\u{202F}AM"))
-        #expect(Self.text.dueView(DueStatus(isDue: true), now: Self.now) == DueView(tone: .due, label: "Due now"))
-        #expect(Self.text.dueView(old, now: Self.now).isDue)
-    }
-
-    @Test func aPassedNextSlotIsDueBeforeTheServerSaysSo() {
-        let passed = DueStatus(isDue: false, nextDueAt: Self.at(-5))
-        #expect(TopicText.isDueNow(passed, now: Self.now))
-        #expect(Self.text.dueView(passed, now: Self.now).label == "Due now · since 11:55\u{202F}AM")
-    }
-
-    @Test func upcomingSlotsReadAsSoonNextOrADay() {
-        func label(_ minutes: Double) -> DueView {
-            Self.text.dueView(DueStatus(isDue: false, nextDueAt: Self.at(minutes)), now: Self.now)
-        }
-        #expect(label(25) == DueView(tone: .soon, label: "Due in 25 min"))
-        #expect(label(0.2) == DueView(tone: .soon, label: "Due in 1 min"))
-        #expect(label(60) == DueView(tone: .soon, label: "Due in 1 h"))
-        #expect(label(9 * 60) == DueView(tone: .later, label: "Next 9:00\u{202F}PM"))
-        #expect(label(20 * 60) == DueView(tone: .later, label: "Tomorrow 8:00\u{202F}AM"))
-        #expect(label(5 * 24 * 60) == DueView(tone: .later, label: "Mon 12:00\u{202F}PM"))
-        #expect(label(30 * 24 * 60) == DueView(tone: .later, label: "Nov 20"))
-        #expect(Self.text.dueView(nil, now: Self.now) == DueView(tone: .none, label: ""))
-        #expect(Self.text.dueView(DueStatus(isDue: false), now: Self.now).tone == .none)
-    }
-
     @Test func relativeTimesUseTheLargestUnitAndNamedDays() {
         #expect(Self.text.relative(nil, now: Self.now) == "never")
         #expect(Self.text.relative(Self.at(-0.5), now: Self.now) == "just now")
@@ -74,24 +41,6 @@ import Testing
         let free = Question(key: "w", label: "Weight", required: true, kind: .double(.init()))
         #expect(Self.text.answer(.double(70.1234), for: free) == "70.123")
         #expect(Self.text.answer(.string("70"), for: free) == nil)
-    }
-
-    @Test func dueIsRecomputedFromTheLastEntrySoALogClearsIt() throws {
-        func topic(last: Date?, status: TopicStatus = .active) -> Topic {
-            Topic(
-                id: UUID(), slug: "water", name: "Water", status: status, currentVersion: 1, revision: 1,
-                questionCount: 1, lastCapturedAt: last, createdAt: Self.at(-24 * 60), updatedAt: Self.at(-24 * 60),
-                schedule: .interval(.init(everyMinutes: 120, timezone: "UTC")), scheduleUpdatedAt: Self.at(-5 * 60),
-                questions: [])
-        }
-        let stale = try #require(TopicText.dueStatus(topic(last: Self.at(-3 * 60)), now: Self.now))
-        #expect(stale.isDue)
-        let logged = try #require(TopicText.dueStatus(topic(last: Self.at(-1)), now: Self.now))
-        #expect(!logged.isDue && logged.nextDueAt == Self.at(119))
-        #expect(TopicText.dueStatus(topic(last: nil, status: .archived), now: Self.now)?.isDue == false)
-        var unscheduled = topic(last: nil)
-        unscheduled.schedule = nil
-        #expect(TopicText.dueStatus(unscheduled, now: Self.now) == nil)
     }
 
     @Test func countsUsePlurals() {

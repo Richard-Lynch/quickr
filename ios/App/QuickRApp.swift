@@ -10,6 +10,12 @@ struct QuickRApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        #if DEBUG
+        if DemoStore.isRequested {
+            _environment = State(initialValue: DemoStore.environment())
+            return
+        }
+        #endif
         _environment = State(initialValue: AppEnvironment.bootstrap())
     }
 

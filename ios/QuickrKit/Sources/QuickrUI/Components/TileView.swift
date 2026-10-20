@@ -107,6 +107,7 @@ public struct QuickNumberRow: View {
     let error: String?
     let onLog: () -> Void
     @ScaledMetric(relativeTo: .title3) private var height = QuickrMetrics.tapTarget
+    @ScaledMetric(relativeTo: .title3) private var checkSize: CGFloat = 20
 
     public init(
         label: String, text: Binding<String>, rule: NumberStepRule, isBusy: Bool = false, error: String? = nil,
@@ -131,9 +132,9 @@ public struct QuickNumberRow: View {
                     .disabled(isBusy)
                     .accessibilityIdentifier("quick.number")
                 Button(action: onLog) {
-                    QIcon.check.view(size: 20, weight: .heavy)
+                    QIcon.check.view(size: checkSize, weight: .heavy)
                         .foregroundStyle(.qr.paper)
-                        .frame(width: 48, height: height)
+                        .frame(width: max(48, checkSize + 16), height: height)
                         .background(Color.qr.ink, in: RoundedRectangle(cornerRadius: QuickrMetrics.controlRadius))
                         .contentShape(Rectangle())
                 }

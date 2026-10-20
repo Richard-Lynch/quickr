@@ -3,8 +3,7 @@ import QuickrData
 import QuickrUI
 import SwiftUI
 
-/// The navigation root. LINKS fills `Route` and the destinations; the home screen replaces
-/// `placeholder` in M2.
+/// The navigation root: the home screen. LINKS fills `Route` and the destinations.
 struct RootView: View {
     @Environment(AppEnvironment.self) private var environment
 
@@ -21,8 +20,6 @@ struct RootView: View {
             DesignCatalogView(page: page)
         } else if let demo = Self.formDemo {
             FormDemoView(demo: demo)
-        } else if ProcessInfo.processInfo.arguments.contains("-QuickrTilesDemo") {
-            TilesDemoView()
         } else {
             stack
         }
@@ -52,7 +49,7 @@ struct RootView: View {
     private var stack: some View {
         @Bindable var router = environment.router
         return NavigationStack(path: $router.path) {
-            placeholder
+            home
                 .navigationDestination(for: Route.self, destination: destination(for:))
         }
     }
@@ -61,32 +58,24 @@ struct RootView: View {
         switch route {}
     }
 
-    private var placeholder: some View {
-        VStack(spacing: 8) {
-            Text("quickR")
-                .font(.largeTitle.bold())
-                .accessibilityIdentifier("root.title")
-            QuickrUI.VersionLabel()
-                .accessibilityIdentifier("root.coreVersion")
-            Text("Data → Core \(QuickrData.coreVersion)")
-                .font(.footnote)
-                .foregroundStyle(.tertiary)
-            Text(storeStatus)
-                .font(.footnote)
-                .foregroundStyle(.tertiary)
-                .accessibilityIdentifier("root.storeStatus")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
-    }
-
-    private var storeStatus: String {
-        if let error = environment.sessionError { return "Store failed: \(error)" }
-        switch environment.session?.phase {
-        case .ready: return "Store ready"
-        case .noServer: return "No server yet"
-        case .failed(let error): return "Store failed: \(error)"
-        case .starting, nil: return "Store opening…"
+    @ViewBuilder private var home: some View {
+        if let session = environment.session {
+            HomeView(session: session)
+        } else {
+            // The session couldn't be created (the store's files); `start()` tries again.
+            VStack(spacing: 8) {
+                Text("quickR")
+                    .font(.qr(.largeTitle))
+                    .accessibilityIdentifier("root.title")
+                Text("Store failed: \(environment.sessionError ?? "unknown error")")
+                    .font(.qr(.footnote))
+                    .foregroundStyle(.qr.muted)
+                    .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("root.storeStatus")
+            }
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .qrPaperBackground()
         }
     }
 }

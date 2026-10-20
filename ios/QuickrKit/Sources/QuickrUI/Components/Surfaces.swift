@@ -104,6 +104,8 @@ public struct QuickrBadge: View {
     let text: String
     let icon: QIcon?
     let tone: QuickrTone
+    @ScaledMetric(relativeTo: .caption) private var iconSize: CGFloat = 14
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(_ text: String, icon: QIcon? = nil, tone: QuickrTone = .neutral) {
         self.text = text
@@ -113,8 +115,11 @@ public struct QuickrBadge: View {
 
     public var body: some View {
         HStack(spacing: 4) {
-            if let icon { icon.view(size: 14, weight: .bold) }
-            Text(text).lineLimit(1)
+            if let icon { icon.view(size: iconSize, weight: .bold) }
+            // One line normally; at accessibility sizes it wraps instead of truncating the time.
+            Text(text)
+                .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .font(.qr(.caption))
         .padding(.horizontal, 10)

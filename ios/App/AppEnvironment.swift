@@ -26,13 +26,20 @@ final class AppEnvironment {
     private(set) var lastScenePhase: ScenePhase?
 
     @ObservationIgnored private let makeSession: @MainActor () throws -> AppSession
+    @ObservationIgnored private var prepare: (@MainActor () async -> Void)?
     @ObservationIgnored private var starting: Task<Void, Never>?
 
-    init(settings: AppSettings, makeSession: @escaping @MainActor () throws -> AppSession) {
+    /// - Parameter prepare: runs once in `start()` before the session opens (a debug demo store's
+    ///   seeding); with it, the session opens in `start()` rather than here.
+    init(
+        settings: AppSettings, prepare: (@MainActor () async -> Void)? = nil,
+        makeSession: @escaping @MainActor () throws -> AppSession
+    ) {
         self.settings = settings
         self.makeSession = makeSession
+        self.prepare = prepare
         entryToasts = EntryToasts(center: toasts, writer: entryWriter)
-        openSession()
+        if prepare == nil { openSession() }
         entryWriter.session = { [weak self] in self?.session }
     }
 
@@ -49,10 +56,6 @@ final class AppEnvironment {
     /// a scene, so this runs in `QuickRApp.init`, before anything can query an entity. It opens
     /// the registry only; the store opens on first use.
     static func bootstrap(location: StoreLocation = .shared(appGroup: AppGroup.identifier)) -> AppEnvironment {
-        #if DEBUG
-        // `-QuickrDemoStore`: a throwaway store with demo topics (screenshots, UI tests).
-        let location = DemoStore.isRequested ? DemoStore.location : location
-        #endif
         let environment = live(location: location)
         environment.registerIntentTopics()
         return environment
@@ -74,13 +77,14 @@ final class AppEnvironment {
             return
         }
         let attempt = Task {
+            if let prepare {
+                self.prepare = nil
+                await prepare()
+            }
             if session == nil {
                 openSession()
                 registerIntentTopics()
             }
-            #if DEBUG
-            if DemoStore.isRequested, let session { await DemoStore.seed(session.partitions) }
-            #endif
             await session?.start(serverURL: settings.serverURL)
             QuickRShortcuts.updateAppShortcutParameters()
         }

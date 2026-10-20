@@ -28,9 +28,12 @@ struct TopicTile: View {
 
     var body: some View {
         let topic = topic.topic
-        let due = text.dueView(TopicText.dueStatus(topic, now: now) ?? topic.due, now: now)
+        // Recomputed from the schedule and the last entry (queued ones too), so a log clears
+        // "Due now" at once, even offline, like the PWA's `dueAfterLogging`.
+        let due = DueView(due: TopicListing.due(of: topic, at: now) ?? topic.due, now: now)
         TileView(
-            title: topic.name, isDue: due.isDue, onOpen: onOpen, onLog: topic.status == .archived ? nil : onRecord
+            title: topic.name, isDue: due.tone == .due || due.tone == .overdue, onOpen: onOpen,
+            onLog: topic.status == .archived ? nil : onRecord
         ) {
             meta(due)
         } quick: {
@@ -58,7 +61,7 @@ struct TopicTile: View {
     private func meta(_ due: DueView) -> some View {
         let archived = topic.topic.status == .archived
         return VStack(alignment: .leading, spacing: 4) {
-            if due.tone != .none || archived {
+            if due.kind != .none || archived {
                 HStack(spacing: 6) {
                     DueBadge(due)
                     if archived { QuickrBadge("Archived", icon: .archive, tone: .warn) }

@@ -1,100 +1,15 @@
 import Foundation
 import QuickrCore
 
-/// How a topic's due status reads on its tile (the PWA's `DueView`).
-public struct DueView: Sendable, Hashable {
-    public enum Tone: Sendable, Hashable {
-        /// Due for 30 minutes or more.
-        case overdue
-        case due
-        /// Due within the hour.
-        case soon
-        case later
-        /// No schedule: no badge.
-        case none
-    }
-
-    public var tone: Tone
-    public var label: String
-
-    public init(tone: Tone, label: String) {
-        self.tone = tone
-        self.label = label
-    }
-
-    /// Due now or overdue: the tile gets its accent bar and the loud Log block.
-    public var isDue: Bool { tone == .due || tone == .overdue }
-}
-
-/// The tile's texts, ported from the PWA (`lib/schedule.ts`, `lib/dates.ts`, `lib/answerDisplay.ts`,
-/// `lib/format.ts`). Times are in the device's calendar and locale, like the PWA's `Intl` formats.
+/// The tile's texts, ported from the PWA (`lib/dates.ts`, `lib/answerDisplay.ts`, `lib/format.ts`), in
+/// the device's calendar and locale like the PWA's `Intl` formats. Due texts are QuickrCore's `DueView`.
 public struct TopicText: Sendable {
-    /// A due slot is "Due now" for 30 minutes, then "Overdue" (`FRESH_DUE_MS`).
-    public static let freshDue: TimeInterval = 30 * 60
-    /// The next slot within the hour reads "Due in 25 min" (`SOON_MS`).
-    public static let soon: TimeInterval = 60 * 60
-
     public var calendar: Calendar
     public var locale: Locale
 
     public init(calendar: Calendar = .autoupdatingCurrent, locale: Locale = .autoupdatingCurrent) {
         self.calendar = calendar
         self.locale = locale
-    }
-
-    /// The topic's due status at `now`, recomputed from its schedule and its last entry as the
-    /// server does (`schedule_since` = when the schedule was set, else the topic's creation). The
-    /// last entry includes queued ones, so logging clears "Due now" at once, even offline, like
-    /// the PWA's `dueAfterLogging`. Nil without a schedule.
-    public static func dueStatus(_ topic: Topic, now: Date) -> DueStatus? {
-        guard let schedule = topic.schedule else { return nil }
-        return Due.status(
-            of: schedule, now: now, lastEntryAt: topic.lastCapturedAt,
-            scheduleSince: topic.scheduleUpdatedAt ?? topic.createdAt, archived: topic.status == .archived)
-    }
-
-    /// Due right now: the server says so, or the next slot has passed since it last looked.
-    public static func isDueNow(_ due: DueStatus?, now: Date) -> Bool {
-        guard let due else { return false }
-        if due.isDue { return true }
-        return due.nextDueAt.map { $0 <= now } ?? false
-    }
-
-    public func dueView(_ due: DueStatus?, now: Date) -> DueView {
-        guard let due else { return DueView(tone: .none, label: "") }
-        if Self.isDueNow(due, now: now) {
-            guard let since = due.isDue ? due.dueSince : due.nextDueAt else {
-                return DueView(tone: .due, label: "Due now")
-            }
-            return now.timeIntervalSince(since) < Self.freshDue
-                ? DueView(tone: .due, label: "Due now · since \(when(since, now: now))")
-                : DueView(tone: .overdue, label: "Overdue · since \(when(since, now: now))")
-        }
-        guard let next = due.nextDueAt else { return DueView(tone: .none, label: "") }
-        let wait = next.timeIntervalSince(now)
-        if wait <= Self.soon { return DueView(tone: .soon, label: "Due in \(Self.minutes(wait))") }
-        // "Next 9:00 PM" today; "Tomorrow 8:00 AM", "Mon 8:00 AM" or "12 Oct" further out.
-        let text = when(next, now: now)
-        if text.first?.isNumber == true { return DueView(tone: .later, label: "Next \(text)") }
-        return DueView(tone: .later, label: text.prefix(1).uppercased() + text.dropFirst())
-    }
-
-    /// "8:00 AM", "yesterday 9:00 PM", "Mon 8:00 AM", "12 Oct", relative to `now` (`formatWhen`).
-    public func when(_ date: Date, now: Date) -> String {
-        let days =
-            calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: date))
-            .day ?? 0
-        let style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone)
-        let time = date.formatted(style.hour().minute())
-        switch days {
-        case 0: return time
-        case -1: return "yesterday \(time)"
-        case 1: return "tomorrow \(time)"
-        case -6...6:
-            return "\(date.formatted(style.weekday(.abbreviated))) \(time)"
-        default:
-            return date.formatted(style.day().month(.abbreviated))
-        }
     }
 
     /// "4 hours ago", "yesterday", "just now", "never" (`formatRelative`: the largest whole unit,
@@ -149,12 +64,6 @@ public struct TopicText: Sendable {
     /// `toLocaleString(undefined, { maximumFractionDigits })`.
     public func number(_ n: Double, maxDecimals: Int) -> String {
         n.formatted(.number.precision(.fractionLength(0...max(0, maxDecimals))).locale(locale))
-    }
-
-    /// "25 min", "2 h" (`minutesText`).
-    static func minutes(_ seconds: TimeInterval) -> String {
-        let m = max(1, Int((seconds / 60).rounded()))
-        return m >= 60 ? "\(Int((Double(m) / 60).rounded())) h" : "\(m) min"
     }
 }
 
