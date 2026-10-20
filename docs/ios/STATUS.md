@@ -294,6 +294,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 01:25 (EDT): **HOME merged into ios/m2-ui** (02e0d7d, Codex ×3; onboarding → HomeView via the router). TILES is merging m2-ui to replace HOME's stub tile (9e41822), gates running. RECORD (FORM agent) and SYNC-UX (OUTBOX agent) started; their first model commits are in. SYNC-UX owns the sync-pill swap in HOME's header.
+
 - 2026-10-20 01:00 (EDT): **LINKS+SETTINGS merged into ios/m2-ui** after 3 Codex rounds: typed Route and DeepLink with PWA parity and origin-checked https links; onboarding; settings (server switch with an unsynced warning, reset with Sync first, about); **per-server Keychain Cloudflare Access credentials**, resolved per request; secret redaction in all HTTP descriptions. Gate on the merge: lint, core green. TILES approved (r2), waiting on HOME. HOME r2 approved up to 8529c4b; the follow-up 51395c7 (AX header scroll-away, title and sort fixes) is gating.
 
 - 2026-10-20 00:30 (EDT): TILES ready (80ff85b; UI 11/11, integration 16/16, tap counts match the PWA); in Codex review. HOME r1 fixes 59acd66 (offline empty state, rebind reset with a generation token, byte-order name sort matching the musl server, collation vectors); gates running. LINKS+SETTINGS r2: per-server Keychain credentials (decided) to fix token isolation.
