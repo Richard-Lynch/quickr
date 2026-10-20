@@ -23,11 +23,12 @@ differences:
    form.** The full problem from the server marks the fields, and the outbox
    item is removed so it can't come back in the sync sheet. A refusal without
    field errors shows the server's message in a banner.
-4. **The Save bar sits on the keyboard frame UIKit reports**, not on SwiftUI's
-   keyboard safe area. That safe area lost the keyboard's Next/Done bar whenever
-   the form re-rendered (the first keystroke), and the Save bar slid under it
-   until the next layout (found by UIT-2's screenshots).
-   `testTheSaveBarStaysAboveTheKeyboardAfterTheFirstEdit` guards this.
-5. **At accessibility text sizes the Save bar steps aside while the keyboard is
-   up**, so the field being typed in stays visible (FORM's note). It comes back
-   when the keyboard goes.
+4. **While the keyboard is up, Save is in the keyboard's toolbar** (next to
+   Next/Done), and the sticky Save bar shows only with the keyboard down. The
+   PWA keeps its sticky bar above the keyboard. On iOS, a bar of our own above
+   the keyboard slid under Next/Done whenever the form re-rendered (SwiftUI's
+   keyboard safe area dropped the toolbar; found by UIT-2's screenshots). The
+   toolbar is the native place for it, and it keeps the field being typed in
+   visible at every text size, which covers FORM's accessibility-size note.
+   Tap counts don't change: Save is one tap either way.
+   `testSaveIsInTheKeyboardToolbarWhileTyping` guards it.

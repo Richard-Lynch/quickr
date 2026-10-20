@@ -5,14 +5,13 @@ import UIKit
 
 /// The record screen (the PWA's `RecordPage`): the answers, Details (captured at, notes, source),
 /// Log another, and a sticky Save. In fix mode it says the entry wasn't saved and saves again.
-/// Leaving with unsaved changes asks first. At accessibility text sizes the Save bar steps aside
-/// while the keyboard is up, so the field being typed in stays visible.
+/// Leaving with unsaved changes asks first. While the keyboard is up, Save moves into the
+/// keyboard's toolbar, so nothing sits between the keyboard and the field being typed in.
 struct RecordView: View {
     @Bindable var model: RecordModel
     let settings: AppSettings
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var keyboardUp = false
     @State private var confirmingLeave = false
 
@@ -50,8 +49,10 @@ struct RecordView: View {
                 rejectionBanner(message)
             }
         }
+        // Above the keyboard, a bar of our own slid under the keyboard's Next/Done whenever the form
+        // changed (SwiftUI's keyboard safe area dropped the toolbar), so there Save is a toolbar item.
         .safeAreaInset(edge: .bottom) {
-            if !(keyboardUp && typeSize.isAccessibilitySize) { saveBar }
+            if !keyboardUp { saveBar }
         }
         .qrPaperBackground()
         .navigationTitle(model.isFixing ? "Fix entry · \(model.topic.name)" : model.topic.name)
@@ -68,6 +69,16 @@ struct RecordView: View {
                     Label("Back", systemImage: "chevron.left")
                 }
                 .accessibilityIdentifier("record.back")
+            }
+            ToolbarItem(placement: .keyboard) {
+                Button(action: save) {
+                    Label(saveTitle, systemImage: "checkmark").labelStyle(.titleAndIcon)
+                }
+                .font(.qr(.callout))
+                .fontWeight(.semibold)
+                .tint(.qr.accent)
+                .disabled(model.isSaving)
+                .accessibilityIdentifier("record.save")
             }
             if model.loggedCount > 0 {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -94,6 +105,14 @@ struct RecordView: View {
         }
     }
 
+    private var saveTitle: String { model.isFixing ? "Save again" : "Save" }
+
+    private func save() {
+        Task {
+            if await model.save() == .leave { dismiss() }
+        }
+    }
+
     /// Back: straight away when nothing changed, else asks first.
     private func leave() {
         if model.hasUnsavedChanges { confirmingLeave = true } else { dismiss() }
@@ -109,20 +128,16 @@ struct RecordView: View {
     }
 
     private var saveBar: some View {
-        PrimaryButton(model.isFixing ? "Save again" : "Save", icon: .check, isLoading: model.isSaving) {
-            Task {
-                if await model.save() == .leave { dismiss() }
-            }
-        }
-        .accessibilityIdentifier("record.save")
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        // Toasts sit above the bar (measured: it grows with the text size). Only the screen leaving
-        // puts them back down: Log another's fresh form rebuilds the bar, and its old copy going
-        // must not undo the new one's measure.
-        .onGeometryChange(
-            for: CGFloat.self, of: { $0.size.height },
-            action: { height in environment.toastBottomInset = height + 8 })
+        PrimaryButton(saveTitle, icon: .check, isLoading: model.isSaving, action: save)
+            .accessibilityIdentifier("record.save")
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            // Toasts sit above the bar (measured: it grows with the text size). Only the screen leaving
+            // puts them back down: Log another's fresh form rebuilds the bar, and its old copy going
+            // must not undo the new one's measure.
+            .onGeometryChange(
+                for: CGFloat.self, of: { $0.size.height },
+                action: { height in environment.toastBottomInset = height + 8 })
     }
 
     /// A refusal the form can't show on a field (no `Problem` came back).

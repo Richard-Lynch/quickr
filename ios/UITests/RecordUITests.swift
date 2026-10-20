@@ -109,23 +109,34 @@ final class RecordUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 10))
     }
 
-    /// The first edit (which adds the back guard to the navigation bar) keeps the Save bar above
-    /// the keyboard's Next/Done: it once dropped under it until something laid the screen out again.
+    /// While the keyboard is up, Save is in the keyboard's toolbar: one Save, reachable, clear of
+    /// Next/Done, before and after the first edit. (A bar of our own above the keyboard slid under
+    /// Next/Done once the form changed.)
     @MainActor
-    func testTheSaveBarStaysAboveTheKeyboardAfterTheFirstEdit() {
+    func testSaveIsInTheKeyboardToolbarWhileTyping() {
         let app = launch(open: "quickr://t/workout/record")
         let duration = app.textFields["form.field.duration"]
         XCTAssertTrue(duration.waitForExistence(timeout: 15))
         duration.tap()
         let advance = app.buttons["form.keyboard.advance"]
-        let save = app.buttons["record.save"]
         XCTAssertTrue(advance.waitForExistence(timeout: 5))
-        XCTAssertLessThanOrEqual(save.frame.maxY, advance.frame.minY, "before the edit")
-
-        duration.typeText("4")
+        func checkSave(_ when: String) {
+            let saves = app.buttons.matching(identifier: "record.save")
+            XCTAssertEqual(saves.count, 1, when)
+            let save = saves.firstMatch
+            XCTAssertTrue(save.isHittable, when)
+            XCTAssertFalse(save.frame.intersects(advance.frame), when)
+            XCTAssertGreaterThanOrEqual(save.frame.minY, duration.frame.maxY, "below the field: \(when)")
+        }
+        checkSave("before the edit")
+        app.buttons["Swim"].tap()
+        duration.tap()
+        duration.typeText("45")
         usleep(1_000_000)
-        snap(app, "record-first-edit")
-        XCTAssertLessThanOrEqual(save.frame.maxY, advance.frame.minY, "after the first edit")
+        snap(app, "record-keyboard-save")
+        checkSave("after the first edit")
+        app.buttons["record.save"].tap()
+        XCTAssertTrue(app.staticTexts["Logged Workout"].waitForExistence(timeout: 15))
     }
 
     /// A swipe from the left edge goes back while nothing has changed, and does nothing once the
@@ -159,7 +170,8 @@ final class RecordUITests: XCTestCase {
         let duration = app.textFields["form.field.duration"]
         XCTAssertTrue(duration.waitForKeyboardFocus())
         duration.typeText("20")
-        XCTAssertTrue(app.buttons["record.save"].waitForNonExistence(timeout: 5), "hidden while typing")
+        // While typing, the one Save is in the keyboard's toolbar: the field stays in view.
+        XCTAssertEqual(app.buttons.matching(identifier: "record.save").count, 1)
         app.buttons["Done"].firstMatch.tap()  // the number pad's toolbar
         let save = app.buttons["record.save"]
         XCTAssertTrue(save.waitForExistence(timeout: 5))
