@@ -124,10 +124,15 @@ public enum TopicListing {
         }
     }
 
-    /// `lower(name)` under the database's collation. Postgres runs `en_US.utf8`; ICU's `en_US`
-    /// matches it for names that differ in letters, digits, case or accents.
+    /// `ORDER BY lower(name)`. The server's Postgres (`postgres:18-alpine`, musl) compares bytes
+    /// whatever `datcollate` says: lowercase, then UTF-8 byte order, without normalising. So
+    /// "a b" < "a-c" < "a.b" < "ab", "zed" < "éclair", and an NFD "é" sorts among the e's. The
+    /// lowercasing is Swift's (full Unicode); musl's `towlower` can differ for rare characters.
     static func nameOrder(_ a: String, _ b: String) -> ComparisonResult {
-        a.lowercased().compare(b.lowercased(), locale: Locale(identifier: "en_US"))
+        let x = Array(a.lowercased().utf8)
+        let y = Array(b.lowercased().utf8)
+        if x == y { return .orderedSame }
+        return x.lexicographicallyPrecedes(y) ? .orderedAscending : .orderedDescending
     }
 
     /// The server's `_due_sort_key`: due topics (longest due first), then scheduled ones by their

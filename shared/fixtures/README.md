@@ -103,9 +103,12 @@ offline port. The real `list_topics` runs against a fixed set of topics in the
 test database, at a fixed `meta.now`.
 
 - `meta`: `generator`, `version`, `now` (the instant due state is computed at)
-  and `collation`: the test database's `datcollate`, informational only. Topic
-  names are single words without punctuation or spaces, so the `name` orders are
-  the same under `C` and `en_US.utf8`.
+  and `collation`: the test database's `datcollate`, informational only. The
+  server runs `postgres:18-alpine`, whose musl `strcoll` compares bytes whatever
+  `datcollate` says, so `ORDER BY lower(name)` is the lowercased name's UTF-8
+  byte order, without normalisation. The `collation sample` topics pin that down:
+  spaces and punctuation (`a b` < `a-c` < `a.b` < `ab`), case ties, accents after
+  `z` (`zed` < `é b` < `éclair`) and an NFD `É` among the `e`s.
 - `topics[]`: every topic as `GET /topics/{id}` returns it, with `due` computed
   at `meta.now`: active and archived, daily and interval schedules (due, due at
   the same instant, not due until later today, tomorrow or next week, satisfied

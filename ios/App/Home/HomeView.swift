@@ -108,16 +108,14 @@ struct HomeView: View {
             ) {
                 PrimaryButton("Connect a server", icon: .plus, action: actions.onboarding)
             }
-        case .loading, .offline:
-            if model.isOfflineWithoutData {
-                EmptyStateView(
-                    icon: .cloudOff, title: "You’re offline",
-                    message:
-                        "Topics will appear here once you’re back online. Next time they’ll be saved on this device.",
-                    identifier: "home.offline")
-            } else {
-                skeletons
-            }
+        case .offline:
+            EmptyStateView(
+                icon: .cloudOff, title: "You’re offline",
+                message:
+                    "Topics will appear here once you’re back online. Next time they’ll be saved on this device.",
+                identifier: "home.offline")
+        case .loading:
+            skeletons
         case .failed:
             EmptyView()  // the banner says it
         case .ready:
