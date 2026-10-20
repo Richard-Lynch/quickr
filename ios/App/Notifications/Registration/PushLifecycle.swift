@@ -20,6 +20,7 @@ final class PushLifecycle {
     /// The server the app was last bound to, with its epoch: what a switch deletes the token from.
     @ObservationIgnored private var lastServer: PushRegistration.Server?
 
+    /// Observable: `PushRegistration` is.
     var status: PushRegistration.Status { registration.status }
 
     init(session: AppSession, transport: any Transport, credentials: any AccessCredentialsProvider) {
@@ -39,7 +40,7 @@ final class PushLifecycle {
                 // The name the user gave the device (iOS 16+: the model unless entitled). Never a
                 // serial number or a MAC.
                 deviceName: UIDevice.current.name))
-        registration.onActiveEpochMismatch = { [weak self] in self?.rebuildThenRegister() }
+        registration.recoverActiveEpoch = { [weak self] in await self?.rebuild() }
         RemoteNotificationTokens.shared.receiver = self
     }
 
@@ -70,8 +71,8 @@ final class PushLifecycle {
         await registration.didRegister(token: token, active: await activeServer())
     }
 
-    func didFailToRegister(_ error: any Error) {
-        registration.didFailToRegister(error)
+    func didFailToRegister(_ error: any Error) async {
+        await registration.didFailToRegister(error)
     }
 
     func testThisDevice() async -> PushRegistration.TestOutcome {
@@ -90,13 +91,12 @@ final class PushLifecycle {
             identity: ServerIdentity(serverId: binding.serverId, epoch: epoch), baseURL: binding.baseURL)
     }
 
-    /// §9.2: `epoch_mismatch` from the active server: the coordinator rebuilds, then registering
-    /// is retried once.
-    private func rebuildThenRegister() {
-        Task {
-            _ = await session.coordinator.sync(reason: .requested)
-            await activated(coldLaunch: true)
-        }
+    /// §9.2: `epoch_mismatch` from the active server: the coordinator rebuilds (sync-protocol.md
+    /// §7). The active server afterwards when the sync succeeded, else nil (the registration then
+    /// waits out its backoff instead of asking for another rebuild).
+    private func rebuild() async -> PushRegistration.Server? {
+        guard await session.coordinator.sync(reason: .requested) == .synced else { return nil }
+        return await activeServer()
     }
 }
 
@@ -112,7 +112,8 @@ final class RemoteNotificationTokens {
     }
 
     func didFail(_ error: any Error) {
-        receiver?.didFailToRegister(error)
+        guard let receiver else { return }
+        Task { await receiver.didFailToRegister(error) }
     }
 }
 

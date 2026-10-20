@@ -1,24 +1,30 @@
 import Foundation
 import GRDB
+import Observation
 import QuickrCore
 
 /// The APNs token lifecycle (notifications.md §9.2), app process only. Its state lives in the
 /// registry (app-global): `apns_state` (the token, its environment, where it is registered and
-/// when) and `pending_unregister` (deletions still owed to a server, retried for 30 days).
+/// when, and a registration still owed) and `pending_unregister` (deletions still owed to a
+/// server, retried for 30 days).
 ///
 /// The app reports events; this decides the calls:
 /// - ``activated(active:coldLaunch:)``: launch or `scenePhase → active`. Checks the environment
 ///   (§9.1) and the permission: denied deletes the token; allowed asks for a token when this is a
-///   cold launch, 24 h have passed, or the token isn't registered with the active server. Then
-///   retries owed deletions.
+///   cold launch, 24 h have passed, the token isn't registered with the active server, or a failed
+///   registration is due again (outbox backoff). Then retries owed deletions.
 /// - ``didRegister(token:active:)``: registers (an upsert) with the active server; a token that
 ///   changed deletes the old one.
 /// - ``serverSwitched(from:)``: deletes the token from the old server, with the old store's epoch.
 /// - ``testThisDevice(active:)``: "Test this device".
 ///
+/// The events run one at a time, in the order they arrive: a registration still waiting for its
+/// response finishes (and is recorded) before a server switch looks at where the token is
+/// registered, and no owed deletion is in flight while a registration runs.
+///
 /// Every call is a mutation and carries both Expect headers. The token is never logged in full
 /// (``redacted(_:)``).
-@MainActor
+@MainActor @Observable
 public final class PushRegistration {
     /// The server a call goes to.
     public struct Server: Sendable, Hashable {
@@ -95,11 +101,17 @@ public final class PushRegistration {
     public static let pendingLifetime: TimeInterval = 30 * 24 * 3600
 
     public private(set) var status: Status = .idle
-    /// Called when registering with the active server got `epoch_mismatch`: the coordinator
-    /// rebuilds (sync-protocol.md §7), and the next activation registers again.
-    public var onActiveEpochMismatch: (@MainActor () -> Void)?
+    /// Registering with the active server got `epoch_mismatch`: the coordinator rebuilds
+    /// (sync-protocol.md §7) and answers the active server afterwards, or nil when the rebuild
+    /// didn't succeed. A rebuild that moved the epoch retries the registration once; otherwise it
+    /// is owed, with the backoff.
+    @ObservationIgnored public var recoverActiveEpoch: (@MainActor () async -> Server?)?
 
-    private let dependencies: Dependencies
+    @ObservationIgnored private let dependencies: Dependencies
+    /// The last event's work: the next one starts after it.
+    @ObservationIgnored private var tail: Task<Void, Never>?
+    /// Events started or waiting (for tests).
+    @ObservationIgnored private(set) var inFlight = 0
 
     public init(dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -109,6 +121,53 @@ public final class PushRegistration {
 
     /// Launch or `scenePhase → active`. `active` is the bound store's server, nil before one.
     public func activated(active: Server?, coldLaunch: Bool) async {
+        await serially { await self.performActivated(active: active, coldLaunch: coldLaunch) }
+    }
+
+    /// `didRegisterForRemoteNotificationsWithDeviceToken`: registers the token with the active
+    /// server. A different stored token is deleted from the server it was registered with.
+    public func didRegister(token data: Data, active: Server?) async {
+        await serially { await self.performDidRegister(token: data, active: active) }
+    }
+
+    /// `didFailToRegisterForRemoteNotificationsWithError` (no entitlement, no network). A token
+    /// already registered stays so: the server still has it.
+    public func didFailToRegister(_ error: any Error) async {
+        let message = "Couldn't get a push token: \(error.localizedDescription)"
+        await serially {
+            let state = (try? await self.readState()) ?? ApnsState()
+            if state.token != nil, let serverId = state.registeredServerId {
+                self.status = .registered(serverId: serverId)
+            } else {
+                self.status = .failed(message)
+            }
+        }
+    }
+
+    /// A server switch: the token is deleted from the old server with the old store's identity
+    /// (§9.2, sync-protocol.md §8.4). The next activation registers it with the new one.
+    public func serverSwitched(from old: Server) async {
+        await serially { await self.performServerSwitched(from: old) }
+    }
+
+    /// Retries every due deletion (see ``performRetryOwed()``).
+    public func retryOwed() async {
+        await serially { await self.performRetryOwed() }
+    }
+
+    private func serially(_ operation: @escaping @MainActor () async -> Void) async {
+        let previous = tail
+        inFlight += 1
+        let task = Task { @MainActor in
+            await previous?.value
+            await operation()
+            self.inFlight -= 1
+        }
+        tail = task
+        await task.value
+    }
+
+    private func performActivated(active: Server?, coldLaunch: Bool) async {
         guard case .success = dependencies.environment() else {
             if case .failure(let failure) = dependencies.environment() { status = .environmentError(failure) }
             return
@@ -120,7 +179,11 @@ public final class PushRegistration {
             if let token = state.token, let serverId = state.registeredServerId {
                 let epoch = active?.identity.serverId == serverId ? active?.identity.epoch : nil
                 try? await owe(serverId: serverId, token: token, epoch: epoch)
-                try? await writeState { $0.registeredServerId = nil }
+            }
+            try? await writeState {
+                $0.registeredServerId = nil
+                $0.registerAttempts = 0
+                $0.registerDue = nil
             }
             status = .denied
         } else if authorization.allowsDelivery, let active {
@@ -128,17 +191,20 @@ public final class PushRegistration {
                 state.lastRegisteredAt.map {
                     dependencies.wallClock.now().timeIntervalSince($0) > Self.refreshInterval
                 } ?? true
-            if coldLaunch || stale || state.registeredServerId != active.identity.serverId || state.token == nil {
+            let wanted = stale || state.registeredServerId != active.identity.serverId || state.token == nil
+            // A failed registration waits out its backoff; a cold launch asks regardless.
+            let owedNow =
+                state.registerAttempts > 0
+                ? state.registerDue.map(dependencies.leaseClock.now().hasPassed(deadline:)) ?? true : wanted
+            if coldLaunch || owedNow {
                 status = .requested
                 dependencies.requestToken()
             }
         }
-        await retryOwed()
+        await performRetryOwed()
     }
 
-    /// `didRegisterForRemoteNotificationsWithDeviceToken`: registers the token with the active
-    /// server. A different stored token is deleted from the server it was registered with.
-    public func didRegister(token data: Data, active: Server?) async {
+    private func performDidRegister(token data: Data, active: Server?) async {
         let token = Self.hex(data)
         let environment: ApnsEnvironment
         switch dependencies.environment() {
@@ -148,6 +214,10 @@ public final class PushRegistration {
             return
         }
         guard let active else { return }
+        await register(token, environment: environment, with: active, recovering: true)
+    }
+
+    private func register(_ token: String, environment: ApnsEnvironment, with active: Server, recovering: Bool) async {
         let body = ApnsDeviceInDTO(
             token: token, environment: environment, bundleId: dependencies.bundleId,
             appVersion: dependencies.appVersion, deviceName: dependencies.deviceName)
@@ -158,6 +228,7 @@ public final class PushRegistration {
             ).outcome
         } catch {
             status = .failed(String(describing: error))
+            await oweRegistration()
             return
         }
         switch outcome {
@@ -168,41 +239,41 @@ public final class PushRegistration {
                 let epoch = oldServer == active.identity.serverId ? active.identity.epoch : nil
                 try? await owe(serverId: oldServer, token: old, epoch: epoch)
             }
-            let now = dependencies.wallClock.now()
-            try? await writeState {
-                $0.token = token
-                $0.environment = environment
-                $0.registeredServerId = active.identity.serverId
-                $0.lastRegisteredAt = now
-            }
+            try? await recordRegistration(token, environment: environment, serverId: active.identity.serverId)
             status = .registered(serverId: active.identity.serverId)
-            await retryOwed()
+            await performRetryOwed()
         case .epochMismatch:
+            // One rebuild per registration; the retry after it doesn't rebuild again.
+            if recovering, let recover = recoverActiveEpoch, let rebuilt = await recover(),
+                rebuilt.identity.serverId == active.identity.serverId, rebuilt.identity.epoch != active.identity.epoch
+            {
+                await register(token, environment: environment, with: rebuilt, recovering: false)
+                return
+            }
             status = .failed("The server's data changed; registering again after the next sync")
-            onActiveEpochMismatch?()
+            await oweRegistration()
         case .identityMismatch:
             status = .failed("This address now answers as another server")
+        case .retryable, .uncertain:
+            status = .failed(outcome.problem?.detail ?? "Couldn't register this device for reminders")
+            await oweRegistration()
         default:
             status = .failed(outcome.problem?.detail ?? "Couldn't register this device for reminders")
         }
     }
 
-    /// `didFailToRegisterForRemoteNotificationsWithError` (no entitlement, no network). A token
-    /// already registered stays so: the server still has it.
-    public func didFailToRegister(_ error: any Error) {
-        if case .registered = status { return }
-        status = .failed("Couldn't get a push token: \(error.localizedDescription)")
-    }
-
-    /// A server switch: the token is deleted from the old server with the old store's identity
-    /// (§9.2, sync-protocol.md §8.4). The next activation registers it with the new one.
-    public func serverSwitched(from old: Server) async {
+    private func performServerSwitched(from old: Server) async {
         let state = (try? await readState()) ?? ApnsState()
         if let token = state.token, state.registeredServerId == old.identity.serverId {
             try? await owe(serverId: old.identity.serverId, token: token, epoch: old.identity.epoch)
-            try? await writeState { $0.registeredServerId = nil }
         }
-        await retryOwed()
+        // A registration owed to the old server isn't owed to the new one.
+        try? await writeState {
+            if $0.registeredServerId == old.identity.serverId { $0.registeredServerId = nil }
+            $0.registerAttempts = 0
+            $0.registerDue = nil
+        }
+        await performRetryOwed()
     }
 
     public enum TestOutcome: Sendable, Hashable {
@@ -241,7 +312,7 @@ public final class PushRegistration {
     /// epoch on `epoch_mismatch` (the registration belongs to the server, not to an epoch); dropped
     /// on `server_mismatch` (the old server is gone from that URL), on a refusal, or after 30
     /// days; otherwise retried later with the outbox backoff.
-    public func retryOwed() async {
+    private func performRetryOwed() async {
         let now = dependencies.leaseClock.now()
         let wall = dependencies.wallClock.now()
         guard let rows = try? await owedRows() else { return }
@@ -293,6 +364,9 @@ public final class PushRegistration {
         var environment: ApnsEnvironment?
         var registeredServerId: String?
         var lastRegisteredAt: Date?
+        /// Failed registrations since the last success; the next is due at `registerDue`.
+        var registerAttempts = 0
+        var registerDue: LeaseInstant?
     }
 
     struct Owed: Sendable, Hashable {
@@ -313,25 +387,67 @@ public final class PushRegistration {
         return ApnsState(
             token: row["token"], environment: (row["environment"] as String?).flatMap(ApnsEnvironment.init(rawValue:)),
             registeredServerId: row["registered_server_id"],
-            lastRegisteredAt: (row["last_registered_at"] as Double?).map(Date.init(timeIntervalSince1970:)))
+            lastRegisteredAt: (row["last_registered_at"] as Double?).map(Date.init(timeIntervalSince1970:)),
+            registerAttempts: row["register_attempts"],
+            registerDue: (row["register_due_boot_id"] as String?).flatMap { boot in
+                (row["register_due_ct"] as Int64?).map { LeaseInstant(bootId: boot, ct: $0) }
+            })
     }
 
-    private func writeState(_ change: @escaping @Sendable (inout ApnsState) -> Void) async throws {
+    /// Changes the state, and runs `also` in the same transaction.
+    private func writeState(
+        also: @escaping @Sendable (Database) throws -> Void = { _ in },
+        _ change: @escaping @Sendable (inout ApnsState) -> Void
+    ) async throws {
         try await dependencies.registry.writer.write { db in
             var state = try Self.state(db)
             change(&state)
             try db.execute(
                 sql: """
-                    INSERT INTO apns_state (id, token, environment, registered_server_id, last_registered_at)
-                    VALUES (1, ?, ?, ?, ?)
+                    INSERT INTO apns_state (id, token, environment, registered_server_id, last_registered_at,
+                      register_attempts, register_due_boot_id, register_due_ct)
+                    VALUES (1, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (id) DO UPDATE SET token = excluded.token, environment = excluded.environment,
                       registered_server_id = excluded.registered_server_id,
-                      last_registered_at = excluded.last_registered_at
+                      last_registered_at = excluded.last_registered_at,
+                      register_attempts = excluded.register_attempts,
+                      register_due_boot_id = excluded.register_due_boot_id, register_due_ct = excluded.register_due_ct
                     """,
                 arguments: [
                     state.token, state.environment?.rawValue, state.registeredServerId,
-                    state.lastRegisteredAt?.timeIntervalSince1970,
+                    state.lastRegisteredAt?.timeIntervalSince1970, state.registerAttempts, state.registerDue?.bootId,
+                    state.registerDue?.ct,
                 ])
+            try also(db)
+        }
+    }
+
+    /// A successful registration: the state, and no deletion of this token still owed to this
+    /// server (one left from an earlier switch or denial would delete the registration just made).
+    private func recordRegistration(_ token: String, environment: ApnsEnvironment, serverId: String) async throws {
+        let now = dependencies.wallClock.now()
+        let cancelOwed: @Sendable (Database) throws -> Void = { db in
+            try db.execute(
+                sql: "DELETE FROM pending_unregister WHERE server_id = ? AND token = ?", arguments: [serverId, token])
+        }
+        try await writeState(also: cancelOwed) {
+            $0.token = token
+            $0.environment = environment
+            $0.registeredServerId = serverId
+            $0.lastRegisteredAt = now
+            $0.registerAttempts = 0
+            $0.registerDue = nil
+        }
+    }
+
+    /// A failed registration (§9.2: network error or 5xx): retried at an activation after the
+    /// outbox backoff.
+    private func oweRegistration() async {
+        let now = dependencies.leaseClock.now()
+        let random = dependencies.random()
+        try? await writeState {
+            $0.registerAttempts += 1
+            $0.registerDue = now.adding(OutboxBackoff.delay(attempts: $0.registerAttempts, random: random))
         }
     }
 

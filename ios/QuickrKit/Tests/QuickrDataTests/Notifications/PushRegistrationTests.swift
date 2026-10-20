@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import QuickrCore
 import QuickrTestSupport
 import Synchronization
@@ -114,6 +115,47 @@ import Testing
         }
     }
 
+    /// Holds the next request to one path until the test releases it: a response still on its way.
+    final class Gate: Sendable {
+        private let state = Mutex<(path: String?, parked: CheckedContinuation<Void, Never>?)>((nil, nil))
+
+        func hold(_ path: String) { state.withLock { $0.path = path } }
+        var isHolding: Bool { state.withLock { $0.parked != nil } }
+
+        func release() {
+            let parked = state.withLock { state in
+                defer { state.parked = nil }
+                return state.parked
+            }
+            parked?.resume()
+        }
+
+        func pass(_ request: HTTPRequest) async {
+            guard state.withLock({ $0.path == request.url.path }) else { return }
+            await withCheckedContinuation { continuation in
+                state.withLock {
+                    $0.path = nil
+                    $0.parked = continuation
+                }
+            }
+        }
+    }
+
+    final class GatedTransport: Transport {
+        let inner: FakeTransport
+        let gate: Gate
+
+        init(_ inner: FakeTransport, gate: Gate) {
+            self.inner = inner
+            self.gate = gate
+        }
+
+        func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+            await gate.pass(request)
+            return try await inner.send(request)
+        }
+    }
+
     static let a = PushRegistration.Server(
         identity: ServerIdentity(serverId: "00000000-0000-4000-8000-0000000000aa", epoch: "EA"),
         baseURL: URL(string: "https://a.quickr.example")!)
@@ -126,6 +168,7 @@ import Testing
     @MainActor struct World {
         let registry = Registry(writer: try! TestDatabase.registry())
         let transport = FakeTransport()
+        let gate = Gate()
         let servers = Servers()
         let wall = FakeClock()
         let lease = FakeLeaseClock()
@@ -146,7 +189,8 @@ import Testing
             }
             registration = PushRegistration(
                 dependencies: .init(
-                    registry: registry, transport: transport, environment: { environment.withLock { $0 } },
+                    registry: registry, transport: GatedTransport(transport, gate: gate),
+                    environment: { environment.withLock { $0 } },
                     authorization: { authorization.withLock { $0 } }, requestToken: { requests.withLock { $0 += 1 } },
                     bundleId: "com.bahumia.quickr", appVersion: "1.0 (7)", deviceName: "Test iPhone", wallClock: wall,
                     leaseClock: lease, random: { 0.5 }))
@@ -157,6 +201,7 @@ import Testing
         }
 
         var calls: [String] { transport.requests.map { "\($0.url.host!)\($0.url.path)" } }
+        var state: PushRegistration.ApnsState { get async throws { try await registration.readState() } }
         var owed: [PushRegistration.Owed] { get async throws { try await registration.owedRows() } }
     }
 
@@ -229,14 +274,76 @@ import Testing
         #expect(w.requests.withLock { $0 } == 0 && w.transport.requests.isEmpty)
     }
 
-    @Test func registeringWithTheActiveStoreAfterItsEpochRotatedAsksForARebuild() async throws {
+    /// The rebuild didn't succeed: no retry and no second rebuild; the registration is owed, with
+    /// the backoff.
+    @Test func anEpochMismatchWhoseRebuildFailsWaitsOutTheBackoff() async throws {
         let w = try await World()
         w.servers.with(Self.a.baseURL.host!) { $0.epoch = "EA2" }
-        let rebuilds = Mutex(0)
-        w.registration.onActiveEpochMismatch = { rebuilds.withLock { $0 += 1 } }
+        let rebuilds = Box(0)
+        w.registration.recoverActiveEpoch = {
+            rebuilds.withLock { $0 += 1 }
+            return nil
+        }
         await w.registration.didRegister(token: Self.token1, active: Self.a)
-        #expect(rebuilds.withLock { $0 } == 1 && w.devices(Self.a).isEmpty)
+        #expect(rebuilds.withLock { $0 } == 1 && w.transport.requests.count == 1 && w.devices(Self.a).isEmpty)
         if case .failed = w.registration.status {} else { Issue.record("failed, not \(w.registration.status)") }
+        #expect(try await w.state.registerAttempts == 1)
+        await w.registration.activated(active: Self.a, coldLaunch: false)
+        #expect(w.requests.withLock { $0 } == 0, "backing off, not looping")
+    }
+
+    @Test func anEpochMismatchIsRetriedOnceAfterTheRebuild() async throws {
+        let w = try await World()
+        w.servers.with(Self.a.baseURL.host!) { $0.epoch = "EA2" }
+        let rebuilds = Box(0)
+        var rebuilt = Self.a
+        rebuilt.identity.epoch = "EA2"
+        w.registration.recoverActiveEpoch = { [rebuilt] in
+            rebuilds.withLock { $0 += 1 }
+            return rebuilt
+        }
+        await w.registration.didRegister(token: Self.token1, active: Self.a)
+        #expect(rebuilds.withLock { $0 } == 1 && w.devices(Self.a) == ["abcd0102030405060708"])
+        #expect(w.transport.requests.map { $0.headers[QuickrHeader.expectEpoch] } == ["EA", "EA2"])
+        #expect(w.registration.status == .registered(serverId: Self.a.identity.serverId))
+    }
+
+    /// The epoch moved again while rebuilding: the retry fails too, and stops there.
+    @Test func theRetryAfterARebuildDoesntRebuildAgain() async throws {
+        let w = try await World()
+        w.servers.with(Self.a.baseURL.host!) { $0.epoch = "EA3" }
+        let rebuilds = Box(0)
+        var rebuilt = Self.a
+        rebuilt.identity.epoch = "EA2"
+        w.registration.recoverActiveEpoch = { [rebuilt] in
+            rebuilds.withLock { $0 += 1 }
+            return rebuilt
+        }
+        await w.registration.didRegister(token: Self.token1, active: Self.a)
+        #expect(rebuilds.withLock { $0 } == 1 && w.transport.requests.count == 2 && w.devices(Self.a).isEmpty)
+        #expect(try await w.state.registerAttempts == 1)
+    }
+
+    /// A rotation whose registration failed is retried at an activation after the backoff, not
+    /// 24 h later.
+    @Test func aFailedRegistrationIsRetriedAfterTheBackoff() async throws {
+        let w = try await World()
+        let host = Self.a.baseURL.host!
+        await w.registration.didRegister(token: Self.token1, active: Self.a)
+        let a = try #require(w.servers.state.withLock { $0.removeValue(forKey: host) })  // unreachable
+        await w.registration.didRegister(token: Self.token2, active: Self.a)
+        #expect(try await w.state.registerAttempts == 1)
+        await w.registration.activated(active: Self.a, coldLaunch: false)
+        #expect(w.requests.withLock { $0 } == 0, "not due yet")
+
+        w.servers.state.withLock { $0[host] = a }
+        w.lease.advance(by: .seconds(3))  // the first backoff: 2 s × U(0.8, 1.2)
+        await w.registration.activated(active: Self.a, coldLaunch: false)
+        #expect(w.requests.withLock { $0 } == 1 && w.registration.status == .requested)
+        await w.registration.didRegister(token: Self.token2, active: Self.a)
+        #expect(w.devices(Self.a) == ["feed1122334455667788"])
+        let state = try await w.state
+        #expect(state.registerAttempts == 0 && state.registerDue == nil)
     }
 
     // MARK: - N13
@@ -314,14 +421,74 @@ import Testing
         #expect(await w.registration.testThisDevice(active: Self.a) == .offline)
     }
 
-    @Test func aLateTokenFailureDoesntUndoARegistration() async throws {
+    /// The usual order: registered earlier, then an activation asks again, then the system fails.
+    @Test func aTokenFailureDoesntUndoARegistration() async throws {
         let w = try await World()
         struct NoToken: Error {}
-        w.registration.didFailToRegister(NoToken())
+        await w.registration.didFailToRegister(NoToken())
         if case .failed = w.registration.status {} else { Issue.record("failed before any registration") }
         await w.registration.didRegister(token: Self.token1, active: Self.a)
-        w.registration.didFailToRegister(NoToken())
+        await w.registration.activated(active: Self.a, coldLaunch: true)
+        #expect(w.registration.status == .requested)
+        await w.registration.didFailToRegister(NoToken())
         #expect(w.registration.status == .registered(serverId: Self.a.identity.serverId))
+    }
+
+    @Test func theStatusIsObservable() async throws {
+        let w = try await World()
+        let changed = Box(false)
+        withObservationTracking {
+            _ = w.registration.status
+        } onChange: {
+            changed.withLock { $0 = true }
+        }
+        await w.registration.activated(active: Self.a, coldLaunch: true)
+        #expect(changed.withLock { $0 })
+    }
+
+    // MARK: - Ordering
+
+    /// A → B while A is unreachable leaves a deletion owed to A; back to A, registering there
+    /// cancels it, so a later retry doesn't delete the registration just made.
+    @Test func switchingBackToAServerKeepsTheRenewedRegistration() async throws {
+        let w = try await World()
+        let host = Self.a.baseURL.host!
+        await w.registration.didRegister(token: Self.token1, active: Self.a)
+        let a = try #require(w.servers.state.withLock { $0.removeValue(forKey: host) })
+        await w.registration.serverSwitched(from: Self.a)
+        await w.registration.didRegister(token: Self.token1, active: Self.b)
+        #expect(try await w.owed.map(\.serverId) == [Self.a.identity.serverId])
+
+        w.servers.state.withLock { $0[host] = a }
+        await w.registration.serverSwitched(from: Self.b)
+        await w.registration.didRegister(token: Self.token1, active: Self.a)
+        w.lease.advance(by: .seconds(600))
+        await w.registration.retryOwed()
+        #expect(w.devices(Self.a) == ["abcd0102030405060708"] && w.devices(Self.b).isEmpty)
+        #expect(try await w.owed.isEmpty)
+        #expect(w.registration.status == .registered(serverId: Self.a.identity.serverId))
+    }
+
+    /// A's registration is still waiting for its response when the app switches to B: it is
+    /// recorded first, then deleted from A by the switch.
+    @Test func aRegistrationInFlightDuringASwitchIsDeletedFromTheOldServer() async throws {
+        let w = try await World()
+        w.gate.hold("/api/v1/push/apns/devices")
+        let registering = Task { await w.registration.didRegister(token: Self.token1, active: Self.a) }
+        while !w.gate.isHolding { await Task.yield() }
+        let switched = Box(false)
+        let switching = Task {
+            await w.registration.serverSwitched(from: Self.a)
+            switched.withLock { $0 = true }
+        }
+        // The switch has either run already or is waiting behind the registration.
+        while !switched.withLock({ $0 }) && w.registration.inFlight < 2 { await Task.yield() }
+        w.gate.release()
+        await registering.value
+        await switching.value
+        #expect(w.devices(Self.a).isEmpty, "the late registration was deleted from A")
+        #expect(try await w.owed.isEmpty)
+        #expect(try await w.state.registeredServerId == nil)
     }
 
     @Test func tokensAreRedactedForLogs() {
