@@ -93,8 +93,8 @@ import Testing
         _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .int(3)], version: 1)
         try await eventually("failed") { environment.sync.summary?.failed == 1 }
         var stale = try #require(environment.sync.sheet(lastSyncAt: nil).rows.first)
-        #expect(stale.scope == "\(UITestLaunch.fakeServerId)/1")
-        stale.scope = "\(UITestLaunch.fakeServerId)/0"  // the store before a reset
+        #expect(stale.scope == EntryScope(serverId: UITestLaunch.fakeServerId, storeGen: 1))
+        stale.scope = EntryScope(serverId: UITestLaunch.fakeServerId, storeGen: 0)  // the store before a reset
         await #expect(throws: SyncActionError.self) { try await environment.sync.retry(stale) }
         await #expect(throws: SyncActionError.self) { try await environment.sync.discard(stale) }
         await #expect(throws: SyncActionError.self) { try await environment.sync.dismiss(stale) }

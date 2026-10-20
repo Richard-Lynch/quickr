@@ -17,10 +17,9 @@ public struct SyncItemRow: Identifiable, Sendable, Hashable {
     }
 
     public var id: String
-    /// The store the item is in: `"{server_id}/{store_gen}"` (the same form as TILES's
-    /// `EntryScope`). An action runs only while it is still the active store, so a server switch
-    /// or a reset in between never sends it to another store's item with the same id.
-    public var scope: String
+    /// The store the item is in. An action runs only while it is still the active store, so a
+    /// server switch or a reset in between never sends it to another store's item with the same id.
+    public var scope: EntryScope
     /// "Entry · Mood", "Edit · Mood", "Delete · Mood", "Archive · Mood", "Unarchive · Mood".
     public var title: String
     /// When it happened: the entry's capture time for a log, else when it was queued.
@@ -39,7 +38,7 @@ public struct SyncItemRow: Identifiable, Sendable, Hashable {
     /// A failed item whose entity was deleted elsewhere is dismissed instead.
     public var canDismiss: Bool
     /// Unique across stores: the list's identity for the row.
-    public var scopedId: String { "\(scope)/\(id)" }
+    public var scopedId: String { "\(scope.id)/\(id)" }
 }
 
 /// A topic's name and id, for the rows' titles.
@@ -60,7 +59,7 @@ public struct SyncSheetModel: Sendable, Hashable {
 
     public init(
         items: [OutboxItem], topics: [String: SyncTopicInfo], online: Bool, lastSyncAt: Date?, now: LeaseInstant,
-        scope: String = ""
+        scope: EntryScope = EntryScope("")
     ) {
         var ordering = OutboxScope()
         var rows: [SyncItemRow] = []
@@ -107,7 +106,7 @@ public struct SyncSheetModel: Sendable, Hashable {
     }
 
     static func row(
-        _ item: OutboxItem, title: String, blockedBy: String?, online: Bool, now: LeaseInstant, scope: String
+        _ item: OutboxItem, title: String, blockedBy: String?, online: Bool, now: LeaseInstant, scope: EntryScope
     ) -> SyncItemRow {
         let failed = item.state == .failed
         let deletedElsewhere = failed && item.failureReason == .deletedElsewhere

@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import QuickrData
+import QuickrUI
 import SwiftUI
 import UIKit
 
@@ -19,6 +20,15 @@ final class AppEnvironment {
     let router = Router()
     /// The sync pill and sheet's state, and the network and timer flush triggers (SYNC-UX).
     let sync: SyncController
+    /// Every screen's toasts, hosted once at the root so a toast outlives navigation.
+    let toasts = ToastCenter()
+    /// Numbers typed into tiles but not logged yet (kept while the app runs, like the PWA's).
+    let quickLogDrafts = QuickLogDrafts()
+    /// Entry writes for tiles and Undo, over `session`.
+    let entryWriter = SessionEntryWriter()
+    let entryToasts: EntryToasts
+    /// Every tile's quick-log model, kept while the app runs (QuickLogModels).
+    let quickLogModels: QuickLogModels
     /// Nil only when it couldn't be created (`sessionError`); `start()` tries again.
     private(set) var session: AppSession?
     private(set) var sessionError: String?
@@ -46,7 +56,10 @@ final class AppEnvironment {
         self.sync = SyncController(network: network)
         self.makeSession = makeSession
         self.prepare = prepare
+        entryToasts = EntryToasts(center: toasts, writer: entryWriter)
+        quickLogModels = QuickLogModels(writer: entryWriter, toasts: entryToasts, drafts: quickLogDrafts)
         if prepare == nil { openSession() }
+        entryWriter.session = { [weak self] in self?.session }
     }
 
     /// The live session over the App Group's files, sending through URLSession with the

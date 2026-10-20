@@ -62,6 +62,8 @@ public final class AppSession {
         public var serverId: String
         public var storeGen: Int
         public var baseURL: URL
+
+        public var scope: EntryScope { EntryScope(serverId: serverId, storeGen: storeGen) }
     }
 
     public enum SessionError: Error, Sendable, Hashable {

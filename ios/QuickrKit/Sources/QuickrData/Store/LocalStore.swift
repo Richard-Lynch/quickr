@@ -8,6 +8,8 @@ import QuickrCore
 public struct LocalStore: Sendable {
     public let serverId: String
     public let storeGen: Int
+    /// The store's identity for writes and outbox rows (`EntryScope`).
+    public var scope: EntryScope { EntryScope(serverId: serverId, storeGen: storeGen) }
     /// nil for an in-memory test store.
     public let url: URL?
     public let writer: any DatabaseWriter

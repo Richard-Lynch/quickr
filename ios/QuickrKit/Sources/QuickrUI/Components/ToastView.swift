@@ -25,6 +25,7 @@ public struct ToastView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("toast.text")
             if let action = toast.action {
                 Button(action.label, action: onAction)
                     .font(.qr(.sansSemiBold, size: 14, relativeTo: .subheadline))
@@ -33,6 +34,7 @@ public struct ToastView: View {
                     .background(Color.qr.paper.opacity(0.15), in: Capsule())
                     .contentShape(Capsule())
                     .buttonStyle(QuickrPressStyle())
+                    .accessibilityIdentifier("toast.action")
             }
             Button(action: onDismiss) {
                 QIcon.x.view(size: 16)

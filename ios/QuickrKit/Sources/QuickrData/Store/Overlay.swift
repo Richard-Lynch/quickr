@@ -3,7 +3,7 @@ import QuickrCore
 
 extension OutboxItem {
     /// The decoded `last_error_json`, nil when absent or unreadable.
-    var lastError: OutboxErrorInfo? {
+    public var lastError: OutboxErrorInfo? {
         lastErrorJSON.flatMap { try? WireCoding.decoder().decode(OutboxErrorInfo.self, from: Data($0.utf8)) }
     }
 }

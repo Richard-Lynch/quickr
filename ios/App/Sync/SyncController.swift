@@ -20,7 +20,7 @@ final class SyncController {
     private(set) var items: [OutboxItem] = []
     private(set) var topics: [String: SyncTopicInfo] = [:]
     /// The store `items` come from (`"{server_id}/{store_gen}"`), stamped on every row.
-    private(set) var scope: String?
+    private(set) var scope: EntryScope?
     /// The sync sheet is up. It lives at the root, not on the pill, which hides when all is
     /// synced while the sheet should stay.
     var isSheetPresented = false
@@ -46,7 +46,7 @@ final class SyncController {
     func sheet(lastSyncAt: Date?) -> SyncSheetModel {
         SyncSheetModel(
             items: items, topics: topics, online: online, lastSyncAt: lastSyncAt,
-            now: leaseClock?.now() ?? LeaseInstant(bootId: "", ct: 0), scope: scope ?? "")
+            now: leaseClock?.now() ?? LeaseInstant(bootId: "", ct: 0), scope: scope ?? EntryScope(""))
     }
 
     // MARK: - Triggers
@@ -86,11 +86,11 @@ final class SyncController {
             return
         }
         leaseClock = store.leaseClock
-        if scope != Self.scope(of: store) {
+        if scope != store.scope {
             // Another store: nothing of the old one may stay on screen to act on.
             items = []
             summary = nil
-            scope = Self.scope(of: store)
+            scope = store.scope
         }
         let timer = ForegroundFlushTimer(
             sleeper: sleeper, nextWake: { try? await outbox.summary().nextWake }, now: { store.leaseClock.now() },
@@ -128,12 +128,10 @@ final class SyncController {
         scope = nil
     }
 
-    static func scope(of store: LocalStore) -> String { "\(store.serverId)/\(store.storeGen)" }
-
     /// The active store's outbox and scheduler, if `row` came from it; otherwise
     /// `SyncActionError.storeChanged` (the sheet showed another store's item).
     private func target(_ row: SyncItemRow) throws -> (Outbox, OutboxFlushScheduler?) {
-        guard let session, let store = session.store, let outbox = session.outbox, row.scope == Self.scope(of: store)
+        guard let session, let store = session.store, let outbox = session.outbox, row.scope == store.scope
         else { throw SyncActionError.storeChanged }
         return (outbox, session.scheduler)
     }
