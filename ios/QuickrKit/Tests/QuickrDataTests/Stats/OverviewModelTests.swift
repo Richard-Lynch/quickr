@@ -1,6 +1,6 @@
 import Foundation
 import QuickrCore
-import QuickrData
+@_spi(Testing) import QuickrData
 import QuickrTestSupport
 import Synchronization
 import Testing
@@ -210,6 +210,102 @@ import Testing
         #expect(shown.entryCount == 12)
     }
 
+    /// An older load paused right after its cache read (a miss) resumes after a newer load of the
+    /// same query published: it writes nothing, and no "loading" is left behind.
+    @Test func anOlderLoadResumingAfterItsCacheReadChangesNothing() async throws {
+        let h = try Harness()
+        Self.serve(h)
+        let hold = HoldOnce()
+        var loader = h.loader
+        loader.afterCacheReadForTesting = { await hold.wait() }
+        let model = OverviewModel(
+            topicId: StatsLoaderTests.topicId, ref: "everything", timeZone: { TimeZone(identifier: "Europe/London")! },
+            loader: { [loader] in loader })
+        let first = Task { @MainActor in await model.load(query: Self.query, bucket: .day) }
+        try await eventually("the first load waits after its cache read") { hold.isWaiting }
+        await model.load(query: Self.query, bucket: .day)
+        guard case .loaded(let stats, .fresh) = model.stats else {
+            Issue.record("expected the newer load's stats, got \(model.stats)")
+            return
+        }
+        let series = model.series.mapValues(\.value)
+        #expect(!series.isEmpty && series.values.allSatisfy { $0 != nil })
+        hold.release()
+        await first.value
+        guard case .loaded(let after, .fresh) = model.stats else {
+            Issue.record("the older load overwrote the stats: \(model.stats)")
+            return
+        }
+        #expect(after == stats)
+        #expect(model.series.mapValues(\.value) == series)
+    }
+
+    /// An older load past its stats, waiting for the sources, finishes after a newer load: its
+    /// sources don't replace the newer ones.
+    @Test func anOlderLoadsSourcesArriveLateAndChangeNothing() async throws {
+        let h = try Harness()
+        let gate = StatsGate()
+        let loader = StatsLoader(
+            store: h.store,
+            client: APIClient(baseURL: StatsLoaderTests.base, transport: gate, identity: StaticServerIdentity(nil)),
+            requestSync: {})
+        let model = OverviewModel(
+            topicId: StatsLoaderTests.topicId, ref: "everything", timeZone: { TimeZone(identifier: "Europe/London")! },
+            loader: { loader })
+        // Filtered, so the query's request and the sources' (unfiltered) one can be told apart.
+        let query = StatsQuery(cacheKey: "range=all&source=ios", filters: EntryFilters(source: "ios"))
+        let filtered: (HTTPRequest) -> Bool = { $0.url.query?.contains("source=ios") == true }
+        let all = try StatsLoaderTests.body("stats everything all")
+        let webOnly = try StatsLoaderTests.body("stats everything source web")
+        let older = Task { @MainActor in await model.load(query: query, bucket: .day) }
+        try await eventually("the older load's requests wait") { gate.waiting == 2 }
+        gate.release(where: filtered, body: all)  // its stats: it now waits for the sources
+        try await eventually("the older load has its stats") { await MainActor.run { model.stats.value != nil } }
+        let newer = Task { @MainActor in await model.load(query: query, bucket: .day) }
+        try await eventually("the newer load's requests wait") { gate.waiting == 3 }
+        gate.release(where: filtered, body: all)
+        gate.release(last: 1, body: all)  // the newer load's sources
+        await newer.value
+        let sources = model.sources
+        #expect(sources == ["ios", "web", "mcp"])
+        gate.release(last: 1, body: webOnly)  // the older load's sources, last
+        await older.value
+        #expect(model.sources == sources)
+    }
+
+    /// The zone changes while a refresh is in flight, and the old-zone load finishes last: the new
+    /// zone's charts stay.
+    @Test func aZoneChangeDuringARefreshKeepsTheNewZone() async throws {
+        let h = try Harness()
+        let gate = StatsGate()
+        let zone = Mutex("Europe/London")
+        let loader = StatsLoader(
+            store: h.store,
+            client: APIClient(baseURL: StatsLoaderTests.base, transport: gate, identity: StaticServerIdentity(nil)),
+            requestSync: {})
+        let model = OverviewModel(
+            topicId: StatsLoaderTests.topicId, ref: "everything",
+            timeZone: { TimeZone(identifier: zone.withLock { $0 })! }, loader: { loader })
+        let stats = try StatsLoaderTests.body("stats everything all")
+        let refresh = Task { @MainActor in await model.load(query: Self.query, bucket: .day) }
+        try await eventually("the London refresh waits") { gate.waiting == 2 }
+        zone.withLock { $0 = "America/Santiago" }
+        let reload = Task { @MainActor in await model.load(query: Self.query, bucket: .day) }
+        try await eventually("the Santiago load waits") { gate.waiting == 4 }
+        gate.release(last: 2, body: stats)
+        await reload.value
+        let santiago = try StatsLoaderTests.response(
+            QuestionSeriesDTO.self, "series everything glasses day America/Santiago")
+        #expect(model.series["glasses"]?.value == santiago)
+        gate.release(last: 2, body: stats)
+        await refresh.value
+        #expect(model.series["glasses"]?.value == santiago)
+        guard case .loaded(_, .fresh) = model.stats else {
+            Issue.record("expected fresh stats, got \(model.stats)")
+            return
+        }
+    }
+
     /// A series whose own fetch failed shows its cached chart as stale, while the summary is fresh.
     @Test func aSeriesCanBeStaleWhileTheSummaryIsFresh() async throws {
         let h = try Harness()
@@ -277,16 +373,30 @@ import Testing
 
 /// Holds `/stats` requests until released, answering the rest from `stats-vectors.json`.
 final class StatsGate: Transport {
-    private let state = Mutex<[CheckedContinuation<Data, Never>]>([])
+    private let state = Mutex<[(request: HTTPRequest, continuation: CheckedContinuation<Data, Never>)]>([])
 
     var waiting: Int { state.withLock { $0.count } }
+
+    func waiting(where matches: (HTTPRequest) -> Bool) -> Int {
+        state.withLock { $0.filter { matches($0.request) }.count }
+    }
 
     /// Answers the `count` most recent held requests with `body`.
     func release(last count: Int, body: Data) {
         let released = state.withLock { held in
-            let tail = Array(held.suffix(count))
+            let tail = held.suffix(count).map(\.continuation)
             held.removeLast(count)
             return tail
+        }
+        for continuation in released { continuation.resume(returning: body) }
+    }
+
+    /// Answers the held requests `matches` picks with `body`.
+    func release(where matches: (HTTPRequest) -> Bool, body: Data) {
+        let released = state.withLock { held in
+            let picked = held.filter { matches($0.request) }.map(\.continuation)
+            held.removeAll { matches($0.request) }
+            return picked
         }
         for continuation in released { continuation.resume(returning: body) }
     }
@@ -295,11 +405,41 @@ final class StatsGate: Transport {
         let headers: HTTPHeaders = [QuickrHeader.serverId: "server-1", QuickrHeader.epoch: "E1"]
         guard request.url.path.hasSuffix("/stats") else {
             let key = request.url.pathComponents.dropLast().last ?? ""
-            let name = "series everything \(key) day Europe/London"
-            let body = try StatsLoaderTests.body(name)
+            let items = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let zone = items.first { $0.name == "tz" }?.value ?? "Europe/London"
+            let body = try StatsLoaderTests.body("series everything \(key) day \(zone)")
             return HTTPResponse(status: 200, headers: headers, body: body)
         }
-        let body = await withCheckedContinuation { continuation in state.withLock { $0.append(continuation) } }
+        let body = await withCheckedContinuation { continuation in
+            state.withLock { $0.append((request, continuation)) }
+        }
         return HTTPResponse(status: 200, headers: headers, body: body)
+    }
+}
+
+/// Holds the first call to `wait()` until `release()`; later calls pass.
+final class HoldOnce: Sendable {
+    private let state = Mutex<(used: Bool, held: CheckedContinuation<Void, Never>?)>((false, nil))
+
+    var isWaiting: Bool { state.withLock { $0.held != nil } }
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let pass = state.withLock { state -> Bool in
+                guard !state.used else { return true }
+                state.used = true
+                state.held = continuation
+                return false
+            }
+            if pass { continuation.resume() }
+        }
+    }
+
+    func release() {
+        let held = state.withLock { state in
+            defer { state.held = nil }
+            return state.held
+        }
+        held?.resume()
     }
 }

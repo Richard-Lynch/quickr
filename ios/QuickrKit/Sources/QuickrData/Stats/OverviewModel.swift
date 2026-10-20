@@ -105,8 +105,11 @@ public final class OverviewModel {
             restore(before)
             return true
         }
-        if let (cached, fetchedAt) = await loader.cachedStats(topicId: topicId, query: query) {
-            guard !abandoned() else { return }
+        // After every await: a newer load may own the screen by now (a write here would overwrite
+        // its answer, or leave "loading" behind), or this one was cancelled or rebound.
+        let cached = await loader.cachedStats(topicId: topicId, query: query)
+        guard !abandoned() else { return }
+        if let (cached, fetchedAt) = cached {
             stats = .loaded(cached, .updating(fetchedAt))
         } else if !reload {
             stats = .loading
@@ -115,7 +118,9 @@ public final class OverviewModel {
         let result = await loader.stats(topicId: topicId, ref: ref, query: query)
         guard !abandoned() else { return }
         stats = Self.load(result)
-        if let all = await sourcesResult.value, !abandoned() { sources = all.sources.map(\.value) }
+        let all = await sourcesResult.value
+        guard !abandoned() else { return }
+        if let all { sources = all.sources.map(\.value) }
         guard let shown = stats.value else {
             series = [:]
             return
@@ -128,9 +133,10 @@ public final class OverviewModel {
         }
         var next: [String: Load<QuestionSeries>] = [:]
         for key in keys {
-            if let (cached, fetchedAt) = await loader.cachedSeries(
+            let cached = await loader.cachedSeries(
                 topicId: topicId, key: key, bucket: bucket, timeZone: timeZone, query: query)
-            {
+            guard !abandoned() else { return }
+            if let (cached, fetchedAt) = cached {
                 next[key] = .loaded(cached, .updating(fetchedAt))
             } else {
                 next[key] = reload ? series[key] ?? .loading : .loading

@@ -80,6 +80,8 @@ public struct StatsLoader: Sendable {
     let client: APIClient
     let requestSync: @Sendable () async -> Void
     let now: @Sendable () -> Date
+    /// Runs after each cache read, before its answer is returned (tests pause a load there).
+    @_spi(Testing) public var afterCacheReadForTesting: (@Sendable () async -> Void)?
 
     /// `requestSync` asks the coordinator for a run (after an epoch or identity mismatch).
     public init(
@@ -226,6 +228,7 @@ public struct StatsLoader: Sendable {
     private func cached<DTO: WireResponse>(_ type: DTO.Type, key: String) async -> (DTO.Domain, fetchedAt: Date)?
     where DTO.Domain: Sendable {
         let row = try? await store.writer.read { db in try Self.read(db, key: key) }
+        await afterCacheReadForTesting?()
         guard let row = row ?? nil,
             let value = try? DTO.decode(Data(row.payload.utf8), using: WireCoding.decoder()).toDomain()
         else { return nil }
