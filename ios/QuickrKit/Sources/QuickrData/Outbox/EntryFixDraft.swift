@@ -47,3 +47,53 @@ extension OutboxItem {
             capturedAt: body.capturedAt, notes: body.notes, problem: failure?.problem, message: failure?.message)
     }
 }
+
+/// A refused edit of an entry, ready for the edit screen's fix mode (outbox.md §11: Fix covers a
+/// failed `entry.update` too): the changed fields that were sent, and why the server refused them.
+public struct EntryUpdateFixDraft: Sendable, Hashable {
+    /// The outbox item's id.
+    public var itemId: String
+    /// For the compare-and-set of `Outbox.fix`.
+    public var rowVersion: Int
+    public var entryId: String
+    /// The answers the edit set (nil clears one), typed by the entry's version.
+    public var answers: [String: AnswerValue?]?
+    public var capturedAt: Date?
+    public var notes: String?
+    public var source: String?
+    public var problem: Problem?
+    public var message: String?
+}
+
+extension OutboxItem {
+    /// The draft for fixing this refused edit: a failed, never-delivered `entry.update` refused for
+    /// a reason Fix can address (what `Outbox.fix` accepts). `questions` are the entry's version's.
+    public func entryUpdateFixDraft(questions: [Question]) -> EntryUpdateFixDraft? {
+        let fixable: Set<OutboxFailureReason> = [.rejected, .topicArchived, .futureTime]
+        guard kind == .entryUpdate, state == .failed, !maybeDelivered, failureReason.map(fixable.contains) ?? false,
+            case .entryUpdate(let entryId, _, let patch)? = try? OutboxPayload.decode(kind: kind, json: payloadJSON)
+        else { return nil }
+        let failure = failureDetails
+        return EntryUpdateFixDraft(
+            itemId: id, rowVersion: rowVersion, entryId: entryId, answers: patch.domainAnswers(for: questions),
+            capturedAt: patch.capturedAt, notes: patch.notes, source: patch.source, problem: failure?.problem,
+            message: failure?.message)
+    }
+}
+
+/// The fields a fix corrected (`Outbox.fix(overriding:)`): later queued edits drop them.
+public struct EntryOverride: Sendable, Hashable {
+    public var answerKeys: Set<String>
+    public var capturedAt: Bool
+    public var notes: Bool
+    public var source: Bool
+
+    public init(answerKeys: Set<String> = [], capturedAt: Bool = false, notes: Bool = false, source: Bool = false) {
+        self.answerKeys = answerKeys
+        self.capturedAt = capturedAt
+        self.notes = notes
+        self.source = source
+    }
+
+    public var isEmpty: Bool { answerKeys.isEmpty && !capturedAt && !notes && !source }
+}

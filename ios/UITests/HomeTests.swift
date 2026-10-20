@@ -58,9 +58,11 @@ final class HomeTests: XCTestCase {
         let meds = tile(app, "meds")
         XCTAssertTrue(meds.waitForExistence(timeout: 5))
         meds.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.15)).tap()  // the title, not a control
-        let path = app.staticTexts["route.path"]
-        XCTAssertTrue(path.waitForExistence(timeout: 5))
-        XCTAssertEqual(path.label, "/t/meds")
+        // The topic opens on its Overview tab (STATS).
+        let tabs = app.segmentedControls["topic.tabs"]
+        XCTAssertTrue(tabs.waitForExistence(timeout: 5))
+        XCTAssertTrue(tabs.buttons["Overview"].isSelected)
+        XCTAssertTrue(app.descendants(matching: .any)["overview.list"].firstMatch.exists)
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
         let log = app.buttons["Log Medication"]

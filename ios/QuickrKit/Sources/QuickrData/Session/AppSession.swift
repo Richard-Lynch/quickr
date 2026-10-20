@@ -89,6 +89,8 @@ public final class AppSession {
     public private(set) var store: LocalStore?
     public private(set) var outbox: Outbox?
     public private(set) var scheduler: OutboxFlushScheduler?
+    /// The bound store's stats and series (STATS): fetched online, cached in that store.
+    public private(set) var stats: StatsLoader?
     public private(set) var syncStatus: SyncStatus
 
     @ObservationIgnored private let bridge: OutboxFlushBridge
@@ -317,6 +319,7 @@ public final class AppSession {
         store = nil
         outbox = nil
         scheduler = nil
+        stats = nil
         binding = nil
     }
 
@@ -369,6 +372,20 @@ public final class AppSession {
         let result = try await requireOutbox().undoLog(entryId: entryId, origin: .app)
         await scheduler?.requestFlush(reason: .enqueue)
         return result
+    }
+
+    /// Archives a topic (TOPIC): queued, so it works offline; the view shows it archived at once.
+    /// `baseRevision` is the topic revision the user saw.
+    public func archiveTopic(id: UUID, baseRevision: Int?) async throws {
+        try await requireOutbox().archiveTopic(id: id, baseRevision: baseRevision, origin: .app)
+        await scheduler?.requestFlush(reason: .enqueue)
+    }
+
+    /// Unarchives a topic, or undoes an archive: while the archive is still unsent, K3 drops both
+    /// and nothing reaches the server (outbox.md §9).
+    public func unarchiveTopic(id: UUID, baseRevision: Int?) async throws {
+        try await requireOutbox().unarchiveTopic(id: id, baseRevision: baseRevision, origin: .app)
+        await scheduler?.requestFlush(reason: .enqueue)
     }
 
     private func requireOutbox() throws -> Outbox {
@@ -436,6 +453,10 @@ public final class AppSession {
             await bridge.bind(scheduler)
             self.store = store
             self.outbox = outbox
+            let coordinator = coordinator
+            stats = StatsLoader(
+                store: store, client: sender, requestSync: { _ = await coordinator.sync(reason: .requested) },
+                now: { [wall = configuration.wallClock] in wall.now() })
             self.scheduler = scheduler
             binding = next
             phase = .ready
@@ -460,6 +481,7 @@ public final class AppSession {
         store = nil
         outbox = nil
         scheduler = nil
+        stats = nil
         binding = nil
         self.phase = phase
     }

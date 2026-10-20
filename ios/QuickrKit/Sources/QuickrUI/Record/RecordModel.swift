@@ -62,8 +62,10 @@ public final class RecordModel {
         didSet { capturedAtEdited = true }
     }
     public var notes = ""
-    /// Shown, not edited: the outbox sets it from the origin (outbox.md §4).
-    public let source: String
+    /// Shown, not edited (`sourceIsEditable` is false): the outbox sets it from the origin
+    /// (outbox.md §4).
+    public var source: String
+    public var sourceIsEditable: Bool { false }
     /// Errors on `captured_at`, `source` and `notes`: local checks and the server's (fix mode).
     public private(set) var metaErrors: [EntryFormField: String] = [:]
     /// The Details section is open (the user's, or forced by an error in it).

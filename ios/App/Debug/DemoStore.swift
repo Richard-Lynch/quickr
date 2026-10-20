@@ -33,12 +33,16 @@ enum DemoStore {
         try await store.writer.write { db in
             for topic in topics {
                 _ = try ServerLayer.upsert(db, topic: topic)
+                // Its one version, as a sync would bring it (the edit screen reads an entry's version).
+                _ = try ServerLayer.insert(
+                    db, version: TopicVersion(version: 1, questions: topic.questions, createdAt: topic.createdAt),
+                    id: entryId(topic: topic.id, index: 9_999), topicId: topic.id)
                 // The store derives entry counts and the last entry from its entries.
                 guard let last = topic.lastCapturedAt else { continue }
                 for n in 0..<topic.entryCount {
                     let at = last.addingTimeInterval(-Double(n) * 86_400)
                     let entry = Entry(
-                        id: UUID(), topicId: topic.id, version: 1, revision: 1,
+                        id: entryId(topic: topic.id, index: n), topicId: topic.id, version: 1, revision: 1,
                         // A second source, so the entries list offers a source filter.
                         source: n % 4 == 3 ? "shortcut" : "demo", channel: .ios,
                         capturedAt: at, createdAt: at, updatedAt: at, answers: answers[topic.slug] ?? [:])
@@ -52,12 +56,31 @@ enum DemoStore {
         if withOutbox { try await seedOutbox(store, now: now) }
     }
 
+    /// The refused edit's error: a 422 whose `Problem` puts the message on the glasses field.
+    static let refusedEditError = #"""
+        {"message": "Some answers need attention", "status": 422,
+         "body": {"code": "invalid_answers", "detail": "Some answers need attention",
+                  "errors": [{"loc": ["body", "answers", "glasses"], "message": "Must be at most 20"}]}}
+        """#
+
+    /// The refused and the waiting Water log's ids (links in UI tests).
+    static let refusedEntry = UUID(uuidString: "00000000-0000-4000-a000-0000000000f1")!
+    static let waitingEntry = UUID(uuidString: "00000000-0000-4000-a000-0000000000f2")!
+
+    /// Demo entry ids: the topic's number and the entry's index (0 is the newest), so UI tests can
+    /// link to one: `00000000-0000-4000-9002-000000000000` is Water's newest.
+    static func entryId(topic: UUID, index: Int) -> UUID {
+        let n = Int(topic.uuidString.suffix(12)) ?? 0
+        return UUID(uuidString: String(format: "00000000-0000-4000-9%03d-%012d", n, index))!
+    }
+
     /// A pending and a failed Water log (the failed one older, logged first).
     static func seedOutbox(_ store: LocalStore, now: Date) async throws {
         let water = TopicRef(
             id: UUID(uuidString: "00000000-0000-4000-8000-000000000002")!, slug: "water", name: "Water")
-        func create(_ glasses: Int, minutesAgo: Double) -> NewOutboxItem {
+        func create(_ id: UUID, _ glasses: Int, minutesAgo: Double) -> NewOutboxItem {
             NewOutboxItem(
+                id: id,
                 payload: .entryCreate(
                     topic: water,
                     body: EntryCreateDTO(
@@ -65,8 +88,23 @@ enum DemoStore {
                         capturedAt: now.addingTimeInterval(-minutesAgo * 60), version: 1)),
                 origin: .app)
         }
-        let failed = try await store.outbox.appendRawForTesting(create(25, minutesAgo: 90))
-        _ = try await store.outbox.appendRawForTesting(create(5, minutesAgo: 5))
+        let failed = try await store.outbox.appendRawForTesting(create(refusedEntry, 25, minutesAgo: 90))
+        _ = try await store.outbox.appendRawForTesting(create(waitingEntry, 5, minutesAgo: 5))
+        // An edit of Water's second-newest entry that the server refused (99 glasses: over the max).
+        let water2 = entryId(topic: UUID(uuidString: water.id)!, index: 1)
+        let refusedEdit = try await store.outbox.appendRawForTesting(
+            NewOutboxItem(
+                payload: .entryUpdate(
+                    entryId: water2.wireString, topicId: water.id,
+                    patch: EntryUpdateDTO(answers: ["glasses": .int(99)])),
+                baseRevision: 1, origin: .app))
+        // A later edit of the same entry, waiting behind the refused one (2 glasses, a note).
+        _ = try await store.outbox.appendRawForTesting(
+            NewOutboxItem(
+                payload: .entryUpdate(
+                    entryId: water2.wireString, topicId: water.id,
+                    patch: EntryUpdateDTO(answers: ["glasses": .int(2)], notes: "later")),
+                origin: .app))
         try await store.writer.write { db in
             try db.execute(
                 sql: """
@@ -74,6 +112,12 @@ enum DemoStore {
                     WHERE id = ?
                     """,
                 arguments: [#"{"message":"glasses: must be at most 20","status":422}"#, failed.id])
+            try db.execute(
+                sql: """
+                    UPDATE outbox_item SET state = 'failed', failure_reason = 'rejected', last_error_json = ?
+                    WHERE id = ?
+                    """,
+                arguments: [Self.refusedEditError, refusedEdit.id])
         }
     }
 

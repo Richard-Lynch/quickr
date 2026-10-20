@@ -323,7 +323,15 @@ enum OutboxQueue {
         }
     }
 
-    static func fix(_ db: Database, itemId: String, payload: OutboxPayload, rowVersion: Int, wall: Date) throws {
+    /// Fix (§11): replaces a failed create's or update's payload (CAS on `row_version`) and makes
+    /// it pending. For an update, `overriding` names the fields the user corrected: later queued
+    /// (never in-flight) updates of the entity lose those fields, and one left with nothing is
+    /// removed, all in this transaction. The user's correction is their latest word: it must not
+    /// be undone by an edit queued before it was made (§11 leaves this open; this is the rule).
+    static func fix(
+        _ db: Database, itemId: String, payload: OutboxPayload, rowVersion: Int, overriding: EntryOverride? = nil,
+        wall: Date
+    ) throws {
         let item = try require(db, itemId)
         let fixable: Set<OutboxFailureReason> = [.rejected, .topicArchived, .futureTime]
         guard item.state == .failed, !item.maybeDelivered, item.kind == .entryCreate || item.kind == .entryUpdate,
@@ -338,6 +346,31 @@ enum OutboxQueue {
                 """,
             arguments: [try payload.encoded(), wall.unixSeconds, item.id, rowVersion])
         guard db.changesCount > 0 else { throw OutboxError.itemChanged }
+        guard let overriding, !overriding.isEmpty, item.kind == .entryUpdate else { return }
+        let later = try OutboxStorage.items(db, entityKind: .entry, entityId: item.entityId)
+            .filter { $0.seq > item.seq && $0.kind == .entryUpdate && $0.state != .inFlight }
+        for next in later {
+            guard case .entryUpdate(let entryId, let topicId, var patch) = try next.payload() else { continue }
+            if let answers = patch.answers {
+                let kept = answers.filter { !overriding.answerKeys.contains($0.key) }
+                patch.answers = kept.isEmpty ? nil : kept
+            }
+            if overriding.capturedAt { patch.capturedAt = nil }
+            if overriding.notes { patch.notes = nil }
+            if overriding.source { patch.source = nil }
+            if patch.answers == nil, patch.capturedAt == nil, patch.notes == nil, patch.source == nil, patch.meta == nil
+            {
+                try remove(db, next)
+                continue
+            }
+            try db.execute(
+                sql:
+                    "UPDATE outbox_item SET payload_json = ?, row_version = row_version + 1, updated_at = ? WHERE id = ?",
+                arguments: [
+                    try OutboxPayload.entryUpdate(entryId: entryId, topicId: topicId, patch: patch).encoded(),
+                    wall.unixSeconds, next.id,
+                ])
+        }
     }
 
     static func discard(_ db: Database, itemId: String, origin: OutboxOrigin, now: LeaseInstant, wall: Date) throws {

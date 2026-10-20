@@ -249,9 +249,14 @@ public struct Outbox: Sendable {
     }
 
     /// Fix: replaces a failed, never-delivered create's or update's payload (CAS on `rowVersion`).
-    public func fix(itemId: String, payload: OutboxPayload, rowVersion: Int) async throws {
+    /// Fix (§11). `overriding`: the fields the user corrected in a refused edit; later queued
+    /// edits of the entity drop them, so the correction is the latest word (see `OutboxQueue.fix`).
+    public func fix(
+        itemId: String, payload: OutboxPayload, rowVersion: Int, overriding: EntryOverride? = nil
+    ) async throws {
         try await write { db, _, wall in
-            try OutboxQueue.fix(db, itemId: itemId, payload: payload, rowVersion: rowVersion, wall: wall)
+            try OutboxQueue.fix(
+                db, itemId: itemId, payload: payload, rowVersion: rowVersion, overriding: overriding, wall: wall)
         }
     }
 

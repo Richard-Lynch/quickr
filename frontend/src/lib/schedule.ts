@@ -195,6 +195,16 @@ export function scheduleFieldFor(path: string): string | null {
   return 'schedule.kind';
 }
 
+/** A sensible time for "+ Time": 12 hours after the last one, else 08:00. */
+export function nextScheduleTime(times: readonly { value: string }[]): string {
+  const last = times.at(-1)?.value;
+  const m = last ? /^(\d{2}):(\d{2})$/.exec(last) : null;
+  if (!m) return '08:00';
+  const h = (Number(m[1]) + 12) % 24;
+  const candidate = `${String(h).padStart(2, '0')}:${m[2] ?? '00'}`;
+  return times.some((t) => t.value === candidate) ? '12:00' : candidate;
+}
+
 // ---------------------------------------------------------------------------
 // Human text
 // ---------------------------------------------------------------------------

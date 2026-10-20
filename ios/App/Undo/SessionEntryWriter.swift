@@ -8,7 +8,7 @@ import QuickrUI
 /// tied to the store they went to (`EntryScope`: server and store generation), so a toast's Undo
 /// after a server switch or a reset is refused instead of reaching another store's outbox.
 @MainActor
-final class SessionEntryWriter: EntryFixing {
+final class SessionEntryWriter: EntryFixing, EntryEditing {
     /// The session of the moment (nil before it opens). Set by `AppEnvironment`.
     var session: @MainActor () -> AppSession? = { nil }
 
@@ -55,6 +55,43 @@ final class SessionEntryWriter: EntryFixing {
         let scope = binding.scope
         try await delete(entryId: entry.id, topicId: entry.entry.topicId, in: scope)
         return scope
+    }
+
+    // MARK: Edit screen (EntryEditing)
+
+    func update(entryId: UUID, topicId: UUID, patch: EntryPatch, baseRevision: Int?, in scope: EntryScope)
+        async throws
+    {
+        try await requireSession(scope).update(
+            entryId: entryId, topicId: topicId,
+            patch: EntryUpdateDTO(
+                answers: patch.answers, source: patch.source, capturedAt: patch.capturedAt, notes: patch.notes),
+            baseRevision: baseRevision)
+    }
+
+    func fixUpdate(
+        itemId: String, rowVersion: Int, entryId: UUID, topicId: UUID, patch: EntryPatch, overriding: EntryPatch,
+        in scope: EntryScope
+    ) async throws {
+        let session = try requireSession(scope)
+        guard let outbox = session.outbox else { throw AppSession.SessionError.noStore }
+        let body = EntryUpdateDTO(
+            answers: patch.answers, source: patch.source, capturedAt: patch.capturedAt, notes: patch.notes)
+        try await outbox.fix(
+            itemId: itemId,
+            payload: .entryUpdate(entryId: entryId.wireString, topicId: topicId.wireString, patch: body),
+            rowVersion: rowVersion,
+            overriding: EntryOverride(
+                answerKeys: Set(overriding.answers?.keys ?? [:].keys), capturedAt: overriding.capturedAt != nil,
+                notes: overriding.notes != nil, source: overriding.source != nil))
+        await session.scheduler?.requestFlush(reason: .enqueue)
+    }
+
+    func refusedEdit(itemId: String, questions: [Question], in scope: EntryScope) async throws -> EditFix? {
+        let session = try requireSession(scope)
+        guard let draft = try await session.store?.outbox.item(id: itemId)?.entryUpdateFixDraft(questions: questions)
+        else { return nil }
+        return EditFix(draft)
     }
 
     // MARK: Record screen (EntryFixing)
@@ -122,5 +159,16 @@ final class SessionEntryWriter: EntryFixing {
         let session = try requireSession()
         guard self.scope == scope else { throw EntryWriteError.scopeChanged }
         return session
+    }
+}
+
+extension EditFix {
+    /// A refused edit's draft (QuickrData) as the edit screen's fix.
+    init(_ draft: EntryUpdateFixDraft) {
+        self.init(
+            itemId: draft.itemId, rowVersion: draft.rowVersion,
+            patch: EntryPatch(
+                answers: draft.answers, capturedAt: draft.capturedAt, notes: draft.notes, source: draft.source),
+            problem: draft.problem, message: draft.message)
     }
 }

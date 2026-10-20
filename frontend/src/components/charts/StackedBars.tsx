@@ -1,7 +1,8 @@
 import { useState } from 'react';
 
 import type { SeriesPoint } from '../../client';
-import { formatBucket, pickLabels, useWidth, type Bucket } from './chartUtils';
+import { BARS_LAYOUT, stackSegments, stackedModel } from './chartModels';
+import { formatBucket, useWidth, type Bucket } from './chartUtils';
 
 interface Props {
   points: readonly SeriesPoint[];
@@ -16,31 +17,15 @@ interface Props {
 export function StackedBars({ points, bucket, options, colorFor, label }: Props) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [active, setActive] = useState<number | null>(null);
-  const data = points.filter((p) => p.count > 0);
-  const height = 150;
-  const pad = { top: 6, bottom: 20 };
+  const { height, pad, gap } = BARS_LAYOUT;
+  const model = stackedModel(points, options, width);
 
-  if (data.length === 0) {
+  if (model === null) {
     return <p className="py-8 text-center text-sm text-muted">No answers in this range.</p>;
   }
 
-  const total = (p: SeriesPoint) => Object.values(p.option_counts).reduce((a, b) => a + b, 0);
-  const max = Math.max(1, ...data.map(total));
-  const gap = 3;
-  const bw = Math.min(36, (width - gap * (data.length - 1)) / data.length);
-  const used = bw * data.length + gap * (data.length - 1);
-  const offset = (width - used) / 2;
+  const { data, max, bw, offset, legend, labelled } = model;
   const plotH = height - pad.top - pad.bottom;
-  const known = new Set(options.map((o) => o.value));
-  const seen = new Set(data.flatMap((p) => Object.keys(p.option_counts)));
-  const legend = [
-    ...options.filter((o) => seen.has(o.value)),
-    ...[...seen].filter((v) => !known.has(v)).map((v) => ({ value: v, label: v })),
-  ];
-  const labelled = pickLabels(
-    data.map((_, i) => offset + i * (bw + gap) + bw / 2),
-    52,
-  );
   const shown = active !== null ? data[active] : undefined;
 
   return (
@@ -63,9 +48,7 @@ export function StackedBars({ points, bucket, options, colorFor, label }: Props)
         {data.map((p, i) => {
           const x = offset + i * (bw + gap);
           let yCursor = height - pad.bottom;
-          const segs = legend
-            .map((o) => ({ o, n: p.option_counts[o.value] ?? 0 }))
-            .filter((s) => s.n > 0);
+          const segs = stackSegments(p, legend);
           return (
             <g
               key={p.start}
@@ -88,13 +71,13 @@ export function StackedBars({ points, bucket, options, colorFor, label }: Props)
                 yCursor = yTop;
                 return (
                   <rect
-                    key={s.o.value}
+                    key={s.value}
                     x={x}
                     y={yTop + (h - drawH)}
                     width={bw}
                     height={drawH}
                     rx={si === segs.length - 1 ? Math.min(4, bw / 2) : 0}
-                    fill={colorFor(s.o.value)}
+                    fill={colorFor(s.value)}
                   />
                 );
               })}

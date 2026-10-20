@@ -3,8 +3,8 @@ import QuickrData
 import QuickrUI
 import SwiftUI
 
-/// A topic's tabs (the PWA's `TopicLayout`): Overview, Entries and Versions. Entries is LIST's;
-/// the others are placeholders until their packages land. Switching tabs swaps the route in
+/// A topic's tabs (the PWA's `TopicLayout`): Overview, Entries and Versions. Entries is LIST's,
+/// Overview STATS's; Versions is a placeholder until its package lands. Switching tabs swaps the route in
 /// place, so a link or Back lands on the same tab.
 struct TopicTabsView: View {
     let ref: TopicLinkRef
@@ -27,13 +27,29 @@ struct TopicTabsView: View {
                 } else {
                     Pending(title: "\(ref) · Entries", route: .topic(ref, .entries))
                 }
-            case .overview, .versions:
-                Pending(title: "\(ref) · \(tab.rawValue.capitalized)", route: .topic(ref, tab))
+            case .overview:
+                if let session = environment.session {
+                    OverviewView(session: session, ref: ref)
+                } else {
+                    Pending(title: "\(ref) · Overview", route: .topic(ref, .overview))
+                }
+            case .versions:
+                Pending(title: "\(ref) · Versions", route: .topic(ref, tab))
             }
         }
         .qrPaperBackground()
         .navigationTitle(ref.rawValue)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    environment.router.open(.topicSettings(ref))
+                } label: {
+                    Label("Topic settings", systemImage: "gearshape")
+                }
+                .accessibilityIdentifier("topic.settings")
+            }
+        }
     }
 
     private var tabBinding: Binding<TopicTab> {
