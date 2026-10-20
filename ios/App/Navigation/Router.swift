@@ -33,4 +33,9 @@ final class Router {
     func open(_ route: Route) {
         path.append(route)
     }
+
+    /// Swaps the top screen for `route` (a topic's tabs), so back still goes where it did.
+    func replaceTop(with route: Route) {
+        if path.isEmpty { path = [route] } else { path[path.count - 1] = route }
+    }
 }

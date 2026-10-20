@@ -42,6 +42,21 @@ final class SessionEntryWriter: EntryFixing {
         try await requireSession(scope).undoDelete(entryId: entryId) == .restored
     }
 
+    /// Deletes an entry, held for Undo (outbox.md §9.2), in the store `scope` names; returns after
+    /// the commit. Throws `EntryWriteError.scopeChanged` once that store isn't the active one.
+    func delete(entryId: UUID, topicId: UUID, in scope: EntryScope) async throws {
+        try await requireSession(scope).delete(entryId: entryId, topicId: topicId, undoable: true)
+    }
+
+    /// Deletes a row shown from the store `binding` names (a list's own binding, not the active
+    /// store's), and returns the scope for the Undo toast. A row left over from before a server
+    /// switch or reset is refused (`scopeChanged`) instead of deleting its id in the new store.
+    func delete(_ entry: ViewEntry, from binding: AppSession.Binding) async throws -> EntryScope {
+        let scope = binding.scope
+        try await delete(entryId: entry.id, topicId: entry.entry.topicId, in: scope)
+        return scope
+    }
+
     // MARK: Record screen (EntryFixing)
 
     func discard(_ entry: LoggedEntry) async throws {
