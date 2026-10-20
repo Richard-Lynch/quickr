@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import QuickrCore
+import Synchronization
 
 /// The single sync coordinator of the active store (sync-protocol.md §5.4). App process only.
 ///
@@ -74,6 +75,11 @@ public actor SyncCoordinator {
     private let owner: String
     private let configuration: Configuration
     private let broadcaster = StatusBroadcaster(SyncStatus())
+    /// Runs are refused while the app is going to be suspended; see `pause(generation:)`.
+    private var paused = false
+    private var pauseGeneration = Int.min
+    /// `handle(_:)` has a run scheduled that hasn't started (coalesces signal bursts).
+    nonisolated let signalRunPending = Mutex(false)
 
     private var store: LocalStore?
     private var running: Task<SyncResult, Never>?
@@ -100,6 +106,29 @@ public actor SyncCoordinator {
     }
 
     // MARK: - Public API
+
+    /// The app is going to be suspended (background episode `generation`): no new run starts (a
+    /// `sync` returns `.paused`) until a `resume` from a newer generation, so no sync transaction or
+    /// lease is open while the process is suspended. Wait for the run in progress with
+    /// `waitUntilIdle()`. A pause older than the last resume is ignored.
+    public func pause(generation: Int) {
+        guard generation >= pauseGeneration else { return }
+        pauseGeneration = generation
+        paused = true
+    }
+
+    /// The app became active (scene generation `generation`). A resume older than the last pause is
+    /// ignored.
+    public func resume(generation: Int) {
+        guard generation >= pauseGeneration else { return }
+        pauseGeneration = generation
+        paused = false
+    }
+
+    /// Returns when no run is in progress (a run started meanwhile is waited for too).
+    public func waitUntilIdle() async {
+        while let running { _ = await running.value }
+    }
 
     /// The current status, and every change to it (the latest is replayed to a new subscriber).
     public nonisolated func statusUpdates() -> AsyncStream<SyncStatus> { broadcaster.stream() }
@@ -293,6 +322,7 @@ public actor SyncCoordinator {
     /// active).
     private func run(reason: SyncReason, prefetched: Prefetched?) async -> SyncResult {
         if resetting { return .resetInProgress }
+        if paused { return .paused }
         if let running {
             rerunRequested = true
             return await running.value

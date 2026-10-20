@@ -153,6 +153,11 @@ ios-timing-test: ## iOS: the real-time tests (TimingTests, MultiProcessTests) al
 	@$(IOS_SCRIPTS)/require-xcode.sh
 	@$(IOS_SCRIPTS)/timing-test.sh
 
+.PHONY: ios-lifecycle-test
+ios-lifecycle-test: ## iOS: the GRDB-suspension lifecycle tests, alone in their own swift test process (swift test skips them)
+	@$(IOS_SCRIPTS)/require-xcode.sh
+	@QUICKR_LIFECYCLE_TESTS=1 $(IOS_SCRIPTS)/swift-test.sh --filter QuickrLifecycleTests --no-parallel
+
 .PHONY: ios-mp-test
 ios-mp-test: ## iOS: the multi-process tests alone, serially, IOS_MP_RUNS times (default 1); ios-timing-test runs them too
 	@$(IOS_SCRIPTS)/require-xcode.sh

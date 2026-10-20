@@ -22,6 +22,14 @@ public struct StoreLocation: Sendable, Hashable {
         return StoreLocation(root: container.appending(path: "Library/quickr", directoryHint: .isDirectory))
     }
 
+    /// The App Group's location, or Application Support when the process has no App Group (an
+    /// unsigned build), so the app and its extensions still open a store.
+    public static func shared(appGroup identifier: String) -> StoreLocation {
+        (try? appGroup(identifier))
+            ?? StoreLocation(
+                root: URL.applicationSupportDirectory.appending(path: "quickr", directoryHint: .isDirectory))
+    }
+
     public var registryURL: URL { root.appending(path: "registry.sqlite") }
 
     /// A path relative to `root`, such as `RegisteredServer.storeFileName`.
