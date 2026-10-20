@@ -274,6 +274,19 @@ private let otherServerURL = URL(string: "https://other.example")!
         await session.shutdown()
     }
 
+    /// STATS: the bound store has a stats loader over it; none before a bind or after teardown.
+    @Test func theBoundStoreHasAStatsLoader() async throws {
+        let w = try World()
+        defer { w.env.cleanup() }
+        let session = try w.session()
+        #expect(session.stats == nil)
+        await session.start(serverURL: SyncEnv.baseURL)
+        try await eventually("bound") { @MainActor in session.store != nil }
+        #expect(session.stats != nil)
+        await session.shutdown()
+        #expect(session.stats == nil)
+    }
+
     @Test func backgroundRefreshPullsThenSendsThenSuspends() async throws {
         let w = try World()
         defer { w.env.cleanup() }

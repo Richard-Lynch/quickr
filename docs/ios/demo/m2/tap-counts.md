@@ -61,3 +61,18 @@ the server:
   screen.
 - **Same as last time:** after an entry logged on the web, the offer fills its
   answers and saves a second identical entry.
+
+## Demo
+
+From the end-to-end demo scenarios (`QUICKR_UIT_DEMO=1 make ios-uitest-e2e`), against a
+real backend:
+
+| Chip → Undo                    | Offline → reconnect               | Same as last time                 |
+| ------------------------------ | --------------------------------- | --------------------------------- |
+| ![](uit2-chip-undo.gif)        | ![](uit2-offline-sync.gif)        | ![](uit2-same-as-last.gif)        |
+| ![](uit2-home-logged-light.png) | ![](uit2-offline-saved-light.png) | ![](uit2-same-as-last-light.png) |
+| ![](uit2-home-logged-dark.png) | ![](uit2-offline-saved-dark.png)  | ![](uit2-same-as-last-dark.png)  |
+
+While the keyboard is up, Save sits in the keyboard's toolbar after Next/Done
+(`formSaveBar`); iOS 26 centres that group above the keys.
+

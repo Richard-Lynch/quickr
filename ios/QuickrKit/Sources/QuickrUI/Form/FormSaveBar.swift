@@ -3,8 +3,8 @@ import SwiftUI
 import UIKit
 
 extension View {
-    /// A form screen's Save: a sticky bar at the bottom while the keyboard is down, and an item in
-    /// the keyboard's toolbar (beside FORM's Next/Done) while it is up. Exactly one Save exists at
+    /// A form screen's Save: a sticky bar at the bottom while the keyboard is down, and the last item
+    /// in the keyboard's toolbar (after Next/Done) while it is up. Apply it to the `FormView`. Exactly one Save exists at
     /// a time, under `identifier`, and it stays one tap.
     ///
     /// A bar of its own above the keyboard isn't used: SwiftUI's keyboard safe area dropped the
@@ -26,6 +26,18 @@ extension View {
     }
 }
 
+/// The Save that `formSaveBar` hands to `FormView` for the keyboard's toolbar.
+struct FormSave {
+    let title: String
+    let identifier: String
+    let isSaving: Bool
+    let action: () -> Void
+}
+
+extension EnvironmentValues {
+    @Entry var formSave: FormSave? = nil
+}
+
 struct FormSaveBar: ViewModifier {
     let title: String
     let identifier: String
@@ -45,18 +57,8 @@ struct FormSaveBar: ViewModifier {
                         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { onBarHeight?($0) })
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .keyboard) {
-                    Button(action: save) {
-                        Label(title, systemImage: "checkmark").labelStyle(.titleAndIcon)
-                    }
-                    .font(.qr(.callout))
-                    .fontWeight(.semibold)
-                    .tint(.qr.accent)
-                    .disabled(isSaving)
-                    .accessibilityIdentifier(identifier)
-                }
-            }
+            // FormView puts it in the keyboard's toolbar, after its Next/Done: one toolbar, in order.
+            .environment(\.formSave, FormSave(title: title, identifier: identifier, isSaving: isSaving, action: save))
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                 keyboardUp = true
             }

@@ -61,12 +61,13 @@ client: openapi ## Regenerate spec + typed TS client/zod schemas
 	$(FRONTEND) pnpm gen:api
 
 .PHONY: vectors
-vectors: ## Regenerate shared/fixtures (due, quick-log, answer-text, notification, action-entry-id, home and entries vectors, API response fixtures)
+vectors: ## Regenerate shared/fixtures (due, quick-log, answer-text, notification, action-entry-id, home, entries and stats vectors, API response fixtures)
 	$(BACKEND) QUICKR_UPDATE_VECTORS=1 uv run pytest -q tests/test_due_vectors.py tests/test_quicklog_vectors.py \
 		tests/test_answer_text_vectors.py tests/test_notification_vectors.py tests/test_action_entry_id_vectors.py \
-		tests/test_home_vectors.py tests/test_entries_vectors.py tests/test_api_fixtures.py
+		tests/test_home_vectors.py tests/test_entries_vectors.py tests/test_stats_vectors.py tests/test_api_fixtures.py
 	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/lib/home.vectors.test.ts
 	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/lib/entries.vectors.test.ts
+	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/components/charts/stats.vectors.test.ts
 
 # The database pytest and the migration check use: $QUICKR_TEST_DATABASE_URL if set, else
 # quickr_test, or quickr_test_<worktree>_<path hash> in a git worktree (backend/tools/test_database.py).

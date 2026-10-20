@@ -39,6 +39,7 @@ final class NotificationPermission {
 struct NotificationExplainer: View {
     let permission: NotificationPermission
     @Environment(\.openURL) private var openURL
+    @Environment(AppEnvironment.self) private var environment
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -74,9 +75,15 @@ struct NotificationExplainer: View {
                 .buttonStyle(.qr(.secondary))
                 .accessibilityIdentifier("notifications.openSettings")
             case .notDetermined, .unknown:
-                Button("Allow reminders") { Task { await permission.request() } }
-                    .buttonStyle(.qr(.secondary))
-                    .accessibilityIdentifier("notifications.allow")
+                Button("Allow reminders") {
+                    Task {
+                        await permission.request()
+                        // Granted: register this device for push now (notifications.md §9.2).
+                        if permission.status == .allowed { await environment.push?.permissionGranted() }
+                    }
+                }
+                .buttonStyle(.qr(.secondary))
+                .accessibilityIdentifier("notifications.allow")
             }
         }
         .accessibilityElement(children: .contain)

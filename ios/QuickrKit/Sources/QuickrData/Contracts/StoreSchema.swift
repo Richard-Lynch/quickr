@@ -219,7 +219,7 @@ public enum StoreSchema {
 /// (sync-protocol.md §8.1, §12; notifications.md §5.1, §9.2).
 public enum RegistrySchema {
     /// The append-only migrations, in order: `(identifier, statements)`.
-    public static let migrations: [(identifier: String, statements: [String])] = [("v1", v1)]
+    public static let migrations: [(identifier: String, statements: [String])] = [("v1", v1), ("v2", v2)]
 
     public static func migrator() -> DatabaseMigrator { DatabaseMigrator(steps: migrations) }
 
@@ -293,6 +293,14 @@ public enum RegistrySchema {
           last_registered_at   REAL
         )
         """,
+    ]
+
+    /// A registration still owed to the active server (notifications.md §9.2: a failed call is
+    /// retried at the next activation with the outbox backoff). The deadline is lease time.
+    static let v2: [String] = [
+        "ALTER TABLE apns_state ADD COLUMN register_attempts INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE apns_state ADD COLUMN register_due_boot_id TEXT",
+        "ALTER TABLE apns_state ADD COLUMN register_due_ct INTEGER",
     ]
 }
 

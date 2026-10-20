@@ -33,6 +33,11 @@ struct EntriesView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.tick() }
         }
+        // The topic's filters are shared with its Overview tab.
+        .onAppear {
+            if let shared = environment.topicFilters[ref.rawValue] { model.filters = shared }
+        }
+        .onChange(of: model.filters) { _, filters in environment.topicFilters[ref.rawValue] = filters }
     }
 
     private struct ObservationKey: Hashable {
@@ -125,12 +130,32 @@ struct EntriesView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
             filters
-            Text(countLine)
-                .font(.qr(.subheadline))
-                .foregroundStyle(.qr.muted)
-                .accessibilityIdentifier("entries.count")
+            if typeSize.isAccessibilitySize {
+                count
+                exportButton
+            } else {
+                HStack(alignment: .center, spacing: 12) {
+                    count
+                    Spacer(minLength: 0)
+                    exportButton
+                }
+            }
         }
         .padding(.top, 4)
+    }
+
+    private var count: some View {
+        Text(countLine)
+            .font(.qr(.subheadline))
+            .foregroundStyle(.qr.muted)
+            .accessibilityIdentifier("entries.count")
+    }
+
+    /// The PWA's "Export CSV", with the filters as they are now (online only).
+    @ViewBuilder private var exportButton: some View {
+        if let slug = model.topic?.topic.slug {
+            EntriesExportButton(session: session, slug: slug, filters: model.filters)
+        }
     }
 
     /// "12 entries · 2 not synced yet".
