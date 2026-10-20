@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- PWA: real-browser e2e harness (Playwright, Chromium with service workers) for the B8 notification actions: real notification UI and `maxActions`, event lifetimes, Background Sync retries, auth-proxy redirects. The simulated SW harness covers the logic only.
 - **M3 HANDLER:** action-originated `entry.create` must use the shared name-based id from (server_id, topic_id, due_since), per the §7.1 amendment coming with B8, with shared vectors, so iOS and PWA actions on the same reminder dedupe server-side.
 - M3 (from Codex's M1 milestone review): Swift category-id generation verified against shared vectors (notifications.md:255 MUST); `NotificationCenterProtocol` can't represent B7's `open` action (NotificationCenterProtocol.swift:63); N1/N3/N5–N15 coverage; production category reconciliation, action validation, badge/dedupe, token lifecycle.
 - M1 review backlog: one pool per (server, gen) per process (StorePartitions.swift:221 opens a new pool on every open); write façade (enqueue plus requestFlush); dead StoreLink probes and empty service protocols removed by WIRE; widget intents on placeholder topics until M4; coalesce per-call Tasks in `handle(_:)`/`requestFlush` bursts. All are folded into WIRE where they apply.
@@ -291,6 +292,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-19 21:15 (EDT): **B8 merged into ios/m2-ui** (Codex r2: all majors resolved; real-browser coverage is a documented gap). The PWA now sends identity preconditions for notification actions, uses the shared §7.4 action entry id with Python-generated vectors, and gives visible feedback for every outcome. Gate on the merge: `make check` green (pytest 688, vitest 840). HOME, TILES (2/3) and LINKS+SETTINGS are in progress, with 2 simulators booted (TILES, SETTINGS).
 
 - 2026-10-19 21:00 (EDT): FORM merged into ios/m2-ui (a20fd41). LINKS+SETTINGS assigned (FORM agent). B8 done (3edb2b8, 36afb5e, 5879f9e; make check green). Codex = REQUEST CHANGES: server_id isn't preserved (wrong-server writes), failures silently dismiss the reminder. Decision: a **shared cross-client action entry id** (name-based from server_id, topic_id, due_since) with Python-generated vectors, amending §7.1. HOME and TILES (1/3: 5f0afbb) in progress.
 
