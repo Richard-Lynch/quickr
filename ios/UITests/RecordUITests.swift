@@ -162,16 +162,23 @@ final class RecordUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["home.wordmark"].exists)
     }
 
-    /// iOS 26's swipe from anywhere in the content is guarded like the edge swipe: a changed form
-    /// stays.
+    /// iOS 26's swipe back from anywhere in the content goes back from a clean form (the control
+    /// for the guarded case below).
+    @MainActor
+    func testAContentSwipeGoesBackFromACleanForm() {
+        let app = launch(open: "quickr://t/workout/record")
+        XCTAssertTrue(app.buttons["Yoga"].waitForExistence(timeout: 15))
+        contentSwipe(app)
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 5), "a clean form goes back")
+    }
+
+    /// The content swipe is guarded like the edge swipe: a changed form stays.
     @MainActor
     func testAContentSwipeKeepsAChangedForm() {
         let app = launch(open: "quickr://t/workout/record")
         XCTAssertTrue(app.buttons["Yoga"].waitForExistence(timeout: 15))
         app.buttons["Yoga"].tap()
-        let middle = app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.6))
-        middle.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.6)))
-        usleep(800_000)
+        contentSwipe(app)
         XCTAssertTrue(app.buttons["record.save"].exists, "a changed form stays")
         XCTAssertFalse(app.staticTexts["home.wordmark"].exists)
     }
@@ -266,6 +273,16 @@ final class RecordUITests: XCTestCase {
             ["-QuickrUITest", "-QuickrServer", "https://quickr.test", "-QuickrOpen", url] + extra
         app.launch()
         return app
+    }
+
+    /// A quick rightward flick across the middle of the screen, away from the edge.
+    @MainActor
+    private func contentSwipe(_ app: XCUIApplication) {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.75))
+        start.press(
+            forDuration: 0.01, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.75)),
+            withVelocity: .fast, thenHoldForDuration: 0)
+        usleep(800_000)
     }
 
     @MainActor
