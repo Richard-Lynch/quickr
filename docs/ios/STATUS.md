@@ -302,6 +302,13 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 10:25 (EDT): Codex round-up.
+  - HANDLER r3: L2 RESOLVED. The ActiveStoreGate still isn't decide-and-act (the act closure leaves the main actor; the pre-bind registry path can accept a stale store while the first bind is pending). Agreed approach: a synchronous main-actor start, badge reconciliation afterwards, a scope-checked flush inside the scheduler, and a pending bind counts as not active.
+  - NSE r2: the cutoff is RESOLVED. Still open: the QuestionBook cache is unbounded; reconciliation isn't cancellation-checked; integer bounds are compared as Double, the same class as CAT's.
+  - APPSET r2: everything RESOLVED except the font licence texts (they need a canonical full-text or hash check).
+  
+  UIT-2's content-swipe fix (518f070: re-enable the content-pop recognizer while RECORD owns it) is in its proving run. EDIT and TOPIC have been asked for status (EDIT has had no commit for 2 h).
+
 - 2026-10-20 10:10 (EDT): NSE (CSV agent, c090c86; host-testable NotificationPreparation, N9; the extension is untestable on the simulator per spike F1, so device checkpoint): Codex r1 found 2 Majors (unbounded overlay reads against the 24 MB NSE limit; the 50-entry cutoff misses satisfied slots) and 2 Minors (expiry doesn't cancel side effects; tampered descriptors are registered). APPSET (f1ec038; sync section, About, licences): Codex r1 found 4 Majors (Sync now never pulls; the Online badge is wrong when the pill state outranks offline; licence completeness covers only QuickrKit's lockfile; licence texts aren't exactly enforced) and 1 Minor ("Last synced" goes stale). All are being fixed. EDIT: Delete is now a tap-only row (a drag can't trigger it). HANDLER r2 fixes, TOPIC's m2-ui/BUILDER merge and the UIT-2 content-swipe follow-up are in progress. The m2-ui integration run is still queued for a slot.
 
 - 2026-10-20 10:00 (EDT): **BUILDER merged into ios/m2-ui** via ios/m2-builder-land (84bf2f8). Its conflicts were the Makefile vectors and the fixtures README. A semantic duplicate, Limits.serverDefaults (identical in BUILDER and RECORD), was resolved by keeping RECORD's. On the landing branch: check-backend 694, the backend docker build (python 3.14.7-slim), vectors with no drift, frontend 852, core (QuickrCore 184, QuickrData 562), lint and the app build. TOPIC can now merge m2-ui. APPSET is next (SYNC-UX agent).
