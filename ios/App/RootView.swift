@@ -13,6 +13,13 @@ struct RootView: View {
     @State private var onboarding = false
 
     var body: some View {
+        content
+            // One host for every screen's toasts, so a toast outlives navigation.
+            .toastHost(environment.toasts)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         #if DEBUG
         if let page = Self.catalogPage {
             DesignCatalogView(page: page)
