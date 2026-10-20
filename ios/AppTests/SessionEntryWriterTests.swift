@@ -193,7 +193,12 @@ import Testing
         let fixed = try #require(try await store.outbox.item(id: failed.id))
         #expect(fixed.state == .pending)
         #expect(fixed.rowVersion == failed.rowVersion + 1)
-        #expect(fixed.payloadJSON.contains("3") && !fixed.payloadJSON.contains("99"))
+        // The patch itself (the JSON also carries the entry's random id, which can contain "99").
+        guard case .entryUpdate(_, _, let patch) = try fixed.payload() else {
+            Issue.record("not an update: \(fixed.payloadJSON)")
+            return
+        }
+        #expect(patch.answers?["cups"]??.value == .int(3), "\(fixed.payloadJSON)")
         #expect(try await store.outbox.items().count == 2, "replaced, not queued again; the later edit stays")
     }
 

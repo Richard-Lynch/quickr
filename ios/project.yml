@@ -117,8 +117,6 @@ targets:
     platform: iOS
     sources:
       - NotificationService
-      # SPIKE (DEBUG only): category registration through the registry table, shared with the app.
-      - App/Notifications/Spike/Shared
     dependencies:
       - package: QuickrKit
         products: [QuickrCore, QuickrData]
