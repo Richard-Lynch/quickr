@@ -141,23 +141,28 @@ struct EditView: View {
         }
         .disabled(model.isSaving || model.isDeleted)
         .safeAreaInset(edge: .top, spacing: 0) { banners }
-        .safeAreaInset(edge: .bottom) { saveBar }
+        // Save: a sticky bar, or in the keyboard's toolbar while it is up (FORM's shared bar).
+        .formSaveBar(
+            model.isFixing ? "Save again" : "Save changes", identifier: "edit.save",
+            isSaving: model.isSaving,
+            onBarHeight: { environment.toastBottomInset = $0 + 8 }, save: save
+        )
         .qrPaperBackground()
         .navigationTitle("Edit entry")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(model.hasUnsavedChanges)
+        // One guarded back button the whole time (as on the record screen); the swipes back and
+        // VoiceOver's escape go back only while there is nothing to lose.
+        .navigationBarBackButtonHidden()
+        .background(SwipeBack(isEnabled: !model.hasUnsavedChanges))
         .toolbar {
-            if model.hasUnsavedChanges {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        confirmingLeave = true
-                    } label: {
-                        Label("Back", systemImage: "chevron.left")
-                    }
-                    .accessibilityIdentifier("edit.back")
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: leave) {
+                    Label("Back", systemImage: "chevron.left")
                 }
+                .accessibilityIdentifier("edit.back")
             }
         }
+        .accessibilityAction(.escape, leave)
         .alert("Discard your changes?", isPresented: $confirmingLeave) {
             Button("Discard", role: .destructive) { dismiss() }
             Button("Keep editing", role: .cancel) {}
@@ -221,21 +226,15 @@ struct EditView: View {
         .accessibilityIdentifier("edit.delete")
     }
 
-    private var saveBar: some View {
-        HStack(spacing: 10) {
-            PrimaryButton(model.isFixing ? "Save again" : "Save changes", icon: .check, isLoading: model.isSaving) {
-                Task {
-                    if await model.save() == .leave { dismiss() }
-                }
-            }
-            .disabled(model.isDeleted)
-            .accessibilityIdentifier("edit.save")
+    private func save() {
+        Task {
+            if await model.save() == .leave { dismiss() }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .onGeometryChange(
-            for: CGFloat.self, of: { $0.size.height },
-            action: { height in environment.toastBottomInset = height + 8 })
+    }
+
+    /// Back: straight away when nothing changed, else asks first.
+    private func leave() {
+        if model.hasUnsavedChanges { confirmingLeave = true } else { dismiss() }
     }
 }
 

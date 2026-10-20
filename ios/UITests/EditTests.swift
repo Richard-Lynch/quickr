@@ -135,6 +135,54 @@ final class EditTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["edit.gone"].waitForExistence(timeout: 20))
     }
 
+    /// With the keyboard up, Save is in its toolbar: one of it, beside Done, not over the field or
+    /// the keys, and it stays so after the first edit (the iOS 26 keyboard safe-area bug RECORD hit).
+    @MainActor
+    private func checkKeyboardSave(_ app: XCUIApplication, field: XCUIElement, _ when: String) {
+        let advance = app.buttons["form.keyboard.advance"]
+        XCTAssertTrue(advance.waitForExistence(timeout: 5), when)
+        let saves = app.buttons.matching(identifier: "edit.save")
+        XCTAssertEqual(saves.count, 1, when)
+        let save = saves.firstMatch
+        XCTAssertTrue(save.isHittable, when)
+        XCTAssertFalse(save.frame.intersects(advance.frame), when)
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(save.frame), when)
+        XCTAssertGreaterThanOrEqual(save.frame.minY, field.frame.maxY, "below the field: \(when)")
+        XCTAssertLessThanOrEqual(save.frame.maxY, app.keyboards.keys["1"].frame.minY, "above the keys: \(when)")
+    }
+
+    @MainActor
+    func testSaveIsInTheKeyboardToolbarWhileTyping() {
+        let app = launch()
+        let glasses = openNewest(app)
+        glasses.tap()
+        checkKeyboardSave(app, field: glasses, "before the edit")
+        replace(glasses, with: "8")
+        usleep(1_000_000)
+        checkKeyboardSave(app, field: glasses, "after the first edit")
+        app.buttons["edit.save"].tap()
+        XCTAssertTrue(app.staticTexts["Entry updated"].waitForExistence(timeout: 5))
+    }
+
+    /// Fix mode puts focus on the refused field, so the keyboard is up at once.
+    @MainActor
+    func testFixModeSaveIsInTheKeyboardToolbarAtOnce() {
+        let app = launch(open: "quickr://t/water/entries/00000000-0000-4000-9002-000000000001")
+        let glasses = app.textFields["form.field.glasses"]
+        XCTAssertTrue(glasses.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "focus on the refused field")
+        checkKeyboardSave(app, field: glasses, "on opening")
+        replace(glasses, with: "4")
+        usleep(1_000_000)
+        checkKeyboardSave(app, field: glasses, "after the first edit")
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "edit-fix-keyboard"
+        shot.lifetime = .keepAlways
+        add(shot)
+        app.buttons["edit.save"].tap()
+        XCTAssertTrue(app.staticTexts["Entry updated"].waitForExistence(timeout: 5))
+    }
+
     /// At the largest accessibility size the form, Details and both buttons are reachable.
     @MainActor
     func testAccessibilityXXXL() {

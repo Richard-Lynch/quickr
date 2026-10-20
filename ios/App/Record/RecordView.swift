@@ -147,8 +147,8 @@ struct RecordView: View {
 
 /// The navigation controller's swipes back (the edge swipe, and iOS 26's swipe from anywhere in
 /// the content), which hiding the system back button turns off: on while `isEnabled`, and their
-/// previous delegates back when the screen goes.
-private struct SwipeBack: UIViewControllerRepresentable {
+/// previous delegates back when the screen goes. The record and edit screens.
+struct SwipeBack: UIViewControllerRepresentable {
     let isEnabled: Bool
 
     func makeUIViewController(context: Context) -> Controller { Controller() }
