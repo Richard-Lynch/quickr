@@ -146,23 +146,39 @@ struct TopicNotice: View {
 }
 
 /// Hands a settings model to the screen that replaces its route after a slug save (the route names
-/// the slug, so the screen is a new one). One-shot: taken by the next settings screen for the same
-/// topic in the same store, and otherwise dropped by the next `put`.
+/// the slug, so it may be a new screen; SwiftUI usually keeps the old one, but that isn't a
+/// guarantee). One-shot: taken by the next settings screen for the same topic in the same store,
+/// and otherwise replaced by the next `put`.
 @MainActor
 enum TopicSettingsHandoff {
     final class Holder {
         weak var model: TopicSettingsModel?
     }
 
-    private static var pending: (model: TopicSettingsModel, binding: AppSession.Binding)?
+    static let shared = OneShotHandoff<TopicSettingsModel, AppSession.Binding>()
 
     static func put(_ model: TopicSettingsModel, binding: AppSession.Binding) {
-        pending = (model, binding)
+        shared.put(model, scope: binding)
     }
 
     static func take(ref: TopicLinkRef, binding: AppSession.Binding) -> TopicSettingsModel? {
-        guard let pending, pending.binding == binding, ref.matches(pending.model.topic) else { return nil }
+        shared.take(scope: binding) { ref.matches($0.topic) }
+    }
+}
+
+/// One value passed from a screen to the one that replaces it, at most once.
+@MainActor
+final class OneShotHandoff<Value: AnyObject, Scope: Equatable> {
+    private var pending: (value: Value, scope: Scope)?
+
+    func put(_ value: Value, scope: Scope) {
+        pending = (value, scope)
+    }
+
+    /// The value, if it was put for `scope` and `matches` it; it is gone afterwards.
+    func take(scope: Scope, where matches: (Value) -> Bool) -> Value? {
+        guard let pending, pending.scope == scope, matches(pending.value) else { return nil }
         self.pending = nil
-        return pending.model
+        return pending.value
     }
 }
