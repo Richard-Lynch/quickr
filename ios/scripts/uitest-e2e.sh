@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# make ios-uitest-e2e: the end-to-end UI tests (UITests/EndToEndUITests, TapCountUITests) on simulator $1 against
-# this worktree's integration stack. Brings the stack up, passes its URLs to the test runner as
-# TEST_RUNNER_QUICKR_IT_*, runs the class from the UI plan, and tears down on exit, pass or fail.
+# make ios-uitest-e2e: the end-to-end UI tests (EndToEndUITests, TapCountUITests,
+# EntriesEndToEndUITests) on simulator $1 against this worktree's integration stack. Brings the
+# stack up, passes its URLs to the test runner as TEST_RUNNER_QUICKR_IT_*, runs the classes from
+# the UI plan, and tears down on exit, pass or fail.
 # QUICKR_IT_KEEP=1 leaves the stack up afterwards (integration-down.sh removes it).
 source "$(dirname "$0")/integration-common.sh"
 SCRIPTS="$IOS_DIR/scripts"
@@ -52,4 +53,4 @@ export TEST_RUNNER_QUICKR_IT_REQUIRED=1
 # QUICKR_UIT_DEMO=1 also runs the demo scenarios (screenshots for docs/ios/demo/m2).
 export TEST_RUNNER_QUICKR_UIT_DEMO="${QUICKR_UIT_DEMO:-0}"
 run "$SCRIPTS/test.sh" UI "$sim" -only-testing:QuickRUITests/EndToEndUITests \
-  -only-testing:QuickRUITests/TapCountUITests "$@"
+  -only-testing:QuickRUITests/TapCountUITests -only-testing:QuickRUITests/EntriesEndToEndUITests "$@"

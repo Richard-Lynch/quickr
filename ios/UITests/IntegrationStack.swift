@@ -68,12 +68,32 @@ struct Stack {
         return Topic(id: try string(object, "id"), slug: try string(object, "slug"), name: unique)
     }
 
-    func createEntry(_ topic: Topic, answers: [String: Any]) async throws {
+    /// An entry logged an hour ago, as the web would; its id.
+    @discardableResult
+    func createEntry(_ topic: Topic, answers: [String: Any]) async throws -> String {
+        let id = UUID().uuidString.lowercased()
         let body: [String: Any] = [
-            "id": UUID().uuidString.lowercased(), "answers": answers,
+            "id": id, "answers": answers,
             "captured_at": ISO8601DateFormatter().string(from: Date().addingTimeInterval(-3600)),
         ]
         _ = try await call(directURL, "POST", "/api/v1/topics/\(topic.id)/entries", body)
+        return id
+    }
+
+    /// An edit made on the web: `answers` merge into the entry's, `notes` replace its notes.
+    func updateEntry(_ id: String, answers: [String: Any], notes: String? = nil) async throws {
+        var body: [String: Any] = ["answers": answers]
+        body["notes"] = notes
+        _ = try await call(directURL, "PATCH", "/api/v1/entries/\(id)", body)
+    }
+
+    /// The entry as the server has it; nil once it is deleted (404).
+    func entry(_ id: String) async throws -> [String: Any]? {
+        let (data, status) = try await send(directURL, "GET", "/api/v1/entries/\(id)")
+        if status == 404 { return nil }
+        guard (200..<300).contains(status), let entry = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { throw failure("GET entry \(id): \(status) \(String(decoding: data, as: UTF8.self))") }
+        return entry
     }
 
     func entries(_ topic: Topic) async throws -> [[String: Any]] {
@@ -122,6 +142,15 @@ struct Stack {
     }
 
     private func call(_ base: URL, _ method: String, _ path: String, _ body: Any? = nil) async throws -> Any {
+        let (data, status) = try await send(base, method, path, body)
+        guard (200..<300).contains(status) else {
+            throw failure("\(method) \(path): \(status) \(String(decoding: data, as: UTF8.self))")
+        }
+        return data.isEmpty ? [:] : try JSONSerialization.jsonObject(with: data)
+    }
+
+    /// The reply's body and status, whatever the status.
+    private func send(_ base: URL, _ method: String, _ path: String, _ body: Any? = nil) async throws -> (Data, Int) {
         guard let url = URL(string: base.absoluteString + path) else { throw failure("bad path \(path)") }
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -131,11 +160,7 @@ struct Stack {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         let (data, response) = try await URLSession.shared.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(status) else {
-            throw failure("\(method) \(path): \(status) \(String(decoding: data, as: UTF8.self))")
-        }
-        return data.isEmpty ? [:] : try JSONSerialization.jsonObject(with: data)
+        return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 
     private func string(_ object: Any, _ key: String) throws -> String {
