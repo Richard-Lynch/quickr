@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- Tooling: `make ios-uitest-e2e` doesn't pass the IOS_SIM_DEFAULTED marker, so a plain run picks the shared base device rather than the worktree clone (it still counts toward the cap). Extend simcap's per-target defaulting to it.
 - LIST flake: EntriesTests.testAccessibilityXXXL. The swipe-Delete button can land under the home indicator in the full-plan layout (it passes alone 2/2; seen by TOPIC).
 - Tooling: xcodebuild sometimes hangs after the tests finish (seen by TOPIC); the watchdog kills it once the results are written. Investigate the 60 s post-final-line deadline.
 - TOPIC: details and schedule PATCHes send no expected_revision (PWA parity), so a concurrent edit elsewhere is overwritten. Consider optimistic concurrency on both clients.
