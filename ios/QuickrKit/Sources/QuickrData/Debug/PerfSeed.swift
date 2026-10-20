@@ -21,7 +21,7 @@ public enum PerfSeed {
         public var now: Date
 
         public init(
-            topics: Int = 20, entries: Int = 10_000, serverId: String = "perf-server",
+            topics: Int = 20, entries: Int = 10_000, serverId: String = "5eed0000-0000-4000-8000-00000000e9c4",
             epoch: String = "00000000-0000-4000-8000-00000000e9c4", baseURL: String = "https://quickr.test",
             now: Date = Date(timeIntervalSince1970: 1_790_000_000)
         ) {
