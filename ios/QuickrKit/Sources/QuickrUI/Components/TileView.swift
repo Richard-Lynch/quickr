@@ -167,7 +167,7 @@ private struct TilePreview: View {
                 TileView(title: "Headache", isDue: true, onOpen: {}, onLog: {}) {
                     QuickrBadge("Due now · since 9:00 PM", icon: .bell, tone: .accent)
                 } quick: {
-                    QuickChipGrid(
+                    DemoQuickChipGrid(
                         options: [
                             ChipOption("none", label: "None"), ChipOption("mild", label: "Mild"),
                             ChipOption("moderate", label: "Moderate"), ChipOption("severe", label: "Severe"),

@@ -296,7 +296,7 @@ private struct TilesPage: View {
                     Text("Last **None** · 6 hours ago")
                 }
             } quick: {
-                QuickChipGrid(
+                DemoQuickChipGrid(
                     options: [
                         ChipOption("none", label: "None"), ChipOption("mild", label: "Mild"),
                         ChipOption("moderate", label: "Moderate"), ChipOption("severe", label: "Severe"),
