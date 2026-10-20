@@ -55,12 +55,16 @@ jobs:
       - name: Script tests (watchdog, simulator cap)
         timeout-minutes: 5
         run: make ios-script-test
-      # The job's 15 min is the outer bound; this one fails a hung `swift test` sooner. The tests
-      # run with a strict (one-thread) cooperative pool, so a test that blocks a pool thread
-      # hangs here, where it is cheap to see, as it would on the 3-core runner (swift-test.sh).
+      # The job's 15 min is the outer bound; these fail a hung `swift test` sooner. The tests run
+      # with a strict (one-thread) cooperative pool, so a test that blocks a pool thread hangs
+      # here, where it is cheap to see, as it would on the 3-core runner (swift-test.sh). The
+      # real-time tests skip there and run next, alone and one at a time (timing-test.sh).
       - name: Swift tests
-        timeout-minutes: 12
+        timeout-minutes: 8
         run: ios/scripts/swift-test.sh
+      - name: Real-time tests (TimingTests, MultiProcessTests)
+        timeout-minutes: 8
+        run: ios/scripts/timing-test.sh
 
   app:
     name: build + Unit plan

@@ -363,26 +363,33 @@ func runAgent(_ rawArguments: [String]) async -> Never {
     }
     let output = ReplyWriter()
     await withTaskGroup(of: Void.self) { group in
-        do {
-            for try await line in FileHandle.standardInput.bytes.lines {
-                guard let command = try? JSONDecoder().decode(HelperCommand.self, from: Data(line.utf8)) else {
-                    continue
-                }
-                group.addTask {
-                    let reply: HelperReply
-                    do {
-                        reply = HelperReply(id: command.id, ok: true, result: try await agent.handle(command))
-                    } catch {
-                        reply = HelperReply(id: command.id, ok: false, error: describe(error))
-                    }
-                    output.write(reply)
-                }
+        for await line in standardInputLines() {
+            guard let command = try? JSONDecoder().decode(HelperCommand.self, from: Data(line.utf8)) else {
+                continue
             }
-        } catch {
-            fail("agent: stdin: \(error)")
+            group.addTask {
+                let reply: HelperReply
+                do {
+                    reply = HelperReply(id: command.id, ok: true, result: try await agent.handle(command))
+                } catch {
+                    reply = HelperReply(id: command.id, ok: false, error: describe(error))
+                }
+                output.write(reply)
+            }
         }
     }
     exit(0)
+}
+
+/// stdin's lines, read by a blocking `readLine` on a thread of their own, so the wait for the
+/// next command never holds a cooperative-pool thread, whatever the pool's width.
+func standardInputLines() -> AsyncStream<String> {
+    AsyncStream { continuation in
+        Thread {
+            while let line = readLine() { continuation.yield(line) }
+            continuation.finish()
+        }.start()
+    }
 }
 
 /// The error a reply carries: its type, a stable code for the errors tests match, and its text.

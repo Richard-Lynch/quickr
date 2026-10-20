@@ -299,46 +299,49 @@ import Testing
     }
 }
 
-@Suite(.timeLimit(.minutes(2))) struct DuePerformanceTests {
-    /// Widget timelines and the badge recompute every topic often; one daily status must stay cheap.
-    @Test func everyDueVectorComputesQuickly() {
-        let vectors = DueVectors.shared.due
-        let clock = ContinuousClock()
-        var dueCount = 0
-        let elapsed = clock.measure {
-            for vector in vectors {
-                let status = Due.status(
-                    of: vector.schedule, now: vector.now, lastEntryAt: vector.lastEntryAt,
-                    scheduleSince: vector.scheduleSince, archived: vector.archived)
-                if status.isDue { dueCount += 1 }
+/// Performance bounds are real time (see `TimingTests`).
+extension TimingTests {
+    @Suite struct DuePerformance {
+        /// Widget timelines and the badge recompute every topic often; one daily status must stay cheap.
+        @Test func everyDueVectorComputesQuickly() {
+            let vectors = DueVectors.shared.due
+            let clock = ContinuousClock()
+            var dueCount = 0
+            let elapsed = clock.measure {
+                for vector in vectors {
+                    let status = Due.status(
+                        of: vector.schedule, now: vector.now, lastEntryAt: vector.lastEntryAt,
+                        scheduleSince: vector.scheduleSince, archived: vector.archived)
+                    if status.isDue { dueCount += 1 }
+                }
             }
+            #expect(dueCount > 0)
+            // About 1 ms per status would still be fine for a widget; a debug build does far better.
+            #expect(elapsed < .seconds(2), "1,831 statuses took \(elapsed)")
+            print("DuePerformance: 1,831 statuses in \(elapsed)")
         }
-        #expect(dueCount > 0)
-        // About 1 ms per status would still be fine for a widget; a debug build does far better.
-        #expect(elapsed < .seconds(2), "1,831 statuses took \(elapsed)")
-        print("DuePerformanceTests: 1,831 statuses in \(elapsed)")
-    }
 
-    /// A due-list widget reload: 20 topics, a day of points each for a five-times-a-day schedule.
-    @Test func widgetTimelinesComputeQuickly() {
-        let schedule = Schedule.daily(
-            .init(
-                times: ["00:00", "01:30", "02:15", "02:30", "23:59"].map { TimeOfDay($0)! },
-                timezone: "America/New_York"))
-        let now = DueSemanticsTests.utc("2026-11-01T04:00:00Z")
-        let clock = ContinuousClock()
-        var points = 0
-        let elapsed = clock.measure {
-            for topic in 0..<20 {
-                points +=
-                    Due.timeline(
-                        of: schedule, now: now, lastEntryAt: now - TimeInterval(topic * 600),
-                        scheduleSince: DueSemanticsTests.since, count: 48
-                    ).count
+        /// A due-list widget reload: 20 topics, a day of points each for a five-times-a-day schedule.
+        @Test func widgetTimelinesComputeQuickly() {
+            let schedule = Schedule.daily(
+                .init(
+                    times: ["00:00", "01:30", "02:15", "02:30", "23:59"].map { TimeOfDay($0)! },
+                    timezone: "America/New_York"))
+            let now = DueSemanticsTests.utc("2026-11-01T04:00:00Z")
+            let clock = ContinuousClock()
+            var points = 0
+            let elapsed = clock.measure {
+                for topic in 0..<20 {
+                    points +=
+                        Due.timeline(
+                            of: schedule, now: now, lastEntryAt: now - TimeInterval(topic * 600),
+                            scheduleSince: DueSemanticsTests.since, count: 48
+                        ).count
+                }
             }
+            #expect(points == 20 * 49)
+            #expect(elapsed < .seconds(1), "20 timelines of 48 points took \(elapsed)")
+            print("DuePerformance: 20 widget timelines (48 points) in \(elapsed)")
         }
-        #expect(points == 20 * 49)
-        #expect(elapsed < .seconds(1), "20 timelines of 48 points took \(elapsed)")
-        print("DuePerformanceTests: 20 widget timelines (48 points) in \(elapsed)")
     }
 }
