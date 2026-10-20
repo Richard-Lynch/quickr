@@ -1,6 +1,6 @@
 import Foundation
 import QuickrCore
-import QuickrData
+@_spi(Testing) import QuickrData
 import Testing
 import UserNotifications
 
@@ -29,9 +29,9 @@ import UserNotifications
             key: "severity", label: "Severity",
             kind: .choice(.init(options: ["none", "mild", "severe"].map { .init(value: $0, label: $0.capitalized) })))
         let glasses = Question(key: "glasses", label: "Glasses", kind: .int(.init(min: 0, max: 20, unit: "glasses")))
+        let topics = [topic(chips, "headache", severity), topic(number, "water", glasses)]
         try await store.writer.write { db in
-            _ = try ServerLayer.upsert(db, topic: topic(chips, "headache", severity))
-            _ = try ServerLayer.upsert(db, topic: topic(number, "water", glasses))
+            for topic in topics { _ = try ServerLayer.upsert(db, topic: topic) }
         }
         return (location, chips, number)
     }
