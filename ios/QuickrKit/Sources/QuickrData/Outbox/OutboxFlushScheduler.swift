@@ -65,6 +65,19 @@ public struct OutboxFlushPolicy: Sendable, Hashable {
 /// The app's flush coalescer: `requestFlush` starts a flush, or, while one runs, schedules exactly
 /// one follow-up with the merged policy. Extensions call `Outbox.flush` directly with
 /// `OutboxFlushPolicy.extensionFlush`.
+/// What `sendNow` saw within its wait.
+public enum OutboxSendNowResult: Sendable, Hashable {
+    /// Acked: the item left the queue (or Undo removed it meanwhile).
+    case sent
+    /// Still queued: offline, retrying after a network error or an uncertain answer, or the wait
+    /// ran out. It syncs later.
+    case queued
+    /// The server refused it; the item stays `failed` for the sync sheet.
+    case failed(OutboxErrorInfo?)
+    /// Retired by `entry_deleted`: it will never be recorded ("This entry was deleted").
+    case retired
+}
+
 public actor OutboxFlushScheduler {
     public let outbox: Outbox
     private var running: Task<OutboxFlushReport?, Never>?
@@ -101,18 +114,29 @@ public actor OutboxFlushScheduler {
     }
 
     /// `sendNow` (outbox.md §10): flushes, then waits up to `wait` (2.5 s for a quick-log, 8 s
-    /// for the record screen) for the item to leave the queue. True when it did; false means
-    /// "queued" (or failed: read the item).
-    public func sendNow(itemId: String, wait: Duration) async -> Bool {
+    /// for the record screen) for the item's outcome. Like the PWA's, it reports "queued" as soon
+    /// as an attempt ends without one (a network error, an uncertain answer), not only when the
+    /// wait runs out.
+    public func sendNow(itemId: String, wait: Duration) async -> OutboxSendNowResult {
+        let store = outbox.store
+        let attemptsBefore = (try? await store.outbox.item(id: itemId))?.attempts
         request(OutboxFlushReason.enqueue.policy)
         let deadline = ContinuousClock.now.advanced(by: wait)
-        let repository = outbox.store.outbox
         while ContinuousClock.now < deadline {
-            guard let item = try? await repository.item(id: itemId) else { return true }
-            if item.state == .failed { return false }
+            let item: OutboxItem?
+            do { item = try await store.outbox.item(id: itemId) } catch { return .queued }
+            guard let item else {
+                // Gone: acked, or retired by `entry_deleted` (which leaves a tombstone).
+                let tombstoned = try? await store.writer.read { db in
+                    try ServerLayer.isTombstoned(db, kind: .entry, id: itemId)
+                }
+                return tombstoned == true ? .retired : .sent
+            }
+            if item.state == .failed { return .failed(item.lastError) }
+            if let attemptsBefore, item.attempts > attemptsBefore, item.state != .inFlight { return .queued }
             try? await Task.sleep(for: .milliseconds(50))
         }
-        return false
+        return .queued
     }
 
     private func request(_ policy: OutboxFlushPolicy) {
