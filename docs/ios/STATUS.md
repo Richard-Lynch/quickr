@@ -306,6 +306,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 19:40 (EDT): Final M2 validation on 77c6924 is complete. Unit 844/0 and UI 78/0 on both 26.0 and 27. E2E 14/0 (3 demo skips). Integration 19/19 ×2. `make check`: backend 694, frontend 856. `make vectors`: no drift. Only the iOS 27 Intents plan (0/2) failed; its test-only fix on ios/m2-intents-fix is running twice on 27. The M2 PR opens once that's merged.
+
 - 2026-10-20 19:25 (EDT): Final M2 validation on 77c6924: Unit 844/0 and UI 78/0 on both 26.0 and 27. **The Intents plan (iOS 27 only, AppIntentsTesting) fails 0/2**: SKEL-era tests assume the placeholder TopicEntity, which now reads the real (empty) store, and the LogEntryIntent test prompts for its topic (error 206). It hadn't run since M1, because earlier check-ios runs stopped before it. A minimal test-only fix is being made on ios/m2-intents-fix; it blocks the M2 PR. E2E, integration and `make check` are still running.
 
 - 2026-10-20 18:25 (EDT): The final M2 validation on 77c6924 is running (check-ios on 26). The M2 PR body is final apart from the validation numbers. On ios/m3: INTENTS (spike; Intents test target on a 27 clone), WIDGETS (data and timeline host tests, 6e59883) and PERF+UPG (the 10k seed and timing tests, e552fe6) are in progress. Load is around 40; PERF baselines are deferred to a quiet machine.
