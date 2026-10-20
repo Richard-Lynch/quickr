@@ -291,6 +291,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-19 21:15 (EDT): **W5 started.** Shared brief docs/ios/specs/m2-screens.md (c0eda29). HOME → ex-INT/WIRE agent (ios/m2-home); TILES → SYNC agent (ios/m2-tiles); B8 → OUTBOX agent (ios/m2-b8, PWA Chromium actions). FORM is re-landing on top of WIRE; its agent then takes LINKS+SETTINGS.
+
 - 2026-10-19 21:00 (EDT): **WIRE merged into ios/m2-ui** after 4 Codex rounds. AppSession is the composition root: one pool per store, a serialized rebind with retire-before-publish, generation-ordered pause and resume for the scheduler and coordinator, background episodes, GRDB suspend/resume, read-only widget stores that never create a -shm, a write façade, and an isolated lifecycle test step. Gate on the merge: lint, ios-core-test (STRICT) green. Next: FORM lands, then the W5 screens (HOME, TILES, LINKS, SETTINGS) start on WIRE's API.
 
 - 2026-10-19 21:00 (EDT): **PR #9 green and squash-merged into feat/ios-app (48fa566). M1 done.** ios/m2-ui moved onto it (9278742, tree identical to feat/ios-app). From here STATUS lives on ios/m2-ui. WIRE r3 fix d06e1b0 is in Codex r4; FORM (ios/m2-form) and BUILDER (ios/m6-builder) wait to be merged into their milestone branches.
