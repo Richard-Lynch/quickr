@@ -302,6 +302,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 10:55 (EDT): **NSE approved** (Codex r4: grouped topic states plus a streamed entry fold; memory bounded). It goes into `ios/m3` with HANDLER after their Unit runs, which are deferred until the M2 simulator runs clear. M2 runs in progress: EDIT's full UI on b5cb86c; APPSET's fix for its failing sync-section UI test (m2-ui merged, ed2ffaa); UIT-2's swipe-test proof (7a1278e; the content-swipe "regression" was a slow test drag, so the re-enable change is reverted); TOPIC's UI run.
+
 - 2026-10-20 10:40 (EDT): Codex approvals: **EDIT r2** (fix-mode prefill and CAS; outbox safety; the tap-only Delete row; final full UI run on b5cb86c pending), **APPSET r3** (canonical OFL hash; merge after its simulator run), **HANDLER r4** (decide-act-reconcile badge, scope-checked flush, activeScope; goes into a new `ios/m3` collection branch). NSE r3: cache, cancellation and exact ints RESOLVED; a new Major remains, since viewTopics still loads all topic outbox items (to be streamed). TOPIC: no commit for 1 h; asked. UIT-2 content-swipe fix (518f070): proving run pending. Simulator slots are the bottleneck; EDIT has been queued for over 30 min.
 
 - 2026-10-20 10:25 (EDT): Codex round-up.
