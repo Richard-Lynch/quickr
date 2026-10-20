@@ -285,7 +285,7 @@ import Testing
         }
         let (groups, bounded, full) = try await w.store.writer.read { db in
             var groups: [Int] = []
-            try StoreView.streamOverlays(db, onEntity: { groups.append($0) }) { _ in true }
+            try StoreView.streamOverlays(db, onEntity: { items, _ in groups.append(items) }) { _ in true }
             let full = try StoreView.derived(db).mapValues(\.lastCapturedAt)
             return (groups, try StoreView.lastCapturedAt(db), full)
         }
@@ -340,6 +340,68 @@ import Testing
         #expect(gated.withState { $0.delivered.map(\.id) } == ["local-same", "remote-older"])
         #expect(gated.withState { $0.categoryRegistrations.isEmpty })
         #expect(try w.table.isEmpty)
+    }
+
+    /// Cancelled while reconciliation waits on `notificationCategories()`, with a category the
+    /// system lost: the union isn't registered again (nor anything else).
+    @Test func anExpiredReconciliationRegistersNothing() async throws {
+        let gated = GatedCenter(.categories)
+        let w = try await World(gated: gated)
+        let row = NotificationCategoriesTests.row()
+        _ = try await NotificationCategories(registry: w.registry, center: w.fake).register([row])
+        w.fake.withState {
+            $0.categories = []
+            $0.categoryRegistrations = []
+        }
+        let preparation = w.preparation
+        let incoming = NotificationPreparation.Incoming(
+            id: "push-1", body: "Time to log", categoryIdentifier: "c", quickr: Self.reminder())
+        let preparing = Task { await preparation.prepare(incoming) }
+        await gated.waitUntilHeld()
+        preparing.cancel()
+        gated.release()
+        _ = await preparing.value
+        #expect(w.fake.withState { $0.categoryRegistrations.isEmpty })
+        #expect(try w.table == [row.category.id])
+    }
+
+    // MARK: - Version caches
+
+    /// A queue over 20 versions of a topic: the stream keeps at most 8 question sets decoded,
+    /// and still agrees with the full view.
+    @Test func theStreamKeepsAFewQuestionSets() async throws {
+        let w = try await World()
+        let water = Self.water
+        try await w.store.writer.write { db in
+            for version in 1...20 {
+                _ = try ServerLayer.insert(
+                    db,
+                    version: TopicVersion(
+                        version: version, questions: water.questions, changeNote: "v\(version)",
+                        createdAt: water.createdAt),
+                    id: UUID(), topicId: water.id)
+            }
+            for i in 0..<60 {
+                try OutboxStorage.append(
+                    db,
+                    NewOutboxItem(
+                        id: UUID(),
+                        payload: .entryCreate(
+                            topic: TopicRef(id: water.id, slug: water.slug, name: water.name),
+                            body: EntryCreateDTO(
+                                id: nil, answers: ["severity": .string("s1")], source: "ios",
+                                capturedAt: water.createdAt.addingTimeInterval(Double(i)), version: i % 20 + 1)),
+                        baseRevision: nil, origin: .app, hold: nil),
+                    now: water.createdAt)
+            }
+        }
+        let (sizes, bounded, full) = try await w.store.writer.read { db in
+            var sizes: [Int] = []
+            try StoreView.streamOverlays(db, onEntity: { _, sets in sizes.append(sets) }) { _ in true }
+            return (sizes, try StoreView.lastCapturedAt(db), try StoreView.derived(db).mapValues(\.lastCapturedAt))
+        }
+        #expect(sizes.count == 60 && sizes.max() == StoreView.overlayQuestionSets)
+        #expect(bounded == full.compactMapValues { $0 })
     }
 
     // MARK: - Tampered payloads
@@ -406,7 +468,32 @@ import Testing
             number("last value out of range") { $0.lastValue = .double(25) },
             number("unknown type") { $0.type = "str" },
             number("decimals 11") { $0.decimals = 11 },
+            // Integers past 2^53 are compared exactly, not as doubles (CAT's lastInt).
+            number("int last value 2^53 + 1 above max 2^53") {
+                $0 = .init(
+                    type: "int", key: "steps", label: "Steps", min: .int(0), max: .int(1 << 53),
+                    lastValue: .int((1 << 53) + 1))
+            },
+            number("int min 2^53 + 1 above max 2^53") {
+                $0 = .init(type: "int", key: "steps", label: "Steps", min: .int((1 << 53) + 1), max: .int(1 << 53))
+            },
+            number("int bounds that are doubles") {
+                $0 = .init(type: "int", key: "steps", label: "Steps", min: .double(0), max: .int(10))
+            },
         ]
+    }
+
+    /// The same values in order are fine: 2^53 + 1 between 2^53 and 2^53 + 2 registers.
+    @Test func exactIntegerBoundsAreAccepted() async throws {
+        let w = try await World()
+        var info = Self.reminder()
+        info.quickLog = .number(
+            .init(
+                type: "int", key: "steps", label: "Steps", min: .int(1 << 53), max: .int((1 << 53) + 2),
+                lastValue: .int((1 << 53) + 1)))
+        let prepared = await w.prepare(info)
+        let table = try w.table
+        #expect(prepared.categoryIdentifier.hasPrefix("quickr.t.") && table.count == 1)
     }
 
     @Test func userInfoIsReadFromTheQuickrKey() throws {
@@ -421,7 +508,11 @@ import Testing
 /// A fake center whose `deliveredNotifications()` waits until released: a preparation suspended on
 /// the system when the NSE's time runs out.
 final class GatedCenter: NotificationCenterProtocol, @unchecked Sendable {
+    enum Query { case delivered, categories }
     let inner = FakeNotificationCenter()
+    let query: Query
+
+    init(_ query: Query = .delivered) { self.query = query }
     private let gate = Mutex<(held: CheckedContinuation<Void, Never>?, released: Bool)>((nil, false))
 
     func withState<T>(_ body: (inout FakeNotificationCenter.State) -> T) -> T { inner.withState(body) }
@@ -439,7 +530,8 @@ final class GatedCenter: NotificationCenterProtocol, @unchecked Sendable {
         held?.resume()
     }
 
-    func deliveredNotifications() async -> [NotificationSnapshot] {
+    private func pass(_ asked: Query) async {
+        guard asked == query else { return }
         await withCheckedContinuation { continuation in
             let released = gate.withLock { state in
                 if !state.released { state.held = continuation }
@@ -447,13 +539,20 @@ final class GatedCenter: NotificationCenterProtocol, @unchecked Sendable {
             }
             if released { continuation.resume() }
         }
+    }
+
+    func deliveredNotifications() async -> [NotificationSnapshot] {
+        await pass(.delivered)
         return await inner.deliveredNotifications()
     }
 
     func setNotificationCategories(_ categories: [NotificationCategorySpec]) {
         inner.setNotificationCategories(categories)
     }
-    func notificationCategories() async -> [NotificationCategorySpec] { await inner.notificationCategories() }
+    func notificationCategories() async -> [NotificationCategorySpec] {
+        await pass(.categories)
+        return await inner.notificationCategories()
+    }
     func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {
         inner.removeDeliveredNotifications(withIdentifiers: identifiers)
     }

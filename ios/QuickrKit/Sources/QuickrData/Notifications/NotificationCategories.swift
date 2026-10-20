@@ -43,6 +43,8 @@ public struct NotificationCategories: Sendable {
     /// Returns the registered category ids.
     @discardableResult
     public func register(_ rows: [Row]) async throws -> [String] {
+        // A cancelled caller (the NSE out of time) registers nothing.
+        try Task.checkCancellation()
         let now = wallClock.now().timeIntervalSince1970
         let center = center
         let encoded = try rows.map { row in (row, try Self.encode(row.category.actions)) }
@@ -75,6 +77,8 @@ public struct NotificationCategories: Sendable {
             try String.fetchAll(db, sql: "SELECT id FROM notification_category")
         }
         guard !Set(ids).isSubset(of: registered) else { return false }
+        // Cancelled while the center answered (the NSE's time ran out): no registration.
+        try Task.checkCancellation()
         try await register([])
         return true
     }

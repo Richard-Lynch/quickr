@@ -174,18 +174,24 @@ public struct NotificationPreparation: Sendable {
                 && values.allSatisfy(ActionIdentifier.isKey) && Set(values).count == values.count
                 && fits(choice.label) && choice.options.allSatisfy { fits($0.label) }
         case .number(let number):
-            func value(_ n: QuickLogNumber?) -> Double? {
-                switch n {
-                case .int(let i): Double(i)
-                case .double(let x): x
-                case nil: nil
-                }
-            }
-            let (low, high, last) = (value(number.min), value(number.max), value(number.lastValue))
             return ["int", "double"].contains(number.type) && fits(number.label) && fits(number.unit)
                 && (number.decimals.map { (0...10).contains($0) } ?? true)
-                && (low == nil || high == nil || low! <= high!)
-                && (last.map { x in (low.map { x >= $0 } ?? true) && (high.map { x <= $0 } ?? true) } ?? true)
+                && inOrder([number.min, number.lastValue, number.max], type: number.type)
+        }
+    }
+
+    /// The numbers present are of the question's type and ascending, compared exactly: an int's
+    /// as integers (a binary64 can't tell 2^53 from 2^53 + 1), a double's as finite doubles.
+    static func inOrder(_ numbers: [QuickLogNumber?], type: String) -> Bool {
+        let present = numbers.compactMap(\.self)
+        switch type {
+        case "int":
+            let ints = present.compactMap { if case .int(let n) = $0 { n } else { nil } }
+            return ints.count == present.count && zip(ints, ints.dropFirst()).allSatisfy { $0 <= $1 }
+        default:
+            let doubles = present.compactMap { if case .double(let x) = $0 { x } else { nil } }
+            return doubles.count == present.count && doubles.allSatisfy(\.isFinite)
+                && zip(doubles, doubles.dropFirst()).allSatisfy { $0 <= $1 }
         }
     }
 

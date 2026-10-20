@@ -138,18 +138,22 @@ public enum StoreView {
     /// ``overlays(_:topicId:book:)``: items come through a cursor ordered by entity, so only one
     /// entity's items and server row are held at once, however long the queue. Tombstoned
     /// entities and ones whose topic isn't here are skipped. `body` returns false to stop;
-    /// `onEntity` sees each entity's item count (tests).
+    /// The question sets the answers are typed against are cached for the last few versions only
+    /// (``overlayQuestionSets``). `onEntity` sees each entity's item count and the cache's size
+    /// (tests).
     static func streamOverlays(
-        _ db: Database, topicId: String? = nil, onEntity: (Int) -> Void = { _ in },
+        _ db: Database, topicId: String? = nil, onEntity: (_ items: Int, _ questionSets: Int) -> Void = { _, _ in },
         _ body: (EntryOverlay) throws -> Bool
     ) throws {
-        let book = QuestionBook(db)
+        let book = QuestionBook(db, capacity: overlayQuestionSets)
         var entity: String?
         var group: [OutboxItem] = []
         func resolve() throws -> Bool {
             guard let id = entity, !group.isEmpty else { return true }
-            defer { group.removeAll(keepingCapacity: true) }
-            onEntity(group.count)
+            defer {
+                onEntity(group.count, book.cachedCount)
+                group.removeAll(keepingCapacity: true)
+            }
             if try ServerLayer.isTombstoned(db, kind: .entry, id: id) { return true }
             let server = try Row.fetchOne(db, sql: "SELECT * FROM entry WHERE id = ?", arguments: [id]).map { row in
                 try Entry(serverRow: row, questions: try book.questions(row["topic_id"], row["version"]))
@@ -173,6 +177,9 @@ public enum StoreView {
         }
         _ = try resolve()
     }
+
+    /// How many (topic, version) question sets a stream keeps decoded.
+    static let overlayQuestionSets = 8
 
     // MARK: - Entries
 
@@ -295,14 +302,30 @@ public enum StoreView {
 final class QuestionBook {
     private let db: Database
     private var cache: [String: [Question]] = [:]
+    /// Keys by last use, oldest first; only kept when `capacity` bounds the cache.
+    private var recent: [String] = []
+    /// At most this many question sets are kept (least recently used go first); nil keeps all.
+    private let capacity: Int?
 
-    init(_ db: Database) { self.db = db }
+    init(_ db: Database, capacity: Int? = nil) {
+        self.db = db
+        self.capacity = capacity
+    }
+
+    /// The question sets held now.
+    var cachedCount: Int { cache.count }
 
     var lookup: QuestionLookup { { [self] topicId, version in try questions(topicId.wireString, version) } }
 
     func questions(_ topicId: String, _ version: Int) throws -> [Question] {
         let key = "\(topicId)#\(version)"
-        if let cached = cache[key] { return cached }
+        if let cached = cache[key] {
+            if capacity != nil {
+                recent.removeAll { $0 == key }
+                recent.append(key)
+            }
+            return cached
+        }
         let json =
             try String.fetchOne(
                 db, sql: "SELECT questions_json FROM topic_version WHERE topic_id = ? AND version = ?",
@@ -310,6 +333,10 @@ final class QuestionBook {
             ?? String.fetchOne(db, sql: "SELECT questions_json FROM topic WHERE id = ?", arguments: [topicId])
         let questions = try json.map { try StoreJSON.decode([QuestionDTO].self, $0).toDomain() } ?? []
         cache[key] = questions
+        if let capacity {
+            recent.append(key)
+            while recent.count > capacity { cache[recent.removeFirst()] = nil }
+        }
         return questions
     }
 }
