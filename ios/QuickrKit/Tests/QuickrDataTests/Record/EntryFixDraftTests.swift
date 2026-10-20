@@ -63,6 +63,51 @@ import Testing
         #expect(try item(reason: .futureTime).entryFixDraft(questions: questions) != nil)
     }
 
+    // MARK: - Refused edits (outbox.md §11)
+
+    func update(
+        state: OutboxState = .failed, reason: OutboxFailureReason? = .rejected, maybeDelivered: Bool = false,
+        error: String? = nil
+    ) throws -> OutboxItem {
+        let entryId = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+        let patch = EntryUpdateDTO(
+            answers: ["distance": .double(50), "type": nil], source: "watch", capturedAt: captured, notes: "far")
+        let payload = try OutboxPayload.entryUpdate(entryId: entryId, topicId: topic.id, patch: patch).encoded()
+        return OutboxItem(
+            seq: 2, id: "item-u", kind: .entryUpdate, entityId: entryId, topicId: topic.id, payloadJSON: payload,
+            state: state, maybeDelivered: maybeDelivered, failureReason: reason, lastErrorJSON: error, origin: .app,
+            createdAt: captured, updatedAt: captured, rowVersion: 6)
+    }
+
+    @Test func aRejectedEditBecomesADraftWithItsProblem() throws {
+        let error = #"""
+            {"message": "Some answers need attention", "status": 422,
+             "body": {"code": "invalid_answers", "detail": "Some answers need attention",
+                      "errors": [{"loc": ["body", "answers", "distance"], "message": "Must be at most 3 km"}]}}
+            """#
+        let draft = try #require(try update(error: error).entryUpdateFixDraft(questions: questions))
+        #expect(draft.itemId == "item-u" && draft.rowVersion == 6)
+        #expect(draft.entryId == "3f2504e0-4f89-11d3-9a0c-0305e82c3301")
+        #expect(
+            draft.answers == ["distance": .some(.double(50)), "type": AnswerValue?.none], "a cleared answer stays nil")
+        #expect(draft.capturedAt == captured && draft.notes == "far" && draft.source == "watch")
+        #expect(draft.problem?.errors.first?.message == "Must be at most 3 km")
+        #expect(draft.message == "Some answers need attention")
+        // A create isn't an edit, and the other way round.
+        #expect(try item(error: error).entryUpdateFixDraft(questions: questions) == nil)
+        #expect(try update(error: error).entryFixDraft(questions: questions) == nil)
+    }
+
+    @Test func onlyAFailedNeverDeliveredEditCanBeFixed() throws {
+        #expect(try update(state: .pending, reason: nil).entryUpdateFixDraft(questions: questions) == nil)
+        #expect(try update(maybeDelivered: true).entryUpdateFixDraft(questions: questions) == nil)
+        #expect(try update(reason: .deletedElsewhere).entryUpdateFixDraft(questions: questions) == nil)
+        #expect(
+            try update(reason: .conflict).entryUpdateFixDraft(questions: questions) == nil, "the sync sheet retries")
+        #expect(try update(reason: .topicArchived).entryUpdateFixDraft(questions: questions) != nil)
+        #expect(try update(reason: .futureTime).entryUpdateFixDraft(questions: questions) != nil)
+    }
+
     /// `Limits.serverDefaults` (used before any limits are fetched) matches the server's.
     @Test func serverDefaultLimitsMatchTheFixture() throws {
         let fixture = try Fixtures.api("getLimits")

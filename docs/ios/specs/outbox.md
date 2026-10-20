@@ -486,6 +486,16 @@ extensions use 4–5 s of a ~30 s window.
 | **Discard** | Any state except `in_flight`                                                                           | Never-delivered items are removed. A queued create is cancelled with `cancelCreate` (§9.1), which enqueues a standalone DELETE when the create may have been delivered. Any other maybe-delivered item is removed, and the next pull shows the server state. A discarded create cascades. |
 | **Dismiss** | `failed/deleted_elsewhere`                                                                             | Remove the item                                                                                                                                                                                                                                                                           |
 
+**Fixing a refused update with later edits queued behind it.** Later updates of
+the same entry wait behind the failed one (§7.2), so the form opens on the entry
+as it stood before the refused item, with that item's changes on top. Later
+queued edits don't leak into the correction. The fields the user corrects are
+their latest word. In the fix's transaction, every later queued (never
+in-flight) `entry.update` of the entity drops those fields, and one left with
+nothing is removed. The revision chain is then re-chained as for any removal
+(§7.3). On a CAS miss the form reloads the item and keeps the user's corrections
+on top of its new payload, for the user to check before saving again.
+
 ## 12. Flush algorithm (pseudocode)
 
 ```

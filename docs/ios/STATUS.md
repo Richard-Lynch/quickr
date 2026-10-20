@@ -157,6 +157,9 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- LIST flake: EntriesTests.testAccessibilityXXXL. The swipe-Delete button can land under the home indicator in the full-plan layout (it passes alone 2/2; seen by TOPIC).
+- Tooling: xcodebuild sometimes hangs after the tests finish (seen by TOPIC); the watchdog kills it once the results are written. Investigate the 60 s post-final-line deadline.
+- TOPIC: details and schedule PATCHes send no expected_revision (PWA parity), so a concurrent edit elsewhere is overwritten. Consider optimistic concurrency on both clients.
 - A11Y: at AX XXXL, the topic tabs (LIST's segmented Overview/Entries/Versions control) stay small while the rest of the screen grows. Use a scaled custom tab bar, or a menu/picker at AX sizes (found by STATS).
 - REG: add push-activation tests for several consecutive foreground trips, and a quick return before startup finishes, with expiry around it (Codex r4 coverage note).
 - Both clients: a prefilled number field (the min-0 prefill or the last value) keeps the caret where it was tapped, so typing "3" gives "30". Select all on the first focus of a pristine prefill, or clear a pristine min-0 prefill when typing starts. PWA: AnswerField.tsx NumberInput, quickLog.ts initialNumber. iOS: QuickLog.initialText and AnswerField. Tap counts are unchanged. (Found by UIT-2.)
@@ -301,6 +304,10 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-20 11:40 (EDT): TOPIC reconciled with m2-ui (65d94ef; the diff against m2-ui is TOPIC only). Codex r1: 2 Majors (a slug save recreates the settings model and drops an unsaved schedule; a delete can be blocked forever when the queued archive sits behind failed entry changes) and 1 Minor (the fake server's schedule_updated_at). UIT-2 swipe follow-up (7a1278e, tests only): no Majors; two Minors (a fixed sleep before the "still here" assert; an unanchored flick), with #1 being fixed before the merge. APPSET: AppSettingsUITests 3/3 after its LabeledContent test fix; full UI run going. UIT-5: E2E rerun on a54e0a8 after a compile fix.
+
+- 2026-10-20 11:10 (EDT): **EDIT merged into ios/m2-ui** (Codex ×2; on b5cb86c: Unit 676, UI 61/61; lint, core and the app build pass on the merge). EDIT's 9 PWA deviations are recorded in its report: changed keys only; offline edits via the outbox; Fix for refused edits (outbox.md §11 "latest correction wins"); a refused local create redirects to RECORD's Fix; Delete as a tap-only form row; Save in the keyboard toolbar; an unchanged form leaves without writing; current-version questions as the fallback; a save after a switch is refused. APPSET: one AppSettingsUITests failure (sync section) still being fixed. TOPIC: reconciling its separate BUILDER merge with m2-ui. UIT-2 swipe follow-up: proof run going.
 
 - 2026-10-20 10:55 (EDT): **NSE approved** (Codex r4: grouped topic states plus a streamed entry fold; memory bounded). It goes into `ios/m3` with HANDLER after their Unit runs, which are deferred until the M2 simulator runs clear. M2 runs in progress: EDIT's full UI on b5cb86c; APPSET's fix for its failing sync-section UI test (m2-ui merged, ed2ffaa); UIT-2's swipe-test proof (7a1278e; the content-swipe "regression" was a slow test drag, so the re-enable change is reverted); TOPIC's UI run.
 

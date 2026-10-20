@@ -17,8 +17,8 @@ struct RouteDestination: View {
             TopicTabsView(ref: ref, tab: tab)
         case .record(let ref, let fix):
             RecordScreen(ref: ref, fix: fix)
-        case .entry(let ref, _):
-            Pending(title: "Edit entry · \(ref)", route: route)
+        case .entry(let ref, let entryId):
+            EditScreen(ref: ref, entryId: entryId)
         case .editQuestions(let ref):
             Pending(title: "Edit questions · \(ref)", route: route)
         case .topicSettings(let ref):
