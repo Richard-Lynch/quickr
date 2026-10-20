@@ -193,10 +193,13 @@ public struct ChoiceView: Sendable {
 /// The number of series colours before options share the "other" colour.
 public let chartSeriesColors = 6
 
-/// The Overview's default bucket (`defaultBucket`): days up to 30 days, weeks beyond.
-public enum ChartDefaults {
-    public static func bucket(forRangeDays days: Int?) -> QuestionSeries.Bucket {
-        guard let days else { return .week }
-        return days <= 30 ? .day : .week
+extension EntryRange {
+    /// The Overview's bucket until one is picked (`defaultBucket`): days up to 30 days, weeks
+    /// beyond.
+    public var defaultChartBucket: QuestionSeries.Bucket {
+        switch self {
+        case .sevenDays, .thirtyDays: .day
+        case .ninetyDays, .all: .week
+        }
     }
 }

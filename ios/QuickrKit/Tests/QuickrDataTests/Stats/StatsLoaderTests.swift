@@ -126,6 +126,26 @@ import Testing
         }
     }
 
+    /// The topic page's filters: `captured_from` is the range's start at `now`; the cache key
+    /// names the range, version and source, so it stays the same from one day to the next.
+    @Test func aQueryFromTheTopicFilters() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Europe/London"))
+        let now = try #require(WireDate.parse("2025-10-26T12:00:00Z"))
+        let filters = EntryListFilters(range: .sevenDays, version: 2, source: "web")
+        let query = StatsQuery(filters, now: now, calendar: calendar)
+        #expect(query.cacheKey == "range=7d&version=2&source=web")
+        #expect(
+            query.filters
+                == EntryFilters(
+                    capturedFrom: filters.range.start(now: now, calendar: calendar), version: 2, source: "web"))
+        #expect(query.filters.capturedFrom == WireDate.parse("2025-10-20T00:00:00+01:00"))
+        let tomorrow = StatsQuery(filters, now: now.addingTimeInterval(86_400), calendar: calendar)
+        #expect(tomorrow.cacheKey == query.cacheKey && tomorrow.filters.capturedFrom != query.filters.capturedFrom)
+        let all = StatsQuery(EntryListFilters(range: .all), now: now, calendar: calendar)
+        #expect(all.cacheKey == "range=all" && all.filters == EntryFilters())
+    }
+
     // MARK: - Cache
 
     @Test func aFetchIsCachedUnderTheStoresEpoch() async throws {

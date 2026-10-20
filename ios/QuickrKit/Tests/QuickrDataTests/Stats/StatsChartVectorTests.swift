@@ -215,9 +215,9 @@ import Testing
     }
 
     @Test func defaultBuckets() {
-        let days = ["7d": 7, "30d": 30, "90d": 90]
+        #expect(Self.charts.defaultBucket.map { $0[0] } == EntryRange.allCases.map(\.rawValue))
         for pair in Self.charts.defaultBucket {
-            #expect(ChartDefaults.bucket(forRangeDays: days[pair[0]]).rawValue == pair[1], "\(pair[0])")
+            #expect(EntryRange(parsing: pair[0]).defaultChartBucket.rawValue == pair[1], "\(pair[0])")
         }
     }
 

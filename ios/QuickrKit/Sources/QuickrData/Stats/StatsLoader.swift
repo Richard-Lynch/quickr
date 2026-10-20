@@ -13,6 +13,20 @@ public struct StatsQuery: Sendable, Hashable {
         self.cacheKey = cacheKey
         self.filters = filters
     }
+
+    /// The topic page's filters (`filterQuery`): `captured_from` from the range at `now`, and the
+    /// version and source as they are. The cache key names the range, not its start.
+    public init(_ filters: EntryListFilters, now: Date, calendar: Calendar) {
+        let parts = [
+            "range=\(filters.range.rawValue)", filters.version.map { "version=\($0)" },
+            filters.source.map { "source=\($0)" },
+        ]
+        self.init(
+            cacheKey: parts.compactMap { $0 }.joined(separator: "&"),
+            filters: EntryFilters(
+                capturedFrom: filters.range.start(now: now, calendar: calendar), version: filters.version,
+                source: filters.source))
+    }
 }
 
 /// What a stats or series load came to (PLAN: "server-computed and cached; offline they show as
