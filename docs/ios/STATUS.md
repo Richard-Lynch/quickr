@@ -291,6 +291,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-19 20:15 (EDT): Repeated API outages from 2026-10-18 ~11:15 to now (ENOTFOUND, quota) stalled every agent; no work lost (CI-TIMING WIP: 16 uncommitted files in ios-m1-citiming; WIRE at 9dc05b8). WIRE Codex r3: all r2 items resolved; one new Major (a replacement scheduler published while paused loses activation's resume). Both agents resumed.
+
 - 2026-10-18 10:50: PR #9 CI run 39114982916: no hang any more (it fails fast, CI-HANG works). Real-time tests fail on the 3-core runner: all MP cases (30 s reply timeouts; STRICT leaks into the child processes), Outbox 16b–16k, sendNow, lease polling, and a transport timing test (also on the simulator, without STRICT). Root cause: parallel Swift Testing suites plus few cores starve real-time deadlines. CI-TIMING (SYNC agent) isolates timing tests into a serialized `make ios-timing-test` step without STRICT; logic tests stay under STRICT; the simulator Unit plan skips the timing tests.
 
 - 2026-10-18 10:30: CI-HANG merged (bf1d773: the blocked writer runs on its own queue; real barrier replaces the 50 ms sleep; .timeLimit on all suites; STRICT pool in swift-test.sh; CI Build + Unit 15 min with a 5-min silence watchdog; the host `swift test` job now runs on PRs). Gate green on the merge. Pushing to PR #9 for one CI run.
