@@ -146,7 +146,10 @@ final class EditTests: XCTestCase {
         XCTAssertTrue(glasses.waitForExistence(timeout: 20))
         XCTAssertTrue(glasses.isHittable)
         XCTAssertTrue(app.buttons["edit.save"].isHittable)
-        XCTAssertTrue(app.buttons["edit.delete"].isHittable)
+        // Delete is the form's last row: scroll to it.
+        let delete = app.buttons["edit.delete"]
+        for _ in 0..<6 where !delete.isHittable { app.swipeUp() }
+        XCTAssertTrue(delete.isHittable)
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "edit-ax-xxxl"
         shot.lifetime = .keepAlways

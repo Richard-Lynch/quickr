@@ -137,6 +137,7 @@ struct EditView: View {
     var body: some View {
         FormView(model: model.form) {
             EntryDetailsSection(model: model, idPrefix: "edit")
+            deleteSection
         }
         .disabled(model.isSaving || model.isDeleted)
         .safeAreaInset(edge: .top, spacing: 0) { banners }
@@ -198,21 +199,30 @@ struct EditView: View {
         }
     }
 
+    /// Delete, at the end of the form in a section of its own (the iOS edit-screen pattern; the
+    /// PWA has it beside Save). No confirm: the entry goes now and an Undo toast holds the delete
+    /// back (the PWA's flow).
+    private var deleteSection: some View {
+        Button(role: .destructive) {
+            dismiss()
+            let deleter = EntryDeleter(environment: environment)
+            let row = row
+            Task { await deleter.delete(row) }
+        } label: {
+            Label("Delete Entry", systemImage: "trash")
+                .font(.qr(.callout))
+                .frame(maxWidth: .infinity, minHeight: QuickrMetrics.tapTarget)
+        }
+        .buttonStyle(.qr(.quietDanger, size: .large))
+        .padding(.vertical, 4)
+        .qrCard()
+        .padding(.top, 8)
+        .accessibilityLabel("Delete entry")
+        .accessibilityIdentifier("edit.delete")
+    }
+
     private var saveBar: some View {
         HStack(spacing: 10) {
-            Button {
-                // No confirm: the entry goes now and an Undo toast holds the delete back (the PWA).
-                dismiss()
-                let deleter = EntryDeleter(environment: environment)
-                let row = row
-                Task { await deleter.delete(row) }
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
-            .buttonStyle(.qr(.quietDanger, size: .large))
-            .disabled(model.isSaving || model.isDeleted)
-            .accessibilityLabel("Delete entry")
-            .accessibilityIdentifier("edit.delete")
             PrimaryButton(model.isFixing ? "Save again" : "Save changes", icon: .check, isLoading: model.isSaving) {
                 Task {
                     if await model.save() == .leave { dismiss() }
