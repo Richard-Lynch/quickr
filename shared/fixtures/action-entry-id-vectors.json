@@ -1,0 +1,25 @@
+{
+  "cases": [
+    {"due_since":"2026-10-17T08:00:00Z","expected":"014516a9-01b3-8ffe-8917-46626c16805c","name":"canonical","server_id":"0b9e0000-0000-4000-8000-0000000000aa","topic_id":"6f1c0000-0000-4000-8000-000000000001"},
+    {"due_since":"2026-10-17T08:00:00Z","expected":"014516a9-01b3-8ffe-8917-46626c16805c","name":"mixed-case-ids","server_id":"0B9E0000-0000-4000-8000-0000000000AA","topic_id":"6F1C0000-0000-4000-8000-000000000001"},
+    {"due_since":"2026-10-17T20:00:00Z","expected":"97520512-ac38-8e85-b268-3fe61fd2b98d","name":"next-slot","server_id":"0b9e0000-0000-4000-8000-0000000000aa","topic_id":"6f1c0000-0000-4000-8000-000000000001"},
+    {"due_since":"2026-10-17T08:00:00Z","expected":"78b70136-45c0-898c-a5c4-d7fd81cf6289","name":"other-topic","server_id":"0b9e0000-0000-4000-8000-0000000000aa","topic_id":"6f1c0000-0000-4000-8000-000000000002"},
+    {"due_since":"2026-10-17T08:00:00Z","expected":"1ad9ca4b-5764-8f31-b8d8-24f25268f74f","name":"other-server","server_id":"0b9e0000-0000-4000-8000-0000000000bb","topic_id":"6f1c0000-0000-4000-8000-000000000001"},
+    {"due_since":"2027-01-01T00:00:00Z","expected":"f72a8cc8-fae1-8cf8-93c5-54647abbec4c","name":"new-year-midnight","server_id":"0b9e0000-0000-4000-8000-0000000000aa","topic_id":"6f1c0000-0000-4000-8000-000000000001"},
+    {"due_since":"2028-02-29T23:59:59Z","expected":"b3dd7a49-f810-8253-b3cc-d3702bb07d84","name":"leap-day-last-second","server_id":"0b9e0000-0000-4000-8000-0000000000aa","topic_id":"6f1c0000-0000-4000-8000-000000000001"},
+    {"due_since":"1970-01-01T00:00:00Z","expected":"b4227895-a7ef-8fd4-94a5-baf81e6046a6","name":"epoch","server_id":"0b9e0000-0000-4000-8000-0000000000aa","topic_id":"6f1c0000-0000-4000-8000-000000000001"},
+    {"due_since":"2026-10-17T08:00:00.000Z","expected":"6fd11cfd-c875-8dc0-8547-6830a7975609","name":"non-canonical-fraction","server_id":"0b9e0000-0000-4000-8000-0000000000aa","topic_id":"6f1c0000-0000-4000-8000-000000000001"},
+    {"due_since":"2026-10-17T08:00:00+00:00","expected":"3eb42289-df41-841e-8f7e-7b3eb284b94d","name":"non-canonical-offset","server_id":"0b9e0000-0000-4000-8000-0000000000aa","topic_id":"6f1c0000-0000-4000-8000-000000000001"},
+    {"due_since":"2026-10-17T08:00:00Z","expected":"28f4057b-af92-8614-89a4-c61345768e75","name":"random-v4-ids","server_id":"c3a1d2b4-9e8f-4a7b-b6c5-d4e3f2a1b0c9","topic_id":"11112222-3333-4444-a555-666677778888"}
+  ],
+  "meta": {
+    "generator": "backend/tests/test_action_entry_id_vectors.py",
+    "generator_version": 1,
+    "semantics": [
+      "id = UUIDv8 from the first 16 bytes of SHA-256(UTF-8(name)), with byte 6 = (b & 0x0f) | 0x80 and byte 8 = (b & 0x3f) | 0x80, written as lowercase 8-4-4-4-12 hex",
+      "name = 'quickr-action-entry-v1|' + lower(server_id) + '|' + lower(topic_id) + '|' + due_since",
+      "due_since is used exactly as the push payload carries it (canonical: UTC, whole seconds, 'Z'); it is never re-normalised",
+      "docs/ios/specs/notifications.md §7.4"
+    ]
+  }
+}

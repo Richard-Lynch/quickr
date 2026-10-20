@@ -5,14 +5,15 @@ Generated from the backend and checked by every platform (the Swift tests in
 hand.** Run `make vectors` (it needs the test database, like `make check`) and
 commit the result.
 
-| File                        | Generator                                                                     | Checked by                                                                                       |
-| --------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `due-vectors.json`          | `backend/tests/test_due_vectors.py` (real `services/schedule.py`)             | pytest drift check; Swift `QuickrCore` due tests (M1)                                            |
-| `quicklog-vectors.json`     | `backend/tests/test_quicklog_vectors.py` (`services/quicklog.py`)             | pytest drift check; `frontend/src/lib/quickLog.vectors.test.ts`; Swift (M1)                      |
-| `answer-text-vectors.json`  | `backend/tests/test_answer_text_vectors.py` (`services/answers.py`)           | pytest drift check; `frontend/src/lib/answerText.vectors.test.ts`; Swift `AnswerTextVectorTests` |
-| `jsnumber-vectors.json`     | `frontend/scripts/gen-jsnumber-vectors.js` (V8 `String(x)`, run once by hand) | Swift `JSNumberVectorTests`; pytest (`js_number_string` in `services/quicklog.py`)               |
-| `notification-vectors.json` | `backend/tests/test_notification_vectors.py` (`services/notification.py`)     | pytest drift check; Swift notification categories (M3, spec test N1)                             |
-| `api/*.json`                | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                      | pytest drift check; Swift `QuickrData` decoding tests (M1)                                       |
+| File                           | Generator                                                                     | Checked by                                                                                       |
+| ------------------------------ | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `due-vectors.json`             | `backend/tests/test_due_vectors.py` (real `services/schedule.py`)             | pytest drift check; Swift `QuickrCore` due tests (M1)                                            |
+| `quicklog-vectors.json`        | `backend/tests/test_quicklog_vectors.py` (`services/quicklog.py`)             | pytest drift check; `frontend/src/lib/quickLog.vectors.test.ts`; Swift (M1)                      |
+| `answer-text-vectors.json`     | `backend/tests/test_answer_text_vectors.py` (`services/answers.py`)           | pytest drift check; `frontend/src/lib/answerText.vectors.test.ts`; Swift `AnswerTextVectorTests` |
+| `jsnumber-vectors.json`        | `frontend/scripts/gen-jsnumber-vectors.js` (V8 `String(x)`, run once by hand) | Swift `JSNumberVectorTests`; pytest (`js_number_string` in `services/quicklog.py`)               |
+| `notification-vectors.json`    | `backend/tests/test_notification_vectors.py` (`services/notification.py`)     | pytest drift check; Swift notification categories (M3, spec test N1)                             |
+| `action-entry-id-vectors.json` | `backend/tests/test_action_entry_id_vectors.py` (`services/notification.py`)  | pytest drift check; `frontend/src/lib/pushActions.test.ts`; Swift action handler (M3)            |
+| `api/*.json`                   | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                      | pytest drift check; Swift `QuickrData` decoding tests (M1)                                       |
 
 ## Drift checks
 
@@ -146,3 +147,11 @@ timestamps, and `captured_at` and the due instants without a fraction), so
 decoders must accept both.
 
 To add an endpoint, add one `rec(...)` call to `scenario()`.
+
+## `action-entry-id-vectors.json`
+
+- `cases[]`: `{name, server_id, topic_id, due_since, expected}`: the id every
+  client gives the entry a reminder action logs (notifications.md §7.4).
+- `meta.semantics`: the exact bytes hashed. Both ids are lowercased;
+  `due_since` is used exactly as the payload carries it, so the non-canonical
+  cases give different ids on purpose.
