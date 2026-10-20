@@ -306,6 +306,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 13:40 (EDT): **TOPIC approved** (Codex r3: the lifecycle under the flush lease, with all paths releasing and no same-lease deadlock; a route-bound handoff). Its final simulator runs are going, then the merge. M2 pre-validation, check-ios on a05a3a1: **iOS 26.0 green** (Unit 774/0, UI 65/0); **iOS 27**: Unit 774/0, UI 62/3. The failures are RecordUITests.testAContentSwipeGoesBackFromACleanForm (XCUITest "Invalid frame dimension" warnings), SettingsUITests.testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain, and EntriesTests.testAccessibilityXXXL (the known flake). Triage and fixes are with the FORM agent on ios/m2-ios27. E2E, integration ×2, `make check` and vectors are next in the run.
+
 - 2026-10-20 13:25 (EDT): TOPIC r2 fixes committed (88c84ab: the delete lifecycle under the flush lease; a route-bound settings handoff); Codex r3 running, focused on lease deadlocks. The M2 pre-validation is in check-ios's iOS 27 UI plan; the swipe-guard tests log XCUITest "Invalid frame dimension" warnings on 27, so results are pending.
 
 - 2026-10-20 13:10 (EDT): M2 pre-validation (on a05a3a1, everything except TOPIC) is running in ios-m2-validate: check-ios on 26.0 then 27 (now on the 27 Unit plan), then E2E, integration ×2, `make check` and vectors. TOPIC r2 fixes: one TopicWrites swift-test was orphaned and hung for 26 min at 0% CPU (likely a flush-lease deadlock) and was blocking later runs via the SwiftPM lock. The lead killed it by PID; the agent has been told to fix the deadlock and bound every lease wait in the tests.
