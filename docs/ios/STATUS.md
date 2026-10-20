@@ -294,6 +294,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 01:00 (EDT): **LINKS+SETTINGS merged into ios/m2-ui** after 3 Codex rounds: typed Route and DeepLink with PWA parity and origin-checked https links; onboarding; settings (server switch with an unsynced warning, reset with Sync first, about); **per-server Keychain Cloudflare Access credentials**, resolved per request; secret redaction in all HTTP descriptions. Gate on the merge: lint, core green. TILES approved (r2), waiting on HOME. HOME r2 approved up to 8529c4b; the follow-up 51395c7 (AX header scroll-away, title and sort fixes) is gating.
+
 - 2026-10-20 00:30 (EDT): TILES ready (80ff85b; UI 11/11, integration 16/16, tap counts match the PWA); in Codex review. HOME r1 fixes 59acd66 (offline empty state, rebind reset with a generation token, byte-order name sort matching the musl server, collation vectors); gates running. LINKS+SETTINGS r2: per-server Keychain credentials (decided) to fix token isolation.
 
 - 2026-10-20 00:10 (EDT): Another API outage, ~22:25 to 00:10, stalled HOME, TILES and LINKS+SETTINGS mid-gate; all resumed. LINKS+SETTINGS Codex = REQUEST CHANGES (no "Sync first" in reset, the token is committed before the switch is confirmed, a warning-read failure allows the switch, and the secret leaks via HTTP header descriptions); fixes are in 090bf61, gates pending. HOME at d3daf9c (UI tests, screenshots), gates pending. TILES merged HOME's demo store; its gates are pending. A commit security-review hook also failed during the outage (log: ~/.claude/security/log.txt).
