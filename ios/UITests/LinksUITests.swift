@@ -10,12 +10,21 @@ final class LinksUITests: XCTestCase {
 
     @MainActor
     func testAQuickrLinkOpensItsScreenAndBackReturnsToTheList() {
-        let app = launch(open: "quickr://t/water/record")
+        // A screen still to be built shows its route's path.
+        let app = launch(open: "quickr://t/workout/entries")
         let path = app.staticTexts["route.path"]
         XCTAssertTrue(path.waitForExistence(timeout: 15))
-        XCTAssertEqual(path.label, "/t/water/record")
+        XCTAssertEqual(path.label, "/t/workout/entries")
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["root.title"].waitForExistence(timeout: 5))
+    }
+
+    /// A notification's link (`/t/{slug}/record`) opens the record screen.
+    @MainActor
+    func testARecordLinkOpensTheRecordScreen() {
+        let app = launch(open: "quickr://t/workout/record")
+        XCTAssertTrue(app.buttons["record.save"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["Workout"].exists)
     }
 
     @MainActor
