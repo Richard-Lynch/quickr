@@ -5,19 +5,22 @@ Generated from the backend and checked by every platform (the Swift tests in
 `make vectors` (it needs the test database, like `make check`) and commit the
 result.
 
-| File                           | Generator                                                                     | Checked by                                                                                       |
-| ------------------------------ | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `due-vectors.json`             | `backend/tests/test_due_vectors.py` (real `services/schedule.py`)             | pytest drift check; Swift `QuickrCore` due tests (M1)                                            |
-| `quicklog-vectors.json`        | `backend/tests/test_quicklog_vectors.py` (`services/quicklog.py`)             | pytest drift check; `frontend/src/lib/quickLog.vectors.test.ts`; Swift (M1)                      |
-| `answer-text-vectors.json`     | `backend/tests/test_answer_text_vectors.py` (`services/answers.py`)           | pytest drift check; `frontend/src/lib/answerText.vectors.test.ts`; Swift `AnswerTextVectorTests` |
-| `jsnumber-vectors.json`        | `frontend/scripts/gen-jsnumber-vectors.js` (V8 `String(x)`, run once by hand) | Swift `JSNumberVectorTests`; pytest (`js_number_string` in `services/quicklog.py`)               |
-| `notification-vectors.json`    | `backend/tests/test_notification_vectors.py` (`services/notification.py`)     | pytest drift check; Swift notification categories (M3, spec test N1)                             |
-| `action-entry-id-vectors.json` | `backend/tests/test_action_entry_id_vectors.py` (`services/notification.py`)  | pytest drift check; `frontend/src/lib/pushActions.test.ts`; Swift action handler (M3)            |
-| `home-vectors.json`            | `backend/tests/test_home_vectors.py` (`list_topics`, test database)           | pytest drift check; Swift home list ordering, status filter and search (M2)                      |
-| `home-due-vectors.json`        | `frontend/src/lib/home.vectors.test.ts` (`dueParts`, `splitByDue`, vitest)    | vitest drift check; Swift home due pill and sections (M2)                                        |
-| `entries-vectors.json`         | `backend/tests/test_entries_vectors.py` (`list_entries`, test database)       | pytest drift check; Swift topic entry list filters, order and sources (M2)                       |
-| `entries-range-vectors.json`   | `frontend/src/lib/entries.vectors.test.ts` (`rangeStart`, `parseRange`)       | vitest drift check; Swift entries range filter (M2)                                              |
-| `api/*.json`                   | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                      | pytest drift check; Swift `QuickrData` decoding tests (M1)                                       |
+| File                           | Generator                                                                                         | Checked by                                                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `due-vectors.json`             | `backend/tests/test_due_vectors.py` (real `services/schedule.py`)                                 | pytest drift check; Swift `QuickrCore` due tests (M1)                                            |
+| `quicklog-vectors.json`        | `backend/tests/test_quicklog_vectors.py` (`services/quicklog.py`)                                 | pytest drift check; `frontend/src/lib/quickLog.vectors.test.ts`; Swift (M1)                      |
+| `answer-text-vectors.json`     | `backend/tests/test_answer_text_vectors.py` (`services/answers.py`)                               | pytest drift check; `frontend/src/lib/answerText.vectors.test.ts`; Swift `AnswerTextVectorTests` |
+| `jsnumber-vectors.json`        | `frontend/scripts/gen-jsnumber-vectors.js` (V8 `String(x)`, run once by hand)                     | Swift `JSNumberVectorTests`; pytest (`js_number_string` in `services/quicklog.py`)               |
+| `notification-vectors.json`    | `backend/tests/test_notification_vectors.py` (`services/notification.py`)                         | pytest drift check; Swift notification categories (M3, spec test N1)                             |
+| `action-entry-id-vectors.json` | `backend/tests/test_action_entry_id_vectors.py` (`services/notification.py`)                      | pytest drift check; `frontend/src/lib/pushActions.test.ts`; Swift action handler (M3)            |
+| `home-vectors.json`            | `backend/tests/test_home_vectors.py` (`list_topics`, test database)                               | pytest drift check; Swift home list ordering, status filter and search (M2)                      |
+| `home-due-vectors.json`        | `frontend/src/lib/home.vectors.test.ts` (`dueParts`, `splitByDue`, vitest)                        | vitest drift check; Swift home due pill and sections (M2)                                        |
+| `entries-vectors.json`         | `backend/tests/test_entries_vectors.py` (`list_entries`, test database)                           | pytest drift check; Swift topic entry list filters, order and sources (M2)                       |
+| `entries-range-vectors.json`   | `frontend/src/lib/entries.vectors.test.ts` (`rangeStart`, `parseRange`)                           | vitest drift check; Swift entries range filter (M2)                                              |
+| `stats-vectors.json`           | `backend/tests/test_stats_vectors.py` (the app, via ASGI)                                         | pytest drift check; input of `stats-chart-vectors.json`; Swift stats decoding and requests (M6)  |
+| `stats-chart-vectors.json`     | `frontend/src/components/charts/stats.vectors.test.ts` (the PWA's chart code)                     | vitest drift check; Swift chart models and Overview summaries (M6)                               |
+| `builder-vectors.json`         | `backend/tests/test_builder_vectors.py` (`schemas/questions.py`, `services/compat.py`, `slugify`) | pytest drift check; Swift `BuilderVectorTests`                                                   |
+| `api/*.json`                   | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                                          | pytest drift check; Swift `QuickrData` decoding tests (M1)                                       |
 
 ## Drift checks
 
@@ -236,6 +239,45 @@ The rules the cases pin down:
 
 Timestamps are UTC ISO-8601 without a fraction. Each case is one line.
 
+## `builder-vectors.json`
+
+What the server decides about the question configs the topic builder produces, so
+the iOS builder (`QuickrCore/Builder`) can prove it agrees offline.
+
+- `questions[]`: `{name, drafts, expected: {errors}}`. `drafts` is a question
+  list as the builder edits it: every constraint is the text of its field
+  (`"1.5"`, `""` = not set), plus `type`, `key`, `label`, `help_text`,
+  `required`, `multiline`, `multiple` and `options[{value, label, archived}]`.
+  The server sees what a client sends: numbers parsed from the text (a whole
+  number below 1e16 as a JSON integer, like Swift's `JSONEncoder`), empty
+  help text and unit as null, and selection limits only when `multiple`.
+  `errors` lists the sorted dotted locations, relative to the list, where
+  `QuestionSet` rejects it (`""` is the list itself, `0.max`,
+  `1.options.0.label`); `[]` means accepted. Cases cover every rule, the
+  limits' edges, code-point lengths, `casefold` label duplicates (`Straße` /
+  `STRASSE`) and which whitespace pydantic strips (Unicode `White_Space`: not
+  U+001C–U+001F or U+FEFF, unlike Python's `str.strip()` and JS `trim()`).
+- `compat[]`: `{name, history, proposed, expected}`. `history` is a list of
+  versions, oldest first, and every question is the API's full shape.
+  `expected` is `check_compatibility`'s report. Python visits option sets in
+  hash order, so `issues` are sorted by `(level, question_key, message)` and
+  each change's `details` are sorted; compare them sorted.
+- `slugs[]`: `{input, expected}`: `slugify` (`services/topics.py`), which gives
+  `topic` when nothing is left.
+- `casefold[]`: `[code point, [folded code points]]` for every code point whose
+  Python `str.casefold()` isn't itself (`meta.unicode_version` is Python's).
+  The server compares labels by `casefold()`, code point by code point, with no
+  normalisation: "é" and "e\u0301" are different labels, KELVIN SIGN and "k"
+  the same. Foundation's folding and Swift's lowercase mappings disagree with
+  it on hundreds of code points, so `ios/scripts/gen-casefold.py` turns this
+  list into `QuickrCore/Builder/CaseFoldTable.swift`. `make vectors` writes
+  both; the pytest drift check fails when either is stale (or run the script
+  with `--check`), and `BuilderVectorTests.casefoldIsPythons` checks the Swift
+  table against the fixture for every code point. The generator and the drift
+  check refuse a Python whose `unicodedata.unidata_version` isn't the
+  fixture's; the backend pins Python 3.14 (`requires-python`, the Dockerfile
+  base) so the server's Unicode can't move silently.
+
 ## `api/*.json`
 
 There is one file per recorded call, named `<operationId>[.<variant>].json`:
@@ -295,6 +337,32 @@ To add an endpoint, add one `rec(...)` call to `scenario()`.
 - `meta.semantics`: the exact bytes hashed. Both ids are lowercased;
   `due_since` is used exactly as the payload carries it, so the non-canonical
   cases give different ids on purpose.
+
+## `stats-vectors.json`
+
+- `meta`: generator version, the pinned `topic_ids`, and `semantics`.
+- `cases[]`: `{name, kind: "stats" | "series", topic, question?, query, response}`. `query` is the
+  request's query parameters (stats: the entry filters; series: `bucket`, `tz` and the filters);
+  `response` is the body the app returned. Series buckets are the server's: `date_trunc` in `tz`
+  (weeks start on Monday), `start` the UTC instant of the bucket's local start, and buckets
+  without answers left out. The data covers Europe/London's DST days, America/Santiago's
+  midnight gap and repeated hour, Asia/Kolkata, a new year, empty, single-entry and 400-day
+  topics, and every question kind.
+
+## `stats-chart-vectors.json`
+
+What the PWA's Overview makes of each `stats-vectors.json` case (same `name`), en-US:
+
+- `series[]`: `chart` is `line` (int, double), `stacked` (enum) or `none` (str). `kept` indexes
+  the response's points that are drawn; `labelled` indexes `kept` per chart width
+  (`meta.widths`); `labels.short`/`labels.long` are the bucket labels in the case's `tz`. Line
+  charts add `ticks`, `tick_labels` and `tooltips`; stacked bars add `options`, `max`,
+  `totals`, `legend` (`[value, label]`) and `segments` (`[value, count]`, bottom up).
+- `stats[]`: the summary (`entries`, `first` in `meta.summary_tz`, `sources`) and each question's
+  card: numeric (`mean`, `rows` = median, min, max, std dev, sum, `histogram`), enum
+  (`visible`, `top`, `shares`, `colors`) or str (`distinct`, `most_common`, `recent`).
+- `default_bucket`, `ticks` (`niceTicks` and `formatTick`), `numbers` (`formatNumber`; NaN and
+  null as strings), `percents` (`formatPercent`) and `pick` (`pickLabels`): the helpers alone.
 
 ## `provisioning/`
 

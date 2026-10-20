@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import QuickrCore
 import QuickrData
 import QuickrUI
 import SwiftUI
@@ -27,6 +28,9 @@ final class AppEnvironment {
     var toastBottomInset: CGFloat = 8
     /// Numbers typed into tiles but not logged yet (kept while the app runs, like the PWA's).
     let quickLogDrafts = QuickLogDrafts()
+    /// Each topic's filters (range, version, source) by its link ref, shared by its Overview and
+    /// Entries tabs and kept while the app runs: the PWA keeps them in the page's URL.
+    var topicFilters: [String: EntryListFilters] = [:]
     /// Entry writes for tiles and Undo, over `session`.
     let entryWriter = SessionEntryWriter()
     let entryToasts: EntryToasts
@@ -159,6 +163,9 @@ final class AppEnvironment {
             // Not after an expiry: the OS took the time back (the next `.active` activates it).
             if !Task.isCancelled { await activatePush() }
             QuickRShortcuts.updateAppShortcutParameters()
+            // CSV exports an earlier process left (a killed app's): once per process, never this
+            // process's own (start() runs again for background refreshes).
+            Task.detached(priority: .background) { EntriesExport().sweep(now: Date()) }
         }
         starting = attempt
         await attempt.value
