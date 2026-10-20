@@ -146,3 +146,88 @@ public final class FakeNotificationCenter: NotificationCenterProtocol {
         }
     }
 }
+
+/// A network path the test switches: every `updates()` stream gets the current state first,
+/// then each `set(online:)`.
+public final class FakeNetworkMonitor: NetworkMonitoring {
+    private let state: Mutex<(online: Bool, subscribers: [UUID: AsyncStream<Bool>.Continuation])>
+
+    public init(online: Bool = true) { state = Mutex((online, [:])) }
+
+    public var online: Bool { state.withLock { $0.online } }
+
+    public func set(online: Bool) {
+        let subscribers = state.withLock { state -> [AsyncStream<Bool>.Continuation] in
+            state.online = online
+            return Array(state.subscribers.values)
+        }
+        for subscriber in subscribers { subscriber.yield(online) }
+    }
+
+    public func updates() -> AsyncStream<Bool> {
+        let (stream, continuation) = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingNewest(1))
+        let id = UUID()
+        let online = state.withLock { state in
+            state.subscribers[id] = continuation
+            return state.online
+        }
+        continuation.yield(online)
+        continuation.onTermination = { [weak self] _ in
+            _ = self?.state.withLock { $0.subscribers.removeValue(forKey: id) }
+        }
+        return stream
+    }
+}
+
+/// A `FlushTimerSleeper` the test drives: each sleep is recorded and waits until `wake()` (or is
+/// cancelled).
+public final class ManualSleeper: FlushTimerSleeper {
+    private struct State {
+        var requested: [Duration] = []
+        var waiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
+        var cancelled: Set<UUID> = []
+    }
+
+    private let state = Mutex(State())
+
+    public init() {}
+
+    /// Every duration asked for, in order.
+    public var requested: [Duration] { state.withLock { $0.requested } }
+
+    /// Sleeps waiting to be woken.
+    public var pending: Int { state.withLock { $0.waiters.count } }
+
+    public func sleep(for duration: Duration) async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                let cancelled = state.withLock { state -> Bool in
+                    state.requested.append(duration)
+                    if state.cancelled.remove(id) != nil { return true }
+                    state.waiters[id] = continuation
+                    return false
+                }
+                if cancelled { continuation.resume(throwing: CancellationError()) }
+            }
+        } onCancel: {
+            let waiter = state.withLock { state in
+                guard let waiter = state.waiters.removeValue(forKey: id) else {
+                    state.cancelled.insert(id)  // cancelled before it registered
+                    return nil as CheckedContinuation<Void, any Error>?
+                }
+                return waiter
+            }
+            waiter?.resume(throwing: CancellationError())
+        }
+    }
+
+    /// Ends every pending sleep normally.
+    public func wake() {
+        let waiters = state.withLock { state in
+            defer { state.waiters = [:] }
+            return Array(state.waiters.values)
+        }
+        for waiter in waiters { waiter.resume() }
+    }
+}

@@ -207,6 +207,29 @@ public final class AppSession {
         return report
     }
 
+    /// A `BGAppRefreshTask` (sync-protocol.md §9, outbox.md §10): its own background episode
+    /// (take it with `beginBackground()` before registering the task's expiration handler, which
+    /// calls `backgroundTimeExpiring(_:within:)`). Resumes GRDB and the episode, pulls, then sends
+    /// the queue (a forced flush), then stops and suspends GRDB as `didEnterBackground` does. Nil,
+    /// and nothing done, when the session hasn't started (`start()` first) or the episode is no
+    /// longer current (the app came to the foreground meanwhile).
+    @discardableResult
+    public func backgroundRefresh(_ episode: BackgroundEpisode) async -> SyncResult? {
+        guard started, isCurrent(episode) else { return nil }
+        configuration.notificationCenter.post(name: Database.resumeNotification, object: nil)
+        await coordinator.resume(generation: episode.generation)
+        await scheduler?.resume(generation: episode.generation)
+        let result = await coordinator.sync(reason: .background)
+        guard isCurrent(episode) else { return result }
+        _ = await scheduler?.flushNow(reason: .backgroundRefresh)
+        guard isCurrent(episode) else { return result }
+        await coordinator.pause(generation: episode.generation)
+        await scheduler?.pause(generation: episode.generation)
+        await coordinator.waitUntilIdle()
+        suspendIfCurrent(episode)
+        return result
+    }
+
     /// The episode's background task is expiring: cancel the flush (its item becomes uncertain and
     /// the lease is released) and refuse new flushes and pulls, wait for them to end, but no
     /// longer than `remaining` (what the system still grants), then suspend GRDB. End the

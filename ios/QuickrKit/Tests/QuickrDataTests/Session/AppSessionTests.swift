@@ -229,6 +229,40 @@ private let otherServerURL = URL(string: "https://other.example")!
         await session.shutdown()
     }
 
+    @Test func backgroundRefreshPullsThenSendsThenSuspends() async throws {
+        let w = try World()
+        defer { w.env.cleanup() }
+        let suspended = w.posted(Database.suspendNotification)
+        let resumed = w.posted(Database.resumeNotification)
+        let session = try w.session()
+        #expect(await session.backgroundRefresh(session.beginBackground()) == nil)  // not started
+        await session.start(serverURL: SyncEnv.baseURL)
+        let scheduler = try #require(session.scheduler)
+
+        // In the background (paused), an entry is queued: nothing sends it.
+        _ = await session.didEnterBackground(session.beginBackground())
+        let suspendedBefore = suspended.count
+        _ = try await session.log(topic: Payloads.water, answers: ["glasses": .int(2)], version: 1)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(!w.env.transport.requests.contains { $0.method == .post })
+
+        // BGAppRefreshTask: resume, pull, send, then pause and suspend again.
+        let pulls = w.env.afters().count
+        let episode = session.beginBackground()
+        #expect(await session.backgroundRefresh(episode) == .synced)
+        #expect(w.env.afters().count > pulls)
+        #expect(w.env.transport.requests.contains { $0.method == .post })
+        #expect(await scheduler.started.contains(OutboxFlushReason.backgroundRefresh.policy))
+        #expect(resumed.count >= 1 && suspended.count == suspendedBefore + 1)
+        #expect(await scheduler.isPaused)
+
+        // Once the app is active, the old episode's refresh does nothing.
+        await session.didBecomeActive()
+        #expect(await session.backgroundRefresh(episode) == nil)
+        #expect(suspended.count == suspendedBefore + 1 && !session.isBackgrounded)
+        await session.shutdown()
+    }
+
     @Test func expiryWaitsForTheCancelledFlushBeforeSuspending() async throws {
         let w = try World()
         defer { w.env.cleanup() }

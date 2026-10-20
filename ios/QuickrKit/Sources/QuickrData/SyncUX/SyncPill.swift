@@ -1,0 +1,78 @@
+import Foundation
+
+/// What the sync pill shows (the PWA's `SyncIndicator`, plus the iOS-only pull states). Pure, so
+/// every combination is tested on the host; the view only picks colours and icons.
+public enum SyncPillState: Sendable, Hashable {
+    /// All is well: no pill (as in the PWA).
+    case hidden
+    /// "This address now points to a different quickR server" (sync-protocol.md §8.3).
+    case differentServer
+    /// Items failed and need the user (Retry, Fix or Discard).
+    case failed(count: Int)
+    /// No network path. `waiting` items will sync when it's back.
+    case offline(waiting: Int)
+    /// Items are queued or being sent. `checking`: some may have been delivered already (outbox
+    /// §3, "Sending… (checking)").
+    case waiting(count: Int, checking: Bool)
+    /// The first pull of a new store (sync-protocol.md §2.1 step 5); `progress` in 0…1 when the
+    /// head is known.
+    case loadingHistory(progress: Double?)
+    /// Pulls keep failing while the device is online.
+    case syncError
+
+    /// Pull failures in a row before the pill says "Sync error" (a single blip retries quietly).
+    public static let failuresBeforeError = 3
+
+    /// The pill for the outbox `summary` (nil before a store is open), the coordinator's
+    /// `status`, and whether the device is `online`. Precedence: a different server, failed
+    /// items, offline, items waiting, the first pull, repeated pull failures.
+    public static func make(summary: OutboxSummary?, status: SyncStatus, online: Bool) -> SyncPillState {
+        if status.identityMismatch { return .differentServer }
+        let failed = summary?.failed ?? 0
+        if failed > 0 { return .failed(count: failed) }
+        // A held delete is still in its undo window: it isn't waiting to sync yet.
+        let waiting = max(0, (summary?.queued ?? 0) - (summary?.held ?? 0))
+        if !online { return .offline(waiting: waiting) }
+        if waiting > 0 { return .waiting(count: waiting, checking: (summary?.uncertain ?? 0) > 0) }
+        if case .pulling(bootstrapping: true, let cursor, let head) = status.activity {
+            return .loadingHistory(progress: head > 0 ? min(1, Double(cursor) / Double(head)) : nil)
+        }
+        if status.lastFailure != nil, status.consecutiveFailures >= failuresBeforeError { return .syncError }
+        return .hidden
+    }
+
+    public var isVisible: Bool { self != .hidden }
+
+    /// The pill's text (the PWA's labels where it has them).
+    public var label: String {
+        switch self {
+        case .hidden: ""
+        case .differentServer: "Different server"
+        case .failed(let count): "\(count) failed to sync"
+        case .offline(let waiting): waiting > 0 ? "Offline · \(waiting) waiting to sync" : "Offline"
+        case .waiting(let count, _): "\(count) waiting to sync"
+        case .loadingHistory: "Loading history"
+        case .syncError: "Sync error"
+        }
+    }
+
+    /// The compact text for narrow layouts (the PWA's small-screen label).
+    public var shortLabel: String {
+        switch self {
+        case .failed(let count): "\(count) failed"
+        case .waiting(let count, _): "\(count)"
+        case .offline: "Offline"
+        default: label
+        }
+    }
+
+    /// VoiceOver: the full label, and what tapping does.
+    public var accessibilityLabel: String {
+        switch self {
+        case .hidden: ""
+        case .waiting(let count, true): "\(count) waiting to sync, checking"
+        case .loadingHistory(let progress?): "Loading history, \(Int((progress * 100).rounded())) percent"
+        default: label
+        }
+    }
+}
