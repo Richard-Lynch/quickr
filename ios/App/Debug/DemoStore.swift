@@ -33,6 +33,10 @@ enum DemoStore {
         try await store.writer.write { db in
             for topic in topics {
                 _ = try ServerLayer.upsert(db, topic: topic)
+                // Its one version, as a sync would bring it (the edit screen reads an entry's version).
+                _ = try ServerLayer.insert(
+                    db, version: TopicVersion(version: 1, questions: topic.questions, createdAt: topic.createdAt),
+                    id: entryId(topic: topic.id, index: 9_999), topicId: topic.id)
                 // The store derives entry counts and the last entry from its entries.
                 guard let last = topic.lastCapturedAt else { continue }
                 for n in 0..<topic.entryCount {

@@ -85,10 +85,13 @@ struct EditScreen: View {
                 load = .refused
                 return
             }
-            guard
-                let version = try await store.versions.version(
-                    topicId: topic.topic.id, number: viewEntry.entry.version)
-            else {
+            // The entry's own version's questions. The current version's are the topic's, even before
+            // its version row has synced.
+            let stored = try await store.versions.version(topicId: topic.topic.id, number: viewEntry.entry.version)
+            let questions =
+                stored?.questions
+                ?? (viewEntry.entry.version == topic.topic.currentVersion ? topic.topic.questions : nil)
+            guard let questions else {
                 load = .failed("Its topic version could not be found.")
                 return
             }
@@ -99,7 +102,7 @@ struct EditScreen: View {
                 let refused = try await store.outbox.items(topicId: topic.topic.id.wireString)
                     .filter { $0.entityId == entryId.wireString && $0.kind == .entryUpdate && $0.state == .failed }
                     .last
-                if let draft = refused?.entryUpdateFixDraft(questions: version.questions) {
+                if let draft = refused?.entryUpdateFixDraft(questions: questions) {
                     fix = EditFix(
                         itemId: draft.itemId, rowVersion: draft.rowVersion,
                         patch: EntryPatch(
@@ -111,7 +114,7 @@ struct EditScreen: View {
                 }
             }
             let model = EditModel(
-                topic: topic.topic, entry: viewEntry.entry, questions: version.questions,
+                topic: topic.topic, entry: viewEntry.entry, questions: questions,
                 localOnly: viewEntry.isLocalOnly, syncProblem: problem, fix: fix, writer: environment.entryWriter,
                 toasts: environment.entryToasts, scope: binding.scope)
             load = .ready(model, EntriesModel.Row(entry: viewEntry, binding: binding))
