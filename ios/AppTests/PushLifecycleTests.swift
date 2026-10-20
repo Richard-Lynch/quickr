@@ -61,9 +61,10 @@ import Testing
         let session = try #require(environment.session)
         defer { Task { await session.shutdown() } }
 
-        // What `didRegisterForRemoteNotificationsWithDeviceToken` hands over.
-        RemoteNotificationTokens.shared.didRegister(Data([0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89]))
-        for _ in 0..<100 where !server.calls.withLock({ !$0.isEmpty }) { try await Task.sleep(for: .milliseconds(20)) }
+        // What `didRegisterForRemoteNotificationsWithDeviceToken` hands over (through
+        // `RemoteNotificationTokens`, whose receiver other suites' live environments may claim while
+        // tests run in parallel, so this hands it to this environment's lifecycle directly).
+        await push.didRegister(token: Data([0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89]))
 
         let call = try #require(server.calls.withLock { $0.first })
         #expect(call.url.path == "/api/v1/push/apns/devices")
@@ -71,9 +72,6 @@ import Testing
         #expect(call.headers[QuickrHeader.expectEpoch] == "E1")
         let body = try #require(try JSONSerialization.jsonObject(with: call.body ?? Data()) as? [String: Any])
         #expect(body["token"] as? String == "abcdef0123456789" && body["environment"] as? String == "sandbox")
-        for _ in 0..<100 where push.status != .registered(serverId: "test-server") {
-            try await Task.sleep(for: .milliseconds(20))
-        }
         #expect(push.status == .registered(serverId: "test-server"))
         let stored = try await partitions.registry.writer.read { db in
             try String.fetchOne(db, sql: "SELECT token FROM apns_state WHERE id = 1")

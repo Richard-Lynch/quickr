@@ -187,8 +187,10 @@ public final class PushRegistration {
         }
     }
 
-    /// `didFailToRegisterForRemoteNotificationsWithError` (no entitlement, no network).
+    /// `didFailToRegisterForRemoteNotificationsWithError` (no entitlement, no network). A token
+    /// already registered stays so: the server still has it.
     public func didFailToRegister(_ error: any Error) {
+        if case .registered = status { return }
         status = .failed("Couldn't get a push token: \(error.localizedDescription)")
     }
 

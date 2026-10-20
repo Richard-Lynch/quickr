@@ -314,6 +314,16 @@ import Testing
         #expect(await w.registration.testThisDevice(active: Self.a) == .offline)
     }
 
+    @Test func aLateTokenFailureDoesntUndoARegistration() async throws {
+        let w = try await World()
+        struct NoToken: Error {}
+        w.registration.didFailToRegister(NoToken())
+        if case .failed = w.registration.status {} else { Issue.record("failed before any registration") }
+        await w.registration.didRegister(token: Self.token1, active: Self.a)
+        w.registration.didFailToRegister(NoToken())
+        #expect(w.registration.status == .registered(serverId: Self.a.identity.serverId))
+    }
+
     @Test func tokensAreRedactedForLogs() {
         let token = PushRegistration.hex(Self.token1)
         #expect(PushRegistration.redacted(token) == "abcd…0708")
