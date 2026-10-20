@@ -81,3 +81,17 @@ public protocol TopicWriter: AnyObject {
     /// screen's store isn't the active one any more, or the queue refuses it.
     func setArchived(_ archived: Bool, topicId: UUID, baseRevision: Int) async throws
 }
+
+/// The edit-questions screen's online-only calls, bound like ``TopicWriter`` to the store the
+/// screen was opened from (the app's `SessionTopicWriter`).
+@MainActor
+public protocol VersionWriter: AnyObject {
+    /// "Review changes": the server's compatibility report for `version` edited from `baseVersion`.
+    func checkVersion(_ version: TopicDraft.Version, baseVersion: Int, topicId: UUID) async
+        -> TopicWriteOutcome<CompatibilityReport>
+    /// "Publish v(n+1)".
+    func publishVersion(_ version: TopicDraft.Version, baseVersion: Int, changeNote: String, topicId: UUID) async
+        -> TopicWriteOutcome<Topic>
+    /// "Load latest version": the server's topic now.
+    func latestTopic(topicId: UUID) async -> TopicWriteOutcome<Topic>
+}

@@ -129,6 +129,132 @@ import Testing
         #expect(try await harness.store.topics.topics().count == 1, "nothing applied without an answer")
     }
 
+    // MARK: Versions
+
+    /// The harness topic's questions with one more (an added question is allowed).
+    static var nextQuestions: [Question] {
+        Make.questions + [Question(key: "energy", label: "Energy", kind: .int(.init(min: 1, max: 10)))]
+    }
+
+    static func version(_ questions: [Question] = nextQuestions) -> TopicDraft.Version {
+        TopicDraft.Version(questions: questions, changeNote: "")
+    }
+
+    @Test func aCheckReportsAndChangesNothing() async throws {
+        let body = TopicRequests.versionCheck(Self.version(), baseVersion: 1)
+        guard case .done(let report) = await try writes().checkVersion(topicId: harness.topic.id, body) else {
+            Issue.record("not done")
+            return
+        }
+        #expect(report.ok && report.nextVersion == 2)
+        #expect(report.changes.map(\.questionKey) == ["energy"])
+        #expect(syncs.reasons.isEmpty, "a dry run pulls nothing")
+        #expect(try await local(harness.topic.id)?.currentVersion == 1)
+        let request = try #require(harness.server.requests.last)
+        #expect(request.url.path == "/api/v1/topics/\(harness.topic.id.wireString)/versions/check")
+    }
+
+    @Test func aCheckOnAStaleBaseIsAConflict() async throws {
+        let body = TopicRequests.versionCheck(Self.version(), baseVersion: 0)
+        guard case .rejected(409, let problem?) = await try writes().checkVersion(topicId: harness.topic.id, body)
+        else {
+            Issue.record("not a conflict")
+            return
+        }
+        #expect(problem.code == .conflict)
+        #expect(syncs.reasons.isEmpty)
+    }
+
+    @Test func aCheckWithoutAnAnswerFailsWithoutAPull() async throws {
+        harness.server.inject(.post, .lose(.timedOut(requestStarted: true)))
+        let body = TopicRequests.versionCheck(Self.version(), baseVersion: 1)
+        guard case .failed(let message) = await try writes().checkVersion(topicId: harness.topic.id, body) else {
+            Issue.record("not failed")
+            return
+        }
+        #expect(message == TopicWrites.noAnswerMessage)
+        #expect(syncs.reasons.isEmpty)
+    }
+
+    @Test func aPublishAppliesTheTopicAndPulls() async throws {
+        let body = TopicRequests.publish(Self.version(), baseVersion: 1, changeNote: "  add energy \n")
+        guard case .done(let topic) = await try writes().publishVersion(topicId: harness.topic.id, body) else {
+            Issue.record("not done")
+            return
+        }
+        #expect(topic.currentVersion == 2)
+        let stored = try #require(try await local(harness.topic.id))
+        #expect(stored.currentVersion == 2 && stored.questions.map(\.key) == ["mood", "where", "weight", "energy"])
+        #expect(syncs.reasons == [.afterOnlineOnly], "the pull brings the version's row")
+        let request = try #require(harness.server.requests.last)
+        #expect(request.url.path == "/api/v1/topics/\(harness.topic.id.wireString)/versions")
+        let sent = try JSONSerialization.jsonObject(with: try #require(request.body)) as? [String: Any]
+        #expect(sent?["change_note"] as? String == "add energy")
+        #expect(sent?["base_version"] as? Int == 1)
+    }
+
+    @Test func aStalePublishIsAConflictAndNothingChanges() async throws {
+        let body = TopicRequests.publish(Self.version(), baseVersion: 1, changeNote: "")
+        guard case .done = await try writes().publishVersion(topicId: harness.topic.id, body) else {
+            Issue.record("first publish")
+            return
+        }
+        let again = await try writes().publishVersion(topicId: harness.topic.id, body)
+        guard case .rejected(409, let problem?) = again, problem.code == .conflict else {
+            Issue.record("\(again)")
+            return
+        }
+        #expect(try await local(harness.topic.id)?.currentVersion == 2)
+        #expect(syncs.reasons == [.afterOnlineOnly], "only the first one pulled")
+    }
+
+    @Test func anIncompatiblePublishIsRejected() async throws {
+        // `mood` changes type: never allowed under the same key.
+        var questions = Make.questions
+        questions[0] = Question(key: "mood", label: "Mood", kind: .double(.init()))
+        let body = TopicRequests.publish(Self.version(questions), baseVersion: 1, changeNote: "")
+        guard case .rejected(422, let problem?) = await try writes().publishVersion(topicId: harness.topic.id, body)
+        else {
+            Issue.record("not rejected")
+            return
+        }
+        #expect(problem.code.rawValue == "incompatible_version")
+        #expect(try await local(harness.topic.id)?.currentVersion == 1)
+    }
+
+    @Test func latestAppliesTheServersTopic() async throws {
+        var newer = harness.topic
+        newer.currentVersion = 3
+        newer.revision = 5
+        newer.questions = Self.nextQuestions
+        harness.server.put(newer)
+        guard case .done(let topic) = await try writes().latest(topicId: harness.topic.id) else {
+            Issue.record("not done")
+            return
+        }
+        #expect(topic.currentVersion == 3)
+        #expect(try await local(harness.topic.id)?.currentVersion == 3)
+        #expect(syncs.reasons == [.afterOnlineOnly])
+        #expect(harness.server.requests.last?.method == .get)
+    }
+
+    @Test func aVersionCheckOrPublishOnAnotherEpochIsResyncing() async throws {
+        harness.server.with { $0.epoch = "E2" }
+        // The check has no preconditions, but its answer comes from another epoch.
+        let check = TopicRequests.versionCheck(Self.version(), baseVersion: 1)
+        guard case .resyncing = await try writes().checkVersion(topicId: harness.topic.id, check) else {
+            Issue.record("check not resyncing")
+            return
+        }
+        let body = TopicRequests.publish(Self.version(), baseVersion: 1, changeNote: "")
+        guard case .resyncing = await try writes().publishVersion(topicId: harness.topic.id, body) else {
+            Issue.record("not resyncing")
+            return
+        }
+        #expect(syncs.reasons == [.requested, .requested])
+        #expect(try await local(harness.topic.id)?.currentVersion == 1)
+    }
+
     // MARK: Identity
 
     @Test func anotherEpochIsResyncingAndNothingExecutes() async throws {

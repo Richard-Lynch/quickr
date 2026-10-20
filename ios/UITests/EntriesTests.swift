@@ -109,15 +109,28 @@ final class EntriesTests: XCTestCase {
     func testAccessibilityXXXL() {
         let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         XCTAssertTrue(app.buttons["entries.range"].waitForExistence(timeout: 5), "a menu at this size")
+        // A row is ~400 pt tall here: "hittable" (any part on screen) can leave its middle at the
+        // home indicator, where a swipe isn't the row's. Scroll a little at a time until its middle
+        // is well inside the screen, then swipe there.
         let first = rows(app, "entry.").firstMatch
-        for _ in 0..<10 where !(first.exists && first.isHittable) { app.swipeUp() }
-        XCTAssertTrue(first.isHittable)
+        let window = app.windows.firstMatch.frame
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        for _ in 0..<15 where !(first.exists && first.frame.midY < window.height * 0.7) {
+            start.press(forDuration: 0.05, thenDragTo: end)
+        }
+        XCTAssertTrue(first.exists && first.frame.midY < window.height * 0.7, "the first row, in view")
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "entries-ax-xxxl"
         shot.lifetime = .keepAlways
         add(shot)
-        first.swipeLeft()
-        app.buttons["Delete"].firstMatch.tap()
+        let middle = max(first.frame.minY, window.minY + 120) / 2 + min(first.frame.maxY, window.height * 0.8) / 2
+        let row = app.coordinate(withNormalizedOffset: .zero)
+        row.withOffset(CGVector(dx: window.width * 0.85, dy: middle))
+            .press(forDuration: 0.05, thenDragTo: row.withOffset(CGVector(dx: window.width * 0.15, dy: middle)))
+        let delete = app.buttons["entry.delete"].firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), "the row's Delete action")
+        delete.tap()
         XCTAssertTrue(app.staticTexts["Entry deleted"].waitForExistence(timeout: 5))
     }
 }

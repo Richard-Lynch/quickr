@@ -14,6 +14,8 @@ import Synchronization
 /// - `-QuickrOpen <url>` opens a link once the root is up (screenshots, deep-link checks);
 /// - `-QuickrSeedRejectedEntry` first queues a Workout entry the server refuses (duration 900),
 ///   with the id `rejectedEntryId`, and waits until it has failed (fix mode);
+/// - `-QuickrStalePublish`: someone else publishes a version of the topic just before this
+///   device's first version check or publish, which therefore conflicts (409);
 /// - `-QuickrSyncControls` shows `UITestSyncControls` (go offline or online, log an entry, reject
 ///   the next one) for the sync UI tests. The network path is `UITestLaunch.network`, which the
 ///   controls switch together with the fake server.
@@ -46,6 +48,7 @@ enum UITestLaunch {
             transport: FakeServerTransport(fallback: URLSessionTransport(), state: server), network: network,
             categoryCenter: categoryCenter)
         environment.settings.serverURL = value(after: "-QuickrServer").flatMap(URL.init(string:))
+        if ProcessInfo.processInfo.arguments.contains("-QuickrStalePublish") { server.publishElsewhereFirst() }
         return environment
     }
 
@@ -102,6 +105,10 @@ final class FakeServerState: Sendable {
         /// Topics as the server holds them now (`TopicDetail` JSON), after the online-only writes
         /// and archives the tests made (TOPIC). Seeded with the feed's two.
         var topics: [String: Data] = FakeServer.seedTopics()
+        /// Feed items after the seeded page (seq 5, 6, …): the topic and version rows of the
+        /// versions published here, as the change feed lists them.
+        var feed: [String] = []
+        var publishElsewhere = false
     }
 
     private let state = Mutex(State())
@@ -165,6 +172,57 @@ final class FakeServerState: Sendable {
     }
 
     fileprivate func removeTopic(_ id: String) { _ = state.withLock { $0.topics.removeValue(forKey: id) } }
+
+    /// `-QuickrStalePublish`.
+    func publishElsewhereFirst() { state.withLock { $0.publishElsewhere = true } }
+
+    /// Whether someone else publishes first (the flag is used once).
+    fileprivate func takePublishElsewhere() -> Bool {
+        state.withLock { state in
+            defer { state.publishElsewhere = false }
+            return state.publishElsewhere
+        }
+    }
+
+    /// Publishes `questions` as the topic's next version: the topic row and the version row go
+    /// into the feed. Returns the updated topic.
+    fileprivate func publish(_ id: String, questions: [[String: Any]], note: String) -> [String: Any]? {
+        guard var topic = topic(id) else { return nil }
+        let now = ISO8601DateFormatter().string(from: Date())
+        let number = (topic["current_version"] as? Int ?? 1) + 1
+        topic["current_version"] = number
+        topic["questions"] = questions
+        topic["question_count"] = questions.count
+        topic["revision"] = (topic["revision"] as? Int ?? 1) + 1
+        topic["updated_at"] = now
+        let version: [String: Any] = [
+            "version": number, "questions": questions, "change_note": note, "created_at": now, "entry_count": 0,
+        ]
+        put(topic)
+        state.withLock { state in
+            let seq = 5 + state.feed.count
+            let items: [[String: Any]] = [
+                ["kind": "topic", "seq": seq, "topic": topic],
+                [
+                    "kind": "version", "seq": seq + 1, "id": UUID().wireString, "topic_id": id,
+                    "version": version,
+                ],
+            ]
+            for item in items {
+                guard let data = try? JSONSerialization.data(withJSONObject: item) else { continue }
+                state.feed.append(String(decoding: data, as: UTF8.self))
+            }
+        }
+        return topic
+    }
+
+    /// The feed items after `cursor`, and the head.
+    fileprivate func feed(after cursor: Int) -> (items: [String], head: Int) {
+        state.withLock { state in
+            let head = 4 + state.feed.count
+            return (Array(state.feed.dropFirst(max(0, cursor - 4))), head)
+        }
+    }
 
     fileprivate func slugTaken(_ slug: String, except id: String?) -> Bool {
         state.withLock { state in
@@ -271,9 +329,10 @@ enum FakeServer {
         """#
     }
 
-    static func page(after cursor: Int) -> String {
+    static func page(after cursor: Int, state: FakeServerState) -> String {
         let now = ISO8601DateFormatter().string(from: Date())
-        let items =
+        let (published, head) = state.feed(after: cursor)
+        let seeded =
             cursor == 0
             ? [
                 version(
@@ -282,8 +341,10 @@ enum FakeServer {
                 version(moodId, versionId: "00000000-0000-4000-8000-0000000000d2", questions: moodQuestions, seq: 3),
                 topic(moodId, slug: "mood", name: "Mood", questions: moodQuestions, count: 1, seq: 4),
             ] : []
+        let items = seeded + published
         return #"""
-            {"items": [\#(items.joined(separator: ","))], "deleted": [], "next": 4, "has_more": false, "head": 4,
+            {"items": [\#(items.joined(separator: ","))], "deleted": [], "next": \#(head), "has_more": false,
+             "head": \#(head),
              "epoch": "\#(epoch)", "server_id": "\#(UITestLaunch.fakeServerId)", "server_time": "\#(now)"}
             """#
     }
@@ -313,6 +374,14 @@ enum FakeServer {
             schedule["days"] = ((schedule["days"] as? [Int]) ?? [1, 2, 3, 4, 5, 6, 7]).sorted()
         }
         return schedule
+    }
+
+    /// Questions (input or output JSON) as the domain's, for the compatibility check.
+    static func questions(_ json: Any) -> [Question] {
+        guard let data = try? JSONSerialization.data(withJSONObject: json),
+            let dtos = try? WireCoding.decoder().decode([QuestionInputDTO].self, from: data)
+        else { return [] }
+        return dtos.map { $0.toDomain() }
     }
 
     /// A created question as the server returns it: the input with its defaults filled in.
@@ -352,7 +421,8 @@ enum FakeServer {
 
 /// `https://quickr.test`: the feed above, entry creates (201, or 422 for a duration over 600 or
 /// when `state` is told to reject the next, so a rejection can be shown), deletes (204, for
-/// Undo after a send), stats and series (`FakeStats`), and TOPIC's topic writes (`topicRoute`).
+/// Undo after a send), stats and series (`FakeStats`), TOPIC's topic writes (`topicRoute`), and
+/// BUILDER-UI's topic reads and versions (`topicDetail`, `versionRoute`).
 /// Offline (`state`), every request there fails before it is sent; held feed
 /// requests wait. Any other host goes to `fallback`.
 private struct FakeServerTransport: Transport {
@@ -373,7 +443,8 @@ private struct FakeServerTransport: Transport {
             let after =
                 URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?
                 .first { $0.name == "after" }?.value.flatMap(Int.init) ?? 0
-            return HTTPResponse(status: 200, headers: headers, body: Data(FakeServer.page(after: after).utf8))
+            return HTTPResponse(
+                status: 200, headers: headers, body: Data(FakeServer.page(after: after, state: state).utf8))
         }
         if request.method == .post, path.hasPrefix("/api/v1/topics/"), path.hasSuffix("/entries") {
             return create(request, headers: headers)
@@ -385,6 +456,9 @@ private struct FakeServerTransport: Transport {
             var csv = headers
             csv["Content-Type"] = "text/csv; charset=utf-8"
             return HTTPResponse(status: 200, headers: csv, body: Data("id,captured_at\n".utf8))
+        }
+        if request.method == .get, let topic = topicDetail(path: path) {
+            return HTTPResponse(status: 200, headers: headers, body: topic)
         }
         if request.method == .get, let body = stats(request, path: path) {
             return HTTPResponse(status: 200, headers: headers, body: body)
@@ -431,6 +505,10 @@ private struct FakeServerTransport: Transport {
         guard parts.count >= 4, var topic = state.topic(parts[3]) else {
             return parts.count >= 4 ? problem(404, "not_found", "topic not found") : nil
         }
+        if request.method == .post, parts.count >= 5, parts[4] == "versions" {
+            return versionRoute(
+                request, id: parts[3], check: parts.count == 6, body: body, json: json, problem: problem)
+        }
         let revision = (topic["revision"] as? Int ?? 1) + 1
         switch (request.method, parts.count > 4 ? parts[4] : nil) {
         case (.patch, nil):
@@ -466,6 +544,62 @@ private struct FakeServerTransport: Transport {
         topic["updated_at"] = now
         state.put(topic)
         return json(200, topic)
+    }
+
+    /// `GET /api/v1/topics/{id}`: the topic as the server holds it now.
+    private func topicDetail(path: String) -> Data? {
+        let parts = path.split(separator: "/").map(String.init)
+        guard parts.count == 4, parts[2] == "topics", let topic = state.topic(parts[3]) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: topic)
+    }
+
+    /// `POST /topics/{id}/versions[/check]` (BUILDER-UI), like the backend: a stale `base_version`
+    /// is a 409 `conflict`; the report is the local compatibility check against the current
+    /// questions; a publish puts the new version in the feed. With `-QuickrStalePublish`, someone
+    /// else publishes (adding "Energy") just before the first one.
+    private func versionRoute(
+        _ request: HTTPRequest, id: String, check: Bool, body: [String: Any],
+        json: (Int, Any) -> HTTPResponse, problem: (Int, String, String) -> HTTPResponse
+    ) -> HTTPResponse {
+        if state.takePublishElsewhere(), let current = state.topic(id) {
+            let energy: [String: Any] = [
+                "key": "energy", "label": "Energy", "type": "int", "min": 1, "max": 10, "unit": NSNull(),
+                "help_text": NSNull(), "required": false,
+            ]
+            _ = state.publish(id, questions: (current["questions"] as? [[String: Any]] ?? []) + [energy], note: "")
+        }
+        guard let topic = state.topic(id) else { return problem(404, "not_found", "topic not found") }
+        let current = topic["current_version"] as? Int ?? 1
+        if let base = body["base_version"] as? Int, base != current {
+            return problem(
+                409, "conflict",
+                "topic is at version \(current), but this edit was based on version \(base); reload and re-apply your changes"
+            )
+        }
+        let inputs = (body["questions"] as? [[String: Any]]) ?? []
+        let report = CompatibilityCheck.report(
+            history: [FakeServer.questions(topic["questions"] ?? [Any]())], proposed: FakeServer.questions(inputs))
+        if check {
+            return json(
+                200,
+                [
+                    "ok": report.ok, "next_version": report.nextVersion,
+                    "issues": report.issues.map {
+                        ["level": $0.level.rawValue, "question_key": $0.questionKey ?? NSNull(), "message": $0.message]
+                            as [String: Any]
+                    },
+                    "changes": report.changes.map {
+                        ["kind": $0.kind.rawValue, "question_key": $0.questionKey, "details": $0.details]
+                            as [String: Any]
+                    },
+                ] as [String: Any])
+        }
+        guard report.ok else { return problem(422, "incompatible_version", "the new version is incompatible") }
+        let note = body["change_note"] as? String ?? ""
+        guard let updated = state.publish(id, questions: inputs.map(FakeServer.outputQuestion), note: note) else {
+            return problem(404, "not_found", "topic not found")
+        }
+        return json(201, updated)
     }
 
     /// `/api/v1/topics/{ref}/stats` and `/api/v1/topics/{ref}/questions/{key}/series` (`FakeStats`).

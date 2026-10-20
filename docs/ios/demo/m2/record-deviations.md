@@ -6,16 +6,18 @@ and the leave guard. `RecordUITests` and the end-to-end suites
 (`EndToEndUITests`, `TapCountUITests`) cover them. These are the deliberate
 differences:
 
-1. **Back is always quickR's own button.** It goes straight back when nothing has
-   changed, and asks "Discard this entry?" when something has, so the leave
-   guard is the same as the PWA's. This replaces swapping the system back button
-   for a guarded one on the first edit, which needed the navigation bar to change.
-   - **Swipes back:** the edge swipe, and iOS 26's swipe from anywhere in the
-     content, work only while nothing has changed. With changes they do nothing,
-     and the back button asks instead. `testSwipingBackWorksOnlyWithoutChanges`
-     covers this.
-   - **VoiceOver's escape** (the two-finger scrub) is the same back, guarded the
-     same way. XCUITest can't perform it, so it has no UI test.
+1. **Back is the system's until something changes.** While nothing has changed,
+   the system back button and its swipes (the edge swipe, and the swipe from
+   anywhere in the content on iOS 26 and 27) go straight back. Once something has
+   changed, a guarded back takes its place and asks "Discard this entry?", so the
+   leave guard is the same as the PWA's. With the system button hidden, UIKit
+   turns the swipes off. (A guarded button kept the whole time loses the content
+   swipe on iOS 27, which gives none to a screen whose back button is hidden.)
+   - **Tests:** `testAContentSwipeGoesBackFromACleanForm`,
+     `testAContentSwipeKeepsAChangedForm`, `testSwipingBackWorksOnlyWithoutChanges`
+     and `testTheSwipeGuardSurvivesLeavingAndComingBack`, on iOS 26 and 27.
+   - **VoiceOver's escape** (the two-finger scrub) is the same guarded back.
+     XCUITest can't perform it, so it has no UI test.
 2. **The leave guard is an alert.** iOS 26 shows a confirmation dialog as a
    popover without its cancel button, so "Discard this entry?" is an alert with
    Discard and Keep editing.
