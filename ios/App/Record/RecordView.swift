@@ -40,8 +40,15 @@ struct RecordView: View {
         }
         // A fresh form (Log another) starts with fresh field state: no focus or touch carried over.
         .id(ObjectIdentifier(model.form))
+        // Nothing can change while it saves: an edit made meanwhile would be lost when the screen
+        // closes or Log another starts afresh.
+        .disabled(model.isSaving)
         .safeAreaInset(edge: .top) {
-            if model.isFixing { fixBanner }
+            if model.isFixing {
+                fixBanner
+            } else if let message = model.rejectionMessage {
+                rejectionBanner(message)
+            }
         }
         .safeAreaInset(edge: .bottom) {
             if !(keyboardUp && typeSize.isAccessibilitySize) { saveBar }
@@ -110,11 +117,25 @@ struct RecordView: View {
             action: { height in environment.toastBottomInset = height + 8 })
     }
 
+    /// A refusal the form can't show on a field (no `Problem` came back).
+    private func rejectionBanner(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Not saved").font(.qr(.callout))
+            Text("The server said: \(message)").font(.qr(.subheadline))
+        }
+        .foregroundStyle(QuickrTone.danger.foreground)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(QuickrTone.danger.background)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("record.rejection")
+    }
+
     private var fixBanner: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("This entry was not saved").font(.qr(.callout))
             Text(
-                model.fixMessage.map {
+                (model.rejectionMessage ?? model.fixMessage).map {
                     "The server said: \($0). Correct it and save again, or discard it from the sync list."
                 }
                     ?? "The server rejected it. Correct it and save again, or discard it from the sync list."

@@ -51,6 +51,13 @@ final class RecordSessionWriter: RecordWriter {
         await session.scheduler?.requestFlush(reason: .enqueue)
     }
 
+    func refreshFix(_ fix: RecordFix) async -> RecordFix? {
+        guard let item = try? await session.store?.outbox.item(id: fix.itemId) else { return nil }
+        var fresh = fix
+        fresh.rowVersion = item.rowVersion
+        return fresh
+    }
+
     func failure(_ error: any Error) -> RecordFailure {
         switch error {
         case OutboxError.entryDeleted: .notSaved

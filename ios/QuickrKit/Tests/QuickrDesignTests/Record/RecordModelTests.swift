@@ -39,7 +39,19 @@ final class RecordFakeWriter: RecordWriter {
     var delivery: RecordDelivery = .sent
     var logError: (any Error)?
     private(set) var logged: [(answers: [String: AnswerValue], capturedAt: Date, notes: String?)] = []
-    private(set) var fixes: [(itemId: String, answers: [String: AnswerValue], capturedAt: Date, notes: String?)] = []
+    private(set) var fixes:
+        [(itemId: String, rowVersion: Int, answers: [String: AnswerValue], capturedAt: Date, notes: String?)] = []
+    /// The item's row version as the store has it (each fix moves it).
+    var storedRowVersion = 3
+    /// Holds `sendNow` until `release()` (overlapping saves).
+    var holdSend = false
+    private var held: [CheckedContinuation<Void, Never>] = []
+
+    func release() {
+        let waiting = held
+        held = []
+        for continuation in waiting { continuation.resume() }
+    }
     private(set) var discarded: [UUID] = []
     private(set) var sent: [UUID] = []
 
@@ -51,6 +63,7 @@ final class RecordFakeWriter: RecordWriter {
 
     func sendNow(_ entryId: UUID) async -> RecordDelivery {
         sent.append(entryId)
+        if holdSend { await withCheckedContinuation { held.append($0) } }
         return delivery
     }
 
@@ -59,7 +72,14 @@ final class RecordFakeWriter: RecordWriter {
     func fix(
         _ fix: RecordFix, topic: Topic, answers: [String: AnswerValue], capturedAt: Date, notes: String?
     ) async throws {
-        fixes.append((fix.itemId, answers, capturedAt, notes))
+        fixes.append((fix.itemId, fix.rowVersion, answers, capturedAt, notes))
+        storedRowVersion += 1
+    }
+
+    func refreshFix(_ fix: RecordFix) async -> RecordFix? {
+        var fresh = fix
+        fresh.rowVersion = storedRowVersion
+        return fresh
     }
 
     func failure(_ error: any Error) -> RecordFailure { .message("\(error)") }
@@ -111,8 +131,8 @@ struct RecordBoom: Error {}
         #expect(await model.save() == .leave)
         #expect(writer.logged.count == 1)
         #expect(writer.logged.first?.answers == ["type": .string("run"), "duration": .int(30)])
-        // Untouched, "captured at" is the moment of Save, not of opening.
-        #expect(writer.logged.first?.capturedAt == start.addingTimeInterval(90))
+        // Untouched, "captured at" is when the form opened (the PWA's), not the moment of Save.
+        #expect(writer.logged.first?.capturedAt == start)
         #expect(writer.logged.first?.notes == nil)
         #expect(notices.events == [.logged(sent: true)])
         #expect(!model.hasUnsavedChanges && !model.isSaving)
@@ -292,6 +312,53 @@ struct RecordBoom: Error {}
         #expect(writer.discarded.isEmpty, "a fix is only discarded from the sync sheet")
         #expect(model.form.errors["duration"] == "Must be at most 600 min")
         #expect(notices.events.isEmpty)
+    }
+
+    @Test func aSecondFixAfterARejectionUsesTheItemsNewVersion() async {
+        writer.delivery = .rejected(rejected, message: "422")
+        let model = model(workout, .fix(fix(problem: rejected)))
+        // Valid here, refused by the server twice.
+        model.form.change("duration", to: .text("500"))
+        #expect(await model.save() == .stay)
+        model.form.change("duration", to: .text("400"))
+        #expect(await model.save() == .stay)
+        writer.delivery = .sent
+        model.form.change("duration", to: .text("60"))
+        #expect(await model.save() == .leave)
+        // Each fix used the version the previous one left (3, then 4, then 5), so none misses.
+        #expect(writer.fixes.map(\.rowVersion) == [3, 4, 5])
+        #expect(writer.fixes.last?.answers == ["type": .string("run"), "duration": .int(60)])
+    }
+
+    @Test func aRefusalWithoutAProblemIsShownInBothModes() async {
+        writer.delivery = .rejected(nil, message: "Rejected (400)")
+        let model = model()
+        fill(model)
+        #expect(await model.save() == .stay)
+        #expect(model.rejectionMessage == "Rejected (400)")
+        #expect(writer.discarded.count == 1)
+        writer.delivery = .sent
+        #expect(await model.save() == .leave)
+        #expect(model.rejectionMessage == nil)
+
+        writer.delivery = .rejected(nil, message: "Rejected (400)")
+        let fixing = self.model(workout, .fix(fix(problem: rejected)))
+        fixing.form.change("duration", to: .text("60"))
+        #expect(await fixing.save() == .stay)
+        #expect(fixing.rejectionMessage == "Rejected (400)")
+    }
+
+    @Test func overlappingSavesWriteOnceAndEditingWaits() async {
+        writer.holdSend = true
+        let model = model()
+        fill(model)
+        let first = Task { await model.save() }
+        while writer.sent.isEmpty { await Task.yield() }
+        #expect(model.isSaving, "the view disables editing while this is true")
+        #expect(await model.save() == .stay, "a second Save while saving does nothing")
+        writer.release()
+        #expect(await first.value == .leave)
+        #expect(writer.logged.count == 1 && !model.isSaving)
     }
 
     // MARK: Guard

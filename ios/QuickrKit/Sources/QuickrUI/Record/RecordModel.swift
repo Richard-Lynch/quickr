@@ -13,10 +13,12 @@ public protocol RecordWriter: AnyObject {
     func sendNow(_ entryId: UUID) async -> RecordDelivery
     /// Drops a rejected new entry from the queue (the form keeps the user's answers).
     func discard(_ entryId: UUID) async
-    /// Fix mode: replaces the rejected item's body and queues it again.
+    /// Fix mode: replaces the rejected item's body and queues it again (CAS on `fix.rowVersion`).
     func fix(
         _ fix: RecordFix, topic: Topic, answers: [String: AnswerValue], capturedAt: Date, notes: String?
     ) async throws
+    /// The item as it is now (its `rowVersion` moves with every fix), or nil once it's gone.
+    func refreshFix(_ fix: RecordFix) async -> RecordFix?
     /// What to say about a refused write.
     func failure(_ error: any Error) -> RecordFailure
 }
@@ -97,7 +99,8 @@ public final class RecordModel {
     public let topic: Topic
     public let mode: Mode
     public private(set) var form: FormModel
-    /// When it happened. Untouched, a new entry takes the moment of Save.
+    /// When it happened: the moment the form opened (or was reset by Log another), like the PWA,
+    /// unless the user changes it.
     public var capturedAt: Date {
         didSet { capturedAtEdited = true }
     }
@@ -115,6 +118,8 @@ public final class RecordModel {
     public private(set) var loggedCount = 0
     /// A banner for a fix whose failure had no `Problem` to place.
     public private(set) var fixMessage: String?
+    /// A refusal with no `Problem` to put on the fields (either mode): shown over the form.
+    public private(set) var rejectionMessage: String?
 
     @ObservationIgnored private let writer: any RecordWriter
     @ObservationIgnored private let notices: any RecordNotices
@@ -125,6 +130,8 @@ public final class RecordModel {
     @ObservationIgnored private var capturedAtEdited = false
     /// Saved and leaving: nothing to guard any more.
     @ObservationIgnored private var saved = false
+    /// Fix mode's item as last read: its `rowVersion` changes with every fix.
+    @ObservationIgnored private var currentFix: RecordFix?
 
     public init(
         topic: Topic, mode: Mode, writer: any RecordWriter, notices: any RecordNotices, logAnother: Bool = false,
@@ -143,6 +150,7 @@ public final class RecordModel {
             form = FormModel(questions: topic.questions, mode: .create(last: last))
             capturedAt = now()
         case .fix(let fix):
+            currentFix = fix
             form = FormModel(questions: topic.questions, mode: .fix(answers: fix.answers, problem: fix.problem))
             capturedAt = fix.capturedAt ?? now()
             notes = fix.notes ?? ""
@@ -165,7 +173,9 @@ public final class RecordModel {
         !saved && (form.inputs != baseline || notes != baselineNotes || capturedAtEdited)
     }
 
-    /// Validates and saves. `.leave` when the screen should close.
+    /// Validates and saves. `.leave` when the screen should close. While it runs, `isSaving` is
+    /// true: the view disables editing (so nothing typed meanwhile is lost) and a second Save is
+    /// ignored.
     public func save() async -> Outcome {
         guard !isSaving else { return .stay }
         guard let body = form.submit() else {
@@ -185,13 +195,11 @@ public final class RecordModel {
         guard !isSaving, checkMeta(), case .create(let answers) = body else { return .stay }
         isSaving = true
         defer { isSaving = false }
-        let when = capturedAtEdited || isFixing ? capturedAt : now()
+        rejectionMessage = nil
         let notes = self.notes.trimmingCharacters(in: .whitespacesAndNewlines)
         let note = notes.isEmpty ? nil : notes
-        switch mode {
-        case .new: return await logNew(answers: answers, capturedAt: when, notes: note)
-        case .fix(let fix): return await resubmit(fix, answers: answers, capturedAt: when, notes: note)
-        }
+        if let fix = currentFix { return await resubmit(fix, answers: answers, capturedAt: capturedAt, notes: note) }
+        return await logNew(answers: answers, capturedAt: capturedAt, notes: note)
     }
 
     private func logNew(answers: [String: AnswerValue], capturedAt: Date, notes: String?) async -> Outcome {
@@ -227,6 +235,8 @@ public final class RecordModel {
         do {
             try await writer.fix(fix, topic: topic, answers: answers, capturedAt: capturedAt, notes: notes)
         } catch {
+            // Changed elsewhere (a CAS miss): pick up its version so the next save can apply.
+            await refresh(fix)
             notices.failed(topic: topic, writer.failure(error))
             return .stay
         }
@@ -234,13 +244,20 @@ public final class RecordModel {
         case .sent: notices.fixed(topic: topic, sent: true)
         case .queued: notices.fixed(topic: topic, sent: false)
         case .rejected(let problem, let message):
-            // A fix keeps its item (discarding is the sync sheet's, explicitly).
+            // A fix keeps its item (discarding is the sync sheet's, explicitly). The fix moved its
+            // row version: read it back so the user's next correction applies. Their answers stay.
+            await refresh(fix)
             show(problem, message: message)
             return .stay
         case .notSaved:
             notices.failed(topic: topic, .notSaved)
         }
         return finish()
+    }
+
+    private func refresh(_ fix: RecordFix) async {
+        guard let fresh = await writer.refreshFix(fix) else { return }
+        currentFix?.rowVersion = fresh.rowVersion
     }
 
     private func finish() -> Outcome {
@@ -258,6 +275,7 @@ public final class RecordModel {
         capturedAtEdited = false
         metaErrors = [:]
         fixMessage = nil
+        rejectionMessage = nil
     }
 
     private func show(_ problem: Problem?, message: String) {
@@ -266,7 +284,7 @@ public final class RecordModel {
             metaErrors = form.metaErrors
             if !metaErrors.isEmpty { showsDetails = true }
         } else {
-            fixMessage = message
+            rejectionMessage = message
         }
     }
 
@@ -274,9 +292,7 @@ public final class RecordModel {
     @discardableResult
     private func checkMeta() -> Bool {
         var errors: [EntryFormField: String] = [:]
-        if capturedAtEdited || isFixing,
-            let issue = EntryMetaValidation.capturedAtIssue(capturedAt, limits: limits, now: now())
-        {
+        if let issue = EntryMetaValidation.capturedAtIssue(capturedAt, limits: limits, now: now()) {
             errors[.capturedAt] = issue
         }
         if case .failure(let message) = EntryMetaValidation.notes(notes, limits: limits) {
