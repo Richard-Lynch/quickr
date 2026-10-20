@@ -109,8 +109,17 @@ public struct NotificationActionHandler: Sendable {
     /// §7.1 step 9: widgets show due state and last values.
     let reloadWidgets: @Sendable () -> Void
     let flushBudget: Duration
-    /// Tests: runs between the preconditions and the write (step 4 → 5), to retire the store there.
-    var beforeWriteForTesting: (@Sendable () async -> Void)?
+    /// Decides, together with acting, that a store is the active one (steps 8 and 10).
+    let gate: any ActiveStoreGate
+    /// Tests: runs at each `TestPoint`, to retire the store or switch servers there.
+    var testHook: (@Sendable (TestPoint) async -> Void)?
+
+    enum TestPoint: Sendable {
+        /// Between the preconditions and the write (step 4 → 5).
+        case beforeWrite
+        /// Between the badge's count and setting it (step 8).
+        case badgeCounted
+    }
 
     public init(
         partitions: StorePartitions, center: any NotificationCenterProtocol,
@@ -118,7 +127,8 @@ public struct NotificationActionHandler: Sendable {
         wallClock: any WallClock = SystemWallClock(),
         isProtectedDataAvailable: @escaping @Sendable () async -> Bool = { true },
         onSignal: @escaping @Sendable (OutboxSignal) -> Void = { _ in },
-        reloadWidgets: @escaping @Sendable () -> Void = {}, flushBudget: Duration = Self.flushBudget
+        reloadWidgets: @escaping @Sendable () -> Void = {}, flushBudget: Duration = Self.flushBudget,
+        gate: (any ActiveStoreGate)? = nil
     ) {
         self.partitions = partitions
         self.center = center
@@ -129,6 +139,7 @@ public struct NotificationActionHandler: Sendable {
         self.onSignal = onSignal
         self.reloadWidgets = reloadWidgets
         self.flushBudget = flushBudget
+        self.gate = gate ?? RegistryActiveGate(registry: partitions.registry)
     }
 
     public func handle(_ response: NotificationActionResponse) async -> NotificationActionOutcome {
@@ -162,7 +173,7 @@ public struct NotificationActionHandler: Sendable {
         guard let slot = notification.quickr?.slot else { return true }
         let delivered = await center.deliveredNotifications()  // outside any transaction
         let duplicates = ReminderDedup.identifiersToRemove(arriving: notification, delivered: delivered)
-        if !duplicates.isEmpty { center.removeDeliveredNotifications(withIdentifiers: duplicates) }
+        removeDelivered(duplicates, of: slot, among: delivered)
         if duplicates.contains(notification.id) { return false }
         guard (try? await partitions.registry.repository.activeServerId()) == slot.serverId,
             await isProtectedDataAvailable(),
@@ -178,8 +189,19 @@ public struct NotificationActionHandler: Sendable {
                 || ServerLayer.revision(db, entityKind: .entry, id: entryId) != nil
         }
         guard satisfied == true else { return true }
-        center.removeDeliveredNotifications(withIdentifiers: [notification.id])
+        removeDelivered([notification.id], of: slot, among: delivered)
         return false
+    }
+
+    /// Removes delivered notifications by identifier, but only where every delivered notification
+    /// with that identifier is for `slot`: a local reminder's identifier doesn't name its server
+    /// (`due-{topic_id}-{due_since}`), so another server's reminder may share it, and is kept.
+    private func removeDelivered(_ ids: [String], of slot: ReminderSlot, among delivered: [NotificationSnapshot]) {
+        let safe = ids.filter { id in
+            let matches = delivered.filter { $0.id == id }
+            return !matches.isEmpty && matches.allSatisfy { $0.quickr?.slot == slot }
+        }
+        if !safe.isEmpty { center.removeDeliveredNotifications(withIdentifiers: safe) }
     }
 
     // MARK: - §7.1
@@ -250,7 +272,7 @@ public struct NotificationActionHandler: Sendable {
             return await fail(.storeUnavailable, topicId: topicId, topic: topicName, q)
         }
 
-        await beforeWriteForTesting?()
+        await testHook?(.beforeWrite)
         // 5. One IMMEDIATE transaction, with the shared action entry id (§7.4).
         let entryId = ActionEntryId.make(serverId: action.serverId, topicId: topicId, dueSince: dueSince)
         guard let topicUUID = UUID(uuidString: topicId) else {
@@ -271,27 +293,20 @@ public struct NotificationActionHandler: Sendable {
 
         // 7. Clear this topic's delivered reminders and the pending local ones now satisfied (L4).
         await clearReminders(serverId: action.serverId, topicId: topicId, store: store)
-        // 8. The badge only reflects the active store (§8), as it is now: re-read after the awaits.
-        if await isActive(store) { await updateBadge(store) }
+        // 8. The badge only reflects the active store (§8): decided when it is set.
+        if let count = await dueCount(store) {
+            await testHook?(.badgeCounted)
+            _ = await gate.whenActive(store.scope) { [center] in try? await center.setBadgeCount(count) }
+        }
         // 9. A new entry changes the topic's due state and last value.
         if case .created = result { reloadWidgets() }
         // 10. Flush the active store only, forced, within the budget; a duplicate too (its first
         // answer may still be queued).
-        let flushed: OutboxFlushReport.Ending? = await isActive(store) ? await flush(store) : nil
+        let flushed = await flush(store)
         switch result {
         case .created: return .logged(entryId: entryId, serverId: action.serverId, flush: flushed)
         case .duplicate(let duplicate): return .alreadyLogged(entryId: entryId, duplicate, flush: flushed)
         }
-    }
-
-    /// Whether `store` is the active server's current file right now: the badge and the flush are
-    /// for it alone, and a server switch or a reset may have happened during the handler's awaits.
-    private func isActive(_ store: LocalStore) async -> Bool {
-        let registry = partitions.registry.repository
-        guard (try? await registry.activeServerId()) == store.serverId,
-            let server = try? await registry.server(id: store.serverId)
-        else { return false }
-        return server.storeGen == store.storeGen && server.pendingGen == nil
     }
 
     /// Step 5's transaction. A store retired meanwhile is reopened and the write retried once.
@@ -332,24 +347,24 @@ public struct NotificationActionHandler: Sendable {
         if !satisfied.isEmpty { center.removePendingNotificationRequests(withIdentifiers: satisfied.map(\.id)) }
     }
 
-    /// The active store's due count (`dueCount`), at device time plus the measured skew.
-    private func updateBadge(_ store: LocalStore) async {
+    /// The store's due count (`dueCount`), at device time plus the measured skew.
+    private func dueCount(_ store: LocalStore) async -> Int? {
         let wall = wallClock.now()
-        guard
-            let count = try? await store.writer.read({ db -> Int in
-                let state = try Row.fetchOne(db, sql: "SELECT * FROM sync_state WHERE id = 1").map(SyncState.init(row:))
-                let skew = state?.skewMilliseconds ?? 0
-                let now = wall.addingTimeInterval(skew / 1000)
-                return TopicListing.badgeCount(try StoreView.topics(db).map(\.topic), now: now)
-            })
-        else { return }
-        try? await center.setBadgeCount(count)
+        return try? await store.writer.read { db -> Int in
+            let state = try Row.fetchOne(db, sql: "SELECT * FROM sync_state WHERE id = 1").map(SyncState.init(row:))
+            let now = wall.addingTimeInterval((state?.skewMilliseconds ?? 0) / 1000)
+            return TopicListing.badgeCount(try StoreView.topics(db).map(\.topic), now: now)
+        }
     }
 
+    /// Step 10: a forced flush within the budget, if the store is the active one when it starts.
     private func flush(_ store: LocalStore) async -> OutboxFlushReport.Ending? {
         guard let sender = await sender(store) else { return nil }
         let outbox = Outbox(store: store, sender: sender, owner: owner, onSignal: onSignal)
-        return try? await outbox.flush(force: true, budget: flushBudget, leaseWait: flushBudget).ending
+        let budget = flushBudget
+        return await gate.whenActive(store.scope) {
+            try? await outbox.flush(force: true, budget: budget, leaseWait: budget).ending
+        } ?? nil
     }
 
     // MARK: - Failure notifications

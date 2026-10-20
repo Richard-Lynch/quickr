@@ -45,6 +45,8 @@ extension AppEnvironment {
             owner: LeaseClaim.owner(kind: "app", launchId: UUID()), wallClock: configuration.wallClock,
             isProtectedDataAvailable: { await UIApplication.shared.isProtectedDataAvailable },
             onSignal: session.coordinator.outboxSignalHandler,
-            reloadWidgets: { WidgetCenter.shared.reloadAllTimelines() })
+            reloadWidgets: { WidgetCenter.shared.reloadAllTimelines() },
+            // The badge and the flush follow the session's binding, decided where it changes.
+            gate: SessionActiveGate(session: session))
     }
 }

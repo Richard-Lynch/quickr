@@ -181,6 +181,25 @@ private let otherServerURL = URL(string: "https://other.example")!
         await session.shutdown()
     }
 
+    /// The notification handler's gate (notifications.md §7.1 steps 8, 10): the bound store, or
+    /// before any bind the registry's active store.
+    @Test func whenActiveFollowsTheBindingOrBeforeItTheRegistry() async throws {
+        let w = try World()
+        defer { w.env.cleanup() }
+        let session = try w.session()
+        await session.start(serverURL: SyncEnv.baseURL)
+        let scope = try #require(session.binding?.scope)
+        #expect(await session.whenActive(scope) { 1 } == 1)
+        #expect(await session.whenActive(EntryScope(serverId: scope.id, storeGen: 2)) { 1 } == nil)
+        await session.shutdown()
+
+        // A launch for an action in the background: nothing bound yet, the registry decides.
+        let background = try w.session()
+        #expect(background.binding == nil)
+        #expect(await background.whenActive(scope) { 1 } == 1)
+        #expect(await background.whenActive(EntryScope("another/1")) { 1 } == nil)
+    }
+
     @Test func switchingServersRebindsToTheOtherStore() async throws {
         let w = try World()
         defer { w.env.cleanup() }

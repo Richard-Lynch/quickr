@@ -27,6 +27,8 @@ import Testing
         let partitions: StorePartitions
         /// Runs inside the center's queries (`deliveredNotifications`, …): to act mid-handler.
         let onQuery = QueryHook()
+        /// Runs inside the handler's sender lookup (step 10).
+        let onSender = QueryHook()
         let center: FakeNotificationCenter
         let server = FakeServer()
         let clock = FakeLeaseClock()
@@ -74,8 +76,9 @@ import Testing
         var handler: NotificationActionHandler {
             NotificationActionHandler(
                 partitions: partitions, center: center,
-                sender: { [server] _ in
-                    APIClient(baseURL: FakeServer.base, transport: server, identity: StaticServerIdentity(nil))
+                sender: { [server, onSender] _ in
+                    onSender.run("sender")
+                    return APIClient(baseURL: FakeServer.base, transport: server, identity: StaticServerIdentity(nil))
                 },
                 owner: "app:test", wallClock: wall,
                 isProtectedDataAvailable: { [self] in self.unlocked.withLock { $0 } },
@@ -433,8 +436,8 @@ import Testing
         let r = w.reminder(w.moodTopic)
         let retired = Mutex<LocalStore?>(nil)
         var handler = w.handler
-        handler.beforeWriteForTesting = { [partitions = w.partitions] in
-            guard retired.withLock({ $0 == nil }) else { return }
+        handler.testHook = { [partitions = w.partitions] point in
+            guard point == .beforeWrite, retired.withLock({ $0 == nil }) else { return }
             // A local reset retires the file the handler just checked (sync-protocol.md §12.1).
             let old = try! await partitions.openStore(serverId: Self.serverA, role: .app).store
             let (count, maxSeq) = try! await old.outbox.summary()
@@ -543,6 +546,37 @@ import Testing
         #expect(w.server.handled.isEmpty, "and no flush")
     }
 
+    /// Switches the active server with a synchronous registry write (from inside a hook).
+    static func switchActive(_ w: World, to serverId: String) {
+        try? w.partitions.registry.writer.write { db in
+            try db.execute(sql: "INSERT OR REPLACE INTO active (id, server_id) VALUES (1, ?)", arguments: [serverId])
+        }
+    }
+
+    @Test func aSwitchBetweenTheBadgeCountAndSettingItLeavesTheBadge() async throws {
+        let w = try await World()
+        w.center.withState { $0.badge = 99 }
+        var handler = w.handler
+        handler.testHook = { point in if point == .badgeCounted { Self.switchActive(w, to: Self.serverB) } }
+        let r = w.reminder(w.moodTopic)
+        let outcome = await handler.handle(
+            .init(action: .custom(r.category.actions[0].identifier), title: "Mood", quickr: r.info))
+        #expect(outcome == .logged(entryId: w.entryId(w.moodTopic), serverId: Self.serverA, flush: nil))
+        #expect(w.center.withState { $0.badge } == 99, "decided when set: no longer active")
+        #expect(w.server.handled.isEmpty)
+    }
+
+    @Test func aSwitchDuringTheSenderLookupSkipsTheFlush() async throws {
+        let w = try await World()
+        w.center.withState { $0.badge = 99 }
+        w.onSender.set { _ in Self.switchActive(w, to: Self.serverB) }
+        let r = w.reminder(w.moodTopic)
+        #expect(await w.tap(r, 0) == .logged(entryId: w.entryId(w.moodTopic), serverId: Self.serverA, flush: nil))
+        #expect(w.center.withState { $0.badge } == 0, "still active when the badge was set")
+        #expect(w.server.handled.isEmpty, "not when the flush would start")
+        #expect(try await w.items().count == 1, "the entry waits in its store")
+    }
+
     // MARK: - Codex r1: §11.2 L2 in the foreground, any server
 
     @Test func aLocalReminderWhoseRemoteOneIsDeliveredIsNotPresented() async throws {
@@ -561,6 +595,35 @@ import Testing
         w.center.withState { $0.delivered = [local] }
         #expect(await w.handler.shouldPresent(delivered))
         #expect(w.center.withState { $0.delivered }.isEmpty)
+    }
+
+    @Test func anotherServersReminderWithTheSameLocalIdIsKept() async throws {
+        let w = try await World()
+        // Two servers with the same topic id (a restored copy): their local ids are the same.
+        var aLocal = w.reminder(w.moodTopic, serverId: Self.serverA).info
+        aLocal.origin = .local
+        let fromB = w.reminder(w.moodTopic, serverId: Self.serverB).info
+        var bLocal = fromB
+        bLocal.origin = .local
+        let id = bLocal.slot!.localRequestIdentifier
+        #expect(aLocal.slot!.localRequestIdentifier == id)
+        let aDelivered = NotificationSnapshot(id: id, quickr: aLocal)
+        let bRemote = NotificationSnapshot(id: "b-remote", quickr: fromB)
+        w.center.withState { $0.delivered = [aDelivered, bRemote] }
+        #expect(await !w.handler.shouldPresent(NotificationSnapshot(id: id, quickr: bLocal)), "B's duplicate")
+        #expect(w.center.withState { $0.delivered.map(\.id) } == [id, "b-remote"], "A's reminder survives")
+
+        // Satisfied in the active store (A): suppressed, but B's delivered one with the id stays.
+        let store = w.stores[Self.serverA]!
+        let topicId = w.moodTopic.id
+        try await store.writer.write { db in
+            _ = try ServerLayer.upsert(
+                db, entry: Make.entry(topicId: topicId, minutes: 1, answers: ["mood": .string("ok")]))
+        }
+        let aRemote = w.reminder(w.moodTopic, serverId: Self.serverA).info
+        w.center.withState { $0.delivered = [NotificationSnapshot(id: id, quickr: bLocal)] }
+        #expect(await !w.handler.shouldPresent(NotificationSnapshot(id: id, quickr: aRemote)))
+        #expect(w.center.withState { $0.delivered.map(\.id) } == [id])
     }
 
     struct Failure: Error, CustomStringConvertible {
