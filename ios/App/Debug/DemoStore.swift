@@ -4,7 +4,8 @@ import QuickrCore
 import QuickrData
 
 /// `-QuickrDemoStore`: launches over a fresh store seeded with demo topics (due, overdue, soon,
-/// later, unscheduled, archived), offline, for UI tests and screenshots. Debug builds only.
+/// later, unscheduled, archived; chip, number and no quick-log), offline, for the HOME and TILES UI
+/// tests and screenshots. Debug builds only.
 enum DemoStore {
     static let argument = "-QuickrDemoStore"
 
@@ -34,12 +35,22 @@ enum DemoStore {
                     let at = last.addingTimeInterval(-Double(n) * 86_400)
                     let entry = Entry(
                         id: UUID(), topicId: topic.id, version: 1, revision: 1, source: "demo", channel: .ios,
-                        capturedAt: at, createdAt: at, updatedAt: at, answers: [:])
+                        capturedAt: at, createdAt: at, updatedAt: at, answers: answers[topic.slug] ?? [:])
                     _ = try ServerLayer.upsert(db, entry: entry)
                 }
             }
+            // A known epoch, as after a bootstrap: without one the outbox makes no claims, so a
+            // quick-log's `sendNow` would wait out its whole window before reporting "queued".
+            try db.execute(sql: "UPDATE sync_state SET epoch = 'demo-epoch'")
         }
     }
+
+    /// Every demo entry's answers, by topic slug: what the tiles show as "Last …" and prefill.
+    static let answers: [String: [String: AnswerValue]] = [
+        "water": ["glasses": .int(3)],
+        "headache": ["severity": .string("mild")],
+        "mood": ["mood": .string("good")],
+    ]
 
     /// Interval schedules make the due states relative to `now`, so every launch looks the same.
     static func topics(now: Date) -> [Topic] {
@@ -57,7 +68,15 @@ enum DemoStore {
                 updatedAt: ago(60 * 24 * Double(n)), archivedAt: status == .archived ? ago(60 * 24) : nil,
                 schedule: schedule, scheduleUpdatedAt: schedule == nil ? nil : ago(60 * 24 * 30), questions: questions)
         }
-        let glasses = Question(key: "glasses", label: "Glasses", kind: .int(.init(min: 0, max: 20)))
+        let glasses = Question(key: "glasses", label: "Glasses", kind: .int(.init(min: 0, max: 20, unit: "glasses")))
+        let severity = Question(
+            key: "severity", label: "Severity",
+            kind: .choice(
+                .init(options: ["none", "mild", "moderate", "severe"].map { .init(value: $0, label: $0.capitalized) })))
+        let minutes = Question(key: "minutes", label: "Minutes", kind: .int(.init(min: 1)))
+        let kind = Question(
+            key: "kind", label: "Kind",
+            kind: .choice(.init(options: [.init(value: "run", label: "Run"), .init(value: "gym", label: "Gym")])))
         let mood = Question(
             key: "mood", label: "Mood",
             kind: .choice(.init(options: [.init(value: "good", label: "Good"), .init(value: "meh", label: "Meh")])))
@@ -73,6 +92,10 @@ enum DemoStore {
                 questions: [note]),
             topic(5, "mood", "Mood", description: "How the day felt", entries: 30, last: ago(45), questions: [mood]),
             topic(6, "sleep", "Sleep", questions: [hours]),
+            // Quick-log chips, with a last answer.
+            topic(8, "headache", "Headache", entries: 12, last: ago(20), questions: [severity]),
+            // Two required questions: no quick-log.
+            topic(9, "workout", "Workout", questions: [minutes, kind]),
             topic(
                 7, "old-habit", "Old habit", status: .archived, entries: 3, last: ago(60 * 24 * 20), questions: [note]),
         ]

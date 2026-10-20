@@ -1,7 +1,8 @@
 import XCTest
 
 /// The home screen over the debug demo store (`-QuickrDemoStore`: Medication overdue, Water due,
-/// Stretch soon, Water the plants later, Mood and Sleep unscheduled, Old habit archived).
+/// Stretch soon, Water the plants later; Headache, Mood, Sleep and Workout unscheduled; Old habit
+/// archived).
 final class HomeTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -22,11 +23,11 @@ final class HomeTests: XCTestCase {
     }
 
     /// Due first: the longest overdue, then due, then coming up by next slot, then unscheduled by
-    /// recent activity. The archived topic is filtered out.
+    /// recent activity (then, never logged, by last edit). The archived topic is filtered out.
     @MainActor
     func testTheListIsDueFirst() {
         let app = launch()
-        let order = ["meds", "water", "stretch", "plants", "mood", "sleep"]
+        let order = ["meds", "water", "stretch", "plants", "headache", "mood", "sleep", "workout"]
         var previous = -CGFloat.infinity
         for slug in order {
             let element = tile(app, slug)
