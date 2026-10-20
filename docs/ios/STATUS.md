@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- Backend + clients: topic name sort is byte-order in practice (postgres:18-alpine/musl ignores en_US.utf8 for lower(name)), so "zed" sorts before "éclair". Switch to an ICU collation (e.g. `und-x-icu`) in Postgres, then regenerate home-vectors and update the iOS comparator and the PWA together (found by HOME).
 - PWA: real-browser e2e harness (Playwright, Chromium with service workers) for the B8 notification actions: real notification UI and `maxActions`, event lifetimes, Background Sync retries, auth-proxy redirects. The simulated SW harness covers the logic only.
 - **M3 HANDLER:** action-originated `entry.create` must use the shared name-based id from (server_id, topic_id, due_since), per the §7.1 amendment coming with B8, with shared vectors, so iOS and PWA actions on the same reminder dedupe server-side.
 - M3 (from Codex's M1 milestone review): Swift category-id generation verified against shared vectors (notifications.md:255 MUST); `NotificationCenterProtocol` can't represent B7's `open` action (NotificationCenterProtocol.swift:63); N1/N3/N5–N15 coverage; production category reconciliation, action validation, badge/dedupe, token lifecycle.
@@ -292,6 +293,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-20 00:30 (EDT): TILES ready (80ff85b; UI 11/11, integration 16/16, tap counts match the PWA); in Codex review. HOME r1 fixes 59acd66 (offline empty state, rebind reset with a generation token, byte-order name sort matching the musl server, collation vectors); gates running. LINKS+SETTINGS r2: per-server Keychain credentials (decided) to fix token isolation.
 
 - 2026-10-20 00:10 (EDT): Another API outage, ~22:25 to 00:10, stalled HOME, TILES and LINKS+SETTINGS mid-gate; all resumed. LINKS+SETTINGS Codex = REQUEST CHANGES (no "Sync first" in reset, the token is committed before the switch is confirmed, a warning-read failure allows the switch, and the secret leaks via HTTP header descriptions); fixes are in 090bf61, gates pending. HOME at d3daf9c (UI tests, screenshots), gates pending. TILES merged HOME's demo store; its gates are pending. A commit security-review hook also failed during the outage (log: ~/.claude/security/log.txt).
 
