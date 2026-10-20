@@ -12,16 +12,21 @@ final class RecordUITests: XCTestCase {
         let app = launch(open: "quickr://t/workout/record")
         let duration = app.textFields["form.field.duration"]
         XCTAssertTrue(app.buttons["Run"].waitForExistence(timeout: 15))
+        snap(app, "record-1-open")
         app.buttons["Run"].tap()
         XCTAssertTrue(duration.waitForKeyboardFocus(), "the pick moves on to Duration")
+        snap(app, "record-2-picked")
         duration.typeText("30")
+        snap(app, "record-3-typed")
         app.buttons["record.save"].tap()
 
         // Saved: the screen closes and the toast offers Undo.
         XCTAssertTrue(app.staticTexts["root.title"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["Logged Workout"].waitForExistence(timeout: 5))
+        snap(app, "record-4-logged")
         app.buttons["Undo"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Undone"].waitForExistence(timeout: 5))
+        snap(app, "record-5-undone")
     }
 
     @MainActor
@@ -131,6 +136,15 @@ final class RecordUITests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// A screenshot kept with the results (the demo GIF is made from them).
+    @MainActor
+    private func snap(_ app: XCUIApplication, _ name: String) {
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = name
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
 
     @MainActor
     private func launch(open url: String, extra: [String] = []) -> XCUIApplication {
