@@ -87,8 +87,8 @@ final class SettingsUITests: XCTestCase {
 
         let title = app.navigationBars["Service token"]
         XCTAssertTrue(title.exists)
-        title.press(
-            forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)))
+        title.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)))
         XCTAssertTrue(secret.waitForExistence(timeout: 2), "the sheet stays")
         XCTAssertFalse(offersToSavePassword(app, within: 0))
 
