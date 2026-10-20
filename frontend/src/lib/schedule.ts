@@ -241,10 +241,22 @@ function startOfDay(d: Date): number {
   return x.getTime();
 }
 
-/** "08:00", "yesterday 21:00", "Mon 08:00", "12 Oct" — relative to `now`, local time. */
-export function formatWhen(iso: string, now: Date = new Date()): string {
+/** A moment relative to `now`: whole local calendar days from today (0 = today). */
+export interface WhenParts {
+  /** The instant, as given. */
+  at: string;
+  /** Local calendar days from `now`'s day to `at`'s day (-1 = yesterday, 1 = tomorrow). */
+  day_offset: number;
+}
+
+/** The decision behind {@link formatWhen}: which local calendar day `iso` falls on. */
+export function whenParts(iso: string, now: Date = new Date()): WhenParts {
   const d = new Date(iso);
-  const days = Math.round((startOfDay(d) - startOfDay(now)) / 86_400_000);
+  return { at: iso, day_offset: Math.round((startOfDay(d) - startOfDay(now)) / 86_400_000) };
+}
+
+function formatWhenParts({ at, day_offset: days }: WhenParts): string {
+  const d = new Date(at);
   const time = timeFmt.format(d);
   if (days === 0) return time;
   if (days === -1) return `yesterday ${time}`;
@@ -253,8 +265,17 @@ export function formatWhen(iso: string, now: Date = new Date()): string {
   return dateFmt.format(d);
 }
 
-function minutesText(ms: number): string {
-  const m = Math.max(1, Math.round(ms / 60_000));
+/** "08:00", "yesterday 21:00", "Mon 08:00", "12 Oct" — relative to `now`, local time. */
+export function formatWhen(iso: string, now: Date = new Date()): string {
+  return formatWhenParts(whenParts(iso, now));
+}
+
+/** Whole minutes for "Due in …" (at least 1); 60 and over reads as rounded hours. */
+function waitMinutes(ms: number): number {
+  return Math.max(1, Math.round(ms / 60_000));
+}
+
+function minutesText(m: number): string {
   return m >= 60 ? `${String(Math.round(m / 60))} h` : `${String(m)} min`;
 }
 
@@ -268,27 +289,76 @@ export function isDueNow(due: DueStatus | null | undefined, now: Date = new Date
   return due.next_due_at !== null && Date.parse(due.next_due_at) <= now.getTime();
 }
 
-/** How a topic's due status reads on a tile. */
-export function dueView(due: DueStatus | null | undefined, now: Date = new Date()): DueView {
-  if (!due) return { tone: 'none', label: '' };
+/**
+ * Which due label a tile shows, without the (locale and time zone dependent) text:
+ * - `none`: no label;
+ * - `due_now`: "Due now" (due, but the server gave no `due_since`);
+ * - `due_since` / `overdue_since`: "Due now · since {when}" / "Overdue · since {when}";
+ * - `due_in`: "Due in {minutes} min" ("{round(minutes / 60)} h" from 60 minutes);
+ * - `next`: "Next {time}" (the next slot is later today);
+ * - `when`: the next slot on another day, capitalised ("Tomorrow 08:00", "Mon 08:00").
+ *
+ * `shared/fixtures/home-due-vectors.json` pins this for the iOS port.
+ */
+export type DueKind =
+  'none' | 'due_now' | 'due_since' | 'overdue_since' | 'due_in' | 'next' | 'when';
+
+export interface DueParts {
+  tone: DueTone;
+  kind: DueKind;
+  /** For `due_since`, `overdue_since`, `next` and `when`. */
+  when?: WhenParts;
+  /** For `due_in`: whole minutes, at least 1. */
+  minutes?: number;
+}
+
+/** The decision behind {@link dueView}. */
+export function dueParts(due: DueStatus | null | undefined, now: Date = new Date()): DueParts {
+  if (!due) return { tone: 'none', kind: 'none' };
   if (isDueNow(due, now)) {
     const since = due.is_due ? due.due_since : due.next_due_at;
-    if (!since) return { tone: 'due', label: 'Due now' };
+    if (!since) return { tone: 'due', kind: 'due_now' };
     const age = now.getTime() - Date.parse(since);
     return age < FRESH_DUE_MS
-      ? { tone: 'due', label: `Due now · since ${formatWhen(since, now)}` }
-      : { tone: 'overdue', label: `Overdue · since ${formatWhen(since, now)}` };
+      ? { tone: 'due', kind: 'due_since', when: whenParts(since, now) }
+      : { tone: 'overdue', kind: 'overdue_since', when: whenParts(since, now) };
   }
-  if (!due.next_due_at) return { tone: 'none', label: '' };
+  if (!due.next_due_at) return { tone: 'none', kind: 'none' };
   const wait = Date.parse(due.next_due_at) - now.getTime();
-  if (wait <= SOON_MS) return { tone: 'soon', label: `Due in ${minutesText(wait)}` };
-  const when = formatWhen(due.next_due_at, now);
-  // "Next 9:00 PM" today; "Tomorrow 8:00 AM" / "Mon 8:00 AM" / "12 Oct" further out.
-  const today = /^\d/.test(when);
-  return {
-    tone: 'later',
-    label: today ? `Next ${when}` : when.charAt(0).toUpperCase() + when.slice(1),
-  };
+  if (wait <= SOON_MS) return { tone: 'soon', kind: 'due_in', minutes: waitMinutes(wait) };
+  const when = whenParts(due.next_due_at, now);
+  return { tone: 'later', kind: when.day_offset === 0 ? 'next' : 'when', when };
+}
+
+function capitalise(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** The tile text for {@link dueParts}. */
+export function formatDue(p: DueParts): DueView {
+  const when = p.when ? formatWhenParts(p.when) : '';
+  switch (p.kind) {
+    case 'none':
+      return { tone: p.tone, label: '' };
+    case 'due_now':
+      return { tone: p.tone, label: 'Due now' };
+    case 'due_since':
+      return { tone: p.tone, label: `Due now · since ${when}` };
+    case 'overdue_since':
+      return { tone: p.tone, label: `Overdue · since ${when}` };
+    case 'due_in':
+      return { tone: p.tone, label: `Due in ${minutesText(p.minutes ?? 1)}` };
+    case 'next':
+      // "Next 9:00 PM" today; "Tomorrow 8:00 AM" / "Mon 8:00 AM" / "12 Oct" further out.
+      return { tone: p.tone, label: `Next ${when}` };
+    case 'when':
+      return { tone: p.tone, label: capitalise(when) };
+  }
+}
+
+/** How a topic's due status reads on a tile. */
+export function dueView(due: DueStatus | null | undefined, now: Date = new Date()): DueView {
+  return formatDue(dueParts(due, now));
 }
 
 /**
