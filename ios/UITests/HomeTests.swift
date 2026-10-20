@@ -22,21 +22,29 @@ final class HomeTests: XCTestCase {
         app.descendants(matching: .any)["tile.\(slug)"]
     }
 
+    /// Scrolls the list up by about `points` (a slow drag, so it doesn't fling).
+    @MainActor
+    private func scroll(_ app: XCUIApplication, by points: CGFloat) {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -points)))
+    }
+
     /// Due first: the longest overdue, then due, then coming up by next slot, then unscheduled by
     /// recent activity (then, never logged, by last edit). The archived topic is filtered out.
     @MainActor
     func testTheListIsDueFirst() {
         let app = launch()
         let order = ["meds", "water", "stretch", "plants", "headache", "mood", "sleep", "workout"]
-        var previous = -CGFloat.infinity
-        for slug in order {
-            let element = tile(app, slug)
-            if !element.exists { app.swipeUp() }
-            XCTAssertTrue(element.waitForExistence(timeout: 5), slug)
-            // Scrolling moves everything equally, so compare against the first tile's position.
-            let y = element.frame.minY - tile(app, "meds").frame.minY
-            XCTAssertGreaterThan(y, previous, "\(slug) comes after the one before it")
-            previous = y
+        XCTAssertTrue(tile(app, order[0]).waitForExistence(timeout: 5))
+        // Rows are lazy: one scrolled far enough off screen is released. So compare each pair
+        // while both exist, scrolling a little at a time until the next one appears.
+        for (above, below) in zip(order, order.dropFirst()) {
+            let a = tile(app, above)
+            let b = tile(app, below)
+            for _ in 0..<12 where !b.exists { scroll(app, by: 180) }
+            XCTAssertTrue(b.exists, "\(below) appears")
+            XCTAssertTrue(a.exists, "\(above) is still on screen next to \(below)")
+            XCTAssertLessThan(a.frame.minY, b.frame.minY, "\(above) comes before \(below)")
         }
         XCTAssertFalse(tile(app, "old-habit").exists)
         XCTAssertEqual(app.descendants(matching: .any)["home.section.due"].label, "Due now, 2")
