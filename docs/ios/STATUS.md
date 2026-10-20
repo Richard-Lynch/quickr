@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- Both clients: a prefilled number field (the min-0 prefill or the last value) keeps the caret where it was tapped, so typing "3" gives "30". Select all on the first focus of a pristine prefill, or clear a pristine min-0 prefill when typing starts. PWA: AnswerField.tsx NumberInput, quickLog.ts initialNumber. iOS: QuickLog.initialText and AnswerField. Tap counts are unchanged. (Found by UIT-2.)
 - SYNC-UX: add a deterministic test for repeated background/foreground cycles during a held startup (Codex r4 note; the expiry-first ordering is covered by activationWhileAnExpiredStartUnwindsConnects).
 - **D checkpoint (device):** measure how many notification categories iOS keeps; CAT's registry is append-only per §5.1 and Apple documents no limit.
 - `ios/scripts/test.sh` should run gen.sh, or detect a stale xcodeproj, before building (RECORD hit a stale project after deleting files).
