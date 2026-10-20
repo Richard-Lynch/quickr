@@ -64,12 +64,13 @@ final class TopicUITests: XCTestCase {
         XCTAssertEqual(app.textFields["newTopic.slug"].value as? String, "water", "the slug follows the name")
         let label = app.textFields["newTopic.q0.label"]
         label.tap()
-        label.typeText("Glasses")
-        dismissKeyboard(app)
+        label.typeText("Glasses\n")  // Return closes the keyboard
         snap(app, "topic-new")
         tap("newTopic.create", in: app)
 
-        XCTAssertTrue(toast("Topic created", in: app).waitForExistence(timeout: 10))
+        let created = toast("Topic created", in: app).waitForExistence(timeout: 10)
+        let banner = element("newTopic.banner", in: app)
+        XCTAssertTrue(created, banner.exists ? "banner: \(banner.label)" : "no toast, no banner")
         XCTAssertTrue(app.navigationBars["Water"].waitForExistence(timeout: 15), "its record screen")
         XCTAssertTrue(field("form.field.glasses", in: app).waitForExistence(timeout: 10))
     }
@@ -160,17 +161,20 @@ final class TopicUITests: XCTestCase {
     @MainActor
     private func tap(_ id: String, in app: XCUIApplication) {
         let target = element(id, in: app)
-        XCTAssertTrue(target.waitForExistence(timeout: 10), id)
         scrollTo(target, in: app)
+        XCTAssertTrue(target.waitForExistence(timeout: 5), id)
         target.tap()
     }
 
-    /// Drags up until `element` is hittable (bounded).
+    /// Drags up until `element` exists and is hittable (bounded): a `List` creates rows below the
+    /// fold only once they scroll in.
     @MainActor
     private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) {
-        for _ in 0..<10 where !element.isHittable {
-            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
-            start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)))
+        for _ in 0..<12 where !(element.exists && element.isHittable) {
+            // Above where a keyboard would be.
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+            start.press(
+                forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)))
         }
     }
 

@@ -47,6 +47,19 @@ struct NewTopicView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
+        ScrollViewReader { proxy in
+            form
+                // Like the PWA (`window.scrollTo({ top: 0 })`): an error brings the banner into view.
+                .onChange(of: model.visibleBanner) { _, banner in
+                    guard banner != nil else { return }
+                    withAnimation { proxy.scrollTo(Self.bannerId, anchor: .top) }
+                }
+        }
+    }
+
+    private static let bannerId = "newTopic.banner.section"
+
+    private var form: some View {
         List {
             if let banner = model.visibleBanner {
                 Section {
@@ -55,6 +68,7 @@ struct NewTopicView: View {
                         Text("• \(detail)").font(.qr(.footnote)).foregroundStyle(.qr.ink)
                     }
                 }
+                .id(Self.bannerId)
             }
             topicSection
             ForEach(Array(model.draft.questions.enumerated()), id: \.element.id) { index, question in

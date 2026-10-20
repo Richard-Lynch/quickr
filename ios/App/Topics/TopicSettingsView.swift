@@ -216,6 +216,8 @@ struct DeleteTopicSheet: View {
                     .accessibilityIdentifier("deleteTopic.confirm")
                 }
             }
+            .scrollContentBackground(.hidden)
+            .qrPaperBackground()
             .navigationTitle("Delete forever?")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -314,5 +316,7 @@ struct Banner: View {
         }
         .padding(.vertical, 4)
         .listRowBackground(tone == .danger ? Color.qr.dangerSoft : .qr.warnSoft)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(text)
     }
 }
