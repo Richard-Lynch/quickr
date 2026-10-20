@@ -97,6 +97,106 @@ import Testing
         #expect(try await active.entries.entry(id: entry.id) == nil, "hidden by the held delete")
     }
 
+    /// The edit screen's save, opened on server A and saved after a switch to B: refused, B
+    /// untouched. In its own store it queues an `entry.update` with only the changed answers.
+    @Test func updateInAStaleScopeIsRefusedAndQueuesInItsOwn() async throws {
+        let seeded = try await TestStores.seededLocation()
+        defer { TestStores.remove(seeded) }
+        let environment = AppEnvironment.live(location: seeded)
+        await environment.start()
+        let session = try #require(environment.session)
+        defer { Task { await session.shutdown() } }
+        let writer = environment.entryWriter
+        let topicId = PlaceholderTopicRepository.coffee
+        let now = Date()
+        let entry = Entry(
+            id: UUID(), topicId: topicId, version: 1, revision: 2, source: "test", channel: .ios, capturedAt: now,
+            createdAt: now, updatedAt: now, answers: ["cups": .int(1)])
+        try await #require(session.store).writer.write { db in _ = try ServerLayer.upsert(db, entry: entry) }
+        let scopeA = try #require(writer.scope)
+        let patch = EntryPatch(answers: ["cups": .some(.int(3))])
+
+        let storeB = try await session.partitions.createStore(serverId: "server-b", baseURL: "https://b.quickr.example")
+        try await session.partitions.registry.setActive("server-b")
+        await session.rebind()
+        await #expect(throws: EntryWriteError.scopeChanged) {
+            try await writer.update(entryId: entry.id, topicId: topicId, patch: patch, baseRevision: 2, in: scopeA)
+        }
+        #expect(try await storeB.outbox.items().isEmpty, "nothing queued in B")
+
+        // Back on A: queued, with the revision the user edited.
+        try await session.partitions.registry.setActive("test-server")
+        await session.rebind()
+        try await writer.update(
+            entryId: entry.id, topicId: topicId, patch: patch, baseRevision: 2, in: try #require(writer.scope))
+        let items = try await #require(session.store).outbox.items()
+        #expect(items.map(\.kind) == [.entryUpdate])
+        #expect(items.first?.baseRevision == 2)
+        #expect(items.first?.payloadJSON.contains("\"cups\"") == true)
+    }
+
+    /// Fixing a refused edit (outbox.md §11): its changes are replaced, it is pending again, and
+    /// its row version moves; an old row version is refused (CAS) instead of overwriting.
+    @Test func aRefusedEditIsFixedInPlace() async throws {
+        let seeded = try await TestStores.seededLocation()
+        defer { TestStores.remove(seeded) }
+        let environment = AppEnvironment.live(location: seeded)
+        await environment.start()
+        let session = try #require(environment.session)
+        defer { Task { await session.shutdown() } }
+        let writer = environment.entryWriter
+        let topicId = PlaceholderTopicRepository.coffee
+        let now = Date()
+        let entry = Entry(
+            id: UUID(), topicId: topicId, version: 1, revision: 2, source: "test", channel: .ios, capturedAt: now,
+            createdAt: now, updatedAt: now, answers: ["cups": .int(1)])
+        let store = try #require(session.store)
+        try await store.writer.write { db in _ = try ServerLayer.upsert(db, entry: entry) }
+        let scope = try #require(writer.scope)
+        try await writer.update(
+            entryId: entry.id, topicId: topicId, patch: EntryPatch(answers: ["cups": .some(.int(99))]), baseRevision: 2,
+            in: scope)
+        let queued = try #require(try await store.outbox.items().first)
+        try await store.writer.write { db in
+            try db.execute(
+                sql: "UPDATE outbox_item SET state = 'failed', failure_reason = 'rejected' WHERE id = ?",
+                arguments: [queued.id])
+        }
+        let failed = try #require(try await store.outbox.item(id: queued.id))
+
+        // A later edit queued behind the refused one: it set cups and notes.
+        try await writer.update(
+            entryId: entry.id, topicId: topicId, patch: EntryPatch(answers: ["cups": .some(.int(7))], notes: "later"),
+            baseRevision: 2, in: scope)
+        #expect(try await store.outbox.items().count == 2)
+
+        await #expect(throws: (any Error).self) {
+            try await writer.fixUpdate(
+                itemId: failed.id, rowVersion: failed.rowVersion - 1, entryId: entry.id, topicId: topicId,
+                patch: EntryPatch(answers: ["cups": .some(.int(3))]), overriding: EntryPatch(), in: scope)
+        }
+        // The refused edit as the edit screen reloads it.
+        let reloaded = try #require(
+            try await writer.refusedEdit(
+                itemId: failed.id, questions: [Question(key: "cups", label: "Cups", kind: .int(.init(min: 0)))],
+                in: scope))
+        #expect(reloaded.rowVersion == failed.rowVersion)
+        #expect(reloaded.patch.answers == ["cups": .some(.int(99))])
+        // Correcting cups: the later edit loses cups (the correction is the latest word), keeps notes.
+        try await writer.fixUpdate(
+            itemId: failed.id, rowVersion: failed.rowVersion, entryId: entry.id, topicId: topicId,
+            patch: EntryPatch(answers: ["cups": .some(.int(3))]),
+            overriding: EntryPatch(answers: ["cups": .some(.int(3))]), in: scope)
+        let shown = try #require(try await store.entries.entry(id: entry.id))
+        #expect(shown.entry.answers["cups"] == .int(3))
+        #expect(shown.entry.notes == "later")
+        let fixed = try #require(try await store.outbox.item(id: failed.id))
+        #expect(fixed.state == .pending)
+        #expect(fixed.rowVersion == failed.rowVersion + 1)
+        #expect(fixed.payloadJSON.contains("3") && !fixed.payloadJSON.contains("99"))
+        #expect(try await store.outbox.items().count == 2, "replaced, not queued again; the later edit stays")
+    }
+
     /// In the same store, Undo removes the never-sent create.
     @Test func undoInTheSameStoreRemovesTheEntry() async throws {
         let seeded = try await TestStores.seededLocation()

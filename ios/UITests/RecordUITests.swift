@@ -158,22 +158,30 @@ final class RecordUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Yoga"].waitForExistence(timeout: 15))
         app.buttons["Yoga"].tap()
         swipeBack(app)
-        XCTAssertTrue(app.buttons["record.save"].exists, "a changed form stays")
-        XCTAssertFalse(app.staticTexts["home.wordmark"].exists)
+        XCTAssertTrue(homeNeverAppears(app), "a changed form stays")
+        XCTAssertTrue(app.buttons["record.save"].exists)
     }
 
-    /// iOS 26's swipe from anywhere in the content is guarded like the edge swipe: a changed form
-    /// stays.
+    /// iOS 26's swipe back from anywhere in the content goes back from a clean form (the control
+    /// for the guarded case below).
+    @MainActor
+    func testAContentSwipeGoesBackFromACleanForm() {
+        let app = launch(open: "quickr://t/workout/record")
+        XCTAssertTrue(app.buttons["Yoga"].waitForExistence(timeout: 15))
+        contentSwipe(app)
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 5), "a clean form goes back")
+    }
+
+    /// The content swipe is guarded like the edge swipe: a changed form stays.
     @MainActor
     func testAContentSwipeKeepsAChangedForm() {
         let app = launch(open: "quickr://t/workout/record")
         XCTAssertTrue(app.buttons["Yoga"].waitForExistence(timeout: 15))
         app.buttons["Yoga"].tap()
-        let middle = app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.6))
-        middle.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.6)))
-        usleep(800_000)
-        XCTAssertTrue(app.buttons["record.save"].exists, "a changed form stays")
-        XCTAssertFalse(app.staticTexts["home.wordmark"].exists)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "the pick moves on to Duration")
+        contentSwipe(app)
+        XCTAssertTrue(homeNeverAppears(app), "a changed form stays")
+        XCTAssertTrue(app.buttons["record.save"].exists)
     }
 
     /// A swipe back let go part way (cancelled) leaves the screen as it was, and it still saves.
@@ -185,9 +193,8 @@ final class RecordUITests: XCTestCase {
         edge.press(
             forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)),
             withVelocity: .slow, thenHoldForDuration: 0.5)
-        usleep(800_000)
-        XCTAssertTrue(app.buttons["record.save"].isHittable, "still on the record screen")
-        XCTAssertFalse(app.staticTexts["home.wordmark"].exists)
+        XCTAssertTrue(homeNeverAppears(app), "still on the record screen")
+        XCTAssertTrue(app.buttons["record.save"].isHittable)
 
         app.buttons["Swim"].tap()
         let duration = app.textFields["form.field.duration"]
@@ -217,8 +224,8 @@ final class RecordUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Yoga"].waitForExistence(timeout: 10))
         app.buttons["Yoga"].tap()
         swipeBack(app)
-        XCTAssertTrue(app.buttons["record.save"].exists, "a changed form stays")
-        XCTAssertFalse(app.staticTexts["home.wordmark"].exists)
+        XCTAssertTrue(homeNeverAppears(app), "a changed form stays")
+        XCTAssertTrue(app.buttons["record.save"].exists)
     }
 
     /// At the largest accessibility size, Save is in the keyboard's toolbar while typing (the field
@@ -268,11 +275,37 @@ final class RecordUITests: XCTestCase {
         return app
     }
 
+    /// A quick rightward flick from 30% of the width (well clear of the edge swipe), at the height
+    /// of the first question's label ("Type"): above the keyboard a pick can bring up (a flick on
+    /// the keys isn't a swipe back), in any size or orientation. Starting on the label itself (near
+    /// the edge) doesn't make a content swipe.
+    @MainActor
+    private func contentSwipe(_ app: XCUIApplication) {
+        let label = app.staticTexts["Type"].firstMatch
+        XCTAssertTrue(label.waitForExistence(timeout: 5))
+        let window = app.windows.firstMatch.frame
+        let start = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: window.width * 0.3, dy: label.frame.midY))
+        let end = start.withOffset(CGVector(dx: window.width * 0.65, dy: 0))
+        start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0)
+    }
+
+    /// Polls Home for `seconds`: true if it never appeared (a swipe that was refused, or let go).
+    @MainActor
+    private func homeNeverAppears(_ app: XCUIApplication, within seconds: TimeInterval = 2) -> Bool {
+        let home = app.staticTexts["home.wordmark"]
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if home.exists { return false }
+            usleep(100_000)
+        }
+        return !home.exists
+    }
+
     @MainActor
     private func swipeBack(_ app: XCUIApplication) {
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
         edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
-        usleep(800_000)
     }
 
     /// Drags in the top half (clear of the Save bar) until `element` is hittable.

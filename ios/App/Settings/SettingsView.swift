@@ -4,7 +4,7 @@ import QuickrUI
 import SwiftUI
 
 /// App settings (`/settings`): the server and switching it, the Cloudflare Access token, reminders,
-/// resetting this iPhone's copy, and about.
+/// offline and sync, resetting this iPhone's copy, and about with the licences (`Settings/App`).
 struct SettingsView: View {
     @Environment(AppEnvironment.self) private var environment
     @State private var permission = NotificationPermission()
@@ -23,8 +23,9 @@ struct SettingsView: View {
                     .padding(.vertical, 4)
                 if permission.status == .allowed, let push = environment.push { PushDeviceRow(push: push) }
             }
+            AppSyncSection()
             if let reset { ResetSection(flow: reset) }
-            aboutSection
+            AppAboutSection()
         }
         .listStyle(.insetGrouped)
         .tint(.qr.accentStrong)
@@ -156,32 +157,6 @@ struct SettingsView: View {
         } catch {
             tokenError = "Couldn’t remove the token: \(error)"
         }
-    }
-
-    // MARK: - About
-
-    private var aboutSection: some View {
-        Section("About") {
-            LabeledContent("Version", value: Self.appVersion)
-                .accessibilityIdentifier("settings.version")
-            LabeledContent("Core", value: QuickrCore.version)
-            if let binding = environment.session?.binding {
-                LabeledContent("Server ID") {
-                    Text(binding.serverId).font(.qr(.monoCaption)).textSelection(.enabled)
-                }
-                LabeledContent("Local copy", value: "Generation \(binding.storeGen)")
-            }
-            Text("Fonts: Bricolage Grotesque, Instrument Sans and JetBrains Mono, under the SIL Open Font License 1.1.")
-                .font(.qr(.footnote))
-                .foregroundStyle(.qr.muted)
-        }
-    }
-
-    static var appVersion: String {
-        let info = Bundle.main.infoDictionary
-        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info?["CFBundleVersion"] as? String ?? "?"
-        return "\(version) (\(build))"
     }
 }
 

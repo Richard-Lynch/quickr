@@ -50,6 +50,11 @@ public struct GRDBEntryRepository: EntryRepository {
         try await reader.read { db in try StoreView.entry(db, id: id.wireString) }
     }
 
+    /// The entry before outbox item `seq` (`StoreView.entry(_:id:before:)`).
+    public func entry(id: UUID, before seq: Int64) async throws -> Entry? {
+        try await reader.read { db in try StoreView.entry(db, id: id.wireString, before: seq) }
+    }
+
     public func latestEntry(topicId: UUID) async throws -> ViewEntry? {
         try await reader.read { db in try StoreView.latestEntry(db, topicId: topicId.wireString) }
     }
