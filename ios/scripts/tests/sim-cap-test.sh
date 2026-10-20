@@ -149,18 +149,28 @@ grep -qF "$mine" "$fake/devices.json" || fail "the clone is not named '$mine'"
 [[ "$(state "$clone")" == Shutdown ]] || fail "resolving the default booted the clone"
 resolve "quickR iOS-26-0" IOS_SIM_DEFAULTED=1
 [[ "$out" == "$clone" ]] && echo "ok   the default resolves to the same clone again" || fail "a second clone: $out"
+resolve "$clone" IOS_SIM_DEFAULTED=1; expect "a UDID is used as given, never cloned again" 0 "$clone"
+(( $(grep -o '"udid"' "$fake/devices.json" | wc -l) == 2 )) || fail "resolving a UDID created a device"
 
-# The Makefile marks a device defaulted only when neither IOS_SIM nor IOS_SIM_MIN was set.
-mk() {  # mk [VAR=value ...] -- <make args>: the test.sh/sim-run.sh line make would run
+# The Makefile marks a target's device defaulted when the variable that target uses wasn't set:
+# ios-test IOS_SIM_MIN (IOS_SIM isn't its device), ios-uitest and ios-sim-run IOS_SIM (or
+# IOS_SIM_MIN, its default), check-ios IOS_SIM_MIN and IOS_SIM_CUR for its two runtimes.
+# Nested makes inherit command-line overrides through MAKEFLAGS (`make ios-script-test
+# IOS_SIM_MIN=x`), so those are cleared too.
+mk() {  # mk [VAR=value ...] -- <make args>: the script line make would run
   local vars=()
   while [[ "$1" != -- ]]; do vars+=("$1"); shift; done; shift
-  env -u IOS_SIM -u IOS_SIM_MIN ${vars[@]+"${vars[@]}"} make -s -n -C "$root_real" "$@" 2>/dev/null \
-    | grep -E 'test\.sh|sim-run\.sh'
+  env -u IOS_SIM -u IOS_SIM_MIN -u IOS_SIM_CUR -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKELEVEL \
+    ${vars[@]+"${vars[@]}"} make -s -n -C "$root_real" "$@" 2>/dev/null \
+    | grep -E 'test\.sh|sim-run\.sh|check-ios\.sh'
 }
 for c in "ios-test|IOS_SIM_DEFAULTED=1" "ios-test IOS_SIM_MIN=x|IOS_SIM_DEFAULTED=0" \
   "ios-test IOS_SIM=x|IOS_SIM_DEFAULTED=1" "ios-uitest|IOS_SIM_DEFAULTED=1" \
   "ios-uitest IOS_SIM=x|IOS_SIM_DEFAULTED=0" "ios-uitest IOS_SIM_MIN=x|IOS_SIM_DEFAULTED=0" \
-  "ios-sim-run|IOS_SIM_DEFAULTED=1" "ios-sim-run IOS_SIM=x|IOS_SIM_DEFAULTED=0"; do
+  "ios-sim-run|IOS_SIM_DEFAULTED=1" "ios-sim-run IOS_SIM=x|IOS_SIM_DEFAULTED=0" \
+  "check-ios|IOS_SIM_MIN_DEFAULTED=1 IOS_SIM_CUR_DEFAULTED=1" \
+  "check-ios IOS_SIM_MIN=x|IOS_SIM_MIN_DEFAULTED=0 IOS_SIM_CUR_DEFAULTED=1" \
+  "check-ios IOS_SIM_CUR=x|IOS_SIM_MIN_DEFAULTED=1 IOS_SIM_CUR_DEFAULTED=0"; do
   args="${c%%|*}"; want="${c#*|}"
   # shellcheck disable=SC2086 # split on purpose: target and variables
   got="$(mk -- $args)"
@@ -168,5 +178,7 @@ for c in "ios-test|IOS_SIM_DEFAULTED=1" "ios-test IOS_SIM_MIN=x|IOS_SIM_DEFAULTE
 done
 got="$(mk IOS_SIM_MIN=x -- ios-test)"
 [[ "$got" == "IOS_SIM_DEFAULTED=0 "* ]] && echo "ok   IOS_SIM_MIN from the environment counts as set" || fail "env IOS_SIM_MIN: $got"
+got="$(MAKEFLAGS=" -- IOS_SIM_MIN=x" MAKEOVERRIDES="IOS_SIM_MIN=x" mk -- ios-test)"
+[[ "$got" == "IOS_SIM_DEFAULTED=1 "* ]] && echo "ok   an outer make's overrides don't leak into these" || fail "leaked override: $got"
 
 (( fails == 0 )) && echo "sim cap: all passed" || { echo "sim cap: $fails failed"; exit 1; }

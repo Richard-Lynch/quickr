@@ -133,11 +133,14 @@ seed-docker: ## Load demo data into the docker stack
 IOS_SIM_MIN ?= quickR iOS-26-0
 IOS_SIM_CUR ?= quickR iOS27
 IOS_SIM ?= $(IOS_SIM_MIN)
-# ios-test, ios-uitest and ios-sim-run use these devices only when they were set (command line
-# or environment). Otherwise, outside CI, they run on this worktree's clone of them
-# (target_sim_udid in common.sh), never on the shared base device, which the cap counts too.
+# Each target's device is "defaulted" when the variable it uses wasn't set (on the command line
+# or in the environment): ios-test and check-ios's first runtime use IOS_SIM_MIN, check-ios's
+# second IOS_SIM_CUR, ios-uitest and ios-sim-run IOS_SIM (which defaults to IOS_SIM_MIN, so
+# setting either counts). A defaulted device is, outside CI, this worktree's clone of the named
+# one (target_sim_udid in common.sh), never the shared base device; the cap counts both.
 ios_sim_set = $(filter-out undefined default file,$(origin $(1)))
 IOS_TEST_SIM_DEFAULTED := $(if $(call ios_sim_set,IOS_SIM_MIN),0,1)
+IOS_CUR_SIM_DEFAULTED := $(if $(call ios_sim_set,IOS_SIM_CUR),0,1)
 IOS_SIM_DEFAULTED := $(if $(call ios_sim_set,IOS_SIM)$(call ios_sim_set,IOS_SIM_MIN),0,1)
 # Preferred model for ios-check-ci, which requires an iOS 26.x runtime whatever the model.
 IOS_SIM_CI ?= iPhone 17
@@ -202,7 +205,7 @@ ios-script-test: ## iOS: tests for the shell tooling (xcodebuild watchdog, simul
 
 .PHONY: check-ios
 check-ios: ## iOS gate: gen, swift test, Unit + UI plans on iOS 26.0 and 27.0, lint, Xcode version
-	@$(IOS_SCRIPTS)/check-ios.sh "$(IOS_SIM_MIN)" "$(IOS_SIM_CUR)"
+	@IOS_SIM_MIN_DEFAULTED=$(IOS_TEST_SIM_DEFAULTED) IOS_SIM_CUR_DEFAULTED=$(IOS_CUR_SIM_DEFAULTED) $(IOS_SCRIPTS)/check-ios.sh "$(IOS_SIM_MIN)" "$(IOS_SIM_CUR)"
 
 .PHONY: ios-check-ci
 ios-check-ci: ## iOS: what CI runs on a ready PR (gen, build + Unit plan on iOS 26.x, no signing)

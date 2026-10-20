@@ -68,11 +68,11 @@ print("\n".join(out))
 }
 
 # The UDID for a make target's simulator $1 (a name or UDID). Used as given when it was set
-# explicitly or under CI. When make only defaulted it (IOS_SIM_DEFAULTED=1), outside CI, it
-# is this worktree's clone of $1 instead (created if missing, not booted), so a plain
-# `make ios-test` never lands on the shared base device.
+# explicitly, under CI, or when it is a UDID. When make only defaulted it
+# (IOS_SIM_DEFAULTED=1), outside CI, it is this worktree's clone of $1 instead (created if
+# missing, not booted), so a plain `make ios-test` never lands on the shared base device.
 target_sim_udid() {
-  if [[ "${IOS_SIM_DEFAULTED:-0}" == 1 && -z "${CI:-}" ]]; then
+  if [[ "${IOS_SIM_DEFAULTED:-0}" == 1 && -z "${CI:-}" && ! "$1" =~ ^[0-9A-Fa-f-]{36}$ ]]; then
     local udid
     udid="$("$IOS_DIR/scripts/sim-clone.sh" --no-boot "$1")" || die "could not find or create this worktree's clone of '$1'"
     echo "ios: using this worktree's simulator $udid (a clone of '$1'; set IOS_SIM/IOS_SIM_MIN for another)" >&2
