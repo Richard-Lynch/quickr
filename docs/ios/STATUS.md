@@ -306,6 +306,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 14:00 (EDT): **TOPIC merged into ios/m2-ui** (Codex ×3; on 88c84ab: Unit 831, UI 85/0, router mutants 2/2, lease mutants 6/6; lint, core, vectors with no drift, the app build and frontend vitest pass on the merge). **All 21 M2 packages are in.** Remaining before the M2 PR: the iOS 27 UI fixes (ios/m2-ios27), then a final check-ios (26 and 27) on the tip, then the PR into feat/ios-app.
+
 - 2026-10-20 13:55 (EDT): M2 pre-validation on a05a3a1 finished. check-ios: iOS 26.0 Unit 774/0, UI 65/0; iOS 27 Unit 774/0, UI 62/3 (being fixed on ios/m2-ios27: an iOS 27 Save-Password prompt over Settings, the XXXL row-swipe test, and the content swipe on 27). E2E 14/0 (3 demo skips). Integration 19/19 ×2. `make check` (backend and frontend) green. `make vectors`: no drift. TOPIC's final UI run is going; ios27 fixes are on the 27 clone.
 
 - 2026-10-20 13:40 (EDT): **TOPIC approved** (Codex r3: the lifecycle under the flush lease, with all paths releasing and no same-lease deadlock; a route-bound handoff). Its final simulator runs are going, then the merge. M2 pre-validation, check-ios on a05a3a1: **iOS 26.0 green** (Unit 774/0, UI 65/0); **iOS 27**: Unit 774/0, UI 62/3. The failures are RecordUITests.testAContentSwipeGoesBackFromACleanForm (XCUITest "Invalid frame dimension" warnings), SettingsUITests.testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain, and EntriesTests.testAccessibilityXXXL (the known flake). Triage and fixes are with the FORM agent on ios/m2-ios27. E2E, integration ×2, `make check` and vectors are next in the run.
