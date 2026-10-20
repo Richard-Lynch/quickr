@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- REG: add push-activation tests for several consecutive foreground trips, and a quick return before startup finishes, with expiry around it (Codex r4 coverage note).
 - Both clients: a prefilled number field (the min-0 prefill or the last value) keeps the caret where it was tapped, so typing "3" gives "30". Select all on the first focus of a pristine prefill, or clear a pristine min-0 prefill when typing starts. PWA: AnswerField.tsx NumberInput, quickLog.ts initialNumber. iOS: QuickLog.initialText and AnswerField. Tap counts are unchanged. (Found by UIT-2.)
 - SYNC-UX: add a deterministic test for repeated background/foreground cycles during a held startup (Codex r4 note; the expiry-first ordering is covered by activationWhileAnExpiredStartUnwindsConnects).
 - **D checkpoint (device):** measure how many notification categories iOS keeps; CAT's registry is append-only per §5.1 and Apple documents no limit.
@@ -299,6 +300,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-20 07:35 (EDT): **REG merged into ios/m2-ui** (Codex ×4; on 8a54b8a: Unit 618, UI 36/36 on 68832d3; lint, core and the app build pass on the merge). No real APNs token until the aps-environment entitlement and Team ID land (M3). Remaining for M2: EDIT (UI rerun after the demo-version fix), STATS (final run), UIT-2 (Save-bar fix run, demo assets), then the M2 PR(s) into feat/ios-app.
 
 - 2026-10-20 07:25 (EDT): REG: Codex r3 resolved the residual M2 and the requested tests, but found 2 new Majors in the foreground-trip guard (background→inactive→active wasn't counted as a trip; push could activate after a backgrounded .active plus expiry). Fixed in 8a54b8a, simulator checks pending, then r4. STATS: Unit 613, StatsUITests 4/4 light and dark. The screenshots found a real pull-to-refresh cancellation bug (fixed, 7e91164), plus chart layout fixes. The unstructured refresh must be scope-guarded (asked). The offline zone-change message is being added; the final run follows. RECORD Save bar: the first theory (toolbar shape) was wrong; the bar drops on re-render with no nav change. Now pinned to UIKit's keyboard frame (439ced0); fallback: Save in the keyboard toolbar. The swipe-back guard and VoiceOver escape are kept as independent improvements. EDIT: UI run in progress on 8c7352e.
 
