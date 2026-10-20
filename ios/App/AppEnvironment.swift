@@ -41,6 +41,19 @@ final class AppEnvironment {
     private(set) var hasStarted = false
 
     @ObservationIgnored private let makeSession: @MainActor () throws -> AppSession
+    /// APNs registration over the session (notifications.md §9): live builds only. Created on
+    /// its first activation (``activatePush()``), which a start cut short by a background expiry
+    /// leaves to the next `.active`.
+    private(set) var push: PushLifecycle?
+    /// Trips to the foreground: one at launch, then one per return from the background (which
+    /// passes through `.inactive` on its way to `.active`).
+    @ObservationIgnored private var foregroundTrip = 0
+    /// `.background` was seen since the last `.active`.
+    @ObservationIgnored private var backgroundSinceActive = false
+    /// The trip push was last activated in: once per trip, whether the start or `.active` gets
+    /// there first.
+    @ObservationIgnored private var pushActivatedTrip: Int?
+    @ObservationIgnored private let makePush: (@MainActor (AppSession) -> PushLifecycle)?
     @ObservationIgnored private var prepare: (@MainActor () async -> Void)?
     @ObservationIgnored private var starting: Task<Void, Never>?
     /// `start()` was cancelled before it finished (see `cancelStart`).
@@ -52,12 +65,14 @@ final class AppEnvironment {
         settings: AppSettings, credentials: KeychainAccessCredentials? = nil,
         network: any NetworkMonitoring = NWNetworkMonitor(),
         prepare: (@MainActor () async -> Void)? = nil,
+        makePush: (@MainActor (AppSession) -> PushLifecycle)? = nil,
         makeSession: @escaping @MainActor () throws -> AppSession
     ) {
         self.settings = settings
         self.credentials = credentials
         self.sync = SyncController(network: network)
         self.makeSession = makeSession
+        self.makePush = makePush
         self.prepare = prepare
         entryToasts = EntryToasts(center: toasts, writer: entryWriter)
         quickLogModels = QuickLogModels(writer: entryWriter, toasts: entryToasts, drafts: quickLogDrafts)
@@ -75,7 +90,11 @@ final class AppEnvironment {
         categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
     ) -> AppEnvironment {
         let credentials = KeychainAccessCredentials(keychain: keychain)
-        return AppEnvironment(settings: AppSettings(defaults: defaults), credentials: credentials, network: network) {
+        // APNs registration (REG) sends through the same transport and Access token.
+        let makePush: @MainActor (AppSession) -> PushLifecycle = {
+            PushLifecycle(session: $0, transport: transport, credentials: credentials)
+        }
+        let makeSession: @MainActor () throws -> AppSession = {
             // Reminder categories go to the system center from launch, ahead of any push (spike F1);
             // registering them needs no notification permission.
             let session = try AppSession(
@@ -86,6 +105,9 @@ final class AppEnvironment {
             credentials.directory.attach(session.partitions.registry.repository)
             return session
         }
+        return AppEnvironment(
+            settings: AppSettings(defaults: defaults), credentials: credentials, network: network, makePush: makePush,
+            makeSession: makeSession)
     }
 
     /// The app's launch path: builds the live environment and registers the active store's topics
@@ -134,6 +156,8 @@ final class AppEnvironment {
             // have happened, and the session won't redo it; the next activation does.
             if Task.isCancelled { startInterrupted = true }
             hasStarted = true
+            // Not after an expiry: the OS took the time back (the next `.active` activates it).
+            if !Task.isCancelled { await activatePush() }
             QuickRShortcuts.updateAppShortcutParameters()
         }
         starting = attempt
@@ -145,14 +169,24 @@ final class AppEnvironment {
     /// flush and pull; on `.background`, flush inside a background task whose expiration handler
     /// cancels the flush, then suspend the database (0xDEAD10CC).
     func scenePhaseChanged(_ phase: ScenePhase) {
+        if phase == .background { backgroundSinceActive = true }
+        if phase == .active, backgroundSinceActive {
+            foregroundTrip += 1
+            backgroundSinceActive = false
+        }
         lastScenePhase = phase
         guard let session else { return }
         switch phase {
         case .active:
             sync.didBecomeActive()
+            let trip = foregroundTrip
             Task {
                 await session.didBecomeActive()
                 await finishInterruptedStart(session)
+                // Still this trip in the foreground: backgrounded meanwhile (perhaps with the start
+                // expiring), there is no push work to do.
+                guard lastScenePhase == .active, foregroundTrip == trip else { return }
+                await activatePush()
             }
         case .background:
             sync.didEnterBackground()
@@ -230,6 +264,16 @@ final class AppEnvironment {
     /// cancelled and it does no more work.
     func cancelStart() {
         starting?.cancel()
+    }
+
+    /// Creates push on first use and activates it, once per trip to the foreground: a cold
+    /// activation (§9.2) when just created, else a warm one.
+    private func activatePush() async {
+        guard let session, let makePush, pushActivatedTrip != foregroundTrip else { return }
+        pushActivatedTrip = foregroundTrip
+        let created = push == nil
+        if created { push = makePush(session) }
+        await push?.activated(coldLaunch: created)
     }
 
     /// The connect an expired background start didn't finish, once the app is active.
