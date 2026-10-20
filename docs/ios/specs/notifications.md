@@ -425,7 +425,10 @@ didReceive(response, completion):
   4. PRECONDITIONS from that store's view:
        topic tombstoned → fail("{topic} was deleted"); topic archived → fail("{topic} is archived")
   5. ONE IMMEDIATE TRANSACTION (check retired; if retired, reopen and retry once):
-       enqueue entry.create { id: new uuid, topic: {id, slug, name}, body: {
+       id = actionEntryId(a.server_id, a.topic_id, q.due_since)                       // §7.4
+       an outbox item, a server row or a tombstone with that id already exists → duplicate:
+         write nothing, skip to 7 (this reminder was already logged, on this or another client)
+       enqueue entry.create { id, topic: {id, slug, name}, body: {
            answers: {key: value}, version: q.version, captured_at: device now (RFC 3339 with offset),
            source: "ios.notification", notes: "", meta: {} } }  (outbox.md §8)
        recompute derived fields
@@ -443,6 +446,8 @@ didReceive(response, completion):
   Tapping it opens `q.url`. Nothing is written.
 - Durability never depends on the network: step 5 commits before any request.
 - `version` comes from the payload, so it is still valid after a later publish.
+- The entry id is the shared action entry id (§7.4), not a random UUID, so the same
+  reminder actioned twice, here or in the PWA, logs once.
 - **[provisional: Q2]** Logging from the Lock Screen needs no authentication.
 
 ### 7.2 Foreground (`willPresent`)
@@ -472,6 +477,39 @@ didReceive(response, completion):
 
    Tapping it opens the record screen with the raw text and the validation
    message.
+
+### 7.4 Action entry id
+
+Every client gives the entry a reminder action logs the same id, derived from the
+reminder, so one reminder slot logs at most one entry across the iOS app and the PWA
+(§10), however often and wherever its actions are used.
+
+```
+name = "quickr-action-entry-v1" + "|" + lower(server_id) + "|" + lower(topic_id) + "|" + due_since
+h    = SHA-256(UTF-8(name))[0:16]
+h[6] = (h[6] & 0x0F) | 0x80        // version 8
+h[8] = (h[8] & 0x3F) | 0x80        // RFC 9562 variant
+id   = lowercase 8-4-4-4-12 hex of h
+```
+
+- `server_id` and `topic_id` are the payload's (`quickr.server_id`, `quickr.topic_id`),
+  lowercased (ASCII). `due_since` is used **exactly as the payload carries it**: the
+  canonical form (§11.1), never re-parsed or re-normalised.
+- The reference implementation is `action_entry_id` in
+  `backend/app/services/notification.py`. Its vectors are
+  `shared/fixtures/action-entry-id-vectors.json` (mixed-case ids, slot boundaries and
+  non-canonical forms, which give different ids on purpose). The Swift handler and the
+  PWA must reproduce them.
+- **The first answer wins, across clients too.** A second action on the same reminder
+  (another option, the other device, a re-delivered push) enqueues a create with the
+  same id. If the first is still queued locally, nothing is written. Once it is on the
+  server, the replay is idempotent: POST with a live id returns the existing entry, and
+  after a delete the id is reserved (409 `entry_deleted`, the create is retired). This
+  is acceptable: a reminder asks for one entry per slot, so a second, different tap on
+  the same reminder is almost always a mistake or a duplicate delivery, and the user
+  can still edit the entry, or log another from the app.
+- Entries logged from the app's own screens keep random ids: only reminder actions
+  share this rule.
 
 ## 8. Badge
 
@@ -549,7 +587,10 @@ All registration runs in the **app process only**. Every call is a mutation and
   - There is no text input.
   - `notificationclick` validates the action against
     `notification.data.quick_log`, then enqueues `entry.create` into the
-    IndexedDB outbox and flushes.
+    IndexedDB outbox and flushes. The entry id is the shared action entry id
+    (§7.4); if the outbox already holds that id, nothing is written. The check
+    and the enqueue run under a Web Lock, so racing clicks log once.
+  - A push without `server_id` offers no actions: its entry id can't be derived.
   - The PWA may send the Expect headers. They are optional for it.
 - Safari and iOS web push have no actions, so those platforms are unchanged.
 
@@ -604,6 +645,7 @@ the same vectors and `device_now + skew`.
 | N13 | Unregistering from an old server whose epoch rotated gets `epoch_mismatch`, retries once with the header's epoch, and succeeds. `server_mismatch` drops the pending unregistration.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | §9.2         |
 | N14 | The handler logs against `q.version` after a newer version has been published.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | §7.1         |
 | N15 | L1–L4 with a fake center: both arrival orders leave one reminder, and logging clears pending and delivered reminders.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | §11.2        |
+| N16 | Python, Swift and TypeScript derive identical action entry ids from `action-entry-id-vectors.json`. Actioning the same reminder twice (another option, or after the first was sent) leaves one entry on the server.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | §7.4         |
 | D1  | **Checkpoint D (device):** <br>• concurrent replacement as in §5.4; <br>• the visible action count (2 or 4); <br>• Lock Screen logging before first unlock; <br>• whether a category registered by the NSE takes effect before display; <br>• **category growth**: rows added per day, measured with real use of a number topic and an enum topic; <br>• **registration budget**: the wall time of `setNotificationCategories` plus the time until `notificationCategories()` reflects it, at 100, 1,000 and 5,000 categories, run in the NSE and in the app. If the NSE can't register within its 3 s target at the projected one-year row count, pruning (open question 5) becomes required for M3. | §5, §6       |
 
 ## Open questions
@@ -645,3 +687,4 @@ the same vectors and `device_now + skew`.
 | Codex spec review B3 (APNs registration preconditions)                                | §9.2, N12, N13                                            |
 | Codex spec review simplification (no NSE flush)                                       | Glossary, §1, §6                                          |
 | Codex v1 M5, M7; v2 #4, #5; Fable B2, M7 and minors                                   | §4, §5, §8, §9, §11                                       |
+| B8 (2026-10-20): one reminder logs once across iOS and the PWA                        | §7.1 step 5, §7.4, §10, N16                               |
