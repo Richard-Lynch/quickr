@@ -23,7 +23,8 @@ struct RecordScreen: View {
 
     var body: some View {
         content
-            .task { if case .loading = load { await start() } }
+            // A link can open this before the store is bound (at launch): it loads once it is.
+            .task(id: environment.session?.binding) { if case .loading = load { await start() } }
     }
 
     @ViewBuilder
@@ -52,7 +53,11 @@ struct RecordScreen: View {
 
     private func start() async {
         guard let session = environment.session, let store = session.store else {
-            load = .failed("Connect to a server first.")
+            switch environment.session?.phase {
+            case .noServer: load = .failed("Connect to a server first.")
+            case .failed(let message): load = .failed(message)
+            default: break  // still starting: wait for the binding
+            }
             return
         }
         do {

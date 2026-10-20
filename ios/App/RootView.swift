@@ -56,6 +56,7 @@ struct RootView: View {
                 .onOpenURL { url in environment.router.handle(url: url, serverURL: environment.settings.serverURL) }
                 #if DEBUG
             .task {
+                await UITestLaunch.prepare(environment)
                 if let url = UITestLaunch.openURL {
                     environment.router.handle(url: url, serverURL: environment.settings.serverURL)
                 }

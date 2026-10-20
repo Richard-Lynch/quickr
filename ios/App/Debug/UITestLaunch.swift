@@ -1,18 +1,23 @@
 #if DEBUG
 import Foundation
+import QuickrCore
 import QuickrData
 
 /// `-QuickrUITest` (DEBUG only): a clean slate for a UI test, so it never touches the real store,
 /// settings or Keychain. A fresh store directory and defaults suite per launch, an in-memory
-/// Keychain, and a fake quickR server at `https://quickr.test` (an empty feed); any other host
-/// goes to the network, so a test can also onboard against the integration stack.
+/// Keychain, and a fake quickR server at `https://quickr.test`; any other host goes to the
+/// network, so a test can also onboard against the integration stack.
 ///
-/// With it, `-QuickrServer <url>` presets the server (launch connects, skipping onboarding) and
-/// `-QuickrOpen <url>` opens a link once the root is up (screenshots, deep-link checks).
+/// With it:
+/// - `-QuickrServer <url>` presets the server (launch connects, skipping onboarding);
+/// - `-QuickrOpen <url>` opens a link once the root is up (screenshots, deep-link checks);
+/// - `-QuickrSeedRejectedEntry` first queues a Workout entry the server refuses (duration 900),
+///   with the id `rejectedEntryId`, and waits until it has failed (fix mode).
 enum UITestLaunch {
     static let argument = "-QuickrUITest"
     static let fakeServer = URL(string: "https://quickr.test")!
     static let fakeServerId = "00000000-0000-4000-8000-0000000000aa"
+    static let rejectedEntryId = UUID(uuidString: "0f1e2d3c-4b5a-4968-8778-0000000000f1")!
 
     static var isActive: Bool { ProcessInfo.processInfo.arguments.contains(argument) }
 
@@ -33,6 +38,31 @@ enum UITestLaunch {
         return value(after: "-QuickrOpen").flatMap(URL.init(string:))
     }
 
+    /// Before `-QuickrOpen`: the seeds the launch asked for. Bounded: gives up after 20 s.
+    @MainActor static func prepare(_ environment: AppEnvironment) async {
+        guard isActive, ProcessInfo.processInfo.arguments.contains("-QuickrSeedRejectedEntry") else { return }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+        func waitFor(_ condition: () async -> Bool) async -> Bool {
+            while ContinuousClock.now < deadline {
+                if await condition() { return true }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            return false
+        }
+        guard await waitFor({ environment.session?.outbox != nil }), let session = environment.session,
+            let outbox = session.outbox, let store = session.store
+        else { return }
+        let body = EntryCreateDTO(
+            id: nil, answers: ["type": .string("run"), "duration": .int(900)], source: nil,
+            capturedAt: Date().addingTimeInterval(-3600), notes: "Long run", version: 1)
+        try? await outbox.createEntry(
+            id: rejectedEntryId, topic: TopicRef(id: FakeServer.workoutId, slug: "workout", name: "Workout"),
+            body: body,
+            origin: .app)
+        await session.scheduler?.requestFlush(reason: .enqueue)
+        _ = await waitFor { (try? await store.outbox.item(id: rejectedEntryId.wireString))?.state == .failed }
+    }
+
     private static func value(after flag: String) -> String? {
         let args = ProcessInfo.processInfo.arguments
         guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
@@ -40,30 +70,127 @@ enum UITestLaunch {
     }
 }
 
-/// Answers `https://quickr.test/api/v1/changes` with an empty feed page from a fixed server, and
-/// any other path there with a 404; passes every other host to `fallback`.
+/// The fake server's topics: Workout (a chip and a number, so the form shows) and Mood (one chip
+/// question: the record screen saves on a tap).
+enum FakeServer {
+    static let workoutId = UUID(uuidString: "00000000-0000-4000-8000-0000000000c1")!
+    static let moodId = UUID(uuidString: "00000000-0000-4000-8000-0000000000c2")!
+    static let epoch = "00000000-0000-4000-8000-0000000000bb"
+
+    static let workoutQuestions = #"""
+        [{"help_text": null, "key": "type", "label": "Type", "max_selected": null, "min_selected": null,
+          "multiple": false, "required": true, "type": "enum",
+          "options": [{"archived": false, "label": "Run", "value": "run"},
+                      {"archived": false, "label": "Yoga", "value": "yoga"},
+                      {"archived": false, "label": "Swim", "value": "swim"}]},
+         {"help_text": null, "key": "duration", "label": "Duration", "max": 600, "min": 1, "required": true,
+          "type": "int", "unit": "min"}]
+        """#
+    static let moodQuestions = #"""
+        [{"help_text": null, "key": "mood", "label": "Mood", "max_selected": null, "min_selected": null,
+          "multiple": false, "required": true, "type": "enum",
+          "options": [{"archived": false, "label": "Good", "value": "good"},
+                      {"archived": false, "label": "OK", "value": "ok"},
+                      {"archived": false, "label": "Bad", "value": "bad"}]}]
+        """#
+
+    static func topic(_ id: UUID, slug: String, name: String, questions: String, count: Int, seq: Int) -> String {
+        #"""
+        {"kind": "topic", "seq": \#(seq), "topic": {"archived_at": null, "created_at": "2026-01-01T00:00:00Z",
+         "current_version": 1, "description": "", "due": null, "entry_count": 0, "id": "\#(id.wireString)",
+         "last_captured_at": null, "name": "\#(name)", "question_count": \#(count), "questions": \#(questions),
+         "revision": 1, "schedule": null, "schedule_updated_at": null, "slug": "\#(slug)", "status": "active",
+         "updated_at": "2026-01-01T00:00:00Z"}}
+        """#
+    }
+
+    static func version(_ topicId: UUID, versionId: String, questions: String, seq: Int) -> String {
+        #"""
+        {"id": "\#(versionId)", "kind": "version", "seq": \#(seq), "topic_id": "\#(topicId.wireString)",
+         "version": {"change_note": "", "created_at": "2026-01-01T00:00:00Z", "entry_count": 0,
+                     "questions": \#(questions), "version": 1}}
+        """#
+    }
+
+    static func page(after cursor: Int) -> String {
+        let now = ISO8601DateFormatter().string(from: Date())
+        let items =
+            cursor == 0
+            ? [
+                version(
+                    workoutId, versionId: "00000000-0000-4000-8000-0000000000d1", questions: workoutQuestions, seq: 1),
+                topic(workoutId, slug: "workout", name: "Workout", questions: workoutQuestions, count: 2, seq: 2),
+                version(moodId, versionId: "00000000-0000-4000-8000-0000000000d2", questions: moodQuestions, seq: 3),
+                topic(moodId, slug: "mood", name: "Mood", questions: moodQuestions, count: 1, seq: 4),
+            ] : []
+        return #"""
+            {"items": [\#(items.joined(separator: ","))], "deleted": [], "next": 4, "has_more": false, "head": 4,
+             "epoch": "\#(epoch)", "server_id": "\#(UITestLaunch.fakeServerId)", "server_time": "\#(now)"}
+            """#
+    }
+
+    /// The answers of a create, as the server echoes them (`[{key, type, value}]`).
+    static func echo(_ answers: [String: Any]) -> [[String: Any]] {
+        answers.sorted { $0.key < $1.key }.map { key, value in
+            let type = value is Int ? "int" : value is Double ? "double" : value is [String] ? "enum_list" : "enum"
+            return ["key": key, "type": type, "value": value]
+        }
+    }
+}
+
+/// `https://quickr.test`: the feed above, entry creates (201, or 422 for a duration over 600, so a
+/// rejection can be shown) and deletes (204, for Undo after a send). Any other host goes to
+/// `fallback`.
 private struct FakeServerTransport: Transport {
     let fallback: any Transport
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         guard request.url.host() == UITestLaunch.fakeServer.host() else { return try await fallback.send(request) }
-        let identity: HTTPHeaders = [
-            QuickrHeader.serverId: UITestLaunch.fakeServerId,
-            QuickrHeader.epoch: "00000000-0000-4000-8000-0000000000bb",
+        let headers: HTTPHeaders = [
+            QuickrHeader.serverId: UITestLaunch.fakeServerId, QuickrHeader.epoch: FakeServer.epoch,
             "Content-Type": "application/json",
         ]
-        guard request.url.path() == "/api/v1/changes" else {
-            return HTTPResponse(
-                status: 404, headers: identity,
-                body: Data(#"{"code":"not_found","detail":"Not found","errors":[]}"#.utf8))
+        let path = request.url.path()
+        if request.method == .get, path == "/api/v1/changes" {
+            let after =
+                URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?
+                .first { $0.name == "after" }?.value.flatMap(Int.init) ?? 0
+            return HTTPResponse(status: 200, headers: headers, body: Data(FakeServer.page(after: after).utf8))
         }
+        if request.method == .post, path.hasPrefix("/api/v1/topics/"), path.hasSuffix("/entries") {
+            return create(request, headers: headers)
+        }
+        if request.method == .delete, path.hasPrefix("/api/v1/entries/") {
+            return HTTPResponse(status: 204, headers: headers)
+        }
+        return HTTPResponse(
+            status: 404, headers: headers, body: Data(#"{"code":"not_found","detail":"Not found","errors":[]}"#.utf8))
+    }
+
+    private func create(_ request: HTTPRequest, headers: HTTPHeaders) -> HTTPResponse {
+        guard let data = request.body, let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let answers = body["answers"] as? [String: Any]
+        else { return HTTPResponse(status: 400, headers: headers) }
+        if let duration = answers["duration"] as? Int, duration > 600 {
+            let problem = #"""
+                {"code": "invalid_answers", "detail": "one or more answers are invalid",
+                 "errors": [{"loc": ["answers", "duration"], "message": "must be <= 600"}]}
+                """#
+            return HTTPResponse(status: 422, headers: headers, body: Data(problem.utf8))
+        }
+        // The outbox posts by topic id; a slug works too.
+        let ref = request.url.pathComponents.dropLast().last ?? ""
+        let topicId = ref == "mood" || ref == FakeServer.moodId.wireString ? FakeServer.moodId : FakeServer.workoutId
         let now = ISO8601DateFormatter().string(from: Date())
-        let page = #"""
-            {"items": [], "deleted": [], "next": 0, "has_more": false, "head": 0,
-             "epoch": "00000000-0000-4000-8000-0000000000bb", "server_id": "\#(UITestLaunch.fakeServerId)",
-             "server_time": "\#(now)"}
-            """#
-        return HTTPResponse(status: 200, headers: identity, body: Data(page.utf8))
+        let entry: [String: Any] = [
+            "id": body["id"] as? String ?? UUID().wireString, "topic_id": topicId.wireString,
+            "answers": FakeServer.echo(answers), "captured_at": body["captured_at"] as? String ?? now,
+            "channel": "ios", "created_at": now, "updated_at": now, "meta": [String: String](),
+            "notes": body["notes"] as? String ?? "", "revision": 1, "source": body["source"] as? String ?? "ios",
+            "version": body["version"] as? Int ?? 1,
+        ]
+        let json = (try? JSONSerialization.data(withJSONObject: entry)) ?? Data()
+        return HTTPResponse(status: 201, headers: headers, body: json)
     }
 }
 #endif
