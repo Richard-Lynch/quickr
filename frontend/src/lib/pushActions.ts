@@ -14,8 +14,9 @@
  * twice: an item already queued is left alone, and one already sent is replayed idempotently
  * by the server (a POST with a live id returns that entry).
  */
-import { ENTRY_CREATE, type EntryCreatePayload } from './outbox/kinds';
+import { ENTRY_CREATE, problemCode, type EntryCreatePayload } from './outbox/kinds';
 import type { Outbox } from './outbox/outbox';
+import type { OutboxItem } from './outbox/types';
 import { formatQuickLogNumber, type PushPayload, type PushQuickr } from './pushPayload';
 
 /** The namespace of the shared action entry id (notifications.md §7.4). */
@@ -105,8 +106,8 @@ export async function actionEntryId(
 export type ActionResult =
   /** A new `entry.create` was queued (`id`). */
   | { status: 'enqueued'; id: string }
-  /** This slot's entry is already queued: nothing changed. */
-  | { status: 'duplicate'; id: string }
+  /** This slot's entry is already queued (`existing`): nothing changed. */
+  | { status: 'duplicate'; id: string; existing: OutboxItem<EntryCreatePayload> }
   /** The action doesn't match the reminder (or it isn't actionable): open the app instead. */
   | { status: 'invalid' };
 
@@ -114,9 +115,15 @@ interface LockManagerLike {
   request<T>(name: string, fn: () => Promise<T>): Promise<T>;
 }
 
+function readData(raw: unknown): Partial<NotificationData> {
+  if (typeof raw !== 'object' || raw === null) return {};
+  return raw; // written by notificationData; every field is optional
+}
+
 /**
- * Handles a click on a reminder action: validate, then enqueue once per slot. Durable before
- * any network: the caller flushes afterwards.
+ * Validates a click on a reminder action and enqueues its entry once per slot, carrying the
+ * reminder's `server_id` as the request's identity precondition. Durable before any network:
+ * the caller sends it afterwards.
  */
 export async function logFromAction(opts: {
   outbox: Pick<Outbox, 'get' | 'enqueue'>;
@@ -125,9 +132,7 @@ export async function logFromAction(opts: {
   now?: () => number;
   locks?: LockManagerLike | undefined;
 }): Promise<ActionResult> {
-  const data = (
-    typeof opts.data === 'object' && opts.data !== null ? opts.data : {}
-  ) as Partial<NotificationData>;
+  const data = readData(opts.data);
   const q = data.quickr ?? null;
   const answer = resolveAction(opts.action, q);
   if (!q || !answer) return { status: 'invalid' };
@@ -143,11 +148,165 @@ export async function logFromAction(opts: {
       notes: '',
       meta: {},
     },
+    expect_server_id: q.server_id,
   };
   const run = async (): Promise<ActionResult> => {
-    if (await opts.outbox.get(id)) return { status: 'duplicate', id };
+    const existing = await opts.outbox.get(id);
+    if (existing) {
+      return { status: 'duplicate', id, existing: existing as OutboxItem<EntryCreatePayload> };
+    }
     await opts.outbox.enqueue(ENTRY_CREATE, payload, { id });
     return { status: 'enqueued', id };
   };
   return opts.locks ? opts.locks.request(PUSH_ACTION_LOCK, run) : run();
+}
+
+/** What the service worker shows after handling an action click. */
+export type ActionFeedback =
+  /** Logged, or queued while offline: nothing more to show. */
+  | { kind: 'none' }
+  /** The click can't be handled here: open the record screen (`url`). */
+  | { kind: 'open' }
+  /** A follow-up notification whose click opens the record screen. */
+  | { kind: 'notify'; title: string; body: string };
+
+/** The topic's state as far as the service worker knows it (from cached API responses). */
+export type CachedTopicState = 'active' | 'archived' | undefined;
+
+const NONE: ActionFeedback = { kind: 'none' };
+
+/**
+ * A click on a reminder action, end to end (notifications.md §10): validate, refuse an
+ * archived topic the cache knows of, enqueue once per slot, send now, and turn the outcome
+ * into feedback, so a failure never just dismisses the reminder:
+ * - logged, or queued offline (Background Sync or the app sends it later): nothing;
+ * - an invalid action, or the outbox can't be written (storage, lock): open the app;
+ * - the server refused it, or the slot's entry already holds another choice (the first
+ *   choice wins, §7.4): a notification saying so, which opens the record screen.
+ */
+export async function handleReminderAction(opts: {
+  outbox: Pick<Outbox, 'get' | 'enqueue' | 'sendNow' | 'discard'>;
+  action: string;
+  data: unknown;
+  now?: () => number;
+  locks?: LockManagerLike | undefined;
+  topicState?: (topicId: string, slug: string | null) => Promise<CachedTopicState>;
+  /** Called when the entry is still queued (offline): register Background Sync. */
+  queued?: () => Promise<void>;
+  sendTimeoutMs?: number;
+}): Promise<ActionFeedback> {
+  const data = readData(opts.data);
+  const q = data.quickr ?? null;
+  const answer = resolveAction(opts.action, q);
+  if (!q || !answer) return { kind: 'open' };
+  const topic = data.title || 'this topic';
+
+  let state: CachedTopicState;
+  try {
+    state = await opts.topicState?.(q.topic_id, data.topic_slug ?? null);
+  } catch {
+    state = undefined;
+  }
+  if (state === 'archived') {
+    return {
+      kind: 'notify',
+      title: `Couldn’t log ${topic}`,
+      body: 'The topic is archived. Open quickR to log.',
+    };
+  }
+
+  let result: ActionResult;
+  try {
+    result = await logFromAction(opts);
+  } catch {
+    return { kind: 'open' };
+  }
+  if (result.status === 'invalid') return { kind: 'open' };
+  if (result.status === 'duplicate') {
+    const first = result.existing.payload.body.answers[answer.key];
+    return first === undefined || first === answer.value ? NONE : alreadyLogged(q, first);
+  }
+
+  const sent = await opts.outbox.sendNow(result.id, opts.sendTimeoutMs ?? 8_000);
+  switch (sent.status) {
+    case 'sent': {
+      // A replay of the slot's create returns the entry that was logged first (§7.4).
+      const logged = loggedAnswer(sent.data, answer.key);
+      return logged === undefined || logged === answer.value ? NONE : alreadyLogged(q, logged);
+    }
+    case 'queued':
+      try {
+        await opts.queued?.();
+      } catch {
+        // no Background Sync: the app sends it on its next start
+      }
+      return NONE;
+    case 'discarded':
+      return NONE;
+    case 'retired':
+      return {
+        kind: 'notify',
+        title: `Couldn’t log ${topic}`,
+        body: 'This reminder’s entry was deleted. Open quickR to log again.',
+      };
+    case 'failed':
+      return refused(sent.item, topic, opts.outbox);
+  }
+}
+
+/** A failed create: say why; one meant for another server is dropped (it never can succeed). */
+async function refused(
+  item: OutboxItem,
+  topic: string,
+  outbox: Pick<Outbox, 'discard'>,
+): Promise<ActionFeedback> {
+  const code = problemCode(item.last_error?.body);
+  const title = `Couldn’t log ${topic}`;
+  if (code === 'server_mismatch') {
+    await outbox.discard(item.id).catch(() => undefined);
+    return {
+      kind: 'notify',
+      title,
+      body: 'This reminder came from another quickR server, so nothing was logged.',
+    };
+  }
+  if (code === 'topic_archived') {
+    return { kind: 'notify', title, body: 'The topic is archived. Open quickR to log.' };
+  }
+  if (item.last_error?.status === 404) {
+    return { kind: 'notify', title, body: 'The topic was deleted.' };
+  }
+  const reason = item.last_error?.message ?? 'The server refused it';
+  return { kind: 'notify', title, body: `${reason}. Open quickR to fix it.` };
+}
+
+function alreadyLogged(q: PushQuickr, value: unknown): ActionFeedback {
+  return {
+    kind: 'notify',
+    title: 'Already logged',
+    body: `This reminder was already logged as ${answerLabel(q, value)}. Open quickR to change it.`,
+  };
+}
+
+/** How an answer reads on the reminder's buttons: the option label, or the number and unit. */
+export function answerLabel(q: PushQuickr, value: unknown): string {
+  const log = q.quick_log;
+  if (log.type === 'enum') {
+    return log.options.find((o) => o.value === value)?.label ?? String(value);
+  }
+  const shown = typeof value === 'number' ? formatQuickLogNumber(log.type, value) : null;
+  const text = shown ?? String(value);
+  return log.unit ? `${text} ${log.unit}` : text;
+}
+
+/** The value of `key` in an `EntryOut` response body, if it has one. */
+function loggedAnswer(entry: unknown, key: string): unknown {
+  if (typeof entry !== 'object' || entry === null) return undefined;
+  const answers = (entry as { answers?: unknown }).answers;
+  if (!Array.isArray(answers)) return undefined;
+  const found = answers.find(
+    (a): a is { key: string; value: unknown } =>
+      typeof a === 'object' && a !== null && (a as { key?: unknown }).key === key,
+  );
+  return found?.value;
 }

@@ -19,6 +19,9 @@ export const OUTBOX_SYNC_TAG = 'quickr-outbox';
 
 export const ENTRY_CREATE = 'entry.create';
 
+/** The F10 identity precondition (docs/ios/specs/sync-protocol.md §1.3). */
+export const EXPECT_SERVER_ID_HEADER = 'X-QuickR-Expect-Server-Id';
+
 export interface EntryCreatePayload {
   /** Enough of the topic to address the request and label the item in the UI. */
   topic: { id: string; slug: string; name: string };
@@ -27,6 +30,12 @@ export interface EntryCreatePayload {
    * item's own id *is* the entry id (added at send time by `entryCreateBody`).
    */
   body: Omit<EntryCreate, 'id'>;
+  /**
+   * The server the entry is meant for (a notification action's `server_id`). Sent as the
+   * `X-QuickR-Expect-Server-Id` precondition, so if this origin now serves another quickR
+   * server the create is refused (409 `server_mismatch`) and nothing is written.
+   */
+  expect_server_id?: string;
 }
 
 /** The body actually sent. The client id makes creation idempotent. */
@@ -55,6 +64,9 @@ const entryCreate: OutboxKind<EntryCreatePayload> = {
       url: `${API_PREFIX}/topics/${encodeURIComponent(item.payload.topic.id)}/entries`,
       // A retry after a lost response returns the stored entry (201), never a duplicate.
       body: entryCreateBody(item),
+      ...(item.payload.expect_server_id
+        ? { headers: { [EXPECT_SERVER_ID_HEADER]: item.payload.expect_server_id } }
+        : {}),
     };
   },
 };

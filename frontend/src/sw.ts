@@ -26,7 +26,13 @@ import { NetworkFirst } from 'workbox-strategies';
 import { API_PREFIX, CHANNEL_HEADERS, SW_API_CACHE } from './api/constants';
 import { OUTBOX_KINDS, OUTBOX_SYNC_TAG } from './lib/outbox/kinds';
 import { createOutbox } from './lib/outbox/outbox';
-import { logFromAction, notificationData, pushActions } from './lib/pushActions';
+import {
+  handleReminderAction,
+  notificationData,
+  pushActions,
+  type ActionFeedback,
+  type CachedTopicState,
+} from './lib/pushActions';
 import { parsePushPayload, safeInAppPath, type NavigateMessage } from './lib/pushPayload';
 
 declare const self: ServiceWorkerGlobalScope & {
@@ -164,33 +170,75 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data as { url?: unknown } | null;
   const open = () => focusOrOpen(safeInAppPath(data?.url));
-  event.waitUntil(
-    event.action ? logAction(event.action, data).then((ok) => (ok ? undefined : open())) : open(),
-  );
+  event.waitUntil(event.action ? onAction(event.action, data, open) : open());
 });
 
 /**
- * A reminder action: queue the entry durably (once per slot), then send it now. Works with
- * the app closed; offline, Background Sync (Chromium) or the app's next start sends it.
- * False when the action doesn't match the reminder: the caller opens the app instead.
+ * A reminder action: log it through the outbox, or say why not (lib/pushActions.ts). Works
+ * with the app closed; offline, Background Sync (Chromium) or the app's next start sends it.
  */
-async function logAction(action: string, data: unknown): Promise<boolean> {
-  const locks = (self.navigator as { locks?: LockManager }).locks;
-  const result = await logFromAction({ outbox, action, data, locks });
-  if (result.status === 'invalid') return false;
+async function onAction(action: string, data: unknown, open: () => Promise<void>): Promise<void> {
+  let feedback: ActionFeedback;
   try {
-    await outbox.flush({ force: true });
+    feedback = await handleReminderAction({
+      outbox,
+      action,
+      data,
+      locks: (self.navigator as { locks?: LockManager }).locks,
+      topicState: cachedTopicState,
+      queued: () =>
+        (self.registration as { sync?: { register(tag: string): Promise<void> } }).sync?.register(
+          OUTBOX_SYNC_TAG,
+        ) ?? Promise.resolve(),
+    });
   } catch {
-    // stays queued; retried below or by the app
+    feedback = { kind: 'open' };
   }
-  if ((await outbox.list()).some((i) => i.status === 'pending')) {
-    try {
-      await (
-        self.registration as { sync?: { register(tag: string): Promise<void> } }
-      ).sync?.register(OUTBOX_SYNC_TAG);
-    } catch {
-      // no Background Sync (Firefox, Safari): the app flushes on its next start
+  if (feedback.kind === 'open') return open();
+  if (feedback.kind === 'notify') {
+    const topicId = (data as { quickr?: { topic_id?: unknown } } | null)?.quickr?.topic_id;
+    await self.registration.showNotification(feedback.title, {
+      body: feedback.body,
+      icon: '/pwa-192x192.png',
+      badge: '/badge-96x96.png',
+      // no quickr data: tapping it just opens the record screen
+      data: { url: safeInAppPath((data as { url?: unknown } | null)?.url) },
+      ...(typeof topicId === 'string' ? { tag: `quickr.err.${topicId}` } : {}),
+    });
+  }
+}
+
+/**
+ * Whether the API cache (the app's last GETs) shows the topic archived: `getTopic` by slug or
+ * id, or any cached `listTopics` page. Undefined when it doesn't know; the server decides.
+ */
+async function cachedTopicState(topicId: string, slug: string | null): Promise<CachedTopicState> {
+  const cache = await caches.open(SW_API_CACHE);
+  const paths = [slug, topicId].flatMap((ref) =>
+    ref ? [`${API_PREFIX}/topics/${encodeURIComponent(ref)}`] : [],
+  );
+  const candidates: Response[] = [];
+  for (const path of paths) {
+    const hit = await cache.match(path);
+    if (hit) candidates.push(hit);
+  }
+  for (const request of await cache.keys()) {
+    if (new URL(request.url).pathname === `${API_PREFIX}/topics`) {
+      const hit = await cache.match(request);
+      if (hit) candidates.push(hit);
     }
   }
-  return true;
+  for (const response of candidates) {
+    const body: unknown = await response.json().catch(() => null);
+    const topics = Array.isArray((body as { items?: unknown } | null)?.items)
+      ? (body as { items: unknown[] }).items
+      : [body];
+    for (const t of topics) {
+      const topic = t as { id?: unknown; status?: unknown } | null;
+      if (topic?.id === topicId && (topic.status === 'archived' || topic.status === 'active')) {
+        return topic.status;
+      }
+    }
+  }
+  return undefined;
 }

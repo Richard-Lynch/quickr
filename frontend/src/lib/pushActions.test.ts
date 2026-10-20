@@ -12,8 +12,11 @@ import { uuid } from './uuid';
 import { ENTRY_CREATE, OUTBOX_KINDS, type EntryCreatePayload } from './outbox/kinds';
 import { createOutbox } from './outbox/outbox';
 import { idbOutboxStore, memoryOutboxStore } from './outbox/store';
+import { fakeQuickrServer } from '../test/fakeQuickrServer';
 import {
   actionEntryId,
+  answerLabel,
+  handleReminderAction,
   logFromAction,
   notificationData,
   PWA_NOTIFICATION_SOURCE,
@@ -246,6 +249,7 @@ describe('logFromAction', () => {
         notes: '',
         meta: {},
       },
+      expect_server_id: SERVER,
     } satisfies EntryCreatePayload);
   });
 
@@ -271,6 +275,7 @@ describe('logFromAction', () => {
     ).toEqual({
       status: 'duplicate',
       id: (first as { id: string }).id,
+      existing: before[0],
     });
     expect((await logFromAction({ outbox, action: 'log|o|bad', data, now })).status).toBe(
       'duplicate',
@@ -360,5 +365,148 @@ describe('logFromAction', () => {
     expect(await app.list()).toHaveLength(1);
     expect((await app.flush({ force: true })).sent).toBe(1);
     expect(await app.list()).toEqual([]);
+  });
+});
+
+describe('handleReminderAction', () => {
+  const data = notificationData(reminder(enumLog));
+
+  function rig(serverId = SERVER) {
+    const server = fakeQuickrServer(serverId, [TOPIC]);
+    const outbox = createOutbox({
+      kinds: OUTBOX_KINDS,
+      store: memoryOutboxStore(),
+      fetch: server.fetch,
+      channelName: null,
+      random: () => 0.5,
+    });
+    const queued = vi.fn(() => Promise.resolve());
+    const click = (action: string, d: unknown = data, extra: Record<string, unknown> = {}) =>
+      handleReminderAction({ outbox, action, data: d, queued, sendTimeoutMs: 2000, ...extra });
+    return { server, outbox, queued, click };
+  }
+
+  it('logs against the reminder’s server and shows nothing more', async () => {
+    const { server, outbox, click } = rig();
+    expect(await click('log|o|ok')).toEqual({ kind: 'none' });
+    expect([...server.entries.values()]).toMatchObject([
+      { topic_id: TOPIC, answers: [{ key: 'mood', value: 'ok' }], source: PWA_NOTIFICATION_SOURCE },
+    ]);
+    expect(server.requests[0]?.headers['x-quickr-expect-server-id']).toBe(SERVER);
+    expect(await outbox.list()).toEqual([]);
+  });
+
+  it('writes nothing when the origin now serves another server, and says so', async () => {
+    const { server, outbox, click } = rig('0b9e0000-0000-4000-8000-0000000000bb');
+    const feedback = await click('log|o|ok');
+    expect(feedback).toEqual({
+      kind: 'notify',
+      title: 'Couldn’t log Mood',
+      body: 'This reminder came from another quickR server, so nothing was logged.',
+    });
+    expect(server.entries.size).toBe(0);
+    expect(await outbox.list()).toEqual([]); // it can never succeed: dropped
+  });
+
+  it('reports an archived topic (the item stays failed for the app) and a deleted one', async () => {
+    const archived = rig();
+    archived.server.topics.set(TOPIC, { status: 'archived' });
+    expect(await archived.click('log|o|ok')).toEqual({
+      kind: 'notify',
+      title: 'Couldn’t log Mood',
+      body: 'The topic is archived. Open quickR to log.',
+    });
+    expect((await archived.outbox.list()).map((i) => i.status)).toEqual(['failed']);
+
+    const deleted = rig();
+    deleted.server.topics.clear();
+    expect(await deleted.click('log|o|ok')).toMatchObject({
+      kind: 'notify',
+      body: 'The topic was deleted.',
+    });
+  });
+
+  it('refuses an archived topic the cache knows of, before queueing anything', async () => {
+    const { server, outbox, click } = rig();
+    const feedback = await click('log|o|ok', data, {
+      topicState: () => Promise.resolve('archived'),
+    });
+    expect(feedback).toMatchObject({
+      kind: 'notify',
+      body: 'The topic is archived. Open quickR to log.',
+    });
+    expect(server.requests).toEqual([]);
+    expect(await outbox.list()).toEqual([]);
+  });
+
+  it('reports a reminder whose entry was deleted (its id is reserved)', async () => {
+    const { server, click } = rig();
+    server.deleted.add(await actionEntryId(SERVER, TOPIC, SLOT));
+    expect(await click('log|o|ok')).toMatchObject({
+      kind: 'notify',
+      body: 'This reminder’s entry was deleted. Open quickR to log again.',
+    });
+  });
+
+  it('offline is not a failure: the entry waits and Background Sync is asked for', async () => {
+    const { server, outbox, queued, click } = rig();
+    server.offline = true;
+    expect(await click('log|o|ok')).toEqual({ kind: 'none' });
+    expect(queued).toHaveBeenCalledOnce();
+    expect((await outbox.list()).map((i) => i.status)).toEqual(['pending']);
+  });
+
+  it('the first choice wins, visibly: a later different choice says what was logged', async () => {
+    // After the first was sent: the replay returns the first entry.
+    const sent = rig();
+    expect(await sent.click('log|o|ok')).toEqual({ kind: 'none' });
+    expect(await sent.click('log|o|bad')).toEqual({
+      kind: 'notify',
+      title: 'Already logged',
+      body: 'This reminder was already logged as OK. Open quickR to change it.',
+    });
+    expect(await sent.click('log|o|ok')).toEqual({ kind: 'none' });
+    expect([...sent.server.entries.values()].map((e) => e.answers)).toEqual([
+      [{ key: 'mood', value: 'ok' }],
+    ]);
+
+    // While the first is still queued (offline).
+    const queued = rig();
+    queued.server.offline = true;
+    await queued.click('log|o|ok');
+    expect(await queued.click('log|o|bad')).toMatchObject({
+      kind: 'notify',
+      body: 'This reminder was already logged as OK. Open quickR to change it.',
+    });
+    expect(await queued.click('log|o|ok')).toEqual({ kind: 'none' });
+    expect(await queued.outbox.list()).toHaveLength(1);
+  });
+
+  it('opens the app when the click can’t be handled here', async () => {
+    const { outbox, click } = rig();
+    expect(await click('log|o|great')).toEqual({ kind: 'open' });
+    expect(await click('log|o|ok', { url: '/' })).toEqual({ kind: 'open' });
+    // storage or lock failure
+    const broken = createOutbox({
+      kinds: OUTBOX_KINDS,
+      store: { ...memoryOutboxStore(), put: () => Promise.reject(new Error('QuotaExceededError')) },
+      channelName: null,
+    });
+    expect(await handleReminderAction({ outbox: broken, action: 'log|o|ok', data })).toEqual({
+      kind: 'open',
+    });
+    const failingLock = { request: () => Promise.reject(new Error('lock')) };
+    expect(
+      await handleReminderAction({ outbox, action: 'log|o|ok', data, locks: failingLock }),
+    ).toEqual({
+      kind: 'open',
+    });
+  });
+
+  it('labels numbers with their unit', () => {
+    const q = reminder(numberLog).quickr;
+    if (!q) throw new Error('no quickr');
+    expect(answerLabel(q, 7.5)).toBe('7.5 h');
+    expect(answerLabel(reminder(enumLog).quickr ?? q, 'ok')).toBe('OK');
   });
 });
