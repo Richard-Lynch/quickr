@@ -24,10 +24,12 @@ copy `Local.xcconfig.example` to `Local.xcconfig` (gitignored) and set
 
 ## Make targets
 
-Run from the repo root. `IOS_SIM` (default `quickR iOS-26-0`) takes a simulator
-name or UDID. Unless `IOS_SIM` / `IOS_SIM_MIN` is set (or `CI` is), `ios-test`,
-`ios-uitest` and `ios-sim-run` run on this worktree's own clone of that device
-(`sim-clone.sh`, created on first use), never on the shared base device.
+Run from the repo root. The simulator variables take a name or UDID: `ios-test`
+uses `IOS_SIM_MIN` (default `quickR iOS-26-0`), `ios-uitest` and `ios-sim-run`
+use `IOS_SIM` (default `IOS_SIM_MIN`), and `check-ios` uses `IOS_SIM_MIN` and
+`IOS_SIM_CUR`. When a target's variable isn't set (and `CI` isn't), it runs on
+this worktree's own clone of that device (`sim-clone.sh`, created on first use),
+never on the shared base device.
 
 | Target                      | Does                                                                                                                                                                                          |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
