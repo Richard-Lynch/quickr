@@ -52,14 +52,29 @@ enum UITestLaunch {
     }
 }
 
-/// The fake server's switches: unreachable, and whether the next create is rejected (422).
+/// The fake server's switches: unreachable, whether the next create is rejected (422), and
+/// whether feed requests are held (unit tests of interrupted startups). Counts requests.
 final class FakeServerState: Sendable {
-    private let state = Mutex((offline: false, rejectNext: false))
+    private struct State {
+        var offline = false
+        var rejectNext = false
+        var holdFeed = false
+        var requests = 0
+        var held: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    }
+
+    private let state = Mutex(State())
 
     var offline: Bool {
         get { state.withLock { $0.offline } }
         set { state.withLock { $0.offline = newValue } }
     }
+
+    /// Requests that reached the server (any host path), held ones included.
+    var requestCount: Int { state.withLock { $0.requests } }
+
+    /// Feed requests waiting while `holdFeed` is on.
+    var heldCount: Int { state.withLock { $0.held.count } }
 
     func rejectNextCreate() { state.withLock { $0.rejectNext = true } }
 
@@ -69,6 +84,38 @@ final class FakeServerState: Sendable {
             defer { state.rejectNext = false }
             return state.rejectNext
         }
+    }
+
+    /// Holds feed requests until `releaseFeed()` (a cancelled one stops waiting, as URLSession's does).
+    func holdFeed() { state.withLock { $0.holdFeed = true } }
+
+    func releaseFeed() {
+        let waiters = state.withLock { state in
+            state.holdFeed = false
+            defer { state.held = [:] }
+            return Array(state.held.values)
+        }
+        for waiter in waiters { waiter.resume() }
+    }
+
+    fileprivate func counted() { state.withLock { $0.requests += 1 } }
+
+    fileprivate func waitIfFeedHeld() async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                let proceed = state.withLock { state -> Bool in
+                    guard state.holdFeed, !Task.isCancelled else { return true }
+                    state.held[id] = continuation
+                    return false
+                }
+                if proceed { continuation.resume() }
+            }
+        } onCancel: {
+            let waiter = state.withLock { $0.held.removeValue(forKey: id) }
+            waiter?.resume(throwing: TransportError.cancelled(requestStarted: true))
+        }
+        if Task.isCancelled { throw TransportError.cancelled(requestStarted: true) }
     }
 }
 
@@ -109,7 +156,9 @@ private struct FakeServerTransport: Transport {
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         guard request.url.host() == UITestLaunch.fakeServer.host() else { return try await fallback.send(request) }
+        state.counted()
         if state.offline { throw TransportError.unreachable("offline (UI test)") }
+        if request.url.path() == "/api/v1/changes" { try await state.waitIfFeedHeld() }
         let identity: HTTPHeaders = [
             QuickrHeader.serverId: UITestLaunch.fakeServerId,
             QuickrHeader.epoch: "00000000-0000-4000-8000-0000000000bb",

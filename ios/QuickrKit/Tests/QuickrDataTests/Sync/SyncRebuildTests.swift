@@ -52,6 +52,30 @@ import Testing
 
     /// §6a rule 5: `cursor > head` in the same epoch (a restore without `make rotate-epoch`) is
     /// an epoch mismatch. Items whose entity vanished are kept (restore recovery, §7 step 4).
+    /// The run is cancelled (`cancelRun`, the background time running out) inside the swap, with
+    /// `flush` held: both leases are free the moment the run returns, not after their TTLs, and the
+    /// next run swaps.
+    @Test func aRunCancelledDuringTheSwapFreesFlushAtOnce() async throws {
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        let coordinator = env.coordinator(configure: {
+            // Cancels the run itself, between taking `flush` and the swap transaction.
+            $0.afterSwapFlushAcquiredForTesting = { withUnsafeCurrentTask { $0?.cancel() } }
+        })
+        let store = try await env.connect(coordinator)
+        env.server.rotateEpoch(to: Self.e2)
+        #expect(await coordinator.sync(reason: .activation) == .paused)
+        for name in LeaseName.allCases {
+            #expect(try await store.writer.read { db in try LeaseTable.record(db, name).owner } == nil, "\(name)")
+        }
+        #expect(try await store.state().rebuilding == Self.e2)  // staged, not swapped
+
+        // Without the cancellation the next run swaps at once (no lease to wait out).
+        let next = env.coordinator(owner: "app:B")
+        #expect(await next.sync(reason: .requested) == .synced)
+        #expect(try await store.state().epoch == Self.e2)
+    }
+
     @Test func restoreWithoutRotationIsDetectedByCursorAboveHead() async throws {
         let env = try SyncEnv()
         defer { env.cleanup() }

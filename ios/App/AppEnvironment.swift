@@ -30,6 +30,8 @@ final class AppEnvironment {
     @ObservationIgnored private let makeSession: @MainActor () throws -> AppSession
     @ObservationIgnored private var prepare: (@MainActor () async -> Void)?
     @ObservationIgnored private var starting: Task<Void, Never>?
+    /// `start()` was cancelled before it finished (see `cancelStart`).
+    @ObservationIgnored private var startInterrupted = false
 
     /// - Parameter prepare: runs once in `start()` before the session opens (a debug demo store's
     ///   seeding); with it, the session opens in `start()` rather than here.
@@ -106,6 +108,9 @@ final class AppEnvironment {
             await migrateLegacyToken()
             await session?.start(serverURL: settings.serverURL)
             if let session { sync.startMonitoring(session) }
+            // A background refresh's time ran out mid-start (`cancelStart`): the connect may not
+            // have happened, and the session won't redo it; the next activation does.
+            if Task.isCancelled { startInterrupted = true }
             hasStarted = true
             QuickRShortcuts.updateAppShortcutParameters()
         }
@@ -123,7 +128,10 @@ final class AppEnvironment {
         switch phase {
         case .active:
             sync.didBecomeActive()
-            Task { await session.didBecomeActive() }
+            Task {
+                await session.didBecomeActive()
+                await finishInterruptedStart(session)
+            }
         case .background:
             sync.didEnterBackground()
             BackgroundRefresh.schedule()
@@ -144,9 +152,8 @@ final class AppEnvironment {
         let run = RefreshRun()
         task.onExpiration {
             Task { @MainActor [weak self] in
-                if let episode = run.expire(), let session = self?.session {
-                    await session.backgroundTimeExpiring(episode, within: .seconds(2))
-                }
+                let episode = run.expire()
+                await self?.stopBackgroundWork(episode)
                 task.complete(success: false)
             }
         }
@@ -171,6 +178,16 @@ final class AppEnvironment {
         task.complete(success: result == .synced && !run.expired)
     }
 
+    /// A refresh's time ran out: stop the session's start where it is, and, in the background,
+    /// expire an episode (the refresh's, or a new one if it hadn't begun): that pauses sync and the
+    /// outbox, cancels the pull and the flush in flight, and suspends the database. Nothing of
+    /// the refresh writes or sends after it.
+    private func stopBackgroundWork(_ episode: AppSession.BackgroundEpisode?) async {
+        cancelStart()
+        guard lastScenePhase != .active, let session else { return }
+        await session.backgroundTimeExpiring(episode ?? session.beginBackground(), within: .seconds(2))
+    }
+
     private func flushInBackground(_ session: AppSession) {
         // The episode is taken before the expiration handler is registered, so this task's
         // callbacks only ever act on their own trip to the background.
@@ -183,6 +200,19 @@ final class AppEnvironment {
             await session.didEnterBackground(episode)
             task.end()
         }
+    }
+
+    /// Stops `start()` where it is (a background refresh's time ran out): its requests are
+    /// cancelled and it does no more work.
+    func cancelStart() {
+        starting?.cancel()
+    }
+
+    /// The connect an expired background start didn't finish, once the app is active.
+    private func finishInterruptedStart(_ session: AppSession) async {
+        guard startInterrupted else { return }
+        startInterrupted = false
+        if session.phase == .noServer, let url = settings.serverURL { await session.connect(baseURL: url) }
     }
 
     /// The first SETTINGS build kept one token for every server: it becomes the active server's

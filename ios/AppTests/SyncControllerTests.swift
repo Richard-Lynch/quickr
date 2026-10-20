@@ -128,6 +128,43 @@ import Testing
         await environment.session?.shutdown()
     }
 
+    /// The time runs out while startup is connecting (its feed request held): the start itself
+    /// stops. The request is cancelled, nothing more is sent, the connect never completes, the
+    /// database is suspended; opening the app later finishes the connect.
+    @Test func expiryDuringStartupStopsTheStartItself() async throws {
+        UITestLaunch.server.offline = false
+        UITestLaunch.server.holdFeed()
+        defer { UITestLaunch.server.releaseFeed() }
+        let environment = UITestLaunch.environment()
+        environment.settings.serverURL = UITestLaunch.fakeServer
+        environment.scenePhaseChanged(.background)
+        let suspends = Counter()
+        let observer = NotificationCenter.default.addObserver(
+            forName: Notification.Name("GRDB.Database.Suspend"), object: nil, queue: nil
+        ) { _ in suspends.increment() }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let task = RecordingRefreshTask()
+        let refresh = Task { await environment.backgroundRefresh(task) }
+        try await eventually("startup is fetching") { UITestLaunch.server.heldCount == 1 }
+        let suspendsBefore = suspends.count
+
+        task.expire()
+        await refresh.value
+        try await eventually("completed") { task.completions == [false] }
+        try await eventually("the held request is cancelled") { UITestLaunch.server.heldCount == 0 }
+        let requests = UITestLaunch.server.requestCount
+        UITestLaunch.server.releaseFeed()
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(UITestLaunch.server.requestCount == requests, "startup went on after the expiry")
+        #expect(environment.session?.phase != .ready)
+        #expect(suspends.count > suspendsBefore)
+
+        // Opened later: the interrupted connect finishes.
+        environment.scenePhaseChanged(.active)
+        try await eventually("connected") { environment.session?.phase == .ready }
+        await environment.session?.shutdown()
+    }
+
     /// The app is opened while a refresh is starting the session: the refresh does nothing, and
     /// the app stays in the foreground (nothing paused or suspended).
     @Test func activationDuringStartupWins() async throws {
