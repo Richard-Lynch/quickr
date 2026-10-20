@@ -44,6 +44,14 @@ public actor SyncCoordinator {
         /// `M`, `max(outbox_item.seq)`, 0 when empty.
         public var maxSeq: Int64
 
+        public init(serverId: String, storeGen: Int, count: Int, failedCount: Int, maxSeq: Int64) {
+            self.serverId = serverId
+            self.storeGen = storeGen
+            self.count = count
+            self.failedCount = failedCount
+            self.maxSeq = maxSeq
+        }
+
         /// `N = 0` needs a single confirmation; otherwise a destructive second one.
         public var needsDestructiveConfirmation: Bool { count > 0 }
     }

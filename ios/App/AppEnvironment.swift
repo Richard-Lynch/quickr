@@ -11,26 +11,46 @@ import UIKit
 @MainActor @Observable
 final class AppEnvironment {
     let settings: AppSettings
+    /// The Cloudflare Access tokens in the Keychain, one per server; the session reads the target
+    /// server's on every request.
+    let credentials: KeychainAccessCredentials?
+    /// A Keychain problem from launch (the legacy token's migration), for Settings to show.
+    private(set) var credentialsIssue: String?
     let router = Router()
     /// Nil only when it couldn't be created (`sessionError`); `start()` tries again.
     private(set) var session: AppSession?
     private(set) var sessionError: String?
     private(set) var lastScenePhase: ScenePhase?
+    /// `start()` has finished once: the session has connected to the configured server, or
+    /// found there is none. Onboarding waits for it (the session passes `.noServer` on the way).
+    private(set) var hasStarted = false
 
     @ObservationIgnored private let makeSession: @MainActor () throws -> AppSession
     @ObservationIgnored private var starting: Task<Void, Never>?
 
-    init(settings: AppSettings, makeSession: @escaping @MainActor () throws -> AppSession) {
+    init(
+        settings: AppSettings, credentials: KeychainAccessCredentials? = nil,
+        makeSession: @escaping @MainActor () throws -> AppSession
+    ) {
         self.settings = settings
+        self.credentials = credentials
         self.makeSession = makeSession
         openSession()
     }
 
-    /// The live session over the App Group's files, sending through URLSession.
-    static func live(location: StoreLocation = .shared(appGroup: AppGroup.identifier)) -> AppEnvironment {
-        AppEnvironment(settings: AppSettings(defaults: AppGroup.defaults)) {
-            // Cloudflare Access credentials come from the Keychain once SETTINGS adds them.
-            try AppSession(configuration: .init(location: location, transport: URLSessionTransport()))
+    /// The live session over the App Group's files, sending through URLSession with the
+    /// Cloudflare Access token from the shared Keychain.
+    static func live(
+        location: StoreLocation = .shared(appGroup: AppGroup.identifier), defaults: UserDefaults = AppGroup.defaults,
+        keychain: any KeychainStore = SystemKeychain(), transport: any Transport = URLSessionTransport()
+    ) -> AppEnvironment {
+        let credentials = KeychainAccessCredentials(keychain: keychain)
+        return AppEnvironment(settings: AppSettings(defaults: defaults), credentials: credentials) {
+            let session = try AppSession(
+                configuration: .init(location: location, transport: transport, credentials: credentials))
+            // Addresses resolve to servers through the registry, so each request gets its server's token.
+            credentials.directory.attach(session.partitions.registry.repository)
+            return session
         }
     }
 
@@ -39,7 +59,11 @@ final class AppEnvironment {
     /// a scene, so this runs in `QuickRApp.init`, before anything can query an entity. It opens
     /// the registry only; the store opens on first use.
     static func bootstrap(location: StoreLocation = .shared(appGroup: AppGroup.identifier)) -> AppEnvironment {
+        #if DEBUG
+        let environment = UITestLaunch.isActive ? UITestLaunch.environment() : live(location: location)
+        #else
         let environment = live(location: location)
+        #endif
         environment.registerIntentTopics()
         return environment
     }
@@ -64,7 +88,10 @@ final class AppEnvironment {
                 openSession()
                 registerIntentTopics()
             }
+            // Before the first request, so it already carries the migrated token.
+            await migrateLegacyToken()
             await session?.start(serverURL: settings.serverURL)
+            hasStarted = true
             QuickRShortcuts.updateAppShortcutParameters()
         }
         starting = attempt
@@ -99,6 +126,18 @@ final class AppEnvironment {
         Task {
             await session.didEnterBackground(episode)
             task.end()
+        }
+    }
+
+    /// The first SETTINGS build kept one token for every server: it becomes the active server's
+    /// (the registry's active one, or the configured address before any store exists).
+    private func migrateLegacyToken() async {
+        guard let credentials, let session else { return }
+        do {
+            let active = try await session.partitions.registry.repository.activeServerId()
+            try credentials.migrateLegacy(serverId: active, baseURL: settings.serverURL)
+        } catch {
+            credentialsIssue = "Couldn’t move the Cloudflare Access token to this server’s: \(error)"
         }
     }
 

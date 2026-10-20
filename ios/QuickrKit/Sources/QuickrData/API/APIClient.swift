@@ -19,10 +19,12 @@ public struct AccessCredentials: Sendable, Hashable {
     }
 }
 
-/// Where the Access headers come from (the shared Keychain in the app). Nil when none are
-/// configured, and then no Access headers are sent.
+/// Where the Access headers come from (the shared Keychain in the app), per server. Nil when none
+/// are configured for it, and then no Access headers are sent.
 public protocol AccessCredentialsProvider: Sendable {
-    func accessCredentials() async throws -> AccessCredentials?
+    /// The token for requests to `baseURL` (the request's target), so a request can only ever
+    /// carry the token of the server it goes to.
+    func accessCredentials(for baseURL: URL) async throws -> AccessCredentials?
 }
 
 /// A fixed identity, for tests and for callers that already hold one.
@@ -40,7 +42,7 @@ public struct StaticAccessCredentials: AccessCredentialsProvider {
 
     public init(_ credentials: AccessCredentials?) { self.credentials = credentials }
 
-    public func accessCredentials() async throws -> AccessCredentials? { credentials }
+    public func accessCredentials(for baseURL: URL) async throws -> AccessCredentials? { credentials }
 }
 
 /// Per-call options.
@@ -409,7 +411,7 @@ public struct APIClient: Sendable {
         ]
         let access: AccessCredentials?
         do {
-            access = try await credentials.accessCredentials()
+            access = try await credentials.accessCredentials(for: baseURL)
         } catch {
             throw APIClientError.providerFailed(String(describing: error))
         }
