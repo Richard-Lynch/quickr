@@ -73,9 +73,12 @@ struct HomeView: View {
             Text("quickR")
                 .font(.qr(.title))
                 .foregroundStyle(.qr.ink)
+                .fixedSize()
                 .accessibilityLabel("quickR — all topics")
                 .accessibilityAddTraits(.isHeader)
         }
+        // A wordmark, not a button: no glass bubble around it.
+        .sharedBackgroundVisibility(.hidden)
         ToolbarItemGroup(placement: .topBarTrailing) {
             SyncPill(
                 online: model.isOnline, pending: model.pendingCount, failed: model.failedCount, action: actions.sync
@@ -259,6 +262,7 @@ struct HomeView: View {
                     ForEach(TopicStatusFilter.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.menu)
+                .tint(.qr.ink)
                 .accessibilityIdentifier("home.status")
             } else {
                 Picker("Status", selection: $model.status) {
