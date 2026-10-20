@@ -18,12 +18,19 @@ final class AppEnvironment {
     private(set) var lastScenePhase: ScenePhase?
 
     @ObservationIgnored private let makeSession: @MainActor () throws -> AppSession
+    @ObservationIgnored private var prepare: (@MainActor () async -> Void)?
     @ObservationIgnored private var starting: Task<Void, Never>?
 
-    init(settings: AppSettings, makeSession: @escaping @MainActor () throws -> AppSession) {
+    /// - Parameter prepare: runs once in `start()` before the session opens (a debug demo store's
+    ///   seeding); with it, the session opens in `start()` rather than here.
+    init(
+        settings: AppSettings, prepare: (@MainActor () async -> Void)? = nil,
+        makeSession: @escaping @MainActor () throws -> AppSession
+    ) {
         self.settings = settings
         self.makeSession = makeSession
-        openSession()
+        self.prepare = prepare
+        if prepare == nil { openSession() }
     }
 
     /// The live session over the App Group's files, sending through URLSession.
@@ -60,6 +67,10 @@ final class AppEnvironment {
             return
         }
         let attempt = Task {
+            if let prepare {
+                self.prepare = nil
+                await prepare()
+            }
             if session == nil {
                 openSession()
                 registerIntentTopics()

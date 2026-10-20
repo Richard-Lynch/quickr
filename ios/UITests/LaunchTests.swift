@@ -1,12 +1,13 @@
 import XCTest
 
 final class LaunchTests: XCTestCase {
+    /// The app launches into the home screen (a fresh install asks to connect a server).
     @MainActor
-    func testRootViewShowsAppNameAndCoreVersion() {
+    func testTheAppLaunchesIntoTheHomeScreen() {
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.staticTexts["root.title"].waitForExistence(timeout: 10))
-        XCTAssertEqual(app.staticTexts["root.title"].label, "quickR")
-        XCTAssertTrue(app.staticTexts["root.coreVersion"].label.hasPrefix("Core "))
+        let any = app.descendants(matching: .any)
+        XCTAssertTrue(any["home.list"].waitForExistence(timeout: 20))
+        XCTAssertTrue(any["home.settings"].exists)
     }
 }
