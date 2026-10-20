@@ -13,9 +13,7 @@ struct RecordView: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// How far the keyboard, with its Next/Done bar, reaches up from the bottom of the screen.
-    @State private var keyboardHeight: CGFloat = 0
-    @State private var bottomSafeArea: CGFloat = 0
+    @State private var keyboardUp = false
     @State private var confirmingLeave = false
 
     var body: some View {
@@ -52,17 +50,9 @@ struct RecordView: View {
                 rejectionBanner(message)
             }
         }
-        // The Save bar sits on the keyboard as UIKit reports it, not on SwiftUI's keyboard safe
-        // area: that one lost the keyboard's Next/Done bar when the form changed (the first
-        // keystroke), and the Save bar slid under it until the next layout.
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 0) {
-                if !(keyboardUp && typeSize.isAccessibilitySize) { saveBar }
-                Color.clear.frame(height: max(0, keyboardHeight - bottomSafeArea))
-            }
+        .safeAreaInset(edge: .bottom) {
+            if !(keyboardUp && typeSize.isAccessibilitySize) { saveBar }
         }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
-        .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.bottom }, action: { bottomSafeArea = $0 })
         .qrPaperBackground()
         .navigationTitle(model.isFixing ? "Fix entry · \(model.topic.name)" : model.topic.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -96,15 +86,11 @@ struct RecordView: View {
             Text("What you’ve entered hasn’t been saved.")
         }
         .onDisappear { environment.toastBottomInset = 8 }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) {
-            guard let end = $0.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
-                let screen = $0.object as? UIScreen
-            else { return }
-            let height = max(0, screen.bounds.maxY - end.minY)
-            withAnimation(.smooth(duration: 0.25)) { keyboardHeight = height }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            keyboardUp = true
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            withAnimation(.smooth(duration: 0.25)) { keyboardHeight = 0 }
+            keyboardUp = false
         }
     }
 
@@ -112,8 +98,6 @@ struct RecordView: View {
     private func leave() {
         if model.hasUnsavedChanges { confirmingLeave = true } else { dismiss() }
     }
-
-    private var keyboardUp: Bool { keyboardHeight > 0 }
 
     private var logAnother: Binding<Bool> {
         Binding(
