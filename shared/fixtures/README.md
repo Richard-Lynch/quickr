@@ -295,3 +295,11 @@ To add an endpoint, add one `rec(...)` call to `scenario()`.
 - `meta.semantics`: the exact bytes hashed. Both ids are lowercased;
   `due_since` is used exactly as the payload carries it, so the non-canonical
   cases give different ids on purpose.
+
+## `provisioning/`
+
+`embedded.mobileprovision` stand-ins for iOS's APNs environment parser (notifications.md §9.1,
+N11): an XML plist inside bytes shaped like a CMS envelope, one file per case (`development`,
+`production`, an unknown `staging`, a non-string value, no `aps-environment`, no
+`Entitlements`, no `</plist>`, an unparsable plist, garbage). Hand-made, never signed: the Team
+ID is `FIXTURE00`.

@@ -21,6 +21,7 @@ struct SettingsView: View {
             Section {
                 NotificationExplainer(permission: permission)
                     .padding(.vertical, 4)
+                if permission.status == .allowed, let push = environment.push { PushDeviceRow(push: push) }
             }
             if let reset { ResetSection(flow: reset) }
             aboutSection

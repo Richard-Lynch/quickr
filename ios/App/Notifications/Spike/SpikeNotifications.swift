@@ -54,7 +54,8 @@ struct SpikeStatusView: View {
 
 /// The app delegate the spike needs: the notification center's delegate must be set before
 /// `didFinishLaunching` returns, or an action that launches the app in the background is lost.
-final class SpikeAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+/// Subclasses the app delegate, so DEBUG builds keep REG's token callbacks.
+final class SpikeAppDelegate: AppDelegate, UNUserNotificationCenterDelegate {
     func application(
         _ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
