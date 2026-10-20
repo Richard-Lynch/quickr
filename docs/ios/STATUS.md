@@ -302,6 +302,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 10:00 (EDT): **BUILDER merged into ios/m2-ui** via ios/m2-builder-land (84bf2f8). Its conflicts were the Makefile vectors and the fixtures README. A semantic duplicate, Limits.serverDefaults (identical in BUILDER and RECORD), was resolved by keeping RECORD's. On the landing branch: check-backend 694, the backend docker build (python 3.14.7-slim), vectors with no drift, frontend 852, core (QuickrCore 184, QuickrData 562), lint and the app build. TOPIC can now merge m2-ui. APPSET is next (SYNC-UX agent).
+
 - 2026-10-20 09:55 (EDT, check): BUILDER landing merged in ios/m2-builder-land (7e3ba18); verification pending. EDIT: the new swipe-back test found a real hazard (a blocked swipe on a dirty form whose release lands on "Delete Entry" deleted the entry); fixing with a drag-release guard. HANDLER r2 fixes in progress (delivered-reminder removal matched on server, topic and slot; an ActiveStoreGate for the badge and flush). TOPIC: UI tests running (076fe17). NSE started (CSV agent). The m2-ui integration Unit+UI run is queued for a slot.
 
 - 2026-10-20 09:55 (EDT): **UIT-2 (c47406c) and CSV merged into ios/m2-ui.** UIT-2: Codex ×2; E2E 13/13, UI 41, Unit 618. CSV: Codex ×4; Unit 634, export UI 4/4. The CSV merge conflicted in the UITestLaunch fake server (the CSV route vs the stats route); I kept both. Lint, core, script tests and the app build pass on the merge; an integration Unit + UI run on m2-ui follows. UIT-2 follow-up: the content-swipe guard test was vacuous under mutation; a positive control is in 271d271 (possibly a clean-form content-swipe regression), as a separate commit. EDIT can now merge m2-ui.
