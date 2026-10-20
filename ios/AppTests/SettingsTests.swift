@@ -132,15 +132,12 @@ import Testing
 }
 
 @Test func resetWarningsSayWhatIsLost() {
-    let none = SyncCoordinator.ResetWarning(serverId: "s", storeGen: 1, count: 0, failedCount: 0, maxSeq: 0)
-    #expect(ResetFlow.message(for: none).contains("Nothing is lost"))
-    let some = SyncCoordinator.ResetWarning(serverId: "s", storeGen: 1, count: 3, failedCount: 1, maxSeq: 9)
-    #expect(ResetFlow.message(for: some).contains("3 changes haven’t synced"))
-    #expect(ResetFlow.lossMessage(for: some).contains("1 of them failed"))
-    #expect(ResetFlow.lossLabel(for: some) == "Delete 3 changes and reset")
-    let one = SyncCoordinator.ResetWarning(serverId: "s", storeGen: 1, count: 1, failedCount: 0, maxSeq: 1)
-    #expect(ResetFlow.lossLabel(for: one) == "Delete 1 change and reset")
-    #expect(!ResetFlow.lossMessage(for: one).contains("failed"))
+    #expect(ResetFlow.message(count: 0).contains("Nothing is lost"))
+    #expect(ResetFlow.message(count: 3).contains("3 changes haven’t synced"))
+    #expect(ResetFlow.lossMessage(count: 3, failedCount: 1).contains("1 of them failed"))
+    #expect(ResetFlow.lossLabel(count: 3) == "Delete 3 changes and reset")
+    #expect(ResetFlow.lossLabel(count: 1) == "Delete 1 change and reset")
+    #expect(!ResetFlow.lossMessage(count: 1, failedCount: 0).contains("failed"))
 }
 
 // MARK: - Support

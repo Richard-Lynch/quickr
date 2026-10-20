@@ -26,10 +26,10 @@ struct SettingsView: View {
             aboutSection
         }
         .listStyle(.insetGrouped)
+        .tint(.qr.accentStrong)
         .scrollContentBackground(.hidden)
         .qrPaperBackground()
         .navigationTitle("Settings")
-        .accessibilityIdentifier("settings.list")
         .task {
             if reset == nil, let session = environment.session { reset = ResetFlow(session: session) }
             loadToken()

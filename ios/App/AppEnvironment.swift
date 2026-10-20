@@ -18,6 +18,9 @@ final class AppEnvironment {
     private(set) var session: AppSession?
     private(set) var sessionError: String?
     private(set) var lastScenePhase: ScenePhase?
+    /// `start()` has finished once: the session has connected to the configured server, or
+    /// found there is none. Onboarding waits for it (the session passes `.noServer` on the way).
+    private(set) var hasStarted = false
 
     @ObservationIgnored private let makeSession: @MainActor () throws -> AppSession
     @ObservationIgnored private var starting: Task<Void, Never>?
@@ -79,6 +82,7 @@ final class AppEnvironment {
                 registerIntentTopics()
             }
             await session?.start(serverURL: settings.serverURL)
+            hasStarted = true
             QuickRShortcuts.updateAppShortcutParameters()
         }
         starting = attempt

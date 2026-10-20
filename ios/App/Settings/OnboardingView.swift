@@ -58,6 +58,7 @@ struct OnboardingView: View {
                 ServerForm(setup: setup)
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("onboarding.server")
     }
 
@@ -78,6 +79,7 @@ struct OnboardingView: View {
             PrimaryButton(permission.status == .allowed ? "Continue" : "Not now", icon: .chevronRight, action: finish)
                 .accessibilityIdentifier("onboarding.done")
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("onboarding.reminders")
     }
 

@@ -53,8 +53,15 @@ struct RootView: View {
         } else {
             navigation
                 .onOpenURL { url in environment.router.handle(url: url, serverURL: environment.settings.serverURL) }
-                .onChange(of: environment.session?.phase, initial: true) { _, phase in
-                    if phase == .noServer { onboarding = true }
+                #if DEBUG
+            .task {
+                if let url = UITestLaunch.openURL {
+                    environment.router.handle(url: url, serverURL: environment.settings.serverURL)
+                }
+            }
+                #endif
+                .onChange(of: needsServer, initial: true) { _, needed in
+                    if needed { onboarding = true }
                 }
         }
     }
@@ -80,6 +87,12 @@ struct RootView: View {
             "Can’t open that link", isPresented: unopenedLink,
             actions: { Button("OK", role: .cancel) {} },
             message: { Text("It isn’t a quickR page.") })
+    }
+
+    /// No server, once the launch's start has settled (not the `.noServer` it passes through
+    /// while connecting to a configured address).
+    private var needsServer: Bool {
+        environment.hasStarted && environment.session?.phase == .noServer
     }
 
     private var unopenedLink: Binding<Bool> {

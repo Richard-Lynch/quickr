@@ -39,7 +39,8 @@ final class SettingsUITests: XCTestCase {
         app.buttons["root.settings"].tap()
         let url = app.staticTexts["settings.serverURL"]
         XCTAssertTrue(url.waitForExistence(timeout: 10))
-        XCTAssertEqual(url.label, "https://quickr.test")
+        // LabeledContent reads as one element: "Address, https://quickr.test".
+        XCTAssertTrue(url.label.hasSuffix("https://quickr.test"), url.label)
 
         // Add a service token: only the Client ID shows afterwards.
         app.buttons["settings.addToken"].tap()

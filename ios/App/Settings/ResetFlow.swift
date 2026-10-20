@@ -86,22 +86,22 @@ final class ResetFlow {
     }
 
     /// The first confirmation's text.
-    static func message(for warning: SyncCoordinator.ResetWarning) -> String {
+    nonisolated static func message(count: Int) -> String {
         let reload = "quickR deletes its copy on this iPhone and loads everything again from the server."
-        guard warning.needsDestructiveConfirmation else { return reload + " Nothing is lost." }
-        let changes = warning.count == 1 ? "1 change hasn’t" : "\(warning.count) changes haven’t"
+        guard count > 0 else { return reload + " Nothing is lost." }
+        let changes = count == 1 ? "1 change hasn’t" : "\(count) changes haven’t"
         return reload + " \(changes) synced yet."
     }
 
     /// The second confirmation's text: what is lost.
-    static func lossMessage(for warning: SyncCoordinator.ResetWarning) -> String {
-        let changes = warning.count == 1 ? "1 change that hasn’t" : "\(warning.count) changes that haven’t"
-        let failed = warning.failedCount > 0 ? " (\(warning.failedCount) of them failed to sync)" : ""
+    nonisolated static func lossMessage(count: Int, failedCount: Int) -> String {
+        let changes = count == 1 ? "1 change that hasn’t" : "\(count) changes that haven’t"
+        let failed = failedCount > 0 ? " (\(failedCount) of them failed to sync)" : ""
         return "This deletes \(changes) synced\(failed). They can’t be recovered."
     }
 
-    static func lossLabel(for warning: SyncCoordinator.ResetWarning) -> String {
-        warning.count == 1 ? "Delete 1 change and reset" : "Delete \(warning.count) changes and reset"
+    nonisolated static func lossLabel(count: Int) -> String {
+        count == 1 ? "Delete 1 change and reset" : "Delete \(count) changes and reset"
     }
 }
 
@@ -145,16 +145,16 @@ struct ResetSection: View {
             }
             Button("Cancel", role: .cancel) { flow.cancel() }
         } message: { warning in
-            Text(ResetFlow.message(for: warning))
+            Text(ResetFlow.message(count: warning.count))
         }
         .confirmationDialog(
             "Delete unsynced changes?", isPresented: presented(second.map(ResetFlow.State.confirmLoss)),
             titleVisibility: .visible, presenting: second
         ) { warning in
-            Button(ResetFlow.lossLabel(for: warning), role: .destructive) { flow.confirmedLoss() }
+            Button(ResetFlow.lossLabel(count: warning.count), role: .destructive) { flow.confirmedLoss() }
             Button("Cancel", role: .cancel) { flow.cancel() }
         } message: { warning in
-            Text(ResetFlow.lossMessage(for: warning))
+            Text(ResetFlow.lossMessage(count: warning.count, failedCount: warning.failedCount))
         }
     }
 

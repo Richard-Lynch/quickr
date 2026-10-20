@@ -6,6 +6,9 @@ import QuickrData
 /// settings or Keychain. A fresh store directory and defaults suite per launch, an in-memory
 /// Keychain, and a fake quickR server at `https://quickr.test` (an empty feed); any other host
 /// goes to the network, so a test can also onboard against the integration stack.
+///
+/// With it, `-QuickrServer <url>` presets the server (launch connects, skipping onboarding) and
+/// `-QuickrOpen <url>` opens a link once the root is up (screenshots, deep-link checks).
 enum UITestLaunch {
     static let argument = "-QuickrUITest"
     static let fakeServer = URL(string: "https://quickr.test")!
@@ -17,9 +20,23 @@ enum UITestLaunch {
         let root = FileManager.default.temporaryDirectory.appending(path: "quickr-uitest-\(UUID().uuidString)")
         let suite = "quickr.uitest.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite) ?? .standard
-        return AppEnvironment.live(
+        let environment = AppEnvironment.live(
             location: StoreLocation(root: root), defaults: defaults, keychain: InMemoryKeychain(),
             transport: FakeServerTransport(fallback: URLSessionTransport()))
+        environment.settings.serverURL = value(after: "-QuickrServer").flatMap(URL.init(string:))
+        return environment
+    }
+
+    /// `-QuickrOpen <url>`, when testing.
+    static var openURL: URL? {
+        guard isActive else { return nil }
+        return value(after: "-QuickrOpen").flatMap(URL.init(string:))
+    }
+
+    private static func value(after flag: String) -> String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+        return args[i + 1]
     }
 }
 

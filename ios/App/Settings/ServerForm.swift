@@ -19,16 +19,19 @@ struct ServerForm: View {
                 Text("Server address")
                     .font(.qr(.label))
                     .foregroundStyle(.qr.ink)
-                TextField("https://quickr.example.com", text: $setup.address)
-                    .textContentType(.URL)
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.go)
-                    .onSubmit(connect)
-                    .focused($focus, equals: .address)
-                    .modifier(FieldStyle(isInvalid: isFailed))
-                    .accessibilityIdentifier("server.address")
+                // Verbatim: a title string is Markdown, which would turn the example into a link.
+                TextField(text: $setup.address, prompt: Text(verbatim: "https://quickr.example.com")) {
+                    Text("Server address")
+                }
+                .textContentType(.URL)
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.go)
+                .onSubmit(connect)
+                .focused($focus, equals: .address)
+                .modifier(FieldStyle(isInvalid: isFailed))
+                .accessibilityIdentifier("server.address")
                 Text("The address you open quickR at in a browser.")
                     .font(.qr(.subheadline))
                     .foregroundStyle(.qr.muted)
@@ -61,7 +64,6 @@ struct ServerForm: View {
                     .foregroundStyle(.qr.inkSoft)
             }
             .tint(.qr.inkSoft)
-            .accessibilityIdentifier("server.accessToken")
 
             status
 
