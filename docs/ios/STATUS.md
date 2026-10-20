@@ -298,6 +298,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 04:45 (EDT): W6: SYNC-UX green at e32d2e5 (unit 545, UI 23, integration 18/18; one EntryScope in QuickrCore). Codex r3 resolved 5 of 6 round-2 items, but found a new Major: background expiry cancels a shared startup that a foreground activation is waiting on, leaving the open app disconnected. Fix in progress. RECORD: Codex r2 approved (069366b); full UI rerun pending, then merge. CAT is fixing the >2^53 bounds and ICU anchors. LIST gates are running. Agents now prefix scratchpad logs with their package name, because a shared UI.log was overwritten.
+
 - 2026-10-20 04:10 (EDT): W6: RECORD re-merged TILES and moved onto EntryWriter/EntryToasts (42f9b56); its integration test caught a TILES sendNow bug where fixed entries reported "queued" (fixed in 16a06f1); UI rerun pending. SYNC-UX r2 fixes in 383af22 (startup expiry cancels the start; flush lease release is uncancellable); merged m2-ui (e32d2e5); gates running. CAT done (c04d411); Codex = REQUEST CHANGES (int bounds above 2^53 compared as Double; ICU `$` anchors); minimal UNUserNotificationCenter adapter being added. LIST WIP 01a57b1, with entries server vectors and PWA range-start vectors.
 
 - 2026-10-20 03:45 (EDT): **TILES merged into ios/m2-ui** (Codex ×3; the final round scoped the QuickLogModels cache and drafts to the store via EntryScope; the XXXL layout loop is fixed with a VStack at AX sizes). Gate on the merge: lint, core green; TILES's own UI 20/20 and integration 18/18. W5 is complete (HOME, TILES, LINKS+SETTINGS, B8, WIRE, FORM). RECORD and SYNC-UX now re-merge m2-ui.
