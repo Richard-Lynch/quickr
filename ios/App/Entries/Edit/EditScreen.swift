@@ -150,16 +150,19 @@ struct EditView: View {
         .qrPaperBackground()
         .navigationTitle("Edit entry")
         .navigationBarTitleDisplayMode(.inline)
-        // One guarded back button the whole time (as on the record screen); the swipes back and
-        // VoiceOver's escape go back only while there is nothing to lose.
-        .navigationBarBackButtonHidden()
-        .background(SwipeBack(isEnabled: !model.hasUnsavedChanges))
+        // As on the record screen: the system's back button (and its edge and content swipes) while
+        // nothing has changed; once something has, a guarded back that asks first, and UIKit turns
+        // the swipes off with the system button hidden (iOS 27 gives no content swipe to a screen
+        // whose back button is hidden, so the system button stays when it can).
+        .navigationBarBackButtonHidden(model.hasUnsavedChanges)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button(action: leave) {
-                    Label("Back", systemImage: "chevron.left")
+            if model.hasUnsavedChanges {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: leave) {
+                        Label("Back", systemImage: "chevron.left")
+                    }
+                    .accessibilityIdentifier("edit.back")
                 }
-                .accessibilityIdentifier("edit.back")
             }
         }
         .accessibilityAction(.escape, leave)

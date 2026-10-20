@@ -208,7 +208,8 @@ private struct AccessTokenEditor: View {
     /// Closes the sheet with the secret field emptied first. The secret is a Cloudflare service
     /// token, kept in quickR's own Keychain, not a login: iOS 27 offers to save whatever a secure
     /// field holds when it goes ("Save Password?", for the Passwords app), whatever its content
-    /// type, so it holds nothing by then.
+    /// type, so it holds nothing by then. Save calls it only after the Keychain write has finished
+    /// (awaited); a failed save keeps the sheet, and the secret, with the error.
     private func close() async {
         clientSecret = ""
         try? await Task.sleep(for: .milliseconds(100))  // a render pass: the field shows it empty
