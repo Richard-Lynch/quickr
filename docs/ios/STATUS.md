@@ -302,6 +302,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 10:40 (EDT): Codex approvals: **EDIT r2** (fix-mode prefill and CAS; outbox safety; the tap-only Delete row; final full UI run on b5cb86c pending), **APPSET r3** (canonical OFL hash; merge after its simulator run), **HANDLER r4** (decide-act-reconcile badge, scope-checked flush, activeScope; goes into a new `ios/m3` collection branch). NSE r3: cache, cancellation and exact ints RESOLVED; a new Major remains, since viewTopics still loads all topic outbox items (to be streamed). TOPIC: no commit for 1 h; asked. UIT-2 content-swipe fix (518f070): proving run pending. Simulator slots are the bottleneck; EDIT has been queued for over 30 min.
+
 - 2026-10-20 10:25 (EDT): Codex round-up.
   - HANDLER r3: L2 RESOLVED. The ActiveStoreGate still isn't decide-and-act (the act closure leaves the main actor; the pre-bind registry path can accept a stale store while the first bind is pending). Agreed approach: a synchronous main-actor start, badge reconciliation afterwards, a scope-checked flush inside the scheduler, and a pending bind counts as not active.
   - NSE r2: the cutoff is RESOLVED. Still open: the QuestionBook cache is unbounded; reconciliation isn't cancellation-checked; integer bounds are compared as Double, the same class as CAT's.
