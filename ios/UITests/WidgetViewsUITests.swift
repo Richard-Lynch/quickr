@@ -51,7 +51,7 @@ final class WidgetViewsUITests: XCTestCase {
             XCTAssertTrue(shows(headache, "Mild"), "the last answer")
             let water = widget(app, "widget.small.water")
             XCTAssertTrue(shows(water, "waiting to sync") || shows(water, "1"), "queued")
-            XCTAssertTrue(shows(water, "✓"), "✓ last")
+            XCTAssertTrue(shows(water, "Log 3 glasses"), "✓ last, read as the tile reads it")
             let due = widget(app, "widget.medium.due")
             XCTAssertTrue(shows(due, "DUE NOW"))
             snap(app, "widgets-home-\(name)")
