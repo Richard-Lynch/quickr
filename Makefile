@@ -221,6 +221,10 @@ ios-demo-record: ios-gen ## iOS: record a launch on the simulator and convert to
 ios-integration: ## iOS: integration suite vs this worktree's stacks (up, smoke, tests, down)
 	@$(IOS_SCRIPTS)/integration.sh
 
+.PHONY: ios-uitest-e2e
+ios-uitest-e2e: ios-gen ## iOS: end-to-end UI tests vs this worktree's stack (IOS_SIM; up, test, down)
+	@$(IOS_SCRIPTS)/uitest-e2e.sh "$(IOS_SIM)"
+
 .PHONY: ios-integration-up
 ios-integration-up: ## iOS: start this worktree's integration stacks (writes ios/build/integration.env)
 	@$(IOS_SCRIPTS)/integration-up.sh
