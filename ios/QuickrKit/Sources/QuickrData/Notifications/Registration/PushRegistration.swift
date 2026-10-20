@@ -20,7 +20,10 @@ import QuickrCore
 ///
 /// The events run one at a time, in the order they arrive: a registration still waiting for its
 /// response finishes (and is recorded) before a server switch looks at where the token is
-/// registered, and no owed deletion is in flight while a registration runs.
+/// registered, and no owed deletion is in flight while a registration runs. And whichever event
+/// first meets a new active server reconciles from the stored state: a token registered with
+/// another server is owed a deletion there (its epoch learnt from the 409 when no switch reported
+/// it), so the order the app reports a switch and a token in doesn't matter.
 ///
 /// Every call is a mutation and carries both Expect headers. The token is never logged in full
 /// (``redacted(_:)``).
@@ -187,6 +190,13 @@ public final class PushRegistration {
             }
             status = .denied
         } else if authorization.allowsDelivery, let active {
+            var state = state
+            if let token = state.token, let other = state.registeredServerId, other != active.identity.serverId {
+                // Registered with the previous server, which no switch has reported yet.
+                try? await owe(serverId: other, token: token, epoch: nil)
+                try? await writeState { $0.registeredServerId = nil }
+                state.registeredServerId = nil
+            }
             let stale =
                 state.lastRegisteredAt.map {
                     dependencies.wallClock.now().timeIntervalSince($0) > Self.refreshInterval
@@ -234,8 +244,11 @@ public final class PushRegistration {
         switch outcome {
         case .success:
             let previous = (try? await readState()) ?? ApnsState()
-            if let old = previous.token, old != token, let oldServer = previous.registeredServerId {
-                // Rotation: the new token first, then the old one deleted (§9.2).
+            if let old = previous.token, let oldServer = previous.registeredServerId,
+                old != token || oldServer != active.identity.serverId
+            {
+                // Rotation, or a registration with the previous server no switch has reported
+                // yet: the new one first, then the old one deleted (§9.2).
                 let epoch = oldServer == active.identity.serverId ? active.identity.epoch : nil
                 try? await owe(serverId: oldServer, token: old, epoch: epoch)
             }

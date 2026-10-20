@@ -22,6 +22,8 @@ final class PushLifecycle {
 
     /// Observable: `PushRegistration` is.
     var status: PushRegistration.Status { registration.status }
+    /// Each ``activated(coldLaunch:)``'s `coldLaunch`, in order (for tests).
+    @ObservationIgnored private(set) var activations: [Bool] = []
 
     init(session: AppSession, transport: any Transport, credentials: any AccessCredentialsProvider) {
         self.session = session
@@ -47,6 +49,7 @@ final class PushLifecycle {
     // MARK: - Events
 
     func activated(coldLaunch: Bool) async {
+        activations.append(coldLaunch)
         let active = await activeServer()
         if let active { lastServer = active }
         await registration.activated(active: active, coldLaunch: coldLaunch)

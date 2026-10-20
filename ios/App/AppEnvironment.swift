@@ -41,8 +41,15 @@ final class AppEnvironment {
     private(set) var hasStarted = false
 
     @ObservationIgnored private let makeSession: @MainActor () throws -> AppSession
-    /// APNs registration over the session (notifications.md §9): live builds only.
+    /// APNs registration over the session (notifications.md §9): live builds only. Created on
+    /// its first activation (``activatePush()``), which a start cut short by a background expiry
+    /// leaves to the next `.active`.
     private(set) var push: PushLifecycle?
+    /// Trips to the foreground: one at launch, then one per return from the background.
+    @ObservationIgnored private var foregroundTrip = 0
+    /// The trip push was last activated in: once per trip, whether the start or `.active` gets
+    /// there first.
+    @ObservationIgnored private var pushActivatedTrip: Int?
     @ObservationIgnored private let makePush: (@MainActor (AppSession) -> PushLifecycle)?
     @ObservationIgnored private var prepare: (@MainActor () async -> Void)?
     @ObservationIgnored private var starting: Task<Void, Never>?
@@ -146,8 +153,8 @@ final class AppEnvironment {
             // have happened, and the session won't redo it; the next activation does.
             if Task.isCancelled { startInterrupted = true }
             hasStarted = true
-            if push == nil, let session, let makePush { push = makePush(session) }
-            await push?.activated(coldLaunch: true)
+            // Not after an expiry: the OS took the time back (the next `.active` activates it).
+            if !Task.isCancelled { await activatePush() }
             QuickRShortcuts.updateAppShortcutParameters()
         }
         starting = attempt
@@ -159,6 +166,7 @@ final class AppEnvironment {
     /// flush and pull; on `.background`, flush inside a background task whose expiration handler
     /// cancels the flush, then suspend the database (0xDEAD10CC).
     func scenePhaseChanged(_ phase: ScenePhase) {
+        if phase == .active, lastScenePhase == .background { foregroundTrip += 1 }
         lastScenePhase = phase
         guard let session else { return }
         switch phase {
@@ -167,7 +175,7 @@ final class AppEnvironment {
             Task {
                 await session.didBecomeActive()
                 await finishInterruptedStart(session)
-                await push?.activated(coldLaunch: false)
+                await activatePush()
             }
         case .background:
             sync.didEnterBackground()
@@ -245,6 +253,16 @@ final class AppEnvironment {
     /// cancelled and it does no more work.
     func cancelStart() {
         starting?.cancel()
+    }
+
+    /// Creates push on first use and activates it, once per trip to the foreground: a cold
+    /// activation (§9.2) when just created, else a warm one.
+    private func activatePush() async {
+        guard let session, let makePush, pushActivatedTrip != foregroundTrip else { return }
+        pushActivatedTrip = foregroundTrip
+        let created = push == nil
+        if created { push = makePush(session) }
+        await push?.activated(coldLaunch: created)
     }
 
     /// The connect an expired background start didn't finish, once the app is active.

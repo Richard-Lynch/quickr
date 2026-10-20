@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Observation
 import QuickrCore
 import QuickrTestSupport
@@ -489,6 +490,91 @@ import Testing
         #expect(w.devices(Self.a).isEmpty, "the late registration was deleted from A")
         #expect(try await w.owed.isEmpty)
         #expect(try await w.state.registeredServerId == nil)
+    }
+
+    /// The app reports A → B late: B's token arrives first. Registering with B owes A the
+    /// deletion (its epoch learnt from the 409); the late switch report finds nothing more to do.
+    @Test func aTokenForTheNewServerBeforeTheSwitchReportDeletesFromTheOld() async throws {
+        let w = try await World()
+        await w.registration.didRegister(token: Self.token1, active: Self.a)
+        await w.registration.didRegister(token: Self.token1, active: Self.b)
+        #expect(w.devices(Self.a).isEmpty && w.devices(Self.b) == ["abcd0102030405060708"])
+        await w.registration.serverSwitched(from: Self.a)
+        #expect(try await w.owed.isEmpty)
+        #expect(w.registration.status == .registered(serverId: Self.b.identity.serverId))
+    }
+
+    /// An activation on B arrives before the switch report: it reconciles too, and asks for the
+    /// token for B.
+    @Test func anActivationOnTheNewServerDeletesFromTheOld() async throws {
+        let w = try await World()
+        await w.registration.didRegister(token: Self.token1, active: Self.a)
+        await w.registration.activated(active: Self.b, coldLaunch: false)
+        #expect(w.devices(Self.a).isEmpty && w.requests.withLock { $0 } == 1)
+        #expect(try await w.state.registeredServerId == nil)
+        #expect(try await w.owed.isEmpty)
+    }
+
+    /// A switch reported while the rebuild runs waits for the registration (no deadlock), then
+    /// sees it.
+    @Test func anEventDuringTheEpochRecoveryRunsAfterIt() async throws {
+        let w = try await World()
+        w.servers.with(Self.a.baseURL.host!) { $0.epoch = "EA2" }
+        var rebuilt = Self.a
+        rebuilt.identity.epoch = "EA2"
+        let switching = Box<Task<Void, Never>?>(nil)
+        let registration = w.registration
+        registration.recoverActiveEpoch = { [rebuilt] in
+            switching.withLock { $0 = Task { await registration.serverSwitched(from: rebuilt) } }
+            return rebuilt
+        }
+        await registration.didRegister(token: Self.token1, active: Self.a)
+        #expect(w.devices(Self.a) == ["abcd0102030405060708"], "registered before the switch ran")
+        await switching.withLock { $0 }?.value
+        let owed = try await w.owed
+        #expect(w.devices(Self.a).isEmpty && owed.isEmpty)
+        #expect(try await w.state.registeredServerId == nil)
+    }
+
+    /// A caller that stops waiting doesn't stop its event: it still runs, in order.
+    @Test func aCancelledCallerStillRunsItsEvent() async throws {
+        let w = try await World()
+        w.gate.hold("/api/v1/push/apns/devices")
+        let first = Task { await w.registration.didRegister(token: Self.token1, active: Self.a) }
+        while !w.gate.isHolding { await Task.yield() }
+        let second = Task { await w.registration.didRegister(token: Self.token2, active: Self.a) }
+        while w.registration.inFlight < 2 { await Task.yield() }
+        second.cancel()
+        w.gate.release()
+        await first.value
+        await second.value
+        while w.registration.inFlight > 0 { await Task.yield() }
+        #expect(w.devices(Self.a) == ["feed1122334455667788"], "rotated: the second ran after the first")
+        #expect(try await w.state.token == "feed1122334455667788")
+    }
+
+    /// A registry with a registration from v1 keeps it through v2, with nothing owed.
+    @Test func theV2MigrationKeepsAnExistingRegistration() async throws {
+        let queue = try DatabaseQueue()
+        var migrator = RegistrySchema.migrator()
+        try migrator.migrate(queue, upTo: "v1")
+        try await queue.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO apns_state (id, token, environment, registered_server_id, last_registered_at)
+                    VALUES (1, 'abcd', 'sandbox', 'server-a', 1000)
+                    """)
+        }
+        migrator = RegistrySchema.migrator()
+        try migrator.migrate(queue)
+        let registration = PushRegistration(
+            dependencies: .init(
+                registry: Registry(writer: queue), transport: FakeTransport(), environment: { .success(.sandbox) },
+                authorization: { .authorized }, requestToken: {}))
+        let state = try await registration.readState()
+        #expect(state.token == "abcd" && state.environment == .sandbox && state.registeredServerId == "server-a")
+        #expect(state.lastRegisteredAt == Date(timeIntervalSince1970: 1000))
+        #expect(state.registerAttempts == 0 && state.registerDue == nil)
     }
 
     @Test func tokensAreRedactedForLogs() {
