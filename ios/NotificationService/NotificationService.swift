@@ -7,9 +7,11 @@ import UserNotifications
 /// `NotificationPreparation` (QuickrData): the local fallback's duplicates cancelled, its category
 /// registered and set, an already-logged slot said so, the badge from the active store, older
 /// reminders for the topic removed. No network and no outbox; the active store is read-only.
-/// When the time runs out (`serviceExtensionTimeWillExpire`), the notification goes out untouched.
+/// When the time runs out (`serviceExtensionTimeWillExpire`), the preparation is cancelled (it
+/// makes no further changes) and the notification goes out untouched.
 final class NotificationService: UNNotificationServiceExtension {
     private var delivery: Delivery?
+    private var preparing: Task<Void, Never>?
 
     override func didReceive(
         _ request: UNNotificationRequest,
@@ -25,10 +27,14 @@ final class NotificationService: UNNotificationServiceExtension {
             delivery.deliver(nil)
             return
         }
-        Task { @Sendable in delivery.deliver(await preparation.prepare(incoming)) }
+        preparing = Task { @Sendable in
+            let prepared = await preparation.prepare(incoming)
+            delivery.deliver(Task.isCancelled ? nil : prepared)
+        }
     }
 
     override func serviceExtensionTimeWillExpire() {
+        preparing?.cancel()
         delivery?.deliver(nil)
     }
 

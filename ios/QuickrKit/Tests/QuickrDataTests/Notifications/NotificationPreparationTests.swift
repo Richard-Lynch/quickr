@@ -2,6 +2,7 @@ import Foundation
 import GRDB
 import QuickrCore
 import QuickrTestSupport
+import Synchronization
 import Testing
 
 @testable import QuickrData
@@ -10,8 +11,9 @@ import Testing
 /// active store.
 @MainActor @Suite(.timeLimit(.minutes(2))) struct NotificationPreparationTests {
     static let now = HomeModelTests.now
-    static let active = "server-1"
-    static let inactive = "server-2"
+    nonisolated static let active = "00000000-0000-4000-8000-0000000000a1"
+    nonisolated static let inactive = "00000000-0000-4000-8000-0000000000a2"
+    nonisolated static let unknown = "00000000-0000-4000-8000-0000000000a9"
 
     static let water = HomeModelTests.topic(
         2, "Water", everyMinutes: 120, lastMinutesAgo: 130, questions: [NotificationCategoriesTests.severity(2)])
@@ -40,22 +42,33 @@ import Testing
 
     @MainActor struct World {
         let registry = Registry(writer: try! TestDatabase.registry())
-        let center = FakeNotificationCenter()
-        let store: TestStore
+        let center: any NotificationCenterProtocol
+        /// What the center recorded.
+        let fake: FakeNotificationCenter
+        let store: LocalStore
         var registryOpens = true
         var storeOpens = true
 
-        init() async throws {
-            store = try TestStore()
+        init(gated: GatedCenter? = nil) async throws {
+            fake = gated?.inner ?? FakeNotificationCenter()
+            center = gated ?? fake
+            let queue = try TestDatabase.store()
+            try await queue.write { db in
+                try LocalStore.createSyncState(db, serverId: active, baseURL: "https://active.example")
+                try db.execute(sql: "UPDATE sync_state SET epoch = 'E1'")
+            }
+            store = LocalStore(
+                serverId: active, storeGen: 1, url: nil, writer: queue, leaseClock: FakeLeaseClock(),
+                wallClock: FakeClock(now))
             for server in [active, inactive] {
                 _ = try await registry.register(serverId: server, baseURL: "https://\(server).example", now: now)
             }
             try await registry.setActive(active)
-            try await HomeModelTests.seed(store.store, [water, meds, stretch])
+            try await HomeModelTests.seed(store, [water, meds, stretch])
         }
 
         var preparation: NotificationPreparation {
-            let (registry, store, registryOpens, storeOpens) = (registry, store.store, registryOpens, storeOpens)
+            let (registry, store, registryOpens, storeOpens) = (registry, store, registryOpens, storeOpens)
             let now = NotificationPreparationTests.now
             return NotificationPreparation(
                 center: center,
@@ -80,6 +93,35 @@ import Testing
         }
     }
 
+    /// An entry only this device has: its create queued.
+    static func queue(_ store: LocalStore, _ topic: Topic, at: Date) async throws {
+        let ref = TopicRef(id: topic.id, slug: topic.slug, name: topic.name)
+        try await store.writer.write { db in
+            try OutboxStorage.append(
+                db,
+                NewOutboxItem(
+                    id: UUID(),
+                    payload: .entryCreate(
+                        topic: ref,
+                        body: EntryCreateDTO(
+                            id: nil, answers: ["severity": .string("s1")], source: "ios", capturedAt: at, version: 1)),
+                    baseRevision: nil, origin: .app, hold: nil),
+                now: at)
+        }
+    }
+
+    /// An entry the server has.
+    static func synced(_ store: LocalStore, _ topic: Topic, at: Date) async throws {
+        let topicId = topic.id
+        try await store.writer.write { db in
+            _ = try ServerLayer.upsert(
+                db,
+                entry: Entry(
+                    id: UUID(), topicId: topicId, version: 1, revision: 1, source: "web", channel: .ui,
+                    capturedAt: at, createdAt: at, updatedAt: at, answers: [:]))
+        }
+    }
+
     static var waterCategory: NotificationCategory {
         NotificationCategory(serverId: active, topicId: water.id.wireString, version: 1, descriptor: descriptor)
     }
@@ -94,14 +136,16 @@ import Testing
         #expect(prepared.categoryIdentifier == Self.waterCategory.id)
         #expect(prepared.badge == 2 && prepared.body == "Time to log")
         #expect(try w.table == [Self.waterCategory.id])
-        #expect(w.center.withState { $0.categories.map(\.id) } == [Self.waterCategory.id])
+        #expect(w.fake.withState { $0.categories.map(\.id) } == [Self.waterCategory.id])
     }
 
     /// The due count is at `now + skew`: Stretch falls due 30 minutes from now on this clock, but
     /// the server's is 31 minutes ahead.
     @Test func theDueCountUsesTheServersClock() async throws {
         let w = try await World()
-        try w.store.write { db in try db.execute(sql: "UPDATE sync_state SET skew_ms = ?", arguments: [31 * 60_000]) }
+        try await w.store.writer.write { db in
+            try db.execute(sql: "UPDATE sync_state SET skew_ms = ?", arguments: [31 * 60_000])
+        }
         #expect(await w.prepare(Self.reminder()).badge == 3)
     }
 
@@ -109,19 +153,7 @@ import Testing
     /// and Water isn't counted.
     @Test func aSlotLoggedOnThisDeviceSaysSoAndIsNotCounted() async throws {
         let w = try await World()
-        try w.store.write { db in
-            try OutboxStorage.append(
-                db,
-                NewOutboxItem(
-                    id: UUID(),
-                    payload: .entryCreate(
-                        topic: TopicRef(id: Self.water.id, slug: Self.water.slug, name: Self.water.name),
-                        body: EntryCreateDTO(
-                            id: nil, answers: ["severity": .string("s1")], source: "ios", capturedAt: Self.now,
-                            version: 1)),
-                    baseRevision: nil, origin: .app, hold: nil),
-                now: Self.now)
-        }
+        try await Self.queue(w.store, Self.water, at: Self.now)
         let prepared = await w.prepare(Self.reminder())
         #expect(prepared.body == NotificationPreparation.alreadyLoggedBody)
         #expect(prepared.categoryIdentifier == "")
@@ -131,13 +163,7 @@ import Testing
     /// An entry the server already has doesn't trigger the "already logged" body: only a local one.
     @Test func aSyncedEntryIsNotALocalLog() async throws {
         let w = try await World()
-        try w.store.write { db in
-            _ = try ServerLayer.upsert(
-                db,
-                entry: Entry(
-                    id: UUID(), topicId: Self.water.id, version: 1, revision: 1, source: "web", channel: .ui,
-                    capturedAt: Self.now, createdAt: Self.now, updatedAt: Self.now, answers: [:]))
-        }
+        try await Self.synced(w.store, Self.water, at: Self.now)
         let prepared = await w.prepare(Self.reminder())
         #expect(prepared.body == "Time to log" && prepared.categoryIdentifier == Self.waterCategory.id)
         #expect(prepared.badge == 1)
@@ -167,7 +193,7 @@ import Testing
     /// badge, nothing registered.
     @Test func aReminderFromAnUnknownServerLosesItsCategory() async throws {
         let w = try await World()
-        let prepared = await w.prepare(Self.reminder(server: "server-9"))
+        let prepared = await w.prepare(Self.reminder(server: Self.unknown))
         #expect(prepared.categoryIdentifier == "" && prepared.badge == nil)
         #expect(try w.table.isEmpty)
     }
@@ -180,12 +206,12 @@ import Testing
         var w = try await World()
         w.registryOpens = false
         let slot = try #require(Self.reminder().slot)
-        w.center.withState {
+        w.fake.withState {
             $0.pending = [NotificationSnapshot(id: slot.localRequestIdentifier), NotificationSnapshot(id: "other")]
         }
         let prepared = await w.prepare(Self.reminder())
         #expect(prepared == .init(body: "Time to log", categoryIdentifier: "quickr.t.x.server", badge: nil))
-        #expect(w.center.withState { $0.pending.map(\.id) } == ["other"])
+        #expect(w.fake.withState { $0.pending.map(\.id) } == ["other"])
     }
 
     /// A test push, a newer payload version, a sync push or a notification that isn't quickR's.
@@ -196,7 +222,7 @@ import Testing
             #expect(prepared == .init(body: "Time to log", categoryIdentifier: "quickr.t.x.server", badge: nil))
         }
         #expect(try w.table.isEmpty)
-        #expect(w.center.withState { $0.categoryRegistrations.isEmpty })
+        #expect(w.fake.withState { $0.categoryRegistrations.isEmpty })
     }
 
     // MARK: - Delivered reminders
@@ -207,7 +233,7 @@ import Testing
         let w = try await World()
         let earlier = Self.canonical(Self.now.addingTimeInterval(-130 * 60))
         let later = Self.canonical(Self.now.addingTimeInterval(60 * 60))
-        w.center.withState {
+        w.fake.withState {
             $0.delivered = [
                 NotificationSnapshot(id: "local-same", quickr: Self.reminder(origin: .local)),
                 NotificationSnapshot(id: "remote-older", quickr: Self.reminder(dueSince: earlier)),
@@ -220,7 +246,167 @@ import Testing
         }
         _ = await w.prepare(Self.reminder())
         #expect(
-            w.center.withState { $0.delivered.map(\.id) } == ["remote-later", "meds-older", "other-server", "push-1"])
+            w.fake.withState { $0.delivered.map(\.id) } == ["remote-later", "meds-older", "other-server", "push-1"])
+    }
+
+    // MARK: - Bounded reads (24 MB)
+
+    /// 5,000 queued entries (10 of them edited too): the badge's `last_captured_at` and the slot
+    /// check read them one entity at a time (never the whole queue), and agree with the full view.
+    @Test func aLongQueueIsReadOneEntityAtATime() async throws {
+        let w = try await World()
+        let water = Self.water
+        let base = Self.now.addingTimeInterval(-3 * 86_400)
+        try await w.store.writer.write { db in
+            for i in 0..<5_000 {
+                let id = UUID()
+                try OutboxStorage.append(
+                    db,
+                    NewOutboxItem(
+                        id: id,
+                        payload: .entryCreate(
+                            topic: TopicRef(id: water.id, slug: water.slug, name: water.name),
+                            body: EntryCreateDTO(
+                                id: nil, answers: ["severity": .string("s1")], source: "ios",
+                                capturedAt: base.addingTimeInterval(Double(i)), version: 1)),
+                        baseRevision: nil, origin: .app, hold: nil),
+                    now: base)
+                guard i < 10 else { continue }
+                try OutboxStorage.append(
+                    db,
+                    NewOutboxItem(
+                        id: UUID(),
+                        payload: .entryUpdate(
+                            entryId: id.wireString, topicId: water.id.wireString,
+                            patch: EntryUpdateDTO(capturedAt: base.addingTimeInterval(9_000 + Double(i)))),
+                        baseRevision: nil, origin: .app, hold: nil),
+                    now: base)
+            }
+        }
+        let (groups, bounded, full) = try await w.store.writer.read { db in
+            var groups: [Int] = []
+            try StoreView.streamOverlays(db, onEntity: { groups.append($0) }) { _ in true }
+            let full = try StoreView.derived(db).mapValues(\.lastCapturedAt)
+            return (groups, try StoreView.lastCapturedAt(db), full)
+        }
+        #expect(groups.count == 5_000 && groups.filter { $0 == 2 }.count == 10, "one entity's items at a time")
+        #expect(bounded == full.compactMapValues { $0 })
+        // The queue is older than Water's slot: no local log, Water still due. The preparation
+        // reads the queue only through the cursor (by entity), never whole (by seq).
+        let statements = Mutex<[String]>([])
+        try await w.store.writer.write { db in db.trace { event in statements.withLock { $0.append("\(event)") } } }
+        let prepared = await w.prepare(Self.reminder())
+        try await w.store.writer.write { db in db.trace(options: [], nil) }
+        #expect(prepared.body == "Time to log" && prepared.badge == 2)
+        // Whole item rows (payloads); the topic items for a few ids are fine.
+        let queueReads = statements.withLock { $0 }.filter {
+            $0.contains("SELECT * FROM outbox_item") && !$0.contains("entity_id IN")
+        }
+        #expect(!queueReads.isEmpty, "\(queueReads)")
+        #expect(queueReads.allSatisfy { $0.contains("ORDER BY entity_id, seq") }, "\(queueReads)")
+    }
+
+    /// The slot check finds a queued entry however many newer entries the topic has.
+    @Test func aQueuedEntryBehindFiftyNewerOnesStillCounts() async throws {
+        let w = try await World()
+        try await Self.queue(w.store, Self.water, at: Self.now.addingTimeInterval(-5 * 60))
+        for i in 0..<50 { try await Self.synced(w.store, Self.water, at: Self.now.addingTimeInterval(Double(-i))) }
+        let prepared = await w.prepare(Self.reminder())
+        #expect(prepared.body == NotificationPreparation.alreadyLoggedBody && prepared.categoryIdentifier == "")
+    }
+
+    // MARK: - Expiry
+
+    /// The time ran out while the preparation waited on the system: it is cancelled, and makes no
+    /// change after that (no registration, no removals).
+    @Test func anExpiredPreparationChangesNothingMore() async throws {
+        let gated = GatedCenter()
+        let w = try await World(gated: gated)
+        let earlier = Self.canonical(Self.now.addingTimeInterval(-130 * 60))
+        gated.withState {
+            $0.delivered = [
+                NotificationSnapshot(id: "local-same", quickr: Self.reminder(origin: .local)),
+                NotificationSnapshot(id: "remote-older", quickr: Self.reminder(dueSince: earlier)),
+            ]
+        }
+        let preparation = w.preparation
+        let incoming = NotificationPreparation.Incoming(
+            id: "push-1", body: "Time to log", categoryIdentifier: "c", quickr: Self.reminder())
+        let preparing = Task { await preparation.prepare(incoming) }
+        await gated.waitUntilHeld()
+        preparing.cancel()  // serviceExtensionTimeWillExpire
+        gated.release()
+        _ = await preparing.value
+        #expect(gated.withState { $0.delivered.map(\.id) } == ["local-same", "remote-older"])
+        #expect(gated.withState { $0.categoryRegistrations.isEmpty })
+        #expect(try w.table.isEmpty)
+    }
+
+    // MARK: - Tampered payloads
+
+    /// A reminder that breaks the contract (ids, version, key and option grammar, counts, label
+    /// lengths, number bounds) is delivered untouched and registers nothing.
+    @Test(arguments: TamperCase.all)
+    func aTamperedReminderIsUntouchedAndRegistersNothing(_ tamper: TamperCase) async throws {
+        let w = try await World()
+        let slot = try #require(Self.reminder().slot)
+        w.fake.withState { $0.pending = [NotificationSnapshot(id: slot.localRequestIdentifier)] }
+        var info = Self.reminder()
+        tamper.apply(&info)
+        let prepared = await w.prepare(info, category: "c")
+        #expect(prepared == .init(body: "Time to log", categoryIdentifier: "c", badge: nil), "\(tamper.name)")
+        #expect(try w.table.isEmpty && w.fake.withState { $0.categoryRegistrations.isEmpty }, "\(tamper.name)")
+    }
+
+    struct TamperCase: Sendable, CustomTestStringConvertible {
+        let name: String
+        let apply: @Sendable (inout QuickrNotificationInfo) -> Void
+        var testDescription: String { name }
+
+        static func choice(_ name: String, _ change: @escaping @Sendable (inout QuickLogDescriptor.Choice) -> Void)
+            -> TamperCase
+        {
+            TamperCase(name: name) { info in
+                guard case .choice(var choice) = info.quickLog else { return }
+                change(&choice)
+                info.quickLog = .choice(choice)
+            }
+        }
+
+        static func number(_ name: String, _ change: @escaping @Sendable (inout QuickLogDescriptor.Number) -> Void)
+            -> TamperCase
+        {
+            TamperCase(name: name) { info in
+                var number = QuickLogDescriptor.Number(
+                    type: "double", key: "hours", label: "Sleep", unit: "h", min: .double(0), max: .double(24),
+                    decimals: 1, lastValue: .double(7.5))
+                change(&number)
+                info.quickLog = .number(number)
+            }
+        }
+
+        static let all: [TamperCase] = [
+            TamperCase(name: "server id not a UUID") { $0.serverId = "server-1" },
+            TamperCase(name: "uppercase topic id") { $0.topicId = "AAAAAAAA-0000-4000-8000-000000000002" },
+            TamperCase(name: "topic id not a UUID") { $0.topicId = "water" },
+            TamperCase(name: "version 0") { $0.version = 0 },
+            TamperCase(name: "no version") { $0.version = nil },
+            choice("key with a bar") { $0.key = "a|b" },
+            choice("key not in the grammar") { $0.key = "Severity" },
+            choice("option value with a bar") { $0.options[0] = .init(value: "s0|x", label: "S0") },
+            choice("duplicate option values") { $0.options[1] = .init(value: "s0", label: "S1") },
+            choice("more shown than active") { $0.totalOptions = 1 },
+            choice("4 of 5 shown") {
+                $0.options += [.init(value: "s2", label: "S2"), .init(value: "s3", label: "S3")]
+                $0.totalOptions = 5
+            },
+            choice("7 active options") { $0.totalOptions = 7 },
+            choice("label over 64") { $0.label = String(repeating: "x", count: 65) },
+            number("min above max") { $0.min = .double(30) },
+            number("last value out of range") { $0.lastValue = .double(25) },
+            number("unknown type") { $0.type = "str" },
+            number("decimals 11") { $0.decimals = 11 },
+        ]
     }
 
     @Test func userInfoIsReadFromTheQuickrKey() throws {
@@ -230,4 +416,53 @@ import Testing
         #expect(QuickrNotificationInfo(userInfo: ["aps": ["alert": "x"]]) == nil)
         #expect(QuickrNotificationInfo(userInfo: ["quickr": ["v": 1]]) == nil)
     }
+}
+
+/// A fake center whose `deliveredNotifications()` waits until released: a preparation suspended on
+/// the system when the NSE's time runs out.
+final class GatedCenter: NotificationCenterProtocol, @unchecked Sendable {
+    let inner = FakeNotificationCenter()
+    private let gate = Mutex<(held: CheckedContinuation<Void, Never>?, released: Bool)>((nil, false))
+
+    func withState<T>(_ body: (inout FakeNotificationCenter.State) -> T) -> T { inner.withState(body) }
+
+    func waitUntilHeld() async {
+        while gate.withLock({ $0.held == nil }) { await Task.yield() }
+    }
+
+    func release() {
+        let held = gate.withLock { state in
+            state.released = true
+            defer { state.held = nil }
+            return state.held
+        }
+        held?.resume()
+    }
+
+    func deliveredNotifications() async -> [NotificationSnapshot] {
+        await withCheckedContinuation { continuation in
+            let released = gate.withLock { state in
+                if !state.released { state.held = continuation }
+                return state.released
+            }
+            if released { continuation.resume() }
+        }
+        return await inner.deliveredNotifications()
+    }
+
+    func setNotificationCategories(_ categories: [NotificationCategorySpec]) {
+        inner.setNotificationCategories(categories)
+    }
+    func notificationCategories() async -> [NotificationCategorySpec] { await inner.notificationCategories() }
+    func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {
+        inner.removeDeliveredNotifications(withIdentifiers: identifiers)
+    }
+    func pendingNotificationRequests() async -> [NotificationSnapshot] { await inner.pendingNotificationRequests() }
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+        inner.removePendingNotificationRequests(withIdentifiers: identifiers)
+    }
+    func add(_ request: LocalNotificationRequest) async throws { try await inner.add(request) }
+    func setBadgeCount(_ count: Int) async throws { try await inner.setBadgeCount(count) }
+    func authorizationStatus() async -> NotificationAuthorization { await inner.authorizationStatus() }
+    func requestAuthorization() async throws -> Bool { try await inner.requestAuthorization() }
 }

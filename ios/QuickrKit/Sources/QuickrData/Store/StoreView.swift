@@ -42,11 +42,13 @@ public enum StoreView {
         try viewTopics(db, rows: Row.fetchAll(db, sql: "SELECT * FROM topic WHERE slug = ?", arguments: [slug])).first
     }
 
-    private static func viewTopics(_ db: Database, rows: [Row]) throws -> [ViewTopic] {
+    private static func viewTopics(_ db: Database, rows: [Row], derived given: [String: Derived]? = nil) throws
+        -> [ViewTopic]
+    {
         guard !rows.isEmpty else { return [] }
         let ids: [String] = rows.map { $0["id"] }
         let topicId = ids.count == 1 ? ids[0] : nil
-        let derived = try self.derived(db, topicId: topicId)
+        let derived = try given ?? self.derived(db, topicId: topicId)
         let items = Dictionary(
             grouping: try OutboxStorage.items(db, entityKind: .topic, entityIds: ids), by: \.entityId)
         return try rows.map { row in
@@ -83,6 +85,93 @@ public enum StoreView {
             result[entry.topicId.wireString, default: Derived()].count(entry.capturedAt)
         }
         return result
+    }
+
+    // MARK: - Bounded reads (the NSE has 24 MB)
+
+    /// Every view topic like ``topics(_:)``, with `last_captured_at` read in bounded memory
+    /// (``lastCapturedAt(_:)``) and `entry_count` not computed (0): what due states need.
+    public static func dueTopics(_ db: Database) throws -> [ViewTopic] {
+        let derived = try lastCapturedAt(db).mapValues { Derived(entryCount: 0, lastCapturedAt: $0) }
+        return try viewTopics(
+            db, rows: Row.fetchAll(db, sql: "SELECT * FROM topic ORDER BY lower(name), id"), derived: derived)
+    }
+
+    /// `last_captured_at` per topic id, as ``derived(_:topicId:)`` computes it, but never holding more
+    /// than one queued entity at a time (``streamOverlays(_:topicId:onEntity:_:)``).
+    public static func lastCapturedAt(_ db: Database) throws -> [String: Date] {
+        var result: [String: Date] = [:]
+        let rows = try Row.fetchAll(
+            db,
+            sql: """
+                SELECT topic_id, MAX(captured_at) AS last FROM entry
+                WHERE id NOT IN (\(entriesWithItems)) GROUP BY topic_id
+                """)
+        for row in rows {
+            if let last = row["last"] as Double? { result[row["topic_id"]] = Date(unixSeconds: last) }
+        }
+        try streamOverlays(db) { overlay in
+            if overlay.isCounted, let entry = overlay.entry {
+                let id = entry.topicId.wireString
+                result[id] = max(result[id] ?? entry.capturedAt, entry.capturedAt)
+            }
+            return true
+        }
+        return result
+    }
+
+    /// Whether `topicId` has a counted entry only this device has so far (queued, not failed)
+    /// captured at or after `since`: every such entity is checked, however many entries are newer.
+    public static func hasPendingEntry(_ db: Database, topicId: String, capturedSince since: Date) throws -> Bool {
+        var found = false
+        try streamOverlays(db, topicId: topicId) { overlay in
+            guard overlay.isCounted, overlay.syncState == .pending, let entry = overlay.entry,
+                entry.capturedAt >= since
+            else { return true }
+            found = true
+            return false
+        }
+        return found
+    }
+
+    /// Each entry entity with outbox items (of `topicId`, or all), resolved one at a time like
+    /// ``overlays(_:topicId:book:)``: items come through a cursor ordered by entity, so only one
+    /// entity's items and server row are held at once, however long the queue. Tombstoned
+    /// entities and ones whose topic isn't here are skipped. `body` returns false to stop;
+    /// `onEntity` sees each entity's item count (tests).
+    static func streamOverlays(
+        _ db: Database, topicId: String? = nil, onEntity: (Int) -> Void = { _ in },
+        _ body: (EntryOverlay) throws -> Bool
+    ) throws {
+        let book = QuestionBook(db)
+        var entity: String?
+        var group: [OutboxItem] = []
+        func resolve() throws -> Bool {
+            guard let id = entity, !group.isEmpty else { return true }
+            defer { group.removeAll(keepingCapacity: true) }
+            onEntity(group.count)
+            if try ServerLayer.isTombstoned(db, kind: .entry, id: id) { return true }
+            let server = try Row.fetchOne(db, sql: "SELECT * FROM entry WHERE id = ?", arguments: [id]).map { row in
+                try Entry(serverRow: row, questions: try book.questions(row["topic_id"], row["version"]))
+            }
+            let overlay = try EntryOverlay.resolve(server: server, items: group, questions: book.lookup)
+            guard let entry = overlay.entry, try topicExists(db, entry.topicId.wireString) else { return true }
+            return try body(overlay)
+        }
+        let filter = topicId == nil ? "" : "AND topic_id = ?"
+        let items = try Row.fetchCursor(
+            db,
+            sql: "SELECT * FROM outbox_item WHERE entity_kind = 'entry' \(filter) ORDER BY entity_id, seq",
+            arguments: StatementArguments(topicId.map { [$0] } ?? []))
+        while let row = try items.next() {
+            let item = try OutboxItem(row: row)
+            if item.entityId != entity {
+                guard try resolve() else { return }
+                entity = item.entityId
+            }
+            group.append(item)
+        }
+        _ = try resolve()
     }
 
     // MARK: - Entries

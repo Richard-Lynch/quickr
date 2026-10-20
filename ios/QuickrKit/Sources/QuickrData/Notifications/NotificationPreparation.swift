@@ -20,7 +20,14 @@ import QuickrCore
 ///    due count (§8). Any other push leaves the badge alone (N9).
 /// 6. Remove delivered reminders for the same topic with an older slot.
 ///
-/// Everything else (a test push, `v > 1`, `sync`, not quickR's) is delivered untouched.
+/// Everything else (a test push, `v > 1`, `sync`, not quickR's) is delivered untouched, and so is
+/// a reminder whose ids or descriptor break the contract (``isWellFormed(_:)``): nothing of it is
+/// registered in the append-only table.
+///
+/// The NSE's time can run out mid-way (`serviceExtensionTimeWillExpire` delivers the original):
+/// it cancels the task, and every side effect (removals, registration) checks for that first.
+/// The store reads are bounded (`StoreView.dueTopics`, `hasPendingEntry`): no entry answers are
+/// held beyond one queued entity at a time.
 public struct NotificationPreparation: Sendable {
     /// The notification as it arrived.
     public struct Incoming: Sendable, Hashable {
@@ -70,17 +77,17 @@ public struct NotificationPreparation: Sendable {
 
     public func prepare(_ incoming: Incoming) async -> Prepared {
         var out = Prepared(body: incoming.body, categoryIdentifier: incoming.categoryIdentifier, badge: nil)
-        guard let q = incoming.quickr, q.v == 1, q.kind == "due" else { return out }
+        guard let q = incoming.quickr, q.v == 1, q.kind == "due", Self.isWellFormed(q) else { return out }
         let arriving = NotificationSnapshot(
             id: incoming.id, categoryIdentifier: incoming.categoryIdentifier, quickr: q)
 
         // L1: our own pending local reminder for this slot, and delivered local ones for it.
-        if let slot = q.slot {
+        if let slot = q.slot, !Task.isCancelled {
             center.removePendingNotificationRequests(withIdentifiers: [slot.localRequestIdentifier])
         }
         let delivered = await center.deliveredNotifications()
         let duplicates = ReminderDedup.identifiersToRemove(arriving: arriving, delivered: delivered)
-        if !duplicates.isEmpty { center.removeDeliveredNotifications(withIdentifiers: duplicates) }
+        if !duplicates.isEmpty, !Task.isCancelled { center.removeDeliveredNotifications(withIdentifiers: duplicates) }
 
         // Before first unlock the registry can't be opened: untouched.
         guard let registry = try? registry() else { return out }
@@ -105,6 +112,7 @@ public struct NotificationPreparation: Sendable {
                     "category drift: server \(incoming.categoryIdentifier, privacy: .public), client \(category.id, privacy: .public)"
                 )
             }
+            guard !Task.isCancelled else { return out }
             _ = try? await categories.register(
                 [.init(serverId: q.serverId, topicId: topicId, category: category)])
             out.categoryIdentifier = category.id
@@ -124,18 +132,20 @@ public struct NotificationPreparation: Sendable {
             else { return false }
             return Self.isEarlier(theirs, than: ours)
         }
-        if !older.isEmpty { center.removeDeliveredNotifications(withIdentifiers: older.map(\.id)) }
+        if !older.isEmpty, !Task.isCancelled { center.removeDeliveredNotifications(withIdentifiers: older.map(\.id)) }
         return out
     }
 
     /// L6 and the badge (§8), from the active store's view at `now + skew`. A read that fails leaves
     /// both alone.
     private func prepareFromActiveStore(_ store: LocalStore, q: QuickrNotificationInfo, out: inout Prepared) async {
-        guard let topics = try? await store.topics.topics() else { return }
+        guard let topics = try? await store.writer.read({ db in try StoreView.dueTopics(db) }) else { return }
         let skew = (try? await store.syncState.syncState())?.skewMilliseconds ?? 0
         let now = now().addingTimeInterval(skew / 1000)
-        if let topicId = q.topicId.flatMap(UUID.init(uuidString:)), let dueSince = q.dueSince.flatMap(Self.date),
-            await Self.loggedLocally(store, topicId: topicId, since: dueSince)
+        if let topicId = q.topicId, let dueSince = q.dueSince.flatMap(Self.date),
+            (try? await store.writer.read({ db in
+                try StoreView.hasPendingEntry(db, topicId: topicId, capturedSince: dueSince)
+            })) == true
         {
             out.body = Self.alreadyLoggedBody
             out.categoryIdentifier = ""
@@ -143,18 +153,41 @@ public struct NotificationPreparation: Sendable {
         out.badge = TopicListing.badgeCount(topics.map(\.topic), now: now)
     }
 
-    /// Whether an entry only this device has (its create or edit still queued) was captured at
-    /// or after the slot: the slot is satisfied here, the server doesn't know yet.
-    static func loggedLocally(_ store: LocalStore, topicId: UUID, since dueSince: Date) async -> Bool {
-        // Newest first: every entry since the slot comes before any older one.
-        guard let recent = try? await store.entries.entries(topicId: topicId, limit: recentEntries) else {
-            return false
+    /// The reminder's ids and descriptor keep the contract (§2.1, §2.3, §4.2), so its category's
+    /// action ids parse: lowercase canonical UUIDs, a version ≥ 1, a key and option values in the key
+    /// grammar (no `|`), distinct values, 1–6 active options with all of up to 4 shown or the 3
+    /// most used of 5–6, labels within 64 scalars, and number bounds that hold together.
+    static func isWellFormed(_ q: QuickrNotificationInfo) -> Bool {
+        guard ActionIdentifier.isCanonicalUUID(q.serverId), let topicId = q.topicId,
+            ActionIdentifier.isCanonicalUUID(topicId)
+        else { return false }
+        guard let descriptor = q.quickLog else { return q.version.map { $0 >= 1 } ?? true }
+        guard let version = q.version, version >= 1, ActionIdentifier.isKey(descriptor.key) else { return false }
+        func fits(_ text: String?) -> Bool { (text?.unicodeScalars.count ?? 0) <= NotificationCategory.maxLabelLength }
+        switch descriptor {
+        case .choice(let choice):
+            let values = choice.options.map(\.value)
+            let shown =
+                choice.totalOptions <= NotificationCategory.shownOptions
+                ? choice.totalOptions : NotificationCategory.mostUsedOptions
+            return (1...6).contains(choice.totalOptions) && values.count == shown
+                && values.allSatisfy(ActionIdentifier.isKey) && Set(values).count == values.count
+                && fits(choice.label) && choice.options.allSatisfy { fits($0.label) }
+        case .number(let number):
+            func value(_ n: QuickLogNumber?) -> Double? {
+                switch n {
+                case .int(let i): Double(i)
+                case .double(let x): x
+                case nil: nil
+                }
+            }
+            let (low, high, last) = (value(number.min), value(number.max), value(number.lastValue))
+            return ["int", "double"].contains(number.type) && fits(number.label) && fits(number.unit)
+                && (number.decimals.map { (0...10).contains($0) } ?? true)
+                && (low == nil || high == nil || low! <= high!)
+                && (last.map { x in (low.map { x >= $0 } ?? true) && (high.map { x <= $0 } ?? true) } ?? true)
         }
-        return recent.contains { $0.syncState == .pending && $0.entry.capturedAt >= dueSince }
     }
-
-    /// How many of a topic's newest entries the check reads (the NSE has 24 MB).
-    static let recentEntries = 50
 
     static func date(_ canonical: String) -> Date? {
         let formatter = ISO8601DateFormatter()
