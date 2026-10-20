@@ -40,7 +40,7 @@ import Testing
     func model(_ h: Harness, zone: String = "Europe/London") -> OverviewModel {
         let loader = h.loader
         return OverviewModel(
-            topicId: StatsLoaderTests.topicId, ref: "everything", timeZone: TimeZone(identifier: zone)!,
+            topicId: StatsLoaderTests.topicId, ref: "everything", timeZone: { TimeZone(identifier: zone)! },
             loader: { loader })
     }
 
@@ -127,7 +127,7 @@ import Testing
         let rebound = Mutex(false)
         let loaders = (a.loader, b.loader)
         let model = OverviewModel(
-            topicId: StatsLoaderTests.topicId, ref: "everything", timeZone: TimeZone(identifier: "Europe/London")!,
+            topicId: StatsLoaderTests.topicId, ref: "everything", timeZone: { TimeZone(identifier: "Europe/London")! },
             loader: { rebound.withLock { $0 } ? loaders.1 : loaders.0 })
         await model.load(query: Self.query, bucket: .day)
         let stats = try #require(model.stats.value)
@@ -149,6 +149,95 @@ import Testing
         #expect(shown == stats)
         #expect(model.series.mapValues(\.value) == series)
         #expect(b.transport.requests.isEmpty)
+    }
+
+    /// The device's zone changes while the screen is open: the next load asks for, and reads the
+    /// cache under, the new zone. Offline, a chart cached only for the old zone says why it can't
+    /// show.
+    @Test func aZoneChangeReachesTheSameModel() async throws {
+        let h = try Harness()
+        Self.serve(h)
+        let zone = Mutex("Europe/London")
+        let loader = h.loader
+        let model = OverviewModel(
+            topicId: StatsLoaderTests.topicId, ref: "everything",
+            timeZone: { TimeZone(identifier: zone.withLock { $0 })! }, loader: { loader })
+        await model.load(query: Self.query, bucket: .day)
+        #expect(model.series["glasses"]?.value != nil)
+
+        zone.withLock { $0 = "America/Santiago" }
+        h.offline()
+        await model.load(query: Self.query, bucket: .day)
+        guard case .unavailable(.zoneChanged) = model.series["glasses"] else {
+            Issue.record("expected zoneChanged, got \(String(describing: model.series["glasses"]))")
+            return
+        }
+
+        Self.serve(h)
+        await model.load(query: Self.query, bucket: .day)
+        let request = try #require(h.transport.requests.last { $0.url.path.hasSuffix("/glasses/series") })
+        #expect(request.url.query?.contains("tz=America/Santiago") == true)
+        let santiago = try StatsLoaderTests.response(
+            QuestionSeriesDTO.self, "series everything glasses day America/Santiago")
+        #expect(model.series["glasses"]?.value == santiago)
+    }
+
+    /// Two loads of the same query overlap (the first load and a pull to refresh) and the older one
+    /// finishes last: only the newer one's answer shows.
+    @Test func anOlderIdenticalLoadFinishingLastPublishesNothing() async throws {
+        let h = try Harness()
+        let gate = StatsGate()
+        let older = try StatsLoaderTests.body("stats everything source web")
+        let newer = try StatsLoaderTests.body("stats everything all")
+        let loader = StatsLoader(
+            store: h.store,
+            client: APIClient(baseURL: StatsLoaderTests.base, transport: gate, identity: StaticServerIdentity(nil)),
+            requestSync: {})
+        let model = OverviewModel(
+            topicId: StatsLoaderTests.topicId, ref: "everything", timeZone: { TimeZone(identifier: "Europe/London")! },
+            loader: { loader })
+        // Each load sends two stats requests (the query's and the sources'); series are answered.
+        let first = Task { @MainActor in await model.load(query: Self.query, bucket: .day) }
+        try await eventually("the first load's requests wait") { gate.waiting == 2 }
+        let second = Task { @MainActor in await model.load(query: Self.query, bucket: .day) }
+        try await eventually("the second load's requests wait") { gate.waiting == 4 }
+        gate.release(last: 2, body: newer)
+        await second.value
+        let shown = try #require(model.stats.value)
+        gate.release(last: 2, body: older)
+        await first.value
+        #expect(model.stats.value == shown)
+        #expect(shown.entryCount == 12)
+    }
+
+    /// A series whose own fetch failed shows its cached chart as stale, while the summary is fresh.
+    @Test func aSeriesCanBeStaleWhileTheSummaryIsFresh() async throws {
+        let h = try Harness()
+        Self.serve(h)
+        let model = model(h)
+        await model.load(query: Self.query, bucket: .day)
+        let served = h.transport
+        let stats = try StatsLoaderTests.body("stats everything all")
+        served.reset()
+        served.stub(
+            where: { $0.url.path.hasSuffix("/stats") },
+            { _ in HTTPResponse(status: 200, headers: Self.identity("E1"), body: stats) })
+        served.stub(
+            where: { $0.url.path.hasSuffix("/series") },
+            { _ in
+                HTTPResponse(
+                    status: 500, headers: Self.identity("E1"),
+                    body: Data(#"{"code":"internal","detail":"boom","errors":[]}"#.utf8))
+            })
+        await model.load(query: Self.query, bucket: .day)
+        guard case .loaded(_, .fresh) = model.stats else {
+            Issue.record("expected fresh stats, got \(model.stats)")
+            return
+        }
+        #expect(
+            model.series.values.allSatisfy {
+                if case .loaded(_, .stale(_, .failed)) = $0 { true } else { false }
+            })
     }
 
     @Test func offlineWithNothingCachedIsUnavailable() async throws {
@@ -183,5 +272,34 @@ import Testing
             return
         }
         #expect(h.syncsRequested >= 1)
+    }
+}
+
+/// Holds `/stats` requests until released, answering the rest from `stats-vectors.json`.
+final class StatsGate: Transport {
+    private let state = Mutex<[CheckedContinuation<Data, Never>]>([])
+
+    var waiting: Int { state.withLock { $0.count } }
+
+    /// Answers the `count` most recent held requests with `body`.
+    func release(last count: Int, body: Data) {
+        let released = state.withLock { held in
+            let tail = Array(held.suffix(count))
+            held.removeLast(count)
+            return tail
+        }
+        for continuation in released { continuation.resume(returning: body) }
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        let headers: HTTPHeaders = [QuickrHeader.serverId: "server-1", QuickrHeader.epoch: "E1"]
+        guard request.url.path.hasSuffix("/stats") else {
+            let key = request.url.pathComponents.dropLast().last ?? ""
+            let name = "series everything \(key) day Europe/London"
+            let body = try StatsLoaderTests.body(name)
+            return HTTPResponse(status: 200, headers: headers, body: body)
+        }
+        let body = await withCheckedContinuation { continuation in state.withLock { $0.append(continuation) } }
+        return HTTPResponse(status: 200, headers: headers, body: body)
     }
 }

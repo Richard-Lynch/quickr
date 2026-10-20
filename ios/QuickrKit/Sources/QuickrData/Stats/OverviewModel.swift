@@ -42,29 +42,32 @@ public final class OverviewModel {
     /// Every source the topic's entries have (unfiltered), for the source filter.
     public private(set) var sources: [String] = []
 
-    /// The query and bucket of the last `load`: an answer for an older one is dropped.
-    @ObservationIgnored private var current: Request?
-    /// The query and bucket on screen (the last `load`'s, once it began).
+    /// Counts `load` calls: only the latest one publishes, or puts back what it replaced. Two
+    /// loads of the same query (the first load and a pull to refresh) are told apart by it.
+    @ObservationIgnored private var generation = 0
+    /// The query, bucket and zone on screen (the last `load`'s, once it began).
     @ObservationIgnored private var shown: Request?
     @ObservationIgnored private let loader: @MainActor () -> StatsLoader?
     @ObservationIgnored private let topicId: UUID
     @ObservationIgnored private let ref: String
-    @ObservationIgnored private let timeZone: String
+    @ObservationIgnored private let timeZone: @MainActor () -> TimeZone
 
     private struct Request: Hashable {
         var query: StatsQuery
         var bucket: QuestionSeries.Bucket
+        var timeZone: String
     }
 
     /// `loader` is the bound store's (`session.stats`); `timeZone` is the reader's, which the
-    /// server buckets series in.
+    /// server buckets series in. It is read at every load: the device's zone can change while the
+    /// screen is open.
     public init(
-        topicId: UUID, ref: String, timeZone: TimeZone = .autoupdatingCurrent,
+        topicId: UUID, ref: String, timeZone: @escaping @MainActor () -> TimeZone = { TimeZone.current },
         loader: @escaping @MainActor () -> StatsLoader?
     ) {
         self.topicId = topicId
         self.ref = ref
-        self.timeZone = timeZone.identifier
+        self.timeZone = timeZone
         self.loader = loader
     }
 
@@ -73,8 +76,10 @@ public final class OverviewModel {
 
     /// Loads the stats for `query`, then each chartable question's series in `bucket`.
     public func load(query: StatsQuery, bucket: QuestionSeries.Bucket) async {
-        let request = Request(query: query, bucket: bucket)
-        current = request
+        let timeZone = timeZone().identifier
+        let request = Request(query: query, bucket: bucket, timeZone: timeZone)
+        generation += 1
+        let mine = generation
         guard let loader = loader() else {
             stats = .unavailable(.failed("Not connected to a server."))
             series = [:]
@@ -82,7 +87,6 @@ public final class OverviewModel {
         }
         let topicId = topicId
         let ref = ref
-        let timeZone = timeZone
         // A reload (pull to refresh) keeps what's on screen; new filters or a new bucket show the
         // cached answer for them, or loading.
         let reload = shown == request
@@ -95,8 +99,10 @@ public final class OverviewModel {
         // Another store bound meanwhile (a server switch, a reset): this answer belongs to the old
         // one and isn't published either.
         func abandoned() -> Bool {
-            guard Task.isCancelled || self.loader()?.scope != scope else { return current != request }
-            if current == request { restore(before) }
+            // A newer load owns the screen: this one neither publishes nor puts anything back.
+            guard generation == mine else { return true }
+            guard Task.isCancelled || self.loader()?.scope != scope else { return false }
+            restore(before)
             return true
         }
         if let (cached, fetchedAt) = await loader.cachedStats(topicId: topicId, query: query) {

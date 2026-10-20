@@ -244,7 +244,10 @@ struct QuestionStatsCard: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.qr(.caption)).bold().foregroundStyle(.qr.inkSoft)
             switch series {
-            case .loaded(let value, _): chart(value)
+            case .loaded(let value, let freshness):
+                // Its own fetch may have failed while the summary's didn't.
+                if case .stale = freshness { StatsFreshnessLabel(freshness: freshness, id: "overview.seriesStale") }
+                chart(value)
             case .unavailable(let reason):
                 Text(reason.message).font(.qr(.subheadline)).foregroundStyle(.qr.danger)
             case .loading, nil:
@@ -259,6 +262,7 @@ struct QuestionStatsCard: View {
 /// cached ones runs.
 struct StatsFreshnessLabel: View {
     let freshness: OverviewModel.Freshness
+    var id = "overview.stale"
 
     var body: some View {
         switch freshness {
@@ -278,7 +282,7 @@ struct StatsFreshnessLabel: View {
             .font(.qr(.caption))
             .foregroundStyle(.qr.warn)
             .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("overview.stale")
+            .accessibilityIdentifier(id)
         }
     }
 }

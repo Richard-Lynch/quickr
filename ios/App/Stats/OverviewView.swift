@@ -20,6 +20,8 @@ struct OverviewView: View {
     @State private var bucketChoice: BucketChoice?
     /// The range starts from today: moved on activation.
     @State private var now = Date()
+    /// The reader's zone, which series are bucketed and labelled in: a change reloads them.
+    @State private var timeZone = TimeZone.current.identifier
     /// The pull to refresh in flight. Unstructured, so SwiftUI updating the view doesn't cancel
     /// it; the model drops its answer if the store changed meanwhile.
     @State private var refreshing: Task<Void, Never>?
@@ -39,6 +41,7 @@ struct OverviewView: View {
         var model: ModelKey?
         var query: StatsQuery
         var bucket: QuestionSeries.Bucket
+        var timeZone: String
     }
 
     private var filters: EntryListFilters { environment.topicFilters[ref.rawValue] ?? EntryListFilters() }
@@ -76,12 +79,18 @@ struct OverviewView: View {
         .task(
             id: LoadKey(
                 model: topic.map { ModelKey(topicId: $0.topic.id, binding: session.binding) }, query: query,
-                bucket: bucket)
+                bucket: bucket, timeZone: timeZone)
         ) {
             await load()
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { now = Date() }
+            if phase == .active {
+                now = Date()
+                timeZone = TimeZone.current.identifier
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+            timeZone = TimeZone.current.identifier
         }
     }
 
