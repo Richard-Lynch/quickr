@@ -107,6 +107,9 @@ enum SpikeCategories {
                 UNTextInputNotificationAction(
                     identifier: action.id, title: action.title, options: [], textInputButtonTitle: buttonTitle,
                     textInputPlaceholder: placeholder)
+            case .open:
+                // "More…": the one action that opens the app (§4.1).
+                UNNotificationAction(identifier: action.id, title: action.title, options: [.foreground])
             }
         }
         return UNNotificationCategory(identifier: id, actions: built, intentIdentifiers: [], options: [])
@@ -133,7 +136,8 @@ enum SpikeCategories {
         try JSONDecoder().decode([StoredAction].self, from: Data(json.utf8)).map { stored in
             NotificationActionSpec(
                 id: stored.identifier, title: stored.title,
-                kind: stored.kind == "input" ? .input(buttonTitle: "Log", placeholder: "Value") : .log)
+                kind: stored.kind == "input"
+                    ? .input(buttonTitle: "Log", placeholder: "Value") : stored.kind == "open" ? .open : .log)
         }
     }
 }

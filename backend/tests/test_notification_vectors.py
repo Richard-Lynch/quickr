@@ -90,6 +90,11 @@ CASES: dict[str, tuple[list[dict[str, Any]], dict[str, int], Any, int]] = {
     "int-last-out-of-bounds": ([num("int", min=0, max=5)], {}, 7, 1),
     "int-last-not-a-number": ([num("int")], {}, "7", 1),
     "int-last-big": ([num("int")], {}, 2**62, 1),
+    # Integer bounds past 2**53, where a binary64 comparison can't tell 2**53 + 3 from 2**53 + 4.
+    "int-max-big-accept": ([num("int", max=2**53 + 3)], {}, 2**53 + 3, 1),
+    "int-max-big-reject": ([num("int", max=2**53 + 3)], {}, 2**53 + 4, 1),
+    "int-min-big-accept": ([num("int", min=-(2**53 + 3))], {}, -(2**53 + 3), 1),
+    "int-min-big-reject": ([num("int", min=-(2**53 + 3))], {}, -(2**53 + 4), 1),
     "double-no-last": ([num("double", min=0, max=24, decimals=1, unit="h")], {}, None, 1),
     "double-last": (
         [num("double", key="hours", label="Sleep", min=0, max=24, decimals=1, unit="h")],

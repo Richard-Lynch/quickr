@@ -157,6 +157,8 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- **D checkpoint (device):** measure how many notification categories iOS keeps; CAT's registry is append-only per §5.1 and Apple documents no limit.
+- `ios/scripts/test.sh` should run gen.sh, or detect a stale xcodeproj, before building (RECORD hit a stale project after deleting files).
 - RECORD/forms: limits (text lengths etc.) come from built-in server defaults until something fetches the server's limits; fetch and cache them per server (found by RECORD).
 - HOME: consider a plain VStack at every size (the PWA renders every row); today LazyVStack is kept at non-AX sizes (TILES's layout-loop fix).
 - Backend + clients: topic name sort is byte-order in practice (postgres:18-alpine/musl ignores en_US.utf8 for lower(name)), so "zed" sorts before "éclair". Switch to an ICU collation (e.g. `und-x-icu`) in Postgres, then regenerate home-vectors and update the iOS comparator and the PWA together (found by HOME).
@@ -295,6 +297,10 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-20 04:45 (EDT): W6: SYNC-UX green at e32d2e5 (unit 545, UI 23, integration 18/18; one EntryScope in QuickrCore). Codex r3 resolved 5 of 6 round-2 items, but found a new Major: background expiry cancels a shared startup that a foreground activation is waiting on, leaving the open app disconnected. Fix in progress. RECORD: Codex r2 approved (069366b); full UI rerun pending, then merge. CAT is fixing the >2^53 bounds and ICU anchors. LIST gates are running. Agents now prefix scratchpad logs with their package name, because a shared UI.log was overwritten.
+
+- 2026-10-20 04:10 (EDT): W6: RECORD re-merged TILES and moved onto EntryWriter/EntryToasts (42f9b56); its integration test caught a TILES sendNow bug where fixed entries reported "queued" (fixed in 16a06f1); UI rerun pending. SYNC-UX r2 fixes in 383af22 (startup expiry cancels the start; flush lease release is uncancellable); merged m2-ui (e32d2e5); gates running. CAT done (c04d411); Codex = REQUEST CHANGES (int bounds above 2^53 compared as Double; ICU `$` anchors); minimal UNUserNotificationCenter adapter being added. LIST WIP 01a57b1, with entries server vectors and PWA range-start vectors.
 
 - 2026-10-20 03:45 (EDT): **TILES merged into ios/m2-ui** (Codex ×3; the final round scoped the QuickLogModels cache and drafts to the store via EntryScope; the XXXL layout loop is fixed with a VStack at AX sizes). Gate on the merge: lint, core green; TILES's own UI 20/20 and integration 18/18. W5 is complete (HOME, TILES, LINKS+SETTINGS, B8, WIRE, FORM). RECORD and SYNC-UX now re-merge m2-ui.
 

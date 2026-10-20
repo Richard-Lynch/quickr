@@ -29,13 +29,17 @@ public final class AppSession {
         public var coordinator: SyncCoordinator.Configuration
         /// Posts the GRDB suspension notifications (`NotificationCenter.default` in the app).
         public var notificationCenter: NotificationCenter
+        /// Where reminder categories are registered (notifications.md §5): the app's
+        /// `UNUserNotificationCenter` adapter (M3). Nil registers nothing.
+        public var categoryCenter: (any NotificationCenterProtocol)?
 
         public init(
             location: StoreLocation, transport: any Transport,
             credentials: any AccessCredentialsProvider = StaticAccessCredentials(nil),
             notifier: (any ChangeNotifier)? = DarwinNotifier(), leaseClock: any LeaseClock = SystemLeaseClock(),
             wallClock: any WallClock = SystemWallClock(), launchId: UUID = UUID(),
-            coordinator: SyncCoordinator.Configuration = .init(), notificationCenter: NotificationCenter = .default
+            coordinator: SyncCoordinator.Configuration = .init(), notificationCenter: NotificationCenter = .default,
+            categoryCenter: (any NotificationCenterProtocol)? = nil
         ) {
             self.location = location
             self.transport = transport
@@ -46,6 +50,7 @@ public final class AppSession {
             self.launchId = launchId
             self.coordinator = coordinator
             self.notificationCenter = notificationCenter
+            self.categoryCenter = categoryCenter
         }
     }
 
@@ -91,6 +96,9 @@ public final class AppSession {
     @ObservationIgnored private var listeners: [Task<Void, Never>] = []
     @ObservationIgnored private var rebinding: Task<Void, Never>?
     @ObservationIgnored private var started = false
+    /// The category refresh in progress, and whether another must follow it (coalesced).
+    @ObservationIgnored private var categoryRefresh: Task<Void, Never>?
+    @ObservationIgnored private var categoryRefreshAgain = false
     /// Tests: runs before a new scheduler is bound, to hold a rebind mid-swap.
     @_spi(Testing) @ObservationIgnored public var beforeBindForTesting: (@MainActor () async -> Void)?
     /// The current scene episode. Every activation and every background starts a new generation;
@@ -181,6 +189,7 @@ public final class AppSession {
         await scheduler?.resume(generation: generation)
         await rebind()
         refresh.poke()
+        reconcileCategories()
         await scheduler?.requestFlush(reason: .activation)
         Task { _ = await coordinator.sync(reason: .activation) }
     }
@@ -409,6 +418,8 @@ public final class AppSession {
             self.scheduler = scheduler
             binding = next
             phase = .ready
+            // Launch, a server switch, a reset: this store's categories, ahead of any push.
+            refreshCategories()
             // The scene may have changed while the bind waited (an activation resumed the old
             // scheduler), so match the current episode now. Later scene calls reach this scheduler,
             // and generations order them against this one.
@@ -465,7 +476,50 @@ public final class AppSession {
             break  // only connect and start bootstrap a store, and both rebind themselves
         case .layerSwapped, .layerChanged, .topicsDeleted:
             refresh.poke()
+            // Topics, versions or entries changed: their categories (a new last value, a new
+            // version) are registered now, since the NSE may never run (spike F1).
+            refreshCategories()
         }
+    }
+
+    // MARK: - Notification categories (notifications.md §5)
+
+    private var categories: NotificationCategories? {
+        configuration.categoryCenter.map {
+            NotificationCategories(registry: partitions.registry, center: $0, wallClock: configuration.wallClock)
+        }
+    }
+
+    /// Registers the categories of every quick-loggable topic of the bound store (§5.2). Calls made
+    /// while one runs coalesce into one more run after it. Failures are left to the next refresh
+    /// or reconciliation.
+    private func refreshCategories() {
+        guard categories != nil else { return }
+        guard categoryRefresh == nil else {
+            categoryRefreshAgain = true
+            return
+        }
+        categoryRefresh = Task { [weak self] in
+            while let self {
+                self.categoryRefreshAgain = false
+                if let categories = self.categories, let store = self.store {
+                    _ = try? await categories.refresh(from: store)
+                }
+                guard self.categoryRefreshAgain else { break }
+            }
+            self?.categoryRefresh = nil
+        }
+    }
+
+    /// Waits for the category refresh in progress, if any (tests, and before suspending).
+    @_spi(Testing) public func categoryRefreshSettled() async {
+        while let refresh = categoryRefresh { await refresh.value }
+    }
+
+    /// §5.3, on activation: re-registers the union if the system lost any of it.
+    private func reconcileCategories() {
+        guard let categories else { return }
+        Task { _ = try? await categories.reconcile() }
     }
 }
 
