@@ -160,7 +160,7 @@ final class HomeTests: XCTestCase {
             let app = launch(extra)
             defer { app.terminate() }
             let wordmark = app.staticTexts["home.wordmark"]
-            let pill = app.buttons["home.syncPill"]
+            let pill = app.buttons["sync.pill"]
             XCTAssertTrue(wordmark.waitForExistence(timeout: 5))
             XCTAssertTrue(pill.waitForExistence(timeout: 10), "the demo store is offline: the pill shows")
             return (wordmark.frame.height, pill.frame.height)

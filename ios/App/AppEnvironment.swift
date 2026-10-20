@@ -18,6 +18,8 @@ final class AppEnvironment {
     /// A Keychain problem from launch (the legacy token's migration), for Settings to show.
     private(set) var credentialsIssue: String?
     let router = Router()
+    /// The sync pill and sheet's state, and the network and timer flush triggers (SYNC-UX).
+    let sync: SyncController
     /// Every screen's toasts, hosted once at the root so a toast outlives navigation.
     let toasts = ToastCenter()
     /// How far above the bottom toasts sit: a screen with a sticky bar (Record's Save) raises them
@@ -41,16 +43,20 @@ final class AppEnvironment {
     @ObservationIgnored private let makeSession: @MainActor () throws -> AppSession
     @ObservationIgnored private var prepare: (@MainActor () async -> Void)?
     @ObservationIgnored private var starting: Task<Void, Never>?
+    /// `start()` was cancelled before it finished (see `cancelStart`).
+    @ObservationIgnored private var startInterrupted = false
 
     /// - Parameter prepare: runs once in `start()` before the session opens (a debug demo store's
     ///   seeding); with it, the session opens in `start()` rather than here.
     init(
         settings: AppSettings, credentials: KeychainAccessCredentials? = nil,
+        network: any NetworkMonitoring = NWNetworkMonitor(),
         prepare: (@MainActor () async -> Void)? = nil,
         makeSession: @escaping @MainActor () throws -> AppSession
     ) {
         self.settings = settings
         self.credentials = credentials
+        self.sync = SyncController(network: network)
         self.makeSession = makeSession
         self.prepare = prepare
         entryToasts = EntryToasts(center: toasts, writer: entryWriter)
@@ -60,19 +66,22 @@ final class AppEnvironment {
     }
 
     /// The live session over the App Group's files, sending through URLSession with the
-    /// Cloudflare Access token from the shared Keychain.
+    /// Cloudflare Access token from the shared Keychain. `categoryCenter` is the system's: app
+    /// tests pass nil unless they hold `SystemCategoriesLock` (the set is one per process).
     static func live(
         location: StoreLocation = .shared(appGroup: AppGroup.identifier), defaults: UserDefaults = AppGroup.defaults,
-        keychain: any KeychainStore = SystemKeychain(), transport: any Transport = URLSessionTransport()
+        keychain: any KeychainStore = SystemKeychain(), transport: any Transport = URLSessionTransport(),
+        network: any NetworkMonitoring = NWNetworkMonitor(),
+        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
     ) -> AppEnvironment {
         let credentials = KeychainAccessCredentials(keychain: keychain)
-        return AppEnvironment(settings: AppSettings(defaults: defaults), credentials: credentials) {
+        return AppEnvironment(settings: AppSettings(defaults: defaults), credentials: credentials, network: network) {
             // Reminder categories go to the system center from launch, ahead of any push (spike F1);
             // registering them needs no notification permission.
             let session = try AppSession(
                 configuration: .init(
                     location: location, transport: transport, credentials: credentials,
-                    categoryCenter: SystemNotificationCenter()))
+                    categoryCenter: categoryCenter))
             // Addresses resolve to servers through the registry, so each request gets its server's token.
             credentials.directory.attach(session.partitions.registry.repository)
             return session
@@ -120,6 +129,10 @@ final class AppEnvironment {
             // Before the first request, so it already carries the migrated token.
             await migrateLegacyToken()
             await session?.start(serverURL: settings.serverURL)
+            if let session { sync.startMonitoring(session) }
+            // A background refresh's time ran out mid-start (`cancelStart`): the connect may not
+            // have happened, and the session won't redo it; the next activation does.
+            if Task.isCancelled { startInterrupted = true }
             hasStarted = true
             QuickRShortcuts.updateAppShortcutParameters()
         }
@@ -136,12 +149,67 @@ final class AppEnvironment {
         guard let session else { return }
         switch phase {
         case .active:
-            Task { await session.didBecomeActive() }
+            sync.didBecomeActive()
+            Task {
+                await session.didBecomeActive()
+                await finishInterruptedStart(session)
+            }
         case .background:
+            sync.didEnterBackground()
+            BackgroundRefresh.schedule()
             flushInBackground(session)
         default:
             break
         }
+    }
+
+    /// A `BGAppRefreshTask` (or the debug stand-in): pull, then send, as a background episode of
+    /// its own. The expiration handler is installed first, so it also covers starting the session;
+    /// once it fires nothing more starts, and the episode (if one began) is expired, which cancels
+    /// the pull and the flush and suspends the database. The app becoming active at any point
+    /// wins: no episode is created after it, and a current one stops. The next refresh is
+    /// scheduled first.
+    func backgroundRefresh(_ task: any BackgroundRefreshTask) async {
+        BackgroundRefresh.schedule()
+        let run = RefreshRun()
+        task.onExpiration {
+            Task { @MainActor [weak self] in
+                let episode = run.expire()
+                await self?.stopBackgroundWork(episode)
+                task.complete(success: false)
+            }
+        }
+        guard lastScenePhase != .active else {
+            task.complete(success: true)
+            return
+        }
+        await start()
+        // Startup may have taken a while: expired, or the app was opened meanwhile.
+        guard !run.expired else { return }
+        guard lastScenePhase != .active, let session else {
+            task.complete(success: session != nil)
+            return
+        }
+        let episode = session.beginBackground()
+        guard run.begin(episode) else {
+            // Expired between the checks: its handler had no episode to stop, so stop this one.
+            await session.backgroundTimeExpiring(episode, within: .seconds(2))
+            return
+        }
+        let result = await session.backgroundRefresh(episode)
+        task.complete(success: result == .synced && !run.expired)
+    }
+
+    /// A refresh's time ran out: stop the session's start where it is, and, in the background,
+    /// expire an episode (the refresh's, or a new one if it hadn't begun): that pauses sync and the
+    /// outbox, cancels the pull and the flush in flight, and suspends the database. Nothing of
+    /// the refresh writes or sends after it.
+    /// The app being open owns the start by then: it is never cancelled from the foreground.
+    private func stopBackgroundWork(_ episode: AppSession.BackgroundEpisode?) async {
+        guard lastScenePhase != .active else { return }
+        cancelStart()
+        guard let session else { return }
+        await session.backgroundTimeExpiring(episode ?? session.beginBackground(), within: .seconds(2))
     }
 
     private func flushInBackground(_ session: AppSession) {
@@ -156,6 +224,22 @@ final class AppEnvironment {
             await session.didEnterBackground(episode)
             task.end()
         }
+    }
+
+    /// Stops `start()` where it is (a background refresh's time ran out): its requests are
+    /// cancelled and it does no more work.
+    func cancelStart() {
+        starting?.cancel()
+    }
+
+    /// The connect an expired background start didn't finish, once the app is active.
+    private func finishInterruptedStart(_ session: AppSession) async {
+        // A start cancelled in the background may still be unwinding: it marks itself interrupted
+        // when it ends, so wait for it before looking.
+        if let starting { await starting.value }
+        guard startInterrupted, lastScenePhase == .active else { return }
+        startInterrupted = false
+        if session.phase == .noServer, let url = settings.serverURL { await session.connect(baseURL: url) }
     }
 
     /// The first SETTINGS build kept one token for every server: it becomes the active server's
@@ -199,5 +283,25 @@ private final class BackgroundTask {
         guard id != .invalid else { return }
         UIApplication.shared.endBackgroundTask(id)
         id = .invalid
+    }
+}
+
+/// One background refresh's state, shared with its expiration handler (both on the main actor).
+@MainActor
+private final class RefreshRun {
+    private(set) var expired = false
+    private var episode: AppSession.BackgroundEpisode?
+
+    /// Records the episode; false if the run already expired.
+    func begin(_ episode: AppSession.BackgroundEpisode) -> Bool {
+        guard !expired else { return false }
+        self.episode = episode
+        return true
+    }
+
+    /// Marks the run expired and returns its episode, if one began.
+    func expire() -> AppSession.BackgroundEpisode? {
+        expired = true
+        return episode
     }
 }

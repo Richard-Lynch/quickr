@@ -1,17 +1,6 @@
 import Foundation
 import QuickrCore
 
-/// Which store a write went to: the server and its store generation. A toast's Undo and a
-/// `sendNow` act only while it is still the active one, so a server switch or a reset in between
-/// never sends them to another store.
-public struct EntryScope: Sendable, Hashable {
-    public var id: String
-
-    public init(_ id: String) {
-        self.id = id
-    }
-}
-
 /// A logged entry and the store it went to.
 public struct LoggedEntry: Sendable, Hashable {
     public var id: UUID
@@ -203,6 +192,12 @@ public final class EntryToasts {
     /// Call it right after the delete, so the Undo is tied to that store.
     public func deleted(entryId: UUID) {
         guard let scope = writer.scope else { return }
+        deleted(entryId: entryId, in: scope)
+    }
+
+    /// `deleted(entryId:)` for a delete made in `scope` (taken before the delete's await, so a
+    /// rebind meanwhile can't point the Undo at another store).
+    public func deleted(entryId: UUID, in scope: EntryScope) {
         center.show(
             Toast(
                 "Entry deleted",
