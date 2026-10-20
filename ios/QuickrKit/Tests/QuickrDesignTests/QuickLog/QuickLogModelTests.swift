@@ -10,6 +10,7 @@ import Testing
         var answers: [String: AnswerValue]
     }
 
+    var scope: EntryScope? = EntryScope("server-A/1")
     var logged: [Logged] = []
     var sendWaits: [Duration] = []
     var undoneLogs: [UUID] = []
@@ -18,16 +19,18 @@ import Testing
     var delivery: EntryDelivery = .sent
     var undoError: (any Error)?
     var restores = true
+    /// What `undoLog` reports: false is "nothing to undo".
+    var undoes = true
     /// While set, `log` waits for `release()`.
     var holdLog = false
     private var held: [CheckedContinuation<Void, Never>] = []
     let ids = (0..<8).map { _ in UUID() }
 
-    func log(_ topic: QuickLogTopic, answers: [String: AnswerValue]) async throws -> UUID {
+    func log(_ topic: QuickLogTopic, answers: [String: AnswerValue]) async throws -> LoggedEntry {
         if holdLog { await withCheckedContinuation { held.append($0) } }
         if let logError { throw logError }
         logged.append(Logged(topic: topic.id, answers: answers))
-        return ids[logged.count - 1]
+        return LoggedEntry(id: ids[logged.count - 1], scope: scope!)
     }
 
     func release() {
@@ -39,23 +42,27 @@ import Testing
 
     var isHolding: Bool { !held.isEmpty }
 
-    func sendNow(_ entryId: UUID, wait: Duration) async -> EntryDelivery {
+    func sendNow(_ entry: LoggedEntry, wait: Duration) async -> EntryDelivery {
         sendWaits.append(wait)
         return delivery
     }
 
-    func undoLog(_ entryId: UUID) async throws {
+    func undoLog(_ entryId: UUID, in scope: EntryScope) async throws -> Bool {
+        guard scope == self.scope else { throw EntryWriteError.scopeChanged }
         if let undoError { throw undoError }
         undoneLogs.append(entryId)
+        return undoes
     }
 
-    func undoDelete(_ entryId: UUID) async throws -> Bool {
+    func undoDelete(_ entryId: UUID, in scope: EntryScope) async throws -> Bool {
+        guard scope == self.scope else { throw EntryWriteError.scopeChanged }
         if let undoError { throw undoError }
         undoneDeletes.append(entryId)
         return restores
     }
 
     func failure(_ error: any Error) -> EntryWriteFailure {
+        if error as? EntryWriteError == .scopeChanged { return .scopeChanged }
         if let error = error as? FakeError, error == .deleted { return .notSaved }
         return .message("\(error)")
     }
@@ -280,9 +287,39 @@ enum Topics {
     @Test func aFailedUndoSaysWhereToDeleteIt() async {
         let w = QuickLogWorld()
         w.writer.undoError = FakeError.offline
-        await w.toasts.undoLog(entryId: UUID(), topicName: "Headache")
+        await w.toasts.undoLog(LoggedEntry(id: UUID(), scope: w.writer.scope!), topicName: "Headache")
         #expect(w.lastToast?.title == "Couldn’t undo")
         #expect(w.lastToast?.message == "The store was reset — delete it from Headache › Entries.")
+    }
+
+    @Test func undoAfterTheServerChangedIsRefusedAndNeverSaysUndone() async throws {
+        let w = QuickLogWorld()
+        let model = w.model(Topics.headache)
+        await model.pick(Topics.severity[1])
+        let toast = try #require(w.center.items.last?.id)
+        w.writer.scope = EntryScope("server-B/1")  // a switch while the toast is up
+        w.center.performAction(toast)
+        await waitUntil { w.toastTitles.last == "Couldn’t undo" }
+        #expect(w.writer.undoneLogs.isEmpty)
+        #expect(w.lastToast?.message == "The server changed since then. Nothing was undone.")
+        #expect(!w.toastTitles.contains("Undone"))
+    }
+
+    @Test func nothingLeftToUndoIsNotUndone() async throws {
+        let w = QuickLogWorld()
+        w.writer.undoes = false
+        await w.toasts.undoLog(LoggedEntry(id: UUID(), scope: w.writer.scope!), topicName: "Headache")
+        #expect(w.toastTitles == ["Nothing to undo"])
+    }
+
+    @Test func undoOfADeleteAfterTheServerChangedIsRefused() async throws {
+        let w = QuickLogWorld()
+        w.toasts.deleted(entryId: UUID())
+        let toast = try #require(w.center.items.last?.id)
+        w.writer.scope = EntryScope("server-A/2")  // a reset: same server, new store
+        w.center.performAction(toast)
+        await waitUntil { w.toastTitles.last == "Couldn’t undo" }
+        #expect(w.writer.undoneDeletes.isEmpty)
     }
 
     @Test func undoOfADeleteRestoresItWhileHeld() async throws {
@@ -298,7 +335,7 @@ enum Topics {
     @Test func undoOfADeleteThatAlreadyLeftSaysSo() async {
         let w = QuickLogWorld()
         w.writer.restores = false
-        await w.toasts.undoDelete(entryId: UUID())
+        await w.toasts.undoDelete(entryId: UUID(), in: w.writer.scope!)
         #expect(w.lastToast?.title == "Couldn’t undo" && w.lastToast?.message == "The delete was already sent.")
     }
 }

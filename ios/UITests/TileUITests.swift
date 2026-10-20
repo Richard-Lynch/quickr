@@ -56,7 +56,9 @@ final class TileUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         XCTAssertEqual(field.value as? String, "3")
 
-        water.buttons["quick.check"].tap()
+        let check = water.buttons["quick.check"]
+        XCTAssertEqual(check.label, "Log 3 glasses")
+        check.tap()
 
         let toast = app.staticTexts.matching(identifier: "toast.text").firstMatch
         XCTAssertTrue(toast.waitForExistence(timeout: 10))

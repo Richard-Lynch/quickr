@@ -148,6 +148,7 @@ private struct QuickLogArea: View {
             @Bindable var model = model
             QuickNumberRow(
                 label: model.numberLabel, text: $model.numberText, rule: Self.rule(question),
+                unit: question.numericRules?.unit.flatMap { $0.isEmpty ? nil : $0 },
                 isBusy: model.isLoggingNumber, error: model.numberError
             ) {
                 Task { await model.logNumber() }

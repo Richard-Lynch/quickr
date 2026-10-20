@@ -115,11 +115,11 @@ public actor OutboxFlushScheduler {
 
     /// `sendNow` (outbox.md §10): flushes, then waits up to `wait` (2.5 s for a quick-log, 8 s
     /// for the record screen) for the item's outcome. Like the PWA's, it reports "queued" as soon
-    /// as an attempt ends without one (a network error, an uncertain answer), not only when the
-    /// wait runs out.
+    /// as an attempt has ended without one (a network error, an uncertain answer), not only when
+    /// the wait runs out. That attempt may be one that started before this call: the enqueue's own
+    /// flush often claims the item first.
     public func sendNow(itemId: String, wait: Duration) async -> OutboxSendNowResult {
         let store = outbox.store
-        let attemptsBefore = (try? await store.outbox.item(id: itemId))?.attempts
         request(OutboxFlushReason.enqueue.policy)
         let deadline = ContinuousClock.now.advanced(by: wait)
         while ContinuousClock.now < deadline {
@@ -133,7 +133,8 @@ public actor OutboxFlushScheduler {
                 return tombstoned == true ? .retired : .sent
             }
             if item.state == .failed { return .failed(item.lastError) }
-            if let attemptsBefore, item.attempts > attemptsBefore, item.state != .inFlight { return .queued }
+            // Attempted and back in the queue: it waits for its backoff, or for the network.
+            if item.attempts > 0, item.state != .inFlight { return .queued }
             try? await Task.sleep(for: .milliseconds(50))
         }
         return .queued

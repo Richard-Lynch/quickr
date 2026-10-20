@@ -121,19 +121,19 @@ public final class QuickLogModel {
 
     /// True when the entry was sent or queued; every outcome gets its toast.
     private func log(_ answers: [String: AnswerValue], label: String) async -> Bool {
-        let entryId: UUID
+        let entry: LoggedEntry
         do {
-            entryId = try await writer.log(topic, answers: answers)
+            entry = try await writer.log(topic, answers: answers)
         } catch {
             toasts.logFailed(topicName: topic.name, writer.failure(error))
             return false
         }
-        switch await writer.sendNow(entryId, wait: Self.sendWait) {
+        switch await writer.sendNow(entry, wait: Self.sendWait) {
         case .sent:
-            toasts.logged(entryId: entryId, label: label, topicName: topic.name, sent: true)
+            toasts.logged(entry, label: label, topicName: topic.name, sent: true)
             return true
         case .queued:
-            toasts.logged(entryId: entryId, label: label, topicName: topic.name, sent: false)
+            toasts.logged(entry, label: label, topicName: topic.name, sent: false)
             return true
         case .failed(let message):
             toasts.logFailed(topicName: topic.name, .message(message))

@@ -103,6 +103,7 @@ public struct QuickNumberRow: View {
     let label: String
     @Binding var text: String
     let rule: NumberStepRule
+    let unit: String?
     let isBusy: Bool
     let error: String?
     let onLog: () -> Void
@@ -110,12 +111,13 @@ public struct QuickNumberRow: View {
     @ScaledMetric(relativeTo: .title3) private var checkSize: CGFloat = 20
 
     public init(
-        label: String, text: Binding<String>, rule: NumberStepRule, isBusy: Bool = false, error: String? = nil,
-        onLog: @escaping () -> Void
+        label: String, text: Binding<String>, rule: NumberStepRule, unit: String? = nil, isBusy: Bool = false,
+        error: String? = nil, onLog: @escaping () -> Void
     ) {
         self.label = label
         self._text = text
         self.rule = rule
+        self.unit = unit
         self.isBusy = isBusy
         self.error = error
         self.onLog = onLog
@@ -141,7 +143,8 @@ public struct QuickNumberRow: View {
                 .buttonStyle(QuickrPressStyle(scale: 0.95))
                 .disabled(isBusy || text.trimmingCharacters(in: .whitespaces).isEmpty)
                 .opacity(isBusy || text.isEmpty ? 0.4 : 1)
-                .accessibilityLabel("Log \(text.isEmpty ? label : text)")
+                // "Log 3 glasses", like the PWA's.
+                .accessibilityLabel("Log \(text.isEmpty ? label : text)\(unit.map { " \($0)" } ?? "")")
                 .accessibilityIdentifier("quick.check")
             }
             if let error {
