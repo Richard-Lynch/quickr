@@ -193,6 +193,12 @@ Without one, Siri AI reaches custom intents only through App Shortcuts [16]
 `LogEntryIntent` and `LogTopicIntent` share one commit function. Undo deletes by
 entry id through the outbox (PLAN §3).
 
+**Entry ids [decided 2026-10-20]:** an intent bound to a reminder slot (it carries
+`due_since`: a `WhatsDueIntent` snippet button, a due-slot widget button) uses the
+shared action entry id (notifications.md §7.4), so the slot logs once across Siri,
+widgets, notification actions and the PWA. Every other log (Siri "Log coffee",
+widget tiles, Controls, the Action button) gets a random id, like the app's tiles.
+
 ### App Shortcuts
 
 Phrase rules [20][21]:
@@ -338,6 +344,16 @@ Timings come from the intents' own App Group log.
 | S4  | AppIntentsTesting and prompts                | **It can't answer them.** `run()` of a prompting intent fails at once: `AppIntentsServicesExecutionErrorDomain` 206 "requested value for parameter 'slot', which is not supported by AutoConfirmingPerformDelegate". It has no API for responses either.                                                                                                                                 | AppIntentsTesting covers entity queries and intents run with full values. The question loop, the draft and validation are plain QuickrData code with host tests; the prompting itself is checked in the Shortcuts app (S1's harness) and on device.   |
 | S5  | Foundation Model latency and rate limits     | **Not measurable here.** `SystemLanguageModel.default.availability` on this Mac is `unavailable(modelNotReady)`, and the simulator uses the host's model. No latency or `rateLimited` data.                                                                                                                                                                                               | Ship the FM path behind the runtime availability check, falling back to the question loop on any non-`available` state or error. Latency and background rate limits move to **M4-DEV** (AI device).                                                     |
 | S6  | New Siri not showing snippets/dialogs        | **Device only.** Siri AI needs iOS 27 on Apple Intelligence hardware; the simulator has neither.                                                                                                                                                                                                                                                                                      | As planned: every result's dialog text carries the outcome on its own. **M4-DEV** checks it.                                                                                                                                                             |
+
+**Running the harness [kept as a DEBUG-only prompt harness, 2026-10-20].** The
+spike intents exist only in Debug builds (`#if DEBUG`, with their App Shortcut),
+so Release ships none of them. On an iOS 27 simulator:
+`TEST_RUNNER_QUICKR_INTENT_SPIKE=1 ios/scripts/test.sh Intents <udid>
+-only-testing:QuickRIntentsTests/IntentSpikeTests`. Results are the tests'
+attachments and the App Group's `spike-log.jsonl` (`intent.*` events), readable
+from the host under the simulator's `data/Containers/Shared/AppGroup`.
+`testPromptsInShortcuts` runs `SpikePromptIntent` from the Shortcuts app and
+answers its prompts; the other tests skip unless the variable is set.
 
 Still open for INTENTS itself (checked while building, in the Shortcuts app on
 the simulator): `requestConfirmation(snippetIntent:)` and the cost of a
