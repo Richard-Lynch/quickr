@@ -145,6 +145,7 @@ targets:
       - Widgets/WidgetBootstrap.swift
       - Widgets/TopicWidget.swift
       - Widgets/DueListWidget.swift
+      - Widgets/TopicControl.swift
     dependencies:
       - target: QuickR
       - package: QuickrKit

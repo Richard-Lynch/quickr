@@ -3,10 +3,11 @@ import OSLog
 import QuickrData
 import QuickrUI
 import Synchronization
+import WidgetKit
 
 /// The widget extension's launch path, run in the `WidgetBundle` init: registers the active
 /// store's topics for App Intents before WidgetKit asks for a configuration or a timeline, both of
-/// which query them, and the design system's fonts. Read-only (`ReadOnlyStores`): the widget never
+/// which query them, the intents' write context (`WidgetWrites`), and the design system's fonts. Read-only (`ReadOnlyStores`): the widget never
 /// migrates, recovers or creates a store; until the app has one, there are no topics. Also compiled
 /// into QuickRTests, which runs it on every runtime CI has.
 enum WidgetBootstrap {
@@ -20,6 +21,10 @@ enum WidgetBootstrap {
         self.location.withLock { $0 = location }
         _ = QuickrFonts.register()
         IntentTopicSource.register(ActiveStoreTopicRepository(readOnly: ReadOnlyStores(location: location)))
+        // A chip, ✓ or Control logs through INTENTS' one commit into the writable active store,
+        // then flushes within the extension's budget; the widgets show "queued" meanwhile.
+        IntentWrites.register(
+            WidgetWrites.context(location: location, reload: { WidgetCenter.shared.reloadAllTimelines() }))
     }
 
     /// The active store's widget reads, or nil before the app has a store (or while it can't be

@@ -1,7 +1,23 @@
 #if os(iOS)
+import AppIntents
 import QuickrCore
 import SwiftUI
 import WidgetKit
+
+/// What a widget's controls run: the intent that logs an option, or the "✓ last" value, without
+/// opening the app (INTENTS' fully specified `LogEntryIntent`s). Nil, or nil for a control, falls
+/// back to opening the record screen (the gallery, and topics that need the form).
+public struct WidgetActions {
+    public var option: (EnumOption) -> (any AppIntent)?
+    public var number: (AnswerValue) -> (any AppIntent)?
+
+    public init(
+        option: @escaping (EnumOption) -> (any AppIntent)?, number: @escaping (AnswerValue) -> (any AppIntent)?
+    ) {
+        self.option = option
+        self.number = number
+    }
+}
 
 /// How a widget is drawn. The extension passes WidgetKit's environment (`widgetFamily`,
 /// `widgetRenderingMode`); the app's widget gallery passes the same values to show every variant.
@@ -34,12 +50,14 @@ public struct TopicWidgetView: View {
     let topic: WidgetTopic?
     let date: Date
     let style: WidgetStyle
+    let actions: WidgetActions?
     private let text = TopicText()
 
-    public init(topic: WidgetTopic?, date: Date, style: WidgetStyle) {
+    public init(topic: WidgetTopic?, date: Date, style: WidgetStyle, actions: WidgetActions? = nil) {
         self.topic = topic
         self.date = date
         self.style = style
+        self.actions = actions
     }
 
     public var body: some View {
@@ -93,26 +111,43 @@ public struct TopicWidgetView: View {
                 ForEach(Array(stride(from: 0, to: shown.count, by: columns)), id: \.self) { start in
                     GridRow {
                         ForEach(shown[start..<min(start + columns, shown.count)], id: \.value) { option in
-                            Link(destination: topic.recordURL) {
+                            control(actions?.option(option), topic) {
                                 WidgetChip(
                                     label: option.label, isLast: topic.lastAnswer == .string(option.value),
                                     isAccented: style.isAccented)
                             }
+                            .accessibilityLabel("Log \(option.label)")
                         }
                     }
                 }
             }
         case .number(let question):
-            Link(destination: topic.recordURL) {
-                WidgetChip(
-                    label: "✓ " + (topic.lastAnswer.flatMap { text.answer($0, for: question) } ?? "Log"),
-                    isLast: false, isAccented: style.isAccented, isPrimary: true)
+            let last = topic.lastAnswer.flatMap { text.answer($0, for: question) }
+            control(topic.lastAnswer.flatMap { actions?.number($0) }, topic) {
+                WidgetChip(label: "✓ " + (last ?? "Log"), isLast: false, isAccented: style.isAccented, isPrimary: true)
             }
+            .accessibilityLabel(last.map { "Log \($0)" } ?? "Log \(topic.topic.name)")
         case nil:
             Link(destination: topic.recordURL) {
                 WidgetChip(label: "Log", isLast: false, isAccented: style.isAccented, isPrimary: true)
             }
         }
+    }
+
+    /// A control: runs `intent` in place (no app), or opens the record screen without one.
+    @ViewBuilder private func control(
+        _ intent: (any AppIntent)?, _ topic: WidgetTopic, @ViewBuilder label: () -> some View
+    ) -> some View {
+        if let intent {
+            // The intent's type is only known at run time: the button is type-erased.
+            AnyView(intentButton(intent, label: label()))
+        } else {
+            Link(destination: topic.recordURL, label: label)
+        }
+    }
+
+    private func intentButton(_ intent: some AppIntent, label: some View) -> some View {
+        Button(intent: intent) { label }.buttonStyle(.plain)
     }
 
     private func lastLine(_ topic: WidgetTopic) -> Text {

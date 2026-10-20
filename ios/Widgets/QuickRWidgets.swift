@@ -1,8 +1,8 @@
 import SwiftUI
 import WidgetKit
 
-/// The widget extension: the per-topic quick-log widget and the due list, on the Home Screen and
-/// the Lock Screen (the Controls come with INTENTS).
+/// The widget extension: the per-topic quick-log widget and the due list (Home Screen and Lock
+/// Screen), and one Control per topic.
 @main
 struct QuickRWidgets: WidgetBundle {
     init() {
@@ -12,5 +12,6 @@ struct QuickRWidgets: WidgetBundle {
     var body: some Widget {
         TopicWidget()
         DueListWidget()
+        TopicControl()
     }
 }

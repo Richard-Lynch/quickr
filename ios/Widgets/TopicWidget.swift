@@ -76,15 +76,34 @@ struct TopicWidget: Widget {
     }
 }
 
-private struct TopicWidgetEntryView: View {
+struct TopicWidgetEntryView: View {
     let entry: TopicEntry
     @Environment(\.widgetFamily) private var family
     @Environment(\.widgetRenderingMode) private var renderingMode
 
     var body: some View {
         TopicWidgetView(
-            topic: entry.topic, date: entry.date, style: WidgetStyle(family: family, renderingMode: renderingMode)
+            topic: entry.topic, date: entry.date, style: WidgetStyle(family: family, renderingMode: renderingMode),
+            actions: entry.topic.map(Self.actions)
         )
         .containerBackground(for: .widget) { Color.qr.paper }
+    }
+
+    /// INTENTS' fully specified logs: a chip logs its option, ✓ the last number. No prompt.
+    static func actions(_ topic: WidgetTopic) -> WidgetActions {
+        let entity = TopicEntity(topic.topic)
+        return WidgetActions(
+            option: { option in
+                guard case .chips(let question, _) = topic.quick else { return nil }
+                return LogEntryIntent(
+                    topic: entity, option: QuestionOptionEntity(topicId: topic.id, key: question.key, option: option))
+            },
+            number: { value in
+                switch value {
+                case .int(let n): LogEntryIntent(topic: entity, number: Double(n))
+                case .double(let x): LogEntryIntent(topic: entity, number: x)
+                default: nil
+                }
+            })
     }
 }
