@@ -109,6 +109,26 @@ final class RecordUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 10))
     }
 
+    /// The first edit (which adds the back guard to the navigation bar) keeps the Save bar above
+    /// the keyboard's Next/Done: it once dropped under it until something laid the screen out again.
+    @MainActor
+    func testTheSaveBarStaysAboveTheKeyboardAfterTheFirstEdit() {
+        let app = launch(open: "quickr://t/workout/record")
+        let duration = app.textFields["form.field.duration"]
+        XCTAssertTrue(duration.waitForExistence(timeout: 15))
+        duration.tap()
+        let advance = app.buttons["form.keyboard.advance"]
+        let save = app.buttons["record.save"]
+        XCTAssertTrue(advance.waitForExistence(timeout: 5))
+        XCTAssertLessThanOrEqual(save.frame.maxY, advance.frame.minY, "before the edit")
+
+        duration.typeText("4")
+        XCTAssertTrue(app.buttons["record.back"].waitForExistence(timeout: 5))
+        usleep(1_000_000)
+        snap(app, "record-first-edit")
+        XCTAssertLessThanOrEqual(save.frame.maxY, advance.frame.minY, "after the first edit")
+    }
+
     /// At the largest accessibility size the Save bar steps aside while the keyboard is up, and
     /// comes back to save.
     @MainActor
