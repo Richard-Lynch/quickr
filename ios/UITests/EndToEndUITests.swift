@@ -14,6 +14,7 @@ final class EndToEndUITests: XCTestCase {
         continueAfterFailure = false
         stack = try Stack.fromEnvironment()
         try await stack.resetProxy()
+        try await stack.removeAllTopics()
     }
 
     /// Design loop row a, online: one tap on a chip logs, the server has the entry, and Undo
@@ -152,6 +153,7 @@ final class EndToEndUITests: XCTestCase {
 
     /// A screenshot kept with the results (the demo GIFs are made from them).
     private func snap(_ app: XCUIApplication, _ name: String) {
+        usleep(700_000)  // let the animations settle
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = name
         shot.lifetime = .keepAlways

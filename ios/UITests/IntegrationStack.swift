@@ -89,6 +89,19 @@ struct Stack {
         (entry["answers"] as? [[String: Any]])?.first { $0["key"] as? String == key }?["value"]
     }
 
+    /// Archives and deletes every topic, so each test (and its screenshots) shows only its own
+    /// topics, not those of earlier tests or the harness's smoke check.
+    func removeAllTopics() async throws {
+        let page = try await call(directURL, "GET", "/api/v1/topics?status=all&limit=200")
+        let items = (page as? [String: Any])?["items"] as? [[String: Any]] ?? []
+        for id in items.compactMap({ $0["id"] as? String }) {
+            if items.first(where: { $0["id"] as? String == id })?["status"] as? String != "archived" {
+                _ = try await call(directURL, "POST", "/api/v1/topics/\(id)/archive")
+            }
+            _ = try await call(directURL, "DELETE", "/api/v1/topics/\(id)")
+        }
+    }
+
     func resetProxy() async throws { _ = try await call(controlURL, "POST", "/reset") }
 
     /// Every request through the proxy fails as if the network were down.
@@ -109,7 +122,8 @@ struct Stack {
     }
 
     private func call(_ base: URL, _ method: String, _ path: String, _ body: Any? = nil) async throws -> Any {
-        var request = URLRequest(url: base.appending(path: path))
+        guard let url = URL(string: base.absoluteString + path) else { throw failure("bad path \(path)") }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 10
         if let body {

@@ -14,6 +14,7 @@ final class TapCountUITests: XCTestCase {
         continueAfterFailure = false
         stack = try Stack.fromEnvironment()
         try await stack.resetProxy()
+        try await stack.removeAllTopics()
         taps = 0
     }
 
