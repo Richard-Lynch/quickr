@@ -103,6 +103,34 @@ final class HomeTests: XCTestCase {
         add(shot)
     }
 
+    /// At XXXL the two-row header scrolls with the list instead of staying pinned, so it never
+    /// covers the list's controls: after a fling nothing lies under it, and the filter works.
+    @MainActor
+    func testAtXXXLTheHeaderNeverCoversTheList() {
+        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let search = app.textFields["home.search"]
+        let filter = app.buttons["home.filter"]
+        let header = app.buttons["home.settings"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        for _ in 0..<3 {
+            scroll(app, by: 150)
+            if header.exists && filter.exists {
+                XCTAssertFalse(header.frame.intersects(filter.frame), "the header's buttons never sit on the filter")
+                XCTAssertLessThan(header.frame.maxY, search.frame.minY, "the header stays above the search row")
+            }
+        }
+        app.swipeUp(velocity: .fast)
+        let flung = XCTAttachment(screenshot: app.screenshot())
+        flung.name = "home-ax-xxxl-after-fling"
+        flung.lifetime = .keepAlways
+        add(flung)
+        for _ in 0..<20 where !(filter.exists && filter.isHittable && filter.frame.minY > 60) {
+            scroll(app, by: -150)
+        }
+        filter.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["home.status"].waitForExistence(timeout: 5))
+    }
+
     /// The header's wordmark and sync pill grow with Dynamic Type (bar items wouldn't).
     @MainActor
     func testTheHeaderScalesWithDynamicType() {

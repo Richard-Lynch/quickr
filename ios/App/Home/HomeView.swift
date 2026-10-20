@@ -34,6 +34,9 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                // At accessibility sizes the header is two rows deep: it scrolls with the list
+                // instead of covering a quarter of the screen.
+                if typeSize.isAccessibilitySize { header.padding(.horizontal, -16) }
                 content
             }
             .padding(.horizontal, 16)
@@ -43,10 +46,9 @@ struct HomeView: View {
         .qrPaperBackground()
         .accessibilityIdentifier("home.list")
         // A header of its own rather than the navigation bar's items, which don't grow with
-        // Dynamic Type.
+        // Dynamic Type. Pinned at the standard sizes; in the list at accessibility sizes.
         .safeAreaInset(edge: .top, spacing: 0) {
-            HomeHeader(
-                online: model.isOnline, pending: model.pendingCount, failed: model.failedCount, actions: actions)
+            if !typeSize.isAccessibilitySize { header }
         }
         .toolbar(.hidden, for: .navigationBar)
         .task(id: ObservationKey(binding: session.binding, attempt: model.attempt)) { await model.observe() }
@@ -64,6 +66,10 @@ struct HomeView: View {
             // Fails quietly until notifications are authorized (M3).
             UNUserNotificationCenter.current().setBadgeCount(count) { _ in }
         }
+    }
+
+    private var header: some View {
+        HomeHeader(online: model.isOnline, pending: model.pendingCount, failed: model.failedCount, actions: actions)
     }
 
     private struct ObservationKey: Hashable {
@@ -247,14 +253,17 @@ struct HomeView: View {
                 .pickerStyle(.segmented)
                 .accessibilityIdentifier("home.status")
             }
-            HStack {
+            // At accessibility sizes the label goes above the menu, which gets the full width
+            // (side by side, its two-line label overflowed onto the next section).
+            AdaptiveStack(vertical: typeSize.isAccessibilitySize, spacing: 4, alignment: .center) {
                 Text("Sort").font(.qr(.label)).foregroundStyle(.qr.inkSoft)
-                Spacer()
+                if !typeSize.isAccessibilitySize { Spacer() }
                 Picker("Sort", selection: $model.sort) {
                     ForEach(TopicSort.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.menu)
                 .tint(.qr.ink)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("home.sort")
             }
         }
@@ -278,7 +287,8 @@ struct HomeView: View {
 // MARK: - Pieces
 
 /// The top bar (the PWA's `TopBar`): the wordmark, then the sync pill, New topic and Settings. It
-/// scales with Dynamic Type; at accessibility sizes the buttons move under the wordmark.
+/// scales with Dynamic Type; at accessibility sizes the buttons move under the wordmark and the
+/// header scrolls with the list.
 private struct HomeHeader: View {
     let online: Bool
     let pending: Int
@@ -306,7 +316,7 @@ private struct HomeHeader: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.qr.paper.opacity(0.94))
+        .background(Color.qr.paper)
     }
 
     private func button(_ icon: QIcon, _ label: String, _ id: String, action: @escaping () -> Void) -> some View {
@@ -351,6 +361,9 @@ private struct HomeSection<Content: View>: View {
                 Text(title.uppercased())
                     .font(.qr(.label))
                     .tracking(0.8)
+                    // One word per title: shrink a little rather than break it mid-word.
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                     .foregroundStyle(tone == .accent ? Color.qr.accentStrong : .qr.muted)
                 Text(count.formatted())
                     .font(.qr(.monoCaption))
