@@ -65,6 +65,10 @@ jobs:
       - name: Real-time tests (TimingTests, MultiProcessTests)
         timeout-minutes: 8
         run: ios/scripts/timing-test.sh
+      # GRDB's suspension is process-wide, so these run in a swift test process of their own.
+      - name: Lifecycle tests (GRDB suspension)
+        timeout-minutes: 5
+        run: QUICKR_LIFECYCLE_TESTS=1 ios/scripts/swift-test.sh --filter QuickrLifecycleTests --no-parallel
 
   app:
     name: build + Unit plan

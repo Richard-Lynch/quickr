@@ -6,13 +6,15 @@ import Testing
 @testable import QuickR
 
 /// The intents' data path as each process boots it (`AppEnvironment.bootstrap()` in the app,
-/// `WidgetBootstrap.register()` in the widget extension), then the calls the system and WidgetKit
-/// make. These run in the Unit plan on every runtime, iOS 26 CI included; the system-level proofs
+/// `WidgetBootstrap.register()` in the widget extension), over a store whose active server holds
+/// the fixture topics, then the calls the system and WidgetKit make. These run in the Unit plan on every runtime, iOS 26 CI included; the system-level proofs
 /// (AppIntentsTesting, widget-proof.sh) can't run there. Serialized: the registration is
 /// process-wide.
 @Suite(.serialized) @MainActor struct IntentBootstrapTests {
     @Test func appBootstrapServesTheTopicQuery() async throws {
-        _ = AppEnvironment.bootstrap()
+        let location = try await TestStores.seededLocation()
+        defer { TestStores.remove(location) }
+        _ = AppEnvironment.bootstrap(location: location)
         let query = TopicEntityQuery()
         #expect(try await query.suggestedEntities().map(\.name) == ["Coffee", "Mood"])
         #expect(try await query.allEntities().map(\.name) == ["Coffee", "Mood"])
@@ -21,7 +23,9 @@ import Testing
     }
 
     @Test func widgetBootstrapServesTheTimelineProvider() async throws {
-        WidgetBootstrap.register()
+        let location = try await TestStores.seededLocation()
+        defer { TestStores.remove(location) }
+        WidgetBootstrap.register(location: location)
         let unconfigured = await TopicProvider.snapshotEntry(for: SelectTopicIntent())
         #expect(unconfigured.topic?.id == PlaceholderTopicRepository.coffee, "gallery shows the first suggestion")
 
@@ -33,7 +37,9 @@ import Testing
     }
 
     @Test func logEntryIntentPerformsWithAResolvedTopic() async throws {
-        _ = AppEnvironment.bootstrap()
+        let location = try await TestStores.seededLocation()
+        defer { TestStores.remove(location) }
+        _ = AppEnvironment.bootstrap(location: location)
         let coffee = try #require(try await TopicEntityQuery().entities(for: [PlaceholderTopicRepository.coffee]).first)
         let result = try await LogEntryIntent(topic: coffee).perform()
         #expect(result.value == "Coffee")

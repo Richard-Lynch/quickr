@@ -19,22 +19,29 @@ import Testing
 }
 
 @MainActor
-@Test func environmentStartsWithAnEmptyPathAndOpensTheStore() async throws {
-    let environment = AppEnvironment(settings: AppSettings(defaults: .standard), topics: PlaceholderTopicRepository())
+@Test func environmentStartsWithAnEmptyPathAndStartsTheSession() async throws {
+    let seeded = try await TestStores.seededLocation()
+    defer { TestStores.remove(seeded) }
+    let environment = AppEnvironment.live(location: seeded)
     #expect(environment.router.path.isEmpty)
+    #expect(environment.session != nil && environment.sessionError == nil)
     await environment.start()
-    #expect(environment.store != nil)
-    #expect(environment.storeError == nil)
+    #expect(environment.session?.phase == .ready)
+    #expect(try await environment.topics.topics().map(\.topic.name) == ["Coffee", "Mood", "Old habit"])
+    await environment.session?.shutdown()
 }
 
 @MainActor
-@Test func concurrentStartsShareOneAttempt() async throws {
-    let environment = AppEnvironment(settings: AppSettings(defaults: .standard), topics: PlaceholderTopicRepository())
+@Test func concurrentStartsShareOneSession() async throws {
+    let location = TestStores.emptyLocation()
+    defer { TestStores.remove(location) }
+    let environment = AppEnvironment.live(location: location)
+    let session = environment.session
     async let first: Void = environment.start()
     async let second: Void = environment.start()
     _ = await (first, second)
-    await environment.start()  // already open: no new attempt
-    #expect(environment.store != nil)
-    #expect(environment.storeError == nil)
-    #expect(environment.storeOpenAttempts == 1)
+    await environment.start()
+    #expect(environment.session === session)
+    #expect(environment.session?.phase == .noServer)
+    await environment.session?.shutdown()
 }

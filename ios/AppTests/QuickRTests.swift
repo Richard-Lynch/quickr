@@ -1,5 +1,6 @@
 import Foundation
 import QuickrCore
+import QuickrData
 import Testing
 
 @testable import QuickR
@@ -8,9 +9,15 @@ import Testing
     #expect(QuickrCore.version == "0.1.0")
 }
 
-/// Runs the Swift 6 + GRDB pattern inside the app process on the simulator.
-@Test func appOpensAStoreThroughQuickrData() async throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    #expect(try await StoreLink.probe(directory: directory))
+/// The composition root inside the app process on the simulator: the session opens the registry
+/// and, with no server configured, waits for onboarding.
+@MainActor
+@Test func appOpensASessionThroughQuickrData() async throws {
+    let location = TestStores.emptyLocation()
+    defer { TestStores.remove(location) }
+    let session = try AppSession(
+        configuration: .init(location: location, transport: URLSessionTransport(), notifier: nil))
+    await session.start()
+    #expect(session.phase == .noServer)
+    await session.shutdown()
 }
