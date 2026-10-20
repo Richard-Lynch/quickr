@@ -97,7 +97,7 @@ import Testing
         }
     }
 
-    static func ids(_ entries: [ViewEntry]) -> [Int] {
+    static func ids(_ entries: [EntriesModel.Row]) -> [Int] {
         entries.map { Int($0.id.uuidString.suffix(12))! }
     }
 
@@ -199,7 +199,7 @@ import Testing
         }
         #expect(Self.ids(model.rows) == [4, 2, 3, 5, 7], "in place")
         #expect(model.pinned.isEmpty, "an edit is not pinned")
-        #expect(model.rows.first { $0.id == two }?.entry.answers["glasses"] == .int(9))
+        #expect(model.rows.first { $0.id == two }?.entry.entry.answers["glasses"] == .int(9))
 
         try await w.session.delete(entryId: two, topicId: Self.topicId, undoable: true)
         try await eventually("the delete hides it") { await MainActor.run { Self.ids(model.rows) == [4, 3, 5, 7] } }
@@ -258,6 +258,8 @@ import Testing
         defer { first.cancel() }
         let a = try #require(w.session.binding)
         #expect(model.binding == a)
+        let oldRow = try #require(model.rows.first)
+        #expect(oldRow.binding == a)
 
         _ = try await w.partitions.createStore(serverId: "t", baseURL: "https://other.example")
         try await w.partitions.registry.setActive("t")
@@ -272,6 +274,7 @@ import Testing
         try await eventually("the observation restarts") {
             await MainActor.run { model.binding == w.session.binding && model.rows.isEmpty }
         }
+        #expect(oldRow.binding == a, "a rendered row keeps the binding it was read under")
     }
 
     @Test func aTopicByIdAndAMissingOne() async throws {

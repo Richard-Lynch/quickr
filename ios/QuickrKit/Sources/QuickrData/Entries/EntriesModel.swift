@@ -33,10 +33,28 @@ public final class EntriesModel {
     /// Every entry the store shows for the topic (the list's input).
     public private(set) var entries: [ViewEntry] = []
     public private(set) var versions: [TopicVersion] = []
+    /// One row as published: the entry and the store it was read from. A view acts on a row
+    /// with the row's own `binding`, captured when it was rendered, never the model's latest:
+    /// after a rebind, an old row's action must not reach the new store.
+    public struct Row: Identifiable, Hashable, Sendable {
+        public let entry: ViewEntry
+        public let binding: AppSession.Binding
+
+        public init(entry: ViewEntry, binding: AppSession.Binding) {
+            self.entry = entry
+            self.binding = binding
+        }
+
+        public var id: UUID { entry.id }
+        public var syncState: RecordSyncState { entry.syncState }
+        public var lastError: OutboxErrorInfo? { entry.lastError }
+        public var isLocalOnly: Bool { entry.isLocalOnly }
+    }
+
     /// Only on this device so far, oldest first: pinned above the list, whatever the filters.
-    public private(set) var pinned: [ViewEntry] = []
+    public private(set) var pinned: [Row] = []
     /// The server's entries (edited ones included), filtered and in the server's order.
-    public private(set) var rows: [ViewEntry] = []
+    public private(set) var rows: [Row] = []
     /// The source filter's choices, from every entry the server has (unfiltered).
     public private(set) var sources: [(value: String, count: Int)] = []
     /// The answer columns: current questions, then keys only older versions have.
@@ -171,10 +189,13 @@ public final class EntriesModel {
 
     private func relist() {
         let server = entries.filter { !$0.isLocalOnly }
-        pinned = entries.filter(\.isLocalOnly).sorted { ($0.createSeq ?? 0) < ($1.createSeq ?? 0) }
+        // Each row carries the binding of the observation that read it.
+        let row = { [binding] (entry: ViewEntry) in binding.map { Row(entry: entry, binding: $0) } }
+        pinned = entries.filter(\.isLocalOnly).sorted { ($0.createSeq ?? 0) < ($1.createSeq ?? 0) }.compactMap(row)
         rows = EntryListing.list(
             server, entry: \.entry, capturedFrom: filters.range.start(now: now, calendar: calendar),
-            version: filters.version, source: filters.source)
+            version: filters.version, source: filters.source
+        ).compactMap(row)
         sources = EntryListing.sources(server.map(\.entry))
         columns = EntryListing.columns(current: topic?.topic.questions ?? [], versions: versions)
     }

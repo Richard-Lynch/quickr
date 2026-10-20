@@ -84,30 +84,31 @@ struct EntriesView: View {
 
     @ViewBuilder private var ready: some View {
         row { header }
-        ForEach(model.pinned) { entry in
-            row { PendingEntryRow(entry: entry, columns: model.columns) }
-                .onTapGesture { openFix(entry) }
+        ForEach(model.pinned) { pinned in
+            row { PendingEntryRow(entry: pinned.entry, columns: model.columns) }
+                .onTapGesture { openFix(pinned.entry) }
         }
         if model.rows.isEmpty && model.pinned.isEmpty {
             row { emptyState }
         }
-        ForEach(model.rows) { entry in
+        ForEach(model.rows) { listed in
             row {
-                EntryRow(entry: entry, columns: model.columns, currentVersion: model.topic?.topic.currentVersion ?? 1)
+                EntryRow(
+                    entry: listed.entry, columns: model.columns, currentVersion: model.topic?.topic.currentVersion ?? 1)
             }
             .contentShape(Rectangle())
-            .onTapGesture { environment.router.open(.entry(ref, entryId: entry.id)) }
+            .onTapGesture { environment.router.open(.entry(ref, entryId: listed.id)) }
             .accessibilityAddTraits(.isButton)
             .accessibilityHint("Edits the entry")
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                 Button(role: .destructive) {
-                    delete(entry)
+                    delete(listed)
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
                 .accessibilityIdentifier("entry.delete")
             }
-            .accessibilityAction(named: "Delete") { delete(entry) }
+            .accessibilityAction(named: "Delete") { delete(listed) }
         }
     }
 
@@ -211,24 +212,39 @@ struct EntriesView: View {
         environment.router.open(.record(ref, fix: entry.id.wireString))
     }
 
-    /// Deletes with Undo, in the store the row came from (the model's binding, not the active
-    /// store's: after a rebind an old row is refused rather than deleting its id elsewhere).
-    private func delete(_ entry: ViewEntry) {
-        let writer = environment.entryWriter
-        guard let binding = model.binding else { return }
-        Task {
-            do {
-                let scope = try await writer.delete(entry, from: binding)
-                environment.entryToasts.deleted(entryId: entry.id, in: scope)
-            } catch {
-                let message =
-                    switch writer.failure(error) {
-                    case .notSaved: "It was already deleted."
-                    case .scopeChanged: "The server changed; nothing was deleted."
-                    case .message(let message): message
-                    }
-                _ = environment.toasts.show(Toast("Couldn’t delete", message: message, tone: .danger))
-            }
+    /// Deletes with Undo, in the store the row was read from: its own binding, captured with it.
+    private func delete(_ row: EntriesModel.Row) {
+        let deleter = EntryDeleter(environment: environment)
+        Task { await deleter.delete(row) }
+    }
+}
+
+/// The list's delete: in the store the row was read from (`row.binding`, captured when it was
+/// rendered), with an Undo toast; a row left over from another store is refused, with a toast.
+@MainActor
+struct EntryDeleter {
+    let writer: SessionEntryWriter
+    let toasts: ToastCenter
+    let entryToasts: EntryToasts
+
+    init(environment: AppEnvironment) {
+        writer = environment.entryWriter
+        toasts = environment.toasts
+        entryToasts = environment.entryToasts
+    }
+
+    func delete(_ row: EntriesModel.Row) async {
+        do {
+            let scope = try await writer.delete(row.entry, from: row.binding)
+            entryToasts.deleted(entryId: row.id, in: scope)
+        } catch {
+            let message =
+                switch writer.failure(error) {
+                case .notSaved: "It was already deleted."
+                case .scopeChanged: "The server changed; nothing was deleted."
+                case .message(let message): message
+                }
+            _ = toasts.show(Toast("Couldn’t delete", message: message, tone: .danger))
         }
     }
 }
