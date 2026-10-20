@@ -303,6 +303,18 @@ enum FakeServer {
         return out
     }
 
+    /// A schedule as the server stores and returns it (`dump_schedule`): defaults filled in, times
+    /// and days sorted; null stays null.
+    static func outputSchedule(_ input: Any) -> Any {
+        guard var schedule = input as? [String: Any] else { return NSNull() }
+        schedule["notify"] = schedule["notify"] ?? true
+        if schedule["kind"] as? String == "daily" {
+            schedule["times"] = ((schedule["times"] as? [String]) ?? []).sorted()
+            schedule["days"] = ((schedule["days"] as? [Int]) ?? [1, 2, 3, 4, 5, 6, 7]).sorted()
+        }
+        return schedule
+    }
+
     /// A created question as the server returns it: the input with its defaults filled in.
     static func outputQuestion(_ input: [String: Any]) -> [String: Any] {
         var q = input
@@ -403,7 +415,7 @@ private struct FakeServerTransport: Transport {
             let slug = body["slug"] as? String ?? name.lowercased().replacingOccurrences(of: " ", with: "-")
             if state.slugTaken(slug, except: nil) { return problem(409, "conflict", "slug '\(slug)' is already taken") }
             let questions = ((body["questions"] as? [[String: Any]]) ?? []).map(FakeServer.outputQuestion)
-            let schedule = body["schedule"] ?? NSNull()
+            let schedule = FakeServer.outputSchedule(body["schedule"] ?? NSNull())
             let topic: [String: Any] = [
                 "id": UUID().wireString, "slug": slug, "name": name,
                 "description": body["description"] as? String ?? "",
@@ -426,9 +438,14 @@ private struct FakeServerTransport: Transport {
                 return problem(409, "conflict", "slug '\(slug)' is already taken")
             }
             for key in ["name", "slug", "description"] where body[key] != nil { topic[key] = body[key] }
-            if let schedule = body["schedule"] {
-                topic["schedule"] = schedule
-                topic["schedule_updated_at"] = now
+            if let input = body["schedule"] {
+                // Like the backend: an unchanged schedule keeps its reference point; a removed one
+                // clears it.
+                let new = FakeServer.outputSchedule(input)
+                if !(new as AnyObject).isEqual(topic["schedule"] ?? NSNull()) {
+                    topic["schedule"] = new
+                    topic["schedule_updated_at"] = new is NSNull ? NSNull() : now as Any
+                }
             }
         case (.post, "archive"):
             topic["status"] = "archived"

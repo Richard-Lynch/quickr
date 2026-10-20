@@ -106,7 +106,24 @@ public struct TopicWrites: Sendable {
     /// `DELETE /topics/{ref}` (only an archived topic; the server refuses others with a 409). On
     /// success the topic, its versions and entries are tombstoned locally, and its outbox items
     /// resolve as for a deletion that arrived in the feed (§4.3).
+    ///
+    /// An archive still queued here (made offline, or held behind a failed change, which the
+    /// outbox never sends past) means the server's copy may not be archived yet: it is sent first,
+    /// online only like the delete, so a confirmed delete is never blocked by the queue. The
+    /// tombstone then resolves the queued archive with the topic's other items.
     public func delete(topicId: UUID) async -> Outcome<Void> {
+        let queued: [OutboxItem]
+        do {
+            queued = try await Self.pendingArchives(topicId: topicId, in: store)
+        } catch {
+            return .failed(String(describing: error))
+        }
+        if queued.last?.kind == .topicArchive {
+            switch await archive(topicId: topicId) {
+            case .done: break
+            case let other: return other.withoutValue
+            }
+        }
         let wall = store.wallClock
         let id = topicId
         return await send(
@@ -115,6 +132,13 @@ public struct TopicWrites: Sendable {
                 try ServerLayer.applyDeletion(db, kind: .topic, id: id, topicId: id, seq: nil)
                 try OutboxSyncEffects.resolveDependents(db, kind: .topic, id: id.wireString, wall: wall.now())
             })
+    }
+
+    /// `POST /topics/{ref}/archive` sent now, for a delete (see ``delete(topicId:)``).
+    func archive(topicId: UUID) async -> Outcome<Topic> {
+        await send(
+            { try await client.archiveTopic(ref: topicId.wireString, options: options).outcome },
+            apply: { db, topic in _ = try ServerLayer.upsert(db, topic: topic) })
     }
 
     private var options: RequestOptions { RequestOptions(expecting: scope.identity) }
@@ -190,4 +214,21 @@ public struct TopicWrites: Sendable {
 extension OutboxKind {
     /// `topic.archive` or `topic.unarchive`.
     var isTopicKind: Bool { self == .topicArchive || self == .topicUnarchive }
+}
+
+extension TopicWrites.Outcome {
+    /// The same failure for a write without a value (`done` keeps its kind, with `()`).
+    var withoutValue: TopicWrites.Outcome<Void> {
+        switch self {
+        case .done: .done(())
+        case .offline: .offline
+        case .notReady: .notReady
+        case .resyncing: .resyncing
+        case .rejected(let status, let problem): .rejected(status: status, problem: problem)
+        case .staleRevision(let problem): .staleRevision(problem)
+        case .notFound: .notFound
+        case .unconfirmed(let message): .unconfirmed(message)
+        case .failed(let message): .failed(message)
+        }
+    }
 }

@@ -51,6 +51,12 @@ struct TopicSettingsScreen: View {
             }
             return
         }
+        // A slug save replaced this screen's route: carry on with the same model (and any unsaved
+        // edit in the other section) instead of starting over.
+        if let model = TopicSettingsHandoff.take(ref: ref, binding: binding) {
+            load = .ready(model, binding)
+            return
+        }
         do {
             guard
                 let topic = try await TopicLookup.find(
@@ -60,13 +66,17 @@ struct TopicSettingsScreen: View {
                 return
             }
             let router = environment.router
+            let holder = TopicSettingsHandoff.Holder()
             let model = TopicSettingsModel(
                 topic: topic, writer: SessionTopicWriter(session: session, binding: binding),
                 toasts: environment.toasts,
                 onSlugChanged: { slug in
-                    if let ref = TopicLinkRef(slug) { router.replaceTop(with: .topicSettings(ref)) }
+                    guard let ref = TopicLinkRef(slug) else { return }
+                    if let model = holder.model { TopicSettingsHandoff.put(model, binding: binding) }
+                    router.replaceTop(with: .topicSettings(ref))
                 },
                 onDeleted: { router.path = [] })
+            holder.model = model
             load = .ready(model, binding)
         } catch {
             load = .failed(String(describing: error))
@@ -132,5 +142,27 @@ struct TopicNotice: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("topicNotice")
+    }
+}
+
+/// Hands a settings model to the screen that replaces its route after a slug save (the route names
+/// the slug, so the screen is a new one). One-shot: taken by the next settings screen for the same
+/// topic in the same store, and otherwise dropped by the next `put`.
+@MainActor
+enum TopicSettingsHandoff {
+    final class Holder {
+        weak var model: TopicSettingsModel?
+    }
+
+    private static var pending: (model: TopicSettingsModel, binding: AppSession.Binding)?
+
+    static func put(_ model: TopicSettingsModel, binding: AppSession.Binding) {
+        pending = (model, binding)
+    }
+
+    static func take(ref: TopicLinkRef, binding: AppSession.Binding) -> TopicSettingsModel? {
+        guard let pending, pending.binding == binding, ref.matches(pending.model.topic) else { return nil }
+        self.pending = nil
+        return pending.model
     }
 }

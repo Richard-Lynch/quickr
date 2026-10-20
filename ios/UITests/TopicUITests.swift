@@ -54,6 +54,26 @@ final class TopicUITests: XCTestCase {
         XCTAssertTrue(toast("Topic deleted", in: app).waitForExistence(timeout: 10))
     }
 
+    /// Codex r1: a slug save moves the screen to the new link; an unsaved schedule edit survives.
+    @MainActor
+    func testANewSlugKeepsAnUnsavedSchedule() {
+        let app = launch(open: "quickr://t/workout/settings")
+        let slug = app.textFields["topicSettings.slug"]
+        XCTAssertTrue(slug.waitForExistence(timeout: 15))
+        app.buttons["Daily"].firstMatch.tap()  // unsaved
+        slug.tap()
+        slug.typeText("-plan")
+        dismissKeyboard(app)
+        tap("topicSettings.saveDetails", in: app)
+        XCTAssertTrue(toast("Saved", in: app).waitForExistence(timeout: 10))
+
+        XCTAssertEqual(app.textFields["topicSettings.slug"].value as? String, "workout-plan")
+        let preview = app.staticTexts["topicSettings.schedule.preview"]
+        scrollTo(preview, in: app)
+        XCTAssertEqual(preview.label, "Daily 08:00", "the schedule draft is still there")
+        XCTAssertTrue(element("topicSettings.saveSchedule", in: app).isEnabled, "and still unsaved")
+    }
+
     @MainActor
     func testCreateATopicOpensItsRecordScreen() {
         let app = launch(open: "quickr://new")

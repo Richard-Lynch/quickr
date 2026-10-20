@@ -30,17 +30,9 @@ final class SessionTopicWriter: TopicWriter {
         await perform { await $0.update(topicId: topicId, TopicRequests.schedule(schedule)) }
     }
 
-    /// The server deletes only an archived topic: a queued archive (an archive moments ago, or
-    /// offline) is sent first. Until it has reached the server, nothing is deleted.
+    /// Deletes an archived topic; an archive still queued is sent first (`TopicWrites.delete`).
     func delete(topicId: UUID) async -> TopicWriteOutcome<Void> {
-        guard session.binding == binding, let store = session.store else { return .switched }
-        let pending = (try? await TopicWrites.pendingArchives(topicId: topicId, in: store)) ?? []
-        for item in pending {
-            guard let scheduler = session.scheduler, session.binding == binding,
-                await scheduler.sendNow(itemId: item.id, wait: .seconds(8)) == .sent
-            else { return .failed(TopicWriteMessage.archivePending) }
-        }
-        return await perform { await $0.delete(topicId: topicId) }
+        await perform { await $0.delete(topicId: topicId) }
     }
 
     func unsyncedChanges(topicId: UUID) async -> Int {

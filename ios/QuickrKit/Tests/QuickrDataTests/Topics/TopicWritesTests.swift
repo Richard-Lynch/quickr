@@ -211,6 +211,69 @@ import Testing
         #expect(try await local(harness.topic.id) != nil)
     }
 
+    /// Codex r1: an archive queued behind a failed entry change never leaves the outbox, so a
+    /// confirmed delete sends it itself, then deletes; nothing waits on the queue.
+    @Test func aQueuedArchiveBehindAFailedChangeIsSentByTheDelete() async throws {
+        let topicId = harness.topic.id
+        let outbox = harness.outbox()
+        let failed = try await harness.log(outbox)
+        try harness.write { db in
+            try db.execute(
+                sql: "UPDATE outbox_item SET state = 'failed', failure_reason = 'rejected' WHERE id = ?",
+                arguments: [failed.wireString])
+        }
+        try await outbox.archiveTopic(id: topicId, baseRevision: 1, origin: .app)
+        #expect(harness.server.with { $0.topics[topicId.wireString]?.status } == .active, "not on the server yet")
+
+        guard case .done = await try writes().delete(topicId: topicId) else {
+            Issue.record("not deleted")
+            return
+        }
+        #expect(
+            harness.server.handled.suffix(2) == [
+                "POST /api/v1/topics/\(topicId.wireString)/archive → 200",
+                "DELETE /api/v1/topics/\(topicId.wireString) → 204",
+            ])
+        #expect(try await local(topicId) == nil)
+        let left = try await harness.store.outbox.items(topicId: topicId.wireString)
+        #expect(left.allSatisfy { $0.state == .failed && $0.failureReason == .deletedElsewhere }, "\(left)")
+        #expect(!left.contains { $0.kind == .topicArchive }, "the queued archive is resolved with the topic")
+    }
+
+    @Test func aFailedArchiveStopsTheDeleteBeforeItIsSent() async throws {
+        let topicId = harness.topic.id
+        try await harness.outbox().archiveTopic(id: topicId, baseRevision: 1, origin: .app)
+        harness.server.inject(.post, .respond(FakeServer.problem(500, "internal_error", "boom")))
+        guard case .unconfirmed = await try writes().delete(topicId: topicId) else {
+            Issue.record("not unconfirmed")
+            return
+        }
+        #expect(harness.server.count(.delete) == 0, "no DELETE after a failed archive")
+        #expect(try await local(topicId) != nil)
+    }
+
+    @Test func aQueuedUnarchiveIsNotSentAsAnArchive() async throws {
+        let topicId = harness.topic.id
+        harness.server.setArchived(topicId, true)
+        try await harness.outbox().unarchiveTopic(id: topicId, baseRevision: 1, origin: .app)
+        guard case .done = await try writes().delete(topicId: topicId) else {
+            Issue.record("not deleted")
+            return
+        }
+        #expect(harness.server.count(.post) == 0, "nothing archived")
+    }
+
+    @Test func offlineTheQueuedArchiveAndTheDeleteBothWait() async throws {
+        let topicId = harness.topic.id
+        try await harness.outbox().archiveTopic(id: topicId, baseRevision: 1, origin: .app)
+        guard case .offline = await try writes(transport: Offline()).delete(topicId: topicId) else {
+            Issue.record("not offline")
+            return
+        }
+        #expect(try await local(topicId) != nil)
+        #expect(try await TopicWrites.pendingArchives(topicId: topicId, in: harness.store).count == 1)
+    }
+
     @Test func deletingTombstonesLocallyAndResolvesItsOutboxItems() async throws {
         let topicId = harness.topic.id
         harness.server.setArchived(topicId, true)
@@ -236,6 +299,6 @@ import Testing
         #expect(try harness.view(entry.id) == nil)
         let left = try await harness.store.outbox.items(topicId: topicId.wireString)
         #expect(left.allSatisfy { $0.state == .failed && $0.failureReason == .deletedElsewhere }, "\(left)")
-        #expect(syncs.reasons == [.afterOnlineOnly])
+        #expect(syncs.reasons == [.afterOnlineOnly, .afterOnlineOnly], "after the queued archive, then the delete")
     }
 }
