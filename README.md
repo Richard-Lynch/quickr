@@ -146,12 +146,40 @@ worker receives this JSON:
   "body": "Time to log",
   "url": "/t/sleep-log/record",
   "tag": "due-<topic id>",
-  "topic_slug": "sleep-log"
+  "topic_slug": "sleep-log",
+  "v": 1,
+  "kind": "due",
+  "server_id": "<server id>",
+  "topic_id": "<topic id>",
+  "version": 3,
+  "due_since": "2026-10-17T08:00:00Z",
+  "quick_log": { "type": "enum", "key": "quality", "label": "Quality", "options": […], "total_options": 3 }
 }
 ```
 
 The body is "Time to log" for a fresh slot, or e.g. "Overdue since 08:00" when
-the notification goes out late.
+the notification goes out late. `quick_log` is null unless the topic can be
+logged in one tap (docs/ios/specs/notifications.md §2.3); a test push has only
+the first five fields and `kind: "test"`.
+
+**Actions (Chrome, Edge, Android).** A reminder for a one-tap topic shows
+buttons: the first options of a single-select question (up to the browser's
+`Notification.maxActions`, usually 2), or "✓ 7.5 h" to log a number question's
+last value again. Clicking one logs the entry from the service worker, even
+with the app closed: it goes into the same offline outbox as the app (source
+`pwa.notification`) and is sent at once, or later by Background Sync or the
+app's next start. Each reminder logs at most once, however often its buttons
+are clicked. Safari and iOS web push show no buttons; tapping the notification
+opens the record screen as before.
+
+*Manual test (Chrome desktop):* subscribe in Settings, make a topic whose only
+required question is a single-select with 2–4 options and give it a schedule
+that is due now, then wait for the scheduler's next tick
+(`QUICKR_SCHEDULER_INTERVAL_SECONDS`). On the notification, click an option: the entry appears with source
+`pwa.notification`. Click the same reminder's other button (if it is still
+shown, e.g. from the notification centre): no second entry. Repeat with the
+network offline in DevTools: the entry is queued and sent when you go back
+online.
 
 Setup:
 
