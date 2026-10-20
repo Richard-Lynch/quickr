@@ -168,11 +168,14 @@ final class RecordUITests: XCTestCase {
     func testAContentSwipeGoesBackFromACleanForm() {
         let app = launch(open: "quickr://t/workout/record")
         XCTAssertTrue(app.buttons["Yoga"].waitForExistence(timeout: 15))
-        contentSwipe(app)
-        // One more flick if the first was dropped (a synthesized gesture sometimes is on iOS 27). Only
-        // here: a retry can't make "a changed form stays" pass wrongly, but it isn't needed there.
-        if !app.staticTexts["home.wordmark"].waitForExistence(timeout: 2) { contentSwipe(app) }
-        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 5), "a clean form goes back")
+        // Up to three swipes: a synthesized one sometimes starts the pop and lets it snap back. Only
+        // here, where a retry can't make the result wrong; "a changed form stays" gets one.
+        let home = app.staticTexts["home.wordmark"]
+        for _ in 0..<3 where !home.exists {
+            contentSwipe(app)
+            _ = home.waitForExistence(timeout: 2)
+        }
+        XCTAssertTrue(home.waitForExistence(timeout: 3), "a clean form goes back")
     }
 
     /// The content swipe is guarded like the edge swipe: a changed form stays.
@@ -287,11 +290,12 @@ final class RecordUITests: XCTestCase {
         let label = app.staticTexts["Type"].firstMatch
         XCTAssertTrue(label.waitForExistence(timeout: 5))
         settle(label)
+        // Most of the width at the edge swipe's (default) speed: a short fast flick sometimes began
+        // the pop but let it go too early, and it snapped back.
         let window = app.windows.firstMatch.frame
         let start = app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: window.width * 0.3, dy: label.frame.midY))
-        let end = start.withOffset(CGVector(dx: window.width * 0.65, dy: 0))
-        start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0)
+            .withOffset(CGVector(dx: window.width * 0.15, dy: label.frame.midY))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: window.width * 0.85, dy: 0)))
     }
 
     /// Waits (up to 3 s) until `element` stops moving: a push from a link at launch may still be
