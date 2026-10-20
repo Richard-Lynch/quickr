@@ -598,3 +598,34 @@ private final class FirstResult<T: Sendable>: Sendable {
         }
     }
 }
+
+extension LocalStore {
+    /// A reminder action's log (notifications.md §7.1 step 5, §7.4): `entry.create` with the
+    /// reminder's shared id, unless that id is already queued, on the server or tombstoned; then
+    /// nothing is written (the first answer wins). The check and the enqueue are one `IMMEDIATE`
+    /// transaction, so racing actions log once. A retired file throws `StoreError.retired` before
+    /// anything is looked at. Needs no sender: the caller flushes (or not) on its own.
+    public func createEntryIfAbsent(id: UUID, topic: TopicRef, body: EntryCreateDTO, origin: OutboxOrigin)
+        async throws -> OutboxCreateOnceResult
+    {
+        var body = body
+        body.id = nil
+        body.source = origin.source  // what the request will carry (outbox.md §4)
+        let item = NewOutboxItem(id: id, payload: .entryCreate(topic: topic, body: body), origin: origin)
+        let entryId = id.wireString
+        let (clock, wallClock) = (leaseClock, self.wallClock)
+        return try await writer.write { db in
+            if try StoreFence.isRetired(db) { throw StoreError.retired }
+            if try !OutboxStorage.items(db, entityKind: .entry, entityId: entryId).isEmpty {
+                return .duplicate(.queued)
+            }
+            if try ServerLayer.isTombstoned(db, kind: .entry, id: entryId) { return .duplicate(.deleted) }
+            if try ServerLayer.revision(db, entityKind: .entry, id: entryId) != nil { return .duplicate(.onServer) }
+            let enqueued = try OutboxQueue.enqueue(db, item, holdFor: nil, now: clock.now(), wall: wallClock.now())
+            guard case .appended(let appended) = enqueued else {
+                throw OutboxError.notAllowed("a create is never coalesced")
+            }
+            return .created(appended)
+        }
+    }
+}

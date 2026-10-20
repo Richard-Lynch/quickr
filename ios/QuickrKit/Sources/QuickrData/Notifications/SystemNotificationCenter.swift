@@ -116,13 +116,18 @@ public struct SystemNotificationCenter: NotificationCenterProtocol {
             })
     }
 
-    static func snapshot(_ request: UNNotificationRequest, date: Date?) -> NotificationSnapshot {
-        let quickr = request.content.userInfo["quickr"].flatMap { object -> QuickrNotificationInfo? in
+    /// `userInfo.quickr`, decoded; nil when it is missing or isn't quickR's shape.
+    public static func quickr(_ userInfo: [AnyHashable: Any]) -> QuickrNotificationInfo? {
+        userInfo["quickr"].flatMap { object -> QuickrNotificationInfo? in
             guard JSONSerialization.isValidJSONObject(object),
                 let data = try? JSONSerialization.data(withJSONObject: object)
             else { return nil }
             return try? JSONDecoder().decode(QuickrNotificationInfo.self, from: data)
         }
+    }
+
+    static func snapshot(_ request: UNNotificationRequest, date: Date?) -> NotificationSnapshot {
+        let quickr = quickr(request.content.userInfo)
         return NotificationSnapshot(
             id: request.identifier, categoryIdentifier: request.content.categoryIdentifier,
             threadIdentifier: request.content.threadIdentifier, date: date, quickr: quickr)

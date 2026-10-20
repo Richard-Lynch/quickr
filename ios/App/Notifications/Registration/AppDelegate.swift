@@ -1,9 +1,17 @@
 import UIKit
+import UserNotifications
 
 /// The app delegate: the APNs token callbacks (notifications.md §9.2), handed to
-/// `RemoteNotificationTokens`. The notification response handler is M3's (HANDLER); in DEBUG the
-/// spike's delegate subclasses this one.
+/// `RemoteNotificationTokens`, and the notification center's delegate (`NotificationResponder`,
+/// §7), set before launch ends. In DEBUG the spike's delegate subclasses this one.
 class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?
+    ) -> Bool {
+        UNUserNotificationCenter.current().delegate = NotificationResponder.shared
+        return true
+    }
+
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         RemoteNotificationTokens.shared.didRegister(deviceToken)
     }

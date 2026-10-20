@@ -186,6 +186,21 @@ struct RecordBoom: Error {}
         #expect(model.form.errors["duration"] == "Required")
     }
 
+    /// A reminder's typed number that didn't validate comes back from its tap-to-fix notification
+    /// (notifications.md §7.3): the text in its field, with the message.
+    @Test func aTapToFixPrefillShowsTheTextAndWhyItIsWrong() async {
+        let model = model()
+        model.prefill(["duration": "abc", "nope": "x"])
+        #expect(model.form.input(for: "duration") == .text("abc"))
+        #expect(model.form.errors["duration"] != nil)
+        #expect(model.form.errors["type"] == nil, "other fields stay untouched")
+        #expect(model.hasUnsavedChanges)
+        model.form.change("type", to: .text("run"))
+        model.form.change("duration", to: .text("45"))
+        #expect(await model.save() == .leave)
+        #expect(writer.logged.first?.answers == ["type": .string("run"), "duration": .int(45)])
+    }
+
     @Test func aRejectedEntryGoesBackOnTheFormAndLeavesTheQueue() async throws {
         writer.delivery = .failed(
             "422",

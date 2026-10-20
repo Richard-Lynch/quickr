@@ -13,6 +13,22 @@ public enum OutboxEnqueueResult: Sendable, Hashable {
     case cancelled
 }
 
+/// What `createEntryIfAbsent` did (notifications.md §7.1 step 5).
+public enum OutboxCreateOnceResult: Sendable, Hashable {
+    case created(OutboxItem)
+    /// The id was already used; nothing was written.
+    case duplicate(Duplicate)
+
+    public enum Duplicate: Sendable, Hashable {
+        /// An item for the entry is in the queue (pending, in flight, uncertain or failed).
+        case queued
+        /// The server layer has the entry.
+        case onServer
+        /// The entry was deleted: its tombstone reserves the id.
+        case deleted
+    }
+}
+
 /// The result of Undo on a log (outbox.md §9.1).
 public enum OutboxUndoLogResult: Sendable, Hashable {
     /// The create was removed before the server could have seen it. No request will be made.

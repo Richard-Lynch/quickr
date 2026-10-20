@@ -114,6 +114,8 @@ public struct QuickrNotificationInfo: Codable, Sendable, Hashable {
     public var url: String?
     /// What the actions log; the handler validates every action against it (§7.1 step 1).
     public var quickLog: QuickLogDescriptor?
+    /// A tap-to-fix notification's raw text per question key, for the record screen (§7.3).
+    public var prefill: [String: String]?
 
     public enum Origin: String, Codable, Sendable, Hashable {
         case remote
@@ -127,12 +129,13 @@ public struct QuickrNotificationInfo: Codable, Sendable, Hashable {
         case topicSlug = "topic_slug"
         case dueSince = "due_since"
         case quickLog = "quick_log"
+        case prefill
     }
 
     public init(
         v: Int = 1, kind: String, origin: Origin = .remote, serverId: String, topicId: String? = nil,
         topicSlug: String? = nil, version: Int? = nil, dueSince: String? = nil, url: String? = nil,
-        quickLog: QuickLogDescriptor? = nil
+        quickLog: QuickLogDescriptor? = nil, prefill: [String: String]? = nil
     ) {
         self.v = v
         self.kind = kind
@@ -144,6 +147,7 @@ public struct QuickrNotificationInfo: Codable, Sendable, Hashable {
         self.dueSince = dueSince
         self.url = url
         self.quickLog = quickLog
+        self.prefill = prefill
     }
 
     public init(from decoder: any Decoder) throws {
@@ -158,6 +162,7 @@ public struct QuickrNotificationInfo: Codable, Sendable, Hashable {
         dueSince = try container.decodeIfPresent(String.self, forKey: .dueSince)
         url = try container.decodeIfPresent(String.self, forKey: .url)
         quickLog = try container.decodeIfPresent(QuickLogDescriptor.self, forKey: .quickLog)
+        prefill = try container.decodeIfPresent([String: String].self, forKey: .prefill)
     }
 
     /// The reminder slot this notification is for; nil unless it is a `due` reminder with a

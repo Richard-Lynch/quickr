@@ -20,6 +20,8 @@ struct QuickRApp: App {
         let environment = AppEnvironment.bootstrap()
         #endif
         _environment = State(initialValue: environment)
+        // Before the app delegate's `didFinishLaunching` makes the responder the center's delegate.
+        NotificationResponder.shared.attach(environment)
         // Before launch ends, as BGTaskScheduler requires.
         BackgroundRefresh.register(environment)
     }
