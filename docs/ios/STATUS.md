@@ -302,6 +302,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 09:55 (EDT, check): BUILDER landing merged in ios/m2-builder-land (7e3ba18); verification pending. EDIT: the new swipe-back test found a real hazard (a blocked swipe on a dirty form whose release lands on "Delete Entry" deleted the entry); fixing with a drag-release guard. HANDLER r2 fixes in progress (delivered-reminder removal matched on server, topic and slot; an ActiveStoreGate for the badge and flush). TOPIC: UI tests running (076fe17). NSE started (CSV agent). The m2-ui integration Unit+UI run is queued for a slot.
+
 - 2026-10-20 09:55 (EDT): **UIT-2 (c47406c) and CSV merged into ios/m2-ui.** UIT-2: Codex ×2; E2E 13/13, UI 41, Unit 618. CSV: Codex ×4; Unit 634, export UI 4/4. The CSV merge conflicted in the UITestLaunch fake server (the CSV route vs the stats route); I kept both. Lint, core, script tests and the app build pass on the merge; an integration Unit + UI run on m2-ui follows. UIT-2 follow-up: the content-swipe guard test was vacuous under mutation; a positive control is in 271d271 (possibly a clean-form content-swipe regression), as a separate commit. EDIT can now merge m2-ui.
 
 - 2026-10-20 09:45 (EDT): **STATS merged into ios/m2-ui** (Codex ×3; on afad7e0: Unit 652, UI 40/40; lint, core, the app build and frontend vitest pass on the merge). CSV: Codex r4 approved (d5e6a65); merge after a final m2-ui merge in its branch. HANDLER r2: exactly-once and duplicate flush RESOLVED; still open are L2 removing a same-ID reminder from another server, and the active check spanning awaits before the badge and flush. UIT-2: approved, awaiting its final report. EDIT: r1 fix gates pending. TOPIC: BUILDER landing requested again.
