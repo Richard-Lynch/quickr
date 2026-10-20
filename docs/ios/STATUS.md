@@ -302,6 +302,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 09:45 (EDT): **STATS merged into ios/m2-ui** (Codex ×3; on afad7e0: Unit 652, UI 40/40; lint, core, the app build and frontend vitest pass on the merge). CSV: Codex r4 approved (d5e6a65); merge after a final m2-ui merge in its branch. HANDLER r2: exactly-once and duplicate flush RESOLVED; still open are L2 removing a same-ID reminder from another server, and the active check spanning awaits before the badge and flush. UIT-2: approved, awaiting its final report. EDIT: r1 fix gates pending. TOPIC: BUILDER landing requested again.
+
 - 2026-10-20 09:25 (EDT): Codex results.
   - STATS r3: approved. Its final run on the m2-ui merge (afad7e0) is going, then the merge.
   - UIT-2 r2: approved (c47406c). Its final run is going, then the merge, then EDIT can follow.
