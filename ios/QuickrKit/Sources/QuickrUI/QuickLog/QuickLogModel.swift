@@ -22,16 +22,25 @@ public struct QuickLogTopic: Sendable, Hashable {
 
 /// Numbers typed into tiles but not logged yet (the PWA's `numberDrafts`). One per app run,
 /// shared by every tile: a draft survives leaving the home screen and coming back, not a relaunch.
+/// Kept per store (`EntryScope`), so a topic id that exists on two servers never shares one.
 @MainActor @Observable
 public final class QuickLogDrafts {
-    private var values: [UUID: String] = [:]
+    private struct Key: Hashable {
+        var scope: EntryScope?
+        var topic: UUID
+    }
+
+    private var values: [Key: String] = [:]
 
     public init() {}
 
-    public subscript(topic: UUID) -> String? {
-        get { values[topic] }
+    public subscript(scope: EntryScope?, topic: UUID) -> String? {
+        get { values[Key(scope: scope, topic: topic)] }
         // Every write redraws whatever reads it, so an unchanged value isn't written.
-        set { if values[topic] != newValue { values[topic] = newValue } }
+        set {
+            let key = Key(scope: scope, topic: topic)
+            if values[key] != newValue { values[key] = newValue }
+        }
     }
 }
 
@@ -60,11 +69,14 @@ public final class QuickLogModel {
     @ObservationIgnored private let writer: any EntryWriter
     @ObservationIgnored private let toasts: EntryToasts
     @ObservationIgnored private let drafts: QuickLogDrafts
+    /// The store this model shows (its drafts are that store's).
+    public let scope: EntryScope?
 
     public init(
         topic: QuickLogTopic, last: AnswerValue? = nil, writer: any EntryWriter, toasts: EntryToasts,
         drafts: QuickLogDrafts, flash: ConfirmFlash = ConfirmFlash()
     ) {
+        self.scope = writer.scope
         self.topic = topic
         self.last = last
         self.writer = writer
@@ -80,12 +92,12 @@ public final class QuickLogModel {
 
     /// The number field's text: the draft, else the last value or the minimum.
     public var numberText: String {
-        get { drafts[topic.id] ?? QuickLog.initialText(for: topic.quick.question, last: last) }
+        get { drafts[scope, topic.id] ?? QuickLog.initialText(for: topic.quick.question, last: last) }
         set {
             // A text field can hand back the text it was given (as it is rebuilt while a list
             // scrolls); writing it anyway redraws the field, which hands it back again.
             guard newValue != numberText else { return }
-            drafts[topic.id] = newValue
+            drafts[scope, topic.id] = newValue
             if numberError != nil { numberError = nil }
         }
     }
@@ -119,7 +131,7 @@ public final class QuickLogModel {
             isLoggingNumber = true
             defer { isLoggingNumber = false }
             let unit = topic.quick.question.numericRules?.unit.flatMap { $0.isEmpty ? nil : $0 }
-            if await log(answers, label: unit.map { "\(text) \($0)" } ?? text) { drafts[topic.id] = nil }
+            if await log(answers, label: unit.map { "\(text) \($0)" } ?? text) { drafts[scope, topic.id] = nil }
         }
     }
 
@@ -154,9 +166,14 @@ public final class QuickLogModel {
 /// height at once. A tile that grew only after its model loaded made a fling at accessibility
 /// sizes thrash: the height change moved the list, which dropped and rebuilt the tile again.
 /// It also keeps a chip's busy and confirmation state across the scroll.
+///
+/// The cache belongs to one store: when the writer's `EntryScope` changes (a server switch or a
+/// reset) every model goes, so a topic id that exists on both servers never shows the old store's
+/// definition or last value, and late updates from the old store's observation are ignored.
 @MainActor
 public final class QuickLogModels {
     private var models: [UUID: QuickLogModel] = [:]
+    private var scope: EntryScope?
     private let writer: any EntryWriter
     private let toasts: EntryToasts
     private let drafts: QuickLogDrafts
@@ -168,8 +185,9 @@ public final class QuickLogModels {
     }
 
     /// The topic's model, made on first use. Reading it from a view's body is fine: making one
-    /// changes nothing a view observes. Bring an existing model up to date with ``update(_:with:)``.
+    /// changes nothing a view observes. Bring an existing model up to date with ``update(_:last:from:)``.
     public func model(for topic: QuickLogTopic) -> QuickLogModel {
+        followScope()
         if let model = models[topic.id] { return model }
         let model = QuickLogModel(topic: topic, writer: writer, toasts: toasts, drafts: drafts)
         models[topic.id] = model
@@ -177,9 +195,26 @@ public final class QuickLogModels {
     }
 
     /// Updates a model's topic and last value, touching only what changed (each write redraws).
-    public func update(_ topic: QuickLogTopic, last: AnswerValue?) {
+    /// `scope`: the store the values were read from; ignored unless it is still the active one.
+    public func update(_ topic: QuickLogTopic, last: AnswerValue?, from scope: EntryScope?) {
+        followScope()
+        guard scope == self.scope else { return }
         let model = model(for: topic)
         if model.topic != topic { model.topic = topic }
         if model.last != last { model.last = last }
+    }
+
+    /// Drops the models of topics no longer in the store (`ids`: every topic it holds).
+    public func retain(_ ids: Set<UUID>) {
+        followScope()
+        models = models.filter { ids.contains($0.key) }
+    }
+
+    /// Starts over when the writer moved to another store.
+    private func followScope() {
+        let current = writer.scope
+        guard current != scope else { return }
+        models.removeAll()
+        scope = current
     }
 }

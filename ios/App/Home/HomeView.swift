@@ -24,6 +24,7 @@ struct HomeView: View {
     @State private var filtersOpen = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(AppEnvironment.self) private var environment
 
     init(session: AppSession, actions: HomeActions = HomeActions()) {
         self.session = session
@@ -61,6 +62,10 @@ struct HomeView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.tick() }
+        }
+        // Tiles keep their quick-log models for the run; topics that left the store let theirs go.
+        .onChange(of: model.topics.map(\.id), initial: true) { _, ids in
+            environment.quickLogModels.retain(Set(ids))
         }
         .onChange(of: model.badgeCount, initial: true) { _, count in
             // Fails quietly until notifications are authorized (M3).

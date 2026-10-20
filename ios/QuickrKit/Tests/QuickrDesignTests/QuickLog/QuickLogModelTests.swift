@@ -238,7 +238,7 @@ enum Topics {
         await model.logNumber()
         #expect(w.writer.logged == [.init(topic: topic.id, answers: ["glasses": .int(5)])])
         #expect(w.lastToast?.title == "Logged 5 glasses")
-        #expect(w.drafts[topic.id] == nil && model.numberText == "3")
+        #expect(w.drafts[w.writer.scope, topic.id] == nil && model.numberText == "3")
         #expect(model.flash.value == nil)  // no chip to light
     }
 
@@ -249,7 +249,7 @@ enum Topics {
         let model = w.model(topic)
         model.numberText = "5"
         await model.logNumber()
-        #expect(w.drafts[topic.id] == "5")
+        #expect(w.drafts[w.writer.scope, topic.id] == "5")
         #expect(w.lastToast?.title == "Couldn’t log Water")
     }
 
@@ -271,7 +271,7 @@ enum Topics {
         let topic = Topics.water()
         let model = w.model(topic, last: .int(3))
         model.numberText = "3"
-        #expect(w.drafts[topic.id] == nil)
+        #expect(w.drafts[w.writer.scope, topic.id] == nil)
         model.numberText = "21"
         await model.logNumber()
         let error = model.numberError
@@ -362,14 +362,48 @@ enum Topics {
         let w = QuickLogWorld()
         let models = QuickLogModels(writer: w.writer, toasts: w.toasts, drafts: w.drafts)
         let first = models.model(for: Topics.headache)
-        models.update(Topics.headache, last: .string("mild"))
+        models.update(Topics.headache, last: .string("mild"), from: w.writer.scope)
         let again = models.model(for: Topics.headache)
         #expect(first === again && again.lastOption == "mild")
         #expect(models.model(for: Topics.water()) !== first)
 
         var renamed = Topics.headache
         renamed.name = "Head"
-        models.update(renamed, last: .string("mild"))
+        models.update(renamed, last: .string("mild"), from: w.writer.scope)
         #expect(again.topic.name == "Head")
+    }
+
+    /// The same topic id on two servers: after a switch the tile never shows (or logs) server A's
+    /// definition, last value or draft, and A's late observation updates are dropped.
+    @Test func aServerSwitchStartsTheCacheOverAndIgnoresTheOldStore() {
+        let w = QuickLogWorld()
+        let models = QuickLogModels(writer: w.writer, toasts: w.toasts, drafts: w.drafts)
+        let serverA = w.writer.scope
+        let onA = models.model(for: Topics.water())
+        let water = onA.topic
+        models.update(water, last: .int(7), from: serverA)
+        onA.numberText = "9"
+        #expect(onA.numberText == "9")
+
+        w.writer.scope = EntryScope("server-B/1")
+        let onB = models.model(for: water)
+        #expect(onB !== onA, "a new store starts with new models")
+        #expect(onB.last == nil && onB.numberText == "0", "nothing of A's: no last value, no draft")
+
+        models.update(water, last: .int(7), from: serverA)  // A's observation, late
+        #expect(onB.last == nil)
+        models.update(water, last: .int(2), from: w.writer.scope)
+        #expect(onB.last == .int(2) && onB.numberText == "2")
+    }
+
+    @Test func topicsThatLeftTheStoreLoseTheirModels() {
+        let w = QuickLogWorld()
+        let models = QuickLogModels(writer: w.writer, toasts: w.toasts, drafts: w.drafts)
+        let headache = models.model(for: Topics.headache)
+        let water = Topics.water()
+        let kept = models.model(for: water)
+        models.retain([water.id])
+        #expect(models.model(for: water) === kept)
+        #expect(models.model(for: Topics.headache) !== headache)
     }
 }

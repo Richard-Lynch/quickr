@@ -86,15 +86,18 @@ struct TopicTile: View {
     private func follow() async {
         guard let quickTopic else { return }
         let models = environment.quickLogModels
+        // The store this observation reads; updates are dropped once another is active.
+        let scope = environment.entryWriter.scope
         guard let session = environment.session, let store = session.store, topic.topic.entryCount > 0 else {
-            models.update(quickTopic, last: nil)
+            models.update(quickTopic, last: nil, from: scope)
             return
         }
         do {
             for try await entries in store.observeEntries(
                 topicId: quickTopic.id, limit: 1, refresh: session.refresh.stream())
             {
-                models.update(quickTopic, last: entries.first?.entry.answers[quickTopic.quick.question.key])
+                models.update(
+                    quickTopic, last: entries.first?.entry.answers[quickTopic.quick.question.key], from: scope)
             }
         } catch {
             // The observation ends with its store (a reset or a switch); the next binding restarts it.
