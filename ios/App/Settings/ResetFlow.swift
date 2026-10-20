@@ -3,16 +3,42 @@ import QuickrData
 import QuickrUI
 import SwiftUI
 
-/// Settings ▸ "Reset local data" (sync-protocol.md §12.1): fetch the warning, confirm once with
-/// nothing pending, or twice (the second destructive, naming the loss) when changes would be lost;
-/// reset, report.
+/// What `ResetFlow` needs from the session (`AppSession` in the app, a fake in tests).
+@MainActor
+protocol LocalReset: AnyObject {
+    func resetWarning() async throws -> SyncCoordinator.ResetWarning?
+    /// Sends what can be sent now.
+    func flushForReset() async
+    func performReset(confirmed: SyncCoordinator.ResetWarning) async throws -> SyncCoordinator.ResetOutcome
+}
+
+extension AppSession: LocalReset {
+    func resetWarning() async throws -> SyncCoordinator.ResetWarning? {
+        try await coordinator.resetWarning()
+    }
+
+    func flushForReset() async {
+        _ = await scheduler?.flushNow(reason: .enqueue)
+    }
+
+    func performReset(confirmed: SyncCoordinator.ResetWarning) async throws -> SyncCoordinator.ResetOutcome {
+        try await coordinator.performReset(confirmed: confirmed)
+    }
+}
+
+/// Settings ▸ "Reset local data" (sync-protocol.md §12.1). Nothing pending: one confirmation.
+/// Otherwise "N changes haven't synced (k failed)" with **Sync first** (flush, then reset if
+/// nothing is left, or ask again with what is), **Reset anyway** (a second, destructive
+/// confirmation) and **Cancel**. Then reset, and report.
 @MainActor @Observable
 final class ResetFlow {
     enum State: Equatable {
         case idle
         case loading
-        case confirm(SyncCoordinator.ResetWarning)
-        /// The second confirmation, when `count > 0`.
+        /// The first confirmation. `afterSync`: a "Sync first" didn't send everything.
+        case confirm(SyncCoordinator.ResetWarning, afterSync: Bool)
+        case syncing
+        /// "Reset anyway"'s second, destructive confirmation.
         case confirmLoss(SyncCoordinator.ResetWarning)
         case resetting
         case done(String)
@@ -20,44 +46,72 @@ final class ResetFlow {
     }
 
     private(set) var state: State = .idle
-    @ObservationIgnored private let session: AppSession
+    @ObservationIgnored private let reset: any LocalReset
 
-    init(session: AppSession) {
-        self.session = session
+    init(reset: any LocalReset) {
+        self.reset = reset
     }
+
+    convenience init(session: AppSession) {
+        self.init(reset: session)
+    }
+
+    var isBusy: Bool { [.loading, .syncing, .resetting].contains(state) }
 
     func begin() async {
         state = .loading
-        do {
-            guard let warning = try await session.coordinator.resetWarning() else {
-                state = .failed("There’s no server to reset yet.")
-                return
-            }
-            state = .confirm(warning)
-        } catch {
-            state = .failed("Couldn’t check what would be lost: \(error)")
-        }
+        await loadWarning(afterSync: false)
     }
 
     func cancel() {
         state = .idle
     }
 
-    /// The first confirmation: resets with nothing pending, otherwise asks again. The state
-    /// changes before this returns, so the dialog's dismissal sees it.
+    /// The first confirmation's "Reset" (nothing pending). The state moves before this returns,
+    /// so the dialog's dismissal sees it.
     func confirmed() {
-        guard case .confirm(let warning) = state else { return }
-        if warning.needsDestructiveConfirmation {
-            state = .confirmLoss(warning)
-        } else {
-            start(warning)
-        }
+        guard case .confirm(let warning, _) = state, !warning.needsDestructiveConfirmation else { return }
+        start(warning)
+    }
+
+    /// "Reset anyway": the second confirmation.
+    func resetAnyway() {
+        guard case .confirm(let warning, _) = state, warning.needsDestructiveConfirmation else { return }
+        state = .confirmLoss(warning)
     }
 
     /// The second confirmation.
     func confirmedLoss() {
         guard case .confirmLoss(let warning) = state else { return }
         start(warning)
+    }
+
+    /// "Sync first": flush, then reset if nothing is left, otherwise ask again with what is.
+    func syncFirst() {
+        guard case .confirm = state else { return }
+        state = .syncing
+        Task {
+            await reset.flushForReset()
+            await loadWarning(afterSync: true)
+        }
+    }
+
+    private func loadWarning(afterSync: Bool) async {
+        do {
+            guard let warning = try await reset.resetWarning() else {
+                state = .failed("There’s no server to reset yet.")
+                return
+            }
+            if afterSync && !warning.needsDestructiveConfirmation {
+                // Everything went: the user already chose to reset.
+                state = .resetting
+                await perform(warning)
+            } else {
+                state = .confirm(warning, afterSync: afterSync)
+            }
+        } catch {
+            state = .failed("Couldn’t check what would be lost, so nothing was reset: \(error)")
+        }
     }
 
     private func start(_ warning: SyncCoordinator.ResetWarning) {
@@ -67,12 +121,12 @@ final class ResetFlow {
 
     private func perform(_ warning: SyncCoordinator.ResetWarning) async {
         do {
-            switch try await session.coordinator.performReset(confirmed: warning) {
+            switch try await reset.performReset(confirmed: warning) {
             case .completed:
                 state = .done("Done. Everything was reloaded from the server.")
             case .writesArrived(let newer):
                 // Something was logged since the warning: confirm again with the new numbers.
-                state = .confirm(newer)
+                state = .confirm(newer, afterSync: false)
             case .timedOut:
                 state = .failed("Sync didn’t pause in time, so nothing was reset. Try again.")
             case .superseded:
@@ -86,11 +140,13 @@ final class ResetFlow {
     }
 
     /// The first confirmation's text.
-    nonisolated static func message(count: Int) -> String {
+    nonisolated static func message(count: Int, failedCount: Int, afterSync: Bool = false) -> String {
         let reload = "quickR deletes its copy on this iPhone and loads everything again from the server."
         guard count > 0 else { return reload + " Nothing is lost." }
         let changes = count == 1 ? "1 change hasn’t" : "\(count) changes haven’t"
-        return reload + " \(changes) synced yet."
+        let failed = failedCount > 0 ? " (\(failedCount) failed)" : ""
+        let retry = afterSync ? "Syncing didn’t send everything. " : ""
+        return "\(retry)\(changes) synced\(failed). Sync first to send them, or reset anyway and lose them."
     }
 
     /// The second confirmation's text: what is lost.
@@ -115,15 +171,17 @@ struct ResetSection: View {
             } label: {
                 HStack {
                     Text("Reset local data…")
-                    if flow.state == .loading || flow.state == .resetting {
+                    if flow.isBusy {
                         Spacer()
                         ProgressView()
                     }
                 }
             }
-            .disabled(flow.state == .loading || flow.state == .resetting)
+            .disabled(flow.isBusy)
             .accessibilityIdentifier("settings.reset")
             switch flow.state {
+            case .syncing:
+                Text("Sending your changes…").foregroundStyle(.qr.muted)
             case .done(let message):
                 Text(message).foregroundStyle(QuickrTone.ok.foreground).accessibilityIdentifier("settings.resetDone")
             case .failed(let message):
@@ -137,15 +195,23 @@ struct ResetSection: View {
             Text("Reloads this server’s data from scratch. Other servers’ data and the token stay.")
         }
         .confirmationDialog(
-            "Reset local data?", isPresented: presented(first.map(ResetFlow.State.confirm)), titleVisibility: .visible,
-            presenting: first
-        ) { warning in
-            Button(warning.needsDestructiveConfirmation ? "Continue…" : "Reset", role: .destructive) {
-                flow.confirmed()
+            first.map { $0.warning.needsDestructiveConfirmation ? "Changes haven’t synced" : "Reset local data?" }
+                ?? "",
+            isPresented: presented(first.map { ResetFlow.State.confirm($0.warning, afterSync: $0.afterSync) }),
+            titleVisibility: .visible, presenting: first
+        ) { pending in
+            if pending.warning.needsDestructiveConfirmation {
+                Button("Sync first") { flow.syncFirst() }
+                Button("Reset anyway…", role: .destructive) { flow.resetAnyway() }
+            } else {
+                Button("Reset", role: .destructive) { flow.confirmed() }
             }
             Button("Cancel", role: .cancel) { flow.cancel() }
-        } message: { warning in
-            Text(ResetFlow.message(count: warning.count))
+        } message: { pending in
+            Text(
+                ResetFlow.message(
+                    count: pending.warning.count, failedCount: pending.warning.failedCount, afterSync: pending.afterSync
+                ))
         }
         .confirmationDialog(
             "Delete unsynced changes?", isPresented: presented(second.map(ResetFlow.State.confirmLoss)),
@@ -158,8 +224,8 @@ struct ResetSection: View {
         }
     }
 
-    private var first: SyncCoordinator.ResetWarning? {
-        if case .confirm(let warning) = flow.state { return warning }
+    private var first: (warning: SyncCoordinator.ResetWarning, afterSync: Bool)? {
+        if case .confirm(let warning, let afterSync) = flow.state { return (warning, afterSync) }
         return nil
     }
 

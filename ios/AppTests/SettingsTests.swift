@@ -87,7 +87,7 @@ import Testing
     #expect(setup.clientSecret.isEmpty)
     #expect(try setup.credentials?.stored()?.clientId == "abc.access")
     #expect(transport.requests.allSatisfy { $0.url.host() == "quickr.example" })
-    #expect(setup.session.binding?.serverId == "00000000-0000-4000-8000-0000000000aa")
+    #expect((setup.switcher as? AppSession)?.binding?.serverId == "00000000-0000-4000-8000-0000000000aa")
 }
 
 @MainActor
@@ -185,15 +185,299 @@ import Testing
 }
 
 @Test func resetWarningsSayWhatIsLost() {
-    #expect(ResetFlow.message(count: 0).contains("Nothing is lost"))
-    #expect(ResetFlow.message(count: 3).contains("3 changes haven’t synced"))
+    #expect(ResetFlow.message(count: 0, failedCount: 0).contains("Nothing is lost"))
+    let pending = ResetFlow.message(count: 3, failedCount: 1)
+    #expect(pending.contains("3 changes haven’t synced (1 failed)") && pending.contains("Sync first"))
+    #expect(ResetFlow.message(count: 1, failedCount: 0, afterSync: true).hasPrefix("Syncing didn’t send everything."))
     #expect(ResetFlow.lossMessage(count: 3, failedCount: 1).contains("1 of them failed"))
     #expect(ResetFlow.lossLabel(count: 3) == "Delete 3 changes and reset")
     #expect(ResetFlow.lossLabel(count: 1) == "Delete 1 change and reset")
     #expect(!ResetFlow.lossMessage(count: 1, failedCount: 0).contains("failed"))
 }
 
+// MARK: - Switching servers: the token waits for the confirmed switch (fakes)
+
+private let tokenA = AccessCredentials(clientId: "a.access", clientSecret: "secret-a")
+private let tokenB = AccessCredentials(clientId: "b.access", clientSecret: "secret-b")
+
+@MainActor
+@Test func aFailedProbeLeavesTheActiveServersToken() async throws {
+    let (setup, switcher, credentials) = try fakeSetup(pending: 2)
+    switcher.probeResult = .failure(.accessDenied(status: 403))
+    setup.address = "https://b.example"
+    setup.clientId = tokenB.clientId
+    setup.clientSecret = tokenB.clientSecret
+    await setup.connect()
+    guard case .failed = setup.state else {
+        Issue.record("the probe failed")
+        return
+    }
+    #expect(switcher.probedWith == [tokenB], "the probe used the typed token")
+    #expect(try credentials.stored() == tokenA, "A keeps its token")
+    #expect(switcher.connected.isEmpty)
+}
+
+@MainActor
+@Test func cancellingTheSwitchLeavesTheActiveServersToken() async throws {
+    let (setup, switcher, credentials) = try fakeSetup(pending: 2)
+    setup.address = "https://b.example"
+    setup.clientId = tokenB.clientId
+    setup.clientSecret = tokenB.clientSecret
+    await setup.connect()
+    guard case .confirmSwitch(let warning) = setup.state else {
+        Issue.record("expected the switch warning, got \(setup.state)")
+        return
+    }
+    #expect(warning.count == 2 && warning.failedCount == 1 && warning.oldServer == "a.example")
+    #expect(try credentials.stored() == tokenA)
+    setup.edit()
+    #expect(try credentials.stored() == tokenA)
+    #expect(switcher.connected.isEmpty && switcher.flushes.isEmpty)
+}
+
+@MainActor
+@Test func syncNowFlushesWithTheActiveServersTokenThenSwitches() async throws {
+    let (setup, switcher, credentials) = try fakeSetup(pending: 2)
+    setup.address = "https://b.example"
+    setup.clientId = tokenB.clientId
+    setup.clientSecret = tokenB.clientSecret
+    await setup.connect()
+    setup.confirmSwitch(syncFirst: true)
+    try await settle(setup)
+    #expect(switcher.flushes == [tokenA], "the flush ran with A's token stored")
+    #expect(switcher.connected == [URL(string: "https://b.example")!])
+    #expect(switcher.tokenAtConnect == [tokenB], "B's token is stored for B's connect")
+    #expect(setup.state == .connected(note: nil))
+    #expect(try credentials.stored() == tokenB)
+}
+
+@MainActor
+@Test func aFailedConnectPutsTheActiveServersTokenBack() async throws {
+    let (setup, switcher, credentials) = try fakeSetup(pending: 2)
+    switcher.connectResult = .failed(.unreachable("timed out"))
+    setup.address = "https://b.example"
+    setup.clientId = tokenB.clientId
+    setup.clientSecret = tokenB.clientSecret
+    await setup.connect()
+    setup.confirmSwitch(syncFirst: false)
+    try await settle(setup)
+    #expect(switcher.tokenAtConnect == [tokenB])
+    guard case .failed = setup.state else {
+        Issue.record("the connect failed")
+        return
+    }
+    #expect(try credentials.stored() == tokenA)
+    #expect(setup.settings.serverURL == nil)
+}
+
+@MainActor
+@Test func aWarningThatCantBeReadStopsTheSwitch() async throws {
+    let (setup, switcher, credentials) = try fakeSetup(pending: 2)
+    switcher.warningError = KeychainError(-1)
+    setup.address = "https://b.example"
+    await setup.connect()
+    guard case .failed(let failure) = setup.state else {
+        Issue.record("expected a failure, got \(setup.state)")
+        return
+    }
+    #expect(failure.message.contains("nothing was switched"))
+    #expect(switcher.connected.isEmpty)
+    #expect(try credentials.stored() == tokenA)
+}
+
+@MainActor
+@Test func nothingTypedProbesWithTheStoredToken() async throws {
+    let (setup, switcher, _) = try fakeSetup(pending: 0)
+    setup.address = "https://b.example"
+    await setup.connect()
+    try await settle(setup)
+    #expect(switcher.probedWith == [tokenA])
+    #expect(switcher.connected == [URL(string: "https://b.example")!])
+}
+
+// MARK: - Reset (fakes)
+
+@MainActor
+@Test func resetWithNothingPendingNeedsOneConfirmation() async throws {
+    let reset = FakeReset(counts: [0])
+    let flow = ResetFlow(reset: reset)
+    await flow.begin()
+    flow.confirmed()
+    try await settle(flow)
+    #expect(reset.performed.map(\.count) == [0])
+    #expect(flow.state == .done("Done. Everything was reloaded from the server."))
+}
+
+@MainActor
+@Test func syncFirstThatSendsEverythingResets() async throws {
+    let reset = FakeReset(counts: [3, 0])
+    let flow = ResetFlow(reset: reset)
+    await flow.begin()
+    guard case .confirm(let warning, false) = flow.state else {
+        Issue.record("expected the warning")
+        return
+    }
+    #expect(warning.count == 3)
+    flow.confirmed()  // "Reset" isn't offered with changes pending
+    #expect(reset.performed.isEmpty)
+    flow.syncFirst()
+    try await settle(flow)
+    #expect(reset.flushes == 1)
+    #expect(reset.performed.map(\.count) == [0], "reset with the fresh, empty warning")
+    guard case .done = flow.state else {
+        Issue.record("expected done, got \(flow.state)")
+        return
+    }
+}
+
+@MainActor
+@Test func syncFirstThatLeavesChangesAsksAgain() async throws {
+    let reset = FakeReset(counts: [3, 1])
+    let flow = ResetFlow(reset: reset)
+    await flow.begin()
+    flow.syncFirst()
+    try await settle(flow)
+    #expect(reset.flushes == 1 && reset.performed.isEmpty)
+    guard case .confirm(let warning, true) = flow.state else {
+        Issue.record("expected the warning again, got \(flow.state)")
+        return
+    }
+    #expect(warning.count == 1)
+    // "Reset anyway" asks once more, destructively, then resets.
+    flow.resetAnyway()
+    guard case .confirmLoss = flow.state else {
+        Issue.record("expected the destructive confirmation")
+        return
+    }
+    #expect(reset.performed.isEmpty)
+    flow.confirmedLoss()
+    try await settle(flow)
+    #expect(reset.performed.map(\.count) == [1])
+}
+
+@MainActor
+@Test func writesDuringTheResetAskAgain() async throws {
+    let reset = FakeReset(counts: [0])
+    reset.outcome = .writesArrived(
+        SyncCoordinator.ResetWarning(serverId: "s", storeGen: 1, count: 2, failedCount: 0, maxSeq: 7))
+    let flow = ResetFlow(reset: reset)
+    await flow.begin()
+    flow.confirmed()
+    try await settle(flow)
+    guard case .confirm(let warning, false) = flow.state else {
+        Issue.record("expected the new warning, got \(flow.state)")
+        return
+    }
+    #expect(warning.count == 2)
+}
+
+@MainActor
+@Test func aWarningThatCantBeReadResetsNothing() async throws {
+    let reset = FakeReset(counts: [])
+    reset.warningError = KeychainError(-1)
+    let flow = ResetFlow(reset: reset)
+    await flow.begin()
+    guard case .failed(let message) = flow.state else {
+        Issue.record("expected a failure")
+        return
+    }
+    #expect(message.contains("nothing was reset"))
+    #expect(reset.performed.isEmpty)
+}
+
 // MARK: - Support
+
+/// Waits (up to 5 s) until the setup or flow has stopped working.
+@MainActor
+private func settle(_ setup: ServerSetup) async throws {
+    for _ in 0..<50 where setup.isWorking { try await Task.sleep(for: .milliseconds(100)) }
+}
+
+@MainActor
+private func settle(_ flow: ResetFlow) async throws {
+    for _ in 0..<50 where flow.isBusy { try await Task.sleep(for: .milliseconds(100)) }
+}
+
+/// Server A active with `pending` unsynced changes (one failed), token A stored; probes answer
+/// server B.
+@MainActor
+private func fakeSetup(pending: Int) throws -> (ServerSetup, FakeSwitcher, KeychainAccessCredentials) {
+    let credentials = KeychainAccessCredentials(keychain: InMemoryKeychain())
+    try credentials.save(tokenA)
+    let switcher = FakeSwitcher(credentials: credentials, pending: pending)
+    let defaults = try #require(UserDefaults(suiteName: "settings-fake-\(UUID().uuidString)"))
+    return (
+        ServerSetup(switcher: switcher, settings: AppSettings(defaults: defaults), credentials: credentials), switcher,
+        credentials
+    )
+}
+
+@MainActor
+private final class FakeSwitcher: ServerSwitcher {
+    let credentials: KeychainAccessCredentials
+    let pending: Int
+    var probeResult: Result<String, ConnectProblem> = .success("server-b")
+    var connectResult: ConnectOutcome = .connected(serverId: "server-b", isNew: true, note: nil)
+    var warningError: (any Error)?
+    private(set) var probedWith: [AccessCredentials?] = []
+    /// The stored token at each flush and each connect.
+    private(set) var flushes: [AccessCredentials?] = []
+    private(set) var tokenAtConnect: [AccessCredentials?] = []
+    private(set) var connected: [URL] = []
+
+    init(credentials: KeychainAccessCredentials, pending: Int) {
+        self.credentials = credentials
+        self.pending = pending
+    }
+
+    var activeServer: (id: String, baseURL: URL)? { ("server-a", URL(string: "https://a.example")!) }
+
+    func probe(_ url: URL, credentials: any AccessCredentialsProvider) async -> Result<String, ConnectProblem> {
+        probedWith.append(try? await credentials.accessCredentials())
+        return probeResult
+    }
+
+    func unsyncedChanges() async throws -> (count: Int, failed: Int)? {
+        if let warningError { throw warningError }
+        return (pending, pending > 0 ? 1 : 0)
+    }
+
+    func flush() async {
+        flushes.append(try? credentials.stored())
+    }
+
+    func connect(_ url: URL) async -> ConnectOutcome {
+        tokenAtConnect.append(try? credentials.stored())
+        connected.append(url)
+        return connectResult
+    }
+}
+
+/// Warnings with the counts in `counts`, one per read (the last repeats).
+@MainActor
+private final class FakeReset: LocalReset {
+    private var counts: [Int]
+    var warningError: (any Error)?
+    var outcome: SyncCoordinator.ResetOutcome = .completed(storeGen: 2, bootstrap: .synced)
+    private(set) var flushes = 0
+    private(set) var performed: [SyncCoordinator.ResetWarning] = []
+
+    init(counts: [Int]) { self.counts = counts }
+
+    func resetWarning() async throws -> SyncCoordinator.ResetWarning? {
+        if let warningError { throw warningError }
+        let count = counts.count > 1 ? counts.removeFirst() : counts.first ?? 0
+        return SyncCoordinator.ResetWarning(
+            serverId: "s", storeGen: 1, count: count, failedCount: count > 0 ? 1 : 0, maxSeq: Int64(count))
+    }
+
+    func flushForReset() async { flushes += 1 }
+
+    func performReset(confirmed: SyncCoordinator.ResetWarning) async throws -> SyncCoordinator.ResetOutcome {
+        performed.append(confirmed)
+        return outcome
+    }
+}
 
 @MainActor
 private func makeSetup() throws -> (ServerSetup, RecordingTransport, () -> Void) {

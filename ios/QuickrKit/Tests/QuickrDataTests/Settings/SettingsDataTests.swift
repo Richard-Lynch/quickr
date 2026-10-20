@@ -71,6 +71,56 @@ private let token = AccessCredentials(clientId: "abc123.access", clientSecret: "
         #expect(!dumped.contains("s3cr3t"))
     }
 
+    /// The secret is copied into each request's headers: requests, responses and headers print
+    /// and reflect with it hidden, however they're printed, while the sender still sees it.
+    @Test func requestsAndHeadersNeverPrintTheSecret() async throws {
+        let transport = FakeTransport()
+        transport.enqueue(.success(try Fixtures.api("listChanges.bootstrap").response()))
+        let keychain = InMemoryKeychain()
+        try KeychainAccessCredentials(keychain: keychain).save(token)
+        _ = await ServerProbe.serverId(
+            at: URL(string: "https://quickr.example.com")!, transport: transport,
+            credentials: KeychainAccessCredentials(keychain: keychain))
+        var request = try #require(transport.requests.last)
+        #expect(request.headers.all[QuickrHeader.cfAccessClientSecret.lowercased()] == "s3cr3t-value")
+        request.headers["Authorization"] = "Bearer t0ken-value"
+        request.headers["Cookie"] = "session=c00kie-value"
+        let response = HTTPResponse(
+            status: 200, headers: ["Set-Cookie": "id=c00kie-value", "X-Api-Token": "t0ken-value"])
+
+        var texts: [String] = []
+        for value in [request as Any, request.headers, response, response.headers, [request], Optional(request) as Any]
+        {
+            texts.append(String(describing: value))
+            texts.append(String(reflecting: value))
+            texts.append("\(value)")
+            var dumped = ""
+            dump(value, to: &dumped)
+            texts.append(dumped)
+        }
+        for text in texts {
+            for secret in ["s3cr3t-value", "t0ken-value", "c00kie-value"] {
+                #expect(!text.contains(secret), "\(secret) in \(text)")
+            }
+        }
+        // What isn't a credential stays readable.
+        #expect(request.description.contains("abc123.access"))
+        #expect(request.description.contains("/api/v1/changes"))
+        #expect(texts.contains { $0.contains("<redacted>") })
+    }
+
+    @Test func sensitiveHeaderNames() {
+        for name in [
+            "CF-Access-Client-Secret", "authorization", "Proxy-Authorization", "Cookie", "Set-Cookie", "X-Api-Key",
+            "X-Auth-Token", "x-password", "Cf-Access-Jwt-Assertion",
+        ] {
+            #expect(HTTPHeaders.isSensitive(name), "\(name)")
+        }
+        for name in ["CF-Access-Client-Id", "Content-Type", "X-QuickR-Server-Id", "X-QuickR-Epoch", "Accept"] {
+            #expect(!HTTPHeaders.isSensitive(name), "\(name)")
+        }
+    }
+
     @Test func formValidation() {
         #expect(AccessCredentials.validated(clientId: "", clientSecret: " ") == .success(nil))
         #expect(
