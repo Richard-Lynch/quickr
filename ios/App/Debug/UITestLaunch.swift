@@ -33,13 +33,18 @@ enum UITestLaunch {
     /// The network path the app sees while testing.
     static let network = DebugNetworkMonitor()
 
-    @MainActor static func environment() -> AppEnvironment {
+    /// `categoryCenter: nil` for unit tests: the system's category set is one per process, and
+    /// tests running alongside the categories' own would replace it.
+    @MainActor static func environment(
+        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
+    ) -> AppEnvironment {
         let root = FileManager.default.temporaryDirectory.appending(path: "quickr-uitest-\(UUID().uuidString)")
         let suite = "quickr.uitest.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite) ?? .standard
         let environment = AppEnvironment.live(
             location: StoreLocation(root: root), defaults: defaults, keychain: InMemoryKeychain(),
-            transport: FakeServerTransport(fallback: URLSessionTransport(), state: server), network: network)
+            transport: FakeServerTransport(fallback: URLSessionTransport(), state: server), network: network,
+            categoryCenter: categoryCenter)
         environment.settings.serverURL = value(after: "-QuickrServer").flatMap(URL.init(string:))
         return environment
     }

@@ -15,7 +15,7 @@ import Testing
     private func started() async throws -> (AppEnvironment, AppSession, Task<Void, Never>) {
         UITestLaunch.server.offline = false
         UITestLaunch.network.set(online: true)
-        let environment = UITestLaunch.environment()
+        let environment = UITestLaunch.environment(categoryCenter: nil)
         environment.settings.serverURL = UITestLaunch.fakeServer
         await environment.start()
         let session = try #require(environment.session)
@@ -107,7 +107,7 @@ import Testing
     /// unsuccessfully, and no background episode begins.
     @Test func expiryDuringStartupStopsBeforeAnyEpisode() async throws {
         UITestLaunch.server.offline = false
-        let environment = UITestLaunch.environment()
+        let environment = UITestLaunch.environment(categoryCenter: nil)
         environment.settings.serverURL = UITestLaunch.fakeServer
         environment.scenePhaseChanged(.background)
         // GRDB's resume: a refresh episode posts it when it starts.
@@ -135,7 +135,7 @@ import Testing
         UITestLaunch.server.offline = false
         UITestLaunch.server.holdFeed()
         defer { UITestLaunch.server.releaseFeed() }
-        let environment = UITestLaunch.environment()
+        let environment = UITestLaunch.environment(categoryCenter: nil)
         environment.settings.serverURL = UITestLaunch.fakeServer
         environment.scenePhaseChanged(.background)
         let suspends = Counter()
@@ -170,7 +170,7 @@ import Testing
     /// the app stays in the foreground (nothing paused or suspended).
     @Test func activationDuringStartupWins() async throws {
         UITestLaunch.server.offline = false
-        let environment = UITestLaunch.environment()
+        let environment = UITestLaunch.environment(categoryCenter: nil)
         environment.settings.serverURL = UITestLaunch.fakeServer
         environment.scenePhaseChanged(.background)
         let task = RecordingRefreshTask()
@@ -193,7 +193,7 @@ import Testing
         UITestLaunch.server.offline = false
         UITestLaunch.server.holdFeed()
         defer { UITestLaunch.server.releaseFeed() }
-        let environment = UITestLaunch.environment()
+        let environment = UITestLaunch.environment(categoryCenter: nil)
         environment.settings.serverURL = UITestLaunch.fakeServer
         environment.scenePhaseChanged(.background)
         let task = RecordingRefreshTask()
@@ -224,7 +224,7 @@ import Testing
         UITestLaunch.server.holdFeed()
         UITestLaunch.server.holdCancellations()
         defer { UITestLaunch.server.releaseFeed() }
-        let environment = UITestLaunch.environment()
+        let environment = UITestLaunch.environment(categoryCenter: nil)
         environment.settings.serverURL = UITestLaunch.fakeServer
         environment.scenePhaseChanged(.background)
         let task = RecordingRefreshTask()

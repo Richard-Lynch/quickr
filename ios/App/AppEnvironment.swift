@@ -70,7 +70,8 @@ final class AppEnvironment {
     static func live(
         location: StoreLocation = .shared(appGroup: AppGroup.identifier), defaults: UserDefaults = AppGroup.defaults,
         keychain: any KeychainStore = SystemKeychain(), transport: any Transport = URLSessionTransport(),
-        network: any NetworkMonitoring = NWNetworkMonitor()
+        network: any NetworkMonitoring = NWNetworkMonitor(),
+        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
     ) -> AppEnvironment {
         let credentials = KeychainAccessCredentials(keychain: keychain)
         return AppEnvironment(settings: AppSettings(defaults: defaults), credentials: credentials, network: network) {
@@ -79,7 +80,7 @@ final class AppEnvironment {
             let session = try AppSession(
                 configuration: .init(
                     location: location, transport: transport, credentials: credentials,
-                    categoryCenter: SystemNotificationCenter()))
+                    categoryCenter: categoryCenter))
             // Addresses resolve to servers through the registry, so each request gets its server's token.
             credentials.directory.attach(session.partitions.registry.repository)
             return session
