@@ -7,7 +7,7 @@ import {
   getTopicStatsOptions,
 } from '../../client/@tanstack/react-query.gen';
 import type { EnumStats, NumericStats, StrStats, TopicStats } from '../../client';
-import { enumView } from '../../components/charts/chartModels';
+import { defaultBucket, enumView } from '../../components/charts/chartModels';
 import { type Bucket } from '../../components/charts/chartUtils';
 import { EnumBars, optionColors } from '../../components/charts/EnumBars';
 import { Histogram } from '../../components/charts/Histogram';
@@ -30,10 +30,6 @@ const BUCKETS: { value: Bucket; label: string }[] = [
   { value: 'week', label: 'Week' },
   { value: 'month', label: 'Month' },
 ];
-
-function defaultBucket(range: RangePreset): Bucket {
-  return range === '7d' || range === '30d' ? 'day' : 'week';
-}
 
 export function OverviewPage() {
   const topic = useTopic();

@@ -1,5 +1,6 @@
 import type { EnumOptionCount, EnumStats, SeriesPoint } from '../../client';
-import { niceTicks, pickLabels, scaleLinear } from './chartUtils';
+import type { RangePreset } from '../../lib/dates';
+import { niceTicks, pickLabels, scaleLinear, type Bucket } from './chartUtils';
 
 /**
  * The charts' layout decisions as pure functions (what each chart shows, its axis ticks and
@@ -116,4 +117,9 @@ export function enumView(stats: EnumStats): EnumView {
     visible: stats.options.filter((o) => !o.archived || o.count > 0),
     top: top && top.count > 0 ? top : null,
   };
+}
+
+/** The Overview's bucket until one is picked: days for up to 30 days, weeks beyond. */
+export function defaultBucket(range: RangePreset): Bucket {
+  return range === '7d' || range === '30d' ? 'day' : 'week';
 }
