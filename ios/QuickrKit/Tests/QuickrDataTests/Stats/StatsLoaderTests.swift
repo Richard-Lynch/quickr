@@ -15,21 +15,23 @@ import Testing
     /// A bootstrapped store (server-1, epoch E1) and a fake server answering with `body`.
     final class Harness: Sendable {
         let directory: TempDirectory
+        let serverId: String
         let store: LocalStore
         let transport = FakeTransport()
         let wall = FakeClock(Date(timeIntervalSince1970: 1_760_000_000))
         private let syncRequests = Mutex(0)
 
-        init() throws {
+        init(serverId: String = "server-1") throws {
+            self.serverId = serverId
             directory = try TempDirectory()
             let url = directory.url.appending(path: "store.sqlite")
             let pool = try StoreDatabase.openPool(at: url)
             try pool.write { db in
-                try LocalStore.createSyncState(db, serverId: "server-1", baseURL: StatsLoaderTests.base.absoluteString)
+                try LocalStore.createSyncState(db, serverId: serverId, baseURL: StatsLoaderTests.base.absoluteString)
                 try db.execute(sql: "UPDATE sync_state SET epoch = 'E1', bootstrap_complete = 1")
             }
             store = LocalStore(
-                serverId: "server-1", storeGen: 1, url: url, writer: pool, leaseClock: FakeLeaseClock(), wallClock: wall
+                serverId: serverId, storeGen: 1, url: url, writer: pool, leaseClock: FakeLeaseClock(), wallClock: wall
             )
         }
 
@@ -53,7 +55,8 @@ import Testing
                 { _ in
                     try before?()
                     return HTTPResponse(
-                        status: 200, headers: [QuickrHeader.serverId: "server-1", QuickrHeader.epoch: epoch], body: body
+                        status: 200, headers: [QuickrHeader.serverId: self.serverId, QuickrHeader.epoch: epoch],
+                        body: body
                     )
                 })
         }

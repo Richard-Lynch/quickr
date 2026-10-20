@@ -87,11 +87,15 @@ public final class OverviewModel {
         // cached answer for them, or loading.
         let reload = shown == request
         shown = request
-        // Cancelled (the view went away, or SwiftUI ended a refresh): what was on screen stays.
+        // Cancelled (the view went away, or SwiftUI ended a refresh) or rebound: what was on
+        // screen stays.
         // A cancelled task's reads fail, so its results would read as errors.
         let before = (stats: stats, series: series)
+        let scope = loader.scope
+        // Another store bound meanwhile (a server switch, a reset): this answer belongs to the old
+        // one and isn't published either.
         func abandoned() -> Bool {
-            guard Task.isCancelled else { return current != request }
+            guard Task.isCancelled || self.loader()?.scope != scope else { return current != request }
             if current == request { restore(before) }
             return true
         }

@@ -20,6 +20,9 @@ struct OverviewView: View {
     @State private var bucketChoice: BucketChoice?
     /// The range starts from today: moved on activation.
     @State private var now = Date()
+    /// The pull to refresh in flight. Unstructured, so SwiftUI updating the view doesn't cancel
+    /// it; the model drops its answer if the store changed meanwhile.
+    @State private var refreshing: Task<Void, Never>?
 
     private struct BucketChoice: Equatable {
         var range: EntryRange
@@ -59,7 +62,13 @@ struct OverviewView: View {
         .qrPaperBackground()
         .accessibilityIdentifier("overview.list")
         // Unstructured: SwiftUI cancels a refresh's own task when the view updates under it.
-        .refreshable { [model, query, bucket] in await Task { await model?.load(query: query, bucket: bucket) }.value }
+        .refreshable { [weak model, query, bucket] in
+            let task = Task { [weak model] in await model?.load(query: query, bucket: bucket) }
+            refreshing = task
+            await task.value
+        }
+        // Gone for good (or another tab): an unfinished refresh stops, putting back what it replaced.
+        .onDisappear { refreshing?.cancel() }
         .task(id: session.binding) { await observeTopic() }
         .task(
             id: LoadKey(

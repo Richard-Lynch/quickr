@@ -2,6 +2,7 @@ import Foundation
 import QuickrCore
 import QuickrData
 import QuickrTestSupport
+import Synchronization
 import Testing
 
 /// `OverviewModel` over a real `StatsLoader` and store, answering with `stats-vectors.json`.
@@ -115,6 +116,39 @@ import Testing
         #expect(shown == stats)
         #expect(model.series.mapValues(\.value) == series)
         #expect(model.series.values.allSatisfy { if case .loaded(_, .fresh) = $0 { true } else { false } })
+    }
+
+    /// A rebind while a refresh is in flight: the old store's answer is not published (what was
+    /// on screen stays), even though it arrives.
+    @Test func aRebindMidRefreshPublishesNothing() async throws {
+        let a = try Harness()
+        let b = try Harness(serverId: "server-2")
+        Self.serve(a)
+        let rebound = Mutex(false)
+        let loaders = (a.loader, b.loader)
+        let model = OverviewModel(
+            topicId: StatsLoaderTests.topicId, ref: "everything", timeZone: TimeZone(identifier: "Europe/London")!,
+            loader: { rebound.withLock { $0 } ? loaders.1 : loaders.0 })
+        await model.load(query: Self.query, bucket: .day)
+        let stats = try #require(model.stats.value)
+        let series = model.series.mapValues(\.value)
+        // The refresh's request is answered (with other stats) as the session rebinds.
+        let other = try StatsLoaderTests.body("stats everything source web")
+        a.transport.reset()
+        a.transport.stub(
+            where: { _ in true },
+            { _ in
+                rebound.withLock { $0 = true }
+                return HTTPResponse(status: 200, headers: Self.identity("E1"), body: other)
+            })
+        await model.load(query: Self.query, bucket: .day)
+        guard case .loaded(let shown, .fresh) = model.stats else {
+            Issue.record("expected the earlier stats, got \(model.stats)")
+            return
+        }
+        #expect(shown == stats)
+        #expect(model.series.mapValues(\.value) == series)
+        #expect(b.transport.requests.isEmpty)
     }
 
     @Test func offlineWithNothingCachedIsUnavailable() async throws {

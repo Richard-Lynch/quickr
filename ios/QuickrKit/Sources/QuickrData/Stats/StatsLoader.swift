@@ -92,6 +92,9 @@ public struct StatsLoader: Sendable {
         self.now = now
     }
 
+    /// The store it reads and caches in: another scope is another server or a reset.
+    public var scope: EntryScope { store.scope }
+
     // MARK: - Keys
 
     /// `{server_id}/{store_gen}|stats|{topic}|{range&version&source}`. The store file already
