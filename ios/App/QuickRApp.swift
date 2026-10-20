@@ -5,7 +5,11 @@ struct QuickRApp: App {
     @State private var environment: AppEnvironment
     #if DEBUG
     /// SPIKE: the notification action handler (App/Notifications/Spike), inert unless a spike run opted in (SpikeGate).
-    @UIApplicationDelegateAdaptor(SpikeAppDelegate.self) private var spikeDelegate
+    /// It subclasses `AppDelegate`, so REG's token callbacks work in DEBUG too.
+    @UIApplicationDelegateAdaptor(SpikeAppDelegate.self) private var appDelegate
+    #else
+    /// The APNs token callbacks (REG).
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     #endif
     @Environment(\.scenePhase) private var scenePhase
 

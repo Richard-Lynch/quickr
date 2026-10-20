@@ -323,3 +323,11 @@ What the PWA's Overview makes of each `stats-vectors.json` case (same `name`), e
   (`visible`, `top`, `shares`, `colors`) or str (`distinct`, `most_common`, `recent`).
 - `default_bucket`, `ticks` (`niceTicks` and `formatTick`), `numbers` (`formatNumber`; NaN and
   null as strings), `percents` (`formatPercent`) and `pick` (`pickLabels`): the helpers alone.
+
+## `provisioning/`
+
+`embedded.mobileprovision` stand-ins for iOS's APNs environment parser (notifications.md §9.1,
+N11): an XML plist inside bytes shaped like a CMS envelope, one file per case (`development`,
+`production`, an unknown `staging`, a non-string value, no `aps-environment`, no
+`Entitlements`, no `</plist>`, an unparsable plist, garbage). Hand-made, never signed: the Team
+ID is `FIXTURE00`.
