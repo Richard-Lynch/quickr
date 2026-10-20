@@ -85,6 +85,16 @@ struct RootView: View {
             home
                 .navigationDestination(for: Route.self) { RouteDestination(route: $0) }
         }
+        .syncSheet(environment)
+        // The sync pill and sheet follow the active store (SYNC-UX).
+        .task(id: environment.session?.binding) {
+            if let session = environment.session { await environment.sync.observe(session) }
+        }
+        #if DEBUG
+        .overlay(alignment: .bottom) {
+            if UITestLaunch.showsSyncControls { UITestSyncControls().padding(.bottom, 24) }
+        }
+        #endif
         .alert(
             "Can’t open that link", isPresented: unopenedLink,
             actions: { Button("OK", role: .cancel) {} },
@@ -114,8 +124,7 @@ struct RootView: View {
             record: { router.open(.record(ref($0))) },
             newTopic: { router.open(.newTopic) },
             settings: { router.open(.settings) },
-            onboarding: { onboarding = true },
-            sync: {})  // SYNC-UX's sheet
+            onboarding: { onboarding = true })
     }
 
     @ViewBuilder private var home: some View {

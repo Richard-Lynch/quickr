@@ -211,7 +211,6 @@ import Testing
         _ = await w.session.coordinator.sync(reason: .requested)  // fails: offline
         try await eventually("the failed sync shows") { await MainActor.run { model.phase == .offline } }
         #expect(model.isOfflineWithoutData)
-        #expect(!model.isOnline)
     }
 
     /// An empty store that did bootstrap is a server with no topics: "Track anything", offline or not.
@@ -225,12 +224,11 @@ import Testing
         try await eventually("the bootstrap flag is read") {
             await MainActor.run { model.loaded && model.bootstrapped }
         }
-        #expect(!model.isOnline)
         #expect(model.phase == .ready)
         #expect(model.rows.isEmpty && !model.isFiltered, "the screen shows \"Track anything\"")
     }
 
-    /// A rebind starts over: the new store's topics and counts only, and the old observation's late
+    /// A rebind starts over: the new store's topics only, and the old observation's late
     /// values (it hasn't stopped yet) are dropped. Without a store, everything is empty.
     @Test func aRebindStartsOverAndDropsTheOldObservation() async throws {
         let w = try await World(topics: Self.mixed)
@@ -240,7 +238,6 @@ import Testing
         _ = try await w.session.log(
             topic: TopicRef(id: Self.mixed[0].id, slug: Self.mixed[0].slug, name: Self.mixed[0].name), answers: [:],
             version: 1)
-        try await eventually("the pending log counts") { await MainActor.run { model.pendingCount == 1 } }
         let old = try #require(w.session.store)
 
         // Switch to another server's store; the first observation keeps running.
@@ -252,7 +249,6 @@ import Testing
         defer { second.cancel() }
         try await eventually("the new store shows") { await MainActor.run { model.loaded } }
         #expect(Self.names(model.rows) == ["Reading"])
-        #expect(model.pendingCount == 0)
         #expect(model.badgeCount == 0)
 
         // The old store changes: its observation's value must not land.
@@ -264,13 +260,10 @@ import Testing
         let reading = Self.topic(11, "Reading")
         _ = try await w.session.log(
             topic: TopicRef(id: reading.id, slug: reading.slug, name: reading.name), answers: [:], version: 1)
-        try await eventually("the new store's pending log counts") {
-            await MainActor.run { model.pendingCount == 1 }
-        }
         try await w.partitions.registry.setActive(nil)
         await w.session.rebind()
         await model.observe()
-        #expect(model.topics.isEmpty && model.pendingCount == 0 && model.failedCount == 0)
+        #expect(model.topics.isEmpty)
         #expect(model.phase == .noServer)
     }
 

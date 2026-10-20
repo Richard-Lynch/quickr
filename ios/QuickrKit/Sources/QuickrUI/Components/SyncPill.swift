@@ -45,9 +45,9 @@ public struct SyncPill: View {
     @ViewBuilder
     private func icon(_ status: SyncStatus) -> some View {
         switch status.kind {
-        case .failed: QIcon.alert.view(size: iconSize)
+        case .failed, .attention: QIcon.alert.view(size: iconSize)
         case .offline: QIcon.cloudOff.view(size: iconSize)
-        case .waiting:
+        case .waiting, .loading:
             QIcon.sync.view(size: iconSize)
                 .symbolEffect(.rotate, options: .repeat(.continuous).speed(0.4), isActive: !reduceMotion)
         }
@@ -57,7 +57,8 @@ public struct SyncPill: View {
         switch kind {
         case .failed: .white
         case .offline: .qr.warn
-        case .waiting: .qr.info
+        case .waiting, .loading: .qr.info
+        case .attention: .qr.danger
         }
     }
 
@@ -65,7 +66,8 @@ public struct SyncPill: View {
         switch kind {
         case .failed: .qr.danger
         case .offline: .qr.warnSoft
-        case .waiting: .qr.infoSoft
+        case .waiting, .loading: .qr.infoSoft
+        case .attention: .qr.dangerSoft
         }
     }
 }

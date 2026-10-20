@@ -1,7 +1,7 @@
 #if DEBUG
 import Foundation
 import QuickrCore
-import QuickrData
+@_spi(Testing) import QuickrData
 
 /// `-QuickrDemoStore`: launches over a fresh store seeded with demo topics (due, overdue, soon,
 /// later, unscheduled, archived; chip, number and no quick-log), offline, for the HOME and TILES UI
@@ -10,6 +10,10 @@ enum DemoStore {
     static let argument = "-QuickrDemoStore"
 
     static var isRequested: Bool { ProcessInfo.processInfo.arguments.contains(argument) }
+
+    /// `-QuickrDemoOutbox` (with `-QuickrDemoStore`): Water also has a log waiting to sync and one
+    /// the server refused, for the entries list's pinned rows.
+    static var withOutbox: Bool { ProcessInfo.processInfo.arguments.contains("-QuickrDemoOutbox") }
 
     /// The demo environment: the store is seeded before the session opens.
     @MainActor static func environment() -> AppEnvironment {
@@ -34,7 +38,9 @@ enum DemoStore {
                 for n in 0..<topic.entryCount {
                     let at = last.addingTimeInterval(-Double(n) * 86_400)
                     let entry = Entry(
-                        id: UUID(), topicId: topic.id, version: 1, revision: 1, source: "demo", channel: .ios,
+                        id: UUID(), topicId: topic.id, version: 1, revision: 1,
+                        // A second source, so the entries list offers a source filter.
+                        source: n % 4 == 3 ? "shortcut" : "demo", channel: .ios,
                         capturedAt: at, createdAt: at, updatedAt: at, answers: answers[topic.slug] ?? [:])
                     _ = try ServerLayer.upsert(db, entry: entry)
                 }
@@ -42,6 +48,32 @@ enum DemoStore {
             // A known epoch, as after a bootstrap: without one the outbox makes no claims, so a
             // quick-log's `sendNow` would wait out its whole window before reporting "queued".
             try db.execute(sql: "UPDATE sync_state SET epoch = 'demo-epoch'")
+        }
+        if withOutbox { try await seedOutbox(store, now: now) }
+    }
+
+    /// A pending and a failed Water log (the failed one older, logged first).
+    static func seedOutbox(_ store: LocalStore, now: Date) async throws {
+        let water = TopicRef(
+            id: UUID(uuidString: "00000000-0000-4000-8000-000000000002")!, slug: "water", name: "Water")
+        func create(_ glasses: Int, minutesAgo: Double) -> NewOutboxItem {
+            NewOutboxItem(
+                payload: .entryCreate(
+                    topic: water,
+                    body: EntryCreateDTO(
+                        id: nil, answers: ["glasses": .int(glasses)], source: "ios",
+                        capturedAt: now.addingTimeInterval(-minutesAgo * 60), version: 1)),
+                origin: .app)
+        }
+        let failed = try await store.outbox.appendRawForTesting(create(25, minutesAgo: 90))
+        _ = try await store.outbox.appendRawForTesting(create(5, minutesAgo: 5))
+        try await store.writer.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE outbox_item SET state = 'failed', failure_reason = 'rejected', last_error_json = ?
+                    WHERE id = ?
+                    """,
+                arguments: [#"{"message":"glasses: must be at most 20","status":422}"#, failed.id])
         }
     }
 

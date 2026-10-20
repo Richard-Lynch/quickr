@@ -2,6 +2,7 @@
 import Foundation
 import QuickrCore
 import QuickrData
+import Synchronization
 
 /// `-QuickrUITest` (DEBUG only): a clean slate for a UI test, so it never touches the real store,
 /// settings or Keychain. A fresh store directory and defaults suite per launch, an in-memory
@@ -12,7 +13,10 @@ import QuickrData
 /// - `-QuickrServer <url>` presets the server (launch connects, skipping onboarding);
 /// - `-QuickrOpen <url>` opens a link once the root is up (screenshots, deep-link checks);
 /// - `-QuickrSeedRejectedEntry` first queues a Workout entry the server refuses (duration 900),
-///   with the id `rejectedEntryId`, and waits until it has failed (fix mode).
+///   with the id `rejectedEntryId`, and waits until it has failed (fix mode);
+/// - `-QuickrSyncControls` shows `UITestSyncControls` (go offline or online, log an entry, reject
+///   the next one) for the sync UI tests. The network path is `UITestLaunch.network`, which the
+///   controls switch together with the fake server.
 enum UITestLaunch {
     static let argument = "-QuickrUITest"
     static let fakeServer = URL(string: "https://quickr.test")!
@@ -21,20 +25,33 @@ enum UITestLaunch {
 
     static var isActive: Bool { ProcessInfo.processInfo.arguments.contains(argument) }
 
-    @MainActor static func environment() -> AppEnvironment {
+    /// `-QuickrSyncControls`, when testing.
+    static var showsSyncControls: Bool { isActive && ProcessInfo.processInfo.arguments.contains("-QuickrSyncControls") }
+
+    /// The fake server's switches.
+    static let server = FakeServerState()
+    /// The network path the app sees while testing.
+    static let network = DebugNetworkMonitor()
+
+    /// `categoryCenter: nil` for unit tests: the system's category set is one per process, and
+    /// tests running alongside the categories' own would replace it.
+    @MainActor static func environment(
+        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
+    ) -> AppEnvironment {
         let root = FileManager.default.temporaryDirectory.appending(path: "quickr-uitest-\(UUID().uuidString)")
         let suite = "quickr.uitest.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite) ?? .standard
         let environment = AppEnvironment.live(
             location: StoreLocation(root: root), defaults: defaults, keychain: InMemoryKeychain(),
-            transport: FakeServerTransport(fallback: URLSessionTransport()))
+            transport: FakeServerTransport(fallback: URLSessionTransport(), state: server), network: network,
+            categoryCenter: categoryCenter)
         environment.settings.serverURL = value(after: "-QuickrServer").flatMap(URL.init(string:))
         return environment
     }
 
-    /// `-QuickrOpen <url>`, when testing.
+    /// `-QuickrOpen <url>`, when testing (a clean slate or the demo store).
     static var openURL: URL? {
-        guard isActive else { return nil }
+        guard isActive || DemoStore.isRequested else { return nil }
         return value(after: "-QuickrOpen").flatMap(URL.init(string:))
     }
 
@@ -67,6 +84,123 @@ enum UITestLaunch {
         let args = ProcessInfo.processInfo.arguments
         guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
         return args[i + 1]
+    }
+}
+
+/// The fake server's switches: unreachable, whether the next create is rejected (422), and
+/// whether feed requests are held (unit tests of interrupted startups). Counts requests.
+final class FakeServerState: Sendable {
+    private struct State {
+        var offline = false
+        var rejectNext = false
+        var holdFeed = false
+        var requests = 0
+        var cancelled = 0
+        var holdCancellations = false
+        var unwinding: [CheckedContinuation<Void, any Error>] = []
+        var held: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    }
+
+    private let state = Mutex(State())
+
+    var offline: Bool {
+        get { state.withLock { $0.offline } }
+        set { state.withLock { $0.offline = newValue } }
+    }
+
+    /// Requests that reached the server (any host path), held ones included.
+    var requestCount: Int { state.withLock { $0.requests } }
+
+    /// Feed requests waiting while `holdFeed` is on.
+    var heldCount: Int { state.withLock { $0.held.count } }
+
+    /// Held feed requests that were cancelled while waiting.
+    var cancelledCount: Int { state.withLock { $0.cancelled } }
+
+    func rejectNextCreate() { state.withLock { $0.rejectNext = true } }
+
+    /// Whether this create is rejected (the flag is used once).
+    func takeReject() -> Bool {
+        state.withLock { state in
+            defer { state.rejectNext = false }
+            return state.rejectNext
+        }
+    }
+
+    /// Holds feed requests until `releaseFeed()` (a cancelled one stops waiting, as URLSession's does).
+    func holdFeed() { state.withLock { $0.holdFeed = true } }
+
+    /// A cancelled held request also waits, until `releaseFeed()`: the cancelled work is still
+    /// unwinding meanwhile (a slow URLSession cancel).
+    func holdCancellations() { state.withLock { $0.holdCancellations = true } }
+
+    func releaseFeed() {
+        let (waiters, cancelled) = state.withLock { state in
+            state.holdFeed = false
+            state.holdCancellations = false
+            defer {
+                state.held = [:]
+                state.unwinding = []
+            }
+            return (Array(state.held.values), state.unwinding)
+        }
+        for waiter in waiters { waiter.resume() }
+        for waiter in cancelled { waiter.resume(throwing: TransportError.cancelled(requestStarted: true)) }
+    }
+
+    fileprivate func counted() { state.withLock { $0.requests += 1 } }
+
+    fileprivate func waitIfFeedHeld() async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                let proceed = state.withLock { state -> Bool in
+                    guard state.holdFeed, !Task.isCancelled else { return true }
+                    state.held[id] = continuation
+                    return false
+                }
+                if proceed { continuation.resume() }
+            }
+        } onCancel: {
+            let waiter = state.withLock { state -> CheckedContinuation<Void, any Error>? in
+                guard let waiter = state.held.removeValue(forKey: id) else { return nil }
+                state.cancelled += 1
+                guard !state.holdCancellations else {
+                    state.unwinding.append(waiter)
+                    return nil
+                }
+                return waiter
+            }
+            waiter?.resume(throwing: TransportError.cancelled(requestStarted: true))
+        }
+        if Task.isCancelled { throw TransportError.cancelled(requestStarted: true) }
+    }
+}
+
+/// A network path the debug controls switch.
+final class DebugNetworkMonitor: NetworkMonitoring {
+    private let state = Mutex<(online: Bool, subscribers: [UUID: AsyncStream<Bool>.Continuation])>((true, [:]))
+
+    func set(online: Bool) {
+        let subscribers = state.withLock { state -> [AsyncStream<Bool>.Continuation] in
+            state.online = online
+            return Array(state.subscribers.values)
+        }
+        for subscriber in subscribers { subscriber.yield(online) }
+    }
+
+    func updates() -> AsyncStream<Bool> {
+        let (stream, continuation) = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingNewest(1))
+        let id = UUID()
+        let online = state.withLock { state in
+            state.subscribers[id] = continuation
+            return state.online
+        }
+        continuation.yield(online)
+        continuation.onTermination = { [weak self] _ in
+            _ = self?.state.withLock { $0.subscribers.removeValue(forKey: id) }
+        }
+        return stream
     }
 }
 
@@ -138,20 +272,25 @@ enum FakeServer {
     }
 }
 
-/// `https://quickr.test`: the feed above, entry creates (201, or 422 for a duration over 600, so a
-/// rejection can be shown) and deletes (204, for Undo after a send). Any other host goes to
-/// `fallback`.
+/// `https://quickr.test`: the feed above, entry creates (201, or 422 for a duration over 600 or
+/// when `state` is told to reject the next, so a rejection can be shown) and deletes (204, for
+/// Undo after a send). Offline (`state`), every request there fails before it is sent; held feed
+/// requests wait. Any other host goes to `fallback`.
 private struct FakeServerTransport: Transport {
     let fallback: any Transport
+    let state: FakeServerState
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         guard request.url.host() == UITestLaunch.fakeServer.host() else { return try await fallback.send(request) }
+        state.counted()
+        if state.offline { throw TransportError.unreachable("offline (UI test)") }
         let headers: HTTPHeaders = [
             QuickrHeader.serverId: UITestLaunch.fakeServerId, QuickrHeader.epoch: FakeServer.epoch,
             "Content-Type": "application/json",
         ]
         let path = request.url.path()
         if request.method == .get, path == "/api/v1/changes" {
+            try await state.waitIfFeedHeld()
             let after =
                 URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?
                 .first { $0.name == "after" }?.value.flatMap(Int.init) ?? 0
@@ -171,6 +310,11 @@ private struct FakeServerTransport: Transport {
         guard let data = request.body, let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let answers = body["answers"] as? [String: Any]
         else { return HTTPResponse(status: 400, headers: headers) }
+        if state.takeReject() {
+            return HTTPResponse(
+                status: 422, headers: headers,
+                body: Data(#"{"code":"invalid_answers","detail":"mood is required","errors":[]}"#.utf8))
+        }
         if let duration = answers["duration"] as? Int, duration > 600 {
             let problem = #"""
                 {"code": "invalid_answers", "detail": "one or more answers are invalid",
