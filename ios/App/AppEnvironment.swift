@@ -20,6 +20,9 @@ final class AppEnvironment {
     let router = Router()
     /// Every screen's toasts, hosted once at the root so a toast outlives navigation.
     let toasts = ToastCenter()
+    /// How far above the bottom toasts sit: a screen with a sticky bar (Record's Save) raises them
+    /// above it, like the PWA's.
+    var toastBottomInset: CGFloat = 8
     /// Nil only when it couldn't be created (`sessionError`); `start()` tries again.
     private(set) var session: AppSession?
     private(set) var sessionError: String?

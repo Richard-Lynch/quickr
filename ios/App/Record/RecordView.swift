@@ -10,6 +10,7 @@ import UIKit
 struct RecordView: View {
     @Bindable var model: RecordModel
     let settings: AppSettings
+    @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var keyboardUp = false
@@ -74,6 +75,7 @@ struct RecordView: View {
         } message: {
             Text("What you’ve entered hasn’t been saved.")
         }
+        .onDisappear { environment.toastBottomInset = 8 }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardUp = true
         }
@@ -100,6 +102,11 @@ struct RecordView: View {
         .accessibilityIdentifier("record.save")
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+        // Toasts sit above the bar (measured: it grows with the text size), back down without it.
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+            environment.toastBottomInset = height + 8
+        }
+        .onDisappear { environment.toastBottomInset = 8 }
     }
 
     private var fixBanner: some View {

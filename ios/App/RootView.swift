@@ -20,10 +20,10 @@ struct RootView: View {
             FormDemoView(demo: demo)
         } else {
             // One host for every screen's toasts, so a toast outlives navigation.
-            stack.toastHost(environment.toasts)
+            stack.toastHost(environment.toasts, bottomInset: environment.toastBottomInset)
         }
         #else
-        stack.toastHost(environment.toasts)
+        stack.toastHost(environment.toasts, bottomInset: environment.toastBottomInset)
         #endif
     }
 
