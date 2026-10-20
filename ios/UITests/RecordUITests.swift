@@ -178,6 +178,7 @@ final class RecordUITests: XCTestCase {
         let app = launch(open: "quickr://t/workout/record")
         XCTAssertTrue(app.buttons["Yoga"].waitForExistence(timeout: 15))
         app.buttons["Yoga"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "the pick moves on to Duration")
         contentSwipe(app)
         XCTAssertTrue(app.buttons["record.save"].exists, "a changed form stays")
         XCTAssertFalse(app.staticTexts["home.wordmark"].exists)
@@ -275,12 +276,13 @@ final class RecordUITests: XCTestCase {
         return app
     }
 
-    /// A quick rightward flick across the middle of the screen, away from the edge.
+    /// A quick rightward flick away from the edge, high on the screen: a pick can bring the
+    /// keyboard up, and a flick on the keys isn't a swipe back.
     @MainActor
     private func contentSwipe(_ app: XCUIApplication) {
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.75))
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.2))
         start.press(
-            forDuration: 0.01, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.75)),
+            forDuration: 0.01, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.2)),
             withVelocity: .fast, thenHoldForDuration: 0)
         usleep(800_000)
     }
