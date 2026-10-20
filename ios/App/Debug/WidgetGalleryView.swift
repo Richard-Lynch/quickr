@@ -39,7 +39,8 @@ struct WidgetGalleryView: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(tinted ? Color(white: 0.12) : Color.qr.sunken)
+        // The Lock Screen's widgets sit on the wallpaper (dark here); tinted Home Screen on a dark one.
+        .background(tinted || page == .lock ? Color(white: 0.12) : Color.qr.sunken)
         .accessibilityIdentifier("widgets.gallery")
     }
 

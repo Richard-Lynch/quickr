@@ -45,11 +45,12 @@ import Testing
         try await Task.sleep(for: .milliseconds(400))
         #expect(counter.reloads == 1, "a description change isn't a widget change")
 
-        // Shown (the "Last …" line): one reload.
-        mood.lastCapturedAt = Date()
-        mood.entryCount += 1
-        mood.revision += 1
-        try await store.writer.write { [mood] db in _ = try ServerLayer.upsert(db, topic: mood) }
+        // Shown (the "Last …" line, derived from the entries): one reload.
+        let now = Date()
+        let entry = Entry(
+            id: UUID(), topicId: mood.id, version: 1, revision: 1, source: "test", channel: .ios,
+            capturedAt: now, createdAt: now, updatedAt: now, answers: [:])
+        try await store.writer.write { db in _ = try ServerLayer.upsert(db, entry: entry) }
         #expect(await eventually { counter.reloads == 2 }, "a new last entry")
         try await Task.sleep(for: .milliseconds(200))
         #expect(counter.reloads == 2, "once")

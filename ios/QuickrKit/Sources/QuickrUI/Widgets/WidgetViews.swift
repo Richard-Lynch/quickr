@@ -19,6 +19,10 @@ public struct WidgetStyle: Sendable, Hashable {
     public init(family: WidgetFamily, renderingMode: WidgetRenderingMode) {
         self.init(family: family, isAccented: renderingMode != .fullColor)
     }
+
+    /// A widget is a fixed size: its text grows with Dynamic Type up to here, then stops (the
+    /// accessibility sizes would push names and controls out). VoiceOver reads it all regardless.
+    public static let largestTypeSize = DynamicTypeSize.xxLarge
 }
 
 // MARK: - One topic
@@ -39,18 +43,21 @@ public struct TopicWidgetView: View {
     }
 
     public var body: some View {
-        if let topic {
-            switch style.family {
-            case .accessoryInline: inline(topic)
-            case .accessoryCircular: circular(topic)
-            case .accessoryRectangular: rectangular(topic)
-            default: home(topic)
+        Group {
+            if let topic {
+                switch style.family {
+                case .accessoryInline: inline(topic)
+                case .accessoryCircular: circular(topic)
+                case .accessoryRectangular: rectangular(topic)
+                default: home(topic)
+                }
+            } else {
+                Text(style.family == .accessoryInline ? "quickR: choose a topic" : "Choose a topic")
+                    .font(.qr(.callout))
+                    .foregroundStyle(.qr.muted)
             }
-        } else {
-            Text(style.family == .accessoryInline ? "quickR: choose a topic" : "Choose a topic")
-                .font(.qr(.callout))
-                .foregroundStyle(.qr.muted)
         }
+        .dynamicTypeSize(...WidgetStyle.largestTypeSize)
     }
 
     private func home(_ topic: WidgetTopic) -> some View {
@@ -64,6 +71,7 @@ public struct TopicWidgetView: View {
                 if topic.queued > 0 { QueuedMark(count: topic.queued, compact: style.family == .systemSmall) }
             }
             DueBadge(DueView(due: topic.due(at: date), now: date))
+                .lineLimit(1)
                 .widgetAccentable()
             lastLine(topic)
                 .font(.qr(.footnote))
@@ -185,6 +193,10 @@ public struct DueListWidgetView: View {
     }
 
     public var body: some View {
+        content.dynamicTypeSize(...WidgetStyle.largestTypeSize)
+    }
+
+    @ViewBuilder private var content: some View {
         switch style.family {
         case .accessoryInline:
             Text(inlineText)
@@ -245,7 +257,10 @@ public struct DueListWidgetView: View {
                             .lineLimit(1)
                         Spacer(minLength: 4)
                         if topic.queued > 0 { QueuedMark(count: topic.queued, compact: true) }
-                        DueBadge(DueView(due: topic.due(at: date), now: date)).widgetAccentable()
+                        DueBadge(DueView(due: topic.due(at: date), now: date))
+                            .lineLimit(1)
+                            .fixedSize()
+                            .widgetAccentable()
                     }
                 }
             }
