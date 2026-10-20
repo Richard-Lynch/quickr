@@ -95,14 +95,14 @@ final class BuilderUITests: XCTestCase {
         snap(app, "builder-edit")
 
         // The preview shows the question as the record screen will.
-        app.buttons["Preview"].firstMatch.tap()
+        pane("newTopic", "Preview", in: app)
         XCTAssertTrue(element("newTopic.preview", in: app).waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Glasses of water"].firstMatch.exists)
         XCTAssertFalse(app.textFields["newTopic.q0.label"].exists)
         snap(app, "builder-preview")
 
         // Back to the editor; with two questions, Collapse all closes every card.
-        app.buttons["Edit"].firstMatch.tap()
+        pane("newTopic", "Edit", in: app)
         addQuestion("enum", label: "Mood", prefix: "newTopic", in: app)
         let toggleAll = app.buttons["newTopic.toggleAll"]
         scrollTo(toggleAll, in: app, up: true)
@@ -143,7 +143,8 @@ final class BuilderUITests: XCTestCase {
             NSPredicate(format: "identifier BEGINSWITH %@ AND identifier ENDSWITH '.header'", "\(prefix).q")
         ).count
         tap("\(prefix).addQuestion", in: app)
-        let choice = app.buttons["\(prefix).addQuestion.\(type)"]
+        // The dialog's buttons can appear twice in the tree (the sheet and its presentation).
+        let choice = app.buttons["\(prefix).addQuestion.\(type)"].firstMatch
         XCTAssertTrue(choice.waitForExistence(timeout: 5))
         choice.tap()
         let field = app.textFields["\(prefix).q\(count).label"]
@@ -153,6 +154,15 @@ final class BuilderUITests: XCTestCase {
         field.tap()
         field.typeText(label)
         dismissKeyboard(app)
+    }
+
+    /// Picks the builder's Edit or Preview pane.
+    @MainActor
+    private func pane(_ prefix: String, _ name: String, in app: XCUIApplication) {
+        let picker = app.segmentedControls["\(prefix).pane"]
+        scrollTo(picker, in: app, up: true)
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        picker.buttons[name].tap()
     }
 
     @MainActor

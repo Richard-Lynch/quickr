@@ -249,6 +249,9 @@ struct CompatReportSections: View {
             }
             .foregroundStyle(report.ok ? Color.qr.ok : .qr.danger)
             .listRowBackground(report.ok ? Color.qr.okSoft : .qr.dangerSoft)
+            // The icon would read as "Selected": the row is its text.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(CompatReportText.headline(report))
             .accessibilityIdentifier("review.headline")
         }
         let issues = CompatReportText.sortedIssues(report)
