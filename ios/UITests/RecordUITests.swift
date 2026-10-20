@@ -123,10 +123,27 @@ final class RecordUITests: XCTestCase {
         XCTAssertLessThanOrEqual(save.frame.maxY, advance.frame.minY, "before the edit")
 
         duration.typeText("4")
-        XCTAssertTrue(app.buttons["record.back"].waitForExistence(timeout: 5))
         usleep(1_000_000)
         snap(app, "record-first-edit")
         XCTAssertLessThanOrEqual(save.frame.maxY, advance.frame.minY, "after the first edit")
+    }
+
+    /// A swipe from the left edge goes back while nothing has changed, and does nothing once the
+    /// form has an answer (the back button asks first instead).
+    @MainActor
+    func testSwipingBackWorksOnlyWithoutChanges() {
+        var app = launch(open: "quickr://t/workout/record")
+        XCTAssertTrue(app.buttons["Yoga"].waitForExistence(timeout: 15))
+        swipeBack(app)
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 5), "a clean form swipes back")
+
+        app.terminate()
+        app = launch(open: "quickr://t/workout/record")
+        XCTAssertTrue(app.buttons["Yoga"].waitForExistence(timeout: 15))
+        app.buttons["Yoga"].tap()
+        swipeBack(app)
+        XCTAssertTrue(app.buttons["record.save"].exists, "a changed form stays")
+        XCTAssertFalse(app.staticTexts["home.wordmark"].exists)
     }
 
     /// At the largest accessibility size the Save bar steps aside while the keyboard is up, and
@@ -173,6 +190,13 @@ final class RecordUITests: XCTestCase {
             ["-QuickrUITest", "-QuickrServer", "https://quickr.test", "-QuickrOpen", url] + extra
         app.launch()
         return app
+    }
+
+    @MainActor
+    private func swipeBack(_ app: XCUIApplication) {
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
+        usleep(800_000)
     }
 
     /// Drags in the top half (clear of the Save bar) until `element` is hittable.

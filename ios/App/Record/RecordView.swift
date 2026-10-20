@@ -56,17 +56,20 @@ struct RecordView: View {
         .qrPaperBackground()
         .navigationTitle(model.isFixing ? "Fix entry · \(model.topic.name)" : model.topic.name)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(model.hasUnsavedChanges)
+        // One back button the whole time: swapping the system's for a guarded one on the first edit
+        // changed the navigation bar while the keyboard was up, and the Save bar then dropped under
+        // the keyboard's Next/Done until the screen was laid out again. The edge swipe goes back
+        // only while there is nothing to lose.
+        .navigationBarBackButtonHidden()
+        .background(SwipeBack(isEnabled: !model.hasUnsavedChanges))
         .toolbar {
-            if model.hasUnsavedChanges {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        confirmingLeave = true
-                    } label: {
-                        Label("Back", systemImage: "chevron.left")
-                    }
-                    .accessibilityIdentifier("record.back")
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    if model.hasUnsavedChanges { confirmingLeave = true } else { dismiss() }
+                } label: {
+                    Label("Back", systemImage: "chevron.left")
                 }
+                .accessibilityIdentifier("record.back")
             }
             if model.loggedCount > 0 {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -224,6 +227,49 @@ private struct DetailsSection: View {
                     .font(.qr(.sansMedium, size: 14, relativeTo: .subheadline))
                     .foregroundStyle(.qr.danger)
             }
+        }
+    }
+}
+
+/// The navigation controller's swipes back (the edge swipe, and iOS 26's swipe from anywhere in
+/// the content), which hiding the system back button turns off: on while `isEnabled`, and their
+/// previous delegates back when the screen goes.
+private struct SwipeBack: UIViewControllerRepresentable {
+    let isEnabled: Bool
+
+    func makeUIViewController(context: Context) -> Controller { Controller() }
+
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.isEnabled = isEnabled
+    }
+
+    final class Controller: UIViewController, UIGestureRecognizerDelegate {
+        var isEnabled = true
+        private var previousDelegates: [(UIGestureRecognizer, UIGestureRecognizerDelegate?)] = []
+
+        private var swipes: [UIGestureRecognizer] {
+            [
+                navigationController?.interactivePopGestureRecognizer,
+                navigationController?.interactiveContentPopGestureRecognizer,
+            ].compactMap { $0 }
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            for swipe in swipes where swipe.delegate !== self {
+                previousDelegates.append((swipe, swipe.delegate))
+                swipe.delegate = self
+            }
+        }
+
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            for (swipe, delegate) in previousDelegates where swipe.delegate === self { swipe.delegate = delegate }
+            previousDelegates = []
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            isEnabled && (navigationController?.viewControllers.count ?? 0) > 1
         }
     }
 }
