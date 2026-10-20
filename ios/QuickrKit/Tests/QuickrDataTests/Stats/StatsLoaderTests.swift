@@ -148,6 +148,9 @@ import Testing
     /// day (another `captured_from`) is the same cached answer.
     @Test func offlineShowsTheCachedAnswerAsStale() async throws {
         let h = try Harness()
+        h.answer(try Self.body("stats everything all"))
+        let stats = try #require(
+            await h.loader.stats(topicId: Self.topicId, ref: "everything", query: Self.thirtyDays).value)
         h.answer(try Self.body("series everything glasses day Europe/London"))
         let fetched = await h.loader.series(
             topicId: Self.topicId, ref: "everything", key: "glasses", bucket: .day, timeZone: "Europe/London",
@@ -162,6 +165,8 @@ import Testing
             topicId: Self.topicId, ref: "everything", key: "glasses", bucket: .day, timeZone: "Europe/London",
             query: tomorrow)
         #expect(offline == .stale(series, fetchedAt: fetchedAt, .offline))
+        let offlineStats = await h.loader.stats(topicId: Self.topicId, ref: "everything", query: tomorrow)
+        #expect(offlineStats == .stale(stats, fetchedAt: fetchedAt, .offline))
         // Another bucket, zone or range was never fetched: nothing to show.
         let week = await h.loader.series(
             topicId: Self.topicId, ref: "everything", key: "glasses", bucket: .week, timeZone: "Europe/London",
