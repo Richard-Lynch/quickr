@@ -12,7 +12,7 @@ final class StatsUITests: XCTestCase {
     func testOverviewShowsTheStatsAndCharts() {
         let app = launch(open: "quickr://t/workout")
         XCTAssertTrue(element(app, "overview.summary").waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["Entries").exists)
+        XCTAssertTrue(app.staticTexts["Entries"].exists)
         let type = element(app, "overview.card.type")
         XCTAssertTrue(type.waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Most often'")).firstMatch.exists)
@@ -20,14 +20,14 @@ final class StatsUITests: XCTestCase {
 
         // The bucket: Week.
         app.segmentedControls["overview.bucket"].buttons["Week"].tap()
-        XCTAssertTrue(app.staticTexts["Answers per week").waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Answers per week"].waitForExistence(timeout: 10))
 
         // The range: 7 days, then all; the duration card follows.
         app.segmentedControls["overview.range"].buttons["All"].tap()
         let duration = element(app, "overview.card.duration")
         scrollTo(duration, in: app)
         XCTAssertTrue(duration.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Average per week").waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Average per week"].waitForExistence(timeout: 10))
         snap(app, "stats-2-duration")
     }
 
@@ -62,7 +62,7 @@ final class StatsUITests: XCTestCase {
         XCTAssertTrue(range.waitForExistence(timeout: 10))
         XCTAssertTrue(range.buttons["7 days"].isSelected)
         app.segmentedControls["topic.tabs"].buttons["Overview"].tap()
-        XCTAssertTrue(app.segmentedControls["overview.range"].buttons["7 days").waitForExistence(timeout: 10))
+        XCTAssertTrue(app.segmentedControls["overview.range"].buttons["7 days"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.segmentedControls["overview.range"].buttons["7 days"].isSelected)
     }
 
@@ -73,8 +73,8 @@ final class StatsUITests: XCTestCase {
             extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         XCTAssertTrue(element(app, "overview.summary").waitForExistence(timeout: 20))
         // Menus instead of segments, which would truncate.
-        XCTAssertTrue(app.buttons["overview.range").exists)
-        XCTAssertTrue(app.buttons["overview.bucket").exists)
+        XCTAssertTrue(app.buttons["overview.range"].exists)
+        XCTAssertTrue(app.buttons["overview.bucket"].exists)
         snap(app, "stats-4-ax")
     }
 
