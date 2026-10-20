@@ -220,6 +220,11 @@ import Testing
         try await outbox.updateEntry(
             id: entry.id, topicId: topicId, patch: harness.patch(notes: "later"), baseRevision: 1, origin: .app)
         #expect(try await TopicWrites.unsyncedChanges(topicId: topicId, in: harness.store) == 2)
+        try await outbox.archiveTopic(id: topicId, baseRevision: 1, origin: .app)
+        #expect(
+            try await TopicWrites.unsyncedChanges(topicId: topicId, in: harness.store) == 2, "an archive isn't lost")
+        #expect(
+            try await TopicWrites.pendingArchives(topicId: topicId, in: harness.store).map(\.kind) == [.topicArchive])
 
         guard case .done = await try writes().delete(topicId: topicId) else {
             Issue.record("not deleted")

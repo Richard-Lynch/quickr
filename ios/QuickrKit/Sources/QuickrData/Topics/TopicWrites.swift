@@ -173,9 +173,21 @@ public struct TopicWrites: Sendable {
 
     // MARK: Before a delete
 
-    /// How many queued or failed changes the topic has: they are lost when it is deleted
-    /// ("_N_ unsynced changes for this topic will be lost", §11).
+    /// How many queued or failed entry changes the topic has: they are lost when it is deleted
+    /// ("_N_ unsynced changes for this topic will be lost", §11). A queued archive or unarchive
+    /// isn't one: deleting supersedes it (the delete sends it first, ``pendingArchives``).
     public static func unsyncedChanges(topicId: UUID, in store: LocalStore) async throws -> Int {
-        try await store.outbox.items(topicId: topicId.wireString).count
+        try await store.outbox.items(topicId: topicId.wireString).count { !$0.kind.isTopicKind }
     }
+
+    /// The topic's queued (not failed) archive and unarchive items: a delete sends them first, as
+    /// the server deletes only an archived topic.
+    public static func pendingArchives(topicId: UUID, in store: LocalStore) async throws -> [OutboxItem] {
+        try await store.outbox.items(topicId: topicId.wireString).filter { $0.kind.isTopicKind && $0.state != .failed }
+    }
+}
+
+extension OutboxKind {
+    /// `topic.archive` or `topic.unarchive`.
+    var isTopicKind: Bool { self == .topicArchive || self == .topicUnarchive }
 }

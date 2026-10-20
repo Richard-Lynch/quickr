@@ -99,6 +99,9 @@ final class FakeServerState: Sendable {
         var holdCancellations = false
         var unwinding: [CheckedContinuation<Void, any Error>] = []
         var held: [UUID: CheckedContinuation<Void, any Error>] = [:]
+        /// Topics as the server holds them now (`TopicDetail` JSON), after the online-only writes
+        /// and archives the tests made (TOPIC). Seeded with the feed's two.
+        var topics: [String: Data] = FakeServer.seedTopics()
     }
 
     private let state = Mutex(State())
@@ -149,6 +152,28 @@ final class FakeServerState: Sendable {
     }
 
     fileprivate func counted() { state.withLock { $0.requests += 1 } }
+
+    fileprivate func topic(_ id: String) -> [String: Any]? {
+        state.withLock { $0.topics[id] }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    }
+
+    fileprivate func put(_ topic: [String: Any]) {
+        guard let id = topic["id"] as? String, let data = try? JSONSerialization.data(withJSONObject: topic) else {
+            return
+        }
+        state.withLock { $0.topics[id] = data }
+    }
+
+    fileprivate func removeTopic(_ id: String) { _ = state.withLock { $0.topics.removeValue(forKey: id) } }
+
+    fileprivate func slugTaken(_ slug: String, except id: String?) -> Bool {
+        state.withLock { state in
+            state.topics.contains { key, data in
+                key != id
+                    && (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["slug"] as? String == slug
+            }
+        }
+    }
 
     fileprivate func waitIfFeedHeld() async throws {
         let id = UUID()
@@ -263,6 +288,47 @@ enum FakeServer {
             """#
     }
 
+    /// The feed's topics as `TopicDetail` objects (the fake server's starting state).
+    static func seedTopics() -> [String: Data] {
+        var out: [String: Data] = [:]
+        for (id, slug, name, questions, count) in [
+            (workoutId, "workout", "Workout", workoutQuestions, 2), (moodId, "mood", "Mood", moodQuestions, 1),
+        ] {
+            let item = topic(id, slug: slug, name: name, questions: questions, count: count, seq: 0)
+            guard let object = try? JSONSerialization.jsonObject(with: Data(item.utf8)) as? [String: Any],
+                let detail = object["topic"], let data = try? JSONSerialization.data(withJSONObject: detail)
+            else { continue }
+            out[id.wireString] = data
+        }
+        return out
+    }
+
+    /// A created question as the server returns it: the input with its defaults filled in.
+    static func outputQuestion(_ input: [String: Any]) -> [String: Any] {
+        var q = input
+        q["help_text"] = q["help_text"] ?? NSNull()
+        q["required"] = q["required"] ?? true
+        switch q["type"] as? String {
+        case "str":
+            q["min_length"] = q["min_length"] ?? 0
+            q["max_length"] = q["max_length"] ?? 500
+            q["multiline"] = q["multiline"] ?? false
+        case "enum":
+            q["multiple"] = q["multiple"] ?? false
+            q["min_selected"] = q["min_selected"] ?? NSNull()
+            q["max_selected"] = q["max_selected"] ?? NSNull()
+            q["options"] = ((q["options"] as? [[String: Any]]) ?? []).map { option in
+                var o = option
+                o["archived"] = o["archived"] ?? false
+                return o
+            }
+        default:
+            for key in ["min", "max", "unit"] { q[key] = q[key] ?? NSNull() }
+            if q["type"] as? String == "double" { q["decimals"] = q["decimals"] ?? NSNull() }
+        }
+        return q
+    }
+
     /// The answers of a create, as the server echoes them (`[{key, type, value}]`).
     static func echo(_ answers: [String: Any]) -> [[String: Any]] {
         answers.sorted { $0.key < $1.key }.map { key, value in
@@ -274,7 +340,8 @@ enum FakeServer {
 
 /// `https://quickr.test`: the feed above, entry creates (201, or 422 for a duration over 600 or
 /// when `state` is told to reject the next, so a rejection can be shown) and deletes (204, for
-/// Undo after a send). Offline (`state`), every request there fails before it is sent; held feed
+/// Undo after a send), and TOPIC's topic writes (`topicRoute`). Offline (`state`), every request
+/// there fails before it is sent; held feed
 /// requests wait. Any other host goes to `fallback`.
 private struct FakeServerTransport: Transport {
     let fallback: any Transport
@@ -302,8 +369,78 @@ private struct FakeServerTransport: Transport {
         if request.method == .delete, path.hasPrefix("/api/v1/entries/") {
             return HTTPResponse(status: 204, headers: headers)
         }
+        if path == "/api/v1/topics" || path.hasPrefix("/api/v1/topics/") {
+            if let response = topicRoute(request, path: path, headers: headers) { return response }
+        }
         return HTTPResponse(
             status: 404, headers: headers, body: Data(#"{"code":"not_found","detail":"Not found","errors":[]}"#.utf8))
+    }
+
+    /// TOPIC's online-only writes and the outbox's archive/unarchive, over `state`'s topics:
+    /// `POST /topics` (409 when the slug is taken), `PATCH /topics/{id}`, `POST
+    /// /topics/{id}/archive|unarchive`, `DELETE /topics/{id}` (409 unless archived).
+    private func topicRoute(_ request: HTTPRequest, path: String, headers: HTTPHeaders) -> HTTPResponse? {
+        let parts = path.split(separator: "/").map(String.init)  // api, v1, topics, id?, action?
+        func json(_ status: Int, _ object: Any) -> HTTPResponse {
+            HTTPResponse(
+                status: status, headers: headers, body: (try? JSONSerialization.data(withJSONObject: object)) ?? Data())
+        }
+        func problem(_ status: Int, _ code: String, _ detail: String) -> HTTPResponse {
+            json(status, ["code": code, "detail": detail, "errors": [Any]()])
+        }
+        let body = request.body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        let now = ISO8601DateFormatter().string(from: Date())
+        if parts.count == 3, request.method == .post {
+            let name = body["name"] as? String ?? "Topic"
+            let slug = body["slug"] as? String ?? name.lowercased().replacingOccurrences(of: " ", with: "-")
+            if state.slugTaken(slug, except: nil) { return problem(409, "conflict", "slug '\(slug)' is already taken") }
+            let questions = ((body["questions"] as? [[String: Any]]) ?? []).map(FakeServer.outputQuestion)
+            let schedule = body["schedule"] ?? NSNull()
+            let topic: [String: Any] = [
+                "id": UUID().wireString, "slug": slug, "name": name,
+                "description": body["description"] as? String ?? "",
+                "status": "active", "current_version": 1, "revision": 1, "question_count": questions.count,
+                "entry_count": 0, "last_captured_at": NSNull(), "created_at": now, "updated_at": now,
+                "archived_at": NSNull(), "schedule": schedule,
+                "schedule_updated_at": schedule is NSNull ? NSNull() : now as Any, "due": NSNull(),
+                "questions": questions,
+            ]
+            state.put(topic)
+            return json(201, topic)
+        }
+        guard parts.count >= 4, var topic = state.topic(parts[3]) else {
+            return parts.count >= 4 ? problem(404, "not_found", "topic not found") : nil
+        }
+        let revision = (topic["revision"] as? Int ?? 1) + 1
+        switch (request.method, parts.count > 4 ? parts[4] : nil) {
+        case (.patch, nil):
+            if let slug = body["slug"] as? String, state.slugTaken(slug, except: parts[3]) {
+                return problem(409, "conflict", "slug '\(slug)' is already taken")
+            }
+            for key in ["name", "slug", "description"] where body[key] != nil { topic[key] = body[key] }
+            if let schedule = body["schedule"] {
+                topic["schedule"] = schedule
+                topic["schedule_updated_at"] = now
+            }
+        case (.post, "archive"):
+            topic["status"] = "archived"
+            topic["archived_at"] = now
+        case (.post, "unarchive"):
+            topic["status"] = "active"
+            topic["archived_at"] = NSNull()
+        case (.delete, nil):
+            guard topic["status"] as? String == "archived" else {
+                return problem(409, "conflict", "archive the topic before deleting it")
+            }
+            state.removeTopic(parts[3])
+            return HTTPResponse(status: 204, headers: headers)
+        default:
+            return nil
+        }
+        topic["revision"] = revision
+        topic["updated_at"] = now
+        state.put(topic)
+        return json(200, topic)
     }
 
     private func create(_ request: HTTPRequest, headers: HTTPHeaders) -> HTTPResponse {

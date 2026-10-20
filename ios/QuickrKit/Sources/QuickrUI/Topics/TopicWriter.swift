@@ -46,6 +46,9 @@ public enum TopicWriteMessage {
     public static let resyncing = "quickR is resyncing, try again in a moment."
     public static let staleRevision = "This topic was changed elsewhere. It shows the latest now; try again."
     public static let notFound = "This topic isn’t on the server any more."
+    /// A delete right after an archive that hasn't reached the server yet (offline, say).
+    public static let archivePending =
+        "The archive hasn’t reached the server yet. Delete it once it has synced (it needs a connection)."
 }
 
 /// Why a queued topic change (archive, unarchive) was refused; its description is the message.
