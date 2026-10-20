@@ -89,8 +89,12 @@ final class HomeTests: XCTestCase {
         XCTAssertTrue(tile(app, "meds").waitForExistence(timeout: 5))
         XCTAssertTrue(tile(app, "meds").isHittable)
         let search = app.textFields["home.search"]
-        for _ in 0..<6 where !search.isHittable { app.swipeUp() }
-        XCTAssertTrue(search.isHittable)
+        // Scroll in small steps until the search row is clear of the header (two rows deep at
+        // this size), so the filter tap can't land on a header button above it.
+        let header = app.buttons["home.settings"]
+        func clear() -> Bool { search.frame.minY > header.frame.maxY + 8 && search.frame.maxY < app.frame.maxY - 80 }
+        for _ in 0..<20 where !clear() { scroll(app, by: 120) }
+        XCTAssertTrue(clear(), "the search row is on screen, below the header")
         app.buttons["home.filter"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["home.status"].waitForExistence(timeout: 5))
         let shot = XCTAttachment(screenshot: app.screenshot())
