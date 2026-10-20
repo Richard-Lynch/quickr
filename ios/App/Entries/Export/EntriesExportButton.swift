@@ -67,7 +67,10 @@ struct EntriesExportButton: View {
             calendar: .current, isCurrent: { session.binding == scope.binding })
         switch outcome {
         case .file(let file):
-            SharePresenter.share(file.url) { file.remove() }
+            // Rechecked here, on the main actor, right before presenting.
+            EntriesExport.handOver(
+                file, isCurrent: { session.binding == scope.binding },
+                present: { url in SharePresenter.share(url) { file.remove() } })
         case .offline:
             showOffline()
         case .failed(let message):

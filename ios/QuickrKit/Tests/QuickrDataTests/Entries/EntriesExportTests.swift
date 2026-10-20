@@ -199,6 +199,47 @@ import Testing
         #expect(w.folders.isEmpty)
     }
 
+    /// The export came back with its file, then the app switched server (or the export was
+    /// cancelled) before the share sheet: nothing is presented and the file is gone.
+    @Test func aSwitchAfterTheFileArrivesStillPresentsNothing() async throws {
+        let w = World()
+        w.fake.enqueue(.success(w.csvResponse()))
+        w.fake.enqueue(.success(w.csvResponse()))
+        guard case .file(let file) = await w.run(), case .file(let other) = await w.run() else {
+            Issue.record("no files")
+            return
+        }
+        let presented = Box<[URL]>([])
+        w.current.set(false)  // rebound in between
+        let current = w.current
+        let shown = EntriesExport.handOver(
+            file, isCurrent: { current.get() }, present: { url in presented.set([url]) })
+        #expect(!shown)
+        #expect(presented.get().isEmpty && !FileManager.default.fileExists(atPath: file.url.path()))
+
+        w.current.set(true)
+        let cancelled = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return EntriesExport.handOver(other, isCurrent: { current.get() }, present: { url in presented.set([url]) })
+        }
+        #expect(await cancelled.value == false)
+        #expect(presented.get().isEmpty && w.folders.isEmpty)
+    }
+
+    @Test func aCurrentFileIsPresented() async throws {
+        let w = World()
+        w.fake.enqueue(.success(w.csvResponse()))
+        guard case .file(let file) = await w.run() else {
+            Issue.record("no file")
+            return
+        }
+        let presented = Box<[URL]>([])
+        let shown = EntriesExport.handOver(file, isCurrent: { true }, present: { url in presented.set([url]) })
+        #expect(shown)
+        #expect(presented.get() == [file.url] && FileManager.default.fileExists(atPath: file.url.path()))
+        file.remove()
+    }
+
     // MARK: - The file
 
     /// The server's `Content-Disposition` name: the slug and the local date.

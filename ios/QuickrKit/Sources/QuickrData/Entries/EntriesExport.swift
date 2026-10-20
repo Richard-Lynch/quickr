@@ -85,6 +85,21 @@ public struct EntriesExport: Sendable {
         return Scope(binding: binding, identity: identity)
     }
 
+    /// The last step, on the main actor in one go: presents `file` only while `isCurrent()`
+    /// still holds and the task isn't cancelled (`export` checked too, but resumed off the actor
+    /// before its caller got here); otherwise removes it. True when presented.
+    @MainActor @discardableResult
+    public static func handOver(
+        _ file: File, isCurrent: @MainActor () -> Bool, present: @MainActor (URL) -> Void
+    ) -> Bool {
+        guard isCurrent(), !Task.isCancelled else {
+            file.remove()
+            return false
+        }
+        present(file.url)
+        return true
+    }
+
     /// The request's filters: the list's (the PWA's `filterQuery`), its range anchored at `now`.
     public static func filters(_ list: EntryListFilters, now: Date, calendar: Calendar) -> EntryFilters {
         EntryFilters(
