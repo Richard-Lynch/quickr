@@ -34,17 +34,22 @@ import Testing
         harness = try OutboxHarness()
     }
 
-    func writes(transport: (any Transport)? = nil) async throws -> TopicWrites {
+    func writes(transport: (any Transport)? = nil, leaseWait: Duration = .seconds(2)) async throws -> TopicWrites {
         let scope = try #require(await TopicWrites.scope(binding: Self.binding, store: harness.store))
-        return writes(scope, transport: transport)
+        return writes(scope, transport: transport, leaseWait: leaseWait)
     }
 
-    func writes(_ scope: TopicWrites.Scope, transport: (any Transport)? = nil) -> TopicWrites {
+    func writes(_ scope: TopicWrites.Scope, transport: (any Transport)? = nil, leaseWait: Duration = .seconds(2))
+        -> TopicWrites
+    {
         let syncs = syncs
         return TopicWrites(
             scope: scope, store: harness.store, transport: transport ?? harness.server,
-            credentials: StaticAccessCredentials(nil), requestSync: { syncs.record($0) })
+            credentials: StaticAccessCredentials(nil), leaseWait: leaseWait, requestSync: { syncs.record($0) })
     }
+
+    /// The `flush` lease is free (nobody holds it).
+    func leaseIsFree() throws -> Bool { try harness.lease().owner == nil }
 
     func local(_ id: UUID) async throws -> Topic? { try await harness.store.topics.topic(id: id)?.topic }
 
@@ -261,6 +266,129 @@ import Testing
             return
         }
         #expect(harness.server.count(.post) == 0, "nothing archived")
+    }
+
+    // MARK: Delete under the flush lease (Codex r2)
+
+    /// A flush that starts while the delete is sending its archive finds `flush` held: the
+    /// queued archive is sent once, by the delete.
+    @Test func aConcurrentFlushIsBusyAndTheArchiveIsSentOnce() async throws {
+        let topicId = harness.topic.id
+        let outbox = harness.outbox()
+        try await outbox.archiveTopic(id: topicId, baseRevision: 1, origin: .app)
+        let gate = Gate()
+        defer { gate.open() }
+        harness.server.inject(where: { $0.url.path.hasSuffix("/archive") }, .delay(gate))
+        let w = try await writes()
+        let deleting = Task { await w.delete(topicId: topicId) }
+        try await within("the request reaches the server", timeout: .seconds(10)) { await gate.arrival() }
+        let flush = try await within("the flush returns", timeout: .seconds(10)) {
+            try await outbox.flush(force: true, budget: .seconds(3))
+        }
+        #expect(flush.ending == .busy)
+        gate.open()
+        let result = try await within("the delete returns", timeout: .seconds(10)) { await deleting.value }
+        guard case .done = result else {
+            Issue.record("not deleted")
+            return
+        }
+        #expect(harness.server.handled.filter { $0.hasSuffix("/archive → 200") }.count == 1)
+        #expect(try leaseIsFree())
+    }
+
+    /// An unarchive queued before the archive (not adjacent, so K3 kept both) can't be flushed
+    /// between the delete's archive and its DELETE.
+    @Test func aQueuedUnarchiveNeverRunsBetweenTheArchiveAndTheDelete() async throws {
+        let topicId = harness.topic.id
+        harness.server.setArchived(topicId, true)
+        let outbox = harness.outbox()
+        try await outbox.unarchiveTopic(id: topicId, baseRevision: 1, origin: .app)
+        _ = try await harness.log(outbox)
+        try await outbox.archiveTopic(id: topicId, baseRevision: 1, origin: .app)
+        let gate = Gate()
+        defer { gate.open() }
+        harness.server.inject(where: { $0.url.path.hasSuffix("/archive") }, .delay(gate))
+        let w = try await writes()
+        let deleting = Task { await w.delete(topicId: topicId) }
+        try await within("the request reaches the server", timeout: .seconds(10)) { await gate.arrival() }
+        _ = try await within("the flush returns", timeout: .seconds(10)) {
+            try await outbox.flush(force: true, budget: .seconds(3))
+        }
+        gate.open()
+        let result = try await within("the delete returns", timeout: .seconds(10)) { await deleting.value }
+        guard case .done = result else {
+            Issue.record("not deleted")
+            return
+        }
+        #expect(!harness.server.handled.contains { $0.contains("/unarchive") }, "\(harness.server.handled)")
+        #expect(harness.server.handled.last == "DELETE /api/v1/topics/\(topicId.wireString) → 204")
+        let left = try await harness.store.outbox.items(topicId: topicId.wireString)
+        #expect(!left.contains { $0.kind == .topicArchive || $0.kind == .topicUnarchive })
+    }
+
+    @Test func theLeaseIsReleasedOnEveryPath() async throws {
+        let topicId = harness.topic.id
+        // Refused (an active topic).
+        guard case .rejected = await try writes().delete(topicId: topicId) else {
+            Issue.record("not refused")
+            return
+        }
+        #expect(try leaseIsFree(), "after a refusal")
+        // Offline.
+        try await harness.outbox().archiveTopic(id: topicId, baseRevision: 1, origin: .app)
+        guard case .offline = await try writes(transport: Offline()).delete(topicId: topicId) else {
+            Issue.record("not offline")
+            return
+        }
+        #expect(try leaseIsFree(), "after offline")
+        // Cancelled while the DELETE is in the network.
+        let gate = Gate()
+        defer { gate.open() }
+        harness.server.inject(.delete, .delay(gate))
+        let w = try await writes()
+        let deleting = Task { await w.delete(topicId: topicId) }
+        try await within("the request reaches the server", timeout: .seconds(10)) { await gate.arrival() }
+        deleting.cancel()
+        _ = try await within("the delete returns", timeout: .seconds(10)) { await deleting.value }
+        #expect(try leaseIsFree(), "after a cancellation")
+        gate.open()
+        // Done.
+        harness.server.setArchived(topicId, true)
+        _ = await try writes().delete(topicId: topicId)
+        #expect(try leaseIsFree(), "after a delete")
+    }
+
+    /// The lease expired while the archive was in the network (another flusher may hold it now):
+    /// the DELETE isn't sent.
+    @Test func aLeaseLostDuringTheArchiveStopsBeforeTheDelete() async throws {
+        let topicId = harness.topic.id
+        try await harness.outbox().archiveTopic(id: topicId, baseRevision: 1, origin: .app)
+        let gate = Gate()
+        defer { gate.open() }
+        harness.server.inject(where: { $0.url.path.hasSuffix("/archive") }, .delay(gate))
+        let w = try await writes()
+        let deleting = Task { await w.delete(topicId: topicId) }
+        try await within("the request reaches the server", timeout: .seconds(10)) { await gate.arrival() }
+        harness.clock.advance(by: .seconds(60))
+        gate.open()
+        let result = try await within("the delete returns", timeout: .seconds(10)) { await deleting.value }
+        guard case .busy = result else {
+            Issue.record("not stopped")
+            return
+        }
+        #expect(harness.server.count(.delete) == 0)
+        #expect(try await local(topicId) != nil)
+    }
+
+    @Test func aHeldLeaseIsBusyAndSendsNothing() async throws {
+        let other = try #require(try await harness.store.leases.tryAcquire(.flush, owner: "app:other"))
+        let outcome = await try writes(leaseWait: .milliseconds(200)).delete(topicId: harness.topic.id)
+        guard case .busy = outcome else {
+            Issue.record("\(outcome)")
+            return
+        }
+        #expect(harness.server.requests.isEmpty)
+        _ = try await harness.store.leases.release(other)
     }
 
     @Test func offlineTheQueuedArchiveAndTheDeleteBothWait() async throws {

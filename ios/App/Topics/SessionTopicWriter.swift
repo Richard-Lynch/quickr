@@ -75,6 +75,7 @@ final class SessionTopicWriter: TopicWriter {
         case .rejected(_, let problem): .rejected(problem)
         case .staleRevision: .staleRevision
         case .notFound: .notFound
+        case .busy: .busy
         case .unconfirmed(let message): .unconfirmed(message)
         case .failed(let message): .failed(message)
         }

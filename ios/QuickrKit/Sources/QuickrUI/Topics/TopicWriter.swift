@@ -19,6 +19,8 @@ public enum TopicWriteOutcome<Value: Sendable>: Sendable {
     case staleRevision
     /// The topic isn't on the server any more.
     case notFound
+    /// The outbox was busy sending and the write didn't start: try again.
+    case busy
     /// It may or may not have happened; a sync will show which.
     case unconfirmed(String)
     case failed(String)
@@ -33,6 +35,7 @@ public enum TopicWriteOutcome<Value: Sendable>: Sendable {
         case .resyncing: TopicWriteMessage.resyncing
         case .staleRevision: TopicWriteMessage.staleRevision
         case .notFound: TopicWriteMessage.notFound
+        case .busy: TopicWriteMessage.busy
         case .unconfirmed(let message), .failed(let message): message
         }
     }
@@ -46,6 +49,7 @@ public enum TopicWriteMessage {
     public static let resyncing = "quickR is resyncing, try again in a moment."
     public static let staleRevision = "This topic was changed elsewhere. It shows the latest now; try again."
     public static let notFound = "This topic isn’t on the server any more."
+    public static let busy = "Sync is busy, try again in a moment."
 }
 
 /// Why a queued topic change (archive, unarchive) was refused; its description is the message.

@@ -46,6 +46,9 @@ public struct TopicWrites: Sendable {
         case staleRevision(Problem)
         /// The topic isn't on the server any more.
         case notFound
+        /// The outbox is sending (it holds the `flush` lease) and didn't finish in time: nothing was
+        /// sent. "Sync is busy, try again".
+        case busy
         /// It may or may not have executed (a timeout after sending, a 5xx, an unreadable 2xx): a
         /// pull is requested so the screen can show what happened.
         case unconfirmed(String)
@@ -61,15 +64,25 @@ public struct TopicWrites: Sendable {
     let store: LocalStore
     let client: APIClient
     let requestSync: @Sendable (SyncReason) async -> Void
+    /// The `flush` lease owner a delete holds it as.
+    let leaseOwner: String
+    /// How long a delete waits for the `flush` lease before saying sync is busy.
+    let leaseWait: Duration
+
+    /// A delete holds `flush` for an archive and the DELETE: two requests of at most 15 s each.
+    static let deleteLeaseTTL: Duration = .seconds(45)
 
     /// `requestSync` asks the coordinator for a run (`afterOnlineOnly` after a success or an
     /// unconfirmed write; `requested` after a mismatch).
     public init(
         scope: Scope, store: LocalStore, transport: any Transport, credentials: any AccessCredentialsProvider,
-        requestSync: @escaping @Sendable (SyncReason) async -> Void
+        leaseOwner: String = LeaseClaim.owner(kind: "topic-writes", launchId: UUID()),
+        leaseWait: Duration = .seconds(10), requestSync: @escaping @Sendable (SyncReason) async -> Void
     ) {
         self.scope = scope
         self.store = store
+        self.leaseOwner = leaseOwner
+        self.leaseWait = leaseWait
         self.requestSync = requestSync
         client = APIClient(
             baseURL: scope.binding.baseURL, transport: transport, identity: StaticServerIdentity(scope.identity),
@@ -105,13 +118,33 @@ public struct TopicWrites: Sendable {
 
     /// `DELETE /topics/{ref}` (only an archived topic; the server refuses others with a 409). On
     /// success the topic, its versions and entries are tombstoned locally, and its outbox items
-    /// resolve as for a deletion that arrived in the feed (§4.3).
+    /// (entry changes, a queued archive or unarchive) resolve as for a deletion that arrived in the
+    /// feed (§4.3), in the same fenced transaction.
     ///
-    /// An archive still queued here (made offline, or held behind a failed change, which the
-    /// outbox never sends past) means the server's copy may not be archived yet: it is sent first,
-    /// online only like the delete, so a confirmed delete is never blocked by the queue. The
-    /// tombstone then resolves the queued archive with the topic's other items.
+    /// The whole sequence holds the outbox's `flush` lease, so no flush in any process sends one of
+    /// the topic's queued items meanwhile (a queued unarchive can never land between the archive
+    /// and the DELETE). An archive still queued (made offline, or held behind a failed change,
+    /// which the outbox never sends past) means the server's copy may not be archived yet: it is
+    /// sent first, online only like the delete. Nothing local changes unless the DELETE succeeds,
+    /// so a failed delete loses nothing. The lease is released on every path, cancellation
+    /// included; if it isn't free within `leaseWait`, nothing is sent (`busy`).
     public func delete(topicId: UUID) async -> Outcome<Void> {
+        let leases = store.leases
+        let claim: LeaseClaim?
+        do {
+            claim = try await leases.acquire(
+                .flush, owner: leaseOwner, ttl: Self.deleteLeaseTTL, waitingUpTo: leaseWait)
+        } catch {
+            return .failed(String(describing: error))
+        }
+        guard let claim else { return .busy }
+        let outcome = await delete(topicId: topicId, holding: claim)
+        // In an unstructured task: the caller's cancellation can't stop the release.
+        _ = try? await Task { try await leases.release(claim) }.value
+        return outcome
+    }
+
+    private func delete(topicId: UUID, holding claim: LeaseClaim) async -> Outcome<Void> {
         let queued: [OutboxItem]
         do {
             queued = try await Self.pendingArchives(topicId: topicId, in: store)
@@ -123,12 +156,20 @@ public struct TopicWrites: Sendable {
             case .done: break
             case let other: return other.withoutValue
             }
+            // A fresh lease time for the DELETE; a lost lease (it expired) stops here.
+            guard (try? await store.leases.renew(claim, ttl: Self.deleteLeaseTTL)) == true else { return .busy }
         }
         let wall = store.wallClock
         let id = topicId
         return await send(
             { try await client.deleteTopic(ref: id.wireString, options: options).outcome.map { _ in () } },
             apply: { db, _ in
+                // This device's delete supersedes the topic's queued archive and unarchive (K3-style:
+                // nothing of them is left to show); its entry changes then resolve by §4.3.
+                for item in try OutboxStorage.items(db, topicId: id.wireString)
+                where item.kind.isTopicKind && item.state != .inFlight {
+                    _ = try OutboxStorage.delete(db, id: item.id)
+                }
                 try ServerLayer.applyDeletion(db, kind: .topic, id: id, topicId: id, seq: nil)
                 try OutboxSyncEffects.resolveDependents(db, kind: .topic, id: id.wireString, wall: wall.now())
             })
@@ -227,6 +268,7 @@ extension TopicWrites.Outcome {
         case .rejected(let status, let problem): .rejected(status: status, problem: problem)
         case .staleRevision(let problem): .staleRevision(problem)
         case .notFound: .notFound
+        case .busy: .busy
         case .unconfirmed(let message): .unconfirmed(message)
         case .failed(let message): .failed(message)
         }

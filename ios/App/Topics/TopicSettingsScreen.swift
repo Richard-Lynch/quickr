@@ -51,12 +51,6 @@ struct TopicSettingsScreen: View {
             }
             return
         }
-        // A slug save replaced this screen's route: carry on with the same model (and any unsaved
-        // edit in the other section) instead of starting over.
-        if let model = TopicSettingsHandoff.take(ref: ref, binding: binding) {
-            load = .ready(model, binding)
-            return
-        }
         do {
             guard
                 let topic = try await TopicLookup.find(
@@ -66,14 +60,24 @@ struct TopicSettingsScreen: View {
                 return
             }
             let router = environment.router
-            let holder = TopicSettingsHandoff.Holder()
+            // A slug save replaced this screen's route: carry on with the same model (and any
+            // unsaved edit in the other section), if it is this topic in this store.
+            if let carried = router.takeCarried(for: .topicSettings(ref)) as? CarriedTopicSettings,
+                let model = carried.model(for: topic.id, scope: binding)
+            {
+                load = .ready(model, binding)
+                return
+            }
+            let holder = Holder()
             let model = TopicSettingsModel(
                 topic: topic, writer: SessionTopicWriter(session: session, binding: binding),
                 toasts: environment.toasts,
                 onSlugChanged: { slug in
                     guard let ref = TopicLinkRef(slug) else { return }
-                    if let model = holder.model { TopicSettingsHandoff.put(model, binding: binding) }
-                    router.replaceTop(with: .topicSettings(ref))
+                    guard let model = holder.model else { return router.replaceTop(with: .topicSettings(ref)) }
+                    router.replaceTop(
+                        with: .topicSettings(ref),
+                        carrying: CarriedTopicSettings(model, id: model.topic.id, scope: binding))
                 },
                 onDeleted: { router.path = [] })
             holder.model = model
@@ -145,40 +149,30 @@ struct TopicNotice: View {
     }
 }
 
-/// Hands a settings model to the screen that replaces its route after a slug save (the route names
-/// the slug, so it may be a new screen; SwiftUI usually keeps the old one, but that isn't a
-/// guarantee). One-shot: taken by the next settings screen for the same topic in the same store,
-/// and otherwise replaced by the next `put`.
-@MainActor
-enum TopicSettingsHandoff {
-    final class Holder {
-        weak var model: TopicSettingsModel?
-    }
+/// The settings model a slug save hands to the screen that replaces its route.
+typealias CarriedTopicSettings = CarriedModel<TopicSettingsModel, AppSession.Binding>
 
-    static let shared = OneShotHandoff<TopicSettingsModel, AppSession.Binding>()
-
-    static func put(_ model: TopicSettingsModel, binding: AppSession.Binding) {
-        shared.put(model, scope: binding)
-    }
-
-    static func take(ref: TopicLinkRef, binding: AppSession.Binding) -> TopicSettingsModel? {
-        shared.take(scope: binding) { ref.matches($0.topic) }
-    }
+/// The model's owner, read when the slug changes.
+private final class Holder {
+    weak var model: TopicSettingsModel?
 }
 
-/// One value passed from a screen to the one that replaces it, at most once.
-@MainActor
-final class OneShotHandoff<Value: AnyObject, Scope: Equatable> {
-    private var pending: (value: Value, scope: Scope)?
+/// A screen's model handed on with a route change (`Router.replaceTop(with:carrying:)`), for the
+/// same entity, by its immutable id, in the same store.
+final class CarriedModel<Model: AnyObject, Scope: Equatable> {
+    private let model: Model
+    private let id: UUID
+    private let scope: Scope
 
-    func put(_ value: Value, scope: Scope) {
-        pending = (value, scope)
+    init(_ model: Model, id: UUID, scope: Scope) {
+        self.model = model
+        self.id = id
+        self.scope = scope
     }
 
-    /// The value, if it was put for `scope` and `matches` it; it is gone afterwards.
-    func take(scope: Scope, where matches: (Value) -> Bool) -> Value? {
-        guard let pending, pending.scope == scope, matches(pending.value) else { return nil }
-        self.pending = nil
-        return pending.value
+    /// The model, when the new screen shows the same entity in the same store; otherwise nil
+    /// (a slug now naming another topic, another server).
+    func model(for id: UUID, scope: Scope) -> Model? {
+        id == self.id && scope == self.scope ? model : nil
     }
 }
