@@ -583,15 +583,44 @@ All registration runs in the **app process only**. Every call is a mutation and
   - An enum shows the first `Notification.maxActions` options, as
     `{action: "log|o|" + value, title: label}`.
   - A number with `last_value` shows
-    `{action: "log|n|" + fmt(last), title: "✓ …"}`.
-  - There is no text input.
+    `{action: "log|n|" + fmt(last), title: "✓ …"}`. **Exception:** an `int`
+    whose `last_value` is beyond 2^53 shows no action, because JS numbers can't
+    hold its digits exactly (the descriptor still carries it; iOS is unaffected).
+  - There is no text input and no "More…": the notification body opens `url`.
+  - A push without `server_id` offers no actions: its entry id (§7.4) can't be
+    derived and its server can't be checked.
   - `notificationclick` validates the action against
-    `notification.data.quick_log`, then enqueues `entry.create` into the
-    IndexedDB outbox and flushes. The entry id is the shared action entry id
-    (§7.4); if the outbox already holds that id, nothing is written. The check
-    and the enqueue run under a Web Lock, so racing clicks log once.
-  - A push without `server_id` offers no actions: its entry id can't be derived.
-  - The PWA may send the Expect headers. They are optional for it.
+    `notification.data.quick_log`. A topic that the service worker's API cache
+    shows archived is refused before anything is queued. Otherwise it enqueues
+    `entry.create` into the IndexedDB outbox, with the shared action entry id
+    (§7.4) and the push's `server_id`, and sends it at once. If the outbox
+    already holds that id, nothing is written. The check and the enqueue run
+    under a Web Lock, so racing clicks log once.
+  - **Identity:** the create carries `X-QuickR-Expect-Server-Id: {server_id}`
+    (F10). If the origin now serves another quickR server, the server refuses it
+    (409 `server_mismatch`), nothing is written, and the item is dropped. The
+    PWA doesn't send `X-QuickR-Expect-Epoch`; it stays optional for it.
+  - **Feedback** (the PWA's version of §7.1's `fail`): the reminder is never
+    just dismissed.
+
+    | Outcome                                                    | The PWA shows                                                                            |
+    | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+    | Logged                                                     | nothing more                                                                             |
+    | Offline or timed out                                       | nothing; the item stays queued, Background Sync is requested, the app sends it later     |
+    | `server_mismatch`                                          | "Couldn't log {topic}: this reminder came from another quickR server"; item dropped      |
+    | `topic_archived`, or 404 (topic deleted)                   | "Couldn't log {topic}" with the reason; the failed item stays for the app's Fix          |
+    | Archived according to the service worker's API cache       | "Couldn't log {topic}: the topic is archived"; nothing is queued                         |
+    | Any other refusal                                          | "Couldn't log {topic}" with the server's message                                         |
+    | `entry_deleted` (the slot's entry was deleted)             | "This reminder's entry was deleted. Open quickR to log again."                           |
+    | A later **different** choice on an already logged reminder | "Already logged: this reminder was already logged as {first}. Open quickR to change it." |
+    | Invalid action, or the outbox can't be written             | the record screen opens                                                                  |
+
+    Each message is a notification without `quickr` data, tagged
+    `quickr.err.{topic_id}`; tapping it opens `url`.
+
+  - **First choice wins** (§7.4): a second, different action on the same
+    reminder doesn't change the entry. The PWA says so (the row above), both
+    while the first is still queued and after the server replayed it.
 - Safari and iOS web push have no actions, so those platforms are unchanged.
 
 ## 11. Local-fallback compatibility (§6a rule 11)
@@ -688,3 +717,4 @@ the same vectors and `device_now + skew`.
 | Codex spec review simplification (no NSE flush)                                       | Glossary, §1, §6                                          |
 | Codex v1 M5, M7; v2 #4, #5; Fable B2, M7 and minors                                   | §4, §5, §8, §9, §11                                       |
 | B8 (2026-10-20): one reminder logs once across iOS and the PWA                        | §7.1 step 5, §7.4, §10, N16                               |
+| Codex B8 review: wrong-server writes, silent failures, first-choice feedback          | §10 (identity, feedback table, first choice wins)         |

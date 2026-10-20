@@ -165,22 +165,28 @@ the first five fields and `kind: "test"`.
 **Actions (Chrome, Edge, Android).** A reminder for a one-tap topic shows
 buttons: the first options of a single-select question (up to the browser's
 `Notification.maxActions`, usually 2), or "✓ 7.5 h" to log a number question's
-last value again. Clicking one logs the entry from the service worker, even
-with the app closed: it goes into the same offline outbox as the app (source
+last value again. Clicking one logs the entry from the service worker, even with
+the app closed: it goes into the same offline outbox as the app (source
 `pwa.notification`) and is sent at once, or later by Background Sync or the
-app's next start. Each reminder logs at most once, however often its buttons
-are clicked, even when it is also actioned in the iOS app: both derive the
-entry id from the reminder (docs/ios/specs/notifications.md §7.4). Safari and iOS web push show no buttons; tapping the notification
-opens the record screen as before.
+app's next start. Each reminder logs at most once, however often its buttons are
+clicked, even when it is also actioned in the iOS app: both derive the entry id
+from the reminder (docs/ios/specs/notifications.md §7.4). The first choice wins:
+clicking a different button later shows "Already logged as …". The request
+carries the reminder's server id (`X-QuickR-Expect-Server-Id`), so a reminder
+from a server this address no longer serves logs nothing. When a click can't be
+logged (another server, an archived or deleted topic), a follow-up notification
+says why; it never just disappears. Safari and iOS web push show no buttons;
+tapping the notification opens the record screen as before.
 
 *Manual test (Chrome desktop):* subscribe in Settings, make a topic whose only
 required question is a single-select with 2–4 options and give it a schedule
 that is due now, then wait for the scheduler's next tick
-(`QUICKR_SCHEDULER_INTERVAL_SECONDS`). On the notification, click an option: the entry appears with source
-`pwa.notification`. Click the same reminder's other button (if it is still
-shown, e.g. from the notification centre): no second entry. Repeat with the
-network offline in DevTools: the entry is queued and sent when you go back
-online.
+(`QUICKR_SCHEDULER_INTERVAL_SECONDS`). On the notification, click an option: the
+entry appears with source `pwa.notification`. Click the same reminder's other
+button (if it is still shown, e.g. from the notification centre): no second
+entry, and an "Already logged" notification. Archive the topic and click a fresh
+reminder: a "Couldn't log" notification. Repeat with the network offline in
+DevTools: the entry is queued and sent when you go back online.
 
 Setup:
 
