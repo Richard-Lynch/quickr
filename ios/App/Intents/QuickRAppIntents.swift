@@ -18,5 +18,14 @@ struct QuickRShortcuts: AppShortcutsProvider {
             shortTitle: "Log Entry",
             systemImageName: "plus.circle"
         )
+        #if DEBUG
+        // SPIKE (INTENTS): runs from the Shortcuts app, which answers prompts on the simulator.
+        AppShortcut(
+            intent: SpikePromptIntent(),
+            phrases: ["Spike prompts in \(.applicationName)"],
+            shortTitle: "Spike Prompts",
+            systemImageName: "questionmark.bubble"
+        )
+        #endif
     }
 }
