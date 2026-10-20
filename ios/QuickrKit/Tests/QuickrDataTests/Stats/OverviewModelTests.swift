@@ -11,19 +11,22 @@ import Testing
     /// Answers each request with the vector response for the same path and query.
     nonisolated static func serve(_ h: Harness, epoch: String = "E1") {
         h.transport.reset()
-        h.transport.stub(where: { _ in true }) { request in
-            let items = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-            var query = Dictionary(items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { $1 })
-            query.removeValue(forKey: "captured_from")
-            let parts = request.url.pathComponents  // ["/", "api", "v1", "topics", ref, ...]
-            let topic = parts[4]
-            let match = StatsLoaderTests.input.cases.first { c in
-                c.topic == topic && c.query == query
-                    && (parts.count == 6 ? c.kind == "stats" : c.kind == "series" && c.question == parts[6])
-            }
-            guard let match else { return HTTPResponse(status: 404, headers: identity(epoch)) }
-            return HTTPResponse(status: 200, headers: identity(epoch), body: try JSONEncoder().encode(match.response))
-        }
+        h.transport.stub(
+            where: { _ in true },
+            { request in
+                let items = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                var query = Dictionary(items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { $1 })
+                query.removeValue(forKey: "captured_from")
+                let parts = request.url.pathComponents  // ["/", "api", "v1", "topics", ref, ...]
+                let topic = parts[4]
+                let match = StatsLoaderTests.input.cases.first { c in
+                    c.topic == topic && c.query == query
+                        && (parts.count == 6 ? c.kind == "stats" : c.kind == "series" && c.question == parts[6])
+                }
+                guard let match else { return HTTPResponse(status: 404, headers: identity(epoch)) }
+                return HTTPResponse(
+                    status: 200, headers: identity(epoch), body: try JSONEncoder().encode(match.response))
+            })
     }
 
     nonisolated static func identity(_ epoch: String) -> HTTPHeaders {

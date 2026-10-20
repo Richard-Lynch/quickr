@@ -90,25 +90,29 @@ public struct StatsLoader: Sendable {
 
     // MARK: - Keys
 
-    static func statsKey(topicId: UUID, query: StatsQuery) -> String {
-        "stats|\(topicId.wireString)|\(query.cacheKey)"
+    /// `{server_id}/{store_gen}|stats|{topic}|{range&version&source}`. The store file already
+    /// belongs to one server and generation; the key says so too.
+    func statsKey(topicId: UUID, query: StatsQuery) -> String {
+        "\(store.scope.id)|stats|\(topicId.wireString)|\(query.cacheKey)"
     }
 
-    static func seriesKey(
+    /// `...|series|{topic}|{question}|{bucket}|{tz}|{range&version&source}`: another bucket or
+    /// zone is another answer, never served for this one.
+    func seriesKey(
         topicId: UUID, key: String, bucket: QuestionSeries.Bucket, timeZone: String, query: StatsQuery
     ) -> String {
-        "series|\(topicId.wireString)|\(key)|\(bucket.rawValue)|\(timeZone)|\(query.cacheKey)"
+        "\(store.scope.id)|series|\(topicId.wireString)|\(key)|\(bucket.rawValue)|\(timeZone)|\(query.cacheKey)"
     }
 
     // MARK: - Loads
 
     /// The cached stats for `query`, if any (to show while fetching).
     public func cachedStats(topicId: UUID, query: StatsQuery) async -> (TopicStats, fetchedAt: Date)? {
-        await cached(TopicStatsDTO.self, key: Self.statsKey(topicId: topicId, query: query))
+        await cached(TopicStatsDTO.self, key: statsKey(topicId: topicId, query: query))
     }
 
     public func stats(topicId: UUID, ref: String, query: StatsQuery) async -> StatsResult<TopicStats> {
-        await load(TopicStatsDTO.self, key: Self.statsKey(topicId: topicId, query: query), topicId: topicId) {
+        await load(TopicStatsDTO.self, key: statsKey(topicId: topicId, query: query), topicId: topicId) {
             options in
             try await client.getTopicStats(ref: ref, filters: query.filters, options: options)
         }
@@ -120,14 +124,14 @@ public struct StatsLoader: Sendable {
     ) async -> (QuestionSeries, fetchedAt: Date)? {
         await cached(
             QuestionSeriesDTO.self,
-            key: Self.seriesKey(topicId: topicId, key: key, bucket: bucket, timeZone: timeZone, query: query))
+            key: seriesKey(topicId: topicId, key: key, bucket: bucket, timeZone: timeZone, query: query))
     }
 
     /// `timeZone` is the IANA zone the server buckets in (the reader's).
     public func series(
         topicId: UUID, ref: String, key: String, bucket: QuestionSeries.Bucket, timeZone: String, query: StatsQuery
     ) async -> StatsResult<QuestionSeries> {
-        let cacheKey = Self.seriesKey(topicId: topicId, key: key, bucket: bucket, timeZone: timeZone, query: query)
+        let cacheKey = seriesKey(topicId: topicId, key: key, bucket: bucket, timeZone: timeZone, query: query)
         return await load(QuestionSeriesDTO.self, key: cacheKey, topicId: topicId) { options in
             try await client.getQuestionSeries(
                 ref: ref, key: key, bucket: bucket, timezone: timeZone, filters: query.filters, options: options)

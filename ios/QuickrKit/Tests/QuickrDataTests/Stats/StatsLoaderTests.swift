@@ -48,16 +48,19 @@ import Testing
         /// Every request answers 200 with `body`, from `server-1` at `epoch`.
         func answer(_ body: Data, epoch: String = "E1", before: (@Sendable () throws -> Void)? = nil) {
             transport.reset()
-            transport.stub(where: { _ in true }) { _ in
-                try before?()
-                return HTTPResponse(
-                    status: 200, headers: [QuickrHeader.serverId: "server-1", QuickrHeader.epoch: epoch], body: body)
-            }
+            transport.stub(
+                where: { _ in true },
+                { _ in
+                    try before?()
+                    return HTTPResponse(
+                        status: 200, headers: [QuickrHeader.serverId: "server-1", QuickrHeader.epoch: epoch], body: body
+                    )
+                })
         }
 
         func offline() {
             transport.reset()
-            transport.stub(where: { _ in true }) { _ in throw TransportError.unreachable("offline") }
+            transport.stub(where: { _ in true }, { _ in throw TransportError.unreachable("offline") })
         }
 
         func execute(_ sql: String) throws { try store.writer.write { db in try db.execute(sql: sql) } }
@@ -74,6 +77,10 @@ import Testing
     // MARK: - Fixtures
 
     static let input: StatsChartVectorTests.Input = StatsChartVectorTests.load("stats-vectors.json")
+
+    static func response<T: WireResponse>(_ type: T.Type, _ name: String) throws -> T.Domain {
+        try T.decode(body(name), using: WireCoding.decoder()).toDomain()
+    }
 
     static func body(_ name: String) throws -> Data {
         let input = try #require(Self.input.cases.first { $0.name == name })
@@ -201,6 +208,53 @@ import Testing
         #expect(allTime == .unavailable(.offline))
     }
 
+    /// The key names the store (server and generation) and the whole query: range, version,
+    /// source, and for a series the question, bucket and zone.
+    @Test func theKeyNamesTheStoreTheQueryAndTheZone() async throws {
+        let h = try Harness()
+        h.answer(try Self.body("stats everything all"))
+        let query = StatsQuery(cacheKey: "range=7d&source=web", filters: EntryFilters(source: "web"))
+        _ = await h.loader.stats(topicId: Self.topicId, ref: "everything", query: query)
+        h.answer(try Self.body("series everything glasses week America/Santiago"))
+        _ = await h.loader.series(
+            topicId: Self.topicId, ref: "everything", key: "glasses", bucket: .week, timeZone: "America/Santiago",
+            query: query)
+        let id = Self.topicId.wireString
+        #expect(
+            try h.rows().map { $0["key"] as String } == [
+                "server-1/1|series|\(id)|glasses|week|America/Santiago|range=7d&source=web",
+                "server-1/1|stats|\(id)|range=7d&source=web",
+            ])
+    }
+
+    /// The reader's zone changed: the old zone's buckets are another answer. Online the new zone's
+    /// are fetched (nothing of the old shows meanwhile); offline there is nothing to show.
+    @Test func aZoneChangeNeverServesTheOldZonesBuckets() async throws {
+        let h = try Harness()
+        let london = try Self.response(QuestionSeriesDTO.self, "series everything glasses day Europe/London")
+        let santiago = try Self.response(QuestionSeriesDTO.self, "series everything glasses day America/Santiago")
+        #expect(london != santiago)
+        h.answer(try Self.body("series everything glasses day Europe/London"))
+        _ = await h.loader.series(
+            topicId: Self.topicId, ref: "everything", key: "glasses", bucket: .day, timeZone: "Europe/London",
+            query: Self.thirtyDays)
+        #expect(
+            await h.loader.cachedSeries(
+                topicId: Self.topicId, key: "glasses", bucket: .day, timeZone: "America/Santiago",
+                query: Self.thirtyDays)
+                == nil)
+        h.offline()
+        #expect(
+            await h.loader.series(
+                topicId: Self.topicId, ref: "everything", key: "glasses", bucket: .day, timeZone: "America/Santiago",
+                query: Self.thirtyDays) == .unavailable(.offline))
+        h.answer(try Self.body("series everything glasses day America/Santiago"))
+        let fresh = await h.loader.series(
+            topicId: Self.topicId, ref: "everything", key: "glasses", bucket: .day, timeZone: "America/Santiago",
+            query: Self.thirtyDays)
+        #expect(fresh.value == santiago)
+    }
+
     /// S20: a response from another epoch is discarded (not shown, not cached), the store is
     /// marked `epoch_suspect` and the coordinator is asked to run.
     @Test func anotherEpochIsDiscardedAndStartsAResync() async throws {
@@ -256,11 +310,13 @@ import Testing
     /// Another server behind the address: nothing shown, and a resync.
     @Test func anotherServerStartsAResync() async throws {
         let h = try Harness()
-        h.transport.stub(where: { _ in true }) { _ in
-            HTTPResponse(
-                status: 200, headers: [QuickrHeader.serverId: "server-2", QuickrHeader.epoch: "E1"],
-                body: try Self.body("stats everything all"))
-        }
+        h.transport.stub(
+            where: { _ in true },
+            { _ in
+                HTTPResponse(
+                    status: 200, headers: [QuickrHeader.serverId: "server-2", QuickrHeader.epoch: "E1"],
+                    body: try Self.body("stats everything all"))
+            })
         let result = await h.loader.stats(topicId: Self.topicId, ref: "everything", query: Self.thirtyDays)
         #expect(result == .unavailable(.resyncing))
         #expect(h.syncsRequested == 1)
@@ -274,11 +330,13 @@ import Testing
         let first = try #require(
             await h.loader.stats(topicId: Self.topicId, ref: "everything", query: Self.thirtyDays).value)
         h.transport.reset()
-        h.transport.stub(where: { _ in true }) { _ in
-            HTTPResponse(
-                status: 500, headers: [QuickrHeader.serverId: "server-1", QuickrHeader.epoch: "E1"],
-                body: Data(#"{"code":"internal","detail":"boom","errors":[]}"#.utf8))
-        }
+        h.transport.stub(
+            where: { _ in true },
+            { _ in
+                HTTPResponse(
+                    status: 500, headers: [QuickrHeader.serverId: "server-1", QuickrHeader.epoch: "E1"],
+                    body: Data(#"{"code":"internal","detail":"boom","errors":[]}"#.utf8))
+            })
         let result = await h.loader.stats(topicId: Self.topicId, ref: "everything", query: Self.thirtyDays)
         guard case .stale(let shown, _, .failed(let message)) = result else {
             Issue.record("expected stale (failed), got \(result)")
