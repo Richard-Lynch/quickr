@@ -7,6 +7,9 @@ public struct SyncPill: View {
     let status: SyncStatus?
     let action: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 32 pt and a 16 pt icon at the default size, growing with Dynamic Type.
+    @ScaledMetric(relativeTo: .caption) private var height: CGFloat = 32
+    @ScaledMetric(relativeTo: .caption) private var iconSize: CGFloat = 16
 
     public init(_ status: SyncStatus?, action: @escaping () -> Void) {
         self.status = status
@@ -22,11 +25,11 @@ public struct SyncPill: View {
             Button(action: action) {
                 HStack(spacing: 6) {
                     icon(status)
-                    Text(status.short).lineLimit(1).minimumScaleFactor(0.7)
+                    Text(status.short).lineLimit(1).fixedSize()
                 }
                 .font(.qr(.caption))
                 .padding(.horizontal, 12)
-                .frame(height: 32)
+                .frame(minHeight: height)
                 .foregroundStyle(foreground(status.kind))
                 .background(background(status.kind), in: Capsule())
                 // 32 pt to look at, 44 pt to tap.
@@ -42,10 +45,10 @@ public struct SyncPill: View {
     @ViewBuilder
     private func icon(_ status: SyncStatus) -> some View {
         switch status.kind {
-        case .failed: QIcon.alert.view(size: 16)
-        case .offline: QIcon.cloudOff.view(size: 16)
+        case .failed: QIcon.alert.view(size: iconSize)
+        case .offline: QIcon.cloudOff.view(size: iconSize)
         case .waiting:
-            QIcon.sync.view(size: 16)
+            QIcon.sync.view(size: iconSize)
                 .symbolEffect(.rotate, options: .repeat(.continuous).speed(0.4), isActive: !reduceMotion)
         }
     }

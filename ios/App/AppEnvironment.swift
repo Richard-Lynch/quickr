@@ -23,6 +23,13 @@ final class AppEnvironment {
     /// How far above the bottom toasts sit: a screen with a sticky bar (Record's Save) raises them
     /// above it, like the PWA's.
     var toastBottomInset: CGFloat = 8
+    /// Numbers typed into tiles but not logged yet (kept while the app runs, like the PWA's).
+    let quickLogDrafts = QuickLogDrafts()
+    /// Entry writes for tiles and Undo, over `session`.
+    let entryWriter = SessionEntryWriter()
+    let entryToasts: EntryToasts
+    /// Every tile's quick-log model, kept while the app runs (QuickLogModels).
+    let quickLogModels: QuickLogModels
     /// Nil only when it couldn't be created (`sessionError`); `start()` tries again.
     private(set) var session: AppSession?
     private(set) var sessionError: String?
@@ -32,16 +39,24 @@ final class AppEnvironment {
     private(set) var hasStarted = false
 
     @ObservationIgnored private let makeSession: @MainActor () throws -> AppSession
+    @ObservationIgnored private var prepare: (@MainActor () async -> Void)?
     @ObservationIgnored private var starting: Task<Void, Never>?
 
+    /// - Parameter prepare: runs once in `start()` before the session opens (a debug demo store's
+    ///   seeding); with it, the session opens in `start()` rather than here.
     init(
         settings: AppSettings, credentials: KeychainAccessCredentials? = nil,
+        prepare: (@MainActor () async -> Void)? = nil,
         makeSession: @escaping @MainActor () throws -> AppSession
     ) {
         self.settings = settings
         self.credentials = credentials
         self.makeSession = makeSession
-        openSession()
+        self.prepare = prepare
+        entryToasts = EntryToasts(center: toasts, writer: entryWriter)
+        quickLogModels = QuickLogModels(writer: entryWriter, toasts: entryToasts, drafts: quickLogDrafts)
+        if prepare == nil { openSession() }
+        entryWriter.session = { [weak self] in self?.session }
     }
 
     /// The live session over the App Group's files, sending through URLSession with the
@@ -90,6 +105,10 @@ final class AppEnvironment {
             return
         }
         let attempt = Task {
+            if let prepare {
+                self.prepare = nil
+                await prepare()
+            }
             if session == nil {
                 openSession()
                 registerIntentTopics()

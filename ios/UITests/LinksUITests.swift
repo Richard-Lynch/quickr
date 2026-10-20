@@ -16,7 +16,7 @@ final class LinksUITests: XCTestCase {
         XCTAssertTrue(path.waitForExistence(timeout: 15))
         XCTAssertEqual(path.label, "/t/workout/entries")
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.staticTexts["root.title"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 5))
     }
 
     /// A notification's link (`/t/{slug}/record`) opens the record screen.
@@ -38,7 +38,7 @@ final class LinksUITests: XCTestCase {
         let app = launch(open: "quickr://t/water/nonsense")
         XCTAssertTrue(app.alerts["Can’t open that link"].waitForExistence(timeout: 15))
         app.alerts.buttons["OK"].tap()
-        XCTAssertTrue(app.staticTexts["root.title"].exists)
+        XCTAssertTrue(app.staticTexts["home.wordmark"].exists)
     }
 
     @MainActor

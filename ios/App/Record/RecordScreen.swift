@@ -52,7 +52,9 @@ struct RecordScreen: View {
     }
 
     private func start() async {
-        guard let session = environment.session, let store = session.store else {
+        // The store and its scope, taken together: a fix acts in the store its item was read from.
+        let scope = environment.entryWriter.scope
+        guard let session = environment.session, let store = session.store, let scope else {
             switch environment.session?.phase {
             case .noServer: load = .failed("Connect to a server first.")
             case .failed(let message): load = .failed(message)
@@ -88,8 +90,8 @@ struct RecordScreen: View {
             }
             load = .ready(
                 RecordModel(
-                    topic: topic, mode: mode, writer: RecordSessionWriter(session: session),
-                    notices: RecordToasts(center: environment.toasts, session: session),
+                    topic: topic, mode: mode, writer: environment.entryWriter, toasts: environment.entryToasts,
+                    scope: scope,
                     logAnother: environment.settings.logAnother))
         } catch {
             load = .failed(String(describing: error))

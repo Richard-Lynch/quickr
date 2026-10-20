@@ -27,7 +27,12 @@ extension IntegrationTests {
 
             // n is 0–100 on the server: 500 is refused.
             let id = try await session.log(topic: topic, answers: ["n": .int(500)], notes: "too many", version: 1)
-            #expect(await scheduler.sendNow(itemId: id.wireString, wait: .seconds(8)) == false)
+            guard case .failed(let info) = await scheduler.sendNow(itemId: id.wireString, wait: .seconds(8)) else {
+                Issue.record("the server should refuse n = 500")
+                return
+            }
+            // sendNow's own failure carries the Problem too (the record screen's EntryDelivery).
+            #expect(info?.problem?.code == .invalidAnswers)
             let item = try #require(try await store.outbox.item(id: id.wireString))
             #expect(item.state == .failed && item.failureReason == .rejected)
 
@@ -44,7 +49,7 @@ extension IntegrationTests {
                 notes: draft.notes, version: 1)
             try await outbox.fix(
                 itemId: draft.itemId, payload: .entryCreate(topic: topic, body: body), rowVersion: draft.rowVersion)
-            #expect(await scheduler.sendNow(itemId: id.wireString, wait: .seconds(8)))
+            #expect(await scheduler.sendNow(itemId: id.wireString, wait: .seconds(8)) == .sent)
             let server = try #require(try await it.a.entry(id))
             #expect(WebServer.answer(server) == 50)
             #expect(server["notes"] as? String == "too many")

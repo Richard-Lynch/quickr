@@ -18,15 +18,19 @@ public struct EntryFixDraft: Sendable, Hashable {
     public var message: String?
 }
 
+extension OutboxErrorInfo {
+    /// The server's `Problem`, when the error body was one (a 4xx from quickR).
+    public var problem: Problem? {
+        body.flatMap { body in (try? WireCoding.encoder().encode(body)).flatMap { try? Endpoints.decodeProblem($0) } }
+    }
+}
+
 extension OutboxItem {
     /// Why a failed item was refused: the server's `Problem` (when its error body had one) and the
     /// message. Nil without a recorded error.
     public var failureDetails: (problem: Problem?, message: String)? {
         guard let info = lastError else { return nil }
-        let problem = info.body.flatMap { body in
-            (try? WireCoding.encoder().encode(body)).flatMap { try? Endpoints.decodeProblem($0) }
-        }
-        return (problem, info.message)
+        return (info.problem, info.message)
     }
 
     /// The draft for fixing this item: only a failed, never-delivered create can be fixed (what

@@ -103,18 +103,21 @@ public struct QuickNumberRow: View {
     let label: String
     @Binding var text: String
     let rule: NumberStepRule
+    let unit: String?
     let isBusy: Bool
     let error: String?
     let onLog: () -> Void
     @ScaledMetric(relativeTo: .title3) private var height = QuickrMetrics.tapTarget
+    @ScaledMetric(relativeTo: .title3) private var checkSize: CGFloat = 20
 
     public init(
-        label: String, text: Binding<String>, rule: NumberStepRule, isBusy: Bool = false, error: String? = nil,
-        onLog: @escaping () -> Void
+        label: String, text: Binding<String>, rule: NumberStepRule, unit: String? = nil, isBusy: Bool = false,
+        error: String? = nil, onLog: @escaping () -> Void
     ) {
         self.label = label
         self._text = text
         self.rule = rule
+        self.unit = unit
         self.isBusy = isBusy
         self.error = error
         self.onLog = onLog
@@ -129,17 +132,20 @@ public struct QuickNumberRow: View {
             HStack(spacing: 6) {
                 NumberStepper(text: $text, rule: rule, label: label, size: .compact, isInvalid: error != nil)
                     .disabled(isBusy)
+                    .accessibilityIdentifier("quick.number")
                 Button(action: onLog) {
-                    QIcon.check.view(size: 20, weight: .heavy)
+                    QIcon.check.view(size: checkSize, weight: .heavy)
                         .foregroundStyle(.qr.paper)
-                        .frame(width: 48, height: height)
+                        .frame(width: max(48, checkSize + 16), height: height)
                         .background(Color.qr.ink, in: RoundedRectangle(cornerRadius: QuickrMetrics.controlRadius))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(QuickrPressStyle(scale: 0.95))
                 .disabled(isBusy || text.trimmingCharacters(in: .whitespaces).isEmpty)
                 .opacity(isBusy || text.isEmpty ? 0.4 : 1)
-                .accessibilityLabel("Log \(text.isEmpty ? label : text)")
+                // "Log 3 glasses", like the PWA's.
+                .accessibilityLabel("Log \(text.isEmpty ? label : text)\(unit.map { " \($0)" } ?? "")")
+                .accessibilityIdentifier("quick.check")
             }
             if let error {
                 Text(error)
@@ -167,7 +173,7 @@ private struct TilePreview: View {
                 TileView(title: "Headache", isDue: true, onOpen: {}, onLog: {}) {
                     QuickrBadge("Due now · since 9:00 PM", icon: .bell, tone: .accent)
                 } quick: {
-                    QuickChipGrid(
+                    DemoQuickChipGrid(
                         options: [
                             ChipOption("none", label: "None"), ChipOption("mild", label: "Mild"),
                             ChipOption("moderate", label: "Moderate"), ChipOption("severe", label: "Severe"),

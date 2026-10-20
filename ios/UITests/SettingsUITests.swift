@@ -26,17 +26,17 @@ final class SettingsUITests: XCTestCase {
         app.buttons["server.connect"].tap()
         finishOnboarding(app)
 
-        XCTAssertTrue(app.staticTexts["root.title"].waitForExistence(timeout: 15))
-        XCTAssertEqual(app.staticTexts["root.title"].label, "quickR")
-        XCTAssertTrue(app.staticTexts["root.coreVersion"].label.hasPrefix("Core "))
-        XCTAssertTrue(app.staticTexts["root.storeStatus"].waitForLabel("Store ready"))
+        // The home screen, over the new server's store.
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.descendants(matching: .any)["home.list"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["home.noServer"].exists)
     }
 
     @MainActor
     func testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain() {
         let app = launch()
         onboard(app)
-        app.buttons["root.settings"].tap()
+        app.buttons["home.settings"].tap()
         let url = app.staticTexts["settings.serverURL"]
         XCTAssertTrue(url.waitForExistence(timeout: 10))
         // LabeledContent reads as one element: "Address, https://quickr.test".
@@ -77,8 +77,8 @@ final class SettingsUITests: XCTestCase {
         address.tap()
         address.typeText("quickr.test\n")  // Go connects from the keyboard
         finishOnboarding(app)
-        XCTAssertTrue(app.staticTexts["root.title"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.buttons["root.settings"].isHittable)
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["home.settings"].isHittable)
     }
 
     // MARK: - Helpers
@@ -99,7 +99,7 @@ final class SettingsUITests: XCTestCase {
         address.typeText("https://quickr.test")
         app.buttons["server.connect"].tap()
         finishOnboarding(app)
-        XCTAssertTrue(app.buttons["root.settings"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["home.settings"].waitForExistence(timeout: 15))
     }
 
     /// The reminders step shows only while the permission is undecided on this simulator; "Not now"
@@ -107,7 +107,7 @@ final class SettingsUITests: XCTestCase {
     @MainActor
     private func finishOnboarding(_ app: XCUIApplication) {
         let done = app.buttons["onboarding.done"]
-        let root = app.staticTexts["root.title"]
+        let root = app.staticTexts["home.wordmark"]
         for _ in 0..<30 where !done.exists && !root.exists { usleep(500_000) }
         if done.exists {
             for _ in 0..<4 where !done.isHittable { app.swipeUp() }

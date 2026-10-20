@@ -2,54 +2,6 @@ import Foundation
 import Observation
 import QuickrCore
 
-/// What the record screen writes through: `AppSession` in the app, a fake in tests.
-@MainActor
-public protocol RecordWriter: AnyObject {
-    /// Enqueues a new entry durably; returns its id (also its outbox item's).
-    func log(
-        _ topic: Topic, answers: [String: AnswerValue], capturedAt: Date, notes: String?
-    ) async throws -> UUID
-    /// Sends the entry now and waits a little (8 s, outbox.md §10) for the outcome.
-    func sendNow(_ entryId: UUID) async -> RecordDelivery
-    /// Drops a rejected new entry from the queue (the form keeps the user's answers).
-    func discard(_ entryId: UUID) async
-    /// Fix mode: replaces the rejected item's body and queues it again (CAS on `fix.rowVersion`).
-    func fix(
-        _ fix: RecordFix, topic: Topic, answers: [String: AnswerValue], capturedAt: Date, notes: String?
-    ) async throws
-    /// The item as it is now (its `rowVersion` moves with every fix), or nil once it's gone.
-    func refreshFix(_ fix: RecordFix) async -> RecordFix?
-    /// What to say about a refused write.
-    func failure(_ error: any Error) -> RecordFailure
-}
-
-/// What `sendNow` saw.
-public enum RecordDelivery: Sendable, Hashable {
-    case sent
-    /// Saved on this device; it syncs later.
-    case queued
-    /// The server refused it: the `Problem` goes on the form (nil: only `message` is known).
-    case rejected(Problem?, message: String)
-    /// The entry was deleted meanwhile and will never be recorded.
-    case notSaved
-}
-
-public enum RecordFailure: Sendable, Hashable {
-    /// The entry was deleted (it won't be recorded).
-    case notSaved
-    case message(String)
-}
-
-/// The toasts the record screen raises (the app's `EntryToasts`; a fake in tests).
-@MainActor
-public protocol RecordNotices: AnyObject {
-    /// "Logged …" or "Saved on this device", with Undo.
-    func logged(entryId: UUID, topic: Topic, sent: Bool)
-    /// A fixed entry went out again (no Undo: it is the user's correction).
-    func fixed(topic: Topic, sent: Bool)
-    func failed(topic: Topic, _ failure: RecordFailure)
-}
-
 /// A rejected entry to fix (from the sync sheet or a `?fix=` link).
 public struct RecordFix: Sendable, Hashable {
     public var itemId: String
@@ -83,6 +35,11 @@ public struct RecordFix: Sendable, Hashable {
 /// Undo and the screen closes (or, with Log another, starts a fresh form); rejected, the queued
 /// copy is dropped and the server's errors land on the fields. A fix replaces the rejected item's
 /// body; rejected again, it keeps the item and shows the errors.
+///
+/// Writes go through the app's `EntryFixing` writer and toasts through its `EntryToasts`, which
+/// outlive this screen (an Undo tapped after it closes still works). Every write is pinned to its
+/// store: a new entry's `LoggedEntry` carries the store it went to, and a fix acts in the store the
+/// rejected item was read from; after a server switch or a reset they do nothing there.
 @MainActor @Observable
 public final class RecordModel {
     public enum Mode: Sendable, Hashable {
@@ -121,8 +78,10 @@ public final class RecordModel {
     /// A refusal with no `Problem` to put on the fields (either mode): shown over the form.
     public private(set) var rejectionMessage: String?
 
-    @ObservationIgnored private let writer: any RecordWriter
-    @ObservationIgnored private let notices: any RecordNotices
+    @ObservationIgnored private let writer: any EntryFixing
+    @ObservationIgnored private let toasts: EntryToasts
+    /// The store the fix item was read from (fix mode).
+    @ObservationIgnored private let fixScope: EntryScope?
     @ObservationIgnored private let limits: Limits
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private var baseline: [String: AnswerInput] = [:]
@@ -134,13 +93,16 @@ public final class RecordModel {
     @ObservationIgnored private var currentFix: RecordFix?
 
     public init(
-        topic: Topic, mode: Mode, writer: any RecordWriter, notices: any RecordNotices, logAnother: Bool = false,
+        topic: Topic, mode: Mode, writer: any EntryFixing, toasts: EntryToasts, scope: EntryScope? = nil,
+        logAnother: Bool = false,
         source: String = "iOS app", limits: Limits = .serverDefaults, now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.topic = topic
         self.mode = mode
         self.writer = writer
-        self.notices = notices
+        self.toasts = toasts
+        // The store the caller read the fix item from (taken with it); else the active one.
+        fixScope = scope ?? writer.scope
         self.logAnother = logAnother
         self.source = source
         self.limits = limits
@@ -203,24 +165,25 @@ public final class RecordModel {
     }
 
     private func logNew(answers: [String: AnswerValue], capturedAt: Date, notes: String?) async -> Outcome {
-        let id: UUID
+        let entry: LoggedEntry
         do {
-            id = try await writer.log(topic, answers: answers, capturedAt: capturedAt, notes: notes)
+            entry = try await writer.log(EntryTopic(topic), answers: answers, capturedAt: capturedAt, notes: notes)
         } catch {
-            notices.failed(topic: topic, writer.failure(error))
+            toasts.logFailed(topicName: topic.name, writer.failure(error))
             return .stay
         }
-        switch await writer.sendNow(id) {
-        case .sent: notices.logged(entryId: id, topic: topic, sent: true)
-        case .queued: notices.logged(entryId: id, topic: topic, sent: false)
-        case .rejected(let problem, let message):
+        switch await writer.sendNow(entry, wait: Self.sendWait) {
+        case .sent: toasts.recorded(entry, topicName: topic.name, sent: true)
+        case .queued: toasts.recorded(entry, topicName: topic.name, sent: false)
+        case .failed(let message, let problem):
             // A brand-new entry the user is still looking at: the errors go back on the form and
-            // the queued copy goes (the PWA's recordEntry).
-            await writer.discard(id)
+            // the queued copy goes (the PWA's recordEntry). In its own store only: after a switch
+            // it stays there, for that store's sync sheet.
+            try? await writer.discard(entry)
             show(problem, message: message)
             return .stay
         case .notSaved:
-            notices.failed(topic: topic, .notSaved)
+            toasts.logFailed(topicName: topic.name, .notSaved)
             return finish()
         }
         guard logAnother else { return finish() }
@@ -232,33 +195,44 @@ public final class RecordModel {
     private func resubmit(
         _ fix: RecordFix, answers: [String: AnswerValue], capturedAt: Date, notes: String?
     ) async -> Outcome {
+        guard let scope = fixScope else {
+            toasts.logFailed(topicName: topic.name, .scopeChanged)
+            return .stay
+        }
+        let entry: LoggedEntry
         do {
-            try await writer.fix(fix, topic: topic, answers: answers, capturedAt: capturedAt, notes: notes)
+            entry = try await writer.fix(
+                itemId: fix.itemId, rowVersion: fix.rowVersion, topic: EntryTopic(topic), answers: answers,
+                capturedAt: capturedAt, notes: notes, in: scope)
         } catch {
             // Changed elsewhere (a CAS miss): pick up its version so the next save can apply.
             await refresh(fix)
-            notices.failed(topic: topic, writer.failure(error))
+            toasts.logFailed(topicName: topic.name, writer.failure(error))
             return .stay
         }
-        switch await writer.sendNow(UUID(uuidString: fix.itemId) ?? UUID()) {
-        case .sent: notices.fixed(topic: topic, sent: true)
-        case .queued: notices.fixed(topic: topic, sent: false)
-        case .rejected(let problem, let message):
+        switch await writer.sendNow(entry, wait: Self.sendWait) {
+        case .sent: toasts.fixed(topicName: topic.name, sent: true)
+        case .queued: toasts.fixed(topicName: topic.name, sent: false)
+        case .failed(let message, let problem):
             // A fix keeps its item (discarding is the sync sheet's, explicitly). The fix moved its
             // row version: read it back so the user's next correction applies. Their answers stay.
             await refresh(fix)
             show(problem, message: message)
             return .stay
         case .notSaved:
-            notices.failed(topic: topic, .notSaved)
+            toasts.logFailed(topicName: topic.name, .notSaved)
         }
         return finish()
     }
 
     private func refresh(_ fix: RecordFix) async {
-        guard let fresh = await writer.refreshFix(fix) else { return }
-        currentFix?.rowVersion = fresh.rowVersion
+        guard let scope = fixScope, let version = try? await writer.rowVersion(itemId: fix.itemId, in: scope)
+        else { return }
+        currentFix?.rowVersion = version
     }
+
+    /// The record screen's wait for `sendNow` (outbox.md §10).
+    public static let sendWait: Duration = .seconds(8)
 
     private func finish() -> Outcome {
         saved = true
