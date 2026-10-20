@@ -102,11 +102,12 @@ struct RecordView: View {
         .accessibilityIdentifier("record.save")
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        // Toasts sit above the bar (measured: it grows with the text size), back down without it.
-        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
-            environment.toastBottomInset = height + 8
-        }
-        .onDisappear { environment.toastBottomInset = 8 }
+        // Toasts sit above the bar (measured: it grows with the text size). Only the screen leaving
+        // puts them back down: Log another's fresh form rebuilds the bar, and its old copy going
+        // must not undo the new one's measure.
+        .onGeometryChange(
+            for: CGFloat.self, of: { $0.size.height },
+            action: { height in environment.toastBottomInset = height + 8 })
     }
 
     private var fixBanner: some View {
