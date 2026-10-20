@@ -36,7 +36,12 @@ import UserNotifications
         return (location, chips, number)
     }
 
+    /// Holds `SystemCategoriesLock`: it sets and reads the process-wide category set.
     @Test func theLiveSessionRegistersTheStoresCategoriesWithTheSystem() async throws {
+        try await SystemCategoriesLock.shared.withLock { try await registersTheStoresCategories() }
+    }
+
+    private func registersTheStoresCategories() async throws {
         let (location, chips, number) = try await Self.seeded()
         defer { TestStores.remove(location) }
         UNUserNotificationCenter.current().setNotificationCategories([])
@@ -70,6 +75,10 @@ import UserNotifications
 
     /// Specs survive the trip through `UNNotificationCategory`, `open` (foreground) included.
     @Test func specsRoundTripThroughTheSystemCenter() async throws {
+        try await SystemCategoriesLock.shared.withLock { try await specsRoundTrip() }
+    }
+
+    private func specsRoundTrip() async throws {
         let spec = NotificationCategorySpec(
             id: "quickr.t.test.0000000000000000",
             actions: [

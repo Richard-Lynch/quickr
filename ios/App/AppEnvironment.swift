@@ -66,7 +66,8 @@ final class AppEnvironment {
     }
 
     /// The live session over the App Group's files, sending through URLSession with the
-    /// Cloudflare Access token from the shared Keychain.
+    /// Cloudflare Access token from the shared Keychain. `categoryCenter` is the system's: app
+    /// tests pass nil unless they hold `SystemCategoriesLock` (the set is one per process).
     static func live(
         location: StoreLocation = .shared(appGroup: AppGroup.identifier), defaults: UserDefaults = AppGroup.defaults,
         keychain: any KeychainStore = SystemKeychain(), transport: any Transport = URLSessionTransport(),
