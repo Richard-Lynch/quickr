@@ -306,6 +306,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 18:05 (EDT): ios/m3 now carries all of M2 (206eac2) plus HANDLER and NSE. Started: **INTENTS** (CSV/REG agent; a time-boxed Siri spike first, findings into research/04-siri.md) and **WIDGETS** (FORM agent; read-only widget parts first, then interactive buttons on INTENTS' shared types). Final M2 validation on 77c6924 is running; the PR body is being finalized.
+
 - 2026-10-20 18:00 (EDT): **iOS 27 fixes merged into ios/m2-ui** (77c6924; Codex ×2). RECORD, EDIT and the topic screens show the system back button while clean (iOS 27 gives no content swipe with a hidden back button) and the guarded back once changed; the token sheet clears the secret after an awaited Keychain save and before closing, and can't be swipe-dismissed while a secret is typed (the iOS 27 Passwords prompt); the XXXL row-swipe test and the content-swipe test are fixed. UI 78/0 on both 26 and 27. Lint, core and the app build pass on the merge. **M2 is code-complete.** Final validation on 77c6924 is running, and the M2 PR body is being finalized.
 
 - 2026-10-20 16:30 (EDT): **BUILDER-UI merged into ios/m2-ui** (Codex ×2; on 8e58e92: UI 95 with 1 failure, the known Record content-swipe flake being fixed on ios/m2-ios27; builder UI 5/5 light and dark; mutants 24/24; 14 deviations in docs/ios/demo/m2/builder-deviations.md). Lint, core, vectors with no drift, the app build and check-frontend pass on the merge. M2 PR: waiting only on the iOS 27 fixes (26 run in progress, then content-swipe ×3 on 27).
