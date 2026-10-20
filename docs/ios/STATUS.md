@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- A11Y: at AX XXXL, the topic tabs (LIST's segmented Overview/Entries/Versions control) stay small while the rest of the screen grows. Use a scaled custom tab bar, or a menu/picker at AX sizes (found by STATS).
 - REG: add push-activation tests for several consecutive foreground trips, and a quick return before startup finishes, with expiry around it (Codex r4 coverage note).
 - Both clients: a prefilled number field (the min-0 prefill or the last value) keeps the caret where it was tapped, so typing "3" gives "30". Select all on the first focus of a pristine prefill, or clear a pristine min-0 prefill when typing starts. PWA: AnswerField.tsx NumberInput, quickLog.ts initialNumber. iOS: QuickLog.initialText and AnswerField. Tap counts are unchanged. (Found by UIT-2.)
 - SYNC-UX: add a deterministic test for repeated background/foreground cycles during a held startup (Codex r4 note; the expiry-first ordering is covered by activationWhileAnExpiredStartUnwindsConnects).
@@ -300,6 +301,10 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-20 08:10 (EDT): Apple Developer Program enrolment confirmed (valid through 2027-10-19). Still to come: the Team ID, Xcode signed in on the Mac, and an APNs key; these unblock M3 device work. STATS Codex r1: 2 Majors (the device zone is snapshotted at model creation; overlapping identical loads can publish an older result) and 1 Minor (a series' cached freshness isn't shown); fixes in progress. RECORD Save: the shared `.formSaveBar` (Save goes into the keyboard toolbar while typing; f98d5a5 on ios/m2-uit2) is under simulator test; EDIT will merge it and adopt it before its final run. CSV gates: results pending.
+
+- 2026-10-20 08:00 (EDT): STATS green at 7af157d (Unit 615, UI 40/40 with StatsUITests 4/4 in light and dark; backend 691, frontend 852); screenshots in d68e06d; Codex r1 running. CSV started and is gating (9b27ba1; online-only share-sheet export with LIST's filters; deviations: the filename date comes from the device, there's an offline message, the icon stays fixed at AX sizes). RECORD Save bar: the UIKit-frame pin failed (bar under the keyboard even before editing). Now Save moves into the keyboard toolbar while the keyboard is up, built as a shared QuickrUI/Form component because EDIT's screen likely has the same bug. EDIT: test-side fixes (the unit in the number field's AX value; cursor placement) before the rerun.
 
 - 2026-10-20 07:35 (EDT): **REG merged into ios/m2-ui** (Codex ×4; on 8a54b8a: Unit 618, UI 36/36 on 68832d3; lint, core and the app build pass on the merge). No real APNs token until the aps-environment entitlement and Team ID land (M3). Remaining for M2: EDIT (UI rerun after the demo-version fix), STATS (final run), UIT-2 (Save-bar fix run, demo assets), then the M2 PR(s) into feat/ios-app.
 
