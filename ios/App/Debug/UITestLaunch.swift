@@ -449,6 +449,8 @@ private struct FakeServerTransport: Transport {
         topic["updated_at"] = now
         state.put(topic)
         return json(200, topic)
+    }
+
     /// `/api/v1/topics/{ref}/stats` and `/api/v1/topics/{ref}/questions/{key}/series` (`FakeStats`).
     private func stats(_ request: HTTPRequest, path: String) -> Data? {
         let parts = path.split(separator: "/").map(String.init)  // api v1 topics {ref} ...
