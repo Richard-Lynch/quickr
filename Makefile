@@ -133,6 +133,12 @@ seed-docker: ## Load demo data into the docker stack
 IOS_SIM_MIN ?= quickR iOS-26-0
 IOS_SIM_CUR ?= quickR iOS27
 IOS_SIM ?= $(IOS_SIM_MIN)
+# ios-test, ios-uitest and ios-sim-run use these devices only when they were set (command line
+# or environment). Otherwise, outside CI, they run on this worktree's clone of them
+# (target_sim_udid in common.sh), never on the shared base device, which the cap counts too.
+ios_sim_set = $(filter-out undefined default file,$(origin $(1)))
+IOS_TEST_SIM_DEFAULTED := $(if $(call ios_sim_set,IOS_SIM_MIN),0,1)
+IOS_SIM_DEFAULTED := $(if $(call ios_sim_set,IOS_SIM)$(call ios_sim_set,IOS_SIM_MIN),0,1)
 # Preferred model for ios-check-ci, which requires an iOS 26.x runtime whatever the model.
 IOS_SIM_CI ?= iPhone 17
 IOS_SCRIPTS := ios/scripts
@@ -173,12 +179,12 @@ ios-resolve: ## iOS: update package pins in ios/QuickrKit/Package.resolved and c
 	@$(IOS_SCRIPTS)/resolve.sh
 
 .PHONY: ios-test
-ios-test: ios-gen ## iOS: Unit test plan on the iOS 26.0 simulator
-	@$(IOS_SCRIPTS)/test.sh Unit "$(IOS_SIM_MIN)"
+ios-test: ios-gen ## iOS: Unit test plan on the iOS 26.0 simulator (this worktree's clone unless IOS_SIM_MIN is set)
+	@IOS_SIM_DEFAULTED=$(IOS_TEST_SIM_DEFAULTED) $(IOS_SCRIPTS)/test.sh Unit "$(IOS_SIM_MIN)"
 
 .PHONY: ios-uitest
-ios-uitest: ios-gen ## iOS: UI test plan (IOS_SIM=name or UDID)
-	@$(IOS_SCRIPTS)/test.sh UI "$(IOS_SIM)"
+ios-uitest: ios-gen ## iOS: UI test plan (IOS_SIM=name or UDID; default this worktree's clone)
+	@IOS_SIM_DEFAULTED=$(IOS_SIM_DEFAULTED) $(IOS_SCRIPTS)/test.sh UI "$(IOS_SIM)"
 
 .PHONY: ios-lint
 ios-lint: ## iOS: swift-format lint (skips with a warning if swift-format is missing)
@@ -204,7 +210,7 @@ ios-check-ci: ## iOS: what CI runs on a ready PR (gen, build + Unit plan on iOS 
 
 .PHONY: ios-sim-run
 ios-sim-run: ios-gen ## iOS: build, install and launch on a simulator (IOS_SIM; URL=quickr://... opens it)
-	@$(IOS_SCRIPTS)/sim-run.sh "$(IOS_SIM)" "$(URL)"
+	@IOS_SIM_DEFAULTED=$(IOS_SIM_DEFAULTED) $(IOS_SCRIPTS)/sim-run.sh "$(IOS_SIM)" "$(URL)"
 
 IOS_SHOTS ?= docs/ios/demo/m0
 .PHONY: ios-shots

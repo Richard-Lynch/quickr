@@ -44,15 +44,15 @@ sim_udid() {
   echo "$udid"
 }
 
-# The cap on booted worktree clones (sim-clone.sh names them "<source> <dir>-<hash6>"), so
-# parallel worktrees don't swamp the Mac. Prints one "<udid> <name>" line per booted clone
-# other than $1, or "self" alone when $1 is already booted (re-booting your own clone, or
-# using it while booted, never counts against you).
+# The cap on booted quickR simulators, so parallel worktrees don't swamp the Mac. Every device
+# named "quickR ..." counts: the worktree clones (sim-clone.sh names them "<source>
+# <dir>-<hash6>") and the shared base devices they come from. Prints one "<udid> <name>" line
+# per booted one other than $1, or "self" alone when $1 is already booted (re-booting your own
+# device, or using it while booted, never counts against you).
 booted_clones() {
   xcrun simctl list -j devices | python3 -c '
-import json, re, sys
+import json, sys
 me = sys.argv[1]
-clone = re.compile(r"^quickR .+ \S+-[0-9a-f]{6}$")
 out = []
 for devices in json.load(sys.stdin)["devices"].values():
     for d in devices:
@@ -61,14 +61,29 @@ for devices in json.load(sys.stdin)["devices"].values():
         if d["udid"] == me:
             print("self")
             sys.exit()
-        if clone.match(d["name"]):
+        if d["name"].startswith("quickR "):
             out.append(d["udid"] + " " + d["name"])
 print("\n".join(out))
 ' "$1"
 }
 
+# The UDID for a make target's simulator $1 (a name or UDID). Used as given when it was set
+# explicitly or under CI. When make only defaulted it (IOS_SIM_DEFAULTED=1), outside CI, it
+# is this worktree's clone of $1 instead (created if missing, not booted), so a plain
+# `make ios-test` never lands on the shared base device.
+target_sim_udid() {
+  if [[ "${IOS_SIM_DEFAULTED:-0}" == 1 && -z "${CI:-}" ]]; then
+    local udid
+    udid="$("$IOS_DIR/scripts/sim-clone.sh" --no-boot "$1")" || die "could not find or create this worktree's clone of '$1'"
+    echo "ios: using this worktree's simulator $udid (a clone of '$1'; set IOS_SIM/IOS_SIM_MIN for another)" >&2
+    echo "$udid"
+  else
+    sim_udid "$1"
+  fi
+}
+
 # Boots simulator $1 (if it isn't already) and waits until it is ready, admitted by the cap:
-# while IOS_SIM_CAP (default 2; 0 = no cap) other clones are booted it fails, naming them, or
+# while IOS_SIM_CAP (default 2; 0 = no cap) other quickR simulators are booted it fails, naming them, or
 # with IOS_SIM_WAIT=1 polls every IOS_SIM_WAIT_POLL seconds (default 15) until a slot frees.
 # Admission is atomic across worktrees: one machine-wide lock is held from the check until
 # the device shows as booted, and released while waiting (then the check runs again).
@@ -98,7 +113,7 @@ sim_boot() {
     fi
     exec 8>&-
     if [[ "${IOS_SIM_WAIT:-0}" != 1 ]]; then
-      die "$count simulator clones are booted (IOS_SIM_CAP=$cap); shut one down or wait (--wait / IOS_SIM_WAIT=1):
+      die "$count quickR simulators are booted (IOS_SIM_CAP=$cap); shut one down or wait (--wait / IOS_SIM_WAIT=1):
 $(sed 's/^/  /' <<<"$booted")"
     fi
     if (( !announced )); then
