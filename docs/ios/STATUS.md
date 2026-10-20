@@ -306,6 +306,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 15:55 (EDT): BUILDER-UI (875b0aa; full builder, preview, edit questions, Review via a dry-run /check, publish v(n+1), the 409 sheet, the Versions tab from the store; builder UI 5/5 light and dark; mutants 16/16; 12 PWA deviations). Codex r1: 3 Majors, all async races (publish discards later edits; "Keep my draft" during Load latest; a late /check reviews a stale draft) and 1 Minor (pending option text is view-local). Fixing, with suspended-response tests. iOS 27 fixes (3ca356a): the 27/26 validation is still running.
+
 - 2026-10-20 14:55 (EDT): The PWA `tsc -b` failed on m2-ui (TOPIC's schedule.vectors.test.ts imported node:fs by literal); fixed in eb4e212, check-frontend green. iOS 27 fixes: Codex found 1 Major (swipe-dismissing the token sheet bypassed the secret clearing); fixed in b6b81c6 with interactiveDismissDisabled while a secret is typed, plus a UI test whose no-prompt check is proven by mutation. Its 27/26 run seems to have died at the start; being restarted. BUILDER-UI committed (fb12777: builder screens, publish v(n+1), the 409 conflict sheet, the Versions tab); 4 BuilderUITests failures (duplicate add-question ids, a missing Preview button) being fixed.
 
 - 2026-10-20 14:25 (EDT): **NSE merged into ios/m3** (8915831; Unit 851/0 on 4c16dfd). The NSE agent found an ~11% flaky assertion in EDIT's aRefusedEditIsFixedInPlace (a substring check across a random UUID); the fix is ported to m2-ui (923026c). The M3 code so far is HANDLER and NSE (device verification needs the Team ID and APNs key). M2 PR: only the iOS 27 UI fixes remain. BUILDER-UI is in progress.
