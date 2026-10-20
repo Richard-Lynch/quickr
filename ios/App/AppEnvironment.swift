@@ -36,6 +36,9 @@ final class AppEnvironment {
     private(set) var hasStarted = false
 
     @ObservationIgnored private let makeSession: @MainActor () throws -> AppSession
+    /// APNs registration over the session (notifications.md §9): live builds only.
+    private(set) var push: PushLifecycle?
+    @ObservationIgnored private let makePush: (@MainActor (AppSession) -> PushLifecycle)?
     @ObservationIgnored private var prepare: (@MainActor () async -> Void)?
     @ObservationIgnored private var starting: Task<Void, Never>?
 
@@ -44,11 +47,13 @@ final class AppEnvironment {
     init(
         settings: AppSettings, credentials: KeychainAccessCredentials? = nil,
         prepare: (@MainActor () async -> Void)? = nil,
+        makePush: (@MainActor (AppSession) -> PushLifecycle)? = nil,
         makeSession: @escaping @MainActor () throws -> AppSession
     ) {
         self.settings = settings
         self.credentials = credentials
         self.makeSession = makeSession
+        self.makePush = makePush
         self.prepare = prepare
         entryToasts = EntryToasts(center: toasts, writer: entryWriter)
         quickLogModels = QuickLogModels(writer: entryWriter, toasts: entryToasts, drafts: quickLogDrafts)
@@ -63,7 +68,11 @@ final class AppEnvironment {
         keychain: any KeychainStore = SystemKeychain(), transport: any Transport = URLSessionTransport()
     ) -> AppEnvironment {
         let credentials = KeychainAccessCredentials(keychain: keychain)
-        return AppEnvironment(settings: AppSettings(defaults: defaults), credentials: credentials) {
+        // APNs registration (REG) sends through the same transport and Access token.
+        let makePush: @MainActor (AppSession) -> PushLifecycle = {
+            PushLifecycle(session: $0, transport: transport, credentials: credentials)
+        }
+        let makeSession: @MainActor () throws -> AppSession = {
             // Reminder categories go to the system center from launch, ahead of any push (spike F1);
             // registering them needs no notification permission.
             let session = try AppSession(
@@ -74,6 +83,9 @@ final class AppEnvironment {
             credentials.directory.attach(session.partitions.registry.repository)
             return session
         }
+        return AppEnvironment(
+            settings: AppSettings(defaults: defaults), credentials: credentials, makePush: makePush,
+            makeSession: makeSession)
     }
 
     /// The app's launch path: builds the live environment and registers the active store's topics
@@ -118,6 +130,8 @@ final class AppEnvironment {
             await migrateLegacyToken()
             await session?.start(serverURL: settings.serverURL)
             hasStarted = true
+            if push == nil, let session, let makePush { push = makePush(session) }
+            await push?.activated(coldLaunch: true)
             QuickRShortcuts.updateAppShortcutParameters()
         }
         starting = attempt
@@ -133,7 +147,10 @@ final class AppEnvironment {
         guard let session else { return }
         switch phase {
         case .active:
-            Task { await session.didBecomeActive() }
+            Task {
+                await session.didBecomeActive()
+                await push?.activated(coldLaunch: false)
+            }
         case .background:
             flushInBackground(session)
         default:

@@ -16,6 +16,10 @@ struct RootView: View {
         content
             // One host for every screen's toasts, so a toast outlives navigation.
             .toastHost(environment.toasts)
+            // A server switch or a reset: the APNs token follows the bound store (REG).
+            .onChange(of: environment.session?.binding) { _, _ in
+                Task { await environment.push?.bindingChanged() }
+            }
     }
 
     @ViewBuilder
