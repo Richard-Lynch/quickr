@@ -8,14 +8,18 @@
  * - No text input, no "More…" (the body opens the record screen).
  *
  * A click is validated against the notification's own data, then enqueues an `entry.create`
- * into the same IndexedDB outbox as the app. Its id is derived from the reminder's slot, so a
- * second click, a re-delivered push or two racing clicks never log twice: an item already
- * queued is left alone, and one already sent is replayed idempotently by the server (a POST
- * with a live id returns that entry).
+ * into the same IndexedDB outbox as the app. Its id is the shared action entry id (§7.4),
+ * derived from (server, topic, slot) exactly as the iOS app derives it, so a second click, a
+ * re-delivered push, two racing clicks or the same reminder actioned on the iPhone never log
+ * twice: an item already queued is left alone, and one already sent is replayed idempotently
+ * by the server (a POST with a live id returns that entry).
  */
 import { ENTRY_CREATE, type EntryCreatePayload } from './outbox/kinds';
 import type { Outbox } from './outbox/outbox';
 import { formatQuickLogNumber, type PushPayload, type PushQuickr } from './pushPayload';
+
+/** The namespace of the shared action entry id (notifications.md §7.4). */
+export const ACTION_ENTRY_ID_PREFIX = 'quickr-action-entry-v1';
 
 /** `source` of entries logged from a PWA notification action. */
 export const PWA_NOTIFICATION_SOURCE = 'pwa.notification';
@@ -78,12 +82,18 @@ export function resolveAction(
 }
 
 /**
- * The entry id for an action on a reminder: a UUID (version 8, name-based on SHA-256) of the
- * topic and the slot. One reminder slot logs at most one entry, whichever action was clicked.
+ * The shared action entry id (notifications.md §7.4): a UUID (version 8) from SHA-256 of
+ * `quickr-action-entry-v1|{server_id}|{topic_id}|{due_since}`, ids lowercased, `due_since`
+ * exactly as the payload carries it. The iOS handler derives the same id
+ * (`shared/fixtures/action-entry-id-vectors.json`).
  */
-export async function actionEntryId(topicId: string, dueSince: string): Promise<string> {
+export async function actionEntryId(
+  serverId: string,
+  topicId: string,
+  dueSince: string,
+): Promise<string> {
   const name = new TextEncoder().encode(
-    `quickr-pwa-action-v1|${topicId.toLowerCase()}|${dueSince}`,
+    `${ACTION_ENTRY_ID_PREFIX}|${serverId.toLowerCase()}|${topicId.toLowerCase()}|${dueSince}`,
   );
   const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', name)).slice(0, 16);
   bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x80; // version 8
@@ -121,7 +131,7 @@ export async function logFromAction(opts: {
   const q = data.quickr ?? null;
   const answer = resolveAction(opts.action, q);
   if (!q || !answer) return { status: 'invalid' };
-  const id = await actionEntryId(q.topic_id, q.due_since);
+  const id = await actionEntryId(q.server_id, q.topic_id, q.due_since);
   const now = opts.now ?? Date.now;
   const payload: EntryCreatePayload = {
     topic: { id: q.topic_id, slug: data.topic_slug ?? '', name: data.title ?? '' },

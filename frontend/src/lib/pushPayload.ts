@@ -20,7 +20,8 @@ export interface PushPayload {
 
 /** What a reminder's actions need (notifications.md §2.1, §10). */
 export interface PushQuickr {
-  server_id: string | undefined;
+  /** Needed for the action entry id (notifications.md §7.4). */
+  server_id: string;
   topic_id: string;
   /** The topic version actions log against. */
   version: number;
@@ -88,20 +89,28 @@ const finite = (v: unknown): number | undefined =>
   typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 
 /**
- * The actionable fields, or undefined unless this is a v1 `due` reminder with a topic id,
- * version, slot and a well-formed descriptor (anything else is display-only, §2.1).
+ * The actionable fields, or undefined unless this is a v1 `due` reminder with a server id,
+ * topic id, version, slot and a well-formed descriptor (anything else is display-only, §2.1).
  */
 function parseQuickr(o: Record<string, unknown>): PushQuickr | undefined {
   if (o.v !== 1 || o.kind !== 'due') return undefined;
+  const serverId = str(o.server_id);
   const topicId = str(o.topic_id);
   const version = finite(o.version);
   const dueSince = str(o.due_since);
   const quickLog = parseQuickLog(o.quick_log);
-  if (!topicId || version === undefined || !Number.isInteger(version) || !dueSince || !quickLog) {
+  if (
+    !serverId ||
+    !topicId ||
+    version === undefined ||
+    !Number.isInteger(version) ||
+    !dueSince ||
+    !quickLog
+  ) {
     return undefined;
   }
   return {
-    server_id: str(o.server_id),
+    server_id: serverId,
     topic_id: topicId,
     version,
     due_since: dueSince,

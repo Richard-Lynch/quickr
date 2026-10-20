@@ -169,7 +169,8 @@ last value again. Clicking one logs the entry from the service worker, even
 with the app closed: it goes into the same offline outbox as the app (source
 `pwa.notification`) and is sent at once, or later by Background Sync or the
 app's next start. Each reminder logs at most once, however often its buttons
-are clicked. Safari and iOS web push show no buttons; tapping the notification
+are clicked, even when it is also actioned in the iOS app: both derive the
+entry id from the reminder (docs/ios/specs/notifications.md §7.4). Safari and iOS web push show no buttons; tapping the notification
 opens the record screen as before.
 
 *Manual test (Chrome desktop):* subscribe in Settings, make a topic whose only

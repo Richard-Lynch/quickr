@@ -6,6 +6,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi } from 'vitest';
 
+import idRaw from '../../../shared/fixtures/action-entry-id-vectors.json?raw';
 import raw from '../../../shared/fixtures/notification-vectors.json?raw';
 import { uuid } from './uuid';
 import { ENTRY_CREATE, OUTBOX_KINDS, type EntryCreatePayload } from './outbox/kinds';
@@ -38,7 +39,17 @@ interface Vectors {
 }
 
 const vectors = JSON.parse(raw) as Vectors;
+const idVectors = JSON.parse(idRaw) as {
+  cases: {
+    name: string;
+    server_id: string;
+    topic_id: string;
+    due_since: string;
+    expected: string;
+  }[];
+};
 
+const SERVER = '0b9e0000-0000-4000-8000-0000000000aa';
 const TOPIC = '6f1c0000-0000-4000-8000-000000000001';
 const SLOT = '2026-10-17T08:00:00Z';
 
@@ -51,7 +62,7 @@ function reminder(quickLog: unknown, patch: Record<string, unknown> = {}): PushP
     topic_slug: 'mood',
     v: 1,
     kind: 'due',
-    server_id: '0b9e0000-0000-4000-8000-0000000000aa',
+    server_id: SERVER,
     topic_id: TOPIC,
     version: 3,
     due_since: SLOT,
@@ -138,6 +149,8 @@ describe('pushActions', () => {
     expect(pushActions(reminder(enumLog, { kind: 'test' }), 2)).toEqual([]);
     expect(pushActions(reminder(enumLog, { v: 2 }), 2)).toEqual([]);
     expect(pushActions(reminder(enumLog, { due_since: undefined }), 2)).toEqual([]);
+    // no server id, no shared entry id (§7.4): display-only
+    expect(pushActions(reminder(enumLog, { server_id: undefined }), 2)).toEqual([]);
     expect(pushActions(reminder({ ...enumLog, options: [{ value: 1 }] }), 2)).toEqual([]);
     expect(pushActions(reminder({ type: 'str', key: 'note' }), 2)).toEqual([]);
     // the original 5-field payload still parses (older servers)
@@ -164,13 +177,20 @@ describe('resolveAction', () => {
   });
 });
 
-describe('actionEntryId', () => {
-  it('is a stable UUID per topic and slot', async () => {
-    const id = await actionEntryId(TOPIC, SLOT);
+describe('actionEntryId (§7.4, shared with the iOS handler)', () => {
+  it.each(idVectors.cases.map((c) => [c.name, c] as const))(
+    'matches the shared vectors: %s',
+    async (_name, c) => {
+      expect(await actionEntryId(c.server_id, c.topic_id, c.due_since)).toBe(c.expected);
+    },
+  );
+
+  it('is a version-8 UUID that changes with the server, topic and slot', async () => {
+    const id = await actionEntryId(SERVER, TOPIC, SLOT);
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-    expect(await actionEntryId(TOPIC.toUpperCase(), SLOT)).toBe(id);
-    expect(await actionEntryId(TOPIC, '2026-10-17T09:00:00Z')).not.toBe(id);
-    expect(await actionEntryId(uuid(), SLOT)).not.toBe(id);
+    expect(await actionEntryId(SERVER, TOPIC, '2026-10-17T09:00:00Z')).not.toBe(id);
+    expect(await actionEntryId(uuid(), TOPIC, SLOT)).not.toBe(id);
+    expect(await actionEntryId(SERVER, uuid(), SLOT)).not.toBe(id);
   });
 });
 
@@ -213,7 +233,7 @@ describe('logFromAction', () => {
   it('queues one entry.create with the answer, the push version and the PWA source', async () => {
     const { outbox } = setup();
     const result = await logFromAction({ outbox, action: 'log|o|ok', data, now });
-    expect(result).toEqual({ status: 'enqueued', id: await actionEntryId(TOPIC, SLOT) });
+    expect(result).toEqual({ status: 'enqueued', id: await actionEntryId(SERVER, TOPIC, SLOT) });
     const [item] = await outbox.list();
     expect(item?.kind).toBe(ENTRY_CREATE);
     expect(item?.payload).toEqual({
