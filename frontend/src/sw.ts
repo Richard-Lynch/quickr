@@ -7,7 +7,8 @@
  *   never caches /mcp, non-GET requests, CSV exports or push endpoints
  * - update flow: waits until the page asks it to SKIP_WAITING (no surprise reloads)
  * - Background Sync: flushes the IndexedDB outbox where supported (Chromium)
- * - Web Push: shows notifications, routes clicks into the app
+ * - Web Push: shows notifications, routes clicks into the app; quick-log reminders offer
+ *   Chromium actions that log through the outbox (lib/pushActions.ts)
  */
 import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 import { clientsClaim } from 'workbox-core';
@@ -25,6 +26,7 @@ import { NetworkFirst } from 'workbox-strategies';
 import { API_PREFIX, CHANNEL_HEADERS, SW_API_CACHE } from './api/constants';
 import { OUTBOX_KINDS, OUTBOX_SYNC_TAG } from './lib/outbox/kinds';
 import { createOutbox } from './lib/outbox/outbox';
+import { logFromAction, notificationData, pushActions } from './lib/pushActions';
 import { parsePushPayload, safeInAppPath, type NavigateMessage } from './lib/pushPayload';
 
 declare const self: ServiceWorkerGlobalScope & {
@@ -114,17 +116,26 @@ self.addEventListener('push', (event) => {
     raw = event.data?.text();
   }
   const p = parsePushPayload(raw);
+  const actions = pushActions(p, maxActions());
   // userVisibleOnly: every push must show a notification (Safari revokes otherwise).
   event.waitUntil(
     self.registration.showNotification(p.title, {
       body: p.body,
       icon: '/pwa-192x192.png',
       badge: '/badge-96x96.png',
-      data: { url: p.url, topic_slug: p.topic_slug ?? null },
+      data: notificationData(p),
       ...(p.tag ? { tag: p.tag } : {}),
+      // (`actions` isn't in lib.webworker's NotificationOptions)
+      ...(actions.length ? ({ actions } as NotificationOptions) : {}),
     }),
   );
 });
+
+/** Chromium shows up to `Notification.maxActions` actions; Safari and iOS have none. */
+function maxActions(): number {
+  const n = (self as { Notification?: { maxActions?: unknown } }).Notification?.maxActions;
+  return typeof n === 'number' && n > 0 ? n : 0;
+}
 
 async function focusOrOpen(path: string): Promise<void> {
   const origin = self.location.origin;
@@ -152,5 +163,34 @@ async function focusOrOpen(path: string): Promise<void> {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data as { url?: unknown } | null;
-  event.waitUntil(focusOrOpen(safeInAppPath(data?.url)));
+  const open = () => focusOrOpen(safeInAppPath(data?.url));
+  event.waitUntil(
+    event.action ? logAction(event.action, data).then((ok) => (ok ? undefined : open())) : open(),
+  );
 });
+
+/**
+ * A reminder action: queue the entry durably (once per slot), then send it now. Works with
+ * the app closed; offline, Background Sync (Chromium) or the app's next start sends it.
+ * False when the action doesn't match the reminder: the caller opens the app instead.
+ */
+async function logAction(action: string, data: unknown): Promise<boolean> {
+  const locks = (self.navigator as { locks?: LockManager }).locks;
+  const result = await logFromAction({ outbox, action, data, locks });
+  if (result.status === 'invalid') return false;
+  try {
+    await outbox.flush({ force: true });
+  } catch {
+    // stays queued; retried below or by the app
+  }
+  if ((await outbox.list()).some((i) => i.status === 'pending')) {
+    try {
+      await (
+        self.registration as { sync?: { register(tag: string): Promise<void> } }
+      ).sync?.register(OUTBOX_SYNC_TAG);
+    } catch {
+      // no Background Sync (Firefox, Safari): the app flushes on its next start
+    }
+  }
+  return true;
+}
