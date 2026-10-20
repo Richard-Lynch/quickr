@@ -50,9 +50,14 @@ import Testing
         let sheet = environment.sync.sheet(lastSyncAt: nil)
         #expect(sheet.rows.map(\.title) == ["Entry · Mood"] && !sheet.online)
 
-        // Back online: the regained path flushes (forced) and the entry goes.
+        // Back online: the regained path asks for a forced flush, and the entry goes.
+        let scheduler = try #require(session.scheduler)
+        let flushes = await scheduler.started.count
         UITestLaunch.server.offline = false
         UITestLaunch.network.set(online: true)
+        try await eventually("a network flush") {
+            await scheduler.started.dropFirst(flushes).contains(OutboxFlushReason.networkAvailable.policy)
+        }
         try await eventually("sent") { environment.sync.pill(status: session.syncStatus) == .hidden }
         #expect(environment.sync.items.isEmpty)
         await session.shutdown()

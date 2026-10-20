@@ -77,6 +77,45 @@ final class SyncUITests: XCTestCase {
         }
     }
 
+    /// The demo screenshots (docs/ios/demo/m2/sync-ux-*.png). Runs only with
+    /// `TEST_RUNNER_QUICKR_SHOTS_DIR=<dir>` (xcodebuild passes it to the runner as QUICKR_SHOTS_DIR).
+    @MainActor
+    func testDemoScreenshots() throws {
+        guard let dir = ProcessInfo.processInfo.environment["QUICKR_SHOTS_DIR"] else {
+            throw XCTSkip("QUICKR_SHOTS_DIR not set: demo screenshots only")
+        }
+        for (mode, appearance) in [("light", XCUIDevice.Appearance.light), ("dark", .dark)] {
+            XCUIDevice.shared.appearance = appearance
+            let app = launch()
+            app.buttons["debug.reject"].tap()
+            app.buttons["debug.log"].tap()
+            XCTAssertTrue(app.buttons["sync.pill"].waitForLabel("1 failed to sync", timeout: 15))
+            app.buttons["debug.offline"].tap()
+            app.buttons["debug.log"].tap()
+            sleep(1)
+            try save(dir, "sync-ux-pill-\(mode)")
+            app.buttons["sync.pill"].tap()
+            XCTAssertTrue(app.staticTexts["sync.row.1.status"].waitForExistence(timeout: 5))
+            sleep(1)
+            try save(dir, "sync-ux-sheet-\(mode)")
+            app.terminate()
+        }
+        XCUIDevice.shared.appearance = .light
+        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        app.buttons["debug.reject"].tap()
+        app.buttons["debug.log"].tap()
+        XCTAssertTrue(app.buttons["sync.pill"].waitForExistence(timeout: 15))
+        app.buttons["sync.pill"].tap()
+        XCTAssertTrue(app.staticTexts["sync.row.0.status"].waitForExistence(timeout: 5))
+        sleep(1)
+        try save(dir, "sync-ux-sheet-ax")
+    }
+
+    private func save(_ dir: String, _ name: String) throws {
+        let url = URL(fileURLWithPath: dir).appending(path: "\(name).png")
+        try XCUIScreen.main.screenshot().pngRepresentation.write(to: url)
+    }
+
     private func launch(extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments =

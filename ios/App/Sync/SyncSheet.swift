@@ -38,8 +38,10 @@ struct SyncSheet: View {
             if environment.session?.syncStatus.identityMismatch == true {
                 banner(
                     "This address now points to a different quickR server",
-                    "Nothing is sent or pulled until you check the server in Settings.", tone: .danger,
-                    id: "sync.mismatchBanner")
+                    "Nothing is sent or pulled until it answers as this server again (checked every 5 minutes), "
+                        + "or you change the server in Settings.", tone: .danger, id: "sync.mismatchBanner")
+                Button("Check again") { Task { await environment.sync.checkIdentityAgain() } }
+                    .accessibilityIdentifier("sync.checkIdentity")
             }
             if !model.online {
                 banner(

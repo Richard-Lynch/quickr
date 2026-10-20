@@ -261,3 +261,35 @@ final class FireCounter: @unchecked Sendable {
     func increment() { lock.withLock { stored += 1 } }
     var count: Int { lock.withLock { stored } }
 }
+
+@Suite struct IdentityRecheckTests {
+    @Test func probesEveryIntervalOnlyWhileMismatched() async throws {
+        let sleeper = ManualSleeper()
+        let mismatched = FlagBox(true)
+        let rechecks = FireCounter()
+        let task = Task {
+            await IdentityRecheck.run(
+                sleeper: sleeper, shouldCheck: { mismatched.value }, recheck: { rechecks.increment() })
+        }
+        try await eventually("first wait") { sleeper.pending == 1 }
+        #expect(sleeper.requested == [.seconds(300)])
+        sleeper.wake()
+        try await eventually("rechecked") { rechecks.count == 1 && sleeper.pending == 1 }
+        mismatched.value = false
+        sleeper.wake()
+        try await eventually("waiting again") { sleeper.requested.count == 3 }
+        #expect(rechecks.count == 1)  // not mismatched: no probe
+        task.cancel()
+        _ = await task.value
+    }
+}
+
+final class FlagBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Bool
+    init(_ value: Bool) { stored = value }
+    var value: Bool {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
+    }
+}

@@ -78,3 +78,25 @@ public final class ForegroundFlushTimer {
         scheduledDelay = nil
     }
 }
+
+/// While the store is in identity mismatch ("This address now points to a different quickR
+/// server", sync-protocol.md §8.3), probes the address every 5 minutes in the foreground
+/// (`SyncCoordinator.recheckIdentity()`), so the banner clears by itself when the right server is
+/// back. Runs until cancelled.
+public enum IdentityRecheck {
+    public static let interval: Duration = .seconds(300)
+
+    public static func run(
+        sleeper: any FlushTimerSleeper = ContinuousSleeper(), interval: Duration = interval,
+        shouldCheck: @escaping @Sendable () async -> Bool, recheck: @escaping @Sendable () async -> Void
+    ) async {
+        while !Task.isCancelled {
+            do {
+                try await sleeper.sleep(for: interval)
+            } catch {
+                return
+            }
+            if await shouldCheck() { await recheck() }
+        }
+    }
+}

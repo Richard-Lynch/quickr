@@ -29,6 +29,7 @@ final class SyncController {
     @ObservationIgnored private let sleeper: any FlushTimerSleeper
     @ObservationIgnored private var timer: ForegroundFlushTimer?
     @ObservationIgnored private var monitoring: Task<Void, Never>?
+    @ObservationIgnored private var identityRecheck: Task<Void, Never>?
     @ObservationIgnored private weak var session: AppSession?
 
     init(network: any NetworkMonitoring, sleeper: any FlushTimerSleeper = ContinuousSleeper()) {
@@ -49,10 +50,17 @@ final class SyncController {
     // MARK: - Triggers
 
     /// Follows the network path for the app's lifetime: when it comes back, flush (forced) and
-    /// pull (outbox.md §10, sync-protocol.md §9). Idempotent.
+    /// pull (outbox.md §10, sync-protocol.md §9). While the store is in identity mismatch, probes
+    /// the address every 5 minutes in the foreground (§8.3). Idempotent.
     func startMonitoring(_ session: AppSession) {
         self.session = session
         guard monitoring == nil else { return }
+        identityRecheck = Task { [sleeper] in
+            await IdentityRecheck.run(
+                sleeper: sleeper,
+                shouldCheck: { @MainActor in session.syncStatus.identityMismatch && !session.isBackgrounded },
+                recheck: { _ = await session.coordinator.recheckIdentity() })
+        }
         let updates = network.updates()
         monitoring = Task { [weak self] in
             for await online in updates {
@@ -130,6 +138,11 @@ final class SyncController {
     /// Dismiss a failed item whose entry was deleted elsewhere.
     func dismiss(_ itemId: String) async throws {
         try await session?.outbox?.dismiss(itemId: itemId)
+    }
+
+    /// The mismatch banner's "Check again": probe the address now.
+    func checkIdentityAgain() async {
+        _ = await session?.coordinator.recheckIdentity()
     }
 
     /// "Sync now": a forced flush (the PWA's).
