@@ -8,13 +8,17 @@ export interface EntryFilterState {
   source: string | null;
 }
 
+/** The `range` URL param: a preset, or the default ('30d') when missing or unknown. */
+export function parseRange(raw: string | null): RangePreset {
+  return isRangePreset(raw) ? raw : '30d';
+}
+
 /** Entry filters live in the URL so they survive tab switches and reloads. */
 export function useEntryFilters(): [EntryFilterState, (patch: Partial<EntryFilterState>) => void] {
   const [params, setParams] = useSearchParams();
-  const rawRange = params.get('range');
   const rawVersion = Number(params.get('version'));
   const state: EntryFilterState = {
-    range: isRangePreset(rawRange) ? rawRange : '30d',
+    range: parseRange(params.get('range')),
     version: Number.isInteger(rawVersion) && rawVersion > 0 ? rawVersion : null,
     source: params.get('source') || null,
   };
