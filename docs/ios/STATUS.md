@@ -305,6 +305,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 12:25 (EDT): **UIT-5 merged into ios/m2-ui** (Codex ×2; E2E 14/0; a holdDuration=0 mutation is caught by both delete tests; the outbox-ordering argument for Undo was verified by Codex). Lint, the build and build-for-testing pass on the merge. Remaining for the M2 PR: the UIT-2 swipe follow-up (e913853 being proven) and TOPIC (r2 Majors in progress).
+
 - 2026-10-20 12:10 (EDT): TOPIC r2: the round-1 items are RESOLVED (the delete sends the queued archive itself; the slug save hands off the model). Two new Majors: the direct archive and DELETE aren't serialized with the outbox flusher (a double-send, or a queued unarchive in between gives a 409), so the whole lifecycle sequence will run under the flush lease; and the slug handoff can leak a stale model (to be bound to a one-shot token plus the topic id). The M2 PR body is drafted (scratchpad m2-pr-body.md; deviations from every package filled in from the agents' reports). UIT-2 follow-up: Mutation A run done; HEAD result awaited. UIT-5: r1 fixes in progress.
 
 - 2026-10-20 11:55 (EDT): **APPSET merged into ios/m2-ui** (Codex ×3; on f8b3115: full UI 52/52, Unit 765; lint, core and the app build pass on the merge). UIT-5 (a54e0a8; E2E 13/0) Codex r1: 2 Majors (the Undo case sleeps rather than awaiting a confirmed flush; the no-Undo case doesn't prove the 6 s hold) and 1 Minor (entry lookup only searches page 1). TOPIC: r1 fixes in progress. UIT-2 swipe follow-up: Minors fixed in 8996ef2, run going.
