@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- SYNC-UX: add a deterministic test for repeated background/foreground cycles during a held startup (Codex r4 note; the expiry-first ordering is covered by activationWhileAnExpiredStartUnwindsConnects).
 - **D checkpoint (device):** measure how many notification categories iOS keeps; CAT's registry is append-only per §5.1 and Apple documents no limit.
 - `ios/scripts/test.sh` should run gen.sh, or detect a stale xcodeproj, before building (RECORD hit a stale project after deleting files).
 - RECORD/forms: limits (text lengths etc.) come from built-in server defaults until something fetches the server's limits; fetch and cache them per server (found by RECORD).
@@ -297,6 +298,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-20 05:10 (EDT): **RECORD merged into ios/m2-ui** (ce08276; Codex ×2; UI 27/27, Unit 521; lint, core and the app build pass on the merge). UIT-2 started (FORM agent). SYNC-UX is green at 84b1d0a, with the expiry-first test added; it is re-merging ce08276 (UITestLaunch conflict) before a final UI run and the merge.
 
 - 2026-10-20 05:00 (EDT): **CAT merged into ios/m2-ui** (f4ca317, Codex ×2; exact int bounds past 2^53 with 4 new server vectors; `\A…\z` anchors; minimal UNUserNotificationCenter adapter live). SYNC-UX: the r3 Major is fixed (6c6d9cb/c70d480), Codex r4 = no Blocker/Major, and CAT is merged in (d8fdecc). An expiry-first test is being added, then the full UI plan, then the merge. LIST (8bbc69d, 8 parity deviations recorded in its report): Codex r1 found 2 Majors (a stale row's delete uses the active store's scope; a topic missing at the first lookup never recovers) and 1 Minor (the PWA's midnight-DST-gap rangeStart); fixes in progress. RECORD: the full UI rerun on 069366b is pending. REG (W7) started on ios/m2-reg from f4ca317.
 
