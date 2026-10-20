@@ -4,7 +4,7 @@ import QuickrUI
 import SwiftUI
 
 /// The navigation root: onboarding until a server is set up, then the `NavigationStack` of
-/// `Route`s over the topic list (HOME replaces `placeholder`). Links (`quickr://`, the server's
+/// `Route`s over the home screen. Links (`quickr://`, the server's
 /// PWA URLs) open through the router.
 struct RootView: View {
     @Environment(AppEnvironment.self) private var environment
@@ -69,21 +69,7 @@ struct RootView: View {
     private var navigation: some View {
         @Bindable var router = environment.router
         return NavigationStack(path: $router.path) {
-            placeholder
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        SyncPillButton()
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            router.open(.settings)
-                        } label: {
-                            QIcon.settings.view(size: 20)
-                        }
-                        .accessibilityLabel("Settings")
-                        .accessibilityIdentifier("root.settings")
-                    }
-                }
+            home
                 .navigationDestination(for: Route.self) { RouteDestination(route: $0) }
         }
         .syncSheet(environment)
@@ -114,32 +100,39 @@ struct RootView: View {
             set: { if !$0 { environment.router.unopenedLink = nil } })
     }
 
-    private var placeholder: some View {
-        VStack(spacing: 8) {
-            Text("quickR")
-                .font(.largeTitle.bold())
-                .accessibilityIdentifier("root.title")
-            QuickrUI.VersionLabel()
-                .accessibilityIdentifier("root.coreVersion")
-            Text("Data → Core \(QuickrData.coreVersion)")
-                .font(.footnote)
-                .foregroundStyle(.tertiary)
-            Text(storeStatus)
-                .font(.footnote)
-                .foregroundStyle(.tertiary)
-                .accessibilityIdentifier("root.storeStatus")
+    /// Where the home screen's buttons go.
+    private var homeActions: HomeActions {
+        let router = environment.router
+        func ref(_ topic: ViewTopic) -> TopicLinkRef {
+            TopicLinkRef(topic.topic.slug) ?? TopicLinkRef(id: topic.topic.id)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
+        return HomeActions(
+            open: { router.open(.topic(ref($0), .overview)) },
+            record: { router.open(.record(ref($0))) },
+            newTopic: { router.open(.newTopic) },
+            settings: { router.open(.settings) },
+            onboarding: { onboarding = true },
+            sync: { environment.sync.isSheetPresented = true })  // SYNC-UX's sheet
     }
 
-    private var storeStatus: String {
-        if let error = environment.sessionError { return "Store failed: \(error)" }
-        switch environment.session?.phase {
-        case .ready: return "Store ready"
-        case .noServer: return "No server yet"
-        case .failed(let error): return "Store failed: \(error)"
-        case .starting, nil: return "Store opening…"
+    @ViewBuilder private var home: some View {
+        if let session = environment.session {
+            HomeView(session: session, actions: homeActions)
+        } else {
+            // The session couldn't be created (the store's files); `start()` tries again.
+            VStack(spacing: 8) {
+                Text("quickR")
+                    .font(.qr(.largeTitle))
+                    .accessibilityIdentifier("root.title")
+                Text("Store failed: \(environment.sessionError ?? "unknown error")")
+                    .font(.qr(.footnote))
+                    .foregroundStyle(.qr.muted)
+                    .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("root.storeStatus")
+            }
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .qrPaperBackground()
         }
     }
 }

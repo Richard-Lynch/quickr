@@ -10,7 +10,11 @@ struct QuickRApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        #if DEBUG
+        let environment = DemoStore.isRequested ? DemoStore.environment() : AppEnvironment.bootstrap()
+        #else
         let environment = AppEnvironment.bootstrap()
+        #endif
         _environment = State(initialValue: environment)
         // Before launch ends, as BGTaskScheduler requires.
         BackgroundRefresh.register(environment)
