@@ -24,20 +24,21 @@ import Testing
     }
 
     @Test func unchangedDetailsHaveNothingToSave() throws {
-        #expect(TopicRequests.details(try Self.details(), from: Self.topic) == nil)
+        #expect(TopicDetailsChange(try Self.details(), from: Self.topic) == nil)
     }
 
     @Test func surroundingWhitespaceAloneIsNoChange() throws {
-        #expect(TopicRequests.details(try Self.details(name: "  Mood ", slug: " mood"), from: Self.topic) == nil)
+        #expect(TopicDetailsChange(try Self.details(name: "  Mood ", slug: " mood"), from: Self.topic) == nil)
     }
 
     @Test func onlyChangedDetailsAreSent() throws {
-        let body = try #require(TopicRequests.details(try Self.details(name: "Feelings"), from: Self.topic))
+        let body = TopicRequests.details(
+            try #require(TopicDetailsChange(try Self.details(name: "Feelings"), from: Self.topic)))
         #expect(try Self.encoded(body).keys.sorted() == ["name"])
         #expect(body.name == "Feelings")
 
-        let both = try #require(
-            TopicRequests.details(try Self.details(slug: "feelings", description: ""), from: Self.topic))
+        let both = TopicRequests.details(
+            try #require(TopicDetailsChange(try Self.details(slug: "feelings", description: ""), from: Self.topic)))
         #expect(try Self.encoded(both).keys.sorted() == ["description", "slug"])
         #expect(both.expectedRevision == nil)
     }

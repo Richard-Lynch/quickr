@@ -11,14 +11,9 @@ public enum TopicRequests {
             questions: creation.questions, schedule: schedule)
     }
 
-    /// The Details save (`MetaForm`): only the fields that differ from `topic`. Nil means
-    /// "Nothing to save".
-    public static func details(_ details: TopicDraft.Details, from topic: Topic) -> TopicUpdateDTO? {
-        let name = details.name == topic.name ? nil : details.name
-        let slug = details.slug == topic.slug ? nil : details.slug
-        let description = details.description == topic.description ? nil : details.description
-        guard name != nil || slug != nil || description != nil else { return nil }
-        return TopicUpdateDTO(name: name, slug: slug, description: description)
+    /// The Details save (`MetaForm`): only the changed fields (``TopicDetailsChange``).
+    public static func details(_ change: TopicDetailsChange) -> TopicUpdateDTO {
+        TopicUpdateDTO(name: change.name, slug: change.slug, description: change.description)
     }
 
     /// The Schedule save (`ScheduleForm`): `{schedule}`, where null removes it.
