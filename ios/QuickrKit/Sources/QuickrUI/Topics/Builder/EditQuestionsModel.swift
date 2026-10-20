@@ -12,6 +12,12 @@ import QuickrCore
 /// v(n+1)". Both calls are online only (sync-protocol.md §11): the server's 409 on a stale base
 /// is seen live, and opens the conflict sheet: keep the draft (to copy from it), or load the
 /// latest version, which starts over from it.
+///
+/// Editing is frozen while a call is out (``isBusy``; the screen disables the editor and the
+/// sheets' other buttons), and every answer is checked against what it was asked about: a check
+/// answered after the questions changed doesn't open the review; a publish that succeeds after
+/// they changed keeps the later edits (and stays); "Keep my draft" makes a reload in flight drop
+/// its answer.
 @MainActor @Observable
 public final class EditQuestionsModel: BuilderEditing {
     public static let clientInvalid = NewTopicModel.clientInvalid
@@ -22,7 +28,15 @@ public final class EditQuestionsModel: BuilderEditing {
     public struct Review: Sendable, Hashable {
         public var report: CompatibilityReport
         public var version: TopicDraft.Version
+        /// The draft's questions it was checked for.
+        public var questions: [DraftQuestion]
     }
+
+    /// A check answered after the questions changed.
+    public static let changedWhileChecking = "The questions changed while they were being checked. Review them again."
+    /// A publish that succeeded after the questions changed: the reviewed ones were published.
+    public static let changedWhilePublishing =
+        "Your later edits weren’t published. They’re still here; load the latest version to start from it."
 
     /// The topic as it was when editing started (or was reloaded): the version edits are based on.
     public private(set) var base: Topic
@@ -34,8 +48,8 @@ public final class EditQuestionsModel: BuilderEditing {
     public private(set) var draftErrors: [DraftField: String] = [:]
     public private(set) var banner: String?
     public private(set) var bannerDetails: [String] = []
-    /// The review sheet; nil closes it ("Keep editing").
-    public var review: Review?
+    /// The review sheet (``closeReview()`` closes it).
+    public private(set) var review: Review?
     /// The change note's error, shown in the review (checked before publishing).
     public private(set) var noteError: String?
     /// The conflict sheet: someone published a newer version meanwhile.
@@ -43,11 +57,15 @@ public final class EditQuestionsModel: BuilderEditing {
     public private(set) var isChecking = false
     public private(set) var isPublishing = false
     public private(set) var isReloading = false
+    /// "Add an option…" text not added yet, by question.
+    public var newOptionLabels: [DraftQuestion.ID: String] = [:]
 
     public let limits: Limits
     @ObservationIgnored private var initialDraft: TopicDraft
     @ObservationIgnored private var submitted = false
     @ObservationIgnored private var published = false
+    /// The reload whose answer is still wanted ("Keep my draft" drops it).
+    @ObservationIgnored private var reload: UUID?
     @ObservationIgnored private let writer: any VersionWriter
     @ObservationIgnored private let toasts: ToastCenter
     @ObservationIgnored private let onPublished: @MainActor (Topic) -> Void
@@ -75,8 +93,14 @@ public final class EditQuestionsModel: BuilderEditing {
     /// The version publishing creates.
     public var nextVersion: Int { base.currentVersion + 1 }
 
-    /// Leaving asks first once anything was edited, until it is published.
-    public var hasUnsavedChanges: Bool { !published && draft != initialDraft }
+    /// Leaving asks first once anything was edited (an option still being typed included), until
+    /// it is published.
+    public var hasUnsavedChanges: Bool {
+        !published && (draft != initialDraft || hasPendingOptionText)
+    }
+
+    /// A call is out: the editor and the sheets' other buttons wait for it.
+    public var isBusy: Bool { isChecking || isPublishing || isReloading }
 
     /// Like the create form's: "Fix the highlighted fields" only while a field still shows an error.
     public var visibleBanner: String? {
@@ -106,7 +130,7 @@ public final class EditQuestionsModel: BuilderEditing {
 
     /// "Review changes".
     public func reviewChanges() async {
-        guard !isChecking, !isPublishing else { return }
+        guard !isBusy else { return }
         submitted = true
         banner = nil
         bannerDetails = []
@@ -116,12 +140,18 @@ public final class EditQuestionsModel: BuilderEditing {
         }
         isChecking = true
         defer { isChecking = false }
+        let questions = draft.questions
         let outcome = await writer.checkVersion(version, baseVersion: base.currentVersion, topicId: base.id)
+        // The answer is about the questions as they were: if they changed, it isn't theirs.
+        guard draft.questions == questions else {
+            banner = Self.changedWhileChecking
+            return
+        }
         guard case .done(let report) = outcome else { return failed(outcome) }
         // Light up the questions with blocking issues.
         draftErrors.merge(BuilderProblemMapping.blockingFields(report, draft: draft)) { _, new in new }
         noteError = nil
-        review = Review(report: report, version: version)
+        review = Review(report: report, version: version, questions: questions)
     }
 
     /// "Publish v(n+1)" in the review.
@@ -139,9 +169,20 @@ public final class EditQuestionsModel: BuilderEditing {
             review.version, baseVersion: base.currentVersion, changeNote: note, topicId: base.id)
         guard case .done(let topic) = outcome else { return failed(outcome) }
         self.review = nil
-        published = true
         toasts.show(Toast("Published v\(topic.currentVersion)"))
+        // Edits made meanwhile weren't in it: keep them, and stay.
+        guard draft.questions == review.questions else {
+            banner = Self.changedWhilePublishing
+            return
+        }
+        published = true
         onPublished(topic)
+    }
+
+    /// "Keep editing": closes the review, except while it is publishing.
+    public func closeReview() {
+        guard !isPublishing else { return }
+        review = nil
     }
 
     /// A refused check or publish: a newer version opens the conflict sheet; anything else closes
@@ -164,15 +205,25 @@ public final class EditQuestionsModel: BuilderEditing {
 
     /// "Keep my draft": close the conflict sheet; the draft stays as it is (publishing it will
     /// conflict again until the latest version is loaded).
-    public func keepDraft() { showsConflict = false }
+    /// A reload in flight is dropped: its answer won't replace the draft.
+    public func keepDraft() {
+        reload = nil
+        isReloading = false
+        showsConflict = false
+    }
 
     /// "Load latest version": fetch the topic and start over from its current version. The
     /// unsaved edits are discarded.
     public func reloadLatest() async {
         guard !isReloading else { return }
+        let token = UUID()
+        reload = token
         isReloading = true
-        defer { isReloading = false }
         let outcome = await writer.latestTopic(topicId: base.id)
+        // "Keep my draft" meanwhile: the answer isn't wanted any more.
+        guard reload == token else { return }
+        reload = nil
+        isReloading = false
         guard case .done(let fresh) = outcome else {
             let message: String? =
                 if case .rejected(let problem?) = outcome { ProblemMapping.banner(for: problem) } else {
@@ -199,6 +250,7 @@ public final class EditQuestionsModel: BuilderEditing {
         bannerDetails = []
         review = nil
         noteError = nil
+        newOptionLabels = [:]
         preview.reset()
     }
 }

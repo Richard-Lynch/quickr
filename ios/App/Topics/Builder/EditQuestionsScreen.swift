@@ -95,7 +95,7 @@ struct EditQuestionsView: View {
                 }
         }
         .sheet(
-            isPresented: Binding(get: { model.review != nil }, set: { if !$0 { model.review = nil } })
+            isPresented: Binding(get: { model.review != nil }, set: { if !$0 { model.closeReview() } })
         ) {
             ReviewSheet(model: model)
         }
@@ -147,6 +147,8 @@ struct EditQuestionsView: View {
                 .accessibilityIdentifier("editQuestions.review")
             }
         }
+        // Nothing changes under a call that is out (Codex r1): its answer is about this draft.
+        .disabled(model.isBusy)
         .listStyle(.insetGrouped)
         .tint(.qr.accentStrong)
         .scrollContentBackground(.hidden)
@@ -200,6 +202,7 @@ private struct ReviewSheet: View {
                                     .lineLimit(2...5)
                                     .accessibilityLabel("Change note")
                                     .accessibilityIdentifier("review.note")
+                                    .disabled(model.isPublishing)
                             }
                         }
                     }
@@ -213,7 +216,9 @@ private struct ReviewSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Keep editing") { model.review = nil }.accessibilityIdentifier("review.keepEditing")
+                    Button("Keep editing") { model.closeReview() }
+                        .disabled(model.isPublishing)
+                        .accessibilityIdentifier("review.keepEditing")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {

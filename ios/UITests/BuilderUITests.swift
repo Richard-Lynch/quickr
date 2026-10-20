@@ -23,10 +23,10 @@ final class BuilderUITests: XCTestCase {
         XCTAssertTrue(headline.waitForExistence(timeout: 10))
         XCTAssertTrue(headline.label.contains("Ready to publish as v2"), headline.label)
         XCTAssertTrue(app.staticTexts["Energy"].firstMatch.exists, "the change names the new question")
+        snap(app, "builder-review")  // before the keyboard comes up
         let note = field("review.note", in: app)
         note.tap()
         note.typeText("Track energy too")
-        snap(app, "builder-review")
         let publish = app.buttons["review.publish"]
         XCTAssertEqual(publish.label, "Publish v2")
         publish.tap()
@@ -90,8 +90,8 @@ final class BuilderUITests: XCTestCase {
         let label = app.textFields["newTopic.q0.label"]
         XCTAssertTrue(label.waitForExistence(timeout: 15))
         label.tap()
-        label.typeText("Glasses of water")
-        dismissKeyboard(app)
+        label.typeText("Glasses of water\n")  // Return puts the keyboard away
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
         snap(app, "builder-edit")
 
         // The preview shows the question as the record screen will.

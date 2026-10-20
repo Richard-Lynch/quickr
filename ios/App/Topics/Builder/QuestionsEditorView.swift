@@ -331,7 +331,6 @@ struct OptionsRows<Model: BuilderEditing>: View {
     let index: Int
     let id: DraftQuestion.ID
     let tag: String
-    @State private var newLabel = ""
 
     private var question: DraftQuestion? { model.draft[id] }
 
@@ -347,14 +346,14 @@ struct OptionsRows<Model: BuilderEditing>: View {
                     row(question, o, option)
                 }
                 HStack {
-                    TextField("Add an option…", text: $newLabel)
+                    TextField("Add an option…", text: newLabel)
                         .onSubmit(add)
                         .submitLabel(.done)
                         .accessibilityLabel("New option label")
                         .accessibilityIdentifier("\(tag).newOption")
                     Button("Add", systemImage: "plus", action: add)
                         .buttonStyle(.borderless)
-                        .disabled(JSNumber.trim(newLabel).isEmpty)
+                        .disabled(JSNumber.trim(newLabel.wrappedValue).isEmpty)
                         .accessibilityIdentifier("\(tag).addOption")
                 }
                 TopicFieldError(model.draftErrors[.question(index, .options)])
@@ -428,10 +427,10 @@ struct OptionsRows<Model: BuilderEditing>: View {
         .padding(.vertical, 2)
     }
 
-    private func add() {
-        let label = JSNumber.trim(newLabel)
-        guard !label.isEmpty else { return }
-        _ = model.draft.addOption(to: id, label: label)
-        newLabel = ""
+    /// The typed option label, kept by the model (it survives the panes and a closed card).
+    private var newLabel: Binding<String> {
+        Binding(get: { model.newOptionLabels[id] ?? "" }, set: { model.newOptionLabels[id] = $0 })
     }
+
+    private func add() { model.addPendingOption(to: id) }
 }

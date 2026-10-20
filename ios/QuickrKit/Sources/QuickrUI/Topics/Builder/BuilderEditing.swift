@@ -10,6 +10,9 @@ public protocol BuilderEditing: AnyObject, Observable {
     var draft: TopicDraft { get set }
     var draftErrors: [DraftField: String] { get }
     var expansion: QuestionExpansion { get set }
+    /// "Add an option…" text not added yet, by question: kept across the panes and a closed card,
+    /// and counted as an unsaved change.
+    var newOptionLabels: [DraftQuestion.ID: String] { get set }
     var preview: BuilderPreview { get }
     var limits: Limits { get }
 }
@@ -19,6 +22,19 @@ extension BuilderEditing {
     public func addQuestion(_ type: QuestionType) {
         guard draft.canAddQuestion(limits: limits) else { return }
         expansion.opened(draft.addQuestion(type))
+    }
+
+    /// "Add" next to "Add an option…": the typed label (trimmed) as a new option.
+    public func addPendingOption(to id: DraftQuestion.ID) {
+        let label = JSNumber.trim(newOptionLabels[id] ?? "")
+        guard !label.isEmpty else { return }
+        _ = draft.addOption(to: id, label: label)
+        newOptionLabels[id] = nil
+    }
+
+    /// Some question still on the draft has option text typed but not added.
+    public var hasPendingOptionText: Bool {
+        newOptionLabels.contains { id, text in draft.index(of: id) != nil && !JSNumber.trim(text).isEmpty }
     }
 
     /// Whether a question's card is open: by choice, or because one of its fields shows an error.

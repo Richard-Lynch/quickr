@@ -4,6 +4,37 @@ import Testing
 
 @testable import QuickrUI
 
+/// Holds a call until opened, so a test can act while it is out (an answer arriving late).
+@MainActor
+final class Gate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        for waiter in waiters { waiter.resume() }
+        waiters = []
+    }
+}
+
+/// Waits (bounded: 2 s) until `condition` holds; records an issue if it never does.
+@MainActor
+func eventually(_ what: String, _ condition: () -> Bool) async {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+    while !condition() {
+        guard ContinuousClock.now < deadline else {
+            Issue.record("never: \(what)")
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(5))
+    }
+}
+
 /// A `VersionWriter` that answers like the server, or with a set outcome.
 @MainActor
 final class FakeVersionWriter: VersionWriter {
@@ -18,6 +49,10 @@ final class FakeVersionWriter: VersionWriter {
     var checkResult: TopicWriteOutcome<CompatibilityReport>?
     var publishResult: TopicWriteOutcome<Topic>?
     var latestResult: TopicWriteOutcome<Topic>?
+    /// Hold each call (after recording it) until the gate opens.
+    var checkGate: Gate?
+    var publishGate: Gate?
+    var latestGate: Gate?
     /// The server's topic.
     var server: Topic
 
@@ -30,6 +65,7 @@ final class FakeVersionWriter: VersionWriter {
         -> TopicWriteOutcome<CompatibilityReport>
     {
         calls.append(.check(keys: version.questions.map(\.key), base: baseVersion))
+        await checkGate?.wait()
         return checkResult ?? .done(report)
     }
 
@@ -37,6 +73,7 @@ final class FakeVersionWriter: VersionWriter {
         -> TopicWriteOutcome<Topic>
     {
         calls.append(.publish(keys: version.questions.map(\.key), base: baseVersion, note: changeNote))
+        await publishGate?.wait()
         if let publishResult { return publishResult }
         server.currentVersion += 1
         server.questions = version.questions
@@ -45,6 +82,7 @@ final class FakeVersionWriter: VersionWriter {
 
     func latestTopic(topicId: UUID) async -> TopicWriteOutcome<Topic> {
         calls.append(.latest)
+        await latestGate?.wait()
         return latestResult ?? .done(server)
     }
 }
@@ -185,14 +223,108 @@ final class FakeVersionWriter: VersionWriter {
         #expect(!model.hasUnsavedChanges, "leaving after publishing doesn't ask")
     }
 
-    @Test func publishSendsWhatWasReviewedNotLaterEdits() async {
+    @Test func publishSendsWhatWasReviewedAndKeepsLaterEdits() async {
         addEnergy()
         await model.reviewChanges()
-        // A valid edit after the review: still not what was reviewed.
+        // A valid edit after the review: not what was reviewed.
         model.addQuestion(.str)
         model.draft.setLabel(model.draft.questions.last!.id, "Notes")
         await model.publish()
         #expect(writer.calls.last == .publish(keys: ["mood", "where", "energy"], base: 2, note: ""))
+        #expect(published.topics.isEmpty, "it stays: the later edit isn't published")
+        #expect(model.draft.questions.map(\.key) == ["mood", "where", "energy", "notes"])
+        #expect(model.hasUnsavedChanges)
+        #expect(model.visibleBanner == EditQuestionsModel.changedWhilePublishing)
+    }
+
+    // MARK: Answers arriving late (Codex r1)
+
+    @Test func aCheckAnsweredAfterAnEditDoesntOpenTheReview() async {
+        addEnergy()
+        let gate = Gate()
+        writer.checkGate = gate
+        let checking = Task { await model.reviewChanges() }
+        await eventually("the check is out") { writer.calls.count == 1 }
+        #expect(model.isBusy)
+        model.draft.setLabel(model.draft.questions[2].id, "Energy level")
+        gate.open()
+        await checking.value
+        #expect(model.review == nil, "the report is for the questions before the edit")
+        #expect(model.visibleBanner == EditQuestionsModel.changedWhileChecking)
+        #expect(model.draft.questions[2].label == "Energy level", "the edit is kept")
+        #expect(!model.isBusy)
+        // Reviewing again checks the questions as they are now.
+        writer.checkGate = nil
+        await model.reviewChanges()
+        #expect(model.review?.questions == model.draft.questions)
+        #expect(model.visibleBanner == nil)
+    }
+
+    @Test func keepEditingWaitsForAPublish() async {
+        addEnergy()
+        await model.reviewChanges()
+        let gate = Gate()
+        writer.publishGate = gate
+        let publishing = Task { await model.publish() }
+        await eventually("the publish is out") { writer.calls.count == 2 }
+        model.closeReview()
+        #expect(model.review != nil, "the review stays open while publishing")
+        gate.open()
+        await publishing.value
+        #expect(model.review == nil)
+        #expect(published.topics.map(\.currentVersion) == [3])
+    }
+
+    @Test func aPublishAnsweredAfterAnEditKeepsTheEditAndStays() async {
+        addEnergy()
+        await model.reviewChanges()
+        let gate = Gate()
+        writer.publishGate = gate
+        let publishing = Task { await model.publish() }
+        await eventually("the publish is out") { writer.calls.count == 2 }
+        model.draft.setLabel(model.draft.questions[0].id, "Feeling")
+        gate.open()
+        await publishing.value
+        #expect(published.topics.isEmpty)
+        #expect(model.hasUnsavedChanges)
+        #expect(model.draft.questions[0].label == "Feeling")
+        #expect(titles == ["Published v3"], "it did publish what was reviewed")
+        #expect(model.visibleBanner == EditQuestionsModel.changedWhilePublishing)
+    }
+
+    @Test func keepMyDraftDropsAReloadInFlight() async {
+        addEnergy()
+        writer.checkResult = .rejected(Self.conflict)
+        await model.reviewChanges()
+        var newer = Self.topic
+        newer.currentVersion = 3
+        writer.server = newer
+        let gate = Gate()
+        writer.latestGate = gate
+        let reloading = Task { await model.reloadLatest() }
+        await eventually("the reload is out") { writer.calls.last == .latest }
+        #expect(model.isReloading)
+        model.keepDraft()
+        #expect(!model.showsConflict && !model.isReloading)
+        gate.open()
+        await reloading.value
+        #expect(model.base.currentVersion == 2, "the late answer doesn't rebase")
+        #expect(model.draft.questions.map(\.key) == ["mood", "where", "energy"])
+        #expect(model.hasUnsavedChanges)
+        #expect(titles.isEmpty)
+    }
+
+    // MARK: Option text (Codex r1 minor)
+
+    @Test func typedOptionTextIsAnUnsavedChangeUntilAdded() {
+        let whereId = model.draft.questions[1].id
+        model.newOptionLabels[whereId] = "   "
+        #expect(!model.hasUnsavedChanges, "blank text isn't a change")
+        model.newOptionLabels[whereId] = " Gym "
+        #expect(model.hasUnsavedChanges)
+        model.addPendingOption(to: whereId)
+        #expect(model.draft.questions[1].options.map(\.label) == ["Home", "Work", "Gym"])
+        #expect(model.newOptionLabels[whereId] == nil)
     }
 
     @Test func aTooLongNoteIsCaughtBeforeSending() async {

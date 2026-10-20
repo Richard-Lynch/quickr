@@ -64,6 +64,16 @@ import Testing
         #expect(model.draft.questions.count == count, "no more than max_questions")
     }
 
+    @Test func aRemovedQuestionsOptionTextIsNotAChange() {
+        let model = NewTopicModel(writer: FakeTopicWriter(server: TopicSettingsModelTests.topic), toasts: ToastCenter())
+        model.addQuestion(.enum)
+        let choice = model.draft.questions[1].id
+        model.newOptionLabels[choice] = "Maybe"
+        #expect(model.hasPendingOptionText)
+        _ = model.draft.removeQuestion(choice)
+        #expect(!model.hasPendingOptionText, "its question is gone")
+    }
+
     // MARK: Preview
 
     @Test func previewQuestionsAreTheDraftsBestEffort() {

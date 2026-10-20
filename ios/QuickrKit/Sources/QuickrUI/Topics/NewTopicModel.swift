@@ -20,6 +20,8 @@ public final class NewTopicModel: BuilderEditing {
     /// Every card starts open (`defaultExpanded="all"`).
     public var expansion: QuestionExpansion
     public let preview = BuilderPreview()
+    /// "Add an option…" text not added yet, by question.
+    public var newOptionLabels: [DraftQuestion.ID: String] = [:]
     public private(set) var draftErrors: [DraftField: String] = [:]
     public private(set) var scheduleErrors: [ScheduleField: String] = [:]
     /// The banner over the form, and the issues no field shows (listed under it).
@@ -58,7 +60,9 @@ public final class NewTopicModel: BuilderEditing {
     }
 
     /// Leaving asks first once anything was edited.
-    public var hasUnsavedChanges: Bool { draft != initialDraft || schedule != initialSchedule }
+    public var hasUnsavedChanges: Bool {
+        draft != initialDraft || schedule != initialSchedule || hasPendingOptionText
+    }
 
     /// The banner shows a server error always, and "Fix the highlighted fields" only while some
     /// field still shows an error.
