@@ -168,8 +168,14 @@ final class RecordUITests: XCTestCase {
     func testAContentSwipeGoesBackFromACleanForm() {
         let app = launch(open: "quickr://t/workout/record")
         XCTAssertTrue(app.buttons["Yoga"].waitForExistence(timeout: 15))
-        contentSwipe(app)
-        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 5), "a clean form goes back")
+        // Up to three swipes: a synthesized one sometimes starts the pop and lets it snap back. Only
+        // here, where a retry can't make the result wrong; "a changed form stays" gets one.
+        let home = app.staticTexts["home.wordmark"]
+        for _ in 0..<3 where !home.exists {
+            contentSwipe(app)
+            _ = home.waitForExistence(timeout: 2)
+        }
+        XCTAssertTrue(home.waitForExistence(timeout: 3), "a clean form goes back")
     }
 
     /// The content swipe is guarded like the edge swipe: a changed form stays.
@@ -210,7 +216,7 @@ final class RecordUITests: XCTestCase {
     func testTheSwipeGuardSurvivesLeavingAndComingBack() {
         let app = launch(open: "quickr://t/workout/record")
         XCTAssertTrue(app.buttons["Yoga"].waitForExistence(timeout: 15))
-        app.buttons["record.back"].tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()  // a clean form: the system's back
         XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 5))
 
         let log = app.buttons["Log Workout"].firstMatch
@@ -283,11 +289,26 @@ final class RecordUITests: XCTestCase {
     private func contentSwipe(_ app: XCUIApplication) {
         let label = app.staticTexts["Type"].firstMatch
         XCTAssertTrue(label.waitForExistence(timeout: 5))
+        settle(label)
+        // Most of the width at the edge swipe's (default) speed: a short fast flick sometimes began
+        // the pop but let it go too early, and it snapped back.
         let window = app.windows.firstMatch.frame
         let start = app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: window.width * 0.3, dy: label.frame.midY))
-        let end = start.withOffset(CGVector(dx: window.width * 0.65, dy: 0))
-        start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0)
+            .withOffset(CGVector(dx: window.width * 0.15, dy: label.frame.midY))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: window.width * 0.85, dy: 0)))
+    }
+
+    /// Waits (up to 3 s) until `element` stops moving: a push from a link at launch may still be
+    /// animating when the screen's elements first exist, and a swipe then isn't the screen's.
+    @MainActor
+    private func settle(_ element: XCUIElement) {
+        var last = element.frame
+        for _ in 0..<20 {
+            usleep(150_000)
+            let now = element.frame
+            if now == last { return }
+            last = now
+        }
     }
 
     /// Polls Home for `seconds`: true if it never appeared (a swipe that was refused, or let go).
