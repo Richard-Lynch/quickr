@@ -63,7 +63,10 @@ struct OverviewView: View {
         .accessibilityIdentifier("overview.list")
         // Unstructured: SwiftUI cancels a refresh's own task when the view updates under it.
         .refreshable { [weak model, query, bucket] in
-            let task = Task { [weak model] in await model?.load(query: query, bucket: bucket) }
+            let task = Task { [weak model] in
+                guard let model else { return }
+                await model.load(query: query, bucket: bucket)
+            }
             refreshing = task
             await task.value
         }
