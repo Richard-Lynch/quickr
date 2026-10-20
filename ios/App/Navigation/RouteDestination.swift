@@ -20,7 +20,7 @@ struct RouteDestination: View {
         case .entry(let ref, let entryId):
             EditScreen(ref: ref, entryId: entryId)
         case .editQuestions(let ref):
-            Pending(title: "Edit questions · \(ref)", route: route)
+            EditQuestionsScreen(ref: ref)
         case .topicSettings(let ref):
             TopicSettingsScreen(ref: ref)
         }

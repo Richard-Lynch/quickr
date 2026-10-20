@@ -205,6 +205,11 @@ extension TopicDraft {
     public struct Version: Sendable, Hashable {
         public var questions: [Question]
         public var changeNote: String
+
+        public init(questions: [Question], changeNote: String = "") {
+            self.questions = questions
+            self.changeNote = changeNote
+        }
     }
 
     /// Validated topic details for a PATCH (`makeTopicMetaSchema`).

@@ -3,9 +3,9 @@ import QuickrData
 import QuickrUI
 import SwiftUI
 
-/// A topic's tabs (the PWA's `TopicLayout`): Overview, Entries and Versions. Entries is LIST's,
-/// Overview STATS's; Versions is a placeholder until its package lands. Switching tabs swaps the route in
-/// place, so a link or Back lands on the same tab.
+/// A topic's tabs (the PWA's `TopicLayout`): Overview, Entries and Versions (LIST's, STATS's and
+/// BUILDER-UI's), with Edit questions and the topic's settings in the toolbar. Switching tabs swaps
+/// the route in place, so a link or Back lands on the same tab.
 struct TopicTabsView: View {
     let ref: TopicLinkRef
     let tab: TopicTab
@@ -34,13 +34,25 @@ struct TopicTabsView: View {
                     Pending(title: "\(ref) · Overview", route: .topic(ref, .overview))
                 }
             case .versions:
-                Pending(title: "\(ref) · Versions", route: .topic(ref, tab))
+                if let session = environment.session {
+                    VersionsView(session: session, ref: ref)
+                } else {
+                    Pending(title: "\(ref) · Versions", route: .topic(ref, tab))
+                }
             }
         }
         .qrPaperBackground()
         .navigationTitle(ref.rawValue)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    environment.router.open(.editQuestions(ref))
+                } label: {
+                    Label("Edit questions", systemImage: "pencil")
+                }
+                .accessibilityIdentifier("topic.editQuestions")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     environment.router.open(.topicSettings(ref))
