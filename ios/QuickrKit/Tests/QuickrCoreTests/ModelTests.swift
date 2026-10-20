@@ -3,7 +3,7 @@ import QuickrCore
 import QuickrTestSupport
 import Testing
 
-@Suite struct ModelTests {
+@Suite(.timeLimit(.minutes(2))) struct ModelTests {
     @Test func timeOfDayParsesTheServerPattern() {
         #expect(TimeOfDay("08:00") == TimeOfDay(hour: 8, minute: 0))
         #expect(TimeOfDay("23:59")?.description == "23:59")

@@ -1,12 +1,12 @@
 import Foundation
 import GRDB
 import QuickrCore
-import QuickrData
+@_spi(Testing) import QuickrData
 import QuickrTestSupport
 import Testing
 
 /// §3.3 derived fields (rule 3), recomputed locally from the view.
-@Suite struct DerivedFieldTests {
+@Suite(.timeLimit(.minutes(2))) struct DerivedFieldTests {
     @Test func countsAndLastCapturedFollowTheView() async throws {
         let s = try TestStore()
         let topic = Make.topic()
@@ -65,7 +65,7 @@ import Testing
 }
 
 /// The outbox repository: CRUD, the enqueue base revision (§7.3) and the retired refusal.
-@Suite struct OutboxStorageTests {
+@Suite(.timeLimit(.minutes(2))) struct OutboxStorageTests {
     @Test func appendAssignsSeqStateAndBaseRevision() async throws {
         let s = try TestStore()
         let topic = Make.topic(revision: 4)
@@ -76,14 +76,14 @@ import Testing
         }
         let update = OutboxPayload.entryUpdate(
             entryId: entry.id.wireString, topicId: topic.id.wireString, patch: EntryUpdateDTO(notes: "x"))
-        let first = try await s.store.outbox.enqueue(NewOutboxItem(payload: update, origin: .widget))
-        let second = try await s.store.outbox.enqueue(NewOutboxItem(payload: update, origin: .app))
+        let first = try await s.store.outbox.appendRawForTesting(NewOutboxItem(payload: update, origin: .widget))
+        let second = try await s.store.outbox.appendRawForTesting(NewOutboxItem(payload: update, origin: .app))
         let hold = s.clock.now().adding(.seconds(6))
-        let held = try await s.store.outbox.enqueue(
+        let held = try await s.store.outbox.appendRawForTesting(
             NewOutboxItem(
                 payload: .entryDelete(entryId: entry.id.wireString, topicId: topic.id.wireString), origin: .app,
                 hold: hold))
-        let archive = try await s.store.outbox.enqueue(
+        let archive = try await s.store.outbox.appendRawForTesting(
             NewOutboxItem(payload: .topicArchive(topicId: topic.id.wireString), origin: .siri))
 
         #expect([first.seq, second.seq, held.seq, archive.seq] == [1, 2, 3, 4])
@@ -103,14 +103,15 @@ import Testing
         let s = try TestStore()
         let topic = Make.topic()
         let id = UUID()
-        let created = try await s.store.outbox.enqueue(
+        let created = try await s.store.outbox.appendRawForTesting(
             NewOutboxItem(id: id, payload: Make.createPayload(topic: topic), origin: .notification))
         #expect(created.id == id.wireString && created.entityId == id.wireString)
         #expect(created.topicId == topic.id.wireString && created.baseRevision == nil)
 
         try s.write { (db: Database) throws in try db.execute(sql: "UPDATE sync_state SET retired = 1") }
         await #expect(throws: StoreError.retired) {
-            try await s.store.outbox.enqueue(NewOutboxItem(payload: Make.createPayload(topic: topic), origin: .app))
+            try await s.store.outbox.appendRawForTesting(
+                NewOutboxItem(payload: Make.createPayload(topic: topic), origin: .app))
         }
     }
 
@@ -122,7 +123,7 @@ import Testing
 }
 
 /// The atomic ack (sync-protocol.md §6, rule 7).
-@Suite struct AtomicAckTests {
+@Suite(.timeLimit(.minutes(2))) struct AtomicAckTests {
     struct Fixture {
         let s: TestStore
         let topic = Make.topic()
@@ -132,8 +133,8 @@ import Testing
         let sender: SenderContext
 
         /// A topic and an entry on the server, an `entry.update` claimed in flight with `flush` held.
-        init() async throws {
-            s = try TestStore()
+        init(path: String? = nil) async throws {
+            s = try TestStore(path: path)
             entry = Make.entry(topicId: topic.id, revision: 3)
             try s.write { [topic, entry] (db: Database) throws in
                 _ = try ServerLayer.upsert(db, topic: topic)

@@ -90,6 +90,15 @@ public struct Registry: Sendable {
         }
     }
 
+    /// A known server now answers at `baseURL` (the user entered another address for it during
+    /// onboarding or in Settings, §2.1): every later request uses it.
+    public func updateBaseURL(serverId: String, baseURL: String) async throws {
+        try await writer.write { db in
+            try db.execute(
+                sql: "UPDATE server SET base_url = ? WHERE server_id = ?", arguments: [baseURL, serverId])
+        }
+    }
+
     public func setLastSync(serverId: String, at date: Date) async throws {
         try await writer.write { db in
             try db.execute(

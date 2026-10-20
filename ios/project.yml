@@ -26,6 +26,10 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # Xcode 27 links __preview.dylib and <target>.debug.dylib with the same -dependency_info file.
+    # When the preview link finishes last, appintentsmetadataprocessor finds no AppIntents.framework
+    # and silently skips Metadata.appintents, so intents vanish from the app or widget at random.
+    ENABLE_DEBUG_DYLIB: NO
     # DEVELOPMENT_TEAM comes from ios/Local.xcconfig (via Config/Shared.xcconfig).
 
 packages:
@@ -113,6 +117,8 @@ targets:
     platform: iOS
     sources:
       - NotificationService
+      # SPIKE (DEBUG only): category registration through the registry table, shared with the app.
+      - App/Notifications/Spike/Shared
     dependencies:
       - package: QuickrKit
         products: [QuickrCore, QuickrData]
@@ -137,6 +143,9 @@ targets:
     platform: iOS
     sources:
       - AppTests
+      # The widget's bootstrap and timeline rules, so its intent path runs in CI's Unit plan.
+      - Widgets/WidgetBootstrap.swift
+      - Widgets/TopicWidget.swift
     dependencies:
       - target: QuickR
       - package: QuickrKit
@@ -158,6 +167,29 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr.uitests
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: QuickR
+    info:
+      path: UITests/Info.plist
+      properties:
+        # SpikeNotificationTests talks to the host's integration stack and spike coordinator over
+        # plain HTTP on 127.0.0.1.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+
+  # AppIntentsTesting UI tests, apart from QuickRUITests: AppIntentsTesting.framework needs the
+  # iOS 27 runtime's AppIntentsTypeSupport, so on iOS 26 the bundle fails to load and takes the
+  # runner down. check-ios runs this plan only on iOS 27+ simulators.
+  QuickRIntentsTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - IntentsTests
+    dependencies:
+      - target: QuickR
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr.intentstests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: QuickR
 
 schemes:
   QuickR:
@@ -166,6 +198,7 @@ schemes:
         QuickR: all
         QuickRTests: [test]
         QuickRUITests: [test]
+        QuickRIntentsTests: [test]
     run:
       config: Debug
     test:
@@ -174,5 +207,8 @@ schemes:
         - path: TestPlans/Unit.xctestplan
           defaultPlan: true
         - path: TestPlans/UI.xctestplan
+        - path: TestPlans/Intents.xctestplan
+        - path: TestPlans/Widgets.xctestplan
+        - path: TestPlans/Spike.xctestplan
     archive:
       config: Release

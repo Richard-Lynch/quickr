@@ -314,3 +314,11 @@ Negative phrases go in `negativePhrases`.
     https://developer.apple.com/videos/play/wwdc2023/10102/
 22. Apple newsroom, WWDC26 developer tools.
     https://www.apple.com/newsroom/2026/06/apple-aids-app-development-with-new-intelligence-frameworks-and-advanced-tools/
+
+
+## Amendment (M1 SKEL findings, 2026-10-18)
+
+- Declare App Intents once, in the static `QuickrData` package, and do **not** add an `AppIntentsPackage`. On iOS 26.0, linkd rejects the package include for a static library ("did not match any imported symbol") and drops every intent: no App Shortcuts, and widgets can't be configured. iOS 27 accepts it, so a 27 simulator hides the bug. Xcode merges the static library's metadata into each linking binary (app, widget, NSE).
+- `AppIntentsTesting` can't load on the iOS 26 runtime. Its tests live in `QuickRIntentsTests` and run on iOS 27+ only.
+- Set `ENABLE_DEBUG_DYLIB: NO` (Xcode 27): otherwise metadata extraction randomly skips.
+- Read the topic source through `IntentTopicSource`, not `@Dependency`.

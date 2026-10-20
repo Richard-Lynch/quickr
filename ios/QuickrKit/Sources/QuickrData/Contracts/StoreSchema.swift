@@ -29,7 +29,7 @@ public enum StoreSchema {
     public static let stageTables = ["stage_topic", "stage_topic_version", "stage_entry", "stage_tombstone"]
     public static let tables =
         serverLayerTables + ["sync_state"] + stageTables
-        + ["stage_state", "outbox_item", "lease", "ui_draft", "stats_cache", "widget_state"]
+        + ["stage_state", "reset_veto", "outbox_item", "lease", "ui_draft", "stats_cache", "widget_state"]
 
     // The server layer and its staging copy share one definition, so a swap can copy rows 1:1.
     private static func serverLayer(prefix: String) -> [String] {
@@ -128,6 +128,13 @@ public enum StoreSchema {
             )
             """,
             "INSERT INTO stage_state (id, cursor) VALUES (1, 0)",
+            // Every reset attempt (registry pending_token) aborted on this file (§12.1 steps 3–4).
+            // Insert-only, so a later abort never un-vetoes an earlier attempt: its retire is refused.
+            """
+            CREATE TABLE reset_veto (
+              token TEXT PRIMARY KEY NOT NULL
+            )
+            """,
             // outbox.md §2, verbatim.
             """
             CREATE TABLE outbox_item (

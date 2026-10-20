@@ -1,13 +1,13 @@
 import Foundation
 import GRDB
 import QuickrCore
-import QuickrData
+@_spi(Testing) import QuickrData
 import QuickrTestSupport
 import Testing
 
 /// Per-server store files, the registry, local reset and its crash recovery (sync-protocol.md
 /// §8, §12), file-backed.
-@Suite struct PartitionTests {
+@Suite(.timeLimit(.minutes(2))) struct PartitionTests {
     struct Env {
         let dir: TempDirectory
         let clock = FakeLeaseClock()
@@ -59,7 +59,8 @@ import Testing
         #expect(try await a.syncState.syncState()?.serverId == "aaa")
         #expect(try await b.syncState.syncState()?.baseURL == "https://b.example")
 
-        _ = try await a.outbox.enqueue(NewOutboxItem(payload: Make.createPayload(topic: Make.topic()), origin: .app))
+        _ = try await a.outbox.appendRawForTesting(
+            NewOutboxItem(payload: Make.createPayload(topic: Make.topic()), origin: .app))
         #expect(try await a.outbox.summary().count == 1)
         #expect(try await b.outbox.summary().count == 0)
 
@@ -101,7 +102,7 @@ import Testing
         // The old pool sees it is retired, and so would any process's enqueue.
         #expect(try await old.isRetired())
         await #expect(throws: StoreError.retired) {
-            try await old.outbox.enqueue(
+            try await old.outbox.appendRawForTesting(
                 NewOutboxItem(payload: Make.createPayload(topic: Make.topic()), origin: .widget))
         }
     }
@@ -112,14 +113,14 @@ import Testing
         defer { env.dir.cleanup() }
         let store = try await env.partitions.createStore(serverId: "s", baseURL: "u")
         for _ in 0..<2 {
-            _ = try await store.outbox.enqueue(
+            _ = try await store.outbox.appendRawForTesting(
                 NewOutboxItem(payload: Make.createPayload(topic: Make.topic()), origin: .app))
         }
         let (count, maxSeq) = try await store.outbox.summary()
         let intent = try await env.partitions.persistResetIntent(
             store: store, confirmedCount: count, confirmedMaxSeq: maxSeq)
         let widget = try await env.otherProcess().openStore(serverId: "s", role: .extension).store
-        _ = try await widget.outbox.enqueue(
+        _ = try await widget.outbox.appendRawForTesting(
             NewOutboxItem(payload: Make.createPayload(topic: Make.topic()), origin: .widget))
 
         let pair = try #require(try await store.leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(1)))
@@ -184,7 +185,7 @@ import Testing
             return
         }
         #expect(store.storeGen == 2 && env.exists("stores/s.g2.sqlite"))
-        _ = try await store.outbox.enqueue(
+        _ = try await store.outbox.appendRawForTesting(
             NewOutboxItem(payload: Make.createPayload(topic: Make.topic()), origin: .widget))
         #expect(try await store.syncState.syncState()?.bootstrapComplete == false)
 
@@ -272,7 +273,7 @@ import Testing
         let processB = try env.otherProcess()
         let g2 = try await processB.openStore(serverId: "s", role: .extension).store
         #expect(g2.storeGen == 2)
-        _ = try await g2.outbox.enqueue(
+        _ = try await g2.outbox.appendRawForTesting(
             NewOutboxItem(payload: Make.createPayload(topic: Make.topic()), origin: .widget))
         let secondIntent = try await env.partitions.persistResetIntent(store: g2, confirmedCount: 1, confirmedMaxSeq: 1)
         #expect(secondIntent.storeGen == 2 && secondIntent.pendingGen == 3)
@@ -318,7 +319,8 @@ import Testing
         let g1 = try await env.partitions.createStore(serverId: "s", baseURL: "u")
         let first = try await env.partitions.persistResetIntent(store: g1, confirmedCount: 0, confirmedMaxSeq: 0)
         #expect(try await env.partitions.abortReset(first))
-        _ = try await g1.outbox.enqueue(NewOutboxItem(payload: Make.createPayload(topic: Make.topic()), origin: .app))
+        _ = try await g1.outbox.appendRawForTesting(
+            NewOutboxItem(payload: Make.createPayload(topic: Make.topic()), origin: .app))
         let replacement = try await env.partitions.persistResetIntent(store: g1, confirmedCount: 1, confirmedMaxSeq: 1)
         #expect(replacement.pendingGen == first.pendingGen)
         #expect(replacement.pendingToken != nil && replacement.pendingToken != first.pendingToken)
