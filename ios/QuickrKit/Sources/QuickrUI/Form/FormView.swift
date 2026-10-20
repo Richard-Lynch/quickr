@@ -15,6 +15,7 @@ public struct FormView<Footer: View>: View {
     let onAutoSave: AutoSave?
     let footer: Footer
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.formSave) private var formSave
 
     /// - Parameter onAutoSave: called with the entry when a pick on ``FormModel/autoSaveKey``
     ///   completes a valid form (single-chip topics). Save it, show the Undo toast, and return
@@ -63,17 +64,40 @@ public struct FormView<Footer: View>: View {
                 do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
                 model.appear()
             }
+            // The keyboard's toolbar, right-aligned: Next/Done for a number (the pad has no Return),
+            // then the screen's Save (`formSaveBar`), for any field, the footer's included.
             .toolbar {
-                if let key = model.focus, model.questions.first(where: { $0.key == key })?.numericRules != nil {
+                if numberFocus != nil || formSave != nil {
                     ToolbarSpacer(.flexible, placement: .keyboard)
+                }
+                if let key = numberFocus {
                     ToolbarItem(placement: .keyboard) {
                         Button(model.nextField(after: key) == nil ? "Done" : "Next") { model.advance(from: key) }
                             .font(.qr(.callout))
                             .accessibilityIdentifier("form.keyboard.advance")
                     }
                 }
+                if let save = formSave {
+                    ToolbarSpacer(.fixed, placement: .keyboard)
+                    ToolbarItem(placement: .keyboard) {
+                        Button(save.title, action: save.action)
+                            .font(.qr(.callout))
+                            .fontWeight(.semibold)
+                            .buttonStyle(.glassProminent)
+                            .tint(.qr.accent)
+                            .disabled(save.isSaving)
+                            .accessibilityIdentifier(save.identifier)
+                    }
+                }
             }
         }
+    }
+
+    /// The focused question's key when it takes a number.
+    private var numberFocus: String? {
+        guard let key = model.focus, model.questions.first(where: { $0.key == key })?.numericRules != nil
+        else { return nil }
+        return key
     }
 
     private var questions: some View {
