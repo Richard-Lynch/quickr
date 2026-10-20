@@ -114,7 +114,8 @@ public struct QuickrBadge: View {
     }
 
     public var body: some View {
-        HStack(spacing: 4) {
+        let wraps = typeSize.isAccessibilitySize
+        return HStack(alignment: wraps ? .firstTextBaseline : .center, spacing: 4) {
             if let icon { icon.view(size: iconSize, weight: .bold) }
             // One line normally; at accessibility sizes it wraps instead of truncating the time.
             Text(text)
@@ -124,8 +125,10 @@ public struct QuickrBadge: View {
         .font(.qr(.caption))
         .padding(.horizontal, 10)
         .frame(minHeight: 24)
+        .padding(.vertical, wraps ? 4 : 0)
         .foregroundStyle(tone.foreground)
-        .background(tone.background, in: Capsule())
+        // A wrapped pill would be a blob: a rounded rectangle instead.
+        .background(tone.background, in: wraps ? AnyShape(RoundedRectangle(cornerRadius: 10)) : AnyShape(Capsule()))
     }
 }
 

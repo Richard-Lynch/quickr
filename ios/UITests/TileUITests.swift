@@ -94,6 +94,7 @@ final class TileUITests: XCTestCase {
 
         let headache = tile(app, "headache")
         let chip = headache.buttons["chip.severe"]
+        reveal(chip, in: app)
         XCTAssertTrue(chip.isHittable)
         chip.tap()
         let undo = app.buttons["toast.action"]
@@ -107,9 +108,20 @@ final class TileUITests: XCTestCase {
         let element = app.descendants(matching: .any)["tile.\(slug)"]
         let window = app.windows.firstMatch
         XCTAssertTrue(app.descendants(matching: .any)["tile.meds"].waitForExistence(timeout: 20), "the home list")
-        for _ in 0..<10 where !(element.exists && window.frame.contains(element.frame)) { app.swipeUp() }
+        // Until its top is on screen: at accessibility sizes a tile can be taller than the window.
+        for _ in 0..<10
+        where !(element.exists && window.frame.contains(CGPoint(x: element.frame.midX, y: element.frame.minY + 1))) {
+            app.swipeUp()
+        }
         XCTAssertTrue(element.exists, "tile.\(slug)")
         return element
+    }
+
+    /// Scrolls (a little at a time) until `element` can be tapped.
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        for _ in 0..<8 where !element.isHittable { start.press(forDuration: 0.05, thenDragTo: end) }
     }
 
     /// Polls every 0.1 s: true once `element`'s value contains `fragment`.
