@@ -135,6 +135,17 @@ final class AppEnvironment {
 
     func registerIntentTopics() {
         IntentTopicSource.register(topics)
+        // Writes from Siri, Shortcuts and the Action button (origin `.siri`). An intent can launch
+        // the app with no scene, before `start()` binds the session, so the active store is opened
+        // through the partitions (with its recovery); the flush is asked of the bound scheduler,
+        // when there is one (otherwise the entry goes at the next sync).
+        // The session is read when an intent runs (a demo store opens it in `start()`).
+        let current: @Sendable () async -> AppSession? = { [weak self] in await MainActor.run { self?.session } }
+        IntentWrites.register(
+            IntentWriteContext(
+                origin: .siri,
+                openActiveStore: { try await current()?.partitions.openActiveStore(role: .app)?.store },
+                afterCommit: { _ in await current()?.scheduler?.requestFlush(reason: .enqueue) }))
     }
 
     /// From the root view's `.task`: starts the session (finishing a bootstrap, or connecting to

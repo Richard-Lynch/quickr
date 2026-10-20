@@ -1,5 +1,6 @@
 import AppIntents
 import Foundation
+import QuickrCore
 import QuickrData
 import Testing
 
@@ -36,12 +37,23 @@ import Testing
         #expect(TopicProvider.timeline(for: SelectTopicIntent()).entries.map(\.topic?.name) == [nil])
     }
 
-    @Test func logEntryIntentPerformsWithAResolvedTopic() async throws {
+    /// The app's write path: a number and an option, durably queued in the active store with
+    /// source `ios.siri`, the dialog saying what was logged.
+    @Test func logEntryIntentLogsThroughTheActiveStore() async throws {
         let location = try await TestStores.seededLocation()
         defer { TestStores.remove(location) }
-        _ = AppEnvironment.bootstrap(location: location)
+        let environment = AppEnvironment.bootstrap(location: location)
         let coffee = try #require(try await TopicEntityQuery().entities(for: [PlaceholderTopicRepository.coffee]).first)
-        let result = try await LogEntryIntent(topic: coffee).perform()
-        #expect(result.value == "Coffee")
+        let logged = try await LogEntryIntent(topic: coffee, number: 2).perform()
+        #expect(logged.value == "Coffee: 2 cups")
+        let mood = try #require(try await TopicEntityQuery().entities(for: [PlaceholderTopicRepository.mood]).first)
+        let good = QuestionOptionEntity(
+            topicId: PlaceholderTopicRepository.mood, key: "mood", option: EnumOption(value: "good", label: "Good"))
+        #expect(try await LogEntryIntent(topic: mood, option: good).perform().value == "Mood: Good")
+
+        let partitions = try #require(environment.session?.partitions)
+        let store = try #require(try await partitions.openActiveStore(role: .app)?.store)
+        let items = try await store.outbox.items()
+        #expect(items.count == 2 && items.allSatisfy { $0.origin == .siri })
     }
 }

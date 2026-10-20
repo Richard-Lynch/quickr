@@ -35,7 +35,8 @@ public struct NoTopicRepository: TopicRepository {
 }
 
 /// A fixed topic list for package tests and previews. The app and the widget register the active
-/// store's topics (`ActiveStoreTopicRepository`), never this.
+/// store's topics (`ActiveStoreTopicRepository`), never this. Coffee and Mood quick-log (a number,
+/// an option); Old habit is archived.
 public struct PlaceholderTopicRepository: TopicRepository {
     public static let coffee = UUID(uuidString: "6f1c3c1e-0c4b-4d2a-9a51-1d6a0e9b7c01")!
     public static let mood = UUID(uuidString: "6f1c3c1e-0c4b-4d2a-9a51-1d6a0e9b7c02")!
@@ -45,17 +46,27 @@ public struct PlaceholderTopicRepository: TopicRepository {
 
     public init() {
         let epoch = Date(timeIntervalSince1970: 1_767_225_600)  // 2026-01-01
-        func topic(_ id: UUID, _ slug: String, _ name: String, _ status: TopicStatus = .active) -> ViewTopic {
+        func topic(
+            _ id: UUID, _ slug: String, _ name: String, _ question: Question, _ status: TopicStatus = .active
+        ) -> ViewTopic {
             ViewTopic(
                 topic: Topic(
                     id: id, slug: slug, name: name, status: status, currentVersion: 1, revision: 1,
                     questionCount: 1, createdAt: epoch, updatedAt: epoch,
-                    archivedAt: status == .archived ? epoch : nil, questions: []))
+                    archivedAt: status == .archived ? epoch : nil, questions: [question]))
         }
+        let cups = Question(key: "cups", label: "Cups", kind: .int(.init(min: 0, max: 20, unit: "cups")))
+        let mood = Question(
+            key: "mood", label: "Mood",
+            kind: .choice(
+                .init(options: [
+                    EnumOption(value: "good", label: "Good"), EnumOption(value: "ok", label: "OK"),
+                    EnumOption(value: "bad", label: "Bad"),
+                ])))
         all = [
-            topic(Self.coffee, "coffee", "Coffee"),
-            topic(Self.mood, "mood", "Mood"),
-            topic(Self.oldHabit, "old-habit", "Old habit", .archived),
+            topic(Self.coffee, "coffee", "Coffee", cups),
+            topic(Self.mood, "mood", "Mood", mood),
+            topic(Self.oldHabit, "old-habit", "Old habit", mood, .archived),
         ]
     }
 
