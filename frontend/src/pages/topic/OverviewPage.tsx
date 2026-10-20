@@ -7,6 +7,7 @@ import {
   getTopicStatsOptions,
 } from '../../client/@tanstack/react-query.gen';
 import type { EnumStats, NumericStats, StrStats, TopicStats } from '../../client';
+import { enumView } from '../../components/charts/chartModels';
 import { type Bucket } from '../../components/charts/chartUtils';
 import { EnumBars, optionColors } from '../../components/charts/EnumBars';
 import { Histogram } from '../../components/charts/Histogram';
@@ -279,10 +280,10 @@ function EnumCard({
 }) {
   const series = useSeries(slug, stats.key, filters, bucket);
   const colorFor = useMemo(() => optionColors(stats.options.map((o) => o.value)), [stats.options]);
-  const top = [...stats.options].sort((a, b) => b.count - a.count)[0];
+  const { visible, top } = enumView(stats);
   return (
     <>
-      {top && top.count > 0 ? (
+      {top ? (
         <p className="text-sm text-muted">
           Most often <strong className="text-ink">{top.label}</strong> ({formatPercent(top.share)}
           {stats.multiple ? ' of entries' : ''})
@@ -294,10 +295,7 @@ function EnumCard({
           Share of entries that picked each option — can add up to more than 100%.
         </p>
       ) : null}
-      <EnumBars
-        options={stats.options.filter((o) => !o.archived || o.count > 0)}
-        colorFor={colorFor}
-      />
+      <EnumBars options={visible} colorFor={colorFor} />
       <div>
         <p className="mb-1 text-xs font-semibold text-ink-soft">
           {stats.multiple ? 'Selections' : 'Answers'} per {bucket}
