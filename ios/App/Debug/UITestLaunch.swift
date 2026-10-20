@@ -27,9 +27,9 @@ enum UITestLaunch {
         return environment
     }
 
-    /// `-QuickrOpen <url>`, when testing.
+    /// `-QuickrOpen <url>`, when testing (a clean slate or the demo store).
     static var openURL: URL? {
-        guard isActive else { return nil }
+        guard isActive || DemoStore.isRequested else { return nil }
         return value(after: "-QuickrOpen").flatMap(URL.init(string:))
     }
 

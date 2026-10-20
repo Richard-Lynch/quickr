@@ -247,6 +247,7 @@ private struct EntryRow: View {
                 Text(entry.entry.capturedAt.formatted(date: .abbreviated, time: .shortened))
                     .font(.qr(.label))
                     .foregroundStyle(.qr.ink)
+                    .fixedSize(horizontal: false, vertical: true)
                 if entry.entry.version != currentVersion {
                     QuickrBadge("v\(entry.entry.version)").accessibilityLabel("Version \(entry.entry.version)")
                 }
@@ -289,11 +290,15 @@ private struct PendingEntryRow: View {
             Text(entry.entry.capturedAt.formatted(date: .abbreviated, time: .shortened))
                 .font(.qr(.label))
                 .foregroundStyle(.qr.ink)
+                .fixedSize(horizontal: false, vertical: true)
             AnswerGrid(entry: entry.entry, columns: columns, oneColumn: typeSize.isAccessibilitySize)
             if failed {
                 QuickrBadge("Failed — tap to fix", icon: .alert, tone: .danger)
                 if let message = entry.lastError?.message {
-                    Text(message).font(.qr(.footnote)).foregroundStyle(.qr.danger)
+                    Text(message)
+                        .font(.qr(.footnote))
+                        .foregroundStyle(.qr.danger)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
                 QuickrBadge("Waiting to sync", icon: .clock, tone: .info)

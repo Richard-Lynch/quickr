@@ -153,11 +153,12 @@ import Testing
         let (model, observing) = try await w.model()
         defer { observing.cancel() }
 
+        // Logged first, captured earlier: newest-first would put it second.
         let first = try await w.session.log(
-            topic: Self.water, answers: ["glasses": .int(1)], capturedAt: Self.now.addingTimeInterval(-60), version: 2)
-        let second = try await w.session.log(
-            topic: Self.water, answers: ["glasses": .int(2)], capturedAt: Self.now.addingTimeInterval(-86_400 * 60),
+            topic: Self.water, answers: ["glasses": .int(1)], capturedAt: Self.now.addingTimeInterval(-86_400 * 60),
             version: 2)
+        let second = try await w.session.log(
+            topic: Self.water, answers: ["glasses": .int(2)], capturedAt: Self.now.addingTimeInterval(-60), version: 2)
         try await eventually("both pin") { await MainActor.run { model.pinned.count == 2 } }
         #expect(model.pinned.map(\.id) == [first, second], "logged order, not captured order")
         #expect(model.pinned.allSatisfy { $0.syncState == .pending })
