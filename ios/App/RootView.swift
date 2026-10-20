@@ -72,6 +72,9 @@ struct RootView: View {
             placeholder
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
+                        SyncPillButton()
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             router.open(.settings)
                         } label: {
@@ -83,6 +86,16 @@ struct RootView: View {
                 }
                 .navigationDestination(for: Route.self) { RouteDestination(route: $0) }
         }
+        .syncSheet(environment)
+        // The sync pill and sheet follow the active store (SYNC-UX).
+        .task(id: environment.session?.binding) {
+            if let session = environment.session { await environment.sync.observe(session) }
+        }
+        #if DEBUG
+        .overlay(alignment: .bottom) {
+            if UITestLaunch.showsSyncControls { UITestSyncControls().padding(.bottom, 24) }
+        }
+        #endif
         .alert(
             "Can’t open that link", isPresented: unopenedLink,
             actions: { Button("OK", role: .cancel) {} },

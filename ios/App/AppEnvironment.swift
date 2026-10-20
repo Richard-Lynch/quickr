@@ -17,6 +17,8 @@ final class AppEnvironment {
     /// A Keychain problem from launch (the legacy token's migration), for Settings to show.
     private(set) var credentialsIssue: String?
     let router = Router()
+    /// The sync pill and sheet's state, and the network and timer flush triggers (SYNC-UX).
+    let sync: SyncController
     /// Nil only when it couldn't be created (`sessionError`); `start()` tries again.
     private(set) var session: AppSession?
     private(set) var sessionError: String?
@@ -30,10 +32,12 @@ final class AppEnvironment {
 
     init(
         settings: AppSettings, credentials: KeychainAccessCredentials? = nil,
+        network: any NetworkMonitoring = NWNetworkMonitor(),
         makeSession: @escaping @MainActor () throws -> AppSession
     ) {
         self.settings = settings
         self.credentials = credentials
+        self.sync = SyncController(network: network)
         self.makeSession = makeSession
         openSession()
     }
@@ -42,10 +46,11 @@ final class AppEnvironment {
     /// Cloudflare Access token from the shared Keychain.
     static func live(
         location: StoreLocation = .shared(appGroup: AppGroup.identifier), defaults: UserDefaults = AppGroup.defaults,
-        keychain: any KeychainStore = SystemKeychain(), transport: any Transport = URLSessionTransport()
+        keychain: any KeychainStore = SystemKeychain(), transport: any Transport = URLSessionTransport(),
+        network: any NetworkMonitoring = NWNetworkMonitor()
     ) -> AppEnvironment {
         let credentials = KeychainAccessCredentials(keychain: keychain)
-        return AppEnvironment(settings: AppSettings(defaults: defaults), credentials: credentials) {
+        return AppEnvironment(settings: AppSettings(defaults: defaults), credentials: credentials, network: network) {
             let session = try AppSession(
                 configuration: .init(location: location, transport: transport, credentials: credentials))
             // Addresses resolve to servers through the registry, so each request gets its server's token.
@@ -91,6 +96,7 @@ final class AppEnvironment {
             // Before the first request, so it already carries the migrated token.
             await migrateLegacyToken()
             await session?.start(serverURL: settings.serverURL)
+            if let session { sync.startMonitoring(session) }
             hasStarted = true
             QuickRShortcuts.updateAppShortcutParameters()
         }
@@ -107,12 +113,40 @@ final class AppEnvironment {
         guard let session else { return }
         switch phase {
         case .active:
+            sync.didBecomeActive()
             Task { await session.didBecomeActive() }
         case .background:
+            sync.didEnterBackground()
+            BackgroundRefresh.schedule()
             flushInBackground(session)
         default:
             break
         }
+    }
+
+    /// A `BGAppRefreshTask` (or the debug stand-in): pull, then send, as a background episode of
+    /// its own; the expiration handler cancels and suspends (`backgroundTimeExpiring`). The next
+    /// refresh is scheduled first. If the app is in the foreground it has nothing to do.
+    func backgroundRefresh(_ task: any BackgroundRefreshTask) async {
+        BackgroundRefresh.schedule()
+        guard lastScenePhase != .active else {
+            task.complete(success: true)
+            return
+        }
+        await start()
+        guard let session else {
+            task.complete(success: false)
+            return
+        }
+        let episode = session.beginBackground()
+        task.onExpiration {
+            Task { @MainActor in
+                await session.backgroundTimeExpiring(episode, within: .seconds(2))
+                task.complete(success: false)
+            }
+        }
+        let result = await session.backgroundRefresh(episode)
+        task.complete(success: result == .synced)
     }
 
     private func flushInBackground(_ session: AppSession) {
