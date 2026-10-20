@@ -2,6 +2,7 @@ import Foundation
 import QuickrCore
 import QuickrData
 import Testing
+import UIKit
 import UserNotifications
 
 @testable import QuickR
@@ -79,5 +80,90 @@ struct NotificationResponderTests {
         #expect(environment.router.path.last == .record(TopicLinkRef("coffee")!))
         #expect(environment.recordPrefill == nil)
         await environment.session?.shutdown()
+    }
+
+    // MARK: - Exactly one completion, whenever the background task expires (Codex r1)
+
+    @Test func expiryBeforeTheWorkFinishesAtOnceAndOnlyOnce() async {
+        let tasks = FakeBackgroundTasks(expireOnBegin: true)
+        var completions = 0
+        await NotificationResponder.run(tasks: tasks, completion: { completions += 1 }, work: {})
+        #expect(completions == 1)
+        #expect(tasks.ended == [tasks.issued], "the task is ended, even though it expired inside begin")
+    }
+
+    @Test func expiryDuringTheWorkFinishesAtOnceAndCancelsIt() async {
+        let tasks = FakeBackgroundTasks()
+        let gate = Gate()
+        var completions = 0
+        let cancelled = Flag()
+        let run = Task {
+            await NotificationResponder.run(
+                tasks: tasks, completion: { completions += 1 },
+                work: {
+                    await gate.wait()
+                    cancelled.value = Task.isCancelled
+                })
+        }
+        while !gate.isWaiting { await Task.yield() }
+        tasks.expire()
+        #expect(completions == 1, "completed at expiry, not when the work ends")
+        #expect(tasks.ended == [tasks.issued])
+        gate.open()
+        await run.value
+        #expect(cancelled.value)
+        #expect(completions == 1 && tasks.ended.count == 1)
+    }
+
+    @Test func expiryAfterTheWorkChangesNothing() async {
+        let tasks = FakeBackgroundTasks()
+        var completions = 0
+        await NotificationResponder.run(tasks: tasks, completion: { completions += 1 }, work: {})
+        #expect(completions == 1 && tasks.ended == [tasks.issued])
+        tasks.expire()
+        #expect(completions == 1 && tasks.ended.count == 1)
+    }
+}
+
+@MainActor
+private final class FakeBackgroundTasks: BackgroundTasking {
+    let issued = UIBackgroundTaskIdentifier(rawValue: 42)
+    private(set) var ended: [UIBackgroundTaskIdentifier] = []
+    private var expiration: (@MainActor () -> Void)?
+    private let expireOnBegin: Bool
+
+    init(expireOnBegin: Bool = false) { self.expireOnBegin = expireOnBegin }
+
+    func begin(name: String, expiration: @escaping @MainActor () -> Void) -> UIBackgroundTaskIdentifier {
+        self.expiration = expiration
+        if expireOnBegin { expiration() }
+        return issued
+    }
+
+    func end(_ task: UIBackgroundTaskIdentifier) { ended.append(task) }
+
+    func expire() { expiration?() }
+}
+
+@MainActor
+private final class Flag {
+    var value = false
+}
+
+@MainActor
+private final class Gate {
+    private var waiter: CheckedContinuation<Void, Never>?
+    private var isOpen = false
+    var isWaiting: Bool { waiter != nil }
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiter = $0 }
+    }
+
+    func open() {
+        isOpen = true
+        waiter?.resume()
+        waiter = nil
     }
 }

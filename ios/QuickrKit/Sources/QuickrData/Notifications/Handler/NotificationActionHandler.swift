@@ -39,8 +39,9 @@ public enum NotificationActionOutcome: Sendable, Hashable {
     /// The entry was enqueued in `serverId`'s store; `flush` is how the flush ended (nil when the
     /// store isn't the active one, which is never flushed from here).
     case logged(entryId: UUID, serverId: String, flush: OutboxFlushReport.Ending?)
-    /// The reminder was logged before (the first answer wins): nothing was written.
-    case alreadyLogged(entryId: UUID, OutboxCreateOnceResult.Duplicate)
+    /// The reminder was logged before (the first answer wins): nothing was written. Still flushed
+    /// like a new entry (`flush`), so a queued first answer goes out now.
+    case alreadyLogged(entryId: UUID, OutboxCreateOnceResult.Duplicate, flush: OutboxFlushReport.Ending?)
     /// Nothing was written; the failure notification says why.
     case refused(NotificationActionFailure)
     /// The typed number didn't validate: nothing was written; the tap-to-fix notification is up.
@@ -149,14 +150,21 @@ public struct NotificationActionHandler: Sendable {
 
     // MARK: - §7.2
 
-    /// `willPresent`: whether a notification arriving in the foreground is shown. A reminder whose
-    /// slot the active store's view already satisfies is not, and it is removed: the topic has an
-    /// entry captured at or after the slot (local, queued or synced), or the slot's shared action
-    /// entry id is already used (queued, on the server or deleted). Anything else is shown,
-    /// including a reminder from another server or one the store can't confirm.
+    /// `willPresent`: whether a notification arriving in the foreground is shown. A reminder is not,
+    /// and it is removed:
+    /// - L2 (§11.2), any server: it is a local reminder for a slot whose remote reminder is
+    ///   delivered (a remote one arriving removes the delivered local ones instead, L1/L3);
+    /// - its slot is satisfied in the active store's view: the topic has an entry captured at or
+    ///   after the slot (local, queued or synced), or the slot's shared action entry id is already
+    ///   used (queued, on the server or deleted).
+    /// Anything else is shown, including another server's reminder or one the store can't confirm.
     public func shouldPresent(_ notification: NotificationSnapshot) async -> Bool {
-        guard let slot = notification.quickr?.slot,
-            (try? await partitions.registry.repository.activeServerId()) == slot.serverId,
+        guard let slot = notification.quickr?.slot else { return true }
+        let delivered = await center.deliveredNotifications()  // outside any transaction
+        let duplicates = ReminderDedup.identifiersToRemove(arriving: notification, delivered: delivered)
+        if !duplicates.isEmpty { center.removeDeliveredNotifications(withIdentifiers: duplicates) }
+        if duplicates.contains(notification.id) { return false }
+        guard (try? await partitions.registry.repository.activeServerId()) == slot.serverId,
             await isProtectedDataAvailable(),
             let store = try? await partitions.openStore(serverId: slot.serverId, role: .app).store,
             let due = try? Date(slot.dueSince, strategy: .iso8601)
@@ -262,19 +270,28 @@ public struct NotificationActionHandler: Sendable {
         // 6. The commit posted db-changed through the store's pool.
 
         // 7. Clear this topic's delivered reminders and the pending local ones now satisfied (L4).
-        let isActive = (try? await registry.activeServerId()) == action.serverId
         await clearReminders(serverId: action.serverId, topicId: topicId, store: store)
-        // 8. The badge only reflects the active store (§8).
-        if isActive { await updateBadge(store) }
-        guard case .created = result else {
-            if case .duplicate(let duplicate) = result { return .alreadyLogged(entryId: entryId, duplicate) }
-            return .none
-        }
+        // 8. The badge only reflects the active store (§8), as it is now: re-read after the awaits.
+        if await isActive(store) { await updateBadge(store) }
         // 9. A new entry changes the topic's due state and last value.
-        reloadWidgets()
-        // 10. Flush the active store only, forced, within the budget.
-        guard isActive else { return .logged(entryId: entryId, serverId: action.serverId, flush: nil) }
-        return .logged(entryId: entryId, serverId: action.serverId, flush: await flush(store))
+        if case .created = result { reloadWidgets() }
+        // 10. Flush the active store only, forced, within the budget; a duplicate too (its first
+        // answer may still be queued).
+        let flushed: OutboxFlushReport.Ending? = await isActive(store) ? await flush(store) : nil
+        switch result {
+        case .created: return .logged(entryId: entryId, serverId: action.serverId, flush: flushed)
+        case .duplicate(let duplicate): return .alreadyLogged(entryId: entryId, duplicate, flush: flushed)
+        }
+    }
+
+    /// Whether `store` is the active server's current file right now: the badge and the flush are
+    /// for it alone, and a server switch or a reset may have happened during the handler's awaits.
+    private func isActive(_ store: LocalStore) async -> Bool {
+        let registry = partitions.registry.repository
+        guard (try? await registry.activeServerId()) == store.serverId,
+            let server = try? await registry.server(id: store.serverId)
+        else { return false }
+        return server.storeGen == store.storeGen && server.pendingGen == nil
     }
 
     /// Step 5's transaction. A store retired meanwhile is reopened and the write retried once.

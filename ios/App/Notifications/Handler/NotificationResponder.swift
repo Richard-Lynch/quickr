@@ -12,6 +12,8 @@ final class NotificationResponder: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationResponder()
 
     private weak var environment: AppEnvironment?
+    /// `UIApplication`'s background tasks; tests pass fakes to `run`.
+    var backgroundTasks: any BackgroundTasking = ApplicationBackgroundTasks()
 
     /// From `QuickRApp.init`, which runs before the delegate can be called.
     func attach(_ environment: AppEnvironment) {
@@ -44,22 +46,34 @@ final class NotificationResponder: NSObject, UNUserNotificationCenterDelegate {
             userText: (response as? UNTextInputNotificationResponse)?.userText,
             content: response.notification.request.content)
         let completion = Completion(completionHandler)
-        Task { @MainActor in
-            await self.respond(input)
-            completion.call()
+        Task { @MainActor in await self.respond(input) { completion.call() } }
+    }
+
+    /// Handles one response inside a background task (§7.1 steps 0 and 11), then calls `completion`.
+    func respond(_ input: NotificationActionResponse, completion: @escaping @MainActor () -> Void) async {
+        guard let environment else { return completion() }
+        await Self.run(tasks: backgroundTasks, completion: completion) {
+            await environment.handleNotificationResponse(input)
         }
     }
 
-    /// Handles one response inside a background task (§7.1 steps 0 and 11). The task's expiry
-    /// cancels the work, so a flush still running releases its lease and leaves its item
-    /// `uncertain` for the next one.
-    func respond(_ input: NotificationActionResponse) async {
-        guard let environment else { return }
-        let application = UIApplication.shared
-        let work = Task { await environment.handleNotificationResponse(input) }
-        let task = application.beginBackgroundTask(withName: "quickr.notification-action") { work.cancel() }
-        await work.value
-        if task != .invalid { application.endBackgroundTask(task) }
+    /// Runs `work` inside a background task. The task ends and `completion` is called exactly once:
+    /// when the work finishes, or at once when the task expires (the work is then cancelled: a
+    /// flush still running releases its lease and leaves its item `uncertain` for the next one).
+    static func run(
+        tasks: any BackgroundTasking, completion: @escaping @MainActor () -> Void,
+        work: @escaping @MainActor @Sendable () async -> Void
+    ) async {
+        let finisher = ResponseFinisher(end: { tasks.end($0) }, completion: completion)
+        // Created first so expiry can cancel it; it starts once this returns to the main actor.
+        let job = Task { @MainActor in await work() }
+        finisher.started(
+            tasks.begin(name: "quickr.notification-action") {
+                job.cancel()
+                finisher.finish()
+            })
+        await job.value
+        finisher.finish()
     }
 
     /// The handler's input from a response's parts (a `UNNotificationResponse` can't be built in tests).
@@ -75,6 +89,53 @@ final class NotificationResponder: NSObject, UNUserNotificationCenterDelegate {
         return NotificationActionResponse(
             action: action, userText: userText, title: content.title,
             quickr: SystemNotificationCenter.quickr(content.userInfo))
+    }
+}
+
+/// `UIApplication`'s background tasks, behind a protocol for tests.
+@MainActor
+protocol BackgroundTasking {
+    func begin(name: String, expiration: @escaping @MainActor () -> Void) -> UIBackgroundTaskIdentifier
+    func end(_ task: UIBackgroundTaskIdentifier)
+}
+
+struct ApplicationBackgroundTasks: BackgroundTasking {
+    func begin(name: String, expiration: @escaping @MainActor () -> Void) -> UIBackgroundTaskIdentifier {
+        UIApplication.shared.beginBackgroundTask(withName: name) { MainActor.assumeIsolated { expiration() } }
+    }
+
+    func end(_ task: UIBackgroundTaskIdentifier) {
+        UIApplication.shared.endBackgroundTask(task)
+    }
+}
+
+/// Finishes a response exactly once, whichever comes first: ends its background task and calls
+/// the delegate's completion. An expiry before `begin` returned still ends the task it returns.
+@MainActor
+final class ResponseFinisher {
+    private let end: (UIBackgroundTaskIdentifier) -> Void
+    private let completion: () -> Void
+    private var task: UIBackgroundTaskIdentifier?
+    private(set) var isFinished = false
+
+    init(end: @escaping (UIBackgroundTaskIdentifier) -> Void, completion: @escaping () -> Void) {
+        self.end = end
+        self.completion = completion
+    }
+
+    func started(_ task: UIBackgroundTaskIdentifier) {
+        if isFinished {
+            if task != .invalid { end(task) }
+        } else {
+            self.task = task
+        }
+    }
+
+    func finish() {
+        guard !isFinished else { return }
+        isFinished = true
+        if let task, task != .invalid { end(task) }
+        completion()
     }
 }
 

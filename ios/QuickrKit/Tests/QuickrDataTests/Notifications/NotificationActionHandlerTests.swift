@@ -25,7 +25,9 @@ import Testing
     final class World: Sendable {
         let dir: TempDirectory
         let partitions: StorePartitions
-        let center = FakeNotificationCenter()
+        /// Runs inside the center's queries (`deliveredNotifications`, …): to act mid-handler.
+        let onQuery = QueryHook()
+        let center: FakeNotificationCenter
         let server = FakeServer()
         let clock = FakeLeaseClock()
         let wall = FakeClock(Make.t0)
@@ -37,6 +39,7 @@ import Testing
         let stores: [String: LocalStore]
 
         init(waterVersion: Int = 1) async throws {
+            center = FakeNotificationCenter(onQuery: { [onQuery] name in onQuery.run(name) })
             dir = try TempDirectory()
             partitions = try StorePartitions.open(
                 at: StoreLocation(root: dir.url), leaseClock: clock, wallClock: wall, notifier: RecordingNotifier())
@@ -174,22 +177,20 @@ import Testing
         let id = w.entryId(w.moodTopic)
         guard case .logged = await w.tap(r, 0) else { throw Failure("first tap logs") }
         #expect(try await w.items().count == 1)
-        #expect(await w.tap(r, 2) == .alreadyLogged(entryId: id, .queued), "another option: nothing written")
-        #expect(try await w.items().count == 1)
+        #expect(w.server.entry(id) == nil)
+        // Another option: nothing written, but the queued first answer is sent now (a forced flush).
+        #expect(await w.tap(r, 2) == .alreadyLogged(entryId: id, .queued, flush: .drained))
+        #expect(w.server.entry(id)?.answers == ["mood": .string("good")], "the first answer")
+        #expect(try await w.items().isEmpty)
         #expect(w.reloads.withLock { $0 } == 1)
 
         // Once it is on the server, a replay (another device's push) still writes nothing.
+        #expect(await w.tap(r, 1) == .alreadyLogged(entryId: id, .onServer, flush: .drained))
         let store = w.stores[Self.serverA]!
-        try await store.writer.write { db in
-            try db.execute(sql: "DELETE FROM outbox_item")
-            _ = try ServerLayer.upsert(
-                db, entry: Make.entry(id: id, topicId: w.moodTopic.id, answers: ["mood": .string("good")]))
-        }
-        #expect(await w.tap(r, 1) == .alreadyLogged(entryId: id, .onServer))
         try await store.writer.write { db in
             try ServerLayer.applyDeletion(db, kind: .entry, id: id, topicId: w.moodTopic.id, seq: nil)
         }
-        #expect(await w.tap(r, 1) == .alreadyLogged(entryId: id, .deleted))
+        #expect(await w.tap(r, 1) == .alreadyLogged(entryId: id, .deleted, flush: .drained))
         #expect(try await w.items().isEmpty)
     }
 
@@ -202,7 +203,7 @@ import Testing
             return await group.reduce(into: []) { $0.append($1) }
         }
         #expect(outcomes.count { if case .logged = $0 { true } else { false } } == 1)
-        #expect(outcomes.count { if case .alreadyLogged(_, .queued) = $0 { true } else { false } } == 2)
+        #expect(outcomes.count { if case .alreadyLogged(_, .queued, _) = $0 { true } else { false } } == 2)
         #expect(try await w.items().count == 1)
     }
 
@@ -421,7 +422,7 @@ import Testing
 
         // A duplicate still clears a reminder delivered again.
         w.center.withState { $0.delivered = [NotificationSnapshot(id: "again", quickr: r.info)] }
-        #expect(await w.tap(r, 1) == .alreadyLogged(entryId: w.entryId(w.moodTopic), .onServer))
+        #expect(await w.tap(r, 1) == .alreadyLogged(entryId: w.entryId(w.moodTopic), .onServer, flush: .drained))
         #expect(w.center.withState { $0.delivered }.isEmpty)
     }
 
@@ -455,7 +456,9 @@ import Testing
         #expect(try await old.writer.read { db in try OutboxStorage.items(db) }.isEmpty, "nothing in the retired file")
         #expect(try await current.writer.read { db in try OutboxStorage.items(db) }.map(\.id) == [id.wireString])
         // Once: the same reminder again writes nothing more.
-        #expect(await handler.handle(action) == .alreadyLogged(entryId: id, .queued))
+        guard case .alreadyLogged(id, .queued, _) = await handler.handle(action) else {
+            throw Failure("a repeat is a duplicate")
+        }
         #expect(try await current.writer.read { db in try OutboxStorage.items(db) }.count == 1)
     }
 
@@ -518,8 +521,59 @@ import Testing
             "the next slot is due")
     }
 
+    // MARK: - Codex r1: the active store is re-read after the awaits
+
+    @Test func aServerSwitchDuringTheHandlerKeepsTheBadgeAndTheFlushOffTheOldStore() async throws {
+        let w = try await World()
+        w.center.withState { $0.badge = 99 }
+        let registry = w.partitions.registry
+        // The user switches servers while the handler waits on the center (step 7).
+        w.onQuery.set { name in
+            guard name == "deliveredNotifications" else { return }
+            try? registry.writer.write { db in
+                try db.execute(
+                    sql: "INSERT OR REPLACE INTO active (id, server_id) VALUES (1, ?)", arguments: [Self.serverB])
+            }
+        }
+        let r = w.reminder(w.moodTopic)
+        let id = w.entryId(w.moodTopic)
+        #expect(await w.tap(r, 0) == .logged(entryId: id, serverId: Self.serverA, flush: nil))
+        #expect(try await w.items().map(\.id) == [id.wireString], "written where the reminder belongs")
+        #expect(w.center.withState { $0.badge } == 99, "no longer the active store: no badge")
+        #expect(w.server.handled.isEmpty, "and no flush")
+    }
+
+    // MARK: - Codex r1: §11.2 L2 in the foreground, any server
+
+    @Test func aLocalReminderWhoseRemoteOneIsDeliveredIsNotPresented() async throws {
+        let w = try await World()
+        // An inactive server's slot: the store isn't consulted, only what is delivered.
+        let remote = w.reminder(w.moodTopic, serverId: Self.serverB).info
+        var localInfo = remote
+        localInfo.origin = .local
+        let local = NotificationSnapshot(id: localInfo.slot!.localRequestIdentifier, quickr: localInfo)
+        let delivered = NotificationSnapshot(id: "remote", quickr: remote)
+        w.center.withState { $0.delivered = [delivered, local] }
+        #expect(await !w.handler.shouldPresent(local))
+        #expect(w.center.withState { $0.delivered.map(\.id) } == ["remote"], "the local one goes, the remote stays")
+
+        // The other order: the remote one arrives and is shown; the delivered local one goes (L1/L3).
+        w.center.withState { $0.delivered = [local] }
+        #expect(await w.handler.shouldPresent(delivered))
+        #expect(w.center.withState { $0.delivered }.isEmpty)
+    }
+
     struct Failure: Error, CustomStringConvertible {
         var description: String
         init(_ description: String) { self.description = description }
     }
+}
+
+/// A settable closure the fake center calls on each query.
+final class QueryHook: Sendable {
+    private let body = Mutex<(@Sendable (String) -> Void)?>(nil)
+
+    func set(_ body: @escaping @Sendable (String) -> Void) { self.body.withLock { $0 = body } }
+
+    func run(_ name: String) { body.withLock { $0 }?(name) }
 }
