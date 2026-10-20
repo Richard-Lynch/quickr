@@ -11,6 +11,8 @@ import UIKit
 @MainActor @Observable
 final class AppEnvironment {
     let settings: AppSettings
+    /// The Cloudflare Access token in the Keychain; the session reads it on every request.
+    let credentials: KeychainAccessCredentials?
     let router = Router()
     /// Nil only when it couldn't be created (`sessionError`); `start()` tries again.
     private(set) var session: AppSession?
@@ -20,17 +22,25 @@ final class AppEnvironment {
     @ObservationIgnored private let makeSession: @MainActor () throws -> AppSession
     @ObservationIgnored private var starting: Task<Void, Never>?
 
-    init(settings: AppSettings, makeSession: @escaping @MainActor () throws -> AppSession) {
+    init(
+        settings: AppSettings, credentials: KeychainAccessCredentials? = nil,
+        makeSession: @escaping @MainActor () throws -> AppSession
+    ) {
         self.settings = settings
+        self.credentials = credentials
         self.makeSession = makeSession
         openSession()
     }
 
-    /// The live session over the App Group's files, sending through URLSession.
-    static func live(location: StoreLocation = .shared(appGroup: AppGroup.identifier)) -> AppEnvironment {
-        AppEnvironment(settings: AppSettings(defaults: AppGroup.defaults)) {
-            // Cloudflare Access credentials come from the Keychain once SETTINGS adds them.
-            try AppSession(configuration: .init(location: location, transport: URLSessionTransport()))
+    /// The live session over the App Group's files, sending through URLSession with the
+    /// Cloudflare Access token from the shared Keychain.
+    static func live(
+        location: StoreLocation = .shared(appGroup: AppGroup.identifier), defaults: UserDefaults = AppGroup.defaults,
+        keychain: any KeychainStore = SystemKeychain(), transport: any Transport = URLSessionTransport()
+    ) -> AppEnvironment {
+        let credentials = KeychainAccessCredentials(keychain: keychain)
+        return AppEnvironment(settings: AppSettings(defaults: defaults), credentials: credentials) {
+            try AppSession(configuration: .init(location: location, transport: transport, credentials: credentials))
         }
     }
 
@@ -39,7 +49,11 @@ final class AppEnvironment {
     /// a scene, so this runs in `QuickRApp.init`, before anything can query an entity. It opens
     /// the registry only; the store opens on first use.
     static func bootstrap(location: StoreLocation = .shared(appGroup: AppGroup.identifier)) -> AppEnvironment {
+        #if DEBUG
+        let environment = UITestLaunch.isActive ? UITestLaunch.environment() : live(location: location)
+        #else
         let environment = live(location: location)
+        #endif
         environment.registerIntentTopics()
         return environment
     }

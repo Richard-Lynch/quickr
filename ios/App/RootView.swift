@@ -3,10 +3,14 @@ import QuickrData
 import QuickrUI
 import SwiftUI
 
-/// The navigation root. LINKS fills `Route` and the destinations; the home screen replaces
-/// `placeholder` in M2.
+/// The navigation root: onboarding until a server is set up, then the `NavigationStack` of
+/// `Route`s over the topic list (HOME replaces `placeholder`). Links (`quickr://`, the server's
+/// PWA URLs) open through the router.
 struct RootView: View {
     @Environment(AppEnvironment.self) private var environment
+    /// Onboarding stays up from "no server" until it finishes (its reminders step comes after
+    /// the connect has already made the session ready).
+    @State private var onboarding = false
 
     var body: some View {
         #if DEBUG
@@ -40,16 +44,48 @@ struct RootView: View {
     }
     #endif
 
+    @ViewBuilder
     private var stack: some View {
-        @Bindable var router = environment.router
-        return NavigationStack(path: $router.path) {
-            placeholder
-                .navigationDestination(for: Route.self, destination: destination(for:))
+        if onboarding, let session = environment.session {
+            OnboardingView(session: session, settings: environment.settings, credentials: environment.credentials) {
+                onboarding = false
+            }
+        } else {
+            navigation
+                .onOpenURL { url in environment.router.handle(url: url, serverURL: environment.settings.serverURL) }
+                .onChange(of: environment.session?.phase, initial: true) { _, phase in
+                    if phase == .noServer { onboarding = true }
+                }
         }
     }
 
-    private func destination(for route: Route) -> Never {
-        switch route {}
+    private var navigation: some View {
+        @Bindable var router = environment.router
+        return NavigationStack(path: $router.path) {
+            placeholder
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            router.open(.settings)
+                        } label: {
+                            QIcon.settings.view(size: 20)
+                        }
+                        .accessibilityLabel("Settings")
+                        .accessibilityIdentifier("root.settings")
+                    }
+                }
+                .navigationDestination(for: Route.self) { RouteDestination(route: $0) }
+        }
+        .alert(
+            "Can’t open that link", isPresented: unopenedLink,
+            actions: { Button("OK", role: .cancel) {} },
+            message: { Text("It isn’t a quickR page.") })
+    }
+
+    private var unopenedLink: Binding<Bool> {
+        Binding(
+            get: { environment.router.unopenedLink != nil },
+            set: { if !$0 { environment.router.unopenedLink = nil } })
     }
 
     private var placeholder: some View {
