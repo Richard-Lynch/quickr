@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- **M3 HANDLER:** action-originated `entry.create` must use the shared name-based id from (server_id, topic_id, due_since), per the §7.1 amendment coming with B8, with shared vectors, so iOS and PWA actions on the same reminder dedupe server-side.
 - M3 (from Codex's M1 milestone review): Swift category-id generation verified against shared vectors (notifications.md:255 MUST); `NotificationCenterProtocol` can't represent B7's `open` action (NotificationCenterProtocol.swift:63); N1/N3/N5–N15 coverage; production category reconciliation, action validation, badge/dedupe, token lifecycle.
 - M1 review backlog: one pool per (server, gen) per process (StorePartitions.swift:221 opens a new pool on every open); write façade (enqueue plus requestFlush); dead StoreLink probes and empty service protocols removed by WIRE; widget intents on placeholder topics until M4; coalesce per-call Tasks in `handle(_:)`/`requestFlush` bursts. All are folded into WIRE where they apply.
 - STORE test: `LeaseTimeSamplingTests` sleeps 50 ms assuming a writer is already waiting; under load it passes but proves less. Replace the sleep with a barrier (found by FLAKE).
@@ -290,6 +291,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-19 21:00 (EDT): FORM merged into ios/m2-ui (a20fd41). LINKS+SETTINGS assigned (FORM agent). B8 done (3edb2b8, 36afb5e, 5879f9e; make check green). Codex = REQUEST CHANGES: server_id isn't preserved (wrong-server writes), failures silently dismiss the reminder. Decision: a **shared cross-client action entry id** (name-based from server_id, topic_id, due_since) with Python-generated vectors, amending §7.1. HOME and TILES (1/3: 5f0afbb) in progress.
 
 - 2026-10-19 21:15 (EDT): **W5 started.** Shared brief docs/ios/specs/m2-screens.md (c0eda29). HOME → ex-INT/WIRE agent (ios/m2-home); TILES → SYNC agent (ios/m2-tiles); B8 → OUTBOX agent (ios/m2-b8, PWA Chromium actions). FORM is re-landing on top of WIRE; its agent then takes LINKS+SETTINGS.
 
