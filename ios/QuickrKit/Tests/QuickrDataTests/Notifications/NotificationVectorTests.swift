@@ -72,6 +72,7 @@ import Testing
     func fmt(_ vector: Fmt) {
         #expect(NumberFormat.fmt(vector.number) == vector.expected, "\(vector.number)")
         #expect(NumberFormat.isCanonical(vector.expected))
+        #expect(!NumberFormat.isCanonical(vector.expected + "\n") && !NumberFormat.isCanonical("\n" + vector.expected))
     }
 
     // MARK: - The file

@@ -118,47 +118,60 @@ public struct NotificationCategory: Sendable, Hashable {
                     key: question.key, label: cut(question.label),
                     options: shown.map { .init(value: $0.value, label: cut($0.label)) }, totalOptions: options.count))
         case .number(let question):
-            guard let rules = question.numericRules else { return nil }
-            let unit = rules.unit.flatMap { $0.isEmpty ? nil : cut($0) }
-            return .number(
-                .init(
-                    type: rules.isInteger ? "int" : "double", key: question.key, label: cut(question.label), unit: unit,
-                    min: rules.min, max: rules.max, decimals: rules.isInteger ? nil : rules.decimals,
-                    lastValue: lastValue(last, for: rules)))
+            // The question's own bounds, not `numericRules` (doubles): an int's are exact.
+            switch question.kind {
+            case .int(let rules):
+                return .number(
+                    .init(
+                        type: "int", key: question.key, label: cut(question.label), unit: unit(rules.unit),
+                        min: rules.min.map(QuickLogNumber.int), max: rules.max.map(QuickLogNumber.int), decimals: nil,
+                        lastValue: lastInt(last, min: rules.min, max: rules.max)))
+            case .double(let rules):
+                return .number(
+                    .init(
+                        type: "double", key: question.key, label: cut(question.label), unit: unit(rules.unit),
+                        min: rules.min.map(QuickLogNumber.double), max: rules.max.map(QuickLogNumber.double),
+                        decimals: rules.decimals, lastValue: lastDouble(last, min: rules.min, max: rules.max)))
+            case .string, .choice:
+                return nil
+            }
         }
     }
 
-    /// `last_value`: `last` when the server would accept it as an answer (type and bounds; a whole
-    /// double counts as an int). `decimals` never drops or rounds it.
-    static func lastValue(_ last: AnswerValue?, for rules: NumericRules) -> QuickLogNumber? {
-        let value: QuickLogNumber
-        switch (last, rules.isInteger) {
-        case (.int(let n), true): value = .int(n)
-        case (.double(let x), true):
-            guard x.isFinite, x == x.rounded(), let n = Int(exactly: x) else { return nil }
-            value = .int(n)
-        case (.int(let n), false): value = .double(Double(n))
-        case (.double(let x), false):
-            guard x.isFinite else { return nil }
-            value = .double(x)
+    /// `last_value` of an int question: an int, or a whole double, within the bounds, compared as
+    /// integers (a binary64 can't tell 2^53 + 3 from 2^53 + 4).
+    static func lastInt(_ last: AnswerValue?, min: Int?, max: Int?) -> QuickLogNumber? {
+        let n: Int
+        switch last {
+        case .int(let value): n = value
+        case .double(let x):
+            guard x.isFinite, x == x.rounded(), let value = Int(exactly: x) else { return nil }
+            n = value
         default: return nil
         }
-        guard within(value, min: rules.min, max: rules.max) else { return nil }
-        return value
+        if let min, n < min { return nil }
+        if let max, n > max { return nil }
+        return .int(n)
     }
 
-    private static func within(_ value: QuickLogNumber, min: Double?, max: Double?) -> Bool {
-        switch value {
-        case .int(let n):
-            // Int bounds are whole numbers; compare exactly where a Double can't hold `n`.
-            if let min, let bound = Int(exactly: min.rounded(.up)), n < bound { return false }
-            if let max, let bound = Int(exactly: max.rounded(.down)), n > bound { return false }
-            return true
-        case .double(let x):
-            if let min, x < min { return false }
-            if let max, x > max { return false }
-            return true
+    /// `last_value` of a double question: any finite number within the bounds. `decimals` never
+    /// drops or rounds it.
+    static func lastDouble(_ last: AnswerValue?, min: Double?, max: Double?) -> QuickLogNumber? {
+        let x: Double
+        switch last {
+        case .int(let value): x = Double(value)
+        case .double(let value): x = value
+        default: return nil
         }
+        guard x.isFinite else { return nil }
+        if let min, x < min { return nil }
+        if let max, x > max { return nil }
+        return .double(x)
+    }
+
+    /// An empty unit is none; a long one is cut.
+    private static func unit(_ unit: String?) -> String? {
+        unit.flatMap { $0.isEmpty ? nil : cut($0) }
     }
 
     /// Cut to ``maxLabelLength`` Unicode scalars, the last one replaced by "…".
@@ -297,7 +310,8 @@ public struct ActionIdentifier: Sendable, Hashable, CustomStringConvertible {
     }
 
     private static func isKey(_ text: String) -> Bool {
-        text.range(of: "^[a-z][a-z0-9_]{0,62}$", options: .regularExpression) != nil
+        // \A…\z: the whole string, whatever a regex engine's `$` does before a final newline.
+        text.range(of: #"\A[a-z][a-z0-9_]{0,62}\z"#, options: .regularExpression) != nil
     }
 }
 
@@ -344,7 +358,7 @@ public enum NumberFormat {
     /// Whether `text` is a `fmt` output (what an `n` action id carries): an optional "-", digits
     /// with an optional fraction, no exponent, no leading zeros, no trailing zeros, no "-0".
     public static func isCanonical(_ text: String) -> Bool {
-        text.range(of: #"^-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$"#, options: .regularExpression) != nil && text != "-0"
+        text.range(of: #"\A-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?\z"#, options: .regularExpression) != nil && text != "-0"
     }
 }
 

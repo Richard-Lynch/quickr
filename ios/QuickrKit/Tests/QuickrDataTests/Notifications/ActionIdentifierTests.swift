@@ -35,6 +35,8 @@ import Testing
             "\(base)|m|x",  // nor does More…
             "\(base)|n|07.5", "\(base)|n|7.50", "\(base)|n|1e3", "\(base)|n|-0", "\(base)|n|",  // not fmt
             "\(base)|o",  // too few parts
+            "q1|\(Self.server)|\(Self.topic)|3|mood\n|o|good",  // a newline after the key
+            "\(base)|n|7.5\n", "\(base)|n|\n7.5",  // a newline around a number
         ] {
             #expect(ActionIdentifier(bad) == nil, "\(bad)")
         }

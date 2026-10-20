@@ -218,16 +218,17 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
         public var key: String
         public var label: String
         public var unit: String?
-        public var min: Double?
-        public var max: Double?
+        /// Bounds, typed like the question: exact for an int (they may exceed 2^53).
+        public var min: QuickLogNumber?
+        public var max: QuickLogNumber?
         public var decimals: Int?
         /// nil when there is no previous entry or it no longer validates. An int question's is an
         /// exact `.int` (it may exceed 2^53), a double question's a `.double`.
         public var lastValue: QuickLogNumber?
 
         public init(
-            type: String, key: String, label: String, unit: String? = nil, min: Double? = nil, max: Double? = nil,
-            decimals: Int? = nil, lastValue: QuickLogNumber? = nil
+            type: String, key: String, label: String, unit: String? = nil, min: QuickLogNumber? = nil,
+            max: QuickLogNumber? = nil, decimals: Int? = nil, lastValue: QuickLogNumber? = nil
         ) {
             self.type = type
             self.key = key
@@ -250,14 +251,17 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
             key = try c.decode(String.self, forKey: .key)
             label = try c.decode(String.self, forKey: .label)
             unit = try c.decodeIfPresent(String.self, forKey: .unit)
-            min = try c.decodeIfPresent(Double.self, forKey: .min)
-            max = try c.decodeIfPresent(Double.self, forKey: .max)
             decimals = try c.decodeIfPresent(Int.self, forKey: .decimals)
-            // Typed by the question: an int's last value stays exact (JSON ints beyond 2^53).
-            lastValue =
-                type == "int"
-                ? try c.decodeIfPresent(Int.self, forKey: .lastValue).map(QuickLogNumber.int)
-                : try c.decodeIfPresent(Double.self, forKey: .lastValue).map(QuickLogNumber.double)
+            // Typed by the question: an int's numbers stay exact (JSON ints beyond 2^53).
+            let isInt = type == "int"
+            func number(_ key: CodingKeys) throws -> QuickLogNumber? {
+                isInt
+                    ? try c.decodeIfPresent(Int.self, forKey: key).map(QuickLogNumber.int)
+                    : try c.decodeIfPresent(Double.self, forKey: key).map(QuickLogNumber.double)
+            }
+            min = try number(.min)
+            max = try number(.max)
+            lastValue = try number(.lastValue)
         }
 
         public func encode(to encoder: any Encoder) throws {
@@ -266,13 +270,13 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
             try c.encode(key, forKey: .key)
             try c.encode(label, forKey: .label)
             try c.encode(unit, forKey: .unit)
-            try c.encode(min, forKey: .min)
-            try c.encode(max, forKey: .max)
             try c.encode(decimals, forKey: .decimals)
-            switch lastValue {
-            case .int(let n): try c.encode(n, forKey: .lastValue)
-            case .double(let x): try c.encode(x, forKey: .lastValue)
-            case nil: try c.encodeNil(forKey: .lastValue)
+            for (key, number) in [(CodingKeys.min, min), (.max, max), (.lastValue, lastValue)] {
+                switch number {
+                case .int(let n): try c.encode(n, forKey: key)
+                case .double(let x): try c.encode(x, forKey: key)
+                case nil: try c.encodeNil(forKey: key)
+                }
             }
         }
     }
