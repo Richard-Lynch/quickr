@@ -4,7 +4,7 @@
 # IOS_LAUNCH_ARGS: arguments for the app, e.g. -QuickrDemoStore (a seeded demo store, debug builds).
 source "$(dirname "$0")/common.sh"
 require_xcode
-udid="$(sim_udid "$1")"; url="${2:-}"
+udid="$(target_sim_udid "$1")"; url="${2:-}"
 sim_boot "$udid"
 open -a Simulator --args -CurrentDeviceUDID "$udid" 2>/dev/null || true
 "$(dirname "$0")/build.sh" "$udid"
