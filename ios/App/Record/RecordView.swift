@@ -159,7 +159,10 @@ struct SwipeBack: UIViewControllerRepresentable {
 
     final class Controller: UIViewController, UIGestureRecognizerDelegate {
         var isEnabled = true
-        private var previousDelegates: [(UIGestureRecognizer, UIGestureRecognizerDelegate?)] = []
+        /// Each swipe taken over, with what to put back: its delegate, and whether it was enabled
+        /// (UIKit turns the content swipe off while the back button is hidden).
+        private var previous: [(swipe: UIGestureRecognizer, delegate: UIGestureRecognizerDelegate?, enabled: Bool)] =
+            []
 
         private var swipes: [UIGestureRecognizer] {
             [
@@ -171,15 +174,19 @@ struct SwipeBack: UIViewControllerRepresentable {
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
             for swipe in swipes where swipe.delegate !== self {
-                previousDelegates.append((swipe, swipe.delegate))
+                previous.append((swipe, swipe.delegate, swipe.isEnabled))
                 swipe.delegate = self
+                swipe.isEnabled = true  // whether it may start is gestureRecognizerShouldBegin's call
             }
         }
 
         override func viewWillDisappear(_ animated: Bool) {
             super.viewWillDisappear(animated)
-            for (swipe, delegate) in previousDelegates where swipe.delegate === self { swipe.delegate = delegate }
-            previousDelegates = []
+            for (swipe, delegate, enabled) in previous where swipe.delegate === self {
+                swipe.delegate = delegate
+                swipe.isEnabled = enabled
+            }
+            previous = []
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
