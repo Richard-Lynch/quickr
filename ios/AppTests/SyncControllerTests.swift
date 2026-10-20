@@ -216,6 +216,35 @@ import Testing
         await session.shutdown()
     }
 
+    /// The other order: the refresh's time runs out first (the start is cancelled), and the app
+    /// is opened while that start is still unwinding. The activation waits for it to end, sees it
+    /// was interrupted, and connects.
+    @Test func activationWhileAnExpiredStartUnwindsConnects() async throws {
+        UITestLaunch.server.offline = false
+        UITestLaunch.server.holdFeed()
+        UITestLaunch.server.holdCancellations()
+        defer { UITestLaunch.server.releaseFeed() }
+        let environment = UITestLaunch.environment()
+        environment.settings.serverURL = UITestLaunch.fakeServer
+        environment.scenePhaseChanged(.background)
+        let task = RecordingRefreshTask()
+        let refresh = Task { await environment.backgroundRefresh(task) }
+        try await eventually("startup is fetching") { UITestLaunch.server.heldCount == 1 }
+        let cancelled = UITestLaunch.server.cancelledCount
+
+        task.expire()
+        try await eventually("the start is cancelled") { UITestLaunch.server.cancelledCount == cancelled + 1 }
+        try await eventually("completed") { task.completions == [false] }
+        environment.scenePhaseChanged(.active)  // the cancelled start hasn't ended yet
+        let session = try #require(environment.session)
+        try await eventually("activated") { !session.isBackgrounded }
+
+        UITestLaunch.server.releaseFeed()  // the start ends, interrupted
+        await refresh.value
+        try await eventually("connected") { session.phase == .ready }
+        await session.shutdown()
+    }
+
     @Test func backgroundRefreshPullsSendsAndCompletes() async throws {
         let (environment, session, observing) = try await started()
         defer { observing.cancel() }

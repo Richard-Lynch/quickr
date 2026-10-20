@@ -61,6 +61,8 @@ final class FakeServerState: Sendable {
         var holdFeed = false
         var requests = 0
         var cancelled = 0
+        var holdCancellations = false
+        var unwinding: [CheckedContinuation<Void, any Error>] = []
         var held: [UUID: CheckedContinuation<Void, any Error>] = [:]
     }
 
@@ -93,13 +95,22 @@ final class FakeServerState: Sendable {
     /// Holds feed requests until `releaseFeed()` (a cancelled one stops waiting, as URLSession's does).
     func holdFeed() { state.withLock { $0.holdFeed = true } }
 
+    /// A cancelled held request also waits, until `releaseFeed()`: the cancelled work is still
+    /// unwinding meanwhile (a slow URLSession cancel).
+    func holdCancellations() { state.withLock { $0.holdCancellations = true } }
+
     func releaseFeed() {
-        let waiters = state.withLock { state in
+        let (waiters, cancelled) = state.withLock { state in
             state.holdFeed = false
-            defer { state.held = [:] }
-            return Array(state.held.values)
+            state.holdCancellations = false
+            defer {
+                state.held = [:]
+                state.unwinding = []
+            }
+            return (Array(state.held.values), state.unwinding)
         }
         for waiter in waiters { waiter.resume() }
+        for waiter in cancelled { waiter.resume(throwing: TransportError.cancelled(requestStarted: true)) }
     }
 
     fileprivate func counted() { state.withLock { $0.requests += 1 } }
@@ -116,9 +127,13 @@ final class FakeServerState: Sendable {
                 if proceed { continuation.resume() }
             }
         } onCancel: {
-            let waiter = state.withLock { state in
-                let waiter = state.held.removeValue(forKey: id)
-                if waiter != nil { state.cancelled += 1 }
+            let waiter = state.withLock { state -> CheckedContinuation<Void, any Error>? in
+                guard let waiter = state.held.removeValue(forKey: id) else { return nil }
+                state.cancelled += 1
+                guard !state.holdCancellations else {
+                    state.unwinding.append(waiter)
+                    return nil
+                }
                 return waiter
             }
             waiter?.resume(throwing: TransportError.cancelled(requestStarted: true))
