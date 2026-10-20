@@ -26,16 +26,21 @@ final class AppEnvironment {
     private(set) var hasStarted = false
 
     @ObservationIgnored private let makeSession: @MainActor () throws -> AppSession
+    @ObservationIgnored private var prepare: (@MainActor () async -> Void)?
     @ObservationIgnored private var starting: Task<Void, Never>?
 
+    /// - Parameter prepare: runs once in `start()` before the session opens (a debug demo store's
+    ///   seeding); with it, the session opens in `start()` rather than here.
     init(
         settings: AppSettings, credentials: KeychainAccessCredentials? = nil,
+        prepare: (@MainActor () async -> Void)? = nil,
         makeSession: @escaping @MainActor () throws -> AppSession
     ) {
         self.settings = settings
         self.credentials = credentials
         self.makeSession = makeSession
-        openSession()
+        self.prepare = prepare
+        if prepare == nil { openSession() }
     }
 
     /// The live session over the App Group's files, sending through URLSession with the
@@ -84,6 +89,10 @@ final class AppEnvironment {
             return
         }
         let attempt = Task {
+            if let prepare {
+                self.prepare = nil
+                await prepare()
+            }
             if session == nil {
                 openSession()
                 registerIntentTopics()
