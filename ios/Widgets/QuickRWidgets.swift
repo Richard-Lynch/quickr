@@ -1,8 +1,8 @@
 import SwiftUI
 import WidgetKit
 
-/// The widget extension. SKEL ships one minimal widget, which proves `TopicEntity` resolves in this
-/// process; WIDGETS builds the quick-log and due-list widgets and the Controls (M4).
+/// The widget extension: the per-topic quick-log widget and the due list, on the Home Screen and
+/// the Lock Screen (the Controls come with INTENTS).
 @main
 struct QuickRWidgets: WidgetBundle {
     init() {
@@ -11,5 +11,6 @@ struct QuickRWidgets: WidgetBundle {
 
     var body: some Widget {
         TopicWidget()
+        DueListWidget()
     }
 }

@@ -1,5 +1,4 @@
 import Foundation
-import QuickrCore
 
 /// The widgets' reload policy (PLAN §2: reload only when due state or last values change, to stay
 /// within WidgetKit's budget).
@@ -79,5 +78,19 @@ public struct WidgetFingerprint: Sendable, Hashable {
                 entryCount: $0.topic.entryCount, lastAnswer: $0.lastAnswer, queued: $0.queued, failed: $0.failed)
         }
         .sorted { $0.id.uuidString < $1.id.uuidString }
+    }
+}
+
+/// The app's side of the reload policy: reload the widgets only when what they show changed
+/// (the first state after launch, or after a server switch, always reloads).
+public struct WidgetReloadGate: Sendable {
+    private var last: WidgetFingerprint?
+
+    public init() {}
+
+    /// Whether `fingerprint` differs from the last one seen (and remembers it).
+    public mutating func shouldReload(_ fingerprint: WidgetFingerprint) -> Bool {
+        defer { last = fingerprint }
+        return fingerprint != last
     }
 }

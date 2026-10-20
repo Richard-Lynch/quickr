@@ -90,6 +90,12 @@ struct RootView: View {
         .task(id: environment.session?.binding) {
             if let session = environment.session { await environment.sync.observe(session) }
         }
+        // The widgets follow the active store too.
+        .task(id: environment.session?.binding) {
+            if let session = environment.session, let store = session.store {
+                await environment.widgets.observe(store, refresh: session.refresh.stream())
+            }
+        }
         #if DEBUG
         .overlay(alignment: .bottom) {
             if UITestLaunch.showsSyncControls { UITestSyncControls().padding(.bottom, 24) }

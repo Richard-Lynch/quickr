@@ -169,4 +169,13 @@ import Testing
         #expect(changed { $0.topic.schedule = Self.every(30) })
         #expect(changed { $0.topic.status = .archived })
     }
+
+    @Test func theGateReloadsOnTheFirstStateAndOnChangesOnly() {
+        let mood = Self.topic("Mood")
+        let first = WidgetFingerprint([WidgetTopic(topic: mood, quick: nil, lastAnswer: nil)])
+        let queued = WidgetFingerprint([WidgetTopic(topic: mood, quick: nil, lastAnswer: nil, queued: 1)])
+        var gate = WidgetReloadGate()
+        let answers = [first, first, queued, first].map { gate.shouldReload($0) }
+        #expect(answers == [true, false, true, true], "first state, same, changed, back again")
+    }
 }
