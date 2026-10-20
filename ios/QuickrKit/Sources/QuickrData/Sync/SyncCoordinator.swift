@@ -29,6 +29,8 @@ public actor SyncCoordinator {
         /// Jitter for `SyncBackoff`, in −0.2…0.2.
         public var jitter: @Sendable () -> Double = { Double.random(in: -0.2...0.2) }
         public var sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+        /// Tests: runs inside the swap, once `flush` is held and before the swap transaction.
+        @_spi(Testing) public var afterSwapFlushAcquiredForTesting: (@Sendable () async -> Void)?
 
         public init() {}
     }
@@ -131,6 +133,13 @@ public actor SyncCoordinator {
         guard generation >= pauseGeneration else { return }
         pauseGeneration = generation
         paused = false
+    }
+
+    /// Cancels the run in progress, if any (the app's background time ran out): its request is
+    /// cancelled and it releases `sync`, reporting `.paused`. Use with `pause(generation:)` so no
+    /// new run starts.
+    public func cancelRun() {
+        running?.cancel()
     }
 
     /// Returns when no run is in progress (a run started meanwhile is waited for too).
@@ -251,7 +260,7 @@ public actor SyncCoordinator {
             let fenced = try await store.writer.write { db in
                 try SyncTransactions.clearIdentityMismatch(db, layerGen: state.layerGen, claim: claim, now: clock.now())
             }
-            _ = try? await store.leases.release(claim)
+            await Self.release(claim, in: store.leases)
             if fenced != nil { return .superseded }
         } catch {
             return .failed(.storage(String(describing: error)))
@@ -360,6 +369,14 @@ public actor SyncCoordinator {
         } while rerunRequested && result == .synced
         broadcaster.update { $0.activity = resetting ? .resetting : .idle }
         recordOutcome(result)
+        // The run's last page isn't in the status yet (each step publishes the state it starts
+        // from). Read it before returning, from the active store: the cached one may have been
+        // dropped meanwhile (connecting posts registryChanged, which invalidates it).
+        if result == .synced, let store = try? await activeStore(resumingReset: false),
+            let state = try? await store.syncState.syncState()
+        {
+            refresh(state)
+        }
         return result
     }
 
@@ -388,12 +405,17 @@ public actor SyncCoordinator {
             for _ in 0..<2 {
                 guard let store = try await activeStore(resumingReset: true) else { return .noActiveStore }
                 switch try await coordinate(store, prefetched: prefetched) {
-                case .result(let result): return result
+                // A cancelled run (`cancelRun`) reports its interrupted request as `.paused`, not as
+                // a failure that would back the next run off.
+                case .result(let result): return Task.isCancelled ? .paused : result
                 case .reopen: invalidateStore()
                 }
             }
             return .superseded
+        } catch is CancellationError {
+            return .paused
         } catch {
+            if Task.isCancelled { return .paused }
             return .failed(.storage(String(describing: error)))
         }
     }
@@ -420,10 +442,12 @@ public actor SyncCoordinator {
         do {
             outcome = try await loop(store, claim: claim, prefetched: prefetched, effects: &effects)
         } catch {
-            _ = try? await store.leases.release(claim)
+            // Even when the run was cancelled: the release mustn't be (a held lease blocks the
+            // next run until its TTL).
+            await Self.release(claim, in: store.leases)
             throw error
         }
-        _ = try? await store.leases.release(claim)
+        await Self.release(claim, in: store.leases)
         await report(effects, store: store, outcome: outcome)
         return outcome
     }
@@ -596,15 +620,16 @@ public actor SyncCoordinator {
         let wallNow = partitions.wallClock.now()
         let result: SwapResult
         do {
+            await configuration.afterSwapFlushAcquiredForTesting?()
             result = try await store.writer.write { db in
                 try SyncTransactions.swap(
                     db, context: context, flush: flushClaim, head: head, now: clock.now(), wallNow: wallNow)
             }
         } catch {
-            _ = try? await store.leases.release(flushClaim)
+            await Self.release(flushClaim, in: store.leases)
             throw error
         }
-        _ = try? await store.leases.release(flushClaim)
+        await Self.release(flushClaim, in: store.leases)
         switch result {
         case .swapped(let layerGen, let deletedTopics):
             effects.swapped = true
@@ -716,12 +741,12 @@ public actor SyncCoordinator {
                 confirmedCount: intent.pendingConfirmedCount ?? 0, confirmedMaxSeq: intent.pendingConfirmedMaxSeq ?? 0,
                 intentToken: intent.pendingToken, sync: pair.sync, flush: pair.flush)
         } catch {
-            _ = try? await old.leases.release(pair.flush)
-            _ = try? await old.leases.release(pair.sync)
+            await Self.release(pair.flush, in: old.leases)
+            await Self.release(pair.sync, in: old.leases)
             throw error
         }
-        _ = try? await old.leases.release(pair.flush)
-        _ = try? await old.leases.release(pair.sync)
+        await Self.release(pair.flush, in: old.leases)
+        await Self.release(pair.sync, in: old.leases)
         switch retired {
         case .writesArrived:
             guard try await partitions.abortReset(intent, on: old) == .vetoed else {
@@ -793,6 +818,16 @@ public actor SyncCoordinator {
         return store
     }
 
+    // MARK: - Leases
+
+    /// Releases `claim` from an unstructured task, so a cancelled run (`cancelRun`, the app's
+    /// background time running out) still frees `sync` and `flush` at once: a release from the
+    /// cancelled task itself would fail (GRDB refuses its write) and block the next run, send or
+    /// swap until the lease's TTL. Errors are dropped: an unreleased lease still expires.
+    private static func release(_ claim: LeaseClaim, in leases: Leases) async {
+        _ = try? await Task { try await leases.release(claim) }.value
+    }
+
     // MARK: - Status
 
     private func refresh(_ state: SyncState) {
@@ -818,11 +853,6 @@ public actor SyncCoordinator {
                 $0.lastFailure = nil
                 $0.consecutiveFailures = 0
                 $0.retryDelay = nil
-            }
-            if let store {
-                Task { [weak self] in
-                    if let state = try? await store.syncState.syncState() { await self?.refresh(state) }
-                }
             }
         case .failed(let failure):
             var delay: Duration = .zero

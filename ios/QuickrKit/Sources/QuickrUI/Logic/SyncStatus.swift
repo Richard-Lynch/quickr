@@ -6,6 +6,11 @@ public struct SyncStatus: Hashable, Sendable {
         case failed
         case offline
         case waiting
+        /// Something the user should look at that isn't an item: a different server, repeated
+        /// sync errors (iOS only).
+        case attention
+        /// The first pull of a store ("Loading history", iOS only).
+        case loading
     }
 
     public let kind: Kind
@@ -15,6 +20,14 @@ public struct SyncStatus: Hashable, Sendable {
     public let label: String
     /// What VoiceOver reads; offline is always mentioned.
     public let accessibilityLabel: String
+
+    /// Any pill, with its texts (SYNC-UX builds these from `SyncPillState`).
+    public init(kind: Kind, short: String, label: String, accessibilityLabel: String) {
+        self.kind = kind
+        self.short = short
+        self.label = label
+        self.accessibilityLabel = accessibilityLabel
+    }
 
     /// nil when online and the outbox is empty: the pill hides.
     public init?(online: Bool, pending: Int, failed: Int) {
@@ -38,5 +51,5 @@ public struct SyncStatus: Hashable, Sendable {
     }
 
     /// The sync icon turns while there is something to send and a connection to send it on.
-    public var isSyncing: Bool { kind == .waiting }
+    public var isSyncing: Bool { kind == .waiting || kind == .loading }
 }

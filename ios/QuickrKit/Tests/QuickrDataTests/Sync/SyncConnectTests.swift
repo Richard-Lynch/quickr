@@ -35,3 +35,21 @@ import Testing
         #expect(hosts == [url2.host], "\(hosts)")
     }
 }
+
+@Suite struct SyncConnectStatusTests {
+    @Test("after connecting, the status says when the store last pulled")
+    func connectPublishesTheLastPull() async throws {
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        let coordinator = env.coordinator()
+        _ = await coordinator.connect(baseURL: SyncEnv.baseURL)
+        // Published before the run returns, not later.
+        #expect(coordinator.status.lastSyncAt == env.wall.now())
+        // Even when the cached store was dropped (connecting posts registryChanged).
+        env.wall.advance(by: 60)
+        await coordinator.invalidateStore()
+        _ = env.server.addEntry()
+        #expect(await coordinator.sync(reason: .requested) == .synced)
+        #expect(coordinator.status.lastSyncAt == env.wall.now())
+    }
+}

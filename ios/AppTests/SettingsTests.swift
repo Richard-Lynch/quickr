@@ -38,7 +38,8 @@ import Testing
     defer { defaults.removePersistentDomain(forName: suite) }
     let transport = RecordingTransport()
     let environment = AppEnvironment.live(
-        location: location, defaults: defaults, keychain: InMemoryKeychain(), transport: transport)
+        location: location, defaults: defaults, keychain: InMemoryKeychain(), transport: transport,
+        categoryCenter: nil)
     let session = try #require(environment.session)
     try await environment.credentials?.save(
         AccessCredentials(clientId: "abc.access", clientSecret: "secret"), for: URL(string: "https://quickr.example")!)

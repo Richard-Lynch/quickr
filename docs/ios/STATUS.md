@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- Both clients: a prefilled number field (the min-0 prefill or the last value) keeps the caret where it was tapped, so typing "3" gives "30". Select all on the first focus of a pristine prefill, or clear a pristine min-0 prefill when typing starts. PWA: AnswerField.tsx NumberInput, quickLog.ts initialNumber. iOS: QuickLog.initialText and AnswerField. Tap counts are unchanged. (Found by UIT-2.)
 - SYNC-UX: add a deterministic test for repeated background/foreground cycles during a held startup (Codex r4 note; the expiry-first ordering is covered by activationWhileAnExpiredStartUnwindsConnects).
 - **D checkpoint (device):** measure how many notification categories iOS keeps; CAT's registry is append-only per §5.1 and Apple documents no limit.
 - `ios/scripts/test.sh` should run gen.sh, or detect a stale xcodeproj, before building (RECORD hit a stale project after deleting files).
@@ -298,6 +299,14 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-20 06:05 (EDT): **SYNC-UX merged into ios/m2-ui** (6f206a1; Codex ×4; on 8f7171f: UI 30/30, Unit 570 ×2; lint, core and the app build pass on the merge). It brings the process-wide SystemCategoriesLock for app tests, and test environments pass `categoryCenter: nil`. W6 is complete (RECORD, SYNC-UX, CAT). Remaining for M2a/M2b: LIST (Codex r3 pending), REG (r2 pending), UIT-2.
+
+- 2026-10-20 05:55 (EDT): SYNC-UX: Unit green ×2 on 8f7171f (570, with CAT's test passing); its UI run seems to have ended with the clone still booted, and I've asked for the results and a shutdown. LIST: Codex r2 fix committed (305a17e: rows carry their binding; EntryDeleter); full gates running. REG: r1 fixes in 676567b (lint and core green, mutations 8/8; registry v2 adds register_attempts/register_due); simulator gates queued. UIT-2: test bugs fixed (88b761f); all six tap-count scenarios equal the PWA; table drafted; E2E rerun queued for a slot.
+
+- 2026-10-20 05:40 (EDT): REG done at 7bc805f (Unit 553 ×2, UI 20/20, mutations 9/9; 5 deviations recorded; no real token until the aps-environment entitlement and Team ID arrive in M3). m2-ui is merged in at b284286. Codex r1 found 4 Majors (a pending deletion can remove a renewed registration; an in-flight registration escapes switch cleanup; a failed rotation isn't retried; an unbounded epoch-recovery loop) and 2 Minors (the status isn't observable; the didFail deviation only holds right after a success). Fixes are in 676567b and being gated. SYNC-UX: a process-wide suspending lock for system-category tests (8f7171f); final runs pending. LIST: delete-scope capture fix in progress. UIT-2: test fixes (88b761f); the offline-record toast failure is under investigation.
+
+- 2026-10-20 05:25 (EDT): SYNC-UX: on the RECORD-merged tree, CAT's live-categories test failed once because sync unit tests registered categories through AppEnvironment.live (process-wide state). Fixed in b44dffa (the sync tests pass no category center); CAT's suite is being serialized; Unit ×2 and UI rerunning. LIST: Codex r2 resolved items 2 and 3 (all 51 range vectors confirmed against the PWA code), but the delete-scope race is NOT RESOLVED (the callback reads `model.binding` lazily); fix in progress on 386781f (m2-ui is merged in at 7322441). REG: 2 commits. UIT-2: E2E + tap-count tests committed (44f18ce); first simulator run in progress.
 
 - 2026-10-20 05:20 (EDT): SYNC-UX re-merged RECORD (9f96439; the conflict was in the UITestLaunch fake server, combined on RECORD's transport); core and lint green; final UI and Unit plans running. LIST: Codex r1 fixes committed (1889166: delete uses the rows' binding; a late topic shows up; midnight DST gaps match the PWA, with 6 Santiago vectors); full gates running, then Codex r2. REG: 2 commits in (bc16544: APNs token registration; Settings push setup and "Test this device"). UIT-2: WIP.
 
