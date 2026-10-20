@@ -3,13 +3,13 @@ import QuickrCore
 import QuickrData
 import QuickrUI
 
-/// The topic screens' `TopicWriter` over the app's session, bound to the store the screen was
-/// opened from (`binding`). Online-only writes go through `TopicWrites` (fail closed, Expect
-/// headers, fenced apply, then a pull); archive and unarchive go through the outbox. Once the
-/// active store isn't `binding` any more (a server switch, a reset), every write is refused
-/// instead of reaching the other store.
+/// The topic screens' `TopicWriter`, and the question editor's `VersionWriter`, over the app's
+/// session, bound to the store the screen was opened from (`binding`). Online-only writes go
+/// through `TopicWrites` (fail closed, Expect headers, fenced apply, then a pull); archive and
+/// unarchive go through the outbox. Once the active store isn't `binding` any more (a server
+/// switch, a reset), every write is refused instead of reaching the other store.
 @MainActor
-final class SessionTopicWriter: TopicWriter {
+final class SessionTopicWriter: TopicWriter, VersionWriter {
     let session: AppSession
     let binding: AppSession.Binding
 
@@ -33,6 +33,27 @@ final class SessionTopicWriter: TopicWriter {
     /// Deletes an archived topic; an archive still queued is sent first (`TopicWrites.delete`).
     func delete(topicId: UUID) async -> TopicWriteOutcome<Void> {
         await perform { await $0.delete(topicId: topicId) }
+    }
+
+    func checkVersion(_ version: TopicDraft.Version, baseVersion: Int, topicId: UUID) async
+        -> TopicWriteOutcome<CompatibilityReport>
+    {
+        await perform {
+            await $0.checkVersion(topicId: topicId, TopicRequests.versionCheck(version, baseVersion: baseVersion))
+        }
+    }
+
+    func publishVersion(_ version: TopicDraft.Version, baseVersion: Int, changeNote: String, topicId: UUID) async
+        -> TopicWriteOutcome<Topic>
+    {
+        await perform {
+            await $0.publishVersion(
+                topicId: topicId, TopicRequests.publish(version, baseVersion: baseVersion, changeNote: changeNote))
+        }
+    }
+
+    func latestTopic(topicId: UUID) async -> TopicWriteOutcome<Topic> {
+        await perform { await $0.latest(topicId: topicId) }
     }
 
     func unsyncedChanges(topicId: UUID) async -> Int {

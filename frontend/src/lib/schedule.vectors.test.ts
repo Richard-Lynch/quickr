@@ -290,7 +290,8 @@ function serialise(data: ReturnType<typeof generate>): string {
 
 describe('schedule vectors', () => {
   it(`${FILE_LABEL} matches schedule.ts`, async () => {
-    const fs = (await import('node:fs')) as unknown as NodeFs;
+    const fsName = 'node:fs';
+    const fs = (await import(/* @vite-ignore */ fsName)) as NodeFs;
     const text = serialise(generate());
     if (nodeProcess.env.QUICKR_UPDATE_VECTORS) {
       fs.writeFileSync(FILE, text);

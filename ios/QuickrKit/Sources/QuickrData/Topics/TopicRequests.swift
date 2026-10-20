@@ -21,3 +21,19 @@ public enum TopicRequests {
         TopicUpdateDTO(schedule: schedule.map { .value(ScheduleInputDTO($0)) } ?? .null)
     }
 }
+
+extension TopicRequests {
+    /// `VersionDraft` for "Review changes" (`EditQuestionsPage.onReview`): the validated questions
+    /// and the version they were edited from, so a newer one answers 409.
+    public static func versionCheck(_ version: TopicDraft.Version, baseVersion: Int) -> VersionDraftDTO {
+        VersionDraftDTO(questions: version.questions, baseVersion: baseVersion)
+    }
+
+    /// `VersionCreate` for "Publish": the reviewed questions, the same base, and the change note as
+    /// typed in the review (`.trim()`ed; empty is sent as is, like the PWA).
+    public static func publish(_ version: TopicDraft.Version, baseVersion: Int, changeNote: String) -> VersionCreateDTO
+    {
+        VersionCreateDTO(
+            questions: version.questions, baseVersion: baseVersion, changeNote: JSNumber.trim(changeNote))
+    }
+}

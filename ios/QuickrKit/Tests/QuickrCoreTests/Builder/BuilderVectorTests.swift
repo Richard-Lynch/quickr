@@ -231,7 +231,7 @@ private struct DraftJSON: Decodable {
 }
 
 /// A question in the API's full JSON shape. (Core stays free of DTOs; this is just for the vectors.)
-private struct QuestionJSON: Decodable {
+struct QuestionJSON: Decodable {
     var question: Question
 
     enum CodingKeys: String, CodingKey {

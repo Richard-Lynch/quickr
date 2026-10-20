@@ -213,7 +213,8 @@ final class FakeServer: Transport {
     private static func route(_ request: HTTPRequest, _ state: inout State) -> HTTPResponse {
         let parts = request.url.path.split(separator: "/").map(String.init)  // api, v1, …
         guard parts.count >= 3, parts[0] == "api", parts[1] == "v1" else { return problem(404, "not_found") }
-        if request.method != .get {
+        // Like the backend, a version check (a dry run) has no Expect preconditions.
+        if request.method != .get, !request.url.path.hasSuffix("/versions/check") {
             if request.headers[QuickrHeader.expectServerId] != state.serverId {
                 return problem(409, "server_mismatch", "server mismatch")
             }
@@ -254,6 +255,7 @@ final class FakeServer: Transport {
                 state.deleted.insert(entryId)
             }
             return HTTPResponse(status: 204)
+        case (.post, "topics", "versions"): return version(id, check: parts.count > 5, request, &state)
         case (.post, "topics", let action?) where action == "archive" || action == "unarchive":
             guard var topic = state.topics[id] else { return problem(404, "not_found") }
             if let expected, expected != topic.revision { return problem(409, "stale_revision", "stale revision") }
@@ -313,6 +315,45 @@ final class FakeServer: Transport {
         topic.revision += 1
         state.topics[id] = topic
         return ok(200, topic)
+    }
+
+    /// `POST /topics/{id}/versions[/check]`, like the backend: a stale `base_version` is a 409
+    /// `conflict`; the report is the local compatibility check against the current questions.
+    private static func version(_ id: String, check: Bool, _ request: HTTPRequest, _ state: inout State)
+        -> HTTPResponse
+    {
+        guard var topic = state.topics[id] else { return problem(404, "not_found") }
+        guard let body = request.body,
+            let dto = try? WireCoding.decoder().decode(VersionDraftDTO.self, from: body)
+        else { return problem(422, "invalid_request") }
+        if let base = dto.baseVersion, base != topic.currentVersion {
+            return problem(409, "conflict", "topic is at version \(topic.currentVersion)")
+        }
+        let proposed = dto.questions.map { $0.toDomain() }
+        let report = CompatibilityCheck.report(history: [topic.questions], proposed: proposed)
+        if check {
+            let json: [String: Any] = [
+                "ok": report.ok, "next_version": report.nextVersion,
+                "issues": report.issues.map {
+                    [
+                        "level": $0.level.rawValue, "question_key": $0.questionKey.map { $0 as Any } ?? NSNull(),
+                        "message": $0.message,
+                    ]
+                },
+                "changes": report.changes.map {
+                    ["kind": $0.kind.rawValue, "question_key": $0.questionKey, "details": $0.details] as [String: Any]
+                },
+            ]
+            let data = try! JSONSerialization.data(withJSONObject: json)
+            return HTTPResponse(status: 200, headers: ["Content-Type": "application/json"], body: data)
+        }
+        guard report.ok else { return problem(422, "incompatible_version", "incompatible") }
+        topic.currentVersion += 1
+        topic.questions = proposed
+        topic.questionCount = proposed.count
+        topic.revision += 1
+        state.topics[id] = topic
+        return ok(201, topic)
     }
 
     private static func createEntry(topicId: String, _ request: HTTPRequest, _ state: inout State) -> HTTPResponse {

@@ -3,7 +3,8 @@ import GRDB
 import QuickrCore
 
 /// The online-only topic writes (sync-protocol.md §11): create, details and schedule edits
-/// (`updateTopic`), and delete. They are never queued.
+/// (`updateTopic`), delete, and a new version (its check, the publish, and reloading the topic
+/// after a conflict). They are never queued.
 ///
 /// - **Fail closed.** A write belongs to the store bound when it starts (its ``Scope``): without
 ///   that store's identity nothing is sent, and the request carries the Expect headers, so another
@@ -55,6 +56,9 @@ public struct TopicWrites: Sendable {
         /// Refused for a reason retrying might fix (401/403/429, a redirect, an odd status).
         case failed(String)
     }
+
+    /// A dry run (a version check) that got no answer.
+    public static let noAnswerMessage = "The connection dropped before the server answered. Try again."
 
     /// The screens' other messages are QuickrUI's (`TopicWriteMessage`).
     public static let unconfirmedMessage =
@@ -175,6 +179,29 @@ public struct TopicWrites: Sendable {
             })
     }
 
+    /// `POST /topics/{ref}/versions/check`: a dry run of a new version against `body`'s base (409
+    /// `conflict` when the topic has a newer version). Nothing local changes and no pull follows.
+    public func checkVersion(topicId: UUID, _ body: VersionDraftDTO) async -> Outcome<CompatibilityReport> {
+        await send({ try await client.checkTopicVersion(ref: topicId.wireString, body, options: options).outcome })
+    }
+
+    /// `POST /topics/{ref}/versions`: publishes the next version (409 `conflict` on a stale
+    /// `base_version`, seen live). On success the topic row, with the new current version and its
+    /// questions, is in the store (fence permitting); the version's own row comes with the pull.
+    public func publishVersion(topicId: UUID, _ body: VersionCreateDTO) async -> Outcome<Topic> {
+        await send(
+            { try await client.publishTopicVersion(ref: topicId.wireString, body, options: options).outcome },
+            apply: { db, topic in _ = try ServerLayer.upsert(db, topic: topic) })
+    }
+
+    /// `GET /topics/{ref}`: the server's topic now (an editor's "Load latest version" after a
+    /// conflict). It is applied like a write's response, and a pull brings its new versions.
+    public func latest(topicId: UUID) async -> Outcome<Topic> {
+        await send(
+            { try await client.getTopic(ref: topicId.wireString, options: options).outcome },
+            apply: { db, topic in _ = try ServerLayer.upsert(db, topic: topic) })
+    }
+
     /// `POST /topics/{ref}/archive` sent now, for a delete (see ``delete(topicId:)``).
     func archive(topicId: UUID) async -> Outcome<Topic> {
         await send(
@@ -184,10 +211,22 @@ public struct TopicWrites: Sendable {
 
     private var options: RequestOptions { RequestOptions(expecting: scope.identity) }
 
-    /// Sends, classifies, and on success applies `apply` fenced on the scope's context.
+    /// Sends a dry run: nothing to apply and nothing to pull. A response that never came back
+    /// changed nothing either, so it is a plain failure.
+    private func send<Value: Sendable>(_ request: @Sendable () async throws -> APIOutcome<Value>) async
+        -> Outcome<Value>
+    {
+        switch await send(request, apply: nil) {
+        case .unconfirmed(let message): .failed(message == Self.unconfirmedMessage ? Self.noAnswerMessage : message)
+        case let other: other
+        }
+    }
+
+    /// Sends, classifies, and on success applies `apply` fenced on the scope's context, then asks
+    /// for a pull. Without `apply` (a dry run) a success only returns the value.
     private func send<Value: Sendable>(
         _ request: @Sendable () async throws -> APIOutcome<Value>,
-        apply: @escaping @Sendable (Database, Value) throws -> Void
+        apply: (@Sendable (Database, Value) throws -> Void)?
     ) async -> Outcome<Value> {
         let outcome: APIOutcome<Value>
         do {
@@ -198,6 +237,7 @@ public struct TopicWrites: Sendable {
         }
         switch outcome {
         case .success(let value):
+            guard let apply else { return .done(value) }
             // A failed fence (swap or reset meanwhile) writes nothing; the pull brings it instead.
             _ = try? await store.applyFenced(scope.context) { db in try apply(db, value) }
             await requestSync(.afterOnlineOnly)
@@ -205,7 +245,7 @@ public struct TopicWrites: Sendable {
         case .retryable(.noResponse):
             return .offline
         case .uncertain(let reason):
-            await requestSync(.afterOnlineOnly)
+            if apply != nil { await requestSync(.afterOnlineOnly) }
             if case .serverError(_, let problem?) = reason, !problem.detail.isEmpty {
                 return .unconfirmed(problem.detail)
             }
