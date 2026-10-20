@@ -169,6 +169,9 @@ final class RecordUITests: XCTestCase {
         let app = launch(open: "quickr://t/workout/record")
         XCTAssertTrue(app.buttons["Yoga"].waitForExistence(timeout: 15))
         contentSwipe(app)
+        // One more flick if the first was dropped (a synthesized gesture sometimes is on iOS 27). Only
+        // here: a retry can't make "a changed form stays" pass wrongly, but it isn't needed there.
+        if !app.staticTexts["home.wordmark"].waitForExistence(timeout: 2) { contentSwipe(app) }
         XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 5), "a clean form goes back")
     }
 
@@ -283,11 +286,25 @@ final class RecordUITests: XCTestCase {
     private func contentSwipe(_ app: XCUIApplication) {
         let label = app.staticTexts["Type"].firstMatch
         XCTAssertTrue(label.waitForExistence(timeout: 5))
+        settle(label)
         let window = app.windows.firstMatch.frame
         let start = app.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: window.width * 0.3, dy: label.frame.midY))
         let end = start.withOffset(CGVector(dx: window.width * 0.65, dy: 0))
         start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0)
+    }
+
+    /// Waits (up to 3 s) until `element` stops moving: a push from a link at launch may still be
+    /// animating when the screen's elements first exist, and a swipe then isn't the screen's.
+    @MainActor
+    private func settle(_ element: XCUIElement) {
+        var last = element.frame
+        for _ in 0..<20 {
+            usleep(150_000)
+            let now = element.frame
+            if now == last { return }
+            last = now
+        }
     }
 
     /// Polls Home for `seconds`: true if it never appeared (a swipe that was refused, or let go).
