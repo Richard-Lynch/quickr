@@ -186,6 +186,9 @@ private struct AccessTokenEditor: View {
                     SecureField("Client Secret", text: $clientSecret)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        // A service token, kept in quickR's own Keychain: not a login for the
+                        // Passwords app to offer saving (iOS 27 asks "Save Password?" otherwise).
+                        .textContentType(.oneTimeCode)
                         .accessibilityIdentifier("token.clientSecret")
                 } footer: {
                     Text("From Cloudflare Zero Trust ▸ Access ▸ Service Auth. Stored only in this iPhone’s Keychain.")
