@@ -186,9 +186,6 @@ private struct AccessTokenEditor: View {
                     SecureField("Client Secret", text: $clientSecret)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        // A service token, kept in quickR's own Keychain: not a login for the
-                        // Passwords app to offer saving (iOS 27 asks "Save Password?" otherwise).
-                        .textContentType(.oneTimeCode)
                         .accessibilityIdentifier("token.clientSecret")
                 } footer: {
                     Text("From Cloudflare Zero Trust ▸ Access ▸ Service Auth. Stored only in this iPhone’s Keychain.")
@@ -200,12 +197,22 @@ private struct AccessTokenEditor: View {
             .navigationTitle("Service token")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { Task { await close() } } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { Task { await save() } }.accessibilityIdentifier("token.save")
                 }
             }
         }
+    }
+
+    /// Closes the sheet with the secret field emptied first. The secret is a Cloudflare service
+    /// token, kept in quickR's own Keychain, not a login: iOS 27 offers to save whatever a secure
+    /// field holds when it goes ("Save Password?", for the Passwords app), whatever its content
+    /// type, so it holds nothing by then.
+    private func close() async {
+        clientSecret = ""
+        try? await Task.sleep(for: .milliseconds(100))  // a render pass: the field shows it empty
+        dismiss()
     }
 
     private func save() async {
@@ -217,7 +224,7 @@ private struct AccessTokenEditor: View {
             }
             do {
                 try await target.save(token, to: credentials)
-                dismiss()
+                await close()
             } catch {
                 self.error = "Couldn’t save the token: \(error)"
             }

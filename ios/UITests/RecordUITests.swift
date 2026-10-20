@@ -210,7 +210,7 @@ final class RecordUITests: XCTestCase {
     func testTheSwipeGuardSurvivesLeavingAndComingBack() {
         let app = launch(open: "quickr://t/workout/record")
         XCTAssertTrue(app.buttons["Yoga"].waitForExistence(timeout: 15))
-        app.buttons["record.back"].tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()  // a clean form: the system's back
         XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 5))
 
         let log = app.buttons["Log Workout"].firstMatch

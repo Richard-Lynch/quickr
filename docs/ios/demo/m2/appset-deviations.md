@@ -28,3 +28,8 @@ deliberate differences:
 5. **Reset, not "Clear local data".** This is SETTINGS's existing deviation. It
    resets the active server's copy only, and warns about unsynced changes with
    "Sync first" (sync-protocol.md §12.1). The PWA clears everything and reloads.
+6. **The service token's secret isn't offered to the Passwords app.** iOS 27
+   asks "Save Password?" when a secure field with text goes away, whatever its
+   content type. The secret is a Cloudflare service token kept in quickR's own
+   Keychain, not a login, so the token sheet empties the field before it closes
+   (on Save and on Cancel). `SettingsUITests` runs past the sheet on iOS 26 and 27.

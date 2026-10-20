@@ -1,7 +1,6 @@
 import QuickrCore
 import QuickrUI
 import SwiftUI
-import UIKit
 
 /// The record screen (the PWA's `RecordPage`): the answers, Details (captured at, notes, source),
 /// Log another, and a sticky Save. In fix mode it says the entry wasn't saved and saves again.
@@ -58,17 +57,19 @@ struct RecordView: View {
         .qrPaperBackground()
         .navigationTitle(model.isFixing ? "Fix entry · \(model.topic.name)" : model.topic.name)
         .navigationBarTitleDisplayMode(.inline)
-        // One back button the whole time, guarded (the navigation bar doesn't change on the first
-        // edit); the swipes back go back only while there is nothing to lose, and so does
-        // VoiceOver's escape.
-        .navigationBarBackButtonHidden()
-        .background(SwipeBack(isEnabled: !model.hasUnsavedChanges))
+        // The system's back button (and its swipes, edge and content) while nothing has changed;
+        // once something has, a guarded back that asks first, and UIKit turns the swipes off with
+        // the system button hidden. (iOS 27 gives no content swipe to a screen whose back button
+        // is hidden, whatever a gesture delegate says, so the system button stays when it can.)
+        .navigationBarBackButtonHidden(model.hasUnsavedChanges)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button(action: leave) {
-                    Label("Back", systemImage: "chevron.left")
+            if model.hasUnsavedChanges {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: leave) {
+                        Label("Back", systemImage: "chevron.left")
+                    }
+                    .accessibilityIdentifier("record.back")
                 }
-                .accessibilityIdentifier("record.back")
             }
             if model.loggedCount > 0 {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -142,48 +143,5 @@ struct RecordView: View {
         .background(QuickrTone.info.background)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("record.fixBanner")
-    }
-}
-
-/// The navigation controller's swipes back (the edge swipe, and iOS 26's swipe from anywhere in
-/// the content), which hiding the system back button turns off: on while `isEnabled`, and their
-/// previous delegates back when the screen goes. The record and edit screens.
-struct SwipeBack: UIViewControllerRepresentable {
-    let isEnabled: Bool
-
-    func makeUIViewController(context: Context) -> Controller { Controller() }
-
-    func updateUIViewController(_ controller: Controller, context: Context) {
-        controller.isEnabled = isEnabled
-    }
-
-    final class Controller: UIViewController, UIGestureRecognizerDelegate {
-        var isEnabled = true
-        private var previousDelegates: [(UIGestureRecognizer, UIGestureRecognizerDelegate?)] = []
-
-        private var swipes: [UIGestureRecognizer] {
-            [
-                navigationController?.interactivePopGestureRecognizer,
-                navigationController?.interactiveContentPopGestureRecognizer,
-            ].compactMap { $0 }
-        }
-
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            for swipe in swipes where swipe.delegate !== self {
-                previousDelegates.append((swipe, swipe.delegate))
-                swipe.delegate = self
-            }
-        }
-
-        override func viewWillDisappear(_ animated: Bool) {
-            super.viewWillDisappear(animated)
-            for (swipe, delegate) in previousDelegates where swipe.delegate === self { swipe.delegate = delegate }
-            previousDelegates = []
-        }
-
-        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            isEnabled && (navigationController?.viewControllers.count ?? 0) > 1
-        }
     }
 }
