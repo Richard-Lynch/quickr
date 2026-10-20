@@ -97,6 +97,44 @@ import Testing
         #expect(try await active.entries.entry(id: entry.id) == nil, "hidden by the held delete")
     }
 
+    /// The edit screen's save, opened on server A and saved after a switch to B: refused, B
+    /// untouched. In its own store it queues an `entry.update` with only the changed answers.
+    @Test func updateInAStaleScopeIsRefusedAndQueuesInItsOwn() async throws {
+        let seeded = try await TestStores.seededLocation()
+        defer { TestStores.remove(seeded) }
+        let environment = AppEnvironment.live(location: seeded)
+        await environment.start()
+        let session = try #require(environment.session)
+        defer { Task { await session.shutdown() } }
+        let writer = environment.entryWriter
+        let topicId = PlaceholderTopicRepository.coffee
+        let now = Date()
+        let entry = Entry(
+            id: UUID(), topicId: topicId, version: 1, revision: 2, source: "test", channel: .ios, capturedAt: now,
+            createdAt: now, updatedAt: now, answers: ["cups": .int(1)])
+        try await #require(session.store).writer.write { db in _ = try ServerLayer.upsert(db, entry: entry) }
+        let scopeA = try #require(writer.scope)
+        let patch = EntryPatch(answers: ["cups": .some(.int(3))])
+
+        let storeB = try await session.partitions.createStore(serverId: "server-b", baseURL: "https://b.quickr.example")
+        try await session.partitions.registry.setActive("server-b")
+        await session.rebind()
+        await #expect(throws: EntryWriteError.scopeChanged) {
+            try await writer.update(entryId: entry.id, topicId: topicId, patch: patch, baseRevision: 2, in: scopeA)
+        }
+        #expect(try await storeB.outbox.items().isEmpty, "nothing queued in B")
+
+        // Back on A: queued, with the revision the user edited.
+        try await session.partitions.registry.setActive("test-server")
+        await session.rebind()
+        try await writer.update(
+            entryId: entry.id, topicId: topicId, patch: patch, baseRevision: 2, in: try #require(writer.scope))
+        let items = try await #require(session.store).outbox.items()
+        #expect(items.map(\.kind) == [.entryUpdate])
+        #expect(items.first?.baseRevision == 2)
+        #expect(items.first?.payloadJSON.contains("\"cups\"") == true)
+    }
+
     /// In the same store, Undo removes the never-sent create.
     @Test func undoInTheSameStoreRemovesTheEntry() async throws {
         let seeded = try await TestStores.seededLocation()

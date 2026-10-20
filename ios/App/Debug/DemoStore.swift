@@ -38,7 +38,7 @@ enum DemoStore {
                 for n in 0..<topic.entryCount {
                     let at = last.addingTimeInterval(-Double(n) * 86_400)
                     let entry = Entry(
-                        id: UUID(), topicId: topic.id, version: 1, revision: 1,
+                        id: entryId(topic: topic.id, index: n), topicId: topic.id, version: 1, revision: 1,
                         // A second source, so the entries list offers a source filter.
                         source: n % 4 == 3 ? "shortcut" : "demo", channel: .ios,
                         capturedAt: at, createdAt: at, updatedAt: at, answers: answers[topic.slug] ?? [:])
@@ -52,12 +52,24 @@ enum DemoStore {
         if withOutbox { try await seedOutbox(store, now: now) }
     }
 
+    /// The refused and the waiting Water log's ids (links in UI tests).
+    static let refusedEntry = UUID(uuidString: "00000000-0000-4000-a000-0000000000f1")!
+    static let waitingEntry = UUID(uuidString: "00000000-0000-4000-a000-0000000000f2")!
+
+    /// Demo entry ids: the topic's number and the entry's index (0 is the newest), so UI tests can
+    /// link to one: `00000000-0000-4000-9002-000000000000` is Water's newest.
+    static func entryId(topic: UUID, index: Int) -> UUID {
+        let n = Int(topic.uuidString.suffix(12)) ?? 0
+        return UUID(uuidString: String(format: "00000000-0000-4000-9%03d-%012d", n, index))!
+    }
+
     /// A pending and a failed Water log (the failed one older, logged first).
     static func seedOutbox(_ store: LocalStore, now: Date) async throws {
         let water = TopicRef(
             id: UUID(uuidString: "00000000-0000-4000-8000-000000000002")!, slug: "water", name: "Water")
-        func create(_ glasses: Int, minutesAgo: Double) -> NewOutboxItem {
+        func create(_ id: UUID, _ glasses: Int, minutesAgo: Double) -> NewOutboxItem {
             NewOutboxItem(
+                id: id,
                 payload: .entryCreate(
                     topic: water,
                     body: EntryCreateDTO(
@@ -65,8 +77,8 @@ enum DemoStore {
                         capturedAt: now.addingTimeInterval(-minutesAgo * 60), version: 1)),
                 origin: .app)
         }
-        let failed = try await store.outbox.appendRawForTesting(create(25, minutesAgo: 90))
-        _ = try await store.outbox.appendRawForTesting(create(5, minutesAgo: 5))
+        let failed = try await store.outbox.appendRawForTesting(create(refusedEntry, 25, minutesAgo: 90))
+        _ = try await store.outbox.appendRawForTesting(create(waitingEntry, 5, minutesAgo: 5))
         try await store.writer.write { db in
             try db.execute(
                 sql: """
