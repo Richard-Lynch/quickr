@@ -64,9 +64,7 @@ struct RecordView: View {
         .background(SwipeBack(isEnabled: !model.hasUnsavedChanges))
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    if model.hasUnsavedChanges { confirmingLeave = true } else { dismiss() }
-                } label: {
+                Button(action: leave) {
                     Label("Back", systemImage: "chevron.left")
                 }
                 .accessibilityIdentifier("record.back")
@@ -79,6 +77,8 @@ struct RecordView: View {
                 }
             }
         }
+        // VoiceOver's escape (two-finger scrub) is a back too, guarded the same way.
+        .accessibilityAction(.escape, leave)
         .alert("Discard this entry?", isPresented: $confirmingLeave) {
             Button("Discard", role: .destructive) { dismiss() }
             Button("Keep editing", role: .cancel) {}
@@ -92,6 +92,11 @@ struct RecordView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             keyboardUp = false
         }
+    }
+
+    /// Back: straight away when nothing changed, else asks first.
+    private func leave() {
+        if model.hasUnsavedChanges { confirmingLeave = true } else { dismiss() }
     }
 
     private var logAnother: Binding<Bool> {
