@@ -96,6 +96,8 @@ public final class AppSession {
     @ObservationIgnored private var listeners: [Task<Void, Never>] = []
     @ObservationIgnored private var rebinding: Task<Void, Never>?
     @ObservationIgnored private var started = false
+    /// Connects and rebinds in progress: the binding may be about to change (`activeScope()`).
+    @ObservationIgnored private var bindsInFlight = 0
     /// The category refresh in progress, and whether another must follow it (coalesced).
     @ObservationIgnored private var categoryRefresh: Task<Void, Never>?
     @ObservationIgnored private var categoryRefreshAgain = false
@@ -172,6 +174,8 @@ public final class AppSession {
     /// address) and rebind, rebuilding the sender for the URL now in use.
     @discardableResult
     public func connect(baseURL: URL) async -> SyncCoordinator.ConnectResult {
+        bindsInFlight += 1
+        defer { bindsInFlight -= 1 }
         let result = await coordinator.connect(baseURL: baseURL)
         await rebind(force: true)
         return result
@@ -374,9 +378,26 @@ public final class AppSession {
 
     // MARK: - Binding
 
+    /// The active store as the app has it (the notification handler's gate, notifications.md §7.1
+    /// steps 8 and 10): the bound store, while it is also the registry's active store at its
+    /// current generation. When they differ a switch or a reset is under way (a rebind will follow)
+    /// and nothing counts as active; the next activation recomputes. Before the first bind, nothing
+    /// either, except in a session that never started and isn't connecting (a launch in the
+    /// background for a notification action): there the registry's active store.
+    public func activeScope() async -> EntryScope? {
+        let registryScope = try? await partitions.registry.writer.read { db in
+            try RegistryActiveGate.activeScope(db)
+        }
+        // From here on, no suspension: the binding is read as it is now.
+        if let binding { return binding.scope == registryScope ? binding.scope : nil }
+        return started || bindsInFlight > 0 ? nil : registryScope
+    }
+
     /// Rebinds to the active store if (server, generation, base URL) changed, or always with
     /// `force`. Calls run one after another.
     public func rebind(force: Bool = false) async {
+        bindsInFlight += 1
+        defer { bindsInFlight -= 1 }
         let previous = rebinding
         let task = Task { @MainActor in
             await previous?.value

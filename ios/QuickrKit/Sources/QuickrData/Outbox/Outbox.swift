@@ -285,7 +285,14 @@ public struct Outbox: Sendable {
     /// an answer already received, and the release. Under write contention from another process
     /// each can wait up to SQLite's busy timeout (5 s), so choose a budget with headroom below
     /// the process's real limit (extensions use 4–5 s of a ~30 s window).
-    public func flush(force: Bool, budget: Duration, leaseWait: Duration = .zero) async throws -> OutboxFlushReport {
+    ///
+    /// `shouldProceed` is asked once the lease is held, before anything is claimed: false releases
+    /// it and ends `.paused` (the notification handler flushes a store only while it is the active
+    /// one, notifications.md §7.1 step 10).
+    public func flush(
+        force: Bool, budget: Duration, leaseWait: Duration = .zero,
+        shouldProceed: (@Sendable () async -> Bool)? = nil
+    ) async throws -> OutboxFlushReport {
         let start = ContinuousClock.now
         let grace = min(shutdownGrace, budget * 0.2)
         let requestDeadline = start.advanced(by: max(.zero, budget - grace - min(Self.cleanupReserve, budget * 0.1)))
@@ -304,7 +311,11 @@ public struct Outbox: Sendable {
         run.report.startedAt = start
         var failure: (any Error)?
         do {
-            run.report.ending = try await pass(&run)
+            if let shouldProceed, await !shouldProceed() {
+                run.report.ending = .paused
+            } else {
+                run.report.ending = try await pass(&run)
+            }
         } catch is CancellationError {
             run.report.ending = .cancelled
         } catch {

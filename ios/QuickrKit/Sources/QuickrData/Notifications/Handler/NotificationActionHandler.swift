@@ -117,9 +117,10 @@ public struct NotificationActionHandler: Sendable {
     enum TestPoint: Sendable {
         /// Between the preconditions and the write (step 4 → 5).
         case beforeWrite
-        /// Between the badge's count and setting it (step 8).
-        case badgeCounted
     }
+
+    /// How many times the badge is set again for a store that became active meanwhile.
+    static let badgeReconciliations = 3
 
     public init(
         partitions: StorePartitions, center: any NotificationCenterProtocol,
@@ -293,11 +294,8 @@ public struct NotificationActionHandler: Sendable {
 
         // 7. Clear this topic's delivered reminders and the pending local ones now satisfied (L4).
         await clearReminders(serverId: action.serverId, topicId: topicId, store: store)
-        // 8. The badge only reflects the active store (§8): decided when it is set.
-        if let count = await dueCount(store) {
-            await testHook?(.badgeCounted)
-            _ = await gate.whenActive(store.scope) { [center] in try? await center.setBadgeCount(count) }
-        }
+        // 8. The badge only reflects the active store (§8).
+        await updateBadge(wrote: store)
         // 9. A new entry changes the topic's due state and last value.
         if case .created = result { reloadWidgets() }
         // 10. Flush the active store only, forced, within the budget; a duplicate too (its first
@@ -357,14 +355,36 @@ public struct NotificationActionHandler: Sendable {
         }
     }
 
-    /// Step 10: a forced flush within the budget, if the store is the active one when it starts.
+    /// Step 8, when the handler wrote into the active store: the badge from the active store's
+    /// view. The OS call can't be atomic with a server switch, so it is reconciled: once it returns,
+    /// if another store is active by then, the badge is set again from that one (a stale badge is
+    /// corrected, never left). While a switch or a bind is in progress nothing is set; the next
+    /// activation recomputes it.
+    private func updateBadge(wrote store: LocalStore) async {
+        guard await gate.activeScope() == store.scope else { return }
+        var target = store
+        for _ in 0..<Self.badgeReconciliations {
+            guard let count = await dueCount(target) else { return }
+            try? await center.setBadgeCount(count)
+            guard let active = await gate.activeScope(), active != target.scope else { return }
+            guard let next = try? await partitions.openActiveStore(role: .app)?.store, next.scope == active else {
+                return
+            }
+            target = next
+        }
+    }
+
+    /// Step 10: a forced flush within the budget, of the active store only: decided before it
+    /// starts, and asked again once the flush holds its lease, before it claims anything.
     private func flush(_ store: LocalStore) async -> OutboxFlushReport.Ending? {
-        guard let sender = await sender(store) else { return nil }
+        let scope = store.scope
+        guard await gate.activeScope() == scope, let sender = await sender(store) else { return nil }
         let outbox = Outbox(store: store, sender: sender, owner: owner, onSignal: onSignal)
-        let budget = flushBudget
-        return await gate.whenActive(store.scope) {
-            try? await outbox.flush(force: true, budget: budget, leaseWait: budget).ending
-        } ?? nil
+        let gate = gate
+        let report = try? await outbox.flush(
+            force: true, budget: flushBudget, leaseWait: flushBudget,
+            shouldProceed: { await gate.activeScope() == scope })
+        return report.map(\.ending)
     }
 
     // MARK: - Failure notifications

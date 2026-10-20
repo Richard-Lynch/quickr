@@ -1,29 +1,27 @@
 import GRDB
 import QuickrCore
 
-/// Decides whether a store is the active one and acts on it in one step (notifications.md §7.1
-/// steps 8 and 10, §8): the check and the start of `act` have no suspension between them, so a
-/// server switch or a reset can't slip in after the decision. The badge and the flush are only
-/// ever the active store's.
+/// Which store is the active one now, for the notification handler's badge and flush
+/// (notifications.md §7.1 steps 8 and 10, §8). The OS badge call and a flush can't be made atomic
+/// with a server switch, so the handler decides with this, acts, and then checks again: the badge
+/// is reconciled to whichever store is active afterwards, and a flush asks again once it holds its
+/// lease, before it claims anything.
 public protocol ActiveStoreGate: Sendable {
-    /// Runs `act` if `scope` (a store's server and generation) is the active store's, returning
-    /// its result; nil, without running it, otherwise.
-    func whenActive<T: Sendable>(_ scope: EntryScope, _ act: @Sendable () async -> T) async -> T?
+    /// The active store's server and generation; nil when there is none, or while the app is
+    /// switching servers or binding (nothing counts as active then: the next activation
+    /// recomputes the badge and flushes).
+    func activeScope() async -> EntryScope?
 }
 
 /// The registry's active server at its current generation (no reset pending), read in one
-/// transaction just before `act`. For a process without a session and for tests: the registry is
-/// written by other processes too, so a switch between that read and `act` isn't excluded. The
-/// app uses its session's binding (`AppSession.whenActive`).
+/// transaction. For a process without a session, and for tests.
 public struct RegistryActiveGate: ActiveStoreGate {
     let registry: Registry
 
     public init(registry: Registry) { self.registry = registry }
 
-    public func whenActive<T: Sendable>(_ scope: EntryScope, _ act: @Sendable () async -> T) async -> T? {
-        let active = try? await registry.writer.read { db in try Self.activeScope(db) }
-        guard active == scope else { return nil }
-        return await act()
+    public func activeScope() async -> EntryScope? {
+        try? await registry.writer.read { db in try Self.activeScope(db) }
     }
 
     static func activeScope(_ db: Database) throws -> EntryScope? {
@@ -39,34 +37,11 @@ public struct RegistryActiveGate: ActiveStoreGate {
     }
 }
 
-extension AppSession {
-    /// `ActiveStoreGate` over the session, on the main actor where the binding changes: the active
-    /// store is the bound one. Before the session has bound (a launch in the background for a
-    /// notification action) it is the registry's; the binding is checked again after that read,
-    /// so a bind that happened meanwhile decides.
-    public func whenActive<T: Sendable>(_ scope: EntryScope, _ act: @Sendable () async -> T) async -> T? {
-        let registryScope: EntryScope? =
-            if binding == nil {
-                try? await registryActiveScope()
-            } else {
-                nil
-            }
-        guard (binding?.scope ?? registryScope) == scope else { return nil }
-        return await act()
-    }
-
-    private func registryActiveScope() async throws -> EntryScope? {
-        try await partitions.registry.writer.read { db in try RegistryActiveGate.activeScope(db) }
-    }
-}
-
-/// The app's gate: its session's (`AppSession.whenActive`).
+/// The app's gate: its session's (`AppSession.activeScope()`).
 public struct SessionActiveGate: ActiveStoreGate {
     let session: AppSession
 
     public init(session: AppSession) { self.session = session }
 
-    public func whenActive<T: Sendable>(_ scope: EntryScope, _ act: @Sendable () async -> T) async -> T? {
-        await session.whenActive(scope, act)
-    }
+    public func activeScope() async -> EntryScope? { await session.activeScope() }
 }

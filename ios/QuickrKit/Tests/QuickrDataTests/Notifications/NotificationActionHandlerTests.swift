@@ -30,6 +30,10 @@ import Testing
         /// Runs inside the handler's sender lookup (step 10).
         let onSender = QueryHook()
         let center: FakeNotificationCenter
+        /// Runs inside `setBadgeCount`, before it returns.
+        let onBadge = QueryHook()
+        /// The handler's gate; nil uses the registry's.
+        let gate = Mutex<(any ActiveStoreGate)?>(nil)
         let server = FakeServer()
         let clock = FakeLeaseClock()
         let wall = FakeClock(Make.t0)
@@ -75,14 +79,15 @@ import Testing
 
         var handler: NotificationActionHandler {
             NotificationActionHandler(
-                partitions: partitions, center: center,
+                partitions: partitions, center: BadgeHookCenter(center: center, onBadge: onBadge),
                 sender: { [server, onSender] _ in
                     onSender.run("sender")
                     return APIClient(baseURL: FakeServer.base, transport: server, identity: StaticServerIdentity(nil))
                 },
                 owner: "app:test", wallClock: wall,
                 isProtectedDataAvailable: { [self] in self.unlocked.withLock { $0 } },
-                reloadWidgets: { [self] in self.reloads.withLock { $0 += 1 } }, flushBudget: .seconds(5))
+                reloadWidgets: { [self] in self.reloads.withLock { $0 += 1 } }, flushBudget: .seconds(5),
+                gate: gate.withLock { $0 })
         }
 
         func items(_ serverId: String = NotificationActionHandlerTests.serverA) async throws -> [OutboxItem] {
@@ -553,17 +558,43 @@ import Testing
         }
     }
 
-    @Test func aSwitchBetweenTheBadgeCountAndSettingItLeavesTheBadge() async throws {
+    @Test func aSwitchWhileTheBadgeIsSetEndsWithTheNewStoresBadge() async throws {
+        let w = try await World()
+        // B has a topic due; A's are all unscheduled.
+        var due = Make.topic(name: "Stretch", schedule: .interval(.init(everyMinutes: 60, timezone: "UTC")))
+        due.questions = [Self.mood]
+        let dueTopic = due
+        try await w.stores[Self.serverB]!.writer.write { db in _ = try ServerLayer.upsert(db, topic: dueTopic) }
+        w.wall.set(Make.t0.addingTimeInterval(3 * 3600))
+        w.center.withState { $0.badge = 99 }
+        // The user switches to B while the OS call for A's badge is in flight.
+        let switched = Mutex(false)
+        w.onBadge.set { _ in
+            guard
+                !switched.withLock({
+                    let was = $0
+                    $0 = true
+                    return was
+                })
+            else { return }
+            Self.switchActive(w, to: Self.serverB)
+        }
+        let r = w.reminder(w.moodTopic)
+        let id = w.entryId(w.moodTopic)
+        #expect(await w.tap(r, 0) == .logged(entryId: id, serverId: Self.serverA, flush: nil))
+        #expect(w.center.withState { $0.badge } == 1, "reconciled to B's due count, not left at A's")
+        #expect(w.server.handled.isEmpty, "A is no longer active: no flush")
+    }
+
+    @Test func nothingCountsAsActiveWhileABindIsPending() async throws {
         let w = try await World()
         w.center.withState { $0.badge = 99 }
-        var handler = w.handler
-        handler.testHook = { point in if point == .badgeCounted { Self.switchActive(w, to: Self.serverB) } }
+        w.gate.withLock { $0 = FixedGate(scope: nil) }  // the session is binding B for the first time
         let r = w.reminder(w.moodTopic)
-        let outcome = await handler.handle(
-            .init(action: .custom(r.category.actions[0].identifier), title: "Mood", quickr: r.info))
-        #expect(outcome == .logged(entryId: w.entryId(w.moodTopic), serverId: Self.serverA, flush: nil))
-        #expect(w.center.withState { $0.badge } == 99, "decided when set: no longer active")
-        #expect(w.server.handled.isEmpty)
+        #expect(await w.tap(r, 0) == .logged(entryId: w.entryId(w.moodTopic), serverId: Self.serverA, flush: nil))
+        #expect(w.center.withState { $0.badge } == 99, "no badge for A")
+        #expect(w.server.handled.isEmpty, "and no flush")
+        #expect(try await w.items().count == 1, "the entry is safe in A's store")
     }
 
     @Test func aSwitchDuringTheSenderLookupSkipsTheFlush() async throws {
@@ -571,7 +602,8 @@ import Testing
         w.center.withState { $0.badge = 99 }
         w.onSender.set { _ in Self.switchActive(w, to: Self.serverB) }
         let r = w.reminder(w.moodTopic)
-        #expect(await w.tap(r, 0) == .logged(entryId: w.entryId(w.moodTopic), serverId: Self.serverA, flush: nil))
+        // Decided before the lookup, refused once the flush held its lease: it claims nothing.
+        #expect(await w.tap(r, 0) == .logged(entryId: w.entryId(w.moodTopic), serverId: Self.serverA, flush: .paused))
         #expect(w.center.withState { $0.badge } == 0, "still active when the badge was set")
         #expect(w.server.handled.isEmpty, "not when the flush would start")
         #expect(try await w.items().count == 1, "the entry waits in its store")
@@ -639,4 +671,36 @@ final class QueryHook: Sendable {
     func set(_ body: @escaping @Sendable (String) -> Void) { self.body.withLock { $0 = body } }
 
     func run(_ name: String) { body.withLock { $0 }?(name) }
+}
+
+/// The fake center with a hook inside `setBadgeCount` (the OS call in flight).
+struct BadgeHookCenter: NotificationCenterProtocol {
+    let center: FakeNotificationCenter
+    let onBadge: QueryHook
+
+    func setNotificationCategories(_ categories: [NotificationCategorySpec]) {
+        center.setNotificationCategories(categories)
+    }
+    func notificationCategories() async -> [NotificationCategorySpec] { await center.notificationCategories() }
+    func deliveredNotifications() async -> [NotificationSnapshot] { await center.deliveredNotifications() }
+    func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {
+        center.removeDeliveredNotifications(withIdentifiers: identifiers)
+    }
+    func pendingNotificationRequests() async -> [NotificationSnapshot] { await center.pendingNotificationRequests() }
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+        center.removePendingNotificationRequests(withIdentifiers: identifiers)
+    }
+    func add(_ request: LocalNotificationRequest) async throws { try await center.add(request) }
+    func setBadgeCount(_ count: Int) async throws {
+        try await center.setBadgeCount(count)
+        onBadge.run("setBadgeCount")
+    }
+    func authorizationStatus() async -> NotificationAuthorization { await center.authorizationStatus() }
+    func requestAuthorization() async throws -> Bool { try await center.requestAuthorization() }
+}
+
+/// A gate with a fixed answer.
+struct FixedGate: ActiveStoreGate {
+    var scope: EntryScope?
+    func activeScope() async -> EntryScope? { scope }
 }
