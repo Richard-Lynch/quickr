@@ -15,7 +15,7 @@ branch.
 - `[ ]` to do
 - `[-]` skipped, with a reason
 
-**Last updated:** 2026-10-18 06:00. M1 is complete and its PR into `feat/ios-app` is open; M2 started with WIRE.
+**Last updated:** 2026-10-19 21:00 EDT. **M1 merged** into `feat/ios-app` (#9, 48fa566). M2 is in progress on `ios/m2-ui`, starting with WIRE.
 
 **Execution plan:** [DAG.md](DAG.md) (Fable). Waves of ≤4 WPs with at most 2 simulator-heavy at once. Milestones are stacked (squash-merge, then `rebase --onto`).
 
@@ -216,8 +216,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [x] Simulator spike: notification actions with the app killed. Findings
       recorded.
 - [x] `make ios-integration`, all 5 scenarios (S1; offline→flush; 17/18; 12/51/59; S9/38), 2/2 at 15/15
-- [ ] `ios.yml` green
-- [~] Codex and Claude reviews done (both MERGE AFTER FIXES → fixed); PR with test reports opening
+- [x] `ios.yml` green (after the NSE compiler-crash, pool-starvation and timing-isolation fixes)
+- [x] Codex and Claude reviews done (both MERGE AFTER FIXES → fixed); PR #9 with test reports, merged 48fa566
 
 ## D: Device checkpoint · needs H3–H5
 
@@ -290,6 +290,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-19 21:00 (EDT): **PR #9 green and squash-merged into feat/ios-app (48fa566). M1 done.** ios/m2-ui moved onto it (9278742, tree identical to feat/ios-app). From here STATUS lives on ios/m2-ui. WIRE r3 fix d06e1b0 is in Codex r4; FORM (ios/m2-form) and BUILDER (ios/m6-builder) wait to be merged into their milestone branches.
 
 - 2026-10-19 20:45 (EDT): CI-TIMING merged (9616f61): the real-time and MP tests run under `TimingTests`/`MultiProcessTests`, gated by QUICKR_TIMING_TESTS=1, in a serial `make ios-timing-test` (STRICT off, MP children never inherit STRICT, the agent reads stdin on its own thread); logic tests run under STRICT. Proven: 3/3 with 4 spinners, 2/2 with 20 spinners (load ~50), Unit plan 427 passed on 26.0. Pushing to PR #9.
 
