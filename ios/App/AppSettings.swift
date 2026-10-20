@@ -23,6 +23,7 @@ enum AppGroup {
 @MainActor @Observable
 final class AppSettings {
     static let serverURLKey = "serverURL"
+    static let logAnotherKey = "logAnother"
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -31,8 +32,15 @@ final class AppSettings {
         didSet { defaults.set(serverURL?.absoluteString, forKey: Self.serverURLKey) }
     }
 
+    /// The record screen's "Log another": stay after saving, with a fresh form (remembered, like
+    /// the PWA's).
+    var logAnother: Bool {
+        didSet { defaults.set(logAnother, forKey: Self.logAnotherKey) }
+    }
+
     init(defaults: UserDefaults) {
         self.defaults = defaults
         serverURL = defaults.string(forKey: Self.serverURLKey).flatMap(URL.init(string:))
+        logAnother = defaults.bool(forKey: Self.logAnotherKey)
     }
 }

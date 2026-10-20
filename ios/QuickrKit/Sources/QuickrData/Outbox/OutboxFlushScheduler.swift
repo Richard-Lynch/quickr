@@ -117,7 +117,8 @@ public actor OutboxFlushScheduler {
     /// for the record screen) for the item's outcome. Like the PWA's, it reports "queued" as soon
     /// as an attempt has ended without one (a network error, an uncertain answer), not only when
     /// the wait runs out. That attempt may be one that started before this call: the enqueue's own
-    /// flush often claims the item first.
+    /// flush often claims the item first. A retry-class outcome always sets the backoff deadline,
+    /// and a fix or a retry clears it, so a fixed item waits for its new attempt.
     public func sendNow(itemId: String, wait: Duration) async -> OutboxSendNowResult {
         let store = outbox.store
         request(OutboxFlushReason.enqueue.policy)
@@ -134,7 +135,7 @@ public actor OutboxFlushScheduler {
             }
             if item.state == .failed { return .failed(item.lastError) }
             // Attempted and back in the queue: it waits for its backoff, or for the network.
-            if item.attempts > 0, item.state != .inFlight { return .queued }
+            if item.attempts > 0, item.due != nil, item.state != .inFlight { return .queued }
             try? await Task.sleep(for: .milliseconds(50))
         }
         return .queued
