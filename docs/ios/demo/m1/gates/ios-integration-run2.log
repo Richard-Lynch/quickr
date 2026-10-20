@@ -1,0 +1,71 @@
+# make ios-integration, run 2 of 2 (gate G4), M1 final tip
+# commit: 4ad33df (ios/m1-evidence; merge of ios/m1-data 01cba48)
+# host: macOS 27.0.1, Xcode 27.1, IOS_JOBS=4
+# date: 2026-10-18T03:12:41Z
+# Two consecutive passing runs; an earlier run lost its docker stack mid-test (proxy control port refused, all 15 failed in 0.06 s) while another agent worked in this worktree, and was not counted.
+
+integration: project quickr-it-ios-m1-evidence-1a0aeb
+integration: ports proxy=52409 control=52410 a=52401 b=52402
+integration: up; wrote /Users/richie/code/quickr-worktrees/ios-m1-evidence/ios/build/integration.env
+ok 1 - health through the proxy: server 1ece3826-511f-49c3-af46-c1cbfe126d72
+ok 2 - created topic 074eb9dc-3e20-4e4a-b008-e161dd0d4a6a on server a
+ok 3 - create 8cab1daa-6646-4bdb-ab0f-485c5cf54fca through the proxy: connection dropped after the server answered
+ok 4 - proxy log: upstream 201, client dropped
+ok 5 - the entry exists on server a
+ok 6 - garble drops revision from one response, then passes
+ok 7 - /changes through the proxy lists the entry
+ok 8 - 503, 429 + Retry-After and a captive page, without touching the server
+ok 9 - strip_identity removes the identity headers
+ok 10 - server b reports a different server id: 76a9b92a-75c8-4516-a6f2-2baeb764c9c2
+ok 11 - proxy switched to server b: a create expecting server a gets server_mismatch
+ok 12 - rotate-epoch on server a: 8aef6e8e-6a1f-4aae-ae76-58443b155249 -> 2424c2ab-9996-4350-be45-7c6f60fd85e7
+integration smoke: 12 checks passed
+Building for debugging...
+[Computing dependencies]
+[1 / 1] QuickrDataTests-product
+Build complete! (0.77 sec)
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite "Integration (make ios-integration)" started.
+◇ Suite IntegrationHarnessTests started.
+◇ Suite "Outbox" started.
+◇ Test environmentIsSetWhenRequired() started.
+◇ Test "12 · a POST delayed in the network arrives after the undo's DELETE: 409 entry_deleted" started.
+✔ Test environmentIsSetWhenRequired() passed after 0.001 seconds.
+✔ Suite IntegrationHarnessTests passed after 0.001 seconds.
+✔ Test "12 · a POST delayed in the network arrives after the undo's DELETE: 409 entry_deleted" passed after 2.448 seconds.
+◇ Test "51 · undo of an uncertain create: only DELETE E is sent (204); the late POST changes nothing" started.
+✔ Test "51 · undo of an uncertain create: only DELETE E is sent (204); the late POST changes nothing" passed after 2.307 seconds.
+◇ Test "17 · E deleted on the web, update pending, flush: PATCH 404 tombstones E, update failed deleted_elsewhere" started.
+✔ Test "17 · E deleted on the web, update pending, flush: PATCH 404 tombstones E, update failed deleted_elsewhere" passed after 0.088 seconds.
+◇ Test "18 · E deleted on the web, update pending, pull first: failed without a request, no zombie row" started.
+✔ Test "18 · E deleted on the web, update pending, pull first: failed without a request, no zombie row" passed after 0.084 seconds.
+◇ Test "32 · INT half: a superseded sender's late PATCH gets stale_revision; it doesn't rebase or resend" started.
+✔ Test "32 · INT half: a superseded sender's late PATCH gets stale_revision; it doesn't rebase or resend" passed after 0.203 seconds.
+◇ Test "38 · epoch rotation with pending, uncertain and failed items: restored, rebuilt, resent; failed stays" started.
+✔ Test "38 · epoch rotation with pending, uncertain and failed items: restored, rebuilt, resent; failed stays" passed after 3.429 seconds.
+◇ Test "49 · a queued create, the URL now reaches server b: restored with maybe_delivered 0, b has no entry" started.
+✔ Test "49 · a queued create, the URL now reaches server b: restored with maybe_delivered 0, b has no entry" passed after 0.079 seconds.
+◇ Test "59 · POST commits but its 201 is garbled: uncertain; Undo deletes it on the server" started.
+◇ Test case passing 1 argument garble → ["garble": "truncate"] to "59 · POST commits but its 201 is garbled: uncertain; Undo deletes it on the server" started.
+◇ Test case passing 1 argument garble → ["garble": "drop_field", "field": "revision"] to "59 · POST commits but its 201 is garbled: uncertain; Undo deletes it on the server" started.
+✔ Test "59 · POST commits but its 201 is garbled: uncertain; Undo deletes it on the server" with 2 test cases passed after 0.168 seconds.
+◇ Test "offline: two logs stay durable and pending, nothing reaches the server; back online, each lands once" started.
+✔ Test "offline: two logs stay durable and pending, nothing reaches the server; back online, each lands once" passed after 0.124 seconds.
+◇ Test "wiring: scheduler bound from the store's opening; logs, web writes and pulls overlap and converge" started.
+✔ Test "wiring: scheduler bound from the store's opening; logs, web writes and pulls overlap and converge" passed after 0.343 seconds.
+◇ Test "a create for a topic deleted on the web: topic_missing, the signal pulls, then deleted_elsewhere" started.
+✔ Test "a create for a topic deleted on the web: topic_missing, the signal pulls, then deleted_elsewhere" passed after 0.134 seconds.
+✔ Suite "Outbox" passed after 9.415 seconds.
+◇ Suite "Sync" started.
+◇ Test "S1 · empty device: pages commit with their cursor; interrupted, it resumes and matches the server" started.
+✔ Test "S1 · empty device: pages commit with their cursor; interrupted, it resumes and matches the server" passed after 0.482 seconds.
+◇ Test "S8 · the URL now reaches another server: server_mismatch, item unchanged, nothing reaches it" started.
+✔ Test "S8 · the URL now reaches another server: server_mismatch, item unchanged, nothing reaches it" passed after 0.158 seconds.
+◇ Test "S9 · the epoch rotates with an item queued: epoch_mismatch, unchanged, rebuild, resend" started.
+✔ Test "S9 · the epoch rotates with an item queued: epoch_mismatch, unchanged, rebuild, resend" passed after 1.506 seconds.
+✔ Suite "Sync" passed after 2.147 seconds.
+✔ Suite "Integration (make ios-integration)" passed after 11.562 seconds.
+✔ Test run with 15 tests in 4 suites passed after 11.563 seconds.
+integration: quickr-it-ios-m1-evidence-1a0aeb down

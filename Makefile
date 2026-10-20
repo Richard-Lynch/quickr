@@ -144,16 +144,21 @@ ios-build: ios-gen ## iOS: simulator Debug build (IOS_SIM=name or UDID)
 	@$(IOS_SCRIPTS)/build.sh "$(IOS_SIM)"
 
 .PHONY: ios-core-test
-ios-core-test: ## iOS: swift test for ios/QuickrKit on the Mac
+ios-core-test: ## iOS: swift test for ios/QuickrKit on the Mac, strict pool; skips the real-time tests (ios-timing-test)
 	@$(IOS_SCRIPTS)/require-xcode.sh
 	@$(IOS_SCRIPTS)/swift-test.sh
 
+.PHONY: ios-timing-test
+ios-timing-test: ## iOS: the real-time tests (TimingTests, MultiProcessTests) alone and one at a time, normal pool
+	@$(IOS_SCRIPTS)/require-xcode.sh
+	@$(IOS_SCRIPTS)/timing-test.sh
+
 .PHONY: ios-mp-test
-ios-mp-test: ## iOS: the multi-process tests alone, serially, IOS_MP_RUNS times (default 1); swift test runs them too
+ios-mp-test: ## iOS: the multi-process tests alone, serially, IOS_MP_RUNS times (default 1); ios-timing-test runs them too
 	@$(IOS_SCRIPTS)/require-xcode.sh
 	@for run in $$(seq 1 $${IOS_MP_RUNS:-1}); do \
 		echo "ios-mp-test: run $$run"; \
-		$(IOS_SCRIPTS)/swift-test.sh --filter MultiProcessTests --no-parallel || exit 1; \
+		$(IOS_SCRIPTS)/timing-test.sh MultiProcessTests || exit 1; \
 	done
 
 .PHONY: ios-resolve

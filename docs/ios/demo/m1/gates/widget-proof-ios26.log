@@ -1,0 +1,26 @@
+# widget-proof.sh on the iOS 26.0 clone
+# command: ios/scripts/widget-proof.sh 4EF41F2B-4FD3-410C-99D7-9F4A1727509F 900
+# commit: d15dc7b (ios/m1-data tip at the time: all of M1 except M1-FIXES)
+# host: macOS 27.0.1, Xcode 27.1 Build version 27A9275 
+# finished: 2026-10-18T02:46:22Z
+
+## script output (xcbeautify, ANSI stripped)
+ios: Widgets plan on 4EF41F2B-4FD3-410C-99D7-9F4A1727509F -- iOS 26.0 --
+[QuickR] Compiling RootView.swift
+⚠️  /Users/richie/code/quickr-worktrees/ios-m1-evidence/ios/App/RootView.swift:42:9: will never be executed
+39 |     }
+40 | 
+Executed 1 test, with 0 failures (0 unexpected) in 1115.023 (1115.027) seconds
+Executed 1 test, with 0 failures (0 unexpected) in 1115.023 (1115.028) seconds
+Executed 1 test, with 0 failures (0 unexpected) in 1115.023 (1115.031) seconds
+Test session results: /Users/richie/code/quickr-worktrees/ios-m1-evidence/ios/build/results/Widgets-4EF41F2B-4FD3-410C-99D7-9F4A1727509F.xcresult
+Test Succeeded
+ios: widget proof passed on 4EF41F2B-4FD3-410C-99D7-9F4A1727509F
+exit=0
+
+## tests (xcresulttool, Widgets-4EF41F2B-4FD3-410C-99D7-9F4A1727509F.xcresult)
+Test Plan: Widgets — Passed 
+  UI test bundle: QuickRUITests — Passed 
+    Test Suite: WidgetGalleryTests — Passed 
+      Test Case: testTopicWidgetResolvesTopicEntityInTheExtension() — Passed 18m
+summary: Passed, 1 passed, 0 failed, 0 skipped; devices: quickR iOS-26-0 ios-m1-evidence-1a0aeb (iOS Simulator 26.0)

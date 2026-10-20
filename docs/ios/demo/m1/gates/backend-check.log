@@ -1,0 +1,27 @@
+# make check-backend (lint, types, openapi.json freshness, pytest, migrations), M1 final tip
+# commit: 4ad33df (ios/m1-evidence)
+# date: 2026-10-18T03:12:41Z
+
+cd backend && unset VIRTUAL_ENV && export PYTHONPATH=. && uv run ruff check . && uv run ruff format --check . && uv run mypy app scripts tools tests
+Using CPython 3.14.7
+Creating virtual environment at: .venv
+Installed 127 packages in 185ms
+All checks passed!
+84 files already formatted
+Success: no issues found in 73 source files
+cd backend && unset VIRTUAL_ENV && export PYTHONPATH=. && out=$(mktemp) && uv run python scripts/export_openapi.py "$out" > /dev/null && \
+		{ diff -u ../openapi.json "$out" || { echo "openapi.json is stale - run 'make openapi'"; exit 1; }; }
+cd backend && unset VIRTUAL_ENV && export PYTHONPATH=. && uv run pytest -q
+........................................................................ [ 10%]
+........................................................................ [ 20%]
+........................................................................ [ 31%]
+........................................................................ [ 41%]
+........................................................................ [ 52%]
+........................................................................ [ 62%]
+........................................................................ [ 73%]
+........................................................................ [ 83%]
+........................................................................ [ 94%]
+......................................                                   [100%]
+686 passed in 27.54s
+cd backend && unset VIRTUAL_ENV && export PYTHONPATH=. && export QUICKR_DATABASE_URL="$(uv run python -m tools.test_database ensure)" && uv run alembic upgrade head && uv run alembic check
+No new upgrade operations detected.

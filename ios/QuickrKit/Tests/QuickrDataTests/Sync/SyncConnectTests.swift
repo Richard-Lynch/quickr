@@ -5,7 +5,7 @@ import QuickrTestSupport
 import Testing
 
 /// `SyncCoordinator.connect(baseURL:)` for a server that is already known (sync-protocol.md §2.1).
-@Suite struct SyncConnectTests {
+@Suite(.timeLimit(.minutes(2))) struct SyncConnectTests {
     @Test("connecting to a known server through a new URL records it; later pulls go there")
     func aKnownServerAtANewURL() async throws {
         let env = try SyncEnv()

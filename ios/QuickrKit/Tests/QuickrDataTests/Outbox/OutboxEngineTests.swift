@@ -7,7 +7,7 @@ import Testing
 
 /// Engine behaviour outside the §13 matrix: the §5.2 rows the matrix doesn't name, S8 under
 /// expiry recovery, the sync sheet's actions, the summary and the flush scheduler.
-@Suite struct OutboxEngineTests {
+@Suite(.timeLimit(.minutes(2))) struct OutboxEngineTests {
     @Test func archive404RetiresAndUnarchive404FailsBothAskForAPull() async throws {
         let h = try OutboxHarness()
         let outbox = h.outbox()
@@ -212,35 +212,6 @@ import Testing
         #expect(h.server.entry(id)?.source == "ios.widget" && h.server.entry(raw)?.source == "ios.siri")
     }
 
-    @Test func leasePollingNeverAttemptsPastTheRequestDeadline() async throws {
-        let h = try OutboxHarness()
-        let outbox = h.outbox()
-        try await h.log(outbox)
-        // No time for requests at all: not even one attempt, though the lease is free.
-        for leaseWait in [Duration.zero, .seconds(1)] {
-            #expect(try await outbox.flush(force: true, budget: .zero, leaseWait: leaseWait).ending == .busy)
-            #expect(try h.lease().owner == nil)
-        }
-        // Held elsewhere: polling stops at the request deadline (0.7 s of a 1 s budget), not
-        // at the 5 s lease wait, and the flush ends without the lease.
-        let holder = try #require(try await h.store.leases.tryAcquire(.flush, owner: "widget:9"))
-        let polled = try await outbox.flush(force: true, budget: .seconds(1), leaseWait: .seconds(5))
-        #expect(polled.ending == .busy)
-        #expect(try #require(polled.elapsed) <= .seconds(1))
-        #expect(try h.lease().owner == "widget:9" && h.server.requests.isEmpty)
-        _ = try await h.store.leases.release(holder)
-    }
-
-    @Test func sendNowReportsSentOrQueued() async throws {
-        let h = try OutboxHarness()
-        let scheduler = OutboxFlushScheduler(outbox: h.outbox())
-        let sent = try await h.log(scheduler.outbox)
-        #expect(await scheduler.sendNow(itemId: sent.wireString, wait: .seconds(2.5)))
-        let queued = try await h.log(scheduler.outbox, minutes: 1)
-        h.server.inject(.post, .lose(.unreachable("offline")))
-        #expect(await !scheduler.sendNow(itemId: queued.wireString, wait: .milliseconds(300)))
-    }
-
     @Test func backgroundReleasesEveryHoldBeforeFlushing() async throws {
         let h = try OutboxHarness()
         let scheduler = OutboxFlushScheduler(outbox: h.outbox())
@@ -248,5 +219,39 @@ import Testing
         try await scheduler.outbox.deleteEntry(id: entry.id, topicId: h.topic.id, undoable: true, origin: .app)
         await scheduler.flushNow(reason: .background)
         #expect(try h.server.entry(entry.id) == nil && h.items.isEmpty)
+    }
+}
+
+/// The real-time cases of `OutboxEngineTests` (see `TimingTests`).
+extension TimingTests {
+    @Suite struct OutboxEngineTiming {
+        @Test func leasePollingNeverAttemptsPastTheRequestDeadline() async throws {
+            let h = try OutboxHarness()
+            let outbox = h.outbox()
+            try await h.log(outbox)
+            // No time for requests at all: not even one attempt, though the lease is free.
+            for leaseWait in [Duration.zero, .seconds(1)] {
+                #expect(try await outbox.flush(force: true, budget: .zero, leaseWait: leaseWait).ending == .busy)
+                #expect(try h.lease().owner == nil)
+            }
+            // Held elsewhere: polling stops at the request deadline (0.7 s of a 1 s budget), not
+            // at the 5 s lease wait, and the flush ends without the lease.
+            let holder = try #require(try await h.store.leases.tryAcquire(.flush, owner: "widget:9"))
+            let polled = try await outbox.flush(force: true, budget: .seconds(1), leaseWait: .seconds(5))
+            #expect(polled.ending == .busy)
+            #expect(try #require(polled.elapsed) <= .seconds(1))
+            #expect(try h.lease().owner == "widget:9" && h.server.requests.isEmpty)
+            _ = try await h.store.leases.release(holder)
+        }
+
+        @Test func sendNowReportsSentOrQueued() async throws {
+            let h = try OutboxHarness()
+            let scheduler = OutboxFlushScheduler(outbox: h.outbox())
+            let sent = try await h.log(scheduler.outbox)
+            #expect(await scheduler.sendNow(itemId: sent.wireString, wait: .seconds(2.5)))
+            let queued = try await h.log(scheduler.outbox, minutes: 1)
+            h.server.inject(.post, .lose(.unreachable("offline")))
+            #expect(await !scheduler.sendNow(itemId: queued.wireString, wait: .milliseconds(300)))
+        }
     }
 }

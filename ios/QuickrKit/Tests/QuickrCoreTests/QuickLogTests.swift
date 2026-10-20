@@ -2,7 +2,7 @@ import QuickrCore
 import Testing
 
 /// A port of the quick-log half of frontend/src/lib/quickLog.test.ts, plus "same as last time".
-@Suite struct QuickLogTests {
+@Suite(.timeLimit(.minutes(2))) struct QuickLogTests {
     typealias F = AnswerFixtures
 
     static func enumQ(_ n: Int, multiple: Bool = false) -> Question {

@@ -13,7 +13,12 @@ import Testing
 /// killed with SIGKILL. Every barrier is a reply line from a child or a request arriving at the
 /// fake server (`Gate.arrival`); lease time and the wall clock are shared files the test moves.
 /// The suite runs serially: children are heavy, and several share one loopback server per test.
-@Suite(.serialized, .timeLimit(.minutes(3))) struct MultiProcessTests {}
+/// Its replies have real-time timeouts, so like `TimingTests` it runs only in
+/// `make ios-timing-test` (QUICKR_TIMING_TESTS=1) and `make ios-mp-test`.
+@Suite(
+    .serialized, .timeLimit(.minutes(3)),
+    .enabled(if: TimingTestRun.enabled, "real-time: runs alone with make ios-timing-test (QUICKR_TIMING_TESTS=1)"))
+struct MultiProcessTests {}
 
 /// One multi-process test's world: a temporary App Group directory with the registry and store
 /// files, the shared clocks, a fake server reachable over loopback HTTP, and the children.

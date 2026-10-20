@@ -9,7 +9,7 @@ import Testing
 /// `Outbox` instances on two pools over one file, sharing the lease clock. "SIGSTOP" is a request
 /// held in the network by a `Gate` while lease time passes; "SIGCONT" opens it. The real
 /// multi-process runs are in `MultiProcess/OutboxMultiProcessTests`.
-@Suite struct OutboxConcurrencyTests {
+@Suite(.timeLimit(.minutes(2))) struct OutboxConcurrencyTests {
     @Test("8, 9 · (single process) lock expiry: B recovers and resends; A's late 201 writes nothing")
     func case08And09() async throws {
         let h = try OutboxHarness()
@@ -224,27 +224,6 @@ import Testing
         } catch OutboxError.entryDeleted {}
     }
 
-    @Test("40 · (single process) the widget logs while the app's request is slow: it gives up, the app sends it")
-    func case40() async throws {
-        let h = try OutboxHarness()
-        let app = h.outbox(owner: "app:1")
-        let widget = try h.process("widget:1")
-        let first = try await h.log(app)
-        let gate = Gate()
-        h.server.inject(.post, .delay(gate))
-        let flushApp = background { try await app.flushNow() }
-        await gate.arrival()
-        let logged = try await h.log(widget)
-        let policy = OutboxFlushPolicy.extensionFlush(budget: .seconds(4))
-        let report = try await widget.flush(force: policy.force, budget: policy.budget, leaseWait: policy.leaseWait)
-        #expect(report.ending == .busy)
-        #expect(try #require(report.elapsed) < .seconds(4))
-        #expect(try h.item(logged)?.state == .pending)
-        gate.open()
-        _ = try await flushApp.value
-        #expect(try h.server.entry(first) != nil && h.server.entry(logged) != nil && h.items.isEmpty)
-    }
-
     @Test("45 · (single process) the wall clock set back 3 h doesn't delay a takeover")
     func case45() async throws {
         let h = try OutboxHarness()
@@ -277,5 +256,31 @@ import Testing
         #expect(try await b.flushNow().ending == .busy)
         gate.open()
         #expect(try await flushA.value.acked == 1 && h.item(id) == nil)
+    }
+}
+
+/// The real-time cases of `OutboxConcurrencyTests` (see `TimingTests`).
+extension TimingTests {
+    @Suite struct OutboxConcurrencyTiming {
+        @Test("40 · (single process) the widget logs while the app's request is slow: it gives up, the app sends it")
+        func case40() async throws {
+            let h = try OutboxHarness()
+            let app = h.outbox(owner: "app:1")
+            let widget = try h.process("widget:1")
+            let first = try await h.log(app)
+            let gate = Gate()
+            h.server.inject(.post, .delay(gate))
+            let flushApp = background { try await app.flushNow() }
+            await gate.arrival()
+            let logged = try await h.log(widget)
+            let policy = OutboxFlushPolicy.extensionFlush(budget: .seconds(4))
+            let report = try await widget.flush(force: policy.force, budget: policy.budget, leaseWait: policy.leaseWait)
+            #expect(report.ending == .busy)
+            #expect(try #require(report.elapsed) < .seconds(4))
+            #expect(try h.item(logged)?.state == .pending)
+            gate.open()
+            _ = try await flushApp.value
+            #expect(try h.server.entry(first) != nil && h.server.entry(logged) != nil && h.items.isEmpty)
+        }
     }
 }

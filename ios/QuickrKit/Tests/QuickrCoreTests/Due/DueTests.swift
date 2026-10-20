@@ -3,7 +3,7 @@ import QuickrCore
 import Testing
 
 /// Every case in `shared/fixtures/due-vectors.json`, generated from the real `schedule.py`.
-@Suite struct DueVectorTests {
+@Suite(.timeLimit(.minutes(2))) struct DueVectorTests {
     static let vectors = DueVectors.shared
 
     @Test func vectorCountsAndConstantsMatchTheGenerator() {
@@ -38,7 +38,7 @@ import Testing
 
 /// The surprises found while generating the vectors (docs/ios/STATUS.md), pinned on their own.
 /// Expected values come from the backend's `schedule.py`.
-@Suite struct DueSemanticsTests {
+@Suite(.timeLimit(.minutes(2))) struct DueSemanticsTests {
     static let since = utc("2026-01-01T00:00:00Z")
 
     static func utc(_ text: String) -> Date { try! DueVectors.date(text) }
@@ -164,7 +164,7 @@ import Testing
 
 /// Transitions outside the 2026 vector grid, and sub-second edges. Expected values come from the
 /// backend's `schedule.py` (zoneinfo, `fold=0`).
-@Suite struct DueRegressionTests {
+@Suite(.timeLimit(.minutes(2))) struct DueRegressionTests {
     static func utc(_ text: String) -> Date { DueSemanticsTests.utc(text) }
 
     static func daily(_ times: [String], _ timezone: String, days: [Int] = Schedule.Daily.everyDay) -> Schedule.Daily {
@@ -236,7 +236,7 @@ import Testing
     }
 }
 
-@Suite struct DueTimelineTests {
+@Suite(.timeLimit(.minutes(2))) struct DueTimelineTests {
     static func utc(_ text: String) -> Date { DueSemanticsTests.utc(text) }
 
     @Test func upcomingSlotsGoPastTheLookaheadAndSkipNow() {
@@ -299,46 +299,49 @@ import Testing
     }
 }
 
-@Suite struct DuePerformanceTests {
-    /// Widget timelines and the badge recompute every topic often; one daily status must stay cheap.
-    @Test func everyDueVectorComputesQuickly() {
-        let vectors = DueVectors.shared.due
-        let clock = ContinuousClock()
-        var dueCount = 0
-        let elapsed = clock.measure {
-            for vector in vectors {
-                let status = Due.status(
-                    of: vector.schedule, now: vector.now, lastEntryAt: vector.lastEntryAt,
-                    scheduleSince: vector.scheduleSince, archived: vector.archived)
-                if status.isDue { dueCount += 1 }
+/// Performance bounds are real time (see `TimingTests`).
+extension TimingTests {
+    @Suite struct DuePerformance {
+        /// Widget timelines and the badge recompute every topic often; one daily status must stay cheap.
+        @Test func everyDueVectorComputesQuickly() {
+            let vectors = DueVectors.shared.due
+            let clock = ContinuousClock()
+            var dueCount = 0
+            let elapsed = clock.measure {
+                for vector in vectors {
+                    let status = Due.status(
+                        of: vector.schedule, now: vector.now, lastEntryAt: vector.lastEntryAt,
+                        scheduleSince: vector.scheduleSince, archived: vector.archived)
+                    if status.isDue { dueCount += 1 }
+                }
             }
+            #expect(dueCount > 0)
+            // About 1 ms per status would still be fine for a widget; a debug build does far better.
+            #expect(elapsed < .seconds(2), "1,831 statuses took \(elapsed)")
+            print("DuePerformance: 1,831 statuses in \(elapsed)")
         }
-        #expect(dueCount > 0)
-        // About 1 ms per status would still be fine for a widget; a debug build does far better.
-        #expect(elapsed < .seconds(2), "1,831 statuses took \(elapsed)")
-        print("DuePerformanceTests: 1,831 statuses in \(elapsed)")
-    }
 
-    /// A due-list widget reload: 20 topics, a day of points each for a five-times-a-day schedule.
-    @Test func widgetTimelinesComputeQuickly() {
-        let schedule = Schedule.daily(
-            .init(
-                times: ["00:00", "01:30", "02:15", "02:30", "23:59"].map { TimeOfDay($0)! },
-                timezone: "America/New_York"))
-        let now = DueSemanticsTests.utc("2026-11-01T04:00:00Z")
-        let clock = ContinuousClock()
-        var points = 0
-        let elapsed = clock.measure {
-            for topic in 0..<20 {
-                points +=
-                    Due.timeline(
-                        of: schedule, now: now, lastEntryAt: now - TimeInterval(topic * 600),
-                        scheduleSince: DueSemanticsTests.since, count: 48
-                    ).count
+        /// A due-list widget reload: 20 topics, a day of points each for a five-times-a-day schedule.
+        @Test func widgetTimelinesComputeQuickly() {
+            let schedule = Schedule.daily(
+                .init(
+                    times: ["00:00", "01:30", "02:15", "02:30", "23:59"].map { TimeOfDay($0)! },
+                    timezone: "America/New_York"))
+            let now = DueSemanticsTests.utc("2026-11-01T04:00:00Z")
+            let clock = ContinuousClock()
+            var points = 0
+            let elapsed = clock.measure {
+                for topic in 0..<20 {
+                    points +=
+                        Due.timeline(
+                            of: schedule, now: now, lastEntryAt: now - TimeInterval(topic * 600),
+                            scheduleSince: DueSemanticsTests.since, count: 48
+                        ).count
+                }
             }
+            #expect(points == 20 * 49)
+            #expect(elapsed < .seconds(1), "20 timelines of 48 points took \(elapsed)")
+            print("DuePerformance: 20 widget timelines (48 points) in \(elapsed)")
         }
-        #expect(points == 20 * 49)
-        #expect(elapsed < .seconds(1), "20 timelines of 48 points took \(elapsed)")
-        print("DuePerformanceTests: 20 widget timelines (48 points) in \(elapsed)")
     }
 }

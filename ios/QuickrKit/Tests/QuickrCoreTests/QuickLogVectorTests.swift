@@ -5,7 +5,7 @@ import Testing
 
 /// TS/Python/Swift parity for quick-log: every case in shared/fixtures/quicklog-vectors.json
 /// (generated from backend/app/services/quicklog.py; the PWA asserts the same cases).
-@Suite struct QuickLogVectorTests {
+@Suite(.timeLimit(.minutes(2))) struct QuickLogVectorTests {
     @Test func hasCases() {
         #expect(QuickLogVectors.shared.eligibility.count == 23)
         #expect(QuickLogVectors.shared.initial.count == 357)

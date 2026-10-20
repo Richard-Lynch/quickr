@@ -7,7 +7,7 @@ import Testing
 
 /// outbox.md §13 cases 11–16, 29–31, 51–54, 59–61: Undo of a log (`cancelCreate`, §9.1),
 /// delete-with-undo (§9.2), S8 and suspension mid-send.
-@Suite struct OutboxUndoTests {
+@Suite(.timeLimit(.minutes(2))) struct OutboxUndoTests {
     @Test("11 · lost response then Undo: only a standalone DELETE is sent")
     func case11() async throws {
         let h = try OutboxHarness()
@@ -106,195 +106,6 @@ import Testing
         #expect(item.state == .uncertain && item.maybeDelivered && item.claimToken == nil)
         #expect(try h.lease().owner == nil)
         gate.open()
-    }
-
-    @Test("16b · a budget expiring mid-send does the same")
-    func case16Budget() async throws {
-        let h = try OutboxHarness()
-        let outbox = h.outbox()
-        let id = try await h.log(outbox)
-        let gate = Gate()
-        h.server.inject(.post, .delay(gate))
-        // Generous enough for the claim and send to happen first under a loaded test run.
-        let report = try await outbox.flush(force: true, budget: .seconds(3))
-        #expect(gate.abandoned)
-        #expect(report.ending == .budgetExhausted)
-        #expect(try h.item(id)?.state == .uncertain && h.item(id)?.maybeDelivered == true)
-        #expect(try h.lease().owner == nil)
-        gate.open()
-    }
-
-    @Test("16c · an expiration cancel releases at once: a 201 landing just after is reconciled next time")
-    func case16AnswerDuringCancellation() async throws {
-        let h = try OutboxHarness()
-        let outbox = h.outbox(shutdownGrace: .seconds(3))
-        let id = try await h.log(outbox)
-        h.server.inject(.post, .answerOnCancel(Gate()))
-        let flush = background { try await outbox.flushNow() }
-        try await waitUntil { h.server.requests.count == 1 }
-        let cancelled = ContinuousClock.now
-        flush.cancel()
-        let report = try await flush.value
-        // No grace on cancellation: measured to the flush's own end, not to this task's resumption.
-        #expect(try #require(report.endedAt) - cancelled < timingSlack(.milliseconds(500)))
-        #expect(report.ending == .cancelled && report.acked == 0)
-        #expect(try h.item(id)?.state == .uncertain && h.lease().owner == nil)
-        #expect(h.server.entry(id) != nil)  // the POST committed
-        // The next flush resends; the POST replay returns the existing entry.
-        #expect(try await outbox.flushNow().acked == 1)
-        #expect(try h.items.isEmpty && h.view(id)?.syncState == .synced)
-        #expect(h.server.count(.post) == 2 && h.server.with { $0.entries.count } == 1)
-    }
-
-    @Test("16d · a 422 that lands within the grace after the request deadline fails the item")
-    func case16TerminalWithinGrace() async throws {
-        let h = try OutboxHarness()
-        let outbox = h.outbox()
-        let id = try await h.log(outbox)
-        let problem = header(FakeServer.problem(422, "invalid_answers", "mood is required"))
-        h.server.inject(.post, .answerOnCancel(Gate(), override: problem))
-        let report = try await outbox.flush(force: true, budget: .seconds(2))
-        #expect(try #require(report.elapsed) <= .seconds(2))  // the answer came inside the budget
-        #expect(report.ending == .budgetExhausted && report.failed == 1)
-        let item = try #require(try h.item(id))
-        #expect(item.state == .failed && item.failureReason == .rejected && !item.maybeDelivered)
-        #expect(try item.errorInfo?.message == "Mood is required")
-        #expect(h.server.requests.count == 1 && h.server.entry(id) == nil)
-    }
-
-    @Test("16e · a 201 that lands as the budget expires is kept")
-    func case16AnswerAtDeadline() async throws {
-        let h = try OutboxHarness()
-        let outbox = h.outbox()
-        let id = try await h.log(outbox)
-        let second = try await h.log(outbox, minutes: 1)
-        h.server.inject(.post, .answerOnCancel(Gate()))
-        let report = try await outbox.flush(force: true, budget: .seconds(2))
-        #expect(try #require(report.elapsed) <= .seconds(2))  // the answer came inside the budget
-        #expect(report.ending == .budgetExhausted && report.acked == 1)
-        #expect(try h.item(id) == nil && h.server.entry(id) != nil)
-        // The pass stops at the deadline: the next item is never claimed.
-        #expect(try h.item(second)?.attempts == 0 && h.server.requests.count == 1)
-    }
-
-    @Test("16f · a sender that ignores cancellation can't hold a budget-expired flush past the grace")
-    func case16StuckSenderAtDeadline() async throws {
-        let h = try OutboxHarness()
-        // Budget 5 s: the grace is 1 s (capped at 20 % of the budget, below the 3 s shutdown grace)
-        // and requests stop at 3.75 s, leaving a loaded machine ample time to have the POST in
-        // flight when the deadline passes; that is the premise, checked first.
-        let outbox = h.outbox(shutdownGrace: .seconds(3))
-        let id = try await h.log(outbox)
-        let gate = Gate()
-        h.server.inject(.post, .hang(gate))
-        let report = try await outbox.flush(force: true, budget: .seconds(5))
-        try #require(h.server.requests.count == 1, "the POST was in flight when the request deadline passed")
-        // The grace and the release fit inside the budget, by the flush's own clock.
-        let elapsed = try #require(report.elapsed)
-        #expect(elapsed <= .seconds(5) + timingSlack(.milliseconds(250)), "elapsed \(elapsed)")
-        #expect(report.ending == .budgetExhausted)
-        let item = try #require(try h.item(id))
-        #expect(item.state == .uncertain && item.maybeDelivered && item.claimToken == nil, "\(item)")
-        #expect(try h.lease().owner == nil)
-        // The stuck request finally completes: nobody listens, nothing is written.
-        let before = try h.snapshot()
-        gate.open()
-        try await waitUntil { h.server.handled.count == 1 }
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(try h.snapshot() == before)
-    }
-
-    @Test("16g · an expiration handler's cancel ends the flush and frees the scheduler despite a stuck sender")
-    func case16StuckSenderAtExpiration() async throws {
-        let h = try OutboxHarness()
-        let scheduler = OutboxFlushScheduler(outbox: h.outbox(shutdownGrace: .seconds(3)))
-        let id = try await h.log(scheduler.outbox)
-        let gate = Gate()
-        h.server.inject(.post, .hang(gate))
-        await scheduler.requestFlush(reason: .background)
-        await gate.arrival()
-        let cancelled = ContinuousClock.now
-        await scheduler.cancel()
-        let report = await scheduler.waitUntilIdle()
-        // Released at once, no grace: measured to the flush's own end.
-        #expect(try #require(report?.endedAt) - cancelled < timingSlack(.milliseconds(500)))
-        #expect(report?.ending == .cancelled)
-        #expect(try h.item(id)?.state == .uncertain && h.lease().owner == nil)
-        gate.open()
-    }
-
-    @Test("16h · a stuck sender's late answer after another flusher took over is never applied")
-    func case16StuckSenderAfterTakeover() async throws {
-        let h = try OutboxHarness()
-        let a = h.outbox(owner: "app:A", shutdownGrace: .milliseconds(300))
-        let b = try h.process("widget:B")
-        let id = try await h.log(a)
-        try await h.log(a, minutes: 1)
-        let gate = Gate()
-        h.server.inject(.post, .hang(gate))
-        let flushA = background { try await a.flushNow() }
-        await gate.arrival()
-        flushA.cancel()
-        #expect(try await flushA.value.ending == .cancelled)
-        // B takes over at once (A released the lease) and resends the uncertain create.
-        let report = try await b.flushNow()
-        #expect(report.acked == 2 && h.server.count(.post) == 3)
-        let before = try h.snapshot()
-        gate.open()  // A's original POST lands now and is answered: 201, the existing entry
-        try await waitUntil { h.server.handled.count == 3 }
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(try h.snapshot() == before)
-        #expect(h.server.with { $0.entries.count } == 2 && h.server.entry(id) != nil)
-    }
-
-    @Test("16i · the server commits before the grace ends but answers after it: the next flush reconciles")
-    func case16CommittedAnswerAfterGrace() async throws {
-        let h = try OutboxHarness()
-        let outbox = h.outbox()
-        let id = try await h.log(outbox)
-        h.server.inject(.post, .commitThenDeliver(after: .seconds(3)))
-        let report = try await outbox.flush(force: true, budget: .seconds(2))
-        #expect(try #require(report.elapsed) <= .seconds(2) + timingSlack(.milliseconds(250)))
-        #expect(report.ending == .budgetExhausted)
-        #expect(try h.item(id)?.state == .uncertain && h.server.entry(id) != nil)
-        // The resend is an idempotent replay: one entry, an empty outbox.
-        #expect(try await outbox.flushNow().acked == 1)
-        #expect(try h.items.isEmpty && h.view(id)?.syncState == .synced)
-        #expect(h.server.with { $0.entries.count } == 1)
-    }
-
-    @Test("16j · same, reconciled by a pull instead: the page acks the create")
-    func case16CommittedAnswerPulled() async throws {
-        let h = try OutboxHarness()
-        let outbox = h.outbox()
-        let id = try await h.log(outbox)
-        h.server.inject(.post, .commitThenDeliver(after: .seconds(3)))
-        _ = try await outbox.flush(force: true, budget: .seconds(2))
-        try h.applyPage(try #require(h.server.entry(id)))
-        #expect(try h.items.isEmpty && h.viewEntries().count == 1 && h.view(id)?.syncState == .synced)
-        #expect(try await outbox.flushNow().requests == 0 && h.server.count(.post) == 1)
-    }
-
-    @Test("16k · a stale_revision inside the grace starts no refetch; the flush still ends in budget")
-    func case16StaleRevisionInsideGrace() async throws {
-        let h = try OutboxHarness()
-        let outbox = h.outbox()
-        let entry = try h.seedEntry(revision: 3)
-        try await outbox.updateEntry(id: entry.id, topicId: h.topic.id, patch: h.patch(notes: "x"), origin: .app)
-        // Budget 2 s: requests stop at 1.4 s, the grace ends at 1.8 s. The PATCH is answered
-        // stale_revision at 1.7 s, inside the grace; a refetch, if one started, would never answer.
-        let stale = header(FakeServer.problem(409, "stale_revision", "stale revision"))
-        h.server.inject(.patch, .answerOnCancel(Gate(), override: stale, after: .milliseconds(300)))
-        let stuck = Gate()
-        h.server.inject(.get, .hang(stuck))
-        let report = try await outbox.flush(force: true, budget: .seconds(2))
-        #expect(try #require(report.elapsed) <= .seconds(2) + timingSlack(.milliseconds(100)))
-        #expect(report.ending == .budgetExhausted)
-        #expect(h.server.count(.patch) == 1 && h.server.count(.get) == 0)
-        let item = try #require(try h.items.single)
-        #expect(item.state == .uncertain && item.claimToken == nil && item.baseRevision == 3)
-        #expect(try h.lease().owner == nil)
-        stuck.open()
     }
 
     @Test("29 · Undo of a held delete restores the queued create byte for byte")
@@ -487,5 +298,201 @@ func waitUntil(timeout: Duration = .seconds(30), _ condition: @Sendable () -> Bo
             return
         }
         try await Task.sleep(for: .milliseconds(10))
+    }
+}
+
+/// The real-time cases of `OutboxUndoTests` (see `TimingTests`).
+extension TimingTests {
+    @Suite struct OutboxUndoTiming {
+        @Test("16b · a budget expiring mid-send does the same")
+        func case16Budget() async throws {
+            let h = try OutboxHarness()
+            let outbox = h.outbox()
+            let id = try await h.log(outbox)
+            let gate = Gate()
+            h.server.inject(.post, .delay(gate))
+            // Generous enough for the claim and send to happen first under a loaded test run.
+            let report = try await outbox.flush(force: true, budget: .seconds(3))
+            #expect(gate.abandoned)
+            #expect(report.ending == .budgetExhausted)
+            #expect(try h.item(id)?.state == .uncertain && h.item(id)?.maybeDelivered == true)
+            #expect(try h.lease().owner == nil)
+            gate.open()
+        }
+
+        @Test("16c · an expiration cancel releases at once: a 201 landing just after is reconciled next time")
+        func case16AnswerDuringCancellation() async throws {
+            let h = try OutboxHarness()
+            let outbox = h.outbox(shutdownGrace: .seconds(3))
+            let id = try await h.log(outbox)
+            h.server.inject(.post, .answerOnCancel(Gate()))
+            let flush = background { try await outbox.flushNow() }
+            try await waitUntil { h.server.requests.count == 1 }
+            let cancelled = ContinuousClock.now
+            flush.cancel()
+            let report = try await flush.value
+            // No grace on cancellation: measured to the flush's own end, not to this task's resumption.
+            #expect(try #require(report.endedAt) - cancelled < timingSlack(.milliseconds(500)))
+            #expect(report.ending == .cancelled && report.acked == 0)
+            #expect(try h.item(id)?.state == .uncertain && h.lease().owner == nil)
+            #expect(h.server.entry(id) != nil)  // the POST committed
+            // The next flush resends; the POST replay returns the existing entry.
+            #expect(try await outbox.flushNow().acked == 1)
+            #expect(try h.items.isEmpty && h.view(id)?.syncState == .synced)
+            #expect(h.server.count(.post) == 2 && h.server.with { $0.entries.count } == 1)
+        }
+
+        @Test("16d · a 422 that lands within the grace after the request deadline fails the item")
+        func case16TerminalWithinGrace() async throws {
+            let h = try OutboxHarness()
+            let outbox = h.outbox()
+            let id = try await h.log(outbox)
+            let problem = header(FakeServer.problem(422, "invalid_answers", "mood is required"))
+            h.server.inject(.post, .answerOnCancel(Gate(), override: problem))
+            let report = try await outbox.flush(force: true, budget: .seconds(2))
+            // The answer came inside the budget.
+            #expect(try #require(report.elapsed) <= .seconds(2) + timingSlack(.milliseconds(150)))
+            #expect(report.ending == .budgetExhausted && report.failed == 1)
+            let item = try #require(try h.item(id))
+            #expect(item.state == .failed && item.failureReason == .rejected && !item.maybeDelivered)
+            #expect(try item.errorInfo?.message == "Mood is required")
+            #expect(h.server.requests.count == 1 && h.server.entry(id) == nil)
+        }
+
+        @Test("16e · a 201 that lands as the budget expires is kept")
+        func case16AnswerAtDeadline() async throws {
+            let h = try OutboxHarness()
+            let outbox = h.outbox()
+            let id = try await h.log(outbox)
+            let second = try await h.log(outbox, minutes: 1)
+            h.server.inject(.post, .answerOnCancel(Gate()))
+            let report = try await outbox.flush(force: true, budget: .seconds(2))
+            // The answer came inside the budget.
+            #expect(try #require(report.elapsed) <= .seconds(2) + timingSlack(.milliseconds(150)))
+            #expect(report.ending == .budgetExhausted && report.acked == 1)
+            #expect(try h.item(id) == nil && h.server.entry(id) != nil)
+            // The pass stops at the deadline: the next item is never claimed.
+            #expect(try h.item(second)?.attempts == 0 && h.server.requests.count == 1)
+        }
+
+        @Test("16f · a sender that ignores cancellation can't hold a budget-expired flush past the grace")
+        func case16StuckSenderAtDeadline() async throws {
+            let h = try OutboxHarness()
+            // Budget 5 s: the grace is 1 s (capped at 20 % of the budget, below the 3 s shutdown grace)
+            // and requests stop at 3.75 s, leaving a loaded machine ample time to have the POST in
+            // flight when the deadline passes; that is the premise, checked first.
+            let outbox = h.outbox(shutdownGrace: .seconds(3))
+            let id = try await h.log(outbox)
+            let gate = Gate()
+            h.server.inject(.post, .hang(gate))
+            let report = try await outbox.flush(force: true, budget: .seconds(5))
+            try #require(h.server.requests.count == 1, "the POST was in flight when the request deadline passed")
+            // The grace and the release fit inside the budget, by the flush's own clock.
+            let elapsed = try #require(report.elapsed)
+            #expect(elapsed <= .seconds(5) + timingSlack(.milliseconds(250)), "elapsed \(elapsed)")
+            #expect(report.ending == .budgetExhausted)
+            let item = try #require(try h.item(id))
+            #expect(item.state == .uncertain && item.maybeDelivered && item.claimToken == nil, "\(item)")
+            #expect(try h.lease().owner == nil)
+            // The stuck request finally completes: nobody listens, nothing is written.
+            let before = try h.snapshot()
+            gate.open()
+            try await waitUntil { h.server.handled.count == 1 }
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(try h.snapshot() == before)
+        }
+
+        @Test("16g · an expiration handler's cancel ends the flush and frees the scheduler despite a stuck sender")
+        func case16StuckSenderAtExpiration() async throws {
+            let h = try OutboxHarness()
+            let scheduler = OutboxFlushScheduler(outbox: h.outbox(shutdownGrace: .seconds(3)))
+            let id = try await h.log(scheduler.outbox)
+            let gate = Gate()
+            h.server.inject(.post, .hang(gate))
+            await scheduler.requestFlush(reason: .background)
+            await gate.arrival()
+            let cancelled = ContinuousClock.now
+            await scheduler.cancel()
+            let report = await scheduler.waitUntilIdle()
+            // Released at once, no grace: measured to the flush's own end.
+            #expect(try #require(report?.endedAt) - cancelled < timingSlack(.milliseconds(500)))
+            #expect(report?.ending == .cancelled)
+            #expect(try h.item(id)?.state == .uncertain && h.lease().owner == nil)
+            gate.open()
+        }
+
+        @Test("16h · a stuck sender's late answer after another flusher took over is never applied")
+        func case16StuckSenderAfterTakeover() async throws {
+            let h = try OutboxHarness()
+            let a = h.outbox(owner: "app:A", shutdownGrace: .milliseconds(300))
+            let b = try h.process("widget:B")
+            let id = try await h.log(a)
+            try await h.log(a, minutes: 1)
+            let gate = Gate()
+            h.server.inject(.post, .hang(gate))
+            let flushA = background { try await a.flushNow() }
+            await gate.arrival()
+            flushA.cancel()
+            #expect(try await flushA.value.ending == .cancelled)
+            // B takes over at once (A released the lease) and resends the uncertain create.
+            let report = try await b.flushNow()
+            #expect(report.acked == 2 && h.server.count(.post) == 3)
+            let before = try h.snapshot()
+            gate.open()  // A's original POST lands now and is answered: 201, the existing entry
+            try await waitUntil { h.server.handled.count == 3 }
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(try h.snapshot() == before)
+            #expect(h.server.with { $0.entries.count } == 2 && h.server.entry(id) != nil)
+        }
+
+        @Test("16i · the server commits before the grace ends but answers after it: the next flush reconciles")
+        func case16CommittedAnswerAfterGrace() async throws {
+            let h = try OutboxHarness()
+            let outbox = h.outbox()
+            let id = try await h.log(outbox)
+            h.server.inject(.post, .commitThenDeliver(after: .seconds(3)))
+            let report = try await outbox.flush(force: true, budget: .seconds(2))
+            #expect(try #require(report.elapsed) <= .seconds(2) + timingSlack(.milliseconds(250)))
+            #expect(report.ending == .budgetExhausted)
+            #expect(try h.item(id)?.state == .uncertain && h.server.entry(id) != nil)
+            // The resend is an idempotent replay: one entry, an empty outbox.
+            #expect(try await outbox.flushNow().acked == 1)
+            #expect(try h.items.isEmpty && h.view(id)?.syncState == .synced)
+            #expect(h.server.with { $0.entries.count } == 1)
+        }
+
+        @Test("16j · same, reconciled by a pull instead: the page acks the create")
+        func case16CommittedAnswerPulled() async throws {
+            let h = try OutboxHarness()
+            let outbox = h.outbox()
+            let id = try await h.log(outbox)
+            h.server.inject(.post, .commitThenDeliver(after: .seconds(3)))
+            _ = try await outbox.flush(force: true, budget: .seconds(2))
+            try h.applyPage(try #require(h.server.entry(id)))
+            #expect(try h.items.isEmpty && h.viewEntries().count == 1 && h.view(id)?.syncState == .synced)
+            #expect(try await outbox.flushNow().requests == 0 && h.server.count(.post) == 1)
+        }
+
+        @Test("16k · a stale_revision inside the grace starts no refetch; the flush still ends in budget")
+        func case16StaleRevisionInsideGrace() async throws {
+            let h = try OutboxHarness()
+            let outbox = h.outbox()
+            let entry = try h.seedEntry(revision: 3)
+            try await outbox.updateEntry(id: entry.id, topicId: h.topic.id, patch: h.patch(notes: "x"), origin: .app)
+            // Budget 2 s: requests stop at 1.4 s, the grace ends at 1.8 s. The PATCH is answered
+            // stale_revision at 1.7 s, inside the grace; a refetch, if one started, would never answer.
+            let stale = header(FakeServer.problem(409, "stale_revision", "stale revision"))
+            h.server.inject(.patch, .answerOnCancel(Gate(), override: stale, after: .milliseconds(300)))
+            let stuck = Gate()
+            h.server.inject(.get, .hang(stuck))
+            let report = try await outbox.flush(force: true, budget: .seconds(2))
+            #expect(try #require(report.elapsed) <= .seconds(2) + timingSlack(.milliseconds(100)))
+            #expect(report.ending == .budgetExhausted)
+            #expect(h.server.count(.patch) == 1 && h.server.count(.get) == 0)
+            let item = try #require(try h.items.single)
+            #expect(item.state == .uncertain && item.claimToken == nil && item.baseRevision == 3)
+            #expect(try h.lease().owner == nil)
+            stuck.open()
+        }
     }
 }

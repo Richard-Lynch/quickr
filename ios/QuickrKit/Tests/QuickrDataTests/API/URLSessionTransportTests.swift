@@ -4,7 +4,7 @@ import Synchronization
 import Testing
 
 /// `URLSessionTransport` against a real loopback HTTP server.
-@Suite struct URLSessionTransportTests {
+@Suite(.timeLimit(.minutes(2))) struct URLSessionTransportTests {
     static func request(
         _ server: LoopbackServer, _ path: String = "/api/v1/health", method: HTTPMethod = .get,
         headers: HTTPHeaders = [:], body: Data? = nil, timeout: Duration = .seconds(5)
@@ -51,69 +51,12 @@ import Testing
         #expect(server.requests.map(\.target) == ["/api/v1/health"])
     }
 
-    @Test func aSilentServerTimesOutOnTime() async throws {
-        let server = try await LoopbackServer { _ in nil }  // accepts, never answers
-        let started = ContinuousClock.now
-        await #expect(throws: TransportError.timedOut(requestStarted: true)) {
-            try await URLSessionTransport().send(Self.request(server, timeout: .milliseconds(300)))
-        }
-        let elapsed = ContinuousClock.now - started
-        #expect(elapsed >= .milliseconds(290) && elapsed < .seconds(4), "\(elapsed)")
-    }
-
-    /// A response that keeps trickling never trips an inactivity timeout; the deadline is for
-    /// the whole exchange. The upper bound is slack for a loaded machine, and stays far below the
-    /// trickle's own 10 s, so only the total deadline can end it in time.
-    @Test func theDeadlineCoversTheWholeExchange() async throws {
-        let server = try await LoopbackServer { _ in
-            .init(status: 200, body: Data(repeating: 0x61, count: 200), trickle: .milliseconds(50))  // 10 s
-        }
-        let started = ContinuousClock.now
-        await #expect(throws: TransportError.timedOut(requestStarted: true)) {
-            try await URLSessionTransport().send(Self.request(server, timeout: .milliseconds(600)))
-        }
-        let elapsed = ContinuousClock.now - started
-        #expect(elapsed >= .milliseconds(590) && elapsed < .seconds(4), "\(elapsed)")
-    }
-
     @Test func aTrickleWithinTheDeadlineSucceeds() async throws {
         let server = try await LoopbackServer { _ in
             .init(status: 200, body: Data("slow".utf8), trickle: .milliseconds(40))
         }
         let response = try await URLSessionTransport().send(Self.request(server, timeout: .seconds(10)))
         #expect(response.body == Data("slow".utf8))
-    }
-
-    /// Cancelled after the server has the mutation: started, and the connection is torn down.
-    @Test func cancellationAfterTheServerReceivedTheRequest() async throws {
-        let server = try await LoopbackServer { _ in nil }
-        let task = Task {
-            try await URLSessionTransport().send(
-                Self.request(server, "/api/v1/entries/x", method: .delete, timeout: .seconds(10)))
-        }
-        try await Self.waitUntil { server.requests.count == 1 }
-        let cancelled = ContinuousClock.now
-        task.cancel()
-        await #expect(throws: TransportError.cancelled(requestStarted: true)) { try await task.value }
-        #expect(ContinuousClock.now - cancelled < .seconds(3))
-        try await Self.waitUntil { server.clientClosures == 1 }
-        #expect(server.requests.first?.method == "DELETE")
-    }
-
-    @Test func aConnectionResetMidBodyFailsAsStarted() async throws {
-        let server = try await LoopbackServer { _ in
-            .init(status: 200, body: Data(repeating: 0x62, count: 4_000), resetAfter: 10)
-        }
-        let started = ContinuousClock.now
-        do {
-            let response = try await URLSessionTransport().send(
-                Self.request(server, method: .post, timeout: .seconds(10)))
-            Issue.record("a truncated body must not succeed: \(response.status), \(response.body.count) bytes")
-        } catch let error as TransportError {
-            #expect(error.requestStarted, "\(error)")
-            if case .unreachable = error { Issue.record("a reset after the request is not unreachable") }
-        }
-        #expect(ContinuousClock.now - started < .seconds(5))
     }
 
     /// Polls `condition` every 10 ms: a liveness ceiling of 30 s, never the timing under test.
@@ -222,6 +165,71 @@ private final class Counter: Sendable {
         value.withLock { count in
             count += 1
             return count
+        }
+    }
+}
+
+/// The real-time cases of `URLSessionTransportTests` (see `TimingTests`).
+extension TimingTests {
+    @Suite struct URLSessionTransportTiming {
+        @Test func aSilentServerTimesOutOnTime() async throws {
+            let server = try await LoopbackServer { _ in nil }  // accepts, never answers
+            let started = ContinuousClock.now
+            await #expect(throws: TransportError.timedOut(requestStarted: true)) {
+                try await URLSessionTransport().send(
+                    URLSessionTransportTests.request(server, timeout: .milliseconds(300)))
+            }
+            let elapsed = ContinuousClock.now - started
+            #expect(elapsed >= .milliseconds(290) && elapsed < .seconds(4), "\(elapsed)")
+        }
+
+        /// A response that keeps trickling never trips an inactivity timeout; the deadline is for
+        /// the whole exchange. The upper bound is slack for a loaded machine, and stays far below the
+        /// trickle's own 10 s, so only the total deadline can end it in time.
+        @Test func theDeadlineCoversTheWholeExchange() async throws {
+            let server = try await LoopbackServer { _ in
+                .init(status: 200, body: Data(repeating: 0x61, count: 200), trickle: .milliseconds(50))  // 10 s
+            }
+            let started = ContinuousClock.now
+            await #expect(throws: TransportError.timedOut(requestStarted: true)) {
+                try await URLSessionTransport().send(
+                    URLSessionTransportTests.request(server, timeout: .milliseconds(600)))
+            }
+            let elapsed = ContinuousClock.now - started
+            #expect(elapsed >= .milliseconds(590) && elapsed < .seconds(4), "\(elapsed)")
+        }
+
+        /// Cancelled after the server has the mutation: started, and the connection is torn down.
+        @Test func cancellationAfterTheServerReceivedTheRequest() async throws {
+            let server = try await LoopbackServer { _ in nil }
+            let task = Task {
+                try await URLSessionTransport().send(
+                    URLSessionTransportTests.request(
+                        server, "/api/v1/entries/x", method: .delete, timeout: .seconds(10)))
+            }
+            try await URLSessionTransportTests.waitUntil { server.requests.count == 1 }
+            let cancelled = ContinuousClock.now
+            task.cancel()
+            await #expect(throws: TransportError.cancelled(requestStarted: true)) { try await task.value }
+            #expect(ContinuousClock.now - cancelled < .seconds(3))
+            try await URLSessionTransportTests.waitUntil { server.clientClosures == 1 }
+            #expect(server.requests.first?.method == "DELETE")
+        }
+
+        @Test func aConnectionResetMidBodyFailsAsStarted() async throws {
+            let server = try await LoopbackServer { _ in
+                .init(status: 200, body: Data(repeating: 0x62, count: 4_000), resetAfter: 10)
+            }
+            let started = ContinuousClock.now
+            do {
+                let response = try await URLSessionTransport().send(
+                    URLSessionTransportTests.request(server, method: .post, timeout: .seconds(10)))
+                Issue.record("a truncated body must not succeed: \(response.status), \(response.body.count) bytes")
+            } catch let error as TransportError {
+                #expect(error.requestStarted, "\(error)")
+                if case .unreachable = error { Issue.record("a reset after the request is not unreachable") }
+            }
+            #expect(ContinuousClock.now - started < .seconds(5))
         }
     }
 }

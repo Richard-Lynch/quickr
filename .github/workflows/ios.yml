@@ -1,7 +1,8 @@
 name: iOS
 
 # macOS minutes count 10x on this private repo (PLAN §8), so this stays small:
-# - push: `swift test` for ios/QuickrKit on the host.
+# - push, a non-draft PR into feat/ios-app, or manual dispatch: `swift test` for ios/QuickrKit on
+#   the host (the cheap gate).
 # - non-draft PR (opened, ready for review, new commits) or manual dispatch: `make ios-check-ci`
 #   (xcodegen, then build + the Unit plan on an iOS 26.x simulator, no signing).
 # The Makefile is in the path filters because it is the build interface CI calls.
@@ -32,7 +33,10 @@ env:
 jobs:
   package:
     name: swift test
-    if: github.event_name == 'push'
+    if: >-
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && !github.event.pull_request.draft &&
+       github.base_ref == 'feat/ios-app')
     runs-on: macos-26
     timeout-minutes: 15
     steps:
@@ -49,12 +53,18 @@ jobs:
           path: ios/QuickrKit/.build
           key: spm-host-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.hash }}-${{ hashFiles('ios/QuickrKit/Package.swift', 'ios/**/Package.resolved') }}
       - name: Script tests (watchdog, simulator cap)
-        timeout-minutes: 3
+        timeout-minutes: 5
         run: make ios-script-test
-      # The job's 15 min is the outer bound; this one fails a hung `swift test` sooner.
+      # The job's 15 min is the outer bound; these fail a hung `swift test` sooner. The tests run
+      # with a strict (one-thread) cooperative pool, so a test that blocks a pool thread hangs
+      # here, where it is cheap to see, as it would on the 3-core runner (swift-test.sh). The
+      # real-time tests skip there and run next, alone and one at a time (timing-test.sh).
       - name: Swift tests
-        timeout-minutes: 12
+        timeout-minutes: 8
         run: ios/scripts/swift-test.sh
+      - name: Real-time tests (TimingTests, MultiProcessTests)
+        timeout-minutes: 8
+        run: ios/scripts/timing-test.sh
 
   app:
     name: build + Unit plan
@@ -80,11 +90,15 @@ jobs:
       - run: xcodebuild -version && xcodegen --version
         timeout-minutes: 2
       - name: Script tests (watchdog, simulator cap)
-        timeout-minutes: 3
+        timeout-minutes: 5
         run: make ios-script-test
       # Fails unless an iPhone simulator on an iOS 26.x runtime exists (PLAN §6a rule 12).
+      # Healthy: ~2 min to build, ~1 min to boot and install, 1–2 min of tests. xcodebuild prints
+      # all along, so 5 silent minutes is a hang (a cold package fetch still gets 40, common.sh).
       - name: Build + Unit plan (no signing)
-        timeout-minutes: 25
+        timeout-minutes: 15
+        env:
+          IOS_WATCHDOG_SILENCE_MIN: 5
         run: make ios-check-ci IOS_SIM_CI="iPhone 17"
       - name: Upload test results
         if: failure()

@@ -15,7 +15,7 @@ branch.
 - `[ ]` to do
 - `[-]` skipped, with a reason
 
-**Last updated:** 2026-10-17 17:10. M0 PR #8 is open; M1 Wave 1 is running.
+**Last updated:** 2026-10-18 06:00. M1 is complete and its PR into `feat/ios-app` is open; M2 started with WIRE.
 
 **Execution plan:** [DAG.md](DAG.md) (Fable). Waves of ≤4 WPs with at most 2 simulator-heavy at once. Milestones are stacked (squash-merge, then `rebase --onto`).
 
@@ -202,22 +202,22 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 | W1   | B6 APNs backend, dark                                                                                                                                                                                                                   | `ios/m1-b6`    | [x] **Merged** (4b398b9) after 4 Codex rounds (lifespan order, delivery deadline, token log redaction, sandbox config, slot-progress table against starvation, TTL only for abandoned slots). 494 pytest.                             |
 | W1   | TOOLS integration harness and fault proxy                                                                                                                                                                                               | `ios/m1-tools` | [x] **Merged** (6205724) after 4 Codex rounds (HTTP framing, hop-by-hop, control validation, docker-assigned ports, startup cleanup, kernel-lock sim-clone). Smoke 12/12 on the merged branch; 2 wording/error minors as a follow-up. |
 | W2   | [x] **Complete:** DUE, VAL, STORE and **API merged** (API after 2 Codex rounds: per-header identity checks, precondition evidence, trusted bodies, load-tolerant transport tests). Gates: 182 Swift data tests, 627 pytest, 726 vitest. | —              | [x]                                                                                                                                                                                                                                   |
-| W3   | **B7 merged** (bb4729a, 2 Codex rounds: `open` More… action, no-rounding `fmt` with bit-exact vectors, batched scheduler prep). OUTBOX, SYNC, SKEL building; test isolation in progress; **FORM** (M2) started on `ios/m2-form`         | —              | [~] running                                                                                                                                                                                                                           |
-| W4   | MP · INT · SPIKE · FORM (M2)                                                                                                                                                                                                            | —              | [ ]                                                                                                                                                                                                                                   |
+| W3   | **B7 merged** (bb4729a). OUTBOX+SYNC (b69bb6a), testiso (07b489e), SKEL (2891f06) merged after Codex rounds; FORM (M2) done on `ios/m2-form` (1f731f8)                                                                                  | —              | [x]                                                                                                                                                                                                                                   |
+| W4   | MP (85ae3b0), INT (0681189), SPIKE (289fc2f), WATCHDOG, FLAKE (065aa9f), M1-FIXES (01cba48) merged; gate evidence (183ec1a)                                                                                                             | —              | [x]                                                                                                                                                                                                                                   |
 
-- [ ] QuickrCore: models, validation, quick-log, and the due port (all vectors
+- [x] QuickrCore: models, validation, quick-log, and the due port (all vectors
       pass)
-- [ ] QuickrData: the API client (fixtures and request goldens), the two-layer
+- [x] QuickrData: the API client (fixtures and request goldens), the two-layer
       GRDB store, the sync engine, and the outbox (spec matrix)
-- [ ] B5 request goldens validated by pytest
-- [ ] Multi-process subprocess tests: concurrent writers, migrating while others
+- [x] B5 request goldens validated by pytest
+- [x] Multi-process subprocess tests (24 cases): concurrent writers, migrating while others
       are connected, a process killed holding the lock, lock takeover
-- [ ] App skeleton: App Intents resolve from the app and the widget
-- [ ] Simulator spike: notification actions with the app killed. Findings
+- [x] App skeleton: App Intents resolve from the app and the widget
+- [x] Simulator spike: notification actions with the app killed. Findings
       recorded.
-- [ ] `make ios-integration`, all 5 scenarios
+- [x] `make ios-integration`, all 5 scenarios (S1; offline→flush; 17/18; 12/51/59; S9/38), 2/2 at 15/15
 - [ ] `ios.yml` green
-- [ ] Codex and Claude reviews; PR with test reports
+- [~] Codex and Claude reviews done (both MERGE AFTER FIXES → fixed); PR with test reports opening
 
 ## D: Device checkpoint · needs H3–H5
 
@@ -290,6 +290,28 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-19 20:45 (EDT): CI-TIMING merged (9616f61): the real-time and MP tests run under `TimingTests`/`MultiProcessTests`, gated by QUICKR_TIMING_TESTS=1, in a serial `make ios-timing-test` (STRICT off, MP children never inherit STRICT, the agent reads stdin on its own thread); logic tests run under STRICT. Proven: 3/3 with 4 spinners, 2/2 with 20 spinners (load ~50), Unit plan 427 passed on 26.0. Pushing to PR #9.
+
+- 2026-10-19 20:15 (EDT): Repeated API outages from 2026-10-18 ~11:15 to now (ENOTFOUND, quota) stalled every agent; no work lost (CI-TIMING WIP: 16 uncommitted files in ios-m1-citiming; WIRE at 9dc05b8). WIRE Codex r3: all r2 items resolved; one new Major (a replacement scheduler published while paused loses activation's resume). Both agents resumed.
+
+- 2026-10-18 10:50: PR #9 CI run 39114982916: no hang any more (it fails fast, CI-HANG works). Real-time tests fail on the 3-core runner: all MP cases (30 s reply timeouts; STRICT leaks into the child processes), Outbox 16b–16k, sendNow, lease polling, and a transport timing test (also on the simulator, without STRICT). Root cause: parallel Swift Testing suites plus few cores starve real-time deadlines. CI-TIMING (SYNC agent) isolates timing tests into a serialized `make ios-timing-test` step without STRICT; logic tests stay under STRICT; the simulator Unit plan skips the timing tests.
+
+- 2026-10-18 10:30: CI-HANG merged (bf1d773: the blocked writer runs on its own queue; real barrier replaces the 50 ms sleep; .timeLimit on all suites; STRICT pool in swift-test.sh; CI Build + Unit 15 min with a 5-min silence watchdog; the host `swift test` job now runs on PRs). Gate green on the merge. Pushing to PR #9 for one CI run.
+
+- 2026-10-18 10:10: Streaming fix merged into ios/m1-data (d7e7ddb; Codex major fixed: process-group signal forwarding; exit 128+N). CI-HANG root cause: `LeaseTimeSamplingTests` parked cooperative threads on DispatchSemaphore inside sync GRDB writes, so 4 parallel tests starved a 3-thread pool. Production is clean. Fix fba4e2e is being verified. WIRE r2: read-only opens and cleanup ordering resolved; still open: a stale episode resumes background₂'s pause, reentrant bind publishes before the prior retirement, lifecycle tests aren't process-isolated, plus a coordinator pause for the residual. c978616 (-shm guard) is done. Not pushed to PR #9 until CI-HANG is verified, to save CI minutes.
+
+- 2026-10-18 09:50: Network outage ~08:00–09:50 (API ENOTFOUND) failed CI-HANG's and the streaming WP's turns; all agents resumed at 09:50. Streaming committed b8d0b20; WIRE merged m1-data (10c2a28), report pending; CI-HANG has a 47-file WIP (checkpoint requested).
+
+- 2026-10-18 07:15: PR #9 iOS CI failed twice more on the 25-min step limit. **Corrected diagnosis:** not a simulator-boot stall. The log looked silent only because the watchdog/xcbeautify output is flushed at exit. The partial xcresult shows the build finished in ~2 min and QuickRTests/QuickrCoreTests ran, then **QuickrDataTests hung** after a connection-refused URLSession test (05:51:42 onwards). Hypothesis: blocking waits on the cooperative pool deadlock with ~3 CPUs, and Swift Testing ignores xcodebuild's per-test allowance. The CI-HANG package (SYNC agent) reproduces with LIBDISPATCH_COOPERATIVE_POOL_STRICT=1, fixes it, and adds .timeLimit. The 3c269c5 sim_boot change stays (harmless, bounded). Backlog: make CI output stream (watchdog/xcbeautify buffering).
+
+- 2026-10-18 06:20: PR #9 CI: backend/frontend/docker green; iOS `build + Unit plan` failed: Xcode 26.6's region-isolation checker crashed compiling the DEBUG spike code in NotificationService.swift (Xcode 27.1 compiles it). Fix ae90611 passes only Sendable values into the task; CI rerunning. WIRE done (fdcdb1e, 0dc1762, design-note fixes 60bce0b); Codex = REQUEST CHANGES: stale background suspend after activation, expiration suspend before cleanup, bridge publishes the new scheduler before the old retires, widget opens are writable/recovering. Fixing.
+
+- 2026-10-18 06:05: **M1 PR #9 opened** into feat/ios-app (https://github.com/Richard-Lynch/quickr/pull/9). CI running.
+
+- 2026-10-18 06:00: **M1 evidence complete** (183ec1a): check-ios on iOS 26.0 and 27 green (446 unit + UI each, Intents 2/2 on 27); ios-integration 2/2 at 15/15; widget-proof 26.0 and 27; spike-proof 26.0; backend 686. check-ios needed 3 attempts (sim-cap env leak, fixed 39eb3ec; 16d/16f load flake, slack made scalable 8ba77e7). Opening the M1 PR into feat/ios-app.
+
+- 2026-10-18 04:20: Gate evidence on ios/m1-evidence: widget-proof iOS 26.0 and 27, Intents plan 27 (4ad33df); ios-integration 2/2 at 15/15, backend check 686 passed (910dcf2). An earlier run was disturbed by two agents sharing one worktree's compose project (orchestrator error); it was rerun clean. spike-proof is rerunning in ios-m1-spike; check-ios on both runtimes is next. **M2 started:** ios/m2-ui fast-forwarded to the M1 tip; WIRE assigned (ex-INT agent).
 
 - 2026-10-18 03:55: M1-FIXES merged (33c64ca, ad88eb1; Codex: all 4 resolved, no new majors; ios-core-test 375/83/29, ios-integration 2/2 at 15/15). Both milestone reviews' must-fix code items are done. Remaining before the M1 PR: gate evidence (part 1 sim proofs running; part 2 check-ios on 26.0 and 27, ios-integration ×2 on the final tip).
 

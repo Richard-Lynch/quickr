@@ -11,7 +11,7 @@ import Testing
 struct IntegrationTests {}
 
 /// Under `make ios-integration` a missing environment is a failure, not a skip.
-@Suite struct IntegrationHarnessTests {
+@Suite(.timeLimit(.minutes(2))) struct IntegrationHarnessTests {
     @Test func environmentIsSetWhenRequired() {
         #expect(
             !ITConfig.isRequired || ITConfig.current != nil,

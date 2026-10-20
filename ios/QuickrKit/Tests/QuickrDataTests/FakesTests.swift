@@ -3,7 +3,7 @@ import QuickrData
 import QuickrTestSupport
 import Testing
 
-@Suite struct FakesTests {
+@Suite(.timeLimit(.minutes(2))) struct FakesTests {
     @Test func transportPrefersStubsThenQueueAndRecords() async throws {
         let transport = FakeTransport()
         let fixture = try Fixtures.api("health")
