@@ -54,10 +54,12 @@ public final class ForegroundFlushTimer {
     /// Replaces the pending sleep with one for the current next wake (none when nothing waits).
     public func reschedule() {
         pending?.cancel()
+        schedule += 1
+        let mine = schedule
         let (sleeper, nextWake, now, fire) = (sleeper, nextWake, now, fire)
         pending = Task { [weak self] in
             let delay = FlushTimerPolicy.delay(until: await nextWake(), now: now())
-            guard !Task.isCancelled else { return }
+            guard self?.owns(mine) == true else { return }
             self?.scheduledDelay = delay
             guard let delay else { return }
             do {
@@ -65,8 +67,10 @@ public final class ForegroundFlushTimer {
             } catch {
                 return  // replaced or stopped
             }
-            guard !Task.isCancelled else { return }
+            guard self?.owns(mine) == true else { return }
             await fire()
+            // Stopped or replaced while the flush was being requested: that schedule decides.
+            guard self?.owns(mine) == true else { return }
             self?.reschedule()
         }
     }
@@ -75,8 +79,15 @@ public final class ForegroundFlushTimer {
     public func stop() {
         pending?.cancel()
         pending = nil
+        schedule += 1
         scheduledDelay = nil
     }
+
+    /// The schedule a task belongs to is still the current one, and it wasn't cancelled.
+    private func owns(_ schedule: Int) -> Bool { schedule == self.schedule && !Task.isCancelled }
+
+    /// Bumped by every reschedule and stop; a task acts only while its own is current.
+    private var schedule = 0
 }
 
 /// While the store is in identity mismatch ("This address now points to a different quickR

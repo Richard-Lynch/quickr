@@ -54,7 +54,9 @@ struct SyncSheet: View {
             }
             if !model.rows.isEmpty {
                 Section {
-                    ForEach(Array(model.rows.enumerated()), id: \.element.id) { index, row in
+                    // Keyed by store too: a row's state (a pending discard) never carries over to
+                    // another store's item with the same id.
+                    ForEach(Array(model.rows.enumerated()), id: \.element.scopedId) { index, row in
                         SyncItemRowView(row: row, index: index, open: open, perform: perform)
                     }
                 }
@@ -113,7 +115,9 @@ struct SyncSheet: View {
             do {
                 try await action()
             } catch {
-                problem = (error as? OutboxError)?.description ?? String(describing: error)
+                problem =
+                    (error as? OutboxError)?.description ?? (error as? SyncActionError)?.description
+                    ?? String(describing: error)
             }
         }
     }
@@ -179,13 +183,13 @@ private struct SyncItemRowView: View {
                 .accessibilityIdentifier("sync.row.\(index).keep")
             Button("Discard for good") {
                 confirmingDiscard = false
-                perform { try await environment.sync.discard(row.id) }
+                perform { try await environment.sync.discard(row) }
             }
             .buttonStyle(.qr(.danger, size: .small))
             .accessibilityIdentifier("sync.row.\(index).discardConfirm")
         } else {
             if row.canDismiss {
-                Button("Dismiss") { perform { try await environment.sync.dismiss(row.id) } }
+                Button("Dismiss") { perform { try await environment.sync.dismiss(row) } }
                     .buttonStyle(.qr(.secondary, size: .small))
                     .accessibilityIdentifier("sync.row.\(index).dismiss")
             }
@@ -194,9 +198,9 @@ private struct SyncItemRowView: View {
                     .buttonStyle(.qr(.quietDanger, size: .small))
                     .accessibilityIdentifier("sync.row.\(index).discard")
             }
-            if let fix = row.fix {
+            if row.fix != nil {
                 Button {
-                    open(fix)
+                    perform { open(try environment.sync.fixRoute(row)) }
                 } label: {
                     Label("Fix", systemImage: "pencil")
                 }
@@ -205,7 +209,7 @@ private struct SyncItemRowView: View {
             }
             if row.canRetry {
                 Button {
-                    perform { try await environment.sync.retry(row.id) }
+                    perform { try await environment.sync.retry(row) }
                 } label: {
                     Label(row.retryTitle, systemImage: "arrow.triangle.2.circlepath")
                 }

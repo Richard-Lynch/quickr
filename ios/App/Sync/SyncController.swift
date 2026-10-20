@@ -19,6 +19,8 @@ final class SyncController {
     /// The active store's unresolved items, by `seq`.
     private(set) var items: [OutboxItem] = []
     private(set) var topics: [String: SyncTopicInfo] = [:]
+    /// The store `items` come from (`"{server_id}/{store_gen}"`), stamped on every row.
+    private(set) var scope: String?
     /// The sync sheet is up. It lives at the root, not on the pill, which hides when all is
     /// synced while the sheet should stay.
     var isSheetPresented = false
@@ -44,7 +46,7 @@ final class SyncController {
     func sheet(lastSyncAt: Date?) -> SyncSheetModel {
         SyncSheetModel(
             items: items, topics: topics, online: online, lastSyncAt: lastSyncAt,
-            now: leaseClock?.now() ?? LeaseInstant(bootId: "", ct: 0))
+            now: leaseClock?.now() ?? LeaseInstant(bootId: "", ct: 0), scope: scope ?? "")
     }
 
     // MARK: - Triggers
@@ -84,6 +86,12 @@ final class SyncController {
             return
         }
         leaseClock = store.leaseClock
+        if scope != Self.scope(of: store) {
+            // Another store: nothing of the old one may stay on screen to act on.
+            items = []
+            summary = nil
+            scope = Self.scope(of: store)
+        }
         let timer = ForegroundFlushTimer(
             sleeper: sleeper, nextWake: { try? await outbox.summary().nextWake }, now: { store.leaseClock.now() },
             fire: { [weak session] in await session?.scheduler?.requestFlush(reason: .timer) })
@@ -117,27 +125,45 @@ final class SyncController {
         items = []
         summary = nil
         topics = [:]
+        scope = nil
+    }
+
+    static func scope(of store: LocalStore) -> String { "\(store.serverId)/\(store.storeGen)" }
+
+    /// The active store's outbox and scheduler, if `row` came from it; otherwise
+    /// `SyncActionError.storeChanged` (the sheet showed another store's item).
+    private func target(_ row: SyncItemRow) throws -> (Outbox, OutboxFlushScheduler?) {
+        guard let session, let store = session.store, let outbox = session.outbox, row.scope == Self.scope(of: store)
+        else { throw SyncActionError.storeChanged }
+        return (outbox, session.scheduler)
     }
 
     // MARK: - Actions (outbox.md §11)
 
     /// Retry: due now, then a forced flush.
-    func retry(_ itemId: String) async throws {
-        guard let session, let outbox = session.outbox else { return }
-        try await outbox.retry(itemId: itemId)
-        await session.scheduler?.requestFlush(reason: .retry)
+    func retry(_ row: SyncItemRow) async throws {
+        let (outbox, scheduler) = try target(row)
+        try await outbox.retry(itemId: row.id)
+        await scheduler?.requestFlush(reason: .retry)
     }
 
     /// Discard: a create that may have been delivered is cancelled with a DELETE, so flush.
-    func discard(_ itemId: String) async throws {
-        guard let session, let outbox = session.outbox else { return }
-        try await outbox.discard(itemId: itemId, origin: .app)
-        await session.scheduler?.requestFlush(reason: .enqueue)
+    func discard(_ row: SyncItemRow) async throws {
+        let (outbox, scheduler) = try target(row)
+        try await outbox.discard(itemId: row.id, origin: .app)
+        await scheduler?.requestFlush(reason: .enqueue)
     }
 
     /// Dismiss a failed item whose entry was deleted elsewhere.
-    func dismiss(_ itemId: String) async throws {
-        try await session?.outbox?.dismiss(itemId: itemId)
+    func dismiss(_ row: SyncItemRow) async throws {
+        try await target(row).0.dismiss(itemId: row.id)
+    }
+
+    /// Fix: RECORD's fix route for `row`, if it is still the active store's item.
+    func fixRoute(_ row: SyncItemRow) throws -> Route {
+        _ = try target(row)
+        guard let fix = row.fix else { throw SyncActionError.storeChanged }
+        return fix
     }
 
     /// The mismatch banner's "Check again": probe the address now.
@@ -158,5 +184,17 @@ final class SyncController {
         async let pull = coordinator.sync(reason: .pullToRefresh)
         async let flush = scheduler?.flushNow(reason: .retry)
         _ = await (pull, flush)
+    }
+}
+
+/// Why a sync sheet action was refused.
+enum SyncActionError: Error, CustomStringConvertible {
+    /// The row came from another store (the server was switched or the store reset meanwhile).
+    case storeChanged
+
+    var description: String {
+        switch self {
+        case .storeChanged: "The server or its data changed, so this list is out of date. It has been refreshed."
+        }
     }
 }

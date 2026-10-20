@@ -17,6 +17,10 @@ public struct SyncItemRow: Identifiable, Sendable, Hashable {
     }
 
     public var id: String
+    /// The store the item is in: `"{server_id}/{store_gen}"` (the same form as TILES's
+    /// `EntryScope`). An action runs only while it is still the active store, so a server switch
+    /// or a reset in between never sends it to another store's item with the same id.
+    public var scope: String
     /// "Entry · Mood", "Edit · Mood", "Delete · Mood", "Archive · Mood", "Unarchive · Mood".
     public var title: String
     /// When it happened: the entry's capture time for a log, else when it was queued.
@@ -34,6 +38,8 @@ public struct SyncItemRow: Identifiable, Sendable, Hashable {
     public var canDiscard: Bool
     /// A failed item whose entity was deleted elsewhere is dismissed instead.
     public var canDismiss: Bool
+    /// Unique across stores: the list's identity for the row.
+    public var scopedId: String { "\(scope)/\(id)" }
 }
 
 /// A topic's name and id, for the rows' titles.
@@ -53,22 +59,23 @@ public struct SyncSheetModel: Sendable, Hashable {
     public var lastSyncAt: Date?
 
     public init(
-        items: [OutboxItem], topics: [String: SyncTopicInfo], online: Bool, lastSyncAt: Date?, now: LeaseInstant
+        items: [OutboxItem], topics: [String: SyncTopicInfo], online: Bool, lastSyncAt: Date?, now: LeaseInstant,
+        scope: String = ""
     ) {
-        var scope = OutboxScope()
+        var ordering = OutboxScope()
         var rows: [SyncItemRow] = []
         var titles: [String: String] = [:]
         for item in items {
-            defer { scope.add(item) }
+            defer { ordering.add(item) }
             let title = Self.title(item, topics: topics)
             titles[item.id] = title
             var blockedBy: String?
-            if item.state == .pending || item.state == .uncertain, let first = scope.earliest(before: item),
+            if item.state == .pending || item.state == .uncertain, let first = ordering.earliest(before: item),
                 first.state == .failed
             {
                 blockedBy = titles[first.id]
             }
-            rows.append(Self.row(item, title: title, blockedBy: blockedBy, online: online, now: now))
+            rows.append(Self.row(item, title: title, blockedBy: blockedBy, online: online, now: now, scope: scope))
         }
         self.rows = rows
         self.online = online
@@ -99,9 +106,9 @@ public struct SyncSheetModel: Sendable, Hashable {
         }
     }
 
-    static func row(_ item: OutboxItem, title: String, blockedBy: String?, online: Bool, now: LeaseInstant)
-        -> SyncItemRow
-    {
+    static func row(
+        _ item: OutboxItem, title: String, blockedBy: String?, online: Bool, now: LeaseInstant, scope: String
+    ) -> SyncItemRow {
         let failed = item.state == .failed
         let deletedElsewhere = failed && item.failureReason == .deletedElsewhere
         var when = item.createdAt
@@ -113,7 +120,7 @@ public struct SyncSheetModel: Sendable, Hashable {
                 && item.failureReason.map(fixable.contains) == true
             ? UUID(uuidString: item.topicId).map { .record(TopicLinkRef(id: $0), fix: item.id) } : nil
         return SyncItemRow(
-            id: item.id, title: title, when: when, status: status, tone: tone,
+            id: item.id, scope: scope, title: title, when: when, status: status, tone: tone,
             canRetry: !deletedElsewhere && item.state != .held && item.state != .inFlight,
             retryTitle: failed ? "Retry as is" : "Retry now", fix: fix,
             canDiscard: !deletedElsewhere && item.state != .inFlight, canDismiss: deletedElsewhere)

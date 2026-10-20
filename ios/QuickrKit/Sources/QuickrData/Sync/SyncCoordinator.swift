@@ -133,6 +133,13 @@ public actor SyncCoordinator {
         paused = false
     }
 
+    /// Cancels the run in progress, if any (the app's background time ran out): its request is
+    /// cancelled and it releases `sync`, reporting `.paused`. Use with `pause(generation:)` so no
+    /// new run starts.
+    public func cancelRun() {
+        running?.cancel()
+    }
+
     /// Returns when no run is in progress (a run started meanwhile is waited for too).
     public func waitUntilIdle() async {
         while let running { _ = await running.value }
@@ -396,12 +403,17 @@ public actor SyncCoordinator {
             for _ in 0..<2 {
                 guard let store = try await activeStore(resumingReset: true) else { return .noActiveStore }
                 switch try await coordinate(store, prefetched: prefetched) {
-                case .result(let result): return result
+                // A cancelled run (`cancelRun`) reports its interrupted request as `.paused`, not as
+                // a failure that would back the next run off.
+                case .result(let result): return Task.isCancelled ? .paused : result
                 case .reopen: invalidateStore()
                 }
             }
             return .superseded
+        } catch is CancellationError {
+            return .paused
         } catch {
+            if Task.isCancelled { return .paused }
             return .failed(.storage(String(describing: error)))
         }
     }
@@ -428,10 +440,12 @@ public actor SyncCoordinator {
         do {
             outcome = try await loop(store, claim: claim, prefetched: prefetched, effects: &effects)
         } catch {
-            _ = try? await store.leases.release(claim)
+            // Even when the run was cancelled: the release mustn't be (a held lease blocks the
+            // next run until its TTL).
+            _ = try? await Task { try await store.leases.release(claim) }.value
             throw error
         }
-        _ = try? await store.leases.release(claim)
+        _ = try? await Task { try await store.leases.release(claim) }.value  // even when cancelled
         await report(effects, store: store, outcome: outcome)
         return outcome
     }

@@ -273,6 +273,39 @@ private let otherServerURL = URL(string: "https://other.example")!
         await session.shutdown()
     }
 
+    /// The refresh's time runs out mid-pull: the pull is cancelled (the lease freed), GRDB is
+    /// suspended once, the refresh does nothing more, and nothing of that episode resumes later.
+    @Test func expiryDuringABackgroundRefreshStopsThePull() async throws {
+        let w = try World()
+        defer { w.env.cleanup() }
+        let suspended = w.posted(Database.suspendNotification)
+        let gate = Gate()
+        let armed = Mutex(false)
+        let session = try w.session(
+            transport: GatedTransport(w.env.transport, gate) { request in
+                // Only the refresh's pull is held (armed just before it).
+                request.url.path == "/api/v1/changes" && armed.withLock { $0 }
+            })
+        await session.start(serverURL: SyncEnv.baseURL)
+        let store = try #require(session.store)
+        _ = await session.didEnterBackground(session.beginBackground())
+        let before = suspended.count
+
+        armed.withLock { $0 = true }
+        let episode = session.beginBackground()
+        let refresh = Task { await session.backgroundRefresh(episode) }
+        await gate.arrival()  // the refresh's pull is in flight
+        await session.backgroundTimeExpiring(episode, within: .seconds(10))
+        let result = await refresh.value
+        #expect(result == .paused || result == nil)
+        #expect(suspended.count == before + 1)
+        #expect(try await store.writer.read { db in try LeaseTable.record(db, .sync).owner } == nil)
+        // The expired episode stays stopped: its refresh does nothing, and runs are refused.
+        #expect(await session.backgroundRefresh(episode) == nil)
+        #expect(await session.coordinator.sync(reason: .requested) == .paused)
+        await session.shutdown()
+    }
+
     @Test func expiryWaitsForTheCancelledFlushBeforeSuspending() async throws {
         let w = try World()
         defer { w.env.cleanup() }
@@ -488,7 +521,15 @@ private final class GatedTransport: Transport {
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        if matches(request) { await gate.arrive() }
+        if matches(request) {
+            // A cancelled request (an expiry) stops waiting, as URLSession's does.
+            try await withTaskCancellationHandler {
+                await gate.arrive()
+            } onCancel: {
+                gate.open()
+            }
+            try Task.checkCancellation()
+        }
         return try await inner.send(request)
     }
 }

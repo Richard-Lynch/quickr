@@ -134,28 +134,41 @@ final class AppEnvironment {
     }
 
     /// A `BGAppRefreshTask` (or the debug stand-in): pull, then send, as a background episode of
-    /// its own; the expiration handler cancels and suspends (`backgroundTimeExpiring`). The next
-    /// refresh is scheduled first. If the app is in the foreground it has nothing to do.
+    /// its own. The expiration handler is installed first, so it also covers starting the session;
+    /// once it fires nothing more starts, and the episode (if one began) is expired, which cancels
+    /// the pull and the flush and suspends the database. The app becoming active at any point
+    /// wins: no episode is created after it, and a current one stops. The next refresh is
+    /// scheduled first.
     func backgroundRefresh(_ task: any BackgroundRefreshTask) async {
         BackgroundRefresh.schedule()
+        let run = RefreshRun()
+        task.onExpiration {
+            Task { @MainActor [weak self] in
+                if let episode = run.expire(), let session = self?.session {
+                    await session.backgroundTimeExpiring(episode, within: .seconds(2))
+                }
+                task.complete(success: false)
+            }
+        }
         guard lastScenePhase != .active else {
             task.complete(success: true)
             return
         }
         await start()
-        guard let session else {
-            task.complete(success: false)
+        // Startup may have taken a while: expired, or the app was opened meanwhile.
+        guard !run.expired else { return }
+        guard lastScenePhase != .active, let session else {
+            task.complete(success: session != nil)
             return
         }
         let episode = session.beginBackground()
-        task.onExpiration {
-            Task { @MainActor in
-                await session.backgroundTimeExpiring(episode, within: .seconds(2))
-                task.complete(success: false)
-            }
+        guard run.begin(episode) else {
+            // Expired between the checks: its handler had no episode to stop, so stop this one.
+            await session.backgroundTimeExpiring(episode, within: .seconds(2))
+            return
         }
         let result = await session.backgroundRefresh(episode)
-        task.complete(success: result == .synced)
+        task.complete(success: result == .synced && !run.expired)
     }
 
     private func flushInBackground(_ session: AppSession) {
@@ -213,5 +226,25 @@ private final class BackgroundTask {
         guard id != .invalid else { return }
         UIApplication.shared.endBackgroundTask(id)
         id = .invalid
+    }
+}
+
+/// One background refresh's state, shared with its expiration handler (both on the main actor).
+@MainActor
+private final class RefreshRun {
+    private(set) var expired = false
+    private var episode: AppSession.BackgroundEpisode?
+
+    /// Records the episode; false if the run already expired.
+    func begin(_ episode: AppSession.BackgroundEpisode) -> Bool {
+        guard !expired else { return false }
+        self.episode = episode
+        return true
+    }
+
+    /// Marks the run expired and returns its episode, if one began.
+    func expire() -> AppSession.BackgroundEpisode? {
+        expired = true
+        return episode
     }
 }

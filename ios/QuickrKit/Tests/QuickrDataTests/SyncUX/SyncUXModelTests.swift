@@ -245,6 +245,28 @@ import Testing
         #expect(fired.count == 1)
     }
 
+    /// Stopped (backgrounded, rebound) while its flush request is in progress: it doesn't come back.
+    @MainActor @Test func aTimerStoppedDuringItsFireDoesNotRestart() async throws {
+        let sleeper = ManualSleeper()
+        let firing = OpenGate()
+        let fired = FireCounter()
+        let timer = ForegroundFlushTimer(
+            sleeper: sleeper, nextWake: { Self.now.adding(.seconds(3)) }, now: { Self.now },
+            fire: {
+                fired.increment()
+                await firing.wait()
+            })
+        timer.reschedule()
+        try await eventually("sleeping") { sleeper.pending == 1 }
+        sleeper.wake()
+        try await eventually("firing") { fired.count == 1 }
+        timer.stop()
+        firing.open()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(sleeper.requested.count == 1 && sleeper.pending == 0)
+        #expect(timer.scheduledDelay == nil)
+    }
+
     @MainActor @Test func stopCancelsThePendingSleep() async throws {
         let sleeper = ManualSleeper()
         let fired = FireCounter()
@@ -305,5 +327,32 @@ final class FlagBox: @unchecked Sendable {
     var value: Bool {
         get { lock.withLock { stored } }
         set { lock.withLock { stored = newValue } }
+    }
+}
+
+/// A one-shot gate: `wait()` suspends until `open()`.
+final class OpenGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let resume = lock.withLock { () -> Bool in
+                if isOpen { return true }
+                waiters.append(continuation)
+                return false
+            }
+            if resume { continuation.resume() }
+        }
+    }
+
+    func open() {
+        let waiting = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            isOpen = true
+            defer { waiters = [] }
+            return waiters
+        }
+        for waiter in waiting { waiter.resume() }
     }
 }

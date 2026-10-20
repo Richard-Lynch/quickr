@@ -72,15 +72,79 @@ import Testing
         let row = try #require(environment.sync.sheet(lastSyncAt: nil).rows.first)
         #expect(row.status == "Failed — Mood is required" && row.fix != nil)
 
-        try await environment.sync.retry(row.id)
+        try await environment.sync.retry(row)
         try await eventually("retried and sent") { environment.sync.items.isEmpty }
 
         UITestLaunch.server.rejectNextCreate()
         _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .int(4)], version: 1)
         try await eventually("failed again") { environment.sync.summary?.failed == 1 }
-        let failed = try #require(environment.sync.items.first)
-        try await environment.sync.discard(failed.id)
+        let failed = try #require(environment.sync.sheet(lastSyncAt: nil).rows.first)
+        try await environment.sync.discard(failed)
         try await eventually("discarded") { environment.sync.items.isEmpty }
+        await session.shutdown()
+    }
+
+    /// A row from another store (the sheet was showing a store that has since been replaced) is
+    /// refused, and nothing in the active store changes.
+    @Test func actionsFromAnotherStoreAreRefused() async throws {
+        let (environment, session, observing) = try await started()
+        defer { observing.cancel() }
+        UITestLaunch.server.rejectNextCreate()
+        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .int(3)], version: 1)
+        try await eventually("failed") { environment.sync.summary?.failed == 1 }
+        var stale = try #require(environment.sync.sheet(lastSyncAt: nil).rows.first)
+        #expect(stale.scope == "\(UITestLaunch.fakeServerId)/1")
+        stale.scope = "\(UITestLaunch.fakeServerId)/0"  // the store before a reset
+        await #expect(throws: SyncActionError.self) { try await environment.sync.retry(stale) }
+        await #expect(throws: SyncActionError.self) { try await environment.sync.discard(stale) }
+        await #expect(throws: SyncActionError.self) { try await environment.sync.dismiss(stale) }
+        #expect(throws: SyncActionError.self) { try environment.sync.fixRoute(stale) }
+        #expect(environment.sync.summary?.failed == 1 && environment.sync.items.count == 1)
+        await session.shutdown()
+    }
+
+    /// The system's time runs out while the session is still starting: the task completes once,
+    /// unsuccessfully, and no background episode begins.
+    @Test func expiryDuringStartupStopsBeforeAnyEpisode() async throws {
+        UITestLaunch.server.offline = false
+        let environment = UITestLaunch.environment()
+        environment.settings.serverURL = UITestLaunch.fakeServer
+        environment.scenePhaseChanged(.background)
+        // GRDB's resume: a refresh episode posts it when it starts.
+        let resumes = Counter()
+        let observer = NotificationCenter.default.addObserver(
+            forName: Notification.Name("GRDB.Database.Resume"), object: nil, queue: nil
+        ) { _ in resumes.increment() }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let task = RecordingRefreshTask()
+        let refresh = Task { await environment.backgroundRefresh(task) }
+        await Task.yield()
+        task.expire()
+        await refresh.value
+        try await eventually("completed") { task.completions == [false] }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(task.completions == [false])  // once
+        #expect(resumes.count == 0, "an episode began after the expiry")
+        await environment.session?.shutdown()
+    }
+
+    /// The app is opened while a refresh is starting the session: the refresh does nothing, and
+    /// the app stays in the foreground (nothing paused or suspended).
+    @Test func activationDuringStartupWins() async throws {
+        UITestLaunch.server.offline = false
+        let environment = UITestLaunch.environment()
+        environment.settings.serverURL = UITestLaunch.fakeServer
+        environment.scenePhaseChanged(.background)
+        let task = RecordingRefreshTask()
+        let refresh = Task { await environment.backgroundRefresh(task) }
+        await Task.yield()
+        environment.scenePhaseChanged(.active)
+        await refresh.value
+        #expect(task.completions == [true])
+        let session = try #require(environment.session)
+        try await eventually("foreground") { !session.isBackgrounded }
+        try await eventually("bound") { session.scheduler != nil }
+        #expect(await session.scheduler?.isPaused == false)
         await session.shutdown()
     }
 
@@ -92,7 +156,7 @@ import Testing
         environment.scenePhaseChanged(.active)
         let foreground = RecordingRefreshTask()
         await environment.backgroundRefresh(foreground)
-        #expect(foreground.completions == [true] && !foreground.hasExpirationHandler)
+        #expect(foreground.completions == [true] && foreground.hasExpirationHandler)  // installed first
 
         // In the background: pull, send, complete; the expiration handler is in place.
         UITestLaunch.server.offline = true
@@ -111,8 +175,17 @@ import Testing
     }
 }
 
-/// A stand-in `BGAppRefreshTask`.
+final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func increment() { lock.withLock { value += 1 } }
+    var count: Int { lock.withLock { value } }
+}
+
+/// A stand-in `BGAppRefreshTask`; `expire()` runs the expiration handler as the system would.
 final class RecordingRefreshTask: BackgroundRefreshTask {
+    func expire() { state.withLock { $0.handler }?() }
+
     private let state = Mutex<(completions: [Bool], handler: (@Sendable () -> Void)?)>(([], nil))
 
     var completions: [Bool] { state.withLock { $0.completions } }
