@@ -38,7 +38,7 @@ final class StatsUITests: XCTestCase {
         XCTAssertTrue(element(app, "overview.summary").waitForExistence(timeout: 20))
         XCTAssertFalse(element(app, "overview.stale").exists)
         app.buttons["debug.offline"].tap()
-        app.scrollViews["overview.list"].swipeDown()
+        pullToRefresh(app)
         let stale = element(app, "overview.stale")
         XCTAssertTrue(stale.waitForExistence(timeout: 15))
         XCTAssertTrue(stale.label.hasPrefix("Last updated"), stale.label)
@@ -47,7 +47,7 @@ final class StatsUITests: XCTestCase {
 
         // Back online: the next refresh is fresh again.
         app.buttons["debug.online"].tap()
-        app.scrollViews["overview.list"].swipeDown()
+        pullToRefresh(app)
         XCTAssertTrue(stale.waitForNonExistence(timeout: 15))
     }
 
@@ -79,6 +79,15 @@ final class StatsUITests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// A slow drag down from the summary (a quick swipe doesn't trigger the refresh; the pickers
+    /// above and the charts below take drags themselves).
+    @MainActor
+    private func pullToRefresh(_ app: XCUIApplication) {
+        let summary = element(app, "overview.summary")
+        let start = summary.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 400)))
+    }
 
     /// By identifier, whatever its type (a combined element reads as text).
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement {
