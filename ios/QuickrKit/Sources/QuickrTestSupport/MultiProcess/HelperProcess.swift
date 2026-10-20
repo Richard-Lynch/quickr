@@ -33,6 +33,11 @@ public final class HelperProcess: @unchecked Sendable {
         let process = Process()
         process.executableURL = try Self.executable()
         process.arguments = ["agent"] + arguments
+        // The test run's strict (one-thread) cooperative pool is for finding blocked pool threads
+        // in the tests; a child keeps the normal pool, like the app and widget it stands in for.
+        var environment = ProcessInfo.processInfo.environment
+        environment["LIBDISPATCH_COOPERATIVE_POOL_STRICT"] = nil
+        process.environment = environment
         let input = Pipe()
         let output = Pipe()
         let errors = Pipe()
