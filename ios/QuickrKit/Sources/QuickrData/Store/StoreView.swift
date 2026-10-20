@@ -127,6 +127,18 @@ public enum StoreView {
         return viewEntry
     }
 
+    /// The entry as it stood before outbox item `seq`: the server row with only the earlier items
+    /// applied (a refused edit's fix starts from it, so later queued edits don't leak into the form).
+    /// Nil when there's nothing to show.
+    public static func entry(_ db: Database, id: String, before seq: Int64) throws -> Entry? {
+        let book = QuestionBook(db)
+        let server = try Row.fetchOne(db, sql: "SELECT * FROM entry WHERE id = ?", arguments: [id]).map { row in
+            try Entry(serverRow: row, questions: try book.questions(row["topic_id"], row["version"]))
+        }
+        let items = try OutboxStorage.items(db, entityKind: .entry, entityId: id).filter { $0.seq < seq }
+        return try EntryOverlay.resolve(server: server, items: items, questions: book.lookup).entry
+    }
+
     /// The latest counted entry of a topic (repeat-last, quick-log `last_value`).
     public static func latestEntry(_ db: Database, topicId: String) throws -> ViewEntry? {
         try entries(db, topicId: topicId, limit: 1, countedOnly: true).first
