@@ -306,6 +306,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 13:25 (EDT): TOPIC r2 fixes committed (88c84ab: the delete lifecycle under the flush lease; a route-bound settings handoff); Codex r3 running, focused on lease deadlocks. The M2 pre-validation is in check-ios's iOS 27 UI plan; the swipe-guard tests log XCUITest "Invalid frame dimension" warnings on 27, so results are pending.
+
 - 2026-10-20 13:10 (EDT): M2 pre-validation (on a05a3a1, everything except TOPIC) is running in ios-m2-validate: check-ios on 26.0 then 27 (now on the 27 Unit plan), then E2E, integration ×2, `make check` and vectors. TOPIC r2 fixes: one TopicWrites swift-test was orphaned and hung for 26 min at 0% CPU (likely a flush-lease deadlock) and was blocking later runs via the SwiftPM lock. The lead killed it by PID; the agent has been told to fix the deadlock and bound every lease wait in the tests.
 
 - 2026-10-20 12:45 (EDT): **UIT-2 swipe follow-up merged** (e913853; tests only, no app change). The clean-form content-swipe control has been added; the changed-form tests are proven by mutation (guard off fails exactly the 3 changed-form tests); a 2 s Home poll replaces the fixed sleep; the flick is anchored at the Type label's height, 30% across. Lint and build-for-testing pass on the merge. **TOPIC is the last M2 package** (r2 fixes in progress: the lifecycle under the flush lease, a route-bound handoff).
