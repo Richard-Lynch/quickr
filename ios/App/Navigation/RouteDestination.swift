@@ -2,8 +2,8 @@ import QuickrCore
 import QuickrUI
 import SwiftUI
 
-/// The screen for each `Route`. Settings and Record are built; the other topic screens are
-/// placeholders that HOME, EDIT, BUILDER, STATS and the topic settings package replace.
+/// The screen for each `Route`. Settings, Record, New topic and Topic settings are built; the
+/// other topic screens are placeholders that EDIT, BUILDER-UI and STATS replace.
 struct RouteDestination: View {
     let route: Route
 
@@ -12,7 +12,7 @@ struct RouteDestination: View {
         case .settings:
             SettingsView()
         case .newTopic:
-            Pending(title: "New topic", route: route)
+            NewTopicScreen()
         case .topic(let ref, let tab):
             TopicTabsView(ref: ref, tab: tab)
         case .record(let ref, let fix):
@@ -22,7 +22,7 @@ struct RouteDestination: View {
         case .editQuestions(let ref):
             Pending(title: "Edit questions · \(ref)", route: route)
         case .topicSettings(let ref):
-            Pending(title: "Topic settings · \(ref)", route: route)
+            TopicSettingsScreen(ref: ref)
         }
     }
 }
