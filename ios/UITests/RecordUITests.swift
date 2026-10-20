@@ -40,9 +40,10 @@ final class RecordUITests: XCTestCase {
         app.buttons["record.save"].tap()
 
         // Still here, with a fresh form that offers the entry just logged.
-        let count = app.descendants(matching: .any)["record.loggedCount"]
+        let count = app.descendants(matching: .any).matching(identifier: "record.loggedCount").firstMatch
         XCTAssertTrue(count.waitForExistence(timeout: 15))
         XCTAssertEqual(count.label, "1 logged")
+        XCTAssertFalse(app.staticTexts["form.error.duration"].exists, "a fresh form has no errors")
         let same = app.buttons["form.sameAsLast"]
         XCTAssertTrue(same.waitForExistence(timeout: 5))
         same.tap()
@@ -93,11 +94,13 @@ final class RecordUITests: XCTestCase {
         let back = app.buttons["record.back"]
         XCTAssertTrue(back.waitForExistence(timeout: 5))
         back.tap()
-        XCTAssertTrue(app.buttons["Keep editing"].waitForExistence(timeout: 5))
-        app.buttons["Keep editing"].tap()
+        let alert = app.alerts["Discard this entry?"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["Keep editing"].tap()
         XCTAssertTrue(app.buttons["Yoga"].exists)
         back.tap()
-        app.buttons["Discard"].tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["Discard"].tap()
         XCTAssertTrue(app.staticTexts["root.title"].waitForExistence(timeout: 10))
     }
 

@@ -37,6 +37,8 @@ struct RecordView: View {
                 .accessibilityIdentifier("record.logAnother")
             }
         }
+        // A fresh form (Log another) starts with fresh field state: no focus or touch carried over.
+        .id(ObjectIdentifier(model.form))
         .safeAreaInset(edge: .top) {
             if model.isFixing { fixBanner }
         }
@@ -66,7 +68,7 @@ struct RecordView: View {
                 }
             }
         }
-        .confirmationDialog("Discard this entry?", isPresented: $confirmingLeave, titleVisibility: .visible) {
+        .alert("Discard this entry?", isPresented: $confirmingLeave) {
             Button("Discard", role: .destructive) { dismiss() }
             Button("Keep editing", role: .cancel) {}
         } message: {
