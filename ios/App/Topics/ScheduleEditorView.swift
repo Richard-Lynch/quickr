@@ -81,7 +81,7 @@ struct ScheduleEditorRows: View {
                         .accessibilityIdentifier("\(id).removeTime.\(i)")
                     }
                 }
-                FieldError(errors[.time(i)])
+                TopicFieldError(errors[.time(i)])
             }
         }
         if draft.canAddTime(limits: limits) {
@@ -93,7 +93,7 @@ struct ScheduleEditorRows: View {
             .accessibilityLabel("Add a time")
             .accessibilityIdentifier("\(id).addTime")
         }
-        if let error = errors[.times] { FieldError(error) }
+        if let error = errors[.times] { TopicFieldError(error) }
     }
 
     private var days: some View {
@@ -139,7 +139,7 @@ struct ScheduleEditorRows: View {
                         .accessibilityIdentifier("\(id).preset.\(preset.label)")
                 }
             }
-            FieldError(errors[.days])
+            TopicFieldError(errors[.days])
         }
         .padding(.vertical, 4)
     }
@@ -164,7 +164,7 @@ struct ScheduleEditorRows: View {
                 .accessibilityIdentifier("\(id).unit")
             }
             Text(ScheduleDraft.intervalHint).font(.qr(.footnote)).foregroundStyle(.qr.muted)
-            FieldError(errors[.every])
+            TopicFieldError(errors[.every])
         }
     }
 
@@ -178,7 +178,7 @@ struct ScheduleEditorRows: View {
                 LabeledContent("Time zone", value: ScheduleDraft.zoneLabel(draft.timezone))
             }
             .accessibilityIdentifier("\(id).timezone")
-            FieldError(errors[.timezone])
+            TopicFieldError(errors[.timezone])
         }
     }
 
@@ -217,7 +217,7 @@ struct ScheduleEditorRows: View {
 }
 
 /// An error under a field, or nothing.
-struct FieldError: View {
+struct TopicFieldError: View {
     let message: String?
 
     init(_ message: String?) { self.message = message }

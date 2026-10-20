@@ -63,7 +63,7 @@ struct NewTopicView: View {
         List {
             if let banner = model.visibleBanner {
                 Section {
-                    Banner(text: banner).accessibilityIdentifier("newTopic.banner")
+                    TopicBanner(text: banner).accessibilityIdentifier("newTopic.banner")
                     ForEach(model.bannerDetails, id: \.self) { detail in
                         Text("• \(detail)").font(.qr(.footnote)).foregroundStyle(.qr.ink)
                     }
@@ -82,7 +82,7 @@ struct NewTopicView: View {
                 }
                 .disabled(!model.draft.canAddQuestion(limits: model.limits))
                 .accessibilityIdentifier("newTopic.addQuestion")
-                FieldError(model.draftErrors[.questions])
+                TopicFieldError(model.draftErrors[.questions])
             }
             Section {
                 ScheduleEditorRows(
@@ -148,12 +148,13 @@ struct NewTopicView: View {
 
     private var topicSection: some View {
         Section {
-            LabeledField("Name", error: model.draftErrors[.name]) {
+            TopicLabeledField("Name", error: model.draftErrors[.name]) {
                 TextField("e.g. Sleep log", text: Binding(get: { model.draft.name }, set: { model.draft.setName($0) }))
                     .accessibilityLabel("Name")
                     .accessibilityIdentifier("newTopic.name")
             }
-            LabeledField("URL slug", hint: "Lowercase letters, digits and dashes", error: model.draftErrors[.slug]) {
+            TopicLabeledField("URL slug", hint: "Lowercase letters, digits and dashes", error: model.draftErrors[.slug])
+            {
                 TextField("sleep-log", text: Binding(get: { model.draft.slug }, set: { model.draft.setSlug($0) }))
                     .font(.qr(.mono))
                     .textInputAutocapitalization(.never)
@@ -161,7 +162,7 @@ struct NewTopicView: View {
                     .accessibilityLabel("URL slug")
                     .accessibilityIdentifier("newTopic.slug")
             }
-            LabeledField("Description", optional: true, error: model.draftErrors[.description]) {
+            TopicLabeledField("Description", optional: true, error: model.draftErrors[.description]) {
                 TextField("What is this for?", text: $model.draft.description, axis: .vertical)
                     .lineLimit(2...5)
                     .accessibilityLabel("Description")
@@ -214,18 +215,18 @@ struct QuestionCard: View {
                     ForEach(QuestionType.allCases, id: \.self) { Text($0.builderLabel).tag($0) }
                 }
                 .accessibilityIdentifier("newTopic.q\(index).type")
-                LabeledField("Question", error: error(.label)) {
+                TopicLabeledField("Question", error: error(.label)) {
                     TextField("Question", text: Binding(get: { question.label }, set: { model.draft.setLabel(id, $0) }))
                         .accessibilityIdentifier("newTopic.q\(index).label")
                 }
-                LabeledField("Key", error: error(.key)) {
+                TopicLabeledField("Key", error: error(.key)) {
                     TextField("Key", text: Binding(get: { question.key }, set: { _ = model.draft.setKey(id, $0) }))
                         .font(.qr(.mono))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .accessibilityIdentifier("newTopic.q\(index).key")
                 }
-                LabeledField("Help text", optional: true, error: error(.helpText)) {
+                TopicLabeledField("Help text", optional: true, error: error(.helpText)) {
                     TextField("Shown under the question", text: text(\.helpText))
                         .accessibilityIdentifier("newTopic.q\(index).help")
                 }
@@ -249,21 +250,21 @@ struct QuestionCard: View {
         switch question.type {
         case .int, .double:
             HStack(alignment: .top) {
-                LabeledField("Min", error: error(.min)) {
+                TopicLabeledField("Min", error: error(.min)) {
                     TextField("—", text: text(\.min)).keyboardType(.numbersAndPunctuation)
                         .accessibilityIdentifier("newTopic.q\(index).min")
                 }
-                LabeledField("Max", error: error(.max)) {
+                TopicLabeledField("Max", error: error(.max)) {
                     TextField("—", text: text(\.max)).keyboardType(.numbersAndPunctuation)
                         .accessibilityIdentifier("newTopic.q\(index).max")
                 }
             }
             HStack(alignment: .top) {
-                LabeledField("Unit", error: error(.unit)) {
+                TopicLabeledField("Unit", error: error(.unit)) {
                     TextField("kg, h…", text: text(\.unit)).accessibilityIdentifier("newTopic.q\(index).unit")
                 }
                 if question.type == .double {
-                    LabeledField("Decimals", error: error(.decimals)) {
+                    TopicLabeledField("Decimals", error: error(.decimals)) {
                         TextField("—", text: text(\.decimals)).keyboardType(.numberPad)
                             .accessibilityIdentifier("newTopic.q\(index).decimals")
                     }
@@ -271,11 +272,11 @@ struct QuestionCard: View {
             }
         case .str:
             HStack(alignment: .top) {
-                LabeledField("Min length", error: error(.minLength)) {
+                TopicLabeledField("Min length", error: error(.minLength)) {
                     TextField("0", text: text(\.minLength)).keyboardType(.numberPad)
                         .accessibilityIdentifier("newTopic.q\(index).minLength")
                 }
-                LabeledField("Max length", error: error(.maxLength)) {
+                TopicLabeledField("Max length", error: error(.maxLength)) {
                     TextField("—", text: text(\.maxLength)).keyboardType(.numberPad)
                         .accessibilityIdentifier("newTopic.q\(index).maxLength")
                 }
@@ -296,11 +297,11 @@ struct QuestionCard: View {
             .accessibilityIdentifier("newTopic.q\(index).multiple")
             if question.multiple {
                 HStack(alignment: .top) {
-                    LabeledField("Min selections", error: error(.minSelected)) {
+                    TopicLabeledField("Min selections", error: error(.minSelected)) {
                         TextField("—", text: text(\.minSelected)).keyboardType(.numberPad)
                             .accessibilityIdentifier("newTopic.q\(index).minSelected")
                     }
-                    LabeledField("Max selections", error: error(.maxSelected)) {
+                    TopicLabeledField("Max selections", error: error(.maxSelected)) {
                         TextField("—", text: text(\.maxSelected)).keyboardType(.numberPad)
                             .accessibilityIdentifier("newTopic.q\(index).maxSelected")
                     }
@@ -370,8 +371,8 @@ struct OptionsRows: View {
                             .buttonStyle(.borderless)
                             .accessibilityLabel("Remove option \(option.label)")
                         }
-                        FieldError(model.draftErrors[.question(index, .optionLabel(o))])
-                        FieldError(model.draftErrors[.question(index, .optionValue(o))])
+                        TopicFieldError(model.draftErrors[.question(index, .optionLabel(o))])
+                        TopicFieldError(model.draftErrors[.question(index, .optionValue(o))])
                     }
                 }
                 HStack {
@@ -381,7 +382,7 @@ struct OptionsRows: View {
                         .accessibilityIdentifier("newTopic.q\(index).newOption")
                     Button("Add", action: add).buttonStyle(.borderless).disabled(newLabel.isEmpty)
                 }
-                FieldError(model.draftErrors[.question(index, .options)])
+                TopicFieldError(model.draftErrors[.question(index, .options)])
             }
         }
     }

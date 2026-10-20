@@ -56,13 +56,13 @@ struct TopicSettingsView: View {
     private var detailsSection: some View {
         Section {
             if let banner = model.detailsBanner {
-                Banner(text: banner).accessibilityIdentifier("topicSettings.details.banner")
+                TopicBanner(text: banner).accessibilityIdentifier("topicSettings.details.banner")
             }
-            LabeledField("Name", error: model.detailErrors[.name]) {
+            TopicLabeledField("Name", error: model.detailErrors[.name]) {
                 TextField("Name", text: $model.name)
                     .accessibilityIdentifier("topicSettings.name")
             }
-            LabeledField(
+            TopicLabeledField(
                 "URL slug", hint: "Changing it breaks old links to this topic", error: model.detailErrors[.slug]
             ) {
                 TextField("URL slug", text: $model.slug)
@@ -71,12 +71,12 @@ struct TopicSettingsView: View {
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("topicSettings.slug")
             }
-            LabeledField("Description", optional: true, error: model.detailErrors[.description]) {
+            TopicLabeledField("Description", optional: true, error: model.detailErrors[.description]) {
                 TextField("Description", text: $model.description, axis: .vertical)
                     .lineLimit(2...6)
                     .accessibilityIdentifier("topicSettings.description")
             }
-            SaveButton(
+            TopicSaveButton(
                 "Save details", isSaving: model.isSavingDetails, isEnabled: model.detailsDirty,
                 id: "topicSettings.saveDetails"
             ) {
@@ -95,7 +95,7 @@ struct TopicSettingsView: View {
     private var scheduleSection: some View {
         Section {
             if let banner = model.scheduleBanner {
-                Banner(text: banner).accessibilityIdentifier("topicSettings.schedule.banner")
+                TopicBanner(text: banner).accessibilityIdentifier("topicSettings.schedule.banner")
             }
             if model.isArchived {
                 Text("Archived topics are never due.").font(.qr(.subheadline)).foregroundStyle(.qr.muted)
@@ -110,7 +110,7 @@ struct TopicSettingsView: View {
                         .accessibilityIdentifier("topicSettings.resetSchedule")
                 }
                 Spacer()
-                SaveButton(
+                TopicSaveButton(
                     "Save schedule", isSaving: model.isSavingSchedule, isEnabled: model.scheduleDirty,
                     id: "topicSettings.saveSchedule"
                 ) {
@@ -188,7 +188,7 @@ struct DeleteTopicSheet: View {
                         .font(.qr(.body))
                         .foregroundStyle(.qr.inkSoft)
                     if let warning = model.unsyncedWarning {
-                        Banner(text: warning, tone: .warn).accessibilityIdentifier("deleteTopic.unsynced")
+                        TopicBanner(text: warning, tone: .warn).accessibilityIdentifier("deleteTopic.unsynced")
                     }
                 }
                 Section {
@@ -237,7 +237,7 @@ struct DeleteTopicSheet: View {
 // MARK: - Shared pieces
 
 /// A field with its label above, an optional hint and its error below.
-struct LabeledField<Content: View>: View {
+struct TopicLabeledField<Content: View>: View {
     let label: String
     var hint: String?
     var optional = false
@@ -264,14 +264,14 @@ struct LabeledField<Content: View>: View {
             .accessibilityHidden(true)
             content.font(.qr(.body))
             if let hint { Text(hint).font(.qr(.footnote)).foregroundStyle(.qr.muted) }
-            FieldError(error)
+            TopicFieldError(error)
         }
         .padding(.vertical, 2)
     }
 }
 
 /// A section's Save: disabled until there is something to save, a spinner while it saves.
-struct SaveButton: View {
+struct TopicSaveButton: View {
     let title: String
     let isSaving: Bool
     let isEnabled: Bool
@@ -301,7 +301,7 @@ struct SaveButton: View {
 }
 
 /// A message over a section: what went wrong, or a warning.
-struct Banner: View {
+struct TopicBanner: View {
     enum Tone { case danger, warn }
 
     let text: String
