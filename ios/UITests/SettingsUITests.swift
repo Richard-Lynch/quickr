@@ -67,6 +67,51 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(version.exists)
     }
 
+    /// With a secret typed, a swipe down doesn't close the token sheet (it would leave the secret in
+    /// a secure field, which iOS 27 offers to Passwords); Cancel closes it, emptied, with no
+    /// "Save Password?" and no token saved.
+    @MainActor
+    func testTheTokenSheetClosesOnlyThroughItsButtonsWithASecretTyped() {
+        let app = launch()
+        onboard(app)
+        app.buttons["home.settings"].tap()
+        XCTAssertTrue(app.buttons["settings.addToken"].waitForExistence(timeout: 10))
+        app.buttons["settings.addToken"].tap()
+        let clientId = app.textFields["token.clientId"]
+        XCTAssertTrue(clientId.waitForExistence(timeout: 5))
+        clientId.tap()
+        clientId.typeText("abc123.access")
+        let secret = app.secureTextFields["token.clientSecret"]
+        secret.tap()
+        secret.typeText("very-secret")
+
+        let title = app.navigationBars["Service token"]
+        XCTAssertTrue(title.exists)
+        title.press(
+            forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)))
+        XCTAssertTrue(secret.waitForExistence(timeout: 2), "the sheet stays")
+        XCTAssertFalse(offersToSavePassword(app, within: 0))
+
+        app.buttons["token.cancel"].tap()
+        XCTAssertTrue(app.buttons["settings.addToken"].waitForExistence(timeout: 5), "closed, no token saved")
+        XCTAssertFalse(secret.exists)
+        XCTAssertFalse(offersToSavePassword(app, within: 3), "no offer to save the secret")
+    }
+
+    /// Whether iOS 27's "Save Password?" (from the Passwords app) shows within `seconds`, in the
+    /// app or above it (SpringBoard). Polls both.
+    @MainActor
+    private func offersToSavePassword(_ app: XCUIApplication, within seconds: TimeInterval) -> Bool {
+        let title = NSPredicate(format: "label == 'Save Password?'")
+        let places = [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")]
+        let deadline = Date().addingTimeInterval(seconds)
+        repeat {
+            if places.contains(where: { $0.staticTexts.matching(title).firstMatch.exists }) { return true }
+            usleep(200_000)
+        } while Date() < deadline
+        return false
+    }
+
     /// At the largest accessibility text size, onboarding still fits: the address and Connect are
     /// reachable, and it ends at the topic list.
     @MainActor

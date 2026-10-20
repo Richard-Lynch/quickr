@@ -197,12 +197,17 @@ private struct AccessTokenEditor: View {
             .navigationTitle("Service token")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { Task { await close() } } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { Task { await close() } }.accessibilityIdentifier("token.cancel")
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { Task { await save() } }.accessibilityIdentifier("token.save")
                 }
             }
         }
+        // With a secret typed, the sheet closes only through Save or Cancel (`close()` empties the
+        // field first); a swipe down would leave with it full, and iOS 27 would offer it to Passwords.
+        .interactiveDismissDisabled(!clientSecret.isEmpty)
     }
 
     /// Closes the sheet with the secret field emptied first. The secret is a Cloudflare service
