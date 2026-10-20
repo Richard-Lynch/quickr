@@ -235,7 +235,9 @@ import Testing
             return
         }
         #expect(info?.message == "Mood is required" && info?.status == 422)
-        try await scheduler.outbox.discard(itemId: rejected.wireString, origin: .app)
+        // Retried (or fixed) after an attempt: sendNow waits for the new attempt, not "queued".
+        try await scheduler.outbox.retry(itemId: rejected.wireString)
+        #expect(await scheduler.sendNow(itemId: rejected.wireString, wait: .seconds(30)) == .sent)
 
         // The id is reserved on the server: with no later delete here, the create fails
         // `deleted_elsewhere` (§5.2).

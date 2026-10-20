@@ -20,6 +20,9 @@ final class AppEnvironment {
     let router = Router()
     /// Every screen's toasts, hosted once at the root so a toast outlives navigation.
     let toasts = ToastCenter()
+    /// How far above the bottom toasts sit: a screen with a sticky bar (Record's Save) raises them
+    /// above it, like the PWA's.
+    var toastBottomInset: CGFloat = 8
     /// Numbers typed into tiles but not logged yet (kept while the app runs, like the PWA's).
     let quickLogDrafts = QuickLogDrafts()
     /// Entry writes for tiles and Undo, over `session`.
@@ -64,8 +67,12 @@ final class AppEnvironment {
     ) -> AppEnvironment {
         let credentials = KeychainAccessCredentials(keychain: keychain)
         return AppEnvironment(settings: AppSettings(defaults: defaults), credentials: credentials) {
+            // Reminder categories go to the system center from launch, ahead of any push (spike F1);
+            // registering them needs no notification permission.
             let session = try AppSession(
-                configuration: .init(location: location, transport: transport, credentials: credentials))
+                configuration: .init(
+                    location: location, transport: transport, credentials: credentials,
+                    categoryCenter: SystemNotificationCenter()))
             // Addresses resolve to servers through the registry, so each request gets its server's token.
             credentials.directory.attach(session.partitions.registry.repository)
             return session

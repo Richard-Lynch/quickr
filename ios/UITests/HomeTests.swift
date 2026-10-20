@@ -66,8 +66,7 @@ final class HomeTests: XCTestCase {
         let log = app.buttons["Log Medication"]
         XCTAssertTrue(log.waitForExistence(timeout: 5))
         log.tap()
-        XCTAssertTrue(path.waitForExistence(timeout: 5))
-        XCTAssertEqual(path.label, "/t/meds/record")
+        XCTAssertTrue(app.buttons["record.save"].waitForExistence(timeout: 5), "Log opens the record screen")
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 5))
     }

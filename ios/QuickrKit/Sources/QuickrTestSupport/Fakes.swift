@@ -15,8 +15,14 @@ public final class FakeTransport: Transport {
     }
 
     private let state = Mutex(State())
+    /// Runs at the start of every asynchronous query (`notificationCategories`,
+    /// `deliveredNotifications`, `pendingNotificationRequests`), with its name: tests assert
+    /// there that no transaction is open (notifications.md N6).
+    private let onQuery: (@Sendable (String) -> Void)?
 
-    public init() {}
+    public init(onQuery: (@Sendable (String) -> Void)? = nil) {
+        self.onQuery = onQuery
+    }
 
     /// Answers every request for which `matches` is true.
     public func stub(where matches: @escaping @Sendable (HTTPRequest) -> Bool, _ handler: @escaping Handler) {
@@ -97,8 +103,14 @@ public final class FakeNotificationCenter: NotificationCenterProtocol {
     }
 
     private let state = Mutex(State())
+    /// Runs at the start of every asynchronous query (`notificationCategories`,
+    /// `deliveredNotifications`, `pendingNotificationRequests`), with its name: tests assert
+    /// there that no transaction is open (notifications.md N6).
+    private let onQuery: (@Sendable (String) -> Void)?
 
-    public init() {}
+    public init(onQuery: (@Sendable (String) -> Void)? = nil) {
+        self.onQuery = onQuery
+    }
 
     /// Reads or changes the recorded state.
     public func withState<T>(_ body: (inout State) -> T) -> T { state.withLock { body(&$0) } }
@@ -110,15 +122,24 @@ public final class FakeNotificationCenter: NotificationCenterProtocol {
         }
     }
 
-    public func notificationCategories() async -> [NotificationCategorySpec] { state.withLock { $0.categories } }
+    public func notificationCategories() async -> [NotificationCategorySpec] {
+        onQuery?("notificationCategories")
+        return state.withLock { $0.categories }
+    }
 
-    public func deliveredNotifications() async -> [NotificationSnapshot] { state.withLock { $0.delivered } }
+    public func deliveredNotifications() async -> [NotificationSnapshot] {
+        onQuery?("deliveredNotifications")
+        return state.withLock { $0.delivered }
+    }
 
     public func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {
         state.withLock { $0.delivered.removeAll { identifiers.contains($0.id) } }
     }
 
-    public func pendingNotificationRequests() async -> [NotificationSnapshot] { state.withLock { $0.pending } }
+    public func pendingNotificationRequests() async -> [NotificationSnapshot] {
+        onQuery?("pendingNotificationRequests")
+        return state.withLock { $0.pending }
+    }
 
     public func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
         state.withLock { $0.pending.removeAll { identifiers.contains($0.id) } }

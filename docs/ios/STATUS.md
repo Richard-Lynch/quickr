@@ -157,6 +157,9 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- SYNC-UX: add a deterministic test for repeated background/foreground cycles during a held startup (Codex r4 note; the expiry-first ordering is covered by activationWhileAnExpiredStartUnwindsConnects).
+- **D checkpoint (device):** measure how many notification categories iOS keeps; CAT's registry is append-only per §5.1 and Apple documents no limit.
+- `ios/scripts/test.sh` should run gen.sh, or detect a stale xcodeproj, before building (RECORD hit a stale project after deleting files).
 - RECORD/forms: limits (text lengths etc.) come from built-in server defaults until something fetches the server's limits; fetch and cache them per server (found by RECORD).
 - HOME: consider a plain VStack at every size (the PWA renders every row); today LazyVStack is kept at non-AX sizes (TILES's layout-loop fix).
 - Backend + clients: topic name sort is byte-order in practice (postgres:18-alpine/musl ignores en_US.utf8 for lower(name)), so "zed" sorts before "éclair". Switch to an ICU collation (e.g. `und-x-icu`) in Postgres, then regenerate home-vectors and update the iOS comparator and the PWA together (found by HOME).
@@ -295,6 +298,16 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-20 05:20 (EDT): SYNC-UX re-merged RECORD (9f96439; the conflict was in the UITestLaunch fake server, combined on RECORD's transport); core and lint green; final UI and Unit plans running. LIST: Codex r1 fixes committed (1889166: delete uses the rows' binding; a late topic shows up; midnight DST gaps match the PWA, with 6 Santiago vectors); full gates running, then Codex r2. REG: 2 commits in (bc16544: APNs token registration; Settings push setup and "Test this device"). UIT-2: WIP.
+
+- 2026-10-20 05:10 (EDT): **RECORD merged into ios/m2-ui** (ce08276; Codex ×2; UI 27/27, Unit 521; lint, core and the app build pass on the merge). UIT-2 started (FORM agent). SYNC-UX is green at 84b1d0a, with the expiry-first test added; it is re-merging ce08276 (UITestLaunch conflict) before a final UI run and the merge.
+
+- 2026-10-20 05:00 (EDT): **CAT merged into ios/m2-ui** (f4ca317, Codex ×2; exact int bounds past 2^53 with 4 new server vectors; `\A…\z` anchors; minimal UNUserNotificationCenter adapter live). SYNC-UX: the r3 Major is fixed (6c6d9cb/c70d480), Codex r4 = no Blocker/Major, and CAT is merged in (d8fdecc). An expiry-first test is being added, then the full UI plan, then the merge. LIST (8bbc69d, 8 parity deviations recorded in its report): Codex r1 found 2 Majors (a stale row's delete uses the active store's scope; a topic missing at the first lookup never recovers) and 1 Minor (the PWA's midnight-DST-gap rangeStart); fixes in progress. RECORD: the full UI rerun on 069366b is pending. REG (W7) started on ios/m2-reg from f4ca317.
+
+- 2026-10-20 04:45 (EDT): W6: SYNC-UX green at e32d2e5 (unit 545, UI 23, integration 18/18; one EntryScope in QuickrCore). Codex r3 resolved 5 of 6 round-2 items, but found a new Major: background expiry cancels a shared startup that a foreground activation is waiting on, leaving the open app disconnected. Fix in progress. RECORD: Codex r2 approved (069366b); full UI rerun pending, then merge. CAT is fixing the >2^53 bounds and ICU anchors. LIST gates are running. Agents now prefix scratchpad logs with their package name, because a shared UI.log was overwritten.
+
+- 2026-10-20 04:10 (EDT): W6: RECORD re-merged TILES and moved onto EntryWriter/EntryToasts (42f9b56); its integration test caught a TILES sendNow bug where fixed entries reported "queued" (fixed in 16a06f1); UI rerun pending. SYNC-UX r2 fixes in 383af22 (startup expiry cancels the start; flush lease release is uncancellable); merged m2-ui (e32d2e5); gates running. CAT done (c04d411); Codex = REQUEST CHANGES (int bounds above 2^53 compared as Double; ICU `$` anchors); minimal UNUserNotificationCenter adapter being added. LIST WIP 01a57b1, with entries server vectors and PWA range-start vectors.
 
 - 2026-10-20 03:45 (EDT): **TILES merged into ios/m2-ui** (Codex ×3; the final round scoped the QuickLogModels cache and drafts to the store via EntryScope; the XXXL layout loop is fixed with a VStack at AX sizes). Gate on the merge: lint, core green; TILES's own UI 20/20 and integration 18/18. W5 is complete (HOME, TILES, LINKS+SETTINGS, B8, WIRE, FORM). RECORD and SYNC-UX now re-merge m2-ui.
 
