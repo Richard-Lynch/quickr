@@ -6,6 +6,7 @@ import {
   ALL_DAYS,
   DAY_LABELS,
   describeSchedule,
+  nextScheduleTime,
   scheduleFromDraft,
   timeZoneOptions,
   type IntervalUnit,
@@ -129,7 +130,7 @@ export function ScheduleEditor() {
                   <Button
                     className="h-12 border-dashed"
                     icon={<Icon name="plus" className="size-4" />}
-                    onClick={() => times.append({ value: nextTime(draft.times) })}
+                    onClick={() => times.append({ value: nextScheduleTime(draft.times) })}
                   >
                     Time
                   </Button>
@@ -265,14 +266,4 @@ export function ScheduleEditor() {
       ) : null}
     </div>
   );
-}
-
-/** A sensible next slot to add: 12 hours after the last one, else 08:00. */
-function nextTime(times: readonly { value: string }[]): string {
-  const last = times.at(-1)?.value;
-  const m = last ? /^(\d{2}):(\d{2})$/.exec(last) : null;
-  if (!m) return '08:00';
-  const h = (Number(m[1]) + 12) % 24;
-  const candidate = `${String(h).padStart(2, '0')}:${m[2] ?? '00'}`;
-  return times.some((t) => t.value === candidate) ? '12:00' : candidate;
 }

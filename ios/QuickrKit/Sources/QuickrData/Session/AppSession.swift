@@ -370,6 +370,20 @@ public final class AppSession {
         return result
     }
 
+    /// Archives a topic (TOPIC): queued, so it works offline; the view shows it archived at once.
+    /// `baseRevision` is the topic revision the user saw.
+    public func archiveTopic(id: UUID, baseRevision: Int?) async throws {
+        try await requireOutbox().archiveTopic(id: id, baseRevision: baseRevision, origin: .app)
+        await scheduler?.requestFlush(reason: .enqueue)
+    }
+
+    /// Unarchives a topic, or undoes an archive: while the archive is still unsent, K3 drops both
+    /// and nothing reaches the server (outbox.md §9).
+    public func unarchiveTopic(id: UUID, baseRevision: Int?) async throws {
+        try await requireOutbox().unarchiveTopic(id: id, baseRevision: baseRevision, origin: .app)
+        await scheduler?.requestFlush(reason: .enqueue)
+    }
+
     private func requireOutbox() throws -> Outbox {
         guard let outbox else { throw SessionError.noStore }
         return outbox

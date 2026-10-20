@@ -40,6 +40,16 @@ struct TopicTabsView: View {
         .qrPaperBackground()
         .navigationTitle(ref.rawValue)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    environment.router.open(.topicSettings(ref))
+                } label: {
+                    Label("Topic settings", systemImage: "gearshape")
+                }
+                .accessibilityIdentifier("topic.settings")
+            }
+        }
     }
 
     private var tabBinding: Binding<TopicTab> {
