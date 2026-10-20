@@ -48,6 +48,18 @@ public enum TopicWriteMessage {
     public static let notFound = "This topic isn’t on the server any more."
 }
 
+/// Why a queued topic change (archive, unarchive) was refused; its description is the message.
+public enum TopicWriteError: Error, Sendable, Hashable, CustomStringConvertible {
+    /// The screen's store isn't the active one any more (a server switch or a reset).
+    case switched
+
+    public var description: String {
+        switch self {
+        case .switched: TopicWriteMessage.switched
+        }
+    }
+}
+
 /// The topic screens' writes, bound to the store the screen was opened from (the app's
 /// `SessionTopicWriter` over `TopicWrites` and the session). Online-only writes return an
 /// outcome; archive and unarchive are queued, so they work offline.

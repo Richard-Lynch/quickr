@@ -233,10 +233,4 @@ import Testing
         #expect(left.allSatisfy { $0.state == .failed && $0.failureReason == .deletedElsewhere }, "\(left)")
         #expect(syncs.reasons == [.afterOnlineOnly])
     }
-
-    @Test func theDeleteWarningCountsUnsyncedChanges() {
-        #expect(TopicWrites.unsyncedChangesWarning(0) == nil)
-        #expect(TopicWrites.unsyncedChangesWarning(1) == "1 unsynced change for this topic will be lost.")
-        #expect(TopicWrites.unsyncedChangesWarning(3) == "3 unsynced changes for this topic will be lost.")
-    }
 }

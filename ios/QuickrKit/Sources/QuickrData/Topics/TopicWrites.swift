@@ -53,9 +53,7 @@ public struct TopicWrites: Sendable {
         case failed(String)
     }
 
-    public static let offlineMessage = "Needs a connection. Connect to the internet, then try again."
-    public static let notReadyMessage = "This server hasn’t finished syncing yet. Try again in a moment."
-    public static let resyncingMessage = "quickR is resyncing, try again in a moment."
+    /// The screens' other messages are QuickrUI's (`TopicWriteMessage`).
     public static let unconfirmedMessage =
         "The connection dropped before the server answered. Check the topic once it has synced."
 
@@ -179,13 +177,5 @@ public struct TopicWrites: Sendable {
     /// ("_N_ unsynced changes for this topic will be lost", §11).
     public static func unsyncedChanges(topicId: UUID, in store: LocalStore) async throws -> Int {
         try await store.outbox.items(topicId: topicId.wireString).count
-    }
-
-    public static func unsyncedChangesWarning(_ count: Int) -> String? {
-        switch count {
-        case 0: nil
-        case 1: "1 unsynced change for this topic will be lost."
-        default: "\(count) unsynced changes for this topic will be lost."
-        }
     }
 }
