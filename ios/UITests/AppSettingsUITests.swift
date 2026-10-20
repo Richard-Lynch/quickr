@@ -13,8 +13,9 @@ final class AppSettingsUITests: XCTestCase {
         let headline = element(app, "settings.sync.headline")
         XCTAssertTrue(reveal(headline, in: app))
         XCTAssertTrue(wait(for: headline, label: "All changes synced"))
-        XCTAssertEqual(element(app, "settings.sync.connection").label, "Online")
-        XCTAssertNotEqual(element(app, "settings.sync.last").label, "Never", "the launch pulled")
+        XCTAssertTrue(wait(for: element(app, "settings.sync.connection"), label: "Online"))
+        XCTAssertFalse(value(of: element(app, "settings.sync.last")).isEmpty)
+        XCTAssertNotEqual(value(of: element(app, "settings.sync.last")), "Never", "the launch pulled")
         snap(app, "appset-1-synced")
 
         // Offline, an entry waits; the sheet's items are a tap away.
@@ -99,13 +100,21 @@ final class AppSettingsUITests: XCTestCase {
         return element.exists && element.isHittable
     }
 
+    /// A `LabeledContent` row's value ("Never" in "Last synced, Never").
+    private func value(of element: XCUIElement) -> String {
+        guard let comma = element.label.range(of: ", ") else { return element.label }
+        return String(element.label[comma.upperBound...])
+    }
+
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement {
         app.descendants(matching: .any)[id].firstMatch
     }
 
+    /// A `LabeledContent` row reads as one element, "Status, All changes synced": its value is what
+    /// follows the label. A badge reads as just its text.
     private func wait(for element: XCUIElement, label: String, timeout: TimeInterval = 10) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label == %@", label), object: element)
+        let predicate = NSPredicate(format: "label == %@ OR label ENDSWITH %@", label, ", " + label)
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 
