@@ -25,6 +25,7 @@ final class TileUITests: XCTestCase {
         XCTAssertTrue(text(in: headache, containing: "Last Mild").waitForExistence(timeout: 10))
 
         let chip = headache.buttons["chip.moderate"]
+        reveal(chip, in: app)
         chip.tap()
         // Lit for 1.6 s once the outcome is known (then it reads "Same as last time"): too short
         // for an expectation's polling, so look often.
