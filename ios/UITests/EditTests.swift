@@ -107,8 +107,47 @@ final class EditTests: XCTestCase {
         replace(glasses, with: "9")
         app.buttons["form.keyboard.advance"].tap()  // the keyboard down: a plain edge swipe
         swipeBack(app)
+        XCTAssertFalse(app.staticTexts["Entry deleted"].exists, "the drag never deletes the entry")
         XCTAssertTrue(glasses.isHittable, "a changed form stays")
         XCTAssertEqual(number(glasses), "9")
+    }
+
+    /// Delete fires on a tap or a VoiceOver activation only: a drag that ends on its full-width
+    /// row (a scroll released on it, a blocked swipe back across it) leaves the entry alone.
+    @MainActor
+    func testOnlyATapOnDeleteDeletes() {
+        let app = launch()
+        let glasses = openNewest(app)
+        replace(glasses, with: "9")
+        app.buttons["form.keyboard.advance"].tap()  // the keyboard down
+        let delete = app.buttons["edit.delete"]
+        for _ in 0..<6 where !delete.isHittable { app.swipeUp() }
+        XCTAssertTrue(delete.isHittable)
+        // A button to VoiceOver, named for what it does: its activation is the row's action.
+        XCTAssertEqual(delete.label, "Delete entry")
+
+        let row = delete.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        // A scroll that starts on the row: the content follows the finger, so it lifts on the row.
+        for dy in [-150.0, 150.0] {
+            row.press(
+                forDuration: 0.1, thenDragTo: row.withOffset(CGVector(dx: 0, dy: dy)),
+                withVelocity: .slow, thenHoldForDuration: 0.2)
+            usleep(800_000)
+            XCTAssertFalse(app.staticTexts["Entry deleted"].exists, "a scroll released on Delete (\(dy))")
+            XCTAssertTrue(glasses.exists)
+            for _ in 0..<6 where !delete.isHittable { app.swipeUp() }
+        }
+        // A swipe back (blocked: the form has a change) from the edge along the row, ending on it.
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0))
+            .withOffset(CGVector(dx: 0, dy: delete.frame.midY))
+        edge.press(forDuration: 0.05, thenDragTo: row)
+        usleep(800_000)
+        XCTAssertFalse(app.staticTexts["Entry deleted"].exists, "a swipe ending on Delete")
+        XCTAssertEqual(number(glasses), "9")
+
+        // A plain tap still deletes.
+        delete.tap()
+        XCTAssertTrue(app.staticTexts["Entry deleted"].waitForExistence(timeout: 5))
     }
 
     @MainActor

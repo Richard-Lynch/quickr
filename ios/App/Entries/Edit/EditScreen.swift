@@ -208,22 +208,31 @@ struct EditView: View {
     /// PWA has it beside Save). No confirm: the entry goes now and an Undo toast holds the delete
     /// back (the PWA's flow).
     private var deleteSection: some View {
-        Button(role: .destructive) {
-            dismiss()
-            let deleter = EntryDeleter(environment: environment)
-            let row = row
-            Task { await deleter.delete(row) }
-        } label: {
-            Label("Delete Entry", systemImage: "trash")
-                .font(.qr(.callout))
-                .frame(maxWidth: .infinity, minHeight: QuickrMetrics.tapTarget)
-        }
-        .buttonStyle(.qr(.quietDanger, size: .large))
-        .padding(.vertical, 4)
-        .qrCard()
-        .padding(.top, 8)
-        .accessibilityLabel("Delete entry")
-        .accessibilityIdentifier("edit.delete")
+        // A tap, not a Button: a tap never fires once the finger has moved, so a swipe back that
+        // unsaved changes blocked can't end on this full-width row and delete the entry; and it
+        // takes no drag away from the system's swipe back.
+        Label("Delete Entry", systemImage: "trash")
+            .font(.qr(.callout))
+            .foregroundStyle(.qr.danger)
+            .frame(maxWidth: .infinity, minHeight: QuickrMetrics.tapTarget)
+            .padding(.vertical, 4)
+            .qrCard()
+            .contentShape(Rectangle())
+            .onTapGesture(perform: delete)
+            .padding(.top, 8)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Delete entry")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { delete() }
+            .accessibilityIdentifier("edit.delete")
+    }
+
+    private func delete() {
+        guard !model.isSaving, !model.isDeleted else { return }
+        dismiss()
+        let deleter = EntryDeleter(environment: environment)
+        let row = row
+        Task { await deleter.delete(row) }
     }
 
     private func save() {
