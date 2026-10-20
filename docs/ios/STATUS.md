@@ -306,6 +306,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 14:25 (EDT): **NSE merged into ios/m3** (8915831; Unit 851/0 on 4c16dfd). The NSE agent found an ~11% flaky assertion in EDIT's aRefusedEditIsFixedInPlace (a substring check across a random UUID); the fix is ported to m2-ui (923026c). The M3 code so far is HANDLER and NSE (device verification needs the Team ID and APNs key). M2 PR: only the iOS 27 UI fixes remain. BUILDER-UI is in progress.
+
 - 2026-10-20 14:10 (EDT): **New `ios/m3` collection branch** (from m2-ui 2bab7fe) holds the M3 work until the M2 PR lands; **HANDLER merged into it** (5a7aced; Unit 863/0 on 1ac5667; lint and core pass). NSE: after merging m2-ui, EDIT's SessionEntryWriterTests.aRefusedEditIsFixedInPlace fails on the NSE branch (an overlay-fold vs EDIT fix-mode semantics clash from merging the two); being fixed. iOS 27 fixes (ios/m2-ios27): the native back button on a clean form (iOS 27 gives no content swipe to a screen with a hidden back button; the SwipeBack helper is removed); the token sheet clears the secret before closing (to avoid the iOS 27 Passwords prompt); the XXXL test scrolls the row middle into view. Validation runs going. BUILDER-UI started (skeleton agent). Load peaked around 70.
 
 - 2026-10-20 14:00 (EDT): **TOPIC merged into ios/m2-ui** (Codex ×3; on 88c84ab: Unit 831, UI 85/0, router mutants 2/2, lease mutants 6/6; lint, core, vectors with no drift, the app build and frontend vitest pass on the merge). **All 21 M2 packages are in.** Remaining before the M2 PR: the iOS 27 UI fixes (ios/m2-ios27), then a final check-ios (26 and 27) on the tip, then the PR into feat/ios-app.
