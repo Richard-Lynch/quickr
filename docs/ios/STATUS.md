@@ -306,6 +306,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 16:30 (EDT): **BUILDER-UI merged into ios/m2-ui** (Codex ×2; on 8e58e92: UI 95 with 1 failure, the known Record content-swipe flake being fixed on ios/m2-ios27; builder UI 5/5 light and dark; mutants 24/24; 14 deviations in docs/ios/demo/m2/builder-deviations.md). Lint, core, vectors with no drift, the app build and check-frontend pass on the merge. M2 PR: waiting only on the iOS 27 fixes (26 run in progress, then content-swipe ×3 on 27).
+
 - 2026-10-20 15:55 (EDT): BUILDER-UI (875b0aa; full builder, preview, edit questions, Review via a dry-run /check, publish v(n+1), the 409 sheet, the Versions tab from the store; builder UI 5/5 light and dark; mutants 16/16; 12 PWA deviations). Codex r1: 3 Majors, all async races (publish discards later edits; "Keep my draft" during Load latest; a late /check reviews a stale draft) and 1 Minor (pending option text is view-local). Fixing, with suspended-response tests. iOS 27 fixes (3ca356a): the 27/26 validation is still running.
 
 - 2026-10-20 14:55 (EDT): The PWA `tsc -b` failed on m2-ui (TOPIC's schedule.vectors.test.ts imported node:fs by literal); fixed in eb4e212, check-frontend green. iOS 27 fixes: Codex found 1 Major (swipe-dismissing the token sheet bypassed the secret clearing); fixed in b6b81c6 with interactiveDismissDisabled while a secret is typed, plus a UI test whose no-prompt check is proven by mutation. Its 27/26 run seems to have died at the start; being restarted. BUILDER-UI committed (fb12777: builder screens, publish v(n+1), the 409 conflict sheet, the Versions tab); 4 BuilderUITests failures (duplicate add-question ids, a missing Preview button) being fixed.
