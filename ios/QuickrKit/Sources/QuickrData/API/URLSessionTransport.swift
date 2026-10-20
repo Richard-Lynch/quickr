@@ -15,12 +15,21 @@ import Foundation
 /// `maybe_delivered`).
 public final class URLSessionTransport: Transport {
     private let session: URLSession
+    /// Downloads (exports): the same, but no 60 s cap on the whole transfer; the request's own
+    /// deadline bounds it.
+    private let downloads: URLSession
 
     public init(configuration: URLSessionConfiguration = URLSessionTransport.configuration()) {
         session = URLSession(configuration: configuration, delegate: RedirectRefusal(), delegateQueue: nil)
+        let downloading = (configuration.copy() as? URLSessionConfiguration) ?? configuration
+        downloading.timeoutIntervalForResource = 24 * 3600
+        downloads = URLSession(configuration: downloading, delegate: RedirectRefusal(), delegateQueue: nil)
     }
 
-    deinit { session.finishTasksAndInvalidate() }
+    deinit {
+        session.finishTasksAndInvalidate()
+        downloads.finishTasksAndInvalidate()
+    }
 
     /// Ephemeral, no cookies, no cache, no waiting for connectivity, 15 s timeouts.
     public static func configuration() -> URLSessionConfiguration {
@@ -38,6 +47,38 @@ public final class URLSessionTransport: Transport {
     }
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        let session = session
+        return try await exchange(request) { request in
+            let (data, response) = try await session.data(for: request)
+            return try Self.response(data, response)
+        }
+    }
+
+    /// The body arrives in a temporary file, moved to `destination` for a 2xx; any other status's
+    /// (small) body is read back into the response.
+    public func download(_ request: HTTPRequest, to destination: URL) async throws -> HTTPResponse {
+        let downloads = downloads
+        return try await exchange(request) { request in
+            let (file, response) = try await downloads.download(for: request)
+            defer { try? FileManager.default.removeItem(at: file) }
+            var http = try Self.response(Data(), response)
+            if (200..<300).contains(http.status) {
+                do {
+                    try FileManager.default.moveItem(at: file, to: destination)
+                } catch {
+                    throw TransportError.failed("couldn’t keep the download: \(error)", requestStarted: true)
+                }
+            } else {
+                http.body = (try? Data(contentsOf: file)) ?? Data()
+            }
+            return http
+        }
+    }
+
+    /// One exchange under `request.timeout` as a hard deadline, its errors as `TransportError`s.
+    private func exchange(
+        _ request: HTTPRequest, _ perform: @escaping @Sendable (URLRequest) async throws -> HTTPResponse
+    ) async throws -> HTTPResponse {
         if Task.isCancelled { throw TransportError.cancelled(requestStarted: false) }
         var urlRequest = URLRequest(url: request.url)
         urlRequest.httpMethod = request.method.rawValue
@@ -47,14 +88,10 @@ public final class URLSessionTransport: Transport {
         urlRequest.timeoutInterval = request.timeout.timeInterval
         for (name, value) in request.headers.all { urlRequest.setValue(value, forHTTPHeaderField: name) }
 
-        let session = session
         let request = urlRequest
         do {
             return try await withThrowingTaskGroup(of: HTTPResponse.self) { group in
-                group.addTask {
-                    let (data, response) = try await session.data(for: request)
-                    return try Self.response(data, response)
-                }
+                group.addTask { try await perform(request) }
                 group.addTask {
                     try await Task.sleep(for: Duration.seconds(request.timeoutInterval))
                     throw TransportError.timedOut(requestStarted: true)

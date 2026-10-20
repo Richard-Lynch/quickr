@@ -168,10 +168,7 @@ public final class EntriesModel {
     private func isCurrent(_ observation: Int) -> Bool { observation == generation && !Task.isCancelled }
 
     /// `topicRef` names this topic: its id, or its slug.
-    private func matches(_ topic: ViewTopic) -> Bool {
-        if let id = UUID(uuidString: topicRef) { return topic.topic.id == id }
-        return topic.topic.slug == topicRef
-    }
+    private func matches(_ topic: ViewTopic) -> Bool { topic.matches(ref: topicRef) }
 
     private func observeEntries(_ store: LocalStore, _ topicId: UUID, _ observation: Int) async {
         do {
@@ -198,5 +195,13 @@ public final class EntriesModel {
         ).compactMap(row)
         sources = EntryListing.sources(server.map(\.entry))
         columns = EntryListing.columns(current: topic?.topic.questions ?? [], versions: versions)
+    }
+}
+
+extension ViewTopic {
+    /// Whether a link's topic ref (`TopicLinkRef`: an id or a slug) names this topic.
+    public func matches(ref: String) -> Bool {
+        if let id = UUID(uuidString: ref) { return topic.id == id }
+        return topic.slug == ref
     }
 }

@@ -339,9 +339,9 @@ enum FakeServer {
 }
 
 /// `https://quickr.test`: the feed above, entry creates (201, or 422 for a duration over 600 or
-/// when `state` is told to reject the next, so a rejection can be shown) and deletes (204, for
-/// Undo after a send), and TOPIC's topic writes (`topicRoute`). Offline (`state`), every request
-/// there fails before it is sent; held feed
+/// when `state` is told to reject the next, so a rejection can be shown), deletes (204, for
+/// Undo after a send), stats and series (`FakeStats`), and TOPIC's topic writes (`topicRoute`).
+/// Offline (`state`), every request there fails before it is sent; held feed
 /// requests wait. Any other host goes to `fallback`.
 private struct FakeServerTransport: Transport {
     let fallback: any Transport
@@ -369,7 +369,15 @@ private struct FakeServerTransport: Transport {
         if request.method == .delete, path.hasPrefix("/api/v1/entries/") {
             return HTTPResponse(status: 204, headers: headers)
         }
-        if path == "/api/v1/topics" || path.hasPrefix("/api/v1/topics/") {
+        if request.method == .get, path.hasPrefix("/api/v1/topics/"), path.hasSuffix("/entries.csv") {
+            var csv = headers
+            csv["Content-Type"] = "text/csv; charset=utf-8"
+            return HTTPResponse(status: 200, headers: csv, body: Data("id,captured_at\n".utf8))
+        }
+        if request.method == .get, let body = stats(request, path: path) {
+            return HTTPResponse(status: 200, headers: headers, body: body)
+        }
+        if request.method != .get, path == "/api/v1/topics" || path.hasPrefix("/api/v1/topics/") {
             if let response = topicRoute(request, path: path, headers: headers) { return response }
         }
         return HTTPResponse(
@@ -441,6 +449,17 @@ private struct FakeServerTransport: Transport {
         topic["updated_at"] = now
         state.put(topic)
         return json(200, topic)
+    /// `/api/v1/topics/{ref}/stats` and `/api/v1/topics/{ref}/questions/{key}/series` (`FakeStats`).
+    private func stats(_ request: HTTPRequest, path: String) -> Data? {
+        let parts = path.split(separator: "/").map(String.init)  // api v1 topics {ref} ...
+        guard parts.count >= 5, parts[0] == "api", parts[2] == "topics" else { return nil }
+        let items = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let query = Dictionary(items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { $1 })
+        if parts.count == 5, parts[4] == "stats" { return FakeStats.stats(ref: parts[3], query: query) }
+        if parts.count == 7, parts[4] == "questions", parts[6] == "series" {
+            return FakeStats.series(ref: parts[3], key: parts[5], query: query)
+        }
+        return nil
     }
 
     private func create(_ request: HTTPRequest, headers: HTTPHeaders) -> HTTPResponse {

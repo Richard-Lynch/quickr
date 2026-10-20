@@ -1,8 +1,8 @@
 import Foundation
 
 extension Limits {
-    // `Limits.serverDefaults` (the server's defaults, the PWA's `FALLBACK_LIMITS`) lives in
-    // Models/ServerInfo.swift; a broken server pattern falls back to its pattern.
+    // `serverDefaults` (what validation uses until `GET /limits` loads) is in Models/ServerInfo.swift,
+    // kept in step with the getLimits fixture there.
     var keyMatcher: ServerPattern { ServerPattern(keyPattern, fallback: Self.serverDefaults.keyPattern) }
     var slugMatcher: ServerPattern { ServerPattern(slugPattern, fallback: Self.serverDefaults.slugPattern) }
 }
