@@ -8,7 +8,7 @@ import QuickrUI
 /// tied to the store they went to (`EntryScope`: server and store generation), so a toast's Undo
 /// after a server switch or a reset is refused instead of reaching another store's outbox.
 @MainActor
-final class SessionEntryWriter: EntryFixing {
+final class SessionEntryWriter: EntryFixing, EntryEditing {
     /// The session of the moment (nil before it opens). Set by `AppEnvironment`.
     var session: @MainActor () -> AppSession? = { nil }
 
@@ -55,6 +55,17 @@ final class SessionEntryWriter: EntryFixing {
         let scope = binding.scope
         try await delete(entryId: entry.id, topicId: entry.entry.topicId, in: scope)
         return scope
+    }
+
+    // MARK: Edit screen (EntryEditing)
+
+    func update(entryId: UUID, topicId: UUID, patch: EntryPatch, baseRevision: Int?, in scope: EntryScope)
+        async throws
+    {
+        try await requireSession(scope).update(
+            entryId: entryId, topicId: topicId,
+            patch: EntryUpdateDTO(answers: patch.answers, capturedAt: patch.capturedAt, notes: patch.notes),
+            baseRevision: baseRevision)
     }
 
     // MARK: Record screen (EntryFixing)
