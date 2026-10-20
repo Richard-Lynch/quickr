@@ -98,6 +98,13 @@ enum DemoStore {
                     entryId: water2.wireString, topicId: water.id,
                     patch: EntryUpdateDTO(answers: ["glasses": .int(99)])),
                 baseRevision: 1, origin: .app))
+        // A later edit of the same entry, waiting behind the refused one (2 glasses, a note).
+        _ = try await store.outbox.appendRawForTesting(
+            NewOutboxItem(
+                payload: .entryUpdate(
+                    entryId: water2.wireString, topicId: water.id,
+                    patch: EntryUpdateDTO(answers: ["glasses": .int(2)], notes: "later")),
+                origin: .app))
         try await store.writer.write { db in
             try db.execute(
                 sql: """

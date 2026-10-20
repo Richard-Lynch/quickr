@@ -80,3 +80,20 @@ extension OutboxItem {
             message: failure?.message)
     }
 }
+
+/// The fields a fix corrected (`Outbox.fix(overriding:)`): later queued edits drop them.
+public struct EntryOverride: Sendable, Hashable {
+    public var answerKeys: Set<String>
+    public var capturedAt: Bool
+    public var notes: Bool
+    public var source: Bool
+
+    public init(answerKeys: Set<String> = [], capturedAt: Bool = false, notes: Bool = false, source: Bool = false) {
+        self.answerKeys = answerKeys
+        self.capturedAt = capturedAt
+        self.notes = notes
+        self.source = source
+    }
+
+    public var isEmpty: Bool { answerKeys.isEmpty && !capturedAt && !notes && !source }
+}

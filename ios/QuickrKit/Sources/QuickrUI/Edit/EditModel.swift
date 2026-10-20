@@ -48,12 +48,15 @@ public protocol EntryEditing: AnyObject {
     /// `EntryWriteError.scopeChanged` once `scope` isn't the active store.
     func update(entryId: UUID, topicId: UUID, patch: EntryPatch, baseRevision: Int?, in scope: EntryScope)
         async throws
-    /// Replaces a refused edit's changes and queues it again (CAS on `rowVersion`).
+    /// Replaces a refused edit's changes and queues it again (CAS on `rowVersion`). `overriding`
+    /// holds the fields the user corrected: later queued edits of the entry drop them, so the
+    /// correction stays the latest word.
     func fixUpdate(
-        itemId: String, rowVersion: Int, entryId: UUID, topicId: UUID, patch: EntryPatch, in scope: EntryScope
+        itemId: String, rowVersion: Int, entryId: UUID, topicId: UUID, patch: EntryPatch, overriding: EntryPatch,
+        in scope: EntryScope
     ) async throws
-    /// The item's current version (every fix moves it), or nil once it is gone.
-    func rowVersion(itemId: String, in scope: EntryScope) async throws -> Int?
+    /// The refused edit as it is now (another fix moves it), or nil once it is gone or fixed.
+    func refusedEdit(itemId: String, questions: [Question], in scope: EntryScope) async throws -> EditFix?
     /// What to tell the user about a refused write.
     func failure(_ error: any Error) -> EntryWriteFailure
 }
@@ -71,8 +74,10 @@ public final class EditModel: EntryDetailsEditing {
     }
 
     public let topic: Topic
-    /// The entry as the screen opened it (the store's view of it: queued edits applied).
-    public let entry: Entry
+    /// The entry as the form shows it: the store's view of it (queued edits applied); in fix
+    /// mode, the entry as it stood before the refused edit, with that edit on top (later queued
+    /// edits aren't, so they never leak into the correction).
+    public private(set) var entry: Entry
     public private(set) var form: FormModel
     public var capturedAt: Date {
         didSet { capturedAtEdited = true }
@@ -102,12 +107,15 @@ public final class EditModel: EntryDetailsEditing {
     @ObservationIgnored private let baseRevision: Int?
     @ObservationIgnored private let limits: Limits
     @ObservationIgnored private let now: @Sendable () -> Date
-    @ObservationIgnored private let baseline: [String: AnswerInput]
+    @ObservationIgnored private var baseline: [String: AnswerInput]
+    /// Fix mode: the entry before the refused edit.
+    @ObservationIgnored private let fixBase: Entry?
     @ObservationIgnored private var capturedAtEdited = false
     @ObservationIgnored private var saved = false
 
     /// - Parameters:
     ///   - questions: the questions of the entry's own version.
+    ///   - entry: the store's view of the entry; in fix mode, the entry before the refused edit.
     ///   - localOnly: the server doesn't have the entry yet (its create is queued).
     ///   - scope: the store the entry was read from.
     public init(
@@ -117,6 +125,8 @@ public final class EditModel: EntryDetailsEditing {
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.topic = topic
+        fixBase = fix == nil ? nil : entry
+        let entry = fix.map { entry.applying($0.patch) } ?? entry
         self.entry = entry
         self.syncProblem = syncProblem
         self.writer = writer
@@ -202,39 +212,56 @@ public final class EditModel: EntryDetailsEditing {
             source: trimmedSource != entry.source ? trimmedSource : nil)
     }
 
-    /// A fix's patch: every field the refused edit set, with its value now on the form, plus
-    /// anything else changed since.
-    func fixPatch(_ fix: EditFix, answers: [String: AnswerValue?]) -> EntryPatch {
-        var patch = changes(answers)
-        var fixed = patch.answers ?? [:]
-        for key in fix.patch.answers?.keys ?? [:].keys { fixed[key] = .some(answers[key] ?? nil) }
-        patch.answers = fixed.isEmpty ? nil : fixed
-        if fix.patch.capturedAt != nil { patch.capturedAt = capturedAt }
-        if fix.patch.notes != nil { patch.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines) }
-        if fix.patch.source != nil { patch.source = source.trimmingCharacters(in: .whitespacesAndNewlines) }
-        return patch
+    /// A fix's patch: the refused edit's changes with the user's corrections on top.
+    func fixPatch(_ fix: EditFix, edits: EntryPatch) -> EntryPatch {
+        fix.patch.overlaid(by: edits)
     }
 
     private func resubmit(_ fix: EditFix, answers: [String: AnswerValue?]) async -> Outcome {
+        let edits = changes(answers)
         do {
             try await writer.fixUpdate(
                 itemId: fix.itemId, rowVersion: fix.rowVersion, entryId: entry.id, topicId: entry.topicId,
-                patch: fixPatch(fix, answers: answers), in: scope)
+                patch: fixPatch(fix, edits: edits), overriding: edits, in: scope)
         } catch {
-            // Changed elsewhere (a CAS miss): pick up its version so the next save can apply.
-            if let version = try? await writer.rowVersion(itemId: fix.itemId, in: scope) {
-                self.fix?.rowVersion = version
-            }
             errorMessage =
                 switch writer.failure(error) {
                 case .notSaved: "This entry was deleted"
                 case .scopeChanged: "The server changed since this entry was opened. Nothing was saved."
                 case .message(let message): message
                 }
+            // Changed elsewhere meanwhile (a CAS miss): reload it and keep the user's corrections
+            // on top of what it says now, for them to check before saving again.
+            if let reloaded = try? await writer.refusedEdit(itemId: fix.itemId, questions: form.questions, in: scope),
+                reloaded != fix
+            {
+                reconcile(reloaded, keeping: edits)
+                errorMessage =
+                    "This change was edited elsewhere meanwhile. Your corrections are kept: check and save again."
+            }
             return .stay
         }
         _ = toasts.center.show(Toast("Entry updated", message: "Fixed; it will sync"))
         return finish()
+    }
+
+    /// The form over `reloaded`'s changes, with the user's `edits` re-applied on top.
+    private func reconcile(_ reloaded: EditFix, keeping edits: EntryPatch) {
+        let shown = (fixBase ?? entry).applying(reloaded.patch)
+        let fresh = FormModel(questions: form.questions, mode: .edit(answers: shown.answers))
+        let freshBaseline = fresh.inputs
+        for key in edits.answers?.keys.sorted() ?? [] { _ = fresh.change(key, to: form.input(for: key)) }
+        let editedCapturedAt = edits.capturedAt != nil
+        entry = shown
+        fix = reloaded
+        form = fresh
+        baseline = freshBaseline
+        if edits.notes == nil { notes = shown.notes }
+        if edits.source == nil { source = shown.source }
+        if !editedCapturedAt {
+            capturedAt = shown.capturedAt
+            capturedAtEdited = false
+        }
     }
 
     private func finish() -> Outcome {
@@ -274,3 +301,29 @@ public protocol EntryDetailsEditing: AnyObject, Observable {
 }
 
 extension RecordModel: EntryDetailsEditing {}
+
+extension EntryPatch {
+    /// This patch with `other`'s fields on top (answers merged by key).
+    func overlaid(by other: EntryPatch) -> EntryPatch {
+        var answers = self.answers ?? [:]
+        for (key, value) in other.answers ?? [:] { answers[key] = .some(value) }
+        return EntryPatch(
+            answers: answers.isEmpty ? nil : answers, capturedAt: other.capturedAt ?? capturedAt,
+            notes: other.notes ?? notes, source: other.source ?? source)
+    }
+}
+
+extension Entry {
+    /// The entry with `patch` applied, as the store's overlay applies an edit: answers merged by
+    /// key (nil removes one), the rest replaced when set.
+    func applying(_ patch: EntryPatch) -> Entry {
+        var entry = self
+        for (key, value) in patch.answers ?? [:] {
+            if let value { entry.answers[key] = value } else { entry.answers.removeValue(forKey: key) }
+        }
+        if let capturedAt = patch.capturedAt { entry.capturedAt = capturedAt }
+        if let notes = patch.notes { entry.notes = notes }
+        if let source = patch.source { entry.source = source }
+        return entry
+    }
+}

@@ -164,19 +164,37 @@ import Testing
         }
         let failed = try #require(try await store.outbox.item(id: queued.id))
 
+        // A later edit queued behind the refused one: it set cups and notes.
+        try await writer.update(
+            entryId: entry.id, topicId: topicId, patch: EntryPatch(answers: ["cups": .some(.int(7))], notes: "later"),
+            baseRevision: 2, in: scope)
+        #expect(try await store.outbox.items().count == 2)
+
         await #expect(throws: (any Error).self) {
             try await writer.fixUpdate(
                 itemId: failed.id, rowVersion: failed.rowVersion - 1, entryId: entry.id, topicId: topicId,
-                patch: EntryPatch(answers: ["cups": .some(.int(3))]), in: scope)
+                patch: EntryPatch(answers: ["cups": .some(.int(3))]), overriding: EntryPatch(), in: scope)
         }
+        // The refused edit as the edit screen reloads it.
+        let reloaded = try #require(
+            try await writer.refusedEdit(
+                itemId: failed.id, questions: [Question(key: "cups", label: "Cups", kind: .int(.init(min: 0)))],
+                in: scope))
+        #expect(reloaded.rowVersion == failed.rowVersion)
+        #expect(reloaded.patch.answers == ["cups": .some(.int(99))])
+        // Correcting cups: the later edit loses cups (the correction is the latest word), keeps notes.
         try await writer.fixUpdate(
             itemId: failed.id, rowVersion: failed.rowVersion, entryId: entry.id, topicId: topicId,
-            patch: EntryPatch(answers: ["cups": .some(.int(3))]), in: scope)
+            patch: EntryPatch(answers: ["cups": .some(.int(3))]),
+            overriding: EntryPatch(answers: ["cups": .some(.int(3))]), in: scope)
+        let shown = try #require(try await store.entries.entry(id: entry.id))
+        #expect(shown.entry.answers["cups"] == .int(3))
+        #expect(shown.entry.notes == "later")
         let fixed = try #require(try await store.outbox.item(id: failed.id))
         #expect(fixed.state == .pending)
         #expect(fixed.rowVersion == failed.rowVersion + 1)
         #expect(fixed.payloadJSON.contains("3") && !fixed.payloadJSON.contains("99"))
-        #expect(try await store.outbox.items().count == 1, "replaced, not queued again")
+        #expect(try await store.outbox.items().count == 2, "replaced, not queued again; the later edit stays")
     }
 
     /// In the same store, Undo removes the never-sent create.

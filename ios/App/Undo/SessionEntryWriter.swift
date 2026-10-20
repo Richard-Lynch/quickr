@@ -70,7 +70,8 @@ final class SessionEntryWriter: EntryFixing, EntryEditing {
     }
 
     func fixUpdate(
-        itemId: String, rowVersion: Int, entryId: UUID, topicId: UUID, patch: EntryPatch, in scope: EntryScope
+        itemId: String, rowVersion: Int, entryId: UUID, topicId: UUID, patch: EntryPatch, overriding: EntryPatch,
+        in scope: EntryScope
     ) async throws {
         let session = try requireSession(scope)
         guard let outbox = session.outbox else { throw AppSession.SessionError.noStore }
@@ -79,8 +80,18 @@ final class SessionEntryWriter: EntryFixing, EntryEditing {
         try await outbox.fix(
             itemId: itemId,
             payload: .entryUpdate(entryId: entryId.wireString, topicId: topicId.wireString, patch: body),
-            rowVersion: rowVersion)
+            rowVersion: rowVersion,
+            overriding: EntryOverride(
+                answerKeys: Set(overriding.answers?.keys ?? [:].keys), capturedAt: overriding.capturedAt != nil,
+                notes: overriding.notes != nil, source: overriding.source != nil))
         await session.scheduler?.requestFlush(reason: .enqueue)
+    }
+
+    func refusedEdit(itemId: String, questions: [Question], in scope: EntryScope) async throws -> EditFix? {
+        let session = try requireSession(scope)
+        guard let draft = try await session.store?.outbox.item(id: itemId)?.entryUpdateFixDraft(questions: questions)
+        else { return nil }
+        return EditFix(draft)
     }
 
     // MARK: Record screen (EntryFixing)
@@ -148,5 +159,16 @@ final class SessionEntryWriter: EntryFixing, EntryEditing {
         let session = try requireSession()
         guard self.scope == scope else { throw EntryWriteError.scopeChanged }
         return session
+    }
+}
+
+extension EditFix {
+    /// A refused edit's draft (QuickrData) as the edit screen's fix.
+    init(_ draft: EntryUpdateFixDraft) {
+        self.init(
+            itemId: draft.itemId, rowVersion: draft.rowVersion,
+            patch: EntryPatch(
+                answers: draft.answers, capturedAt: draft.capturedAt, notes: draft.notes, source: draft.source),
+            problem: draft.problem, message: draft.message)
     }
 }

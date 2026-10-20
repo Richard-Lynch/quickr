@@ -95,26 +95,26 @@ struct EditScreen: View {
                 load = .failed("Its topic version could not be found.")
                 return
             }
-            // A refused edit: fixed here, with its errors on the fields (outbox.md §11).
+            // A refused edit: fixed here, with its errors on the fields (outbox.md §11). The form
+            // starts from the entry as it stood before it, plus it: later queued edits stay out.
             var fix: EditFix?
             var problem: String?
+            var shown = viewEntry.entry
             if case .failed = viewEntry.syncState {
                 let refused = try await store.outbox.items(topicId: topic.topic.id.wireString)
                     .filter { $0.entityId == entryId.wireString && $0.kind == .entryUpdate && $0.state == .failed }
                     .last
-                if let draft = refused?.entryUpdateFixDraft(questions: questions) {
-                    fix = EditFix(
-                        itemId: draft.itemId, rowVersion: draft.rowVersion,
-                        patch: EntryPatch(
-                            answers: draft.answers, capturedAt: draft.capturedAt, notes: draft.notes,
-                            source: draft.source),
-                        problem: draft.problem, message: draft.message)
+                if let refused, let draft = refused.entryUpdateFixDraft(questions: questions),
+                    let before = try await store.entries.entry(id: entryId, before: refused.seq)
+                {
+                    fix = EditFix(draft)
+                    shown = before
                 } else {
                     problem = viewEntry.lastError?.message ?? "The last change didn’t sync."
                 }
             }
             let model = EditModel(
-                topic: topic.topic, entry: viewEntry.entry, questions: questions,
+                topic: topic.topic, entry: shown, questions: questions,
                 localOnly: viewEntry.isLocalOnly, syncProblem: problem, fix: fix, writer: environment.entryWriter,
                 toasts: environment.entryToasts, scope: binding.scope)
             load = .ready(model, EntriesModel.Row(entry: viewEntry, binding: binding))

@@ -92,6 +92,32 @@ final class EditTests: XCTestCase {
         XCTAssertEqual(number(glasses), "9")
     }
 
+    /// A swipe from the left edge goes back while nothing has changed, and does nothing once the
+    /// form has a change (the back button asks first instead), as on the record screen.
+    @MainActor
+    func testSwipingBackWorksOnlyWithoutChanges() {
+        var app = launch()
+        _ = openNewest(app)
+        swipeBack(app)
+        XCTAssertTrue(app.staticTexts["entries.count"].waitForExistence(timeout: 5), "a clean form swipes back")
+
+        app.terminate()
+        app = launch()
+        let glasses = openNewest(app)
+        replace(glasses, with: "9")
+        app.buttons["form.keyboard.advance"].tap()  // the keyboard down: a plain edge swipe
+        swipeBack(app)
+        XCTAssertTrue(glasses.isHittable, "a changed form stays")
+        XCTAssertEqual(number(glasses), "9")
+    }
+
+    @MainActor
+    private func swipeBack(_ app: XCUIApplication) {
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
+        usleep(800_000)
+    }
+
     /// A log only this device has, still waiting: it edits like any other (the outbox merges the
     /// change into the queued create).
     @MainActor
@@ -112,11 +138,23 @@ final class EditTests: XCTestCase {
         let app = launch(open: "quickr://t/water/entries/00000000-0000-4000-9002-000000000001")
         XCTAssertTrue(app.descendants(matching: .any)["edit.fixBanner"].waitForExistence(timeout: 20))
         let glasses = app.textFields["form.field.glasses"]
-        XCTAssertEqual(number(glasses), "99", "the refused value")
+        XCTAssertEqual(number(glasses), "99", "the refused value, not the later queued edit's 2")
         XCTAssertTrue(app.staticTexts["form.error.glasses"].label.hasPrefix("Must be at most 20"))
         replace(glasses, with: "4")
         app.buttons["edit.save"].tap()
         XCTAssertTrue(app.staticTexts["Entry updated"].waitForExistence(timeout: 5))
+
+        // Back to the entry from its list: the correction is the latest word, over the later
+        // queued edit's 2 (it lost glasses and kept its note).
+        let water = app.descendants(matching: .any)["tile.water"]
+        XCTAssertTrue(water.waitForExistence(timeout: 10))
+        water.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.15)).tap()
+        app.segmentedControls["topic.tabs"].buttons["Entries"].tap()
+        let row = app.descendants(matching: .any)["entry.00000000-0000-4000-9002-000000000001"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.tap()
+        XCTAssertTrue(glasses.waitForExistence(timeout: 10))
+        XCTAssertEqual(number(glasses), "4")
     }
 
     /// A log the server refused is fixed on the record screen.
