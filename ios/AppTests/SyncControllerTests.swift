@@ -186,6 +186,35 @@ import Testing
         await session.shutdown()
     }
 
+    /// Opened while startup's connect is held, then the refresh's time runs out: the foreground
+    /// owns the start by then, so the expiry leaves it running (the request isn't cancelled) and
+    /// the open app ends up connected, with no second activation.
+    @Test func expiryAfterActivationDuringStartupKeepsTheConnect() async throws {
+        UITestLaunch.server.offline = false
+        UITestLaunch.server.holdFeed()
+        defer { UITestLaunch.server.releaseFeed() }
+        let environment = UITestLaunch.environment()
+        environment.settings.serverURL = UITestLaunch.fakeServer
+        environment.scenePhaseChanged(.background)
+        let task = RecordingRefreshTask()
+        let refresh = Task { await environment.backgroundRefresh(task) }
+        try await eventually("startup is fetching") { UITestLaunch.server.heldCount == 1 }
+
+        environment.scenePhaseChanged(.active)
+        let session = try #require(environment.session)
+        try await eventually("activated") { !session.isBackgrounded }
+        task.expire()
+        try await eventually("completed") { task.completions == [false] }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(UITestLaunch.server.heldCount == 1, "the expiry cancelled the foreground's connect")
+
+        UITestLaunch.server.releaseFeed()
+        await refresh.value
+        try await eventually("connected") { session.phase == .ready }
+        #expect(!session.isBackgrounded)
+        await session.shutdown()
+    }
+
     @Test func backgroundRefreshPullsSendsAndCompletes() async throws {
         let (environment, session, observing) = try await started()
         defer { observing.cancel() }

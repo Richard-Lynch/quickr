@@ -195,9 +195,11 @@ final class AppEnvironment {
     /// expire an episode (the refresh's, or a new one if it hadn't begun): that pauses sync and the
     /// outbox, cancels the pull and the flush in flight, and suspends the database. Nothing of
     /// the refresh writes or sends after it.
+    /// The app being open owns the start by then: it is never cancelled from the foreground.
     private func stopBackgroundWork(_ episode: AppSession.BackgroundEpisode?) async {
+        guard lastScenePhase != .active else { return }
         cancelStart()
-        guard lastScenePhase != .active, let session else { return }
+        guard let session else { return }
         await session.backgroundTimeExpiring(episode ?? session.beginBackground(), within: .seconds(2))
     }
 
@@ -223,7 +225,10 @@ final class AppEnvironment {
 
     /// The connect an expired background start didn't finish, once the app is active.
     private func finishInterruptedStart(_ session: AppSession) async {
-        guard startInterrupted else { return }
+        // A start cancelled in the background may still be unwinding: it marks itself interrupted
+        // when it ends, so wait for it before looking.
+        if let starting { await starting.value }
+        guard startInterrupted, lastScenePhase == .active else { return }
         startInterrupted = false
         if session.phase == .noServer, let url = settings.serverURL { await session.connect(baseURL: url) }
     }
