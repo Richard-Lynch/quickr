@@ -3,10 +3,11 @@ import Observation
 import QuickrCore
 
 /// Create a topic (`/new`, the PWA's `NewTopicPage`): name, slug and description, the questions
-/// (BUILDER's `TopicDraft`), an optional schedule, then "Create topic". Online only. On success it
+/// (BUILDER's `TopicDraft`, in the builder's cards and preview), an optional schedule, then
+/// "Create topic". Online only. On success it
 /// opens the new topic's record screen ("Topic created · Log your first entry.").
 @MainActor @Observable
-public final class NewTopicModel {
+public final class NewTopicModel: BuilderEditing {
     public static let clientInvalid = "Fix the highlighted fields"
     public static let leaveWarning = "This topic hasn’t been created yet. Leave and lose it?"
 
@@ -16,6 +17,11 @@ public final class NewTopicModel {
     public var schedule: ScheduleDraft {
         didSet { if submitted { revalidate() } }
     }
+    /// Every card starts open (`defaultExpanded="all"`).
+    public var expansion: QuestionExpansion
+    public let preview = BuilderPreview()
+    /// "Add an option…" text not added yet, by question.
+    public var newOptionLabels: [DraftQuestion.ID: String] = [:]
     public private(set) var draftErrors: [DraftField: String] = [:]
     public private(set) var scheduleErrors: [ScheduleField: String] = [:]
     /// The banner over the form, and the issues no field shows (listed under it).
@@ -43,6 +49,7 @@ public final class NewTopicModel {
         let schedule = ScheduleDraft.empty(timezone: deviceTimeZone)
         self.draft = draft
         self.schedule = schedule
+        expansion = QuestionExpansion(.all, questions: draft.questions)
         initialDraft = draft
         initialSchedule = schedule
         self.writer = writer
@@ -53,7 +60,9 @@ public final class NewTopicModel {
     }
 
     /// Leaving asks first once anything was edited.
-    public var hasUnsavedChanges: Bool { draft != initialDraft || schedule != initialSchedule }
+    public var hasUnsavedChanges: Bool {
+        draft != initialDraft || schedule != initialSchedule || hasPendingOptionText
+    }
 
     /// The banner shows a server error always, and "Fix the highlighted fields" only while some
     /// field still shows an error.
@@ -138,6 +147,26 @@ extension QuestionType {
         case .double: "Decimal number"
         case .str: "Text"
         case .enum: "Choice"
+        }
+    }
+
+    /// The type chip's text (`TYPE_META.short`).
+    public var builderShort: String {
+        switch self {
+        case .int: "Int"
+        case .double: "Dec"
+        case .str: "Text"
+        case .enum: "Pick"
+        }
+    }
+
+    /// The question field's placeholder for a new question (`placeholderFor`).
+    public var builderPlaceholder: String {
+        switch self {
+        case .int: "e.g. Glasses of water"
+        case .double: "e.g. Hours slept"
+        case .str: "e.g. What went well?"
+        case .enum: "e.g. How do you feel?"
         }
     }
 

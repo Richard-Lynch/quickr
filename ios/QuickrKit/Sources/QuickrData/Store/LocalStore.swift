@@ -96,6 +96,16 @@ public struct LocalStore: Sendable {
         }
     }
 
+    /// A topic's versions, oldest first, with their counted entries (`StoreView.versions`).
+    public func observeVersions(topicId: UUID, refresh: AsyncStream<Void>? = nil)
+        -> AsyncThrowingStream<[TopicVersion], any Error>
+    {
+        let topicId = topicId.wireString
+        return StoreObservation.values(in: writer, refresh: refresh) { db in
+            try StoreView.versions(db, topicId: topicId)
+        }
+    }
+
     public func observeOutbox(refresh: AsyncStream<Void>? = nil) -> AsyncThrowingStream<[OutboxItem], any Error> {
         StoreObservation.values(in: writer, refresh: refresh) { db in try OutboxStorage.items(db) }
     }
