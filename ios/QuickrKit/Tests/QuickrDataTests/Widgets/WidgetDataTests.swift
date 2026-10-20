@@ -63,7 +63,8 @@ import Testing
     @Test func queuedAndFailedCountThisTopicsUnsentLogs() async throws {
         let mood = Self.topic("Mood")
         let other = Self.topic("Other")
-        let store = try seeded([mood, other], entries: [Make.entry(topicId: mood.id, answers: ["mood": .string("meh")])])
+        let store = try seeded(
+            [mood, other], entries: [Make.entry(topicId: mood.id, answers: ["mood": .string("meh")])])
         let good: [String: AnswerValue] = ["mood": .string("good")]
         try store.enqueue(Make.createPayload(topic: mood, minutes: 1, answers: good))
         let inFlight = try store.enqueue(Make.createPayload(topic: mood, minutes: 2, answers: good))
