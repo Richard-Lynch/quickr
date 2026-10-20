@@ -157,6 +157,8 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- RECORD/forms: limits (text lengths etc.) come from built-in server defaults until something fetches the server's limits; fetch and cache them per server (found by RECORD).
+- HOME: consider a plain VStack at every size (the PWA renders every row); today LazyVStack is kept at non-AX sizes (TILES's layout-loop fix).
 - Backend + clients: topic name sort is byte-order in practice (postgres:18-alpine/musl ignores en_US.utf8 for lower(name)), so "zed" sorts before "éclair". Switch to an ICU collation (e.g. `und-x-icu`) in Postgres, then regenerate home-vectors and update the iOS comparator and the PWA together (found by HOME).
 - PWA: real-browser e2e harness (Playwright, Chromium with service workers) for the B8 notification actions: real notification UI and `maxActions`, event lifetimes, Background Sync retries, auth-proxy redirects. The simulated SW harness covers the logic only.
 - **M3 HANDLER:** action-originated `entry.create` must use the shared name-based id from (server_id, topic_id, due_since), per the §7.1 amendment coming with B8, with shared vectors, so iOS and PWA actions on the same reminder dedupe server-side.
@@ -293,6 +295,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-20 03:45 (EDT): **TILES merged into ios/m2-ui** (Codex ×3; the final round scoped the QuickLogModels cache and drafts to the store via EntryScope; the XXXL layout loop is fixed with a VStack at AX sizes). Gate on the merge: lint, core green; TILES's own UI 20/20 and integration 18/18. W5 is complete (HOME, TILES, LINKS+SETTINGS, B8, WIRE, FORM). RECORD and SYNC-UX now re-merge m2-ui.
 
 - 2026-10-20 01:25 (EDT): **HOME merged into ios/m2-ui** (02e0d7d, Codex ×3; onboarding → HomeView via the router). TILES is merging m2-ui to replace HOME's stub tile (9e41822), gates running. RECORD (FORM agent) and SYNC-UX (OUTBOX agent) started; their first model commits are in. SYNC-UX owns the sync-pill swap in HOME's header.
 
