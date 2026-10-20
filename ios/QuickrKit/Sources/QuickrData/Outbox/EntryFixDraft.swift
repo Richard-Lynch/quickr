@@ -19,6 +19,16 @@ public struct EntryFixDraft: Sendable, Hashable {
 }
 
 extension OutboxItem {
+    /// Why a failed item was refused: the server's `Problem` (when its error body had one) and the
+    /// message. Nil without a recorded error.
+    public var failureDetails: (problem: Problem?, message: String)? {
+        guard let info = lastError else { return nil }
+        let problem = info.body.flatMap { body in
+            (try? WireCoding.encoder().encode(body)).flatMap { try? Endpoints.decodeProblem($0) }
+        }
+        return (problem, info.message)
+    }
+
     /// The draft for fixing this item: only a failed, never-delivered create can be fixed (what
     /// `Outbox.fix` accepts). `questions` type the stored answers (a request body can't tell `7`
     /// from `7.0`). Nil for anything else.
@@ -27,12 +37,9 @@ extension OutboxItem {
         guard kind == .entryCreate, state == .failed, !maybeDelivered, failureReason.map(fixable.contains) ?? false,
             case .entryCreate(let topic, let body)? = try? OutboxPayload.decode(kind: kind, json: payloadJSON)
         else { return nil }
-        let info = lastError
-        let problem = info?.body.flatMap { body in
-            (try? WireCoding.encoder().encode(body)).flatMap { try? Endpoints.decodeProblem($0) }
-        }
+        let failure = failureDetails
         return EntryFixDraft(
             itemId: id, rowVersion: rowVersion, topic: topic, answers: body.domainAnswers(for: questions),
-            capturedAt: body.capturedAt, notes: body.notes, problem: problem, message: info?.message)
+            capturedAt: body.capturedAt, notes: body.notes, problem: failure?.problem, message: failure?.message)
     }
 }

@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import QuickrData
+import QuickrUI
 import SwiftUI
 import UIKit
 
@@ -17,6 +18,8 @@ final class AppEnvironment {
     /// A Keychain problem from launch (the legacy token's migration), for Settings to show.
     private(set) var credentialsIssue: String?
     let router = Router()
+    /// Every screen's toasts, hosted once at the root so a toast outlives navigation.
+    let toasts = ToastCenter()
     /// Nil only when it couldn't be created (`sessionError`); `start()` tries again.
     private(set) var session: AppSession?
     private(set) var sessionError: String?
