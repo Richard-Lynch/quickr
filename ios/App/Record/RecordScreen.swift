@@ -61,13 +61,7 @@ struct RecordScreen: View {
             return
         }
         do {
-            let view =
-                if let id = ref.id {
-                    try await store.topics.topic(id: id)
-                } else {
-                    try await store.topics.topic(slug: ref.rawValue)
-                }
-            guard let topic = view?.topic else {
+            guard let topic = try await findTopic(in: store, refresh: session.refresh.stream()) else {
                 load = .missing
                 return
             }
@@ -100,6 +94,45 @@ struct RecordScreen: View {
         } catch {
             load = .failed(String(describing: error))
         }
+    }
+}
+
+extension RecordScreen {
+    /// How long a link waits for its topic to arrive (a first sync still loading it).
+    static let topicWait: Duration = .seconds(10)
+
+    /// The topic `ref` names. Not there yet, it watches the store for a while: a link opened at
+    /// launch can arrive while the first sync is still loading the topics.
+    private func findTopic(in store: LocalStore, refresh: AsyncStream<Void>) async throws -> Topic? {
+        if let topic = try await lookUp(in: store) { return topic }
+        return try await withThrowingTaskGroup(of: Topic?.self) { group in
+            group.addTask {
+                for try await topics in store.observeTopics(refresh: refresh) {
+                    if let match = topics.first(where: { ref.matches($0.topic) }) { return match.topic }
+                }
+                return nil
+            }
+            group.addTask {
+                try await Task.sleep(for: Self.topicWait)
+                return nil
+            }
+            let first = try await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
+    private func lookUp(in store: LocalStore) async throws -> Topic? {
+        if let id = ref.id { return try await store.topics.topic(id: id)?.topic }
+        return try await store.topics.topic(slug: ref.rawValue)?.topic
+    }
+}
+
+extension TopicLinkRef {
+    /// Whether this ref names `topic` (by id, or by slug).
+    func matches(_ topic: Topic) -> Bool {
+        if let id { return topic.id == id }
+        return topic.slug == rawValue
     }
 }
 

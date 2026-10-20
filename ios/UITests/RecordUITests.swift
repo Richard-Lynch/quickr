@@ -30,7 +30,9 @@ final class RecordUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Swim"].waitForExistence(timeout: 15))
         let logAnother = app.switches["record.logAnother"]
         scrollTo(logAnother, in: app)
-        logAnother.switches.firstMatch.tap()
+        // On the switch itself (the right edge): tapping the label doesn't flip a toggle.
+        logAnother.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        XCTAssertEqual(logAnother.value as? String, "1")
         app.buttons["Swim"].tap()
         let duration = app.textFields["form.field.duration"]
         XCTAssertTrue(duration.waitForKeyboardFocus())
@@ -44,7 +46,7 @@ final class RecordUITests: XCTestCase {
         let same = app.buttons["form.sameAsLast"]
         XCTAssertTrue(same.waitForExistence(timeout: 5))
         same.tap()
-        XCTAssertEqual(duration.value as? String, "45")
+        XCTAssertTrue((duration.value as? String ?? "").hasPrefix("45"))
         app.buttons["record.save"].tap()
         XCTAssertTrue(count.waitForLabel("2 logged"))
     }
@@ -60,7 +62,8 @@ final class RecordUITests: XCTestCase {
 
         // What was sent, with the server's reason on the field.
         let duration = app.textFields["form.field.duration"]
-        XCTAssertEqual(duration.value as? String, "900")
+        // The stepper reads its value with the unit ("900 min").
+        XCTAssertTrue((duration.value as? String ?? "").hasPrefix("900"), "\(String(describing: duration.value))")
         let error = app.staticTexts["form.error.duration"]
         XCTAssertTrue(error.exists)
         XCTAssertTrue(error.label.contains("600"), error.label)
