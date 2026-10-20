@@ -201,7 +201,8 @@ import Testing
         #expect(week == .unavailable(.offline))
         let otherZone = await h.loader.series(
             topicId: Self.topicId, ref: "everything", key: "glasses", bucket: .day, timeZone: "UTC", query: tomorrow)
-        #expect(otherZone == .unavailable(.offline))
+        #expect(otherZone == .unavailable(.zoneChanged))
+        #expect(StatsLoader.Reason.zoneChanged.message == "Charts for this time zone need a connection.")
         let allTime = await h.loader.series(
             topicId: Self.topicId, ref: "everything", key: "glasses", bucket: .day, timeZone: "Europe/London",
             query: StatsQuery(cacheKey: "range=all", filters: EntryFilters()))
@@ -247,7 +248,7 @@ import Testing
         #expect(
             await h.loader.series(
                 topicId: Self.topicId, ref: "everything", key: "glasses", bucket: .day, timeZone: "America/Santiago",
-                query: Self.thirtyDays) == .unavailable(.offline))
+                query: Self.thirtyDays) == .unavailable(.zoneChanged))
         h.answer(try Self.body("series everything glasses day America/Santiago"))
         let fresh = await h.loader.series(
             topicId: Self.topicId, ref: "everything", key: "glasses", bucket: .day, timeZone: "America/Santiago",

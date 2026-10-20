@@ -61,12 +61,16 @@ public struct StatsLoader: Sendable {
         /// The server's data changed under the store (another epoch, another server): the
         /// coordinator is resyncing; try again after it.
         case resyncing
+        /// Offline, with this series cached only for another time zone: its buckets would be
+        /// wrong here, so they aren't shown.
+        case zoneChanged
         case failed(String)
 
         public var message: String {
             switch self {
             case .offline: "Stats need a connection."
             case .resyncing: "quickR is resyncing, try again in a moment."
+            case .zoneChanged: "Charts for this time zone need a connection."
             case .failed(let message): message
             }
         }
@@ -132,9 +136,33 @@ public struct StatsLoader: Sendable {
         topicId: UUID, ref: String, key: String, bucket: QuestionSeries.Bucket, timeZone: String, query: StatsQuery
     ) async -> StatsResult<QuestionSeries> {
         let cacheKey = seriesKey(topicId: topicId, key: key, bucket: bucket, timeZone: timeZone, query: query)
-        return await load(QuestionSeriesDTO.self, key: cacheKey, topicId: topicId) { options in
+        let result = await load(QuestionSeriesDTO.self, key: cacheKey, topicId: topicId) { options in
             try await client.getQuestionSeries(
                 ref: ref, key: key, bucket: bucket, timezone: timeZone, filters: query.filters, options: options)
+        }
+        if case .unavailable(.offline) = result {
+            let prefix = "\(store.scope.id)|series|\(topicId.wireString)|\(key)|\(bucket.rawValue)|"
+            if await cachedInAnotherZone(prefix: prefix, suffix: "|\(query.cacheKey)", except: cacheKey) {
+                return .unavailable(.zoneChanged)
+            }
+        }
+        return result
+    }
+
+    /// Whether the same series is cached (under this epoch) for another zone.
+    private func cachedInAnotherZone(prefix: String, suffix: String, except key: String) async -> Bool {
+        let keys =
+            (try? await store.writer.read { db in
+                try String.fetchAll(
+                    db,
+                    sql: """
+                        SELECT key FROM stats_cache
+                        WHERE substr(key, 1, ?) = ? AND epoch = (SELECT epoch FROM sync_state WHERE id = 1)
+                        """,
+                    arguments: [prefix.count, prefix])
+            }) ?? []
+        return keys.contains {
+            $0 != key && $0.hasSuffix(suffix) && !$0.dropFirst(prefix.count).dropLast(suffix.count).contains("|")
         }
     }
 

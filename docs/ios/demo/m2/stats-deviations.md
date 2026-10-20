@@ -26,9 +26,10 @@ These are the deliberate differences:
    is discarded, the store is marked `epoch_suspect` and the coordinator runs.
    Cached rows are read only under the epoch they were fetched in.
 3. **A zone change is never served from cache.** The reader's zone is part of a
-   series' key. After a change, the new zone's buckets are fetched; offline
-   there is nothing to show rather than the old zone's (wrong) buckets as
-   current.
+   series' key. After a change, the new zone's buckets are fetched. Offline, a
+   chart cached only for another zone says "Charts for this time zone need a
+   connection." rather than showing that zone's (wrong) buckets. The PWA has no
+   cache, so offline it shows its error either way.
 4. **The cache key names the range, not its start.** `captured_from` moves every
    day; yesterday's "30 days" still shows offline today, marked stale.
 5. **Filters are shared through memory, not the URL.** The PWA keeps range,
