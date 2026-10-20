@@ -42,8 +42,29 @@ struct EntryDetailsSection<Model: EntryDetailsEditing>: View {
                     }
                 }
                 field(error: model.metaErrors[.source]) {
-                    LabeledContent("Source", value: model.source)
-                        .font(.qr(.body))
+                    if model.sourceIsEditable {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Source").font(.qr(.label))
+                            TextField("e.g. phone", text: $model.source)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .font(.qr(.body))
+                                .padding(12)
+                                .background(
+                                    Color.qr.surface,
+                                    in: RoundedRectangle(cornerRadius: QuickrMetrics.controlRadius, style: .continuous)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: QuickrMetrics.controlRadius, style: .continuous)
+                                        .strokeBorder(Color.qr.lineStrong, lineWidth: 1)
+                                )
+                                .accessibilityLabel("Source")
+                                .accessibilityIdentifier("\(idPrefix).source")
+                        }
+                    } else {
+                        LabeledContent("Source", value: model.source)
+                            .font(.qr(.body))
+                    }
                 }
             }
             .padding(.top, 10)

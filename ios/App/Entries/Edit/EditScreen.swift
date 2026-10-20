@@ -92,13 +92,27 @@ struct EditScreen: View {
                 load = .failed("Its topic version could not be found.")
                 return
             }
-            let problem: String? =
-                if case .failed = viewEntry.syncState {
-                    viewEntry.lastError?.message ?? "The last change didn’t sync."
-                } else { nil }
+            // A refused edit: fixed here, with its errors on the fields (outbox.md §11).
+            var fix: EditFix?
+            var problem: String?
+            if case .failed = viewEntry.syncState {
+                let refused = try await store.outbox.items(topicId: topic.topic.id.wireString)
+                    .filter { $0.entityId == entryId.wireString && $0.kind == .entryUpdate && $0.state == .failed }
+                    .last
+                if let draft = refused?.entryUpdateFixDraft(questions: version.questions) {
+                    fix = EditFix(
+                        itemId: draft.itemId, rowVersion: draft.rowVersion,
+                        patch: EntryPatch(
+                            answers: draft.answers, capturedAt: draft.capturedAt, notes: draft.notes,
+                            source: draft.source),
+                        problem: draft.problem, message: draft.message)
+                } else {
+                    problem = viewEntry.lastError?.message ?? "The last change didn’t sync."
+                }
+            }
             let model = EditModel(
                 topic: topic.topic, entry: viewEntry.entry, questions: version.questions,
-                localOnly: viewEntry.isLocalOnly, syncProblem: problem, writer: environment.entryWriter,
+                localOnly: viewEntry.isLocalOnly, syncProblem: problem, fix: fix, writer: environment.entryWriter,
                 toasts: environment.entryToasts, scope: binding.scope)
             load = .ready(model, EntriesModel.Row(entry: viewEntry, binding: binding))
         } catch {
@@ -152,6 +166,16 @@ struct EditView: View {
     @ViewBuilder private var banners: some View {
         VStack(spacing: 0) {
             EntryLine(entry: model.entry)
+            if model.isFixing {
+                Banner(
+                    title: "This change was not saved",
+                    text: model.fixMessage.map {
+                        "The server said: \($0). Correct it and save again, or discard it from the sync list."
+                    } ?? "The server refused it. Correct it and save again, or discard it from the sync list.",
+                    tone: .info
+                )
+                .accessibilityIdentifier("edit.fixBanner")
+            }
             if let message = model.errorMessage {
                 Banner(
                     title: model.isDeleted ? message : "Not saved", text: model.isDeleted ? nil : message, tone: .danger
@@ -186,7 +210,7 @@ struct EditView: View {
             .disabled(model.isSaving || model.isDeleted)
             .accessibilityLabel("Delete entry")
             .accessibilityIdentifier("edit.delete")
-            PrimaryButton("Save changes", icon: .check, isLoading: model.isSaving) {
+            PrimaryButton(model.isFixing ? "Save again" : "Save changes", icon: .check, isLoading: model.isSaving) {
                 Task {
                     if await model.save() == .leave { dismiss() }
                 }

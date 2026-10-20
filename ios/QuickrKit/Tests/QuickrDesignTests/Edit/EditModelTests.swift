@@ -34,6 +34,9 @@ private func entry(version: Int = 2, answers: [String: AnswerValue], notes: Stri
 final class EditFakeWriter: EntryEditing {
     var error: (any Error)?
     private(set) var updates: [(entryId: UUID, patch: EntryPatch, baseRevision: Int?, scope: EntryScope)] = []
+    private(set) var fixes: [(itemId: String, rowVersion: Int, patch: EntryPatch, scope: EntryScope)] = []
+    /// The refused item's row version as the store has it.
+    var storedRowVersion = 7
 
     func update(entryId: UUID, topicId: UUID, patch: EntryPatch, baseRevision: Int?, in scope: EntryScope)
         async throws
@@ -41,6 +44,15 @@ final class EditFakeWriter: EntryEditing {
         if let error { throw error }
         updates.append((entryId, patch, baseRevision, scope))
     }
+
+    func fixUpdate(
+        itemId: String, rowVersion: Int, entryId: UUID, topicId: UUID, patch: EntryPatch, in scope: EntryScope
+    ) async throws {
+        if let error { throw error }
+        fixes.append((itemId, rowVersion, patch, scope))
+    }
+
+    func rowVersion(itemId: String, in scope: EntryScope) async throws -> Int? { storedRowVersion }
 
     func failure(_ error: any Error) -> EntryWriteFailure {
         switch error {
@@ -61,10 +73,10 @@ final class EditFakeWriter: EntryEditing {
     let scope = EntryScope("server-A/1")
 
     func model(
-        _ entry: Entry, questions: [Question] = [typeQuestion, duration], localOnly: Bool = false
+        _ entry: Entry, questions: [Question] = [typeQuestion, duration], localOnly: Bool = false, fix: EditFix? = nil
     ) -> EditModel {
         EditModel(
-            topic: workout, entry: entry, questions: questions, localOnly: localOnly, writer: writer,
+            topic: workout, entry: entry, questions: questions, localOnly: localOnly, fix: fix, writer: writer,
             toasts: EntryToasts(center: center, writer: RecordFakeWriter()), scope: scope, now: { start })
     }
 
@@ -158,4 +170,66 @@ final class EditFakeWriter: EntryEditing {
         #expect(m.showsDetails)
         #expect(writer.updates.isEmpty)
     }
+
+    // MARK: - Source
+
+    @Test func theSourceIsEditableHereAndChecked() async {
+        let m = model(entry(answers: ["type": .string("run"), "duration": .int(30)]))
+        #expect(m.sourceIsEditable)
+        m.source = "   "
+        #expect(await m.save() == .stay)
+        #expect(m.metaErrors[.source] == "Where did this come from? (e.g. phone)")
+        m.source = " watch "
+        #expect(await m.save() == .leave)
+        #expect(writer.updates.first?.patch == EntryPatch(source: "watch"))
+    }
+
+    // MARK: - Fixing a refused edit (outbox.md §11)
+
+    /// The refused edit set duration to 900 (over the max): the form shows it with the server's
+    /// error on the field; correcting it replaces the item's changes, keeping every field it set.
+    @Test func aRefusedEditIsFixedWithItsErrorsOnTheFields() async {
+        let refused = Problem(
+            code: .invalidAnswers, detail: "Some answers need attention",
+            errors: [FieldIssue(location: [.key("answers"), .key("duration")], message: "At most 600")])
+        // It set type and duration (and notes); only duration was wrong.
+        let fix = EditFix(
+            itemId: "item-1", rowVersion: 3,
+            patch: EntryPatch(answers: ["duration": .some(.int(900)), "type": .some(.string("yoga"))], notes: "long"),
+            problem: refused, message: "Some answers need attention")
+        // The store shows the refused values (its overlay applies the failed edit).
+        let m = model(entry(answers: ["type": .string("yoga"), "duration": .int(900)], notes: "long"), fix: fix)
+        #expect(m.isFixing)
+        #expect(m.form.errors["duration"] == "At most 600")
+        #expect(m.fixMessage == nil, "the Problem is on the fields")
+
+        _ = m.form.change("duration", to: .text("90"))
+        #expect(await m.save() == .leave)
+        #expect(writer.updates.isEmpty, "a fix replaces the refused item, it doesn't queue another")
+        let sent = try! #require(writer.fixes.first)
+        #expect(sent.itemId == "item-1" && sent.rowVersion == 3 && sent.scope == scope)
+        // Type wasn't touched now, but the refused edit set it: it is still sent.
+        #expect(sent.patch.answers == ["duration": .some(.int(90)), "type": .some(.string("yoga"))])
+        #expect(sent.patch.notes == "long", "every field the refused edit set is still sent")
+        #expect(center.items.last?.toast.title == "Entry updated")
+    }
+
+    /// The item changed meanwhile (a CAS miss): the save says so and picks up the new version, so
+    /// the next save applies.
+    @Test func aFixThatRacesPicksUpTheNewVersion() async {
+        let fix = EditFix(
+            itemId: "item-1", rowVersion: 3, patch: EntryPatch(answers: ["duration": .some(.int(900))]), problem: nil,
+            message: "Rejected")
+        let m = model(entry(answers: ["type": .string("run"), "duration": .int(900)]), fix: fix)
+        #expect(m.fixMessage == "Rejected")
+        writer.error = FixChanged()
+        _ = m.form.change("duration", to: .text("90"))
+        #expect(await m.save() == .stay)
+        #expect(m.errorMessage != nil)
+        writer.error = nil
+        #expect(await m.save() == .leave)
+        #expect(writer.fixes.first?.rowVersion == 7, "the store's version")
+    }
+
+    struct FixChanged: Error {}
 }

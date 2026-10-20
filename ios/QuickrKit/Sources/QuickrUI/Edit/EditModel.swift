@@ -2,20 +2,42 @@ import Foundation
 import Observation
 import QuickrCore
 
-/// The changed fields of an edit: answers by key (nil clears one), captured at, notes. Only what
-/// changed is set (outbox.md §1: an `entry.update` holds only the changed keys).
+/// The changed fields of an edit: answers by key (nil clears one), captured at, notes, source.
+/// Only what changed is set (outbox.md §1: an `entry.update` holds only the changed keys).
 public struct EntryPatch: Sendable, Hashable {
     public var answers: [String: AnswerValue?]?
     public var capturedAt: Date?
     public var notes: String?
+    public var source: String?
 
-    public init(answers: [String: AnswerValue?]? = nil, capturedAt: Date? = nil, notes: String? = nil) {
+    public init(
+        answers: [String: AnswerValue?]? = nil, capturedAt: Date? = nil, notes: String? = nil, source: String? = nil
+    ) {
         self.answers = answers
         self.capturedAt = capturedAt
         self.notes = notes
+        self.source = source
     }
 
-    public var isEmpty: Bool { answers == nil && capturedAt == nil && notes == nil }
+    public var isEmpty: Bool { answers == nil && capturedAt == nil && notes == nil && source == nil }
+}
+
+/// A refused edit to fix (outbox.md §11): its item, what it changed, and why it was refused.
+public struct EditFix: Sendable, Hashable {
+    public var itemId: String
+    public var rowVersion: Int
+    public var patch: EntryPatch
+    public var problem: Problem?
+    /// The failure's message when there's no `Problem` to place.
+    public var message: String?
+
+    public init(itemId: String, rowVersion: Int, patch: EntryPatch, problem: Problem?, message: String?) {
+        self.itemId = itemId
+        self.rowVersion = rowVersion
+        self.patch = patch
+        self.problem = problem
+        self.message = message
+    }
 }
 
 /// What the edit screen writes through: an update, pinned to the store the entry was read from.
@@ -26,6 +48,12 @@ public protocol EntryEditing: AnyObject {
     /// `EntryWriteError.scopeChanged` once `scope` isn't the active store.
     func update(entryId: UUID, topicId: UUID, patch: EntryPatch, baseRevision: Int?, in scope: EntryScope)
         async throws
+    /// Replaces a refused edit's changes and queues it again (CAS on `rowVersion`).
+    func fixUpdate(
+        itemId: String, rowVersion: Int, entryId: UUID, topicId: UUID, patch: EntryPatch, in scope: EntryScope
+    ) async throws
+    /// The item's current version (every fix moves it), or nil once it is gone.
+    func rowVersion(itemId: String, in scope: EntryScope) async throws -> Int?
     /// What to tell the user about a refused write.
     func failure(_ error: any Error) -> EntryWriteFailure
 }
@@ -50,8 +78,9 @@ public final class EditModel: EntryDetailsEditing {
         didSet { capturedAtEdited = true }
     }
     public var notes: String
-    /// Shown, not edited.
-    public let source: String
+    /// Editable here (the PWA's edit page), unlike on the record screen.
+    public var source: String
+    public var sourceIsEditable: Bool { true }
     public private(set) var metaErrors: [EntryFormField: String] = [:]
     public var showsDetails = false
     public private(set) var isSaving = false
@@ -59,8 +88,13 @@ public final class EditModel: EntryDetailsEditing {
     public private(set) var isDeleted = false
     /// Why the last save didn't go through.
     public private(set) var errorMessage: String?
-    /// Why the entry's last change didn't sync (shown over the form), if it didn't.
+    /// Why the entry's last change didn't sync (shown over the form), if it didn't and there's
+    /// nothing to fix here.
     public let syncProblem: String?
+    /// A refused edit being fixed: its changes are on the form, its errors on the fields.
+    public private(set) var fix: EditFix?
+    /// The refusal's message when it had no `Problem` to place.
+    public var fixMessage: String? { fix.flatMap { $0.problem == nil ? $0.message : nil } }
 
     @ObservationIgnored private let writer: any EntryEditing
     @ObservationIgnored private let toasts: EntryToasts
@@ -78,7 +112,8 @@ public final class EditModel: EntryDetailsEditing {
     ///   - scope: the store the entry was read from.
     public init(
         topic: Topic, entry: Entry, questions: [Question], localOnly: Bool, syncProblem: String? = nil,
-        writer: any EntryEditing, toasts: EntryToasts, scope: EntryScope, limits: Limits = .serverDefaults,
+        fix: EditFix? = nil, writer: any EntryEditing, toasts: EntryToasts, scope: EntryScope,
+        limits: Limits = .serverDefaults,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.topic = topic
@@ -96,15 +131,24 @@ public final class EditModel: EntryDetailsEditing {
         notes = entry.notes
         source = entry.source
         baseline = form.inputs
+        self.fix = fix
         capturedAtEdited = false
+        if let problem = fix?.problem {
+            form.apply(problem)
+            metaErrors = form.metaErrors
+            showsDetails = !metaErrors.isEmpty
+        }
     }
+
+    public var isFixing: Bool { fix != nil }
 
     /// Logged with an older version than the topic's current one: validated with that version's
     /// questions, so historic answers stay consistent.
     public var isOutdated: Bool { entry.version != topic.currentVersion }
 
     public var hasUnsavedChanges: Bool {
-        !saved && !isDeleted && (form.inputs != baseline || notes != entry.notes || capturedAtEdited)
+        !saved && !isDeleted
+            && (form.inputs != baseline || notes != entry.notes || source != entry.source || capturedAtEdited)
     }
 
     /// Validates and queues what changed. `.leave` when the screen should close: saved, or nothing
@@ -116,11 +160,12 @@ public final class EditModel: EntryDetailsEditing {
             return .stay
         }
         guard checkMeta() else { return .stay }
-        let patch = changes(answers)
-        guard !patch.isEmpty else { return finish() }
         isSaving = true
         defer { isSaving = false }
         errorMessage = nil
+        if let fix { return await resubmit(fix, answers: answers) }
+        let patch = changes(answers)
+        guard !patch.isEmpty else { return finish() }
         do {
             try await writer.update(
                 entryId: entry.id, topicId: entry.topicId, patch: patch, baseRevision: baseRevision, in: scope)
@@ -142,17 +187,54 @@ public final class EditModel: EntryDetailsEditing {
     }
 
     /// The patch: answers whose value changed (nil for one cleared), captured at if moved, notes
-    /// if changed.
+    /// and source if changed.
     func changes(_ answers: [String: AnswerValue?]) -> EntryPatch {
         var changed: [String: AnswerValue?] = [:]
         for (key, value) in answers where value != entry.answers[key] {
             changed[key] = .some(value)
         }
-        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
         return EntryPatch(
             answers: changed.isEmpty ? nil : changed,
             capturedAt: capturedAtEdited && capturedAt != entry.capturedAt ? capturedAt : nil,
-            notes: trimmed != entry.notes ? trimmed : nil)
+            notes: trimmedNotes != entry.notes ? trimmedNotes : nil,
+            source: trimmedSource != entry.source ? trimmedSource : nil)
+    }
+
+    /// A fix's patch: every field the refused edit set, with its value now on the form, plus
+    /// anything else changed since.
+    func fixPatch(_ fix: EditFix, answers: [String: AnswerValue?]) -> EntryPatch {
+        var patch = changes(answers)
+        var fixed = patch.answers ?? [:]
+        for key in fix.patch.answers?.keys ?? [:].keys { fixed[key] = .some(answers[key] ?? nil) }
+        patch.answers = fixed.isEmpty ? nil : fixed
+        if fix.patch.capturedAt != nil { patch.capturedAt = capturedAt }
+        if fix.patch.notes != nil { patch.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if fix.patch.source != nil { patch.source = source.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return patch
+    }
+
+    private func resubmit(_ fix: EditFix, answers: [String: AnswerValue?]) async -> Outcome {
+        do {
+            try await writer.fixUpdate(
+                itemId: fix.itemId, rowVersion: fix.rowVersion, entryId: entry.id, topicId: entry.topicId,
+                patch: fixPatch(fix, answers: answers), in: scope)
+        } catch {
+            // Changed elsewhere (a CAS miss): pick up its version so the next save can apply.
+            if let version = try? await writer.rowVersion(itemId: fix.itemId, in: scope) {
+                self.fix?.rowVersion = version
+            }
+            errorMessage =
+                switch writer.failure(error) {
+                case .notSaved: "This entry was deleted"
+                case .scopeChanged: "The server changed since this entry was opened. Nothing was saved."
+                case .message(let message): message
+                }
+            return .stay
+        }
+        _ = toasts.center.show(Toast("Entry updated", message: "Fixed; it will sync"))
+        return finish()
     }
 
     private func finish() -> Outcome {
@@ -170,6 +252,9 @@ public final class EditModel: EntryDetailsEditing {
         if case .failure(let message) = EntryMetaValidation.notes(notes, limits: limits) {
             errors[.notes] = message.message
         }
+        if case .failure(let message) = EntryMetaValidation.source(source, limits: limits) {
+            errors[.source] = message.message
+        }
         metaErrors = errors
         if !errors.isEmpty { showsDetails = true }
         return errors.isEmpty
@@ -181,7 +266,9 @@ public final class EditModel: EntryDetailsEditing {
 public protocol EntryDetailsEditing: AnyObject, Observable {
     var capturedAt: Date { get set }
     var notes: String { get set }
-    var source: String { get }
+    var source: String { get set }
+    /// The record screen shows the device; the edit screen lets it be changed.
+    var sourceIsEditable: Bool { get }
     var metaErrors: [EntryFormField: String] { get }
     var showsDetails: Bool { get set }
 }

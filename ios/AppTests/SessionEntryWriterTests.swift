@@ -135,6 +135,50 @@ import Testing
         #expect(items.first?.payloadJSON.contains("\"cups\"") == true)
     }
 
+    /// Fixing a refused edit (outbox.md §11): its changes are replaced, it is pending again, and
+    /// its row version moves; an old row version is refused (CAS) instead of overwriting.
+    @Test func aRefusedEditIsFixedInPlace() async throws {
+        let seeded = try await TestStores.seededLocation()
+        defer { TestStores.remove(seeded) }
+        let environment = AppEnvironment.live(location: seeded)
+        await environment.start()
+        let session = try #require(environment.session)
+        defer { Task { await session.shutdown() } }
+        let writer = environment.entryWriter
+        let topicId = PlaceholderTopicRepository.coffee
+        let now = Date()
+        let entry = Entry(
+            id: UUID(), topicId: topicId, version: 1, revision: 2, source: "test", channel: .ios, capturedAt: now,
+            createdAt: now, updatedAt: now, answers: ["cups": .int(1)])
+        let store = try #require(session.store)
+        try await store.writer.write { db in _ = try ServerLayer.upsert(db, entry: entry) }
+        let scope = try #require(writer.scope)
+        try await writer.update(
+            entryId: entry.id, topicId: topicId, patch: EntryPatch(answers: ["cups": .some(.int(99))]), baseRevision: 2,
+            in: scope)
+        let queued = try #require(try await store.outbox.items().first)
+        try await store.writer.write { db in
+            try db.execute(
+                sql: "UPDATE outbox_item SET state = 'failed', failure_reason = 'rejected' WHERE id = ?",
+                arguments: [queued.id])
+        }
+        let failed = try #require(try await store.outbox.item(id: queued.id))
+
+        await #expect(throws: (any Error).self) {
+            try await writer.fixUpdate(
+                itemId: failed.id, rowVersion: failed.rowVersion - 1, entryId: entry.id, topicId: topicId,
+                patch: EntryPatch(answers: ["cups": .some(.int(3))]), in: scope)
+        }
+        try await writer.fixUpdate(
+            itemId: failed.id, rowVersion: failed.rowVersion, entryId: entry.id, topicId: topicId,
+            patch: EntryPatch(answers: ["cups": .some(.int(3))]), in: scope)
+        let fixed = try #require(try await store.outbox.item(id: failed.id))
+        #expect(fixed.state == .pending)
+        #expect(fixed.rowVersion == failed.rowVersion + 1)
+        #expect(fixed.payloadJSON.contains("3") && !fixed.payloadJSON.contains("99"))
+        #expect(try await store.outbox.items().count == 1, "replaced, not queued again")
+    }
+
     /// In the same store, Undo removes the never-sent create.
     @Test func undoInTheSameStoreRemovesTheEntry() async throws {
         let seeded = try await TestStores.seededLocation()

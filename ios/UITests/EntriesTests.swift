@@ -63,15 +63,12 @@ final class EntriesTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)[id].waitForExistence(timeout: 5))
     }
 
-    /// An entry opens its edit screen (a placeholder until EDIT); a refused one opens RECORD's
-    /// screen to fix it.
+    /// An entry opens its edit screen; a refused one opens RECORD's screen to fix it.
     @MainActor
     func testTappingOpensEditOrFix() {
         let app = launch()
-        let path = app.staticTexts["route.path"]
         rows(app, "entry.").firstMatch.tap()
-        XCTAssertTrue(path.waitForExistence(timeout: 5))
-        XCTAssertTrue(path.label.hasPrefix("/t/water/entries/"), path.label)
+        XCTAssertTrue(app.descendants(matching: .any)["edit.save"].waitForExistence(timeout: 10), "EDIT's screen")
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
         // RECORD's screen in fix mode, on the refused log.

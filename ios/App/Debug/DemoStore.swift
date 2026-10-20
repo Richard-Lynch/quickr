@@ -52,6 +52,13 @@ enum DemoStore {
         if withOutbox { try await seedOutbox(store, now: now) }
     }
 
+    /// The refused edit's error: a 422 whose `Problem` puts the message on the glasses field.
+    static let refusedEditError = #"""
+        {"message": "Some answers need attention", "status": 422,
+         "body": {"code": "invalid_answers", "detail": "Some answers need attention",
+                  "errors": [{"loc": ["body", "answers", "glasses"], "message": "Must be at most 20"}]}}
+        """#
+
     /// The refused and the waiting Water log's ids (links in UI tests).
     static let refusedEntry = UUID(uuidString: "00000000-0000-4000-a000-0000000000f1")!
     static let waitingEntry = UUID(uuidString: "00000000-0000-4000-a000-0000000000f2")!
@@ -79,6 +86,14 @@ enum DemoStore {
         }
         let failed = try await store.outbox.appendRawForTesting(create(refusedEntry, 25, minutesAgo: 90))
         _ = try await store.outbox.appendRawForTesting(create(waitingEntry, 5, minutesAgo: 5))
+        // An edit of Water's second-newest entry that the server refused (99 glasses: over the max).
+        let water2 = entryId(topic: UUID(uuidString: water.id)!, index: 1)
+        let refusedEdit = try await store.outbox.appendRawForTesting(
+            NewOutboxItem(
+                payload: .entryUpdate(
+                    entryId: water2.wireString, topicId: water.id,
+                    patch: EntryUpdateDTO(answers: ["glasses": .int(99)])),
+                baseRevision: 1, origin: .app))
         try await store.writer.write { db in
             try db.execute(
                 sql: """
@@ -86,6 +101,12 @@ enum DemoStore {
                     WHERE id = ?
                     """,
                 arguments: [#"{"message":"glasses: must be at most 20","status":422}"#, failed.id])
+            try db.execute(
+                sql: """
+                    UPDATE outbox_item SET state = 'failed', failure_reason = 'rejected', last_error_json = ?
+                    WHERE id = ?
+                    """,
+                arguments: [Self.refusedEditError, refusedEdit.id])
         }
     }
 

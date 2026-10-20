@@ -95,6 +95,20 @@ final class EditTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Entry updated"].waitForExistence(timeout: 5))
     }
 
+    /// An edit the server refused opens in fix mode: its values with the error on the field, and
+    /// Save again replaces it.
+    @MainActor
+    func testARefusedEditOpensInFixMode() {
+        let app = launch(open: "quickr://t/water/entries/00000000-0000-4000-9002-000000000001")
+        XCTAssertTrue(app.descendants(matching: .any)["edit.fixBanner"].waitForExistence(timeout: 20))
+        let glasses = app.textFields["form.field.glasses"]
+        XCTAssertEqual(glasses.value as? String, "99", "the refused value")
+        XCTAssertEqual(app.staticTexts["form.error.glasses"].label, "Must be at most 20")
+        replace(glasses, with: "4")
+        app.buttons["edit.save"].tap()
+        XCTAssertTrue(app.staticTexts["Entry updated"].waitForExistence(timeout: 5))
+    }
+
     /// A log the server refused is fixed on the record screen.
     @MainActor
     func testARefusedLogOffersFix() {

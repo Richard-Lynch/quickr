@@ -64,8 +64,23 @@ final class SessionEntryWriter: EntryFixing, EntryEditing {
     {
         try await requireSession(scope).update(
             entryId: entryId, topicId: topicId,
-            patch: EntryUpdateDTO(answers: patch.answers, capturedAt: patch.capturedAt, notes: patch.notes),
+            patch: EntryUpdateDTO(
+                answers: patch.answers, source: patch.source, capturedAt: patch.capturedAt, notes: patch.notes),
             baseRevision: baseRevision)
+    }
+
+    func fixUpdate(
+        itemId: String, rowVersion: Int, entryId: UUID, topicId: UUID, patch: EntryPatch, in scope: EntryScope
+    ) async throws {
+        let session = try requireSession(scope)
+        guard let outbox = session.outbox else { throw AppSession.SessionError.noStore }
+        let body = EntryUpdateDTO(
+            answers: patch.answers, source: patch.source, capturedAt: patch.capturedAt, notes: patch.notes)
+        try await outbox.fix(
+            itemId: itemId,
+            payload: .entryUpdate(entryId: entryId.wireString, topicId: topicId.wireString, patch: body),
+            rowVersion: rowVersion)
+        await session.scheduler?.requestFlush(reason: .enqueue)
     }
 
     // MARK: Record screen (EntryFixing)
