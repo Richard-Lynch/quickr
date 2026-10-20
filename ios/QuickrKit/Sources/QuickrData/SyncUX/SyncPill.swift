@@ -9,7 +9,8 @@ public enum SyncPillState: Sendable, Hashable {
     case differentServer
     /// Items failed and need the user (Retry, Fix or Discard).
     case failed(count: Int)
-    /// No network path. `waiting` items will sync when it's back.
+    /// No network path, or the server can't be reached (the last pull got no response). `waiting`
+    /// items will sync when it's back.
     case offline(waiting: Int)
     /// Items are queued or being sent. `checking`: some may have been delivered already (outbox
     /// §3, "Sending… (checking)").
@@ -17,7 +18,8 @@ public enum SyncPillState: Sendable, Hashable {
     /// The first pull of a new store (sync-protocol.md §2.1 step 5); `progress` in 0…1 when the
     /// head is known.
     case loadingHistory(progress: Double?)
-    /// Pulls keep failing while the device is online.
+    /// Pulls keep failing for another reason (a response that breaks the feed, a refusal, the
+    /// store).
     case syncError
 
     /// Pull failures in a row before the pill says "Sync error" (a single blip retries quietly).
@@ -25,14 +27,16 @@ public enum SyncPillState: Sendable, Hashable {
 
     /// The pill for the outbox `summary` (nil before a store is open), the coordinator's
     /// `status`, and whether the device is `online`. Precedence: a different server, failed
-    /// items, offline, items waiting, the first pull, repeated pull failures.
+    /// items, offline (no path, or the server unreachable), items waiting, the first pull,
+    /// repeated pull failures.
     public static func make(summary: OutboxSummary?, status: SyncStatus, online: Bool) -> SyncPillState {
         if status.identityMismatch { return .differentServer }
         let failed = summary?.failed ?? 0
         if failed > 0 { return .failed(count: failed) }
         // A held delete is still in its undo window: it isn't waiting to sync yet.
         let waiting = max(0, (summary?.queued ?? 0) - (summary?.held ?? 0))
-        if !online { return .offline(waiting: waiting) }
+        let unreachable = if case .unreachable = status.lastFailure { true } else { false }
+        if !online || unreachable { return .offline(waiting: waiting) }
         if waiting > 0 { return .waiting(count: waiting, checking: (summary?.uncertain ?? 0) > 0) }
         if case .pulling(bootstrapping: true, let cursor, let head) = status.activity {
             return .loadingHistory(progress: head > 0 ? min(1, Double(cursor) / Double(head)) : nil)

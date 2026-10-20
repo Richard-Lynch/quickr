@@ -60,8 +60,15 @@ import Testing
         pulling.activity = .pulling(bootstrapping: false, cursor: 5, head: 9)
         #expect(SyncPillState.make(summary: summary(), status: pulling, online: true) == .hidden)
 
+        // The server can't be reached although the device has a path: offline, at once.
+        var unreachable = SyncStatus()
+        unreachable.lastFailure = .unreachable("timeout")
+        unreachable.consecutiveFailures = 1
+        #expect(
+            SyncPillState.make(summary: summary(queued: 2), status: unreachable, online: true) == .offline(waiting: 2))
+
         var failing = SyncStatus()
-        failing.lastFailure = .unreachable("timeout")
+        failing.lastFailure = .protocolError("next below cursor")
         failing.consecutiveFailures = SyncPillState.failuresBeforeError - 1
         #expect(SyncPillState.make(summary: summary(), status: failing, online: true) == .hidden)
         failing.consecutiveFailures = SyncPillState.failuresBeforeError

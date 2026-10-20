@@ -111,8 +111,7 @@ struct RootView: View {
             record: { router.open(.record(ref($0))) },
             newTopic: { router.open(.newTopic) },
             settings: { router.open(.settings) },
-            onboarding: { onboarding = true },
-            sync: { environment.sync.isSheetPresented = true })  // SYNC-UX's sheet
+            onboarding: { onboarding = true })
     }
 
     @ViewBuilder private var home: some View {

@@ -4,15 +4,14 @@ import QuickrUI
 import SwiftUI
 import UserNotifications
 
-/// Where the home screen's buttons go. LINKS (routes), RECORD, SETTINGS and SYNC-UX fill these in;
-/// until then they do nothing.
+/// Where the home screen's buttons go. LINKS (routes), RECORD and SETTINGS fill these in; until
+/// then they do nothing. (The sync pill opens SYNC-UX's sheet itself.)
 struct HomeActions {
     var open: (ViewTopic) -> Void = { _ in }
     var record: (ViewTopic) -> Void = { _ in }
     var newTopic: () -> Void = {}
     var settings: () -> Void = {}
     var onboarding: () -> Void = {}
-    var sync: () -> Void = {}
 }
 
 /// The home screen (the PWA's `TopicsPage`): "Due now", then every topic with search, a status
@@ -69,7 +68,7 @@ struct HomeView: View {
     }
 
     private var header: some View {
-        HomeHeader(online: model.isOnline, pending: model.pendingCount, failed: model.failedCount, actions: actions)
+        HomeHeader(actions: actions)
     }
 
     private struct ObservationKey: Hashable {
@@ -290,9 +289,6 @@ struct HomeView: View {
 /// scales with Dynamic Type; at accessibility sizes the buttons move under the wordmark and the
 /// header scrolls with the list.
 private struct HomeHeader: View {
-    let online: Bool
-    let pending: Int
-    let failed: Int
     let actions: HomeActions
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .title2) private var iconSize: CGFloat = 18
@@ -307,8 +303,7 @@ private struct HomeHeader: View {
                 .accessibilityIdentifier("home.wordmark")
             if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
             HStack(spacing: 4) {
-                SyncPill(online: online, pending: pending, failed: failed, action: actions.sync)
-                    .accessibilityIdentifier("home.syncPill")
+                SyncPillButton()
                 button(.plus, "New topic", "home.newTopic", action: actions.newTopic)
                 button(.settings, "Settings", "home.settings", action: actions.settings)
             }

@@ -122,7 +122,7 @@ final class SyncUITests: XCTestCase {
             ["-QuickrUITest", "-QuickrServer", "https://quickr.test", "-QuickrSyncControls"] + extra
         app.launch()
         XCTAssertTrue(app.buttons["debug.offline"].waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["root.storeStatus"].waitForLabel("Store ready", timeout: 20))
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 20))
         return app
     }
 }
