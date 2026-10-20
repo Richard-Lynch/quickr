@@ -250,6 +250,23 @@ SPECS: list[Spec] = [
         at(18, month=1),
         [q("n", "Count")],
     ),
+    # --- names for collation: spaces, punctuation, case, accents, NFC vs NFD ---
+    # postgres:18-alpine uses musl, whose strcoll compares bytes: lower(name) sorts by its UTF-8
+    # bytes whatever datcollate says, so "é…" comes after "z…" and NFD "e\u0301" sits among the e's.
+    *(
+        Spec(
+            0xC0 + i,
+            name,
+            f"collate-{i}",
+            at(21, month=1),
+            at(21, month=1),
+            [q("n", "Count")],
+            "collation sample",
+        )
+        for i, name in enumerate(
+            ["a b", "ab", "a-c", "a.b", "\u00c9clair", "E\u0301clair", "eclair", "Ab", "\u00e9 b", "Zed"]
+        )
+    ),
     # --- archived ---
     Spec(  # scheduled: never due, no next_due_at (due group 1, at the far future)
         0x0A,
@@ -296,6 +313,8 @@ CASES: dict[str, tuple[StatusFilter, TopicSort, str | None]] = {
     "q-count-name-sort": ("active", "name", "count"),
     "q-water-all-activity": ("all", "-activity", "water"),
     "q-step-created": ("active", "-created", "step"),
+    "q-collation-name": ("active", "name", "collation"),
+    "q-collation-desc-name": ("active", "-name", "collation"),
 }
 
 

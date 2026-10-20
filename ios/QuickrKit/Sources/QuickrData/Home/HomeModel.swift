@@ -55,6 +55,8 @@ public final class HomeModel {
     /// Outbox counts for the sync pill.
     public private(set) var pendingCount = 0
     public private(set) var failedCount = 0
+    /// The bound store finished its first bootstrap (`sync_state.bootstrap_complete`).
+    public private(set) var bootstrapped = false
 
     @ObservationIgnored private let session: AppSession
     @ObservationIgnored private let debounce: Duration
@@ -81,15 +83,19 @@ public final class HomeModel {
         case .noServer: return .noServer
         case .failed(let message): return .failed(message)
         case .ready:
+            // Nothing stored and the first sync can't reach the server: "You're offline", even
+            // once the (empty) store has been read.
+            if isOfflineWithoutData { return .offline }
             if loaded { return .ready }
             if let loadError { return .failed(loadError) }
             return .loading
         }
     }
 
-    /// "You're offline": nothing to show and the first sync can't reach the server.
+    /// "You're offline": nothing stored, the store never finished a bootstrap, and the sync can't
+    /// reach the server. (An empty store that did bootstrap reads "Track anything", offline or not.)
     public var isOfflineWithoutData: Bool {
-        guard topics.isEmpty, !session.syncStatus.bootstrapComplete else { return false }
+        guard topics.isEmpty, !bootstrapped else { return false }
         if case .unreachable = session.syncStatus.lastFailure { return true }
         return false
     }
@@ -110,24 +116,35 @@ public final class HomeModel {
     }
 
     /// Reads the active store's topics and outbox until cancelled. Run it keyed by
-    /// `session.binding`: a new store starts over (loading, then its topics).
+    /// `session.binding`: a new store starts over from nothing (loading, then its topics), and an
+    /// earlier observation's late values are dropped.
     public func observe() async {
+        generation += 1
+        let generation = generation
+        topics = []
+        pendingCount = 0
+        failedCount = 0
+        bootstrapped = false
         loaded = false
         loadError = nil
-        guard let store = session.store else {
-            topics = []
-            relist()
-            return
-        }
+        relist()
+        guard let store = session.store else { return }
         await withTaskGroup(of: Void.self) { group in
-            group.addTask { await self.observeTopics(store) }
-            group.addTask { await self.observeOutbox(store) }
+            group.addTask { await self.observeTopics(store, generation) }
+            group.addTask { await self.observeOutbox(store, generation) }
+            group.addTask { await self.observeSyncState(store, generation) }
         }
     }
 
-    private func observeTopics(_ store: LocalStore) async {
+    /// The latest `observe()`; only its values are published.
+    @ObservationIgnored private var generation = 0
+
+    private func isCurrent(_ observation: Int) -> Bool { observation == generation && !Task.isCancelled }
+
+    private func observeTopics(_ store: LocalStore, _ observation: Int) async {
         do {
             for try await topics in store.observeTopics(refresh: session.refresh.stream()) {
+                guard isCurrent(observation) else { return }
                 self.topics = topics
                 loaded = true
                 loadError = nil
@@ -135,18 +152,30 @@ public final class HomeModel {
             }
         } catch is CancellationError {
         } catch {
-            loadError = String(describing: error)
+            if isCurrent(observation) { loadError = String(describing: error) }
         }
     }
 
-    private func observeOutbox(_ store: LocalStore) async {
+    private func observeOutbox(_ store: LocalStore, _ observation: Int) async {
         do {
             for try await items in store.observeOutbox(refresh: session.refresh.stream()) {
+                guard isCurrent(observation) else { return }
                 failedCount = items.count { $0.state == .failed }
                 pendingCount = items.count { $0.state != .failed && $0.state != .held }
             }
         } catch {
             // The pill is a placeholder; the topics' observation reports store failures.
+        }
+    }
+
+    private func observeSyncState(_ store: LocalStore, _ observation: Int) async {
+        do {
+            for try await state in store.observeSyncState(refresh: session.refresh.stream()) {
+                guard isCurrent(observation) else { return }
+                bootstrapped = state?.bootstrapComplete ?? false
+            }
+        } catch {
+            // As above: the topics' observation reports store failures.
         }
     }
 

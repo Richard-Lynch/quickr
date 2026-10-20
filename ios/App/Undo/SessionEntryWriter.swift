@@ -14,13 +14,15 @@ final class SessionEntryWriter: EntryWriter {
 
     var scope: EntryScope? { session()?.binding.map(Self.scope) }
 
-    func log(_ topic: QuickLogTopic, answers: [String: AnswerValue]) async throws -> LoggedEntry {
+    func log(_ topic: QuickLogTopic, answers: [String: AnswerValue], capturedAt: Date?, notes: String?)
+        async throws -> LoggedEntry
+    {
         let session = try requireSession()
         // Read before the call: `log` takes the outbox synchronously, on this actor, before it awaits.
         guard let scope else { throw AppSession.SessionError.noStore }
         let id = try await session.log(
             topic: TopicRef(id: topic.id, slug: topic.slug, name: topic.name), answers: answers,
-            version: topic.version)
+            capturedAt: capturedAt, notes: notes, version: topic.version)
         return LoggedEntry(id: id, scope: scope)
     }
 

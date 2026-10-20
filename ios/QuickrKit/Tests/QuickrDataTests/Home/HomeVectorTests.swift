@@ -61,7 +61,6 @@ import Testing
         #expect(Set(cases.map(\.sort)).isSuperset(of: TopicSort.allCases.map(\.rawValue)))
         #expect(Set(cases.map(\.status)) == Set(TopicStatusFilter.allCases.map(\.rawValue)))
         #expect(cases.count { ($0.q ?? "").isEmpty == false } >= 10)
-        #expect(
-            Self.vectors.meta.collation.hasPrefix("en_US"), "names are compared like en_US (TopicListing.nameOrder)")
+        #expect(cases.contains { $0.name == "q-collation-name" }, "names with spaces, punctuation, accents, NFD")
     }
 }

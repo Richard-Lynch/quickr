@@ -148,6 +148,7 @@ export function createOutbox(opts: OutboxOptions): Outbox {
           Accept: 'application/json',
           ...(req.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
           ...opts.headers,
+          ...req.headers,
         },
         body: req.body === undefined ? null : JSON.stringify(req.body),
         credentials: 'same-origin',

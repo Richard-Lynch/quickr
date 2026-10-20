@@ -40,6 +40,8 @@ export interface OutboxRequest {
   url: string;
   /** JSON-serialisable body. */
   body?: unknown;
+  /** Extra request headers for this item (e.g. an identity precondition). */
+  headers?: Readonly<Record<string, string>>;
 }
 
 /**

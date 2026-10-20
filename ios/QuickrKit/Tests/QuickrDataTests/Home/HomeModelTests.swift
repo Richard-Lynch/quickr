@@ -17,14 +17,21 @@ import Testing
         let root: URL
         let session: AppSession
         let store: LocalStore
+        let partitions: StorePartitions
 
-        init(topics: [Topic], active: Bool = true) async throws {
+        /// - Parameter bootstrapped: mark the store's first bootstrap done, as a real sync would.
+        init(topics: [Topic], active: Bool = true, bootstrapped: Bool = false) async throws {
             root = URL.temporaryDirectory.appending(path: "quickr-home-\(UUID().uuidString)")
             let location = StoreLocation(root: root)
             let partitions = try StorePartitions.open(at: location, notifier: nil)
             let store = try await partitions.createStore(serverId: "s", baseURL: "https://quickr.example")
             if active { try await partitions.registry.setActive("s") }
             try await HomeModelTests.seed(store, topics)
+            if bootstrapped {
+                try await store.writer.write { db in try db.execute(sql: "UPDATE sync_state SET bootstrap_complete = 1")
+                }
+            }
+            self.partitions = partitions
             var coordinator = SyncCoordinator.Configuration()
             coordinator.autoRetry = false
             session = try AppSession(
@@ -192,16 +199,79 @@ import Testing
         #expect(model.rows.isEmpty)
     }
 
-    @Test func itLoadsUntilTheFirstRead() async throws {
+    /// Nothing stored, never bootstrapped, and the first sync can't reach the server: "You're
+    /// offline", also once the empty store has been read.
+    @Test func anEmptyStoreThatNeverSyncedReadsOffline() async throws {
         let w = try await World(topics: [])
         defer { w.cleanup() }
         let model = HomeModel(session: w.session, now: Self.now, debounce: .zero)
-        #expect(model.phase == .loading)
         let observing = Task { await model.observe() }
         defer { observing.cancel() }
         try await eventually("the empty list is read") { await MainActor.run { model.loaded } }
+        _ = await w.session.coordinator.sync(reason: .requested)  // fails: offline
+        try await eventually("the failed sync shows") { await MainActor.run { model.phase == .offline } }
+        #expect(model.isOfflineWithoutData)
+        #expect(!model.isOnline)
+    }
+
+    /// An empty store that did bootstrap is a server with no topics: "Track anything", offline or not.
+    @Test func anEmptyBootstrappedStoreReadsTrackAnything() async throws {
+        let w = try await World(topics: [], bootstrapped: true)
+        defer { w.cleanup() }
+        let model = HomeModel(session: w.session, now: Self.now, debounce: .zero)
+        let observing = Task { await model.observe() }
+        defer { observing.cancel() }
+        _ = await w.session.coordinator.sync(reason: .requested)  // fails: offline
+        try await eventually("the bootstrap flag is read") {
+            await MainActor.run { model.loaded && model.bootstrapped }
+        }
+        #expect(!model.isOnline)
         #expect(model.phase == .ready)
         #expect(model.rows.isEmpty && !model.isFiltered, "the screen shows \"Track anything\"")
+    }
+
+    /// A rebind starts over: the new store's topics and counts only, and the old observation's late
+    /// values (it hasn't stopped yet) are dropped. Without a store, everything is empty.
+    @Test func aRebindStartsOverAndDropsTheOldObservation() async throws {
+        let w = try await World(topics: Self.mixed)
+        defer { w.cleanup() }
+        let (model, first) = try await w.model()
+        defer { first.cancel() }
+        _ = try await w.session.log(
+            topic: TopicRef(id: Self.mixed[0].id, slug: Self.mixed[0].slug, name: Self.mixed[0].name), answers: [:],
+            version: 1)
+        try await eventually("the pending log counts") { await MainActor.run { model.pendingCount == 1 } }
+        let old = try #require(w.session.store)
+
+        // Switch to another server's store; the first observation keeps running.
+        let other = try await w.partitions.createStore(serverId: "t", baseURL: "https://other.example")
+        try await Self.seed(other, [Self.topic(11, "Reading", lastMinutesAgo: 10)])
+        try await w.partitions.registry.setActive("t")
+        await w.session.rebind()
+        let second = Task { await model.observe() }
+        defer { second.cancel() }
+        try await eventually("the new store shows") { await MainActor.run { model.loaded } }
+        #expect(Self.names(model.rows) == ["Reading"])
+        #expect(model.pendingCount == 0)
+        #expect(model.badgeCount == 0)
+
+        // The old store changes: its observation's value must not land.
+        try await Self.seed(old, [Self.topic(12, "Stale", lastMinutesAgo: 5)])
+        try await Task.sleep(for: .milliseconds(300))  // settle: an emission takes milliseconds
+        #expect(Self.names(model.rows) == ["Reading"])
+
+        // No server at all: empty, counts included.
+        let reading = Self.topic(11, "Reading")
+        _ = try await w.session.log(
+            topic: TopicRef(id: reading.id, slug: reading.slug, name: reading.name), answers: [:], version: 1)
+        try await eventually("the new store's pending log counts") {
+            await MainActor.run { model.pendingCount == 1 }
+        }
+        try await w.partitions.registry.setActive(nil)
+        await w.session.rebind()
+        await model.observe()
+        #expect(model.topics.isEmpty && model.pendingCount == 0 && model.failedCount == 0)
+        #expect(model.phase == .noServer)
     }
 
     @Test func aRetryRestartsTheObservation() async throws {

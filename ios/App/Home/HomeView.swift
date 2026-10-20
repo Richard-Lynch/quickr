@@ -34,6 +34,9 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                // At accessibility sizes the header is two rows deep: it scrolls with the list
+                // instead of covering a quarter of the screen.
+                if typeSize.isAccessibilitySize { header.padding(.horizontal, -16) }
                 content
             }
             .padding(.horizontal, 16)
@@ -42,8 +45,12 @@ struct HomeView: View {
         .scrollDismissesKeyboard(.immediately)
         .qrPaperBackground()
         .accessibilityIdentifier("home.list")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { toolbar }
+        // A header of its own rather than the navigation bar's items, which don't grow with
+        // Dynamic Type. Pinned at the standard sizes; in the list at accessibility sizes.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if !typeSize.isAccessibilitySize { header }
+        }
+        .toolbar(.hidden, for: .navigationBar)
         .task(id: ObservationKey(binding: session.binding, attempt: model.attempt)) { await model.observe() }
         .task {
             // The PWA's `useNow`: due states and labels move with the clock.
@@ -61,36 +68,13 @@ struct HomeView: View {
         }
     }
 
+    private var header: some View {
+        HomeHeader(online: model.isOnline, pending: model.pendingCount, failed: model.failedCount, actions: actions)
+    }
+
     private struct ObservationKey: Hashable {
         var binding: AppSession.Binding?
         var attempt: Int
-    }
-
-    // MARK: - Header
-
-    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Text("quickR")
-                .font(.qr(.title))
-                .foregroundStyle(.qr.ink)
-                .fixedSize()
-                .accessibilityLabel("quickR — all topics")
-                .accessibilityAddTraits(.isHeader)
-        }
-        // A wordmark, not a button: no glass bubble around it.
-        .sharedBackgroundVisibility(.hidden)
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            SyncPill(
-                online: model.isOnline, pending: model.pendingCount, failed: model.failedCount, action: actions.sync
-            )
-            .accessibilityIdentifier("home.syncPill")
-            Button(action: actions.newTopic) { QIcon.plus.view(size: 18, weight: .semibold) }
-                .accessibilityLabel("New topic")
-                .accessibilityIdentifier("home.newTopic")
-            Button(action: actions.settings) { QIcon.settings.view(size: 18) }
-                .accessibilityLabel("Settings")
-                .accessibilityIdentifier("home.settings")
-        }
     }
 
     // MARK: - Content
@@ -108,16 +92,14 @@ struct HomeView: View {
             ) {
                 PrimaryButton("Connect a server", icon: .plus, action: actions.onboarding)
             }
-        case .loading, .offline:
-            if model.isOfflineWithoutData {
-                EmptyStateView(
-                    icon: .cloudOff, title: "You’re offline",
-                    message:
-                        "Topics will appear here once you’re back online. Next time they’ll be saved on this device.",
-                    identifier: "home.offline")
-            } else {
-                skeletons
-            }
+        case .offline:
+            EmptyStateView(
+                icon: .cloudOff, title: "You’re offline",
+                message:
+                    "Topics will appear here once you’re back online. Next time they’ll be saved on this device.",
+                identifier: "home.offline")
+        case .loading:
+            skeletons
         case .failed:
             EmptyView()  // the banner says it
         case .ready:
@@ -271,14 +253,17 @@ struct HomeView: View {
                 .pickerStyle(.segmented)
                 .accessibilityIdentifier("home.status")
             }
-            HStack {
+            // At accessibility sizes the label goes above the menu, which gets the full width
+            // (side by side, its two-line label overflowed onto the next section).
+            AdaptiveStack(vertical: typeSize.isAccessibilitySize, spacing: 4, alignment: .center) {
                 Text("Sort").font(.qr(.label)).foregroundStyle(.qr.inkSoft)
-                Spacer()
+                if !typeSize.isAccessibilitySize { Spacer() }
                 Picker("Sort", selection: $model.sort) {
                     ForEach(TopicSort.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.menu)
                 .tint(.qr.ink)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("home.sort")
             }
         }
@@ -300,6 +285,52 @@ struct HomeView: View {
 }
 
 // MARK: - Pieces
+
+/// The top bar (the PWA's `TopBar`): the wordmark, then the sync pill, New topic and Settings. It
+/// scales with Dynamic Type; at accessibility sizes the buttons move under the wordmark and the
+/// header scrolls with the list.
+private struct HomeHeader: View {
+    let online: Bool
+    let pending: Int
+    let failed: Int
+    let actions: HomeActions
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .title2) private var iconSize: CGFloat = 18
+
+    var body: some View {
+        AdaptiveStack(vertical: typeSize.isAccessibilitySize, spacing: 4, alignment: .center) {
+            Text("quickR")
+                .font(.qr(.title))
+                .foregroundStyle(.qr.ink)
+                .accessibilityLabel("quickR — all topics")
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("home.wordmark")
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
+            HStack(spacing: 4) {
+                SyncPill(online: online, pending: pending, failed: failed, action: actions.sync)
+                    .accessibilityIdentifier("home.syncPill")
+                button(.plus, "New topic", "home.newTopic", action: actions.newTopic)
+                button(.settings, "Settings", "home.settings", action: actions.settings)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.qr.paper)
+    }
+
+    private func button(_ icon: QIcon, _ label: String, _ id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            icon.view(size: iconSize, weight: .semibold)
+                .foregroundStyle(.qr.inkSoft)
+                .frame(minWidth: QuickrMetrics.tapTarget, minHeight: QuickrMetrics.tapTarget)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(QuickrPressStyle(scale: 0.95))
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(id)
+    }
+}
 
 /// A section: an uppercase title with a count, then its tiles.
 private struct HomeSection<Content: View>: View {
@@ -330,6 +361,9 @@ private struct HomeSection<Content: View>: View {
                 Text(title.uppercased())
                     .font(.qr(.label))
                     .tracking(0.8)
+                    // One word per title: shrink a little rather than break it mid-word.
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                     .foregroundStyle(tone == .accent ? Color.qr.accentStrong : .qr.muted)
                 Text(count.formatted())
                     .font(.qr(.monoCaption))
@@ -430,13 +464,15 @@ private struct ErrorBanner: View {
 private struct AdaptiveStack<Content: View>: View {
     let vertical: Bool
     var spacing: CGFloat = 8
+    /// The row's vertical alignment.
+    var alignment: VerticalAlignment = .firstTextBaseline
     @ViewBuilder let content: Content
 
     var body: some View {
         if vertical {
             VStack(alignment: .leading, spacing: spacing) { content }
         } else {
-            HStack(alignment: .firstTextBaseline, spacing: spacing) { content }
+            HStack(alignment: alignment, spacing: spacing) { content }
         }
     }
 }

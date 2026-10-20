@@ -51,6 +51,27 @@ final class HomeTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["home.section.upcoming"].exists)
     }
 
+    /// A tile opens its topic and its Log block opens record, through the router; back returns.
+    @MainActor
+    func testATileOpensItsTopicAndLogOpensRecord() {
+        let app = launch()
+        let meds = tile(app, "meds")
+        XCTAssertTrue(meds.waitForExistence(timeout: 5))
+        meds.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.15)).tap()  // the title, not a control
+        let path = app.staticTexts["route.path"]
+        XCTAssertTrue(path.waitForExistence(timeout: 5))
+        XCTAssertEqual(path.label, "/t/meds")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        let log = app.buttons["Log Medication"]
+        XCTAssertTrue(log.waitForExistence(timeout: 5))
+        log.tap()
+        XCTAssertTrue(path.waitForExistence(timeout: 5))
+        XCTAssertEqual(path.label, "/t/meds/record")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 5))
+    }
+
     @MainActor
     func testSearchMatchesQuestionsAndClears() {
         let app = launch()
@@ -89,13 +110,63 @@ final class HomeTests: XCTestCase {
         XCTAssertTrue(tile(app, "meds").waitForExistence(timeout: 5))
         XCTAssertTrue(tile(app, "meds").isHittable)
         let search = app.textFields["home.search"]
-        for _ in 0..<6 where !search.isHittable { app.swipeUp() }
-        XCTAssertTrue(search.isHittable)
+        // Scroll in small steps until the search row is clear of the header (two rows deep at
+        // this size), so the filter tap can't land on a header button above it.
+        let header = app.buttons["home.settings"]
+        func clear() -> Bool { search.frame.minY > header.frame.maxY + 8 && search.frame.maxY < app.frame.maxY - 80 }
+        for _ in 0..<20 where !clear() { scroll(app, by: 120) }
+        XCTAssertTrue(clear(), "the search row is on screen, below the header")
         app.buttons["home.filter"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["home.status"].waitForExistence(timeout: 5))
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "home-ax-xxxl"
         shot.lifetime = .keepAlways
         add(shot)
+    }
+
+    /// At XXXL the two-row header scrolls with the list instead of staying pinned, so it never
+    /// covers the list's controls: after a fling nothing lies under it, and the filter works.
+    @MainActor
+    func testAtXXXLTheHeaderNeverCoversTheList() {
+        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let search = app.textFields["home.search"]
+        let filter = app.buttons["home.filter"]
+        let header = app.buttons["home.settings"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        for _ in 0..<3 {
+            scroll(app, by: 150)
+            if header.exists && filter.exists {
+                XCTAssertFalse(header.frame.intersects(filter.frame), "the header's buttons never sit on the filter")
+                XCTAssertLessThan(header.frame.maxY, search.frame.minY, "the header stays above the search row")
+            }
+        }
+        app.swipeUp(velocity: .fast)
+        let flung = XCTAttachment(screenshot: app.screenshot())
+        flung.name = "home-ax-xxxl-after-fling"
+        flung.lifetime = .keepAlways
+        add(flung)
+        for _ in 0..<20 where !(filter.exists && filter.isHittable && filter.frame.minY > 60) {
+            scroll(app, by: -150)
+        }
+        filter.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["home.status"].waitForExistence(timeout: 5))
+    }
+
+    /// The header's wordmark and sync pill grow with Dynamic Type (bar items wouldn't).
+    @MainActor
+    func testTheHeaderScalesWithDynamicType() {
+        func heights(_ extra: [String]) -> (wordmark: CGFloat, pill: CGFloat) {
+            let app = launch(extra)
+            defer { app.terminate() }
+            let wordmark = app.staticTexts["home.wordmark"]
+            let pill = app.buttons["home.syncPill"]
+            XCTAssertTrue(wordmark.waitForExistence(timeout: 5))
+            XCTAssertTrue(pill.waitForExistence(timeout: 10), "the demo store is offline: the pill shows")
+            return (wordmark.frame.height, pill.frame.height)
+        }
+        let normal = heights([])
+        let large = heights(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        XCTAssertGreaterThan(large.wordmark, normal.wordmark * 1.5, "the wordmark scales")
+        XCTAssertGreaterThan(large.pill, normal.pill * 1.3, "the sync pill scales")
     }
 }

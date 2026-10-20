@@ -30,7 +30,9 @@ public protocol EntryWriter: AnyObject {
     /// The store writes go to now; nil before one is bound.
     var scope: EntryScope? { get }
     /// Enqueues the entry durably and returns its id (also its outbox item's id) and store.
-    func log(_ topic: QuickLogTopic, answers: [String: AnswerValue]) async throws -> LoggedEntry
+    /// `capturedAt` nil is now; the record screen passes its own time and notes.
+    func log(_ topic: QuickLogTopic, answers: [String: AnswerValue], capturedAt: Date?, notes: String?)
+        async throws -> LoggedEntry
     /// Asks for a flush and waits up to `wait` for the outcome (`OutboxFlushScheduler.sendNow`).
     /// `.queued` when `scope` is no longer the active store: the entry waits in its own.
     func sendNow(_ entry: LoggedEntry, wait: Duration) async -> EntryDelivery
@@ -43,6 +45,13 @@ public protocol EntryWriter: AnyObject {
     func undoDelete(_ entryId: UUID, in scope: EntryScope) async throws -> Bool
     /// What to tell the user about a refused write.
     func failure(_ error: any Error) -> EntryWriteFailure
+}
+
+extension EntryWriter {
+    /// A quick-log: captured now, without notes.
+    public func log(_ topic: QuickLogTopic, answers: [String: AnswerValue]) async throws -> LoggedEntry {
+        try await log(topic, answers: answers, capturedAt: nil, notes: nil)
+    }
 }
 
 /// Writer errors of the UI layer's own.

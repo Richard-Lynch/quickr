@@ -192,7 +192,9 @@ import Testing
     @Test func providerFailuresAreThrown() async throws {
         struct Broken: ServerIdentityProvider, AccessCredentialsProvider {
             func currentIdentity() async throws -> ServerIdentity? { throw CocoaError(.fileReadCorruptFile) }
-            func accessCredentials() async throws -> AccessCredentials? { throw CocoaError(.fileReadCorruptFile) }
+            func accessCredentials(for baseURL: URL) async throws -> AccessCredentials? {
+                throw CocoaError(.fileReadCorruptFile)
+            }
         }
         let transport = FakeTransport()
         let client = APIClient(baseURL: APITest.baseURL, transport: transport, identity: Broken())
