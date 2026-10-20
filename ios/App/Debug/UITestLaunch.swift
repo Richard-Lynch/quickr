@@ -302,6 +302,11 @@ private struct FakeServerTransport: Transport {
         if request.method == .delete, path.hasPrefix("/api/v1/entries/") {
             return HTTPResponse(status: 204, headers: headers)
         }
+        if request.method == .get, path.hasPrefix("/api/v1/topics/"), path.hasSuffix("/entries.csv") {
+            var csv = headers
+            csv["Content-Type"] = "text/csv; charset=utf-8"
+            return HTTPResponse(status: 200, headers: csv, body: Data("id,captured_at\n".utf8))
+        }
         return HTTPResponse(
             status: 404, headers: headers, body: Data(#"{"code":"not_found","detail":"Not found","errors":[]}"#.utf8))
     }
