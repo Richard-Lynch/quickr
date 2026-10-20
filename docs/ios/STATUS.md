@@ -306,6 +306,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 14:10 (EDT): **New `ios/m3` collection branch** (from m2-ui 2bab7fe) holds the M3 work until the M2 PR lands; **HANDLER merged into it** (5a7aced; Unit 863/0 on 1ac5667; lint and core pass). NSE: after merging m2-ui, EDIT's SessionEntryWriterTests.aRefusedEditIsFixedInPlace fails on the NSE branch (an overlay-fold vs EDIT fix-mode semantics clash from merging the two); being fixed. iOS 27 fixes (ios/m2-ios27): the native back button on a clean form (iOS 27 gives no content swipe to a screen with a hidden back button; the SwipeBack helper is removed); the token sheet clears the secret before closing (to avoid the iOS 27 Passwords prompt); the XXXL test scrolls the row middle into view. Validation runs going. BUILDER-UI started (skeleton agent). Load peaked around 70.
+
 - 2026-10-20 14:00 (EDT): **TOPIC merged into ios/m2-ui** (Codex ×3; on 88c84ab: Unit 831, UI 85/0, router mutants 2/2, lease mutants 6/6; lint, core, vectors with no drift, the app build and frontend vitest pass on the merge). **All 21 M2 packages are in.** Remaining before the M2 PR: the iOS 27 UI fixes (ios/m2-ios27), then a final check-ios (26 and 27) on the tip, then the PR into feat/ios-app.
 
 - 2026-10-20 13:55 (EDT): M2 pre-validation on a05a3a1 finished. check-ios: iOS 26.0 Unit 774/0, UI 65/0; iOS 27 Unit 774/0, UI 62/3 (being fixed on ios/m2-ios27: an iOS 27 Save-Password prompt over Settings, the XXXL row-swipe test, and the content swipe on 27). E2E 14/0 (3 demo skips). Integration 19/19 ×2. `make check` (backend and frontend) green. `make vectors`: no drift. TOPIC's final UI run is going; ios27 fixes are on the 27 clone.
