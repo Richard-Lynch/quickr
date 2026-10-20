@@ -466,8 +466,10 @@ didReceive(response, completion):
 3. The parsed value must be finite.
 4. Validate it as `parseQuickNumber` does:
    - `int` requires an integer;
-   - `min ≤ x ≤ max`;
-   - at most `decimals` fraction digits.
+   - `min ≤ x ≤ max`.
+
+   Extra fraction digits beyond `decimals` are accepted, as `parseQuickNumber` and
+   the server accept them: `decimals` is a display hint (§4.4), not a rule.
 5. If the value is invalid, write nothing. Post a local notification:
    - title "Couldn't log {topic}";
    - body "“{raw}” isn't a valid value — tap to fix";

@@ -36,6 +36,8 @@ final class AppEnvironment {
     let entryToasts: EntryToasts
     /// Every tile's quick-log model, kept while the app runs (QuickLogModels).
     let quickLogModels: QuickLogModels
+    /// A tap-to-fix notification's text, until its record screen takes it (`takeRecordPrefill`).
+    var recordPrefill: NotificationPrefill?
     /// Nil only when it couldn't be created (`sessionError`); `start()` tries again.
     private(set) var session: AppSession?
     private(set) var sessionError: String?

@@ -181,6 +181,48 @@ private let otherServerURL = URL(string: "https://other.example")!
         await session.shutdown()
     }
 
+    /// The notification handler's gate (notifications.md §7.1 steps 8, 10): the bound store while
+    /// the registry agrees; nothing during a switch or before the first bind; the registry's only
+    /// for a session that never started.
+    @Test func activeScopeIsTheBoundStoreAndNothingDuringASwitch() async throws {
+        let w = try World()
+        defer { w.env.cleanup() }
+        let session = try w.session()
+        await session.start(serverURL: SyncEnv.baseURL)
+        let scope = try #require(session.binding?.scope)
+        #expect(await session.activeScope() == scope)
+
+        // A switch to the other server, held before its bind: the registry has moved, the binding
+        // not yet. Neither store counts as active.
+        let gate = Gate()
+        defer { gate.releaseAll() }
+        session.beforeBindForTesting = { await gate.arrive() }
+        let connect = Task { await session.connect(baseURL: otherServerURL) }
+        try await within("the switch holds its bind", timeout: .seconds(10)) { await gate.arrival() }
+        #expect(await session.activeScope() == nil)
+        gate.open()
+        _ = try await within("the switch finished", timeout: .seconds(10)) { await connect.value }
+        #expect(await session.activeScope()?.id.hasPrefix(w.other.serverId) == true)
+        session.beforeBindForTesting = nil
+        await session.shutdown()
+
+        // A launch in the background for an action: never started, nothing binding: the registry.
+        let background = try w.session()
+        let registryScope = try #require(await background.activeScope())
+        #expect(registryScope.id.hasPrefix(w.other.serverId))
+        // Its first bind pending (started, held before the bind): nothing.
+        let first = Gate()
+        defer { first.releaseAll() }
+        background.beforeBindForTesting = { await first.arrive() }
+        let start = Task { await background.start() }
+        try await within("the first bind is held", timeout: .seconds(10)) { await first.arrival() }
+        #expect(await background.activeScope() == nil)
+        first.open()
+        try await within("started", timeout: .seconds(10)) { await start.value }
+        #expect(await background.activeScope() == registryScope)
+        await background.shutdown()
+    }
+
     @Test func switchingServersRebindsToTheOtherStore() async throws {
         let w = try World()
         defer { w.env.cleanup() }
