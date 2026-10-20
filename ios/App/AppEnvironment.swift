@@ -45,8 +45,11 @@ final class AppEnvironment {
     /// its first activation (``activatePush()``), which a start cut short by a background expiry
     /// leaves to the next `.active`.
     private(set) var push: PushLifecycle?
-    /// Trips to the foreground: one at launch, then one per return from the background.
+    /// Trips to the foreground: one at launch, then one per return from the background (which
+    /// passes through `.inactive` on its way to `.active`).
     @ObservationIgnored private var foregroundTrip = 0
+    /// `.background` was seen since the last `.active`.
+    @ObservationIgnored private var backgroundSinceActive = false
     /// The trip push was last activated in: once per trip, whether the start or `.active` gets
     /// there first.
     @ObservationIgnored private var pushActivatedTrip: Int?
@@ -166,15 +169,23 @@ final class AppEnvironment {
     /// flush and pull; on `.background`, flush inside a background task whose expiration handler
     /// cancels the flush, then suspend the database (0xDEAD10CC).
     func scenePhaseChanged(_ phase: ScenePhase) {
-        if phase == .active, lastScenePhase == .background { foregroundTrip += 1 }
+        if phase == .background { backgroundSinceActive = true }
+        if phase == .active, backgroundSinceActive {
+            foregroundTrip += 1
+            backgroundSinceActive = false
+        }
         lastScenePhase = phase
         guard let session else { return }
         switch phase {
         case .active:
             sync.didBecomeActive()
+            let trip = foregroundTrip
             Task {
                 await session.didBecomeActive()
                 await finishInterruptedStart(session)
+                // Still this trip in the foreground: backgrounded meanwhile (perhaps with the start
+                // expiring), there is no push work to do.
+                guard lastScenePhase == .active, foregroundTrip == trip else { return }
                 await activatePush()
             }
         case .background:

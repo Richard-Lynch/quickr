@@ -299,6 +299,33 @@ import Testing
         await environment.session?.shutdown()
     }
 
+    /// The app is opened while startup is connecting, then backgrounded before it finishes, and the
+    /// background time runs out: the start stops, and the `.active` waiting for it does no push
+    /// work either.
+    @Test func backgroundedBeforeStartupFinishesThenExpiredActivatesNoPush() async throws {
+        UITestLaunch.server.offline = false
+        UITestLaunch.server.holdFeed()
+        defer { UITestLaunch.server.releaseFeed() }
+        let environment = UITestLaunch.environment(categoryCenter: nil)
+        environment.settings.serverURL = UITestLaunch.fakeServer
+        let starting = Task { await environment.start() }
+        try await eventually("startup is fetching") { UITestLaunch.server.heldCount == 1 }
+        environment.scenePhaseChanged(.active)
+        environment.scenePhaseChanged(.inactive)
+        environment.scenePhaseChanged(.background)
+        let task = RecordingRefreshTask()
+        let refresh = Task { await environment.backgroundRefresh(task) }
+        try await eventually("the refresh is waiting for the start") { task.hasExpirationHandler }
+        task.expire()
+        try await eventually("completed") { task.completions == [false] }
+        UITestLaunch.server.releaseFeed()
+        await refresh.value
+        await starting.value
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(environment.push == nil, "push work after the expiry")
+        await environment.session?.shutdown()
+    }
+
     /// Launch: the start and the first `.active` both reach push, in either order; it is activated
     /// once. A return from the background activates it again, warm.
     @Test(arguments: [false, true])
@@ -313,7 +340,10 @@ import Testing
         try await Task.sleep(for: .milliseconds(500))
         #expect(push.activations == [true], "launch")
 
+        // A real return passes through .inactive.
+        environment.scenePhaseChanged(.inactive)
         environment.scenePhaseChanged(.background)
+        environment.scenePhaseChanged(.inactive)
         environment.scenePhaseChanged(.active)
         try await eventually("activated again") { push.activations.count == 2 }
         try await Task.sleep(for: .milliseconds(500))
