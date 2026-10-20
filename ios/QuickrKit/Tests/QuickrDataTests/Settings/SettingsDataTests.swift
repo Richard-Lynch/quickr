@@ -98,6 +98,8 @@ private struct FakeRegistry: RegistryRepository {
             }
         }
         #expect(transport.requests.count == 40)
+        // A server with no token of its own never gets another's.
+        #expect(try await provider.accessCredentials(for: URL(string: "https://c.example.com")!) == nil)
         for request in transport.requests {
             let expected = request.url.host() == "a.example.com" ? token : tokenB
             #expect(request.headers[QuickrHeader.cfAccessClientId] == expected.clientId)
