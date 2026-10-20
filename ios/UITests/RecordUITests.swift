@@ -21,7 +21,7 @@ final class RecordUITests: XCTestCase {
         app.buttons["record.save"].tap()
 
         // Saved: the screen closes and the toast offers Undo.
-        XCTAssertTrue(app.staticTexts["root.title"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["Logged Workout"].waitForExistence(timeout: 5))
         snap(app, "record-4-logged")
         app.buttons["Undo"].firstMatch.tap()
@@ -77,7 +77,7 @@ final class RecordUITests: XCTestCase {
         duration.tap()
         duration.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3) + "90")
         app.buttons["record.save"].tap()
-        XCTAssertTrue(app.staticTexts["root.title"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["Logged Workout"].waitForExistence(timeout: 5))
     }
 
@@ -87,7 +87,7 @@ final class RecordUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Good"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["Tap an answer to log it right away."].exists)
         app.buttons["Good"].tap()
-        XCTAssertTrue(app.staticTexts["root.title"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["Logged Mood"].waitForExistence(timeout: 5))
     }
 
@@ -106,7 +106,7 @@ final class RecordUITests: XCTestCase {
         back.tap()
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         alert.buttons["Discard"].tap()
-        XCTAssertTrue(app.staticTexts["root.title"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 10))
     }
 
     /// At the largest accessibility size the Save bar steps aside while the keyboard is up, and
