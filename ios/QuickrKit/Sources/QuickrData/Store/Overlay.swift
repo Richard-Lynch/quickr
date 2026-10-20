@@ -31,11 +31,16 @@ public struct EntryOverlay: Sendable, Hashable {
     /// Counted for `entry_count`, `last_captured_at` and version counts (§3.3).
     /// The error of the failed item behind `.failed`.
     public var lastError: OutboxErrorInfo?
+    /// The `seq` of the create behind a row the server doesn't have yet (pending or failed):
+    /// such rows pin above the list in outbox order. Nil once the server has the entry.
+    public var createSeq: Int64?
 
     public var isCounted: Bool { isVisible && !createFailed }
 
     public var viewEntry: ViewEntry? {
-        isVisible ? entry.map { ViewEntry(entry: $0, syncState: syncState, lastError: lastError) } : nil
+        isVisible
+            ? entry.map { ViewEntry(entry: $0, syncState: syncState, lastError: lastError, createSeq: createSeq) }
+            : nil
     }
 
     /// `items` are the entity's unresolved items; they are applied in `seq` order. The caller
@@ -50,6 +55,7 @@ public struct EntryOverlay: Sendable, Hashable {
         var createFailed = false
         var pending = false
         var failed: OutboxItem?
+        var createSeq: Int64?
         for item in items.sorted(by: { $0.seq < $1.seq }) {
             let isFailed = item.state == .failed
             // A failed item with reason deleted_elsewhere has no row; it appears only in the sync sheet.
@@ -62,6 +68,7 @@ public struct EntryOverlay: Sendable, Hashable {
                 // With a server row, the server row wins: the create has landed.
                 guard server == nil else { break }
                 entry = try Entry(creating: item, topic: topic, body: body, questions: questions)
+                createSeq = item.seq
                 if !isFailed { pending = true }
             case .entryUpdate(_, _, let patch):
                 guard var patched = entry else { break }
@@ -82,7 +89,8 @@ public struct EntryOverlay: Sendable, Hashable {
         return EntryOverlay(
             entry: entry,
             syncState: failed.map { .failed($0.failureReason ?? .rejected) } ?? (pending ? .pending : .synced),
-            hidden: hidden, undoable: undoable, createFailed: createFailed, lastError: failed?.lastError)
+            hidden: hidden, undoable: undoable, createFailed: createFailed, lastError: failed?.lastError,
+            createSeq: createSeq)
     }
 }
 
