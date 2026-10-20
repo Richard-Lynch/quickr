@@ -1,5 +1,6 @@
 import Foundation
 import QuickrCore
+import Synchronization
 
 /// A topic's entries as CSV (the PWA's "Export CSV" on the entries page), online only:
 /// `GET /topics/{slug}/entries.csv` with the list's filters, downloaded to a temporary file for
@@ -13,6 +14,26 @@ import QuickrCore
 ///   so overlapping exports never delete each other's files.
 /// - The body streams to disk (`Transport.download`), with the 120 s export deadline.
 public struct EntriesExport: Sendable {
+    /// Process-wide: whether this process has swept yet, and the export folders it created
+    /// (never swept, whatever their dates).
+    public final class Ledger: Sendable {
+        public static let shared = Ledger()
+        private let state = Mutex<(swept: Bool, created: Set<String>)>((false, []))
+
+        public init() {}
+
+        /// True the first time only.
+        func claimSweep() -> Bool {
+            state.withLock { state in
+                defer { state.swept = true }
+                return !state.swept
+            }
+        }
+
+        func created(_ folder: String) { _ = state.withLock { $0.created.insert(folder) } }
+        func isOwn(_ folder: String) -> Bool { state.withLock { $0.created.contains(folder) } }
+    }
+
     /// What an export needs from the bound store, captured when it starts.
     public struct Scope: Sendable, Hashable {
         public var binding: AppSession.Binding
@@ -52,9 +73,11 @@ public struct EntriesExport: Sendable {
 
     /// Where exports are written, each in its own folder.
     public let root: URL
+    public let ledger: Ledger
 
-    public init(root: URL = EntriesExport.defaultRoot) {
+    public init(root: URL = EntriesExport.defaultRoot, ledger: Ledger = .shared) {
         self.root = root
+        self.ledger = ledger
     }
 
     /// The app's temporary folder for exports.
@@ -62,14 +85,18 @@ public struct EntriesExport: Sendable {
         FileManager.default.temporaryDirectory.appending(path: "Exports", directoryHint: .isDirectory)
     }
 
-    /// Removes export folders older than `age` (by modification date): ones whose share sheet
-    /// never closed (the app was killed). Run at launch, when no export can still be in use.
+    /// Removes export folders older than `age` (by modification date) that an earlier process
+    /// left: ones whose share sheet never closed (the app was killed). Once per process (`start()`
+    /// runs again for background refreshes), and never a folder this process created, so never
+    /// one still being shared.
     public func sweep(olderThan age: TimeInterval = 24 * 3600, now: Date) {
+        guard ledger.claimSweep() else { return }
         let fm = FileManager.default
         let folders =
             (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         for folder in folders {
             let modified = try? folder.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            guard !ledger.isOwn(folder.lastPathComponent) else { continue }
             if let modified, now.timeIntervalSince(modified) > age { try? fm.removeItem(at: folder) }
         }
     }
@@ -125,7 +152,9 @@ public struct EntriesExport: Sendable {
         let client = APIClient(
             baseURL: scope.binding.baseURL, transport: transport, identity: StaticServerIdentity(scope.identity),
             credentials: credentials, origin: .app)
-        let folder = root.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let name = UUID().uuidString
+        ledger.created(name)
+        let folder = root.appending(path: name, directoryHint: .isDirectory)
         let destination = folder.appending(path: Self.fileName(slug: slug, now: now, calendar: calendar))
         let outcome: APIOutcome<URL>
         do {

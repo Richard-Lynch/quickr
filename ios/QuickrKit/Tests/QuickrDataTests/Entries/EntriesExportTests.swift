@@ -96,7 +96,8 @@ import Testing
         let gated: Gated
         let root = FileManager.default.temporaryDirectory.appending(path: "csv-tests-\(UUID().uuidString)")
         let current = Box(true)
-        var export: EntriesExport { EntriesExport(root: root) }
+        let ledger = EntriesExport.Ledger()
+        var export: EntriesExport { EntriesExport(root: root, ledger: ledger) }
 
         init() { gated = Gated(fake) }
 
@@ -113,6 +114,16 @@ import Testing
 
         func csvResponse(_ body: String = EntriesExportTests.csv) -> HTTPResponse {
             APITest.response(200, json: body, headers: ["Content-Type": "text/csv; charset=utf-8"])
+        }
+
+        /// A folder an earlier process left, `age` seconds old.
+        func leftover(_ name: String, age: TimeInterval) throws -> URL {
+            let folder = root.appending(path: name)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: folder.appending(path: "mood-20261020.csv"))
+            try FileManager.default.setAttributes(
+                [.modificationDate: EntriesExportTests.now.addingTimeInterval(-age)], ofItemAtPath: folder.path())
+            return folder
         }
 
         /// Every export folder left under the root.
@@ -294,22 +305,43 @@ import Testing
         file.remove()
     }
 
-    /// At launch: folders older than a day go (a share sheet the app was killed under); newer
-    /// ones stay.
-    @Test func theLaunchSweepRemovesDayOldExports() throws {
+    /// Leftovers of an earlier process: folders older than a day go, newer ones stay.
+    @Test func theSweepRemovesDayOldExportsOfEarlierProcesses() throws {
         let w = World()
-        let fm = FileManager.default
-        let old = w.root.appending(path: "old")
-        let recent = w.root.appending(path: "recent")
-        for folder in [old, recent] {
-            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
-            try Data("x".utf8).write(to: folder.appending(path: "mood-20261020.csv"))
-        }
-        try fm.setAttributes([.modificationDate: Self.now.addingTimeInterval(-25 * 3600)], ofItemAtPath: old.path())
-        try fm.setAttributes([.modificationDate: Self.now.addingTimeInterval(-23 * 3600)], ofItemAtPath: recent.path())
+        let old = try w.leftover("old", age: 25 * 3600)
+        _ = try w.leftover("recent", age: 23 * 3600)
         w.export.sweep(now: Self.now)
         #expect(w.folders.map(\.lastPathComponent) == ["recent"])
-        try? fm.removeItem(at: w.root)
+        #expect(!FileManager.default.fileExists(atPath: old.path()))
+        try? FileManager.default.removeItem(at: w.root)
+    }
+
+    /// `start()` runs again for a background refresh: only the first sweep in a process removes
+    /// anything.
+    @Test func onlyTheFirstSweepInAProcessRuns() throws {
+        let w = World()
+        w.export.sweep(now: Self.now)
+        _ = try w.leftover("old", age: 25 * 3600)
+        w.export.sweep(now: Self.now)
+        #expect(w.folders.map(\.lastPathComponent) == ["old"])
+        try? FileManager.default.removeItem(at: w.root)
+    }
+
+    /// An export of this process is never swept, even dated a day back (a share sheet open that
+    /// long, or a clock change).
+    @Test func thisProcesssExportsAreNeverSwept() async throws {
+        let w = World()
+        w.fake.enqueue(.success(w.csvResponse()))
+        guard case .file(let file) = await w.run() else {
+            Issue.record("no file")
+            return
+        }
+        let folder = file.url.deletingLastPathComponent()
+        try FileManager.default.setAttributes(
+            [.modificationDate: Self.now.addingTimeInterval(-48 * 3600)], ofItemAtPath: folder.path())
+        w.export.sweep(now: Self.now)
+        #expect(FileManager.default.fileExists(atPath: file.url.path()))
+        file.remove()
     }
 
     // MARK: - Failures
