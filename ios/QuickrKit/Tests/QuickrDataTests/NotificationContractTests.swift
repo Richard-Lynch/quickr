@@ -43,7 +43,7 @@ import Testing
                 == .number(
                     .init(
                         type: "double", key: "hours", label: "Sleep", unit: "h", min: 0, max: 24, decimals: 1,
-                        lastValue: 7.5)))
+                        lastValue: .double(7.5))))
         #expect(try info(String(decoding: JSONEncoder().encode(number), as: UTF8.self)) == number)
     }
 
