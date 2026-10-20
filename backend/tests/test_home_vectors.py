@@ -180,6 +180,26 @@ SPECS: list[Spec] = [
         schedule=interval(1440),
         entries=[at(4, 6)],
     ),
+    Spec(  # never logged, schedule_updated_at null: created 11:00 + 2 h -> not due, next 13:00
+        0x8C,  # (a fallback other than created_at, e.g. the distant past, would make it overdue)
+        "Walk",
+        "walk",
+        at(4, 11),
+        at(4, 11),
+        [q("steps", "Steps")],
+        schedule=interval(120),
+        schedule_since=None,
+    ),
+    Spec(  # never logged, schedule set 10:30 + 2 h -> not due, next 12:30
+        0x4A,  # (from created_at, long ago, it would be overdue)
+        "Yoga",
+        "yoga",
+        at(2, month=1),
+        at(4, 10, 30),
+        [q("poses", "Poses")],
+        schedule=interval(120),
+        schedule_since=at(4, 10, 30),
+    ),
     # --- unscheduled, active ---
     Spec(  # activity = last entry (03-03 18:00), equal to cherry's updated_at; cherry's id is lower
         0x9A,
@@ -352,6 +372,13 @@ def check_coverage(topics: dict[str, dict[str, Any]], cases: list[dict[str, Any]
     for name in ("q-percent-literal", "q-underscore-literal"):
         assert len(by_name[name]) == 1, name
     assert set(by_name["all-due"]) == set(topics)
+    # Never-logged intervals: due state comes from schedule_updated_at, else created_at.
+    for n, next_due in ((0x8C, at(4, 13)), (0x4A, at(4, 12, 30))):
+        t = topics[str(topic_id(n))]
+        assert t["entry_count"] == 0, t["name"]
+        assert t["schedule"]["kind"] == "interval", t["name"]
+        assert t["due"]["is_due"] is False, t["name"]
+        assert t["due"]["next_due_at"] == iso(next_due), t["name"]
 
 
 async def test_home_vectors_match_committed(db: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
