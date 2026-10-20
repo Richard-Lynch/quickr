@@ -63,7 +63,8 @@ final class EntriesTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)[id].waitForExistence(timeout: 5))
     }
 
-    /// An entry opens its edit screen; a refused one opens record to fix it.
+    /// An entry opens its edit screen (a placeholder until EDIT); a refused one opens RECORD's
+    /// screen to fix it.
     @MainActor
     func testTappingOpensEditOrFix() {
         let app = launch()
@@ -73,9 +74,9 @@ final class EntriesTests: XCTestCase {
         XCTAssertTrue(path.label.hasPrefix("/t/water/entries/"), path.label)
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
+        // RECORD's screen in fix mode, on the refused log.
         rows(app, "pending.").element(boundBy: 0).tap()
-        XCTAssertTrue(path.waitForExistence(timeout: 5))
-        XCTAssertTrue(path.label.hasPrefix("/t/water/record?fix="), path.label)
+        XCTAssertTrue(app.descendants(matching: .any)["record.fixBanner"].waitForExistence(timeout: 10))
     }
 
     /// The source filter narrows the list; the range "All" widens it.
