@@ -275,15 +275,18 @@ final class RecordUITests: XCTestCase {
         return app
     }
 
-    /// A quick rightward flick away from the edge, from the first question's label ("Type"): above
-    /// the keyboard a pick can bring up (a flick on the keys isn't a swipe back), in any size or
-    /// orientation, and not on a control.
+    /// A quick rightward flick from 30% of the width (well clear of the edge swipe), at the height
+    /// of the first question's label ("Type"): above the keyboard a pick can bring up (a flick on
+    /// the keys isn't a swipe back), in any size or orientation. Starting on the label itself (near
+    /// the edge) doesn't make a content swipe.
     @MainActor
     private func contentSwipe(_ app: XCUIApplication) {
         let label = app.staticTexts["Type"].firstMatch
         XCTAssertTrue(label.waitForExistence(timeout: 5))
-        let start = label.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
-        let end = start.withOffset(CGVector(dx: app.windows.firstMatch.frame.width * 0.6, dy: 0))
+        let window = app.windows.firstMatch.frame
+        let start = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: window.width * 0.3, dy: label.frame.midY))
+        let end = start.withOffset(CGVector(dx: window.width * 0.65, dy: 0))
         start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0)
     }
 
