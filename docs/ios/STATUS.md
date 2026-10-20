@@ -157,6 +157,9 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- LIST flake: EntriesTests.testAccessibilityXXXL. The swipe-Delete button can land under the home indicator in the full-plan layout (it passes alone 2/2; seen by TOPIC).
+- Tooling: xcodebuild sometimes hangs after the tests finish (seen by TOPIC); the watchdog kills it once the results are written. Investigate the 60 s post-final-line deadline.
+- TOPIC: details and schedule PATCHes send no expected_revision (PWA parity), so a concurrent edit elsewhere is overwritten. Consider optimistic concurrency on both clients.
 - A11Y: at AX XXXL, the topic tabs (LIST's segmented Overview/Entries/Versions control) stay small while the rest of the screen grows. Use a scaled custom tab bar, or a menu/picker at AX sizes (found by STATS).
 - REG: add push-activation tests for several consecutive foreground trips, and a quick return before startup finishes, with expiry around it (Codex r4 coverage note).
 - Both clients: a prefilled number field (the min-0 prefill or the last value) keeps the caret where it was tapped, so typing "3" gives "30". Select all on the first focus of a pristine prefill, or clear a pristine min-0 prefill when typing starts. PWA: AnswerField.tsx NumberInput, quickLog.ts initialNumber. iOS: QuickLog.initialText and AnswerField. Tap counts are unchanged. (Found by UIT-2.)
