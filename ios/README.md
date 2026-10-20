@@ -24,8 +24,12 @@ copy `Local.xcconfig.example` to `Local.xcconfig` (gitignored) and set
 
 ## Make targets
 
-Run from the repo root. `IOS_SIM` (default `quickR iOS-26-0`) takes a simulator
-name or UDID.
+Run from the repo root. The simulator variables take a name or UDID: `ios-test`
+uses `IOS_SIM_MIN` (default `quickR iOS-26-0`), `ios-uitest` and `ios-sim-run`
+use `IOS_SIM` (default `IOS_SIM_MIN`), and `check-ios` uses `IOS_SIM_MIN` and
+`IOS_SIM_CUR`. When a target's variable isn't set (and `CI` isn't), it runs on
+this worktree's own clone of that device (`sim-clone.sh`, created on first use),
+never on the shared base device.
 
 | Target                      | Does                                                                                                                                                                                          |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -64,8 +68,8 @@ stream instead of arriving all at once when it exits. Test plans also run with t
 (`IOS_TEST_ALLOWANCE`, default 300 s per test).
 
 Simulators boot through one admission (`sim-clone.sh`, `test.sh`, `sim-run.sh`):
-it refuses while `IOS_SIM_CAP` (default 2; 0 = off) other worktree clones are
-booted, and names them; `sim-clone.sh --wait` or `IOS_SIM_WAIT=1` waits for a
+it refuses while `IOS_SIM_CAP` (default 2; 0 = off) other quickR simulators
+(worktree clones and the base `quickR …` devices alike) are booted, and names them; `sim-clone.sh --wait` or `IOS_SIM_WAIT=1` waits for a
 slot instead. A machine-wide lock covers the check and the boot, so two
 worktrees can't both take the last slot. A clone that is already booted never
 counts against itself. `sim-clone.sh` boots its clone; `--no-boot` only prints
@@ -319,7 +323,7 @@ PATCHes), filter on `upstream_status != null`.
 should use its own device:
 
 ```sh
-make ios-test IOS_SIM_MIN="$(ios/scripts/sim-clone.sh)"
+make ios-test                                    # this worktree's clone of quickR iOS-26-0
 make ios-uitest IOS_SIM="$(ios/scripts/sim-clone.sh 'quickR iOS27')"
 ios/scripts/sim-clone.sh --delete               # when the worktree is done
 ```
