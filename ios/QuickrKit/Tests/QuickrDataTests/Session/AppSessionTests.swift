@@ -264,30 +264,6 @@ private let otherServerURL = URL(string: "https://other.example")!
         await session.shutdown()
     }
 
-    @Test func expiryIsBoundedByTheRemainingTime() async throws {
-        let w = try World()
-        defer { w.env.cleanup() }
-        let gate = Gate()
-        let suspended = w.posted(Database.suspendNotification)
-        let session = try w.session(
-            transport: GatedTransport(w.env.transport, gate) { $0.url.path == "/api/v1/changes" && gate.armed })
-        await session.start(serverURL: SyncEnv.baseURL)
-        gate.arm()
-        let pull = Task { await session.coordinator.sync(reason: .requested) }
-        await gate.arrival()  // a pull is parked and won't end
-
-        let episode = session.beginBackground()
-        let background = Task { await session.didEnterBackground(episode) }  // waits for the parked pull
-        let started = ContinuousClock.now
-        await session.backgroundTimeExpiring(episode, within: .milliseconds(300))
-        #expect(ContinuousClock.now - started < .seconds(10), "returned at the bound, not when the pull ends")
-        #expect(suspended.count == 1)
-        gate.releaseAll()
-        _ = await pull.value
-        _ = await background.value
-        await session.shutdown()
-    }
-
     @Test func theReadOnlyTopicsNeverCreateAStoreFile() async throws {
         let w = try World()
         defer { w.env.cleanup() }
@@ -416,6 +392,35 @@ private let otherServerURL = URL(string: "https://other.example")!
         }
         try await eventually("the session is freed") {
             refs.session == nil && refs.coordinator == nil
+        }
+    }
+}
+
+/// The real-time case of `AppSessionTests` (see `TimingTests`).
+extension TimingTests {
+    @MainActor @Suite struct AppSessionTiming {
+        @Test func expiryIsBoundedByTheRemainingTime() async throws {
+            let w = try AppSessionTests.World()
+            defer { w.env.cleanup() }
+            let gate = Gate()
+            let suspended = w.posted(Database.suspendNotification)
+            let session = try w.session(
+                transport: GatedTransport(w.env.transport, gate) { $0.url.path == "/api/v1/changes" && gate.armed })
+            await session.start(serverURL: SyncEnv.baseURL)
+            gate.arm()
+            let pull = Task { await session.coordinator.sync(reason: .requested) }
+            await gate.arrival()  // a pull is parked and won't end
+
+            let episode = session.beginBackground()
+            let background = Task { await session.didEnterBackground(episode) }  // waits for the parked pull
+            let started = ContinuousClock.now
+            await session.backgroundTimeExpiring(episode, within: .milliseconds(300))
+            #expect(ContinuousClock.now - started < .seconds(10), "returned at the bound, not when the pull ends")
+            #expect(suspended.count == 1)
+            gate.releaseAll()
+            _ = await pull.value
+            _ = await background.value
+            await session.shutdown()
         }
     }
 }
