@@ -49,17 +49,37 @@ public struct EntryOverlay: Sendable, Hashable {
     public static func resolve(server: Entry?, items: [OutboxItem], questions: QuestionLookup = { _, _ in [] })
         throws -> EntryOverlay
     {
-        var entry = server
-        var hidden = false
-        var undoable = false
-        var createFailed = false
-        var pending = false
-        var failed: OutboxItem?
-        var createSeq: Int64?
-        for item in items.sorted(by: { $0.seq < $1.seq }) {
+        try withoutActuallyEscaping(questions) { questions in
+            var builder = Builder(server: server, questions: questions)
+            for item in items.sorted(by: { $0.seq < $1.seq }) { try builder.apply(item) }
+            return builder.overlay
+        }
+    }
+
+    /// ``resolve(server:items:questions:)`` one item at a time, for a caller that streams an
+    /// entity's items in `seq` order and keeps none of them.
+    public struct Builder {
+        private let server: Entry?
+        private let questions: QuestionLookup
+        private var entry: Entry?
+        private var hidden = false
+        private var undoable = false
+        private var createFailed = false
+        private var pending = false
+        private var failed: OutboxItem?
+        private var createSeq: Int64?
+
+        public init(server: Entry?, questions: @escaping QuestionLookup = { _, _ in [] }) {
+            self.server = server
+            self.questions = questions
+            entry = server
+        }
+
+        /// Applies the next item (in `seq` order).
+        public mutating func apply(_ item: OutboxItem) throws {
             let isFailed = item.state == .failed
             // A failed item with reason deleted_elsewhere has no row; it appears only in the sync sheet.
-            if isFailed && item.failureReason == .deletedElsewhere { continue }
+            if isFailed && item.failureReason == .deletedElsewhere { return }
             switch try item.payload() {
             case .entryCreate(let topic, let body):
                 // A failed create excludes the entity from derived fields whatever the content
@@ -82,15 +102,18 @@ public struct EntryOverlay: Sendable, Hashable {
                 undoable = item.state == .held
                 pending = true
             case .topicArchive, .topicUnarchive:
-                continue
+                return
             }
             if isFailed { failed = item }
         }
-        return EntryOverlay(
-            entry: entry,
-            syncState: failed.map { .failed($0.failureReason ?? .rejected) } ?? (pending ? .pending : .synced),
-            hidden: hidden, undoable: undoable, createFailed: createFailed, lastError: failed?.lastError,
-            createSeq: createSeq)
+
+        public var overlay: EntryOverlay {
+            EntryOverlay(
+                entry: entry,
+                syncState: failed.map { .failed($0.failureReason ?? .rejected) } ?? (pending ? .pending : .synced),
+                hidden: hidden, undoable: undoable, createFailed: createFailed, lastError: failed?.lastError,
+                createSeq: createSeq)
+        }
     }
 }
 

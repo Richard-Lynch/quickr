@@ -257,6 +257,9 @@ import Testing
         let w = try await World()
         let water = Self.water
         let base = Self.now.addingTimeInterval(-3 * 86_400)
+        // The edits move 10 entries after Water's last synced one (130 minutes ago), still before
+        // its slot: Water stays due (since 5 minutes ago), and nothing satisfies the slot.
+        let edited = Self.now.addingTimeInterval(-125 * 60)
         try await w.store.writer.write { db in
             for i in 0..<5_000 {
                 let id = UUID()
@@ -278,7 +281,7 @@ import Testing
                         id: UUID(),
                         payload: .entryUpdate(
                             entryId: id.wireString, topicId: water.id.wireString,
-                            patch: EntryUpdateDTO(capturedAt: base.addingTimeInterval(9_000 + Double(i)))),
+                            patch: EntryUpdateDTO(capturedAt: edited.addingTimeInterval(Double(i)))),
                         baseRevision: nil, origin: .app, hold: nil),
                     now: base)
             }
@@ -291,6 +294,7 @@ import Testing
         }
         #expect(groups.count == 5_000 && groups.filter { $0 == 2 }.count == 10, "one entity's items at a time")
         #expect(bounded == full.compactMapValues { $0 })
+        #expect(bounded[water.id.wireString] == edited.addingTimeInterval(9), "the edits are applied")
         // The queue is older than Water's slot: no local log, Water still due. The preparation
         // reads the queue only through the cursor (by entity), never whole (by seq).
         let statements = Mutex<[String]>([])
@@ -298,10 +302,8 @@ import Testing
         let prepared = await w.prepare(Self.reminder())
         try await w.store.writer.write { db in db.trace(options: [], nil) }
         #expect(prepared.body == "Time to log" && prepared.badge == 2)
-        // Whole item rows (payloads); the topic items for a few ids are fine.
-        let queueReads = statements.withLock { $0 }.filter {
-            $0.contains("SELECT * FROM outbox_item") && !$0.contains("entity_id IN")
-        }
+        // Whole item rows (payloads) only through the cursor.
+        let queueReads = statements.withLock { $0 }.filter { $0.contains("SELECT * FROM outbox_item") }
         #expect(!queueReads.isEmpty, "\(queueReads)")
         #expect(queueReads.allSatisfy { $0.contains("ORDER BY entity_id, seq") }, "\(queueReads)")
     }
@@ -363,6 +365,71 @@ import Testing
         _ = await preparing.value
         #expect(w.fake.withState { $0.categoryRegistrations.isEmpty })
         #expect(try w.table == [row.category.id])
+    }
+
+    /// Archives and unarchives of Water and Meds alternating with entries, 300 rounds (900 items;
+    /// appending them is the slow part), then Meds archived and a
+    /// failed unarchive: the
+    /// badge's topics hold one state row per topic and agree with the full view (status,
+    /// archived_at, last_captured_at).
+    @Test func anAlternatingTopicAndEntryQueueIsReadPerTopic() async throws {
+        let w = try await World()
+        let (water, meds) = (Self.water, Self.meds)
+        let base = Self.now.addingTimeInterval(-2 * 86_400)
+        try await w.store.writer.write { db in
+            for i in 0..<300 {
+                for topic in [water, meds] {
+                    try OutboxStorage.append(
+                        db,
+                        NewOutboxItem(
+                            id: UUID(),
+                            payload: i % 2 == 0
+                                ? .topicArchive(topicId: topic.id.wireString)
+                                : .topicUnarchive(topicId: topic.id.wireString),
+                            baseRevision: nil, origin: .app, hold: nil),
+                        now: base.addingTimeInterval(Double(i)))
+                }
+                try OutboxStorage.append(
+                    db,
+                    NewOutboxItem(
+                        id: UUID(),
+                        payload: .entryCreate(
+                            topic: TopicRef(id: water.id, slug: water.slug, name: water.name),
+                            body: EntryCreateDTO(
+                                id: nil, answers: ["severity": .string("s1")], source: "ios",
+                                capturedAt: base.addingTimeInterval(Double(i)), version: 1)),
+                        baseRevision: nil, origin: .app, hold: nil),
+                    now: base)
+            }
+            // Meds ends archived: one more archive.
+            try OutboxStorage.append(
+                db,
+                NewOutboxItem(
+                    id: UUID(), payload: .topicArchive(topicId: meds.id.wireString), baseRevision: nil, origin: .app,
+                    hold: nil),
+                now: base.addingTimeInterval(5_000))
+            // Then an unarchive that failed: not applied.
+            let failed = UUID()
+            try OutboxStorage.append(
+                db,
+                NewOutboxItem(
+                    id: failed, payload: .topicUnarchive(topicId: meds.id.wireString), baseRevision: nil,
+                    origin: .app, hold: nil),
+                now: base.addingTimeInterval(6_000))
+            try db.execute(
+                sql: "UPDATE outbox_item SET state = 'failed', failure_reason = 'rejected' WHERE id = ?",
+                arguments: [failed.wireString])
+        }
+        let (states, bounded, full) = try await w.store.writer.read { db in
+            (try StoreView.queuedTopicStates(db), try StoreView.dueTopics(db), try StoreView.topics(db))
+        }
+        #expect(states.count == 2)
+        #expect(bounded.map(\.topic.status) == full.map(\.topic.status))
+        #expect(bounded.map(\.topic.archivedAt) == full.map(\.topic.archivedAt))
+        #expect(bounded.map(\.topic.lastCapturedAt) == full.map(\.topic.lastCapturedAt))
+        #expect(full.first { $0.id == meds.id }?.topic.status == .archived)
+        // Meds is archived now, so only Water is due.
+        #expect(await w.prepare(Self.reminder()).badge == 1)
     }
 
     // MARK: - Version caches
