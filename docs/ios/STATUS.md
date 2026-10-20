@@ -293,6 +293,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 00:10 (EDT): Another API outage, ~22:25 to 00:10, stalled HOME, TILES and LINKS+SETTINGS mid-gate; all resumed. LINKS+SETTINGS Codex = REQUEST CHANGES (no "Sync first" in reset, the token is committed before the switch is confirmed, a warning-read failure allows the switch, and the secret leaks via HTTP header descriptions); fixes are in 090bf61, gates pending. HOME at d3daf9c (UI tests, screenshots), gates pending. TILES merged HOME's demo store; its gates are pending. A commit security-review hook also failed during the outage (log: ~/.claude/security/log.txt).
+
 - 2026-10-19 21:15 (EDT): **B8 merged into ios/m2-ui** (Codex r2: all majors resolved; real-browser coverage is a documented gap). The PWA now sends identity preconditions for notification actions, uses the shared §7.4 action entry id with Python-generated vectors, and gives visible feedback for every outcome. Gate on the merge: `make check` green (pytest 688, vitest 840). HOME, TILES (2/3) and LINKS+SETTINGS are in progress, with 2 simulators booted (TILES, SETTINGS).
 
 - 2026-10-19 21:00 (EDT): FORM merged into ios/m2-ui (a20fd41). LINKS+SETTINGS assigned (FORM agent). B8 done (3edb2b8, 36afb5e, 5879f9e; make check green). Codex = REQUEST CHANGES: server_id isn't preserved (wrong-server writes), failures silently dismiss the reminder. Decision: a **shared cross-client action entry id** (name-based from server_id, topic_id, due_since) with Python-generated vectors, amending §7.1. HOME and TILES (1/3: 5f0afbb) in progress.
