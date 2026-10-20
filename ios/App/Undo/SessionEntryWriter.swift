@@ -12,7 +12,7 @@ final class SessionEntryWriter: EntryFixing {
     /// The session of the moment (nil before it opens). Set by `AppEnvironment`.
     var session: @MainActor () -> AppSession? = { nil }
 
-    var scope: EntryScope? { session()?.binding.map(Self.scope) }
+    var scope: EntryScope? { session()?.binding?.scope }
 
     func log(_ topic: EntryTopic, answers: [String: AnswerValue], capturedAt: Date?, notes: String?)
         async throws -> LoggedEntry
@@ -75,11 +75,6 @@ final class SessionEntryWriter: EntryFixing {
     }
 
     func failure(_ error: any Error) -> EntryWriteFailure { Self.failure(error) }
-
-    static func scope(_ binding: AppSession.Binding) -> EntryScope {
-        // Not the base URL: a new address for the same server keeps the same store.
-        EntryScope("\(binding.serverId)/\(binding.storeGen)")
-    }
 
     static func delivery(_ result: OutboxSendNowResult) -> EntryDelivery {
         switch result {

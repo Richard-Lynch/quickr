@@ -52,9 +52,6 @@ public final class HomeModel {
     public private(set) var loaded = false
     /// The latest observation failure, cleared by a successful read.
     public private(set) var loadError: String?
-    /// Outbox counts for the sync pill.
-    public private(set) var pendingCount = 0
-    public private(set) var failedCount = 0
     /// The bound store finished its first bootstrap (`sync_state.bootstrap_complete`).
     public private(set) var bootstrapped = false
 
@@ -100,13 +97,6 @@ public final class HomeModel {
         return false
     }
 
-    /// The sync pill's connection state (a placeholder until SYNC-UX): offline while the last
-    /// sync couldn't reach the server.
-    public var isOnline: Bool {
-        if case .unreachable = session.syncStatus.lastFailure { return false }
-        return true
-    }
-
     // MARK: - Inputs
 
     /// Moves the clock (every 30 s, and on activation).
@@ -115,15 +105,13 @@ public final class HomeModel {
         relist()
     }
 
-    /// Reads the active store's topics and outbox until cancelled. Run it keyed by
+    /// Reads the active store's topics and sync state until cancelled (the sync pill is SYNC-UX's). Run it keyed by
     /// `session.binding`: a new store starts over from nothing (loading, then its topics), and an
     /// earlier observation's late values are dropped.
     public func observe() async {
         generation += 1
         let generation = generation
         topics = []
-        pendingCount = 0
-        failedCount = 0
         bootstrapped = false
         loaded = false
         loadError = nil
@@ -131,7 +119,6 @@ public final class HomeModel {
         guard let store = session.store else { return }
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.observeTopics(store, generation) }
-            group.addTask { await self.observeOutbox(store, generation) }
             group.addTask { await self.observeSyncState(store, generation) }
         }
     }
@@ -153,18 +140,6 @@ public final class HomeModel {
         } catch is CancellationError {
         } catch {
             if isCurrent(observation) { loadError = String(describing: error) }
-        }
-    }
-
-    private func observeOutbox(_ store: LocalStore, _ observation: Int) async {
-        do {
-            for try await items in store.observeOutbox(refresh: session.refresh.stream()) {
-                guard isCurrent(observation) else { return }
-                failedCount = items.count { $0.state == .failed }
-                pendingCount = items.count { $0.state != .failed && $0.state != .held }
-            }
-        } catch {
-            // The pill is a placeholder; the topics' observation reports store failures.
         }
     }
 

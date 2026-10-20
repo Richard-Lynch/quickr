@@ -11,12 +11,13 @@ struct QuickRApp: App {
 
     init() {
         #if DEBUG
-        if DemoStore.isRequested {
-            _environment = State(initialValue: DemoStore.environment())
-            return
-        }
+        let environment = DemoStore.isRequested ? DemoStore.environment() : AppEnvironment.bootstrap()
+        #else
+        let environment = AppEnvironment.bootstrap()
         #endif
-        _environment = State(initialValue: AppEnvironment.bootstrap())
+        _environment = State(initialValue: environment)
+        // Before launch ends, as BGTaskScheduler requires.
+        BackgroundRefresh.register(environment)
     }
 
     var body: some Scene {

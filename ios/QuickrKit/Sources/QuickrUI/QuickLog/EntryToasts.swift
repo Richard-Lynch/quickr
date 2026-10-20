@@ -1,17 +1,6 @@
 import Foundation
 import QuickrCore
 
-/// Which store a write went to: the server and its store generation. A toast's Undo and a
-/// `sendNow` act only while it is still the active one, so a server switch or a reset in between
-/// never sends them to another store.
-public struct EntryScope: Sendable, Hashable {
-    public var id: String
-
-    public init(_ id: String) {
-        self.id = id
-    }
-}
-
 /// A logged entry and the store it went to.
 public struct LoggedEntry: Sendable, Hashable {
     public var id: UUID

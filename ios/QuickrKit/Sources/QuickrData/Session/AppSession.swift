@@ -67,6 +67,8 @@ public final class AppSession {
         public var serverId: String
         public var storeGen: Int
         public var baseURL: URL
+
+        public var scope: EntryScope { EntryScope(serverId: serverId, storeGen: storeGen) }
     }
 
     public enum SessionError: Error, Sendable, Hashable {
@@ -109,6 +111,9 @@ public final class AppSession {
     private enum Lifecycle: Equatable {
         case foreground
         case background(Int)
+        /// The episode's background time ran out: nothing of it runs any more, and nothing but a
+        /// newer episode or an activation resumes.
+        case expired(Int)
     }
 
     /// One trip to the background, from `beginBackground()` to the next activation.
@@ -216,6 +221,36 @@ public final class AppSession {
         return report
     }
 
+    /// A `BGAppRefreshTask` (sync-protocol.md §9, outbox.md §10): its own background episode
+    /// (take it with `beginBackground()` before registering the task's expiration handler, which
+    /// calls `backgroundTimeExpiring(_:within:)`). Resumes GRDB and the episode, pulls, then sends
+    /// the queue (a forced flush), then stops and suspends GRDB as `didEnterBackground` does. Nil,
+    /// and nothing done, when the session hasn't started (`start()` first) or the episode is no
+    /// longer current (the app came to the foreground meanwhile).
+    @discardableResult
+    public func backgroundRefresh(_ episode: BackgroundEpisode) async -> SyncResult? {
+        guard started, isCurrent(episode) else { return nil }
+        configuration.notificationCenter.post(name: Database.resumeNotification, object: nil)
+        await coordinator.resume(generation: episode.generation)
+        await scheduler?.resume(generation: episode.generation)
+        guard isCurrent(episode) else {
+            // It expired (or the app came back) while resuming: a same-generation resume may have
+            // landed after the expiry's pause, so pause again; a newer generation ignores it.
+            await coordinator.pause(generation: episode.generation)
+            await scheduler?.pause(generation: episode.generation)
+            return nil
+        }
+        let result = await coordinator.sync(reason: .background)
+        guard isCurrent(episode) else { return result }
+        _ = await scheduler?.flushNow(reason: .backgroundRefresh)
+        guard isCurrent(episode) else { return result }
+        await coordinator.pause(generation: episode.generation)
+        await scheduler?.pause(generation: episode.generation)
+        await coordinator.waitUntilIdle()
+        suspendIfCurrent(episode)
+        return result
+    }
+
     /// The episode's background task is expiring: cancel the flush (its item becomes uncertain and
     /// the lease is released) and refuse new flushes and pulls, wait for them to end, but no
     /// longer than `remaining` (what the system still grants), then suspend GRDB. End the
@@ -223,15 +258,20 @@ public final class AppSession {
     /// so it never cancels a newer episode's work.
     public func backgroundTimeExpiring(_ episode: BackgroundEpisode, within remaining: Duration = .seconds(3)) async {
         guard isCurrent(episode) else { return }
+        // From now on the episode is over: its own steps (`didEnterBackground`,
+        // `backgroundRefresh`) see it isn't current and stop, so nothing resumes what this pauses.
+        lifecycle = .expired(episode.generation)
         let scheduler = scheduler
         let coordinator = coordinator
         await coordinator.pause(generation: episode.generation)
+        await coordinator.cancelRun()  // a pull already running stops too
         await scheduler?.pause(generation: episode.generation)  // cancels the flush
         await Self.firstOf(remaining) {
             _ = await scheduler?.waitUntilIdle()
             await coordinator.waitUntilIdle()
         }
-        suspendIfCurrent(episode)
+        guard lifecycle == .expired(episode.generation) else { return }  // the app came back meanwhile
+        configuration.notificationCenter.post(name: Database.suspendNotification, object: nil)
     }
 
     /// Posts GRDB's suspend if `episode` is still current. Nothing can start a flush or a pull in
@@ -385,7 +425,7 @@ public final class AppSession {
             // and generations order them against this one.
             switch lifecycle {
             case .foreground: await scheduler.resume(generation: lifecycleGeneration)
-            case .background(let generation): await scheduler.pause(generation: generation)
+            case .background(let generation), .expired(let generation): await scheduler.pause(generation: generation)
             }
             // A request the coordinator made during the swap was dropped; kept items go out now.
             await scheduler.requestFlush(reason: .afterPull)

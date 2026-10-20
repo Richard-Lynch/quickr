@@ -13,7 +13,7 @@ import Testing
     @Test func undoAfterAServerSwitchIsRefusedAndLeavesTheEntry() async throws {
         let seeded = try await TestStores.seededLocation()
         defer { TestStores.remove(seeded) }
-        let environment = AppEnvironment.live(location: seeded)
+        let environment = AppEnvironment.live(location: seeded, categoryCenter: nil)
         await environment.start()
         let session = try #require(environment.session)
         defer { Task { await session.shutdown() } }
@@ -24,7 +24,7 @@ import Testing
             id: PlaceholderTopicRepository.coffee, slug: "coffee", name: "Coffee", version: 1,
             quick: .number(question: question))
         let entry = try await writer.log(coffee, answers: ["cups": .int(2)])
-        #expect(entry.scope == EntryScope("test-server/\(try #require(session.binding).storeGen)"))
+        #expect(entry.scope == EntryScope(serverId: "test-server", storeGen: try #require(session.binding).storeGen))
         let storeA = try #require(session.store)
         #expect(try await storeA.outbox.item(id: entry.id.wireString) != nil)
 
@@ -53,7 +53,7 @@ import Testing
     @Test func undoInTheSameStoreRemovesTheEntry() async throws {
         let seeded = try await TestStores.seededLocation()
         defer { TestStores.remove(seeded) }
-        let environment = AppEnvironment.live(location: seeded)
+        let environment = AppEnvironment.live(location: seeded, categoryCenter: nil)
         await environment.start()
         let session = try #require(environment.session)
         defer { Task { await session.shutdown() } }

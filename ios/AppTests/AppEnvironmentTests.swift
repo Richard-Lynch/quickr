@@ -22,7 +22,7 @@ import Testing
 @Test func environmentStartsWithAnEmptyPathAndStartsTheSession() async throws {
     let seeded = try await TestStores.seededLocation()
     defer { TestStores.remove(seeded) }
-    let environment = AppEnvironment.live(location: seeded)
+    let environment = AppEnvironment.live(location: seeded, categoryCenter: nil)
     #expect(environment.router.path.isEmpty)
     #expect(environment.session != nil && environment.sessionError == nil)
     await environment.start()
@@ -35,7 +35,7 @@ import Testing
 @Test func concurrentStartsShareOneSession() async throws {
     let location = TestStores.emptyLocation()
     defer { TestStores.remove(location) }
-    let environment = AppEnvironment.live(location: location)
+    let environment = AppEnvironment.live(location: location, categoryCenter: nil)
     let session = environment.session
     async let first: Void = environment.start()
     async let second: Void = environment.start()
