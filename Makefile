@@ -239,6 +239,10 @@ ios-integration: ## iOS: integration suite vs this worktree's stacks (up, smoke,
 ios-uitest-e2e: ios-gen ## iOS: end-to-end UI tests vs this worktree's stack (IOS_SIM; up, test, down)
 	@$(IOS_SCRIPTS)/uitest-e2e.sh "$(IOS_SIM)"
 
+.PHONY: ios-perf-launch
+ios-perf-launch: ios-gen ## iOS: cold-start timings over the 10k-entry perf store (IOS_SIM; PerfLaunchUITests)
+	@IOS_SIM_DEFAULTED=$(IOS_SIM_DEFAULTED) $(IOS_SCRIPTS)/perf-launch.sh "$(IOS_SIM)"
+
 .PHONY: ios-integration-up
 ios-integration-up: ## iOS: start this worktree's integration stacks (writes ios/build/integration.env)
 	@$(IOS_SCRIPTS)/integration-up.sh

@@ -107,11 +107,13 @@ extension TimingTests {
                 QuickrHeader.serverId: PerfSeed.Spec.standard.serverId,
                 QuickrHeader.epoch: PerfSeed.Spec.standard.epoch,
             ]
-            transport.stub(where: { _ in true }) { request in
-                let path = request.url.path
-                let index = ["/n/", "/d/", "/c/"].firstIndex { path.contains($0) }
-                return HTTPResponse(status: 200, headers: headers, body: index.map { series[$0] } ?? stats)
-            }
+            transport.stub(
+                where: { _ in true },
+                { request in
+                    let path = request.url.path
+                    let index = ["/n/", "/d/", "/c/"].firstIndex { path.contains($0) }
+                    return HTTPResponse(status: 200, headers: headers, body: index.map { series[$0] } ?? stats)
+                })
             let client = APIClient(
                 baseURL: URL(string: "https://quickr.test")!, transport: transport, identity: StaticServerIdentity(nil))
             let loader = StatsLoader(store: store, client: client, requestSync: {})

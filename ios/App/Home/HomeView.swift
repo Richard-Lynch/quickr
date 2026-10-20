@@ -183,7 +183,11 @@ struct HomeView: View {
         ForEach(rows, id: \.value.id) { row in
             TopicTile(
                 topic: row.value, now: model.now, onOpen: { actions.open(row.value) },
-                onRecord: { actions.record(row.value) })
+                onRecord: { actions.record(row.value) }
+            )
+            #if DEBUG
+            .onAppear { PerfProbe.shared.tileAppeared() }
+            #endif
         }
     }
 

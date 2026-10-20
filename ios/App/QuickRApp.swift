@@ -15,7 +15,9 @@ struct QuickRApp: App {
 
     init() {
         #if DEBUG
-        let environment = DemoStore.isRequested ? DemoStore.environment() : AppEnvironment.bootstrap()
+        let environment =
+            DemoStore.isRequested
+            ? DemoStore.environment() : PerfStore.isRequested ? PerfStore.environment() : AppEnvironment.bootstrap()
         #else
         let environment = AppEnvironment.bootstrap()
         #endif

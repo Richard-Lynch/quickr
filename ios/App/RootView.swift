@@ -94,6 +94,13 @@ struct RootView: View {
         .overlay(alignment: .bottom) {
             if UITestLaunch.showsSyncControls { UITestSyncControls().padding(.bottom, 24) }
         }
+        .overlay(alignment: .topTrailing) {
+            if PerfStore.isRequested {
+                Text(PerfProbe.shared.firstRender.map { "\($0)" } ?? "-")
+                .font(.caption2).monospacedDigit()
+                .accessibilityIdentifier("perf.firstRender")
+            }
+        }
         #endif
         .alert(
             "Can’t open that link", isPresented: unopenedLink,

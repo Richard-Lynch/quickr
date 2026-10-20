@@ -178,8 +178,8 @@ enum DemoStore {
     }
 }
 
-/// Every request fails as if offline.
-private struct OfflineTransport: Transport {
+/// Every request fails as if offline (the demo and perf stores).
+struct OfflineTransport: Transport {
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         throw URLError(.notConnectedToInternet)
     }
