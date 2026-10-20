@@ -305,6 +305,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 12:45 (EDT): **UIT-2 swipe follow-up merged** (e913853; tests only, no app change). The clean-form content-swipe control has been added; the changed-form tests are proven by mutation (guard off fails exactly the 3 changed-form tests); a 2 s Home poll replaces the fixed sleep; the flick is anchored at the Type label's height, 30% across. Lint and build-for-testing pass on the merge. **TOPIC is the last M2 package** (r2 fixes in progress: the lifecycle under the flush lease, a route-bound handoff).
+
 - 2026-10-20 12:25 (EDT): **UIT-5 merged into ios/m2-ui** (Codex ×2; E2E 14/0; a holdDuration=0 mutation is caught by both delete tests; the outbox-ordering argument for Undo was verified by Codex). Lint, the build and build-for-testing pass on the merge. Remaining for the M2 PR: the UIT-2 swipe follow-up (e913853 being proven) and TOPIC (r2 Majors in progress).
 
 - 2026-10-20 12:10 (EDT): TOPIC r2: the round-1 items are RESOLVED (the delete sends the queued archive itself; the slug save hands off the model). Two new Majors: the direct archive and DELETE aren't serialized with the outbox flusher (a double-send, or a queued unarchive in between gives a 409), so the whole lifecycle sequence will run under the flush lease; and the slug handoff can leak a stale model (to be bound to a one-shot token plus the topic id). The M2 PR body is drafted (scratchpad m2-pr-body.md; deviations from every package filled in from the agents' reports). UIT-2 follow-up: Mutation A run done; HEAD result awaited. UIT-5: r1 fixes in progress.
