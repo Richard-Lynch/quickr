@@ -58,7 +58,8 @@ struct OverviewView: View {
         }
         .qrPaperBackground()
         .accessibilityIdentifier("overview.list")
-        .refreshable { await model?.load(query: query, bucket: bucket) }
+        // Unstructured: SwiftUI cancels a refresh's own task when the view updates under it.
+        .refreshable { [model, query, bucket] in await Task { await model?.load(query: query, bucket: bucket) }.value }
         .task(id: session.binding) { await observeTopic() }
         .task(
             id: LoadKey(

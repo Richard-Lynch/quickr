@@ -72,6 +72,7 @@ struct MeanLineChart: View {
             }
         }
         .chartYScale(domain: model.domain)
+        .padding(.top, 8)
         .chartYAxis {
             AxisMarks(position: .leading, values: model.ticks) { value in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 1, dash: [2, 4])).foregroundStyle(Color.qr.line)
@@ -179,7 +180,7 @@ struct OptionStackChart: View {
             AxisMarks(values: model.points.map(id).filter { labelled.contains($0) }) { value in
                 AxisValueLabel {
                     if let key = value.as(String.self), let point = model.points.first(where: { id($0) == key }) {
-                        Text(ChartFormat.bucket(point.start, series.bucket)).font(.qr(.caption))
+                        Text(ChartFormat.bucket(point.start, series.bucket)).font(.qr(.caption)).fixedSize()
                     }
                 }
             }
@@ -286,6 +287,11 @@ struct DistributionChart: View {
     let label: String
     @State private var selected: Int?
 
+    /// Bins are categories ("0" … "9"), so each bar fills its slot.
+    private var selectedBin: Binding<String?> {
+        Binding(get: { selected.map(String.init) }, set: { selected = $0.flatMap(Int.init) })
+    }
+
     var body: some View {
         let unit = unit.map { " \($0)" } ?? ""
         let shown = selected.flatMap { bins.indices.contains($0) ? bins[$0] : nil }
@@ -299,14 +305,14 @@ struct DistributionChart: View {
             .foregroundStyle(.qr.muted)
             Chart {
                 ForEach(Array(bins.enumerated()), id: \.offset) { index, bin in
-                    BarMark(x: .value("Bin", index), y: .value("Count", bin.count))
+                    BarMark(x: .value("Bin", String(index)), y: .value("Count", bin.count), width: .ratio(0.9))
                         .foregroundStyle(Color.qr.accent.opacity(selected == nil || selected == index ? 0.85 : 0.4))
                         .clipShape(UnevenRoundedRectangle(topLeadingRadius: 4, topTrailingRadius: 4))
                 }
             }
             .chartXAxis(.hidden)
             .chartYAxis(.hidden)
-            .chartXSelection(value: $selected)
+            .chartXSelection(value: selectedBin)
             .frame(height: 100)
             if let first = bins.first, let last = bins.last {
                 HStack {

@@ -93,6 +93,30 @@ import Testing
         #expect(later.series.values.allSatisfy { if case .unavailable(.offline) = $0 { true } else { false } })
     }
 
+    /// A cancelled reload (SwiftUI ends a refresh, the view goes away) leaves what was on screen;
+    /// its failed reads don't turn into errors.
+    @Test func aCancelledReloadKeepsWhatWasShown() async throws {
+        let h = try Harness()
+        Self.serve(h)
+        let model = model(h)
+        await model.load(query: Self.query, bucket: .day)
+        let stats = try #require(model.stats.value)
+        let series = model.series.mapValues(\.value)
+        h.offline()
+        let reload = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            await model.load(query: Self.query, bucket: .day)
+        }
+        await reload.value
+        guard case .loaded(let shown, .fresh) = model.stats else {
+            Issue.record("expected the fresh stats still, got \(model.stats)")
+            return
+        }
+        #expect(shown == stats)
+        #expect(model.series.mapValues(\.value) == series)
+        #expect(model.series.values.allSatisfy { if case .loaded(_, .fresh) = $0 { true } else { false } })
+    }
+
     @Test func offlineWithNothingCachedIsUnavailable() async throws {
         let h = try Harness()
         h.offline()

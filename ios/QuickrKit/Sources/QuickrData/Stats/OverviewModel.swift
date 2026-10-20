@@ -87,17 +87,25 @@ public final class OverviewModel {
         // cached answer for them, or loading.
         let reload = shown == request
         shown = request
+        // Cancelled (the view went away, or SwiftUI ended a refresh): what was on screen stays.
+        // A cancelled task's reads fail, so its results would read as errors.
+        let before = (stats: stats, series: series)
+        func abandoned() -> Bool {
+            guard Task.isCancelled else { return current != request }
+            if current == request { restore(before) }
+            return true
+        }
         if let (cached, fetchedAt) = await loader.cachedStats(topicId: topicId, query: query) {
-            guard current == request else { return }
+            guard !abandoned() else { return }
             stats = .loaded(cached, .updating(fetchedAt))
         } else if !reload {
             stats = .loading
         }
         async let sourcesResult = loader.stats(topicId: topicId, ref: ref, query: Self.allTime)
         let result = await loader.stats(topicId: topicId, ref: ref, query: query)
-        guard current == request else { return }
+        guard !abandoned() else { return }
         stats = Self.load(result)
-        if let all = await sourcesResult.value, current == request { sources = all.sources.map(\.value) }
+        if let all = await sourcesResult.value, !abandoned() { sources = all.sources.map(\.value) }
         guard let shown = stats.value else {
             series = [:]
             return
@@ -118,7 +126,7 @@ public final class OverviewModel {
                 next[key] = reload ? series[key] ?? .loading : .loading
             }
         }
-        guard current == request else { return }
+        guard !abandoned() else { return }
         series = next
         await withTaskGroup(of: (String, StatsResult<QuestionSeries>).self) { group in
             for key in keys {
@@ -130,9 +138,25 @@ public final class OverviewModel {
                     )
                 }
             }
-            for await (key, result) in group where current == request {
+            for await (key, result) in group {
+                guard !abandoned() else { return }
                 series[key] = Self.load(result)
             }
+        }
+    }
+
+    /// Puts back what an abandoned load replaced: anything still loading or updating.
+    private func restore(_ before: (stats: Load<TopicStats>, series: [String: Load<QuestionSeries>])) {
+        if Self.isPending(stats) { stats = before.stats }
+        for (key, load) in series where Self.isPending(load) {
+            series[key] = before.series[key] ?? load
+        }
+    }
+
+    private static func isPending<Value>(_ load: Load<Value>) -> Bool {
+        switch load {
+        case .loading, .loaded(_, .updating): true
+        default: false
         }
     }
 

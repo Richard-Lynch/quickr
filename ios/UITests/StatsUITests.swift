@@ -43,6 +43,9 @@ final class StatsUITests: XCTestCase {
         XCTAssertTrue(stale.waitForExistence(timeout: 15))
         XCTAssertTrue(stale.label.hasPrefix("Last updated"), stale.label)
         XCTAssertTrue(element(app, "overview.summary").exists, "the cached stats stay")
+        // The charts stay too: a refresh SwiftUI ends early doesn't turn them into errors.
+        XCTAssertFalse(app.staticTexts["Stats aren't available yet."].exists)
+        XCTAssertFalse(app.staticTexts["Stats need a connection."].exists)
         snap(app, "stats-3-offline")
 
         // Back online: the next refresh is fresh again.
