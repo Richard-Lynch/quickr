@@ -1,76 +1,84 @@
+import Foundation
 import QuickrData
+import Synchronization
 import UserNotifications
 
-/// M0 placeholder: delivers the notification unchanged. Dedupe, badge and category
-/// registration arrive in M3 (docs/ios/specs/notifications.md). In DEBUG builds the SPIKE
-/// registers the payload's category through the registry table first (§6), to measure whether
-/// a category the NSE registers applies to the notification it is preparing.
+/// `QuickRNotificationService` (notifications.md §6): prepares a reminder before it is shown, with
+/// `NotificationPreparation` (QuickrData): the local fallback's duplicates cancelled, its category
+/// registered and set, an already-logged slot said so, the badge from the active store, older
+/// reminders for the topic removed. No network and no outbox; the active store is read-only.
+/// When the time runs out (`serviceExtensionTimeWillExpire`), the notification goes out untouched.
 final class NotificationService: UNNotificationServiceExtension {
+    private var delivery: Delivery?
+
     override func didReceive(
         _ request: UNNotificationRequest,
         withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
     ) {
-        #if DEBUG
-        // Only while a spike run has opted in (SpikeGate); otherwise untouched, as in Release.
-        guard SpikeGate.isEnabled else {
-            contentHandler(request.content)
+        let delivery = Delivery(content: request.content, handler: contentHandler)
+        self.delivery = delivery
+        let incoming = NotificationPreparation.Incoming(
+            id: request.identifier, body: request.content.body,
+            categoryIdentifier: request.content.categoryIdentifier,
+            quickr: QuickrNotificationInfo(userInfo: request.content.userInfo))
+        guard let preparation = Self.preparation else {
+            delivery.deliver(nil)
             return
         }
-        // Only Sendable values cross into the task: Xcode 26's region-based isolation checker
-        // crashes on the non-Sendable content being extracted inside it.
-        let delivery = SpikeDelivery(content: request.content, handler: contentHandler)
-        Task { @Sendable in
-            let prepared = await NotificationService.spikePrepare(delivery)
-            delivery.deliver(prepared)
-        }
-        #else
-        contentHandler(request.content)
-        #endif
+        Task { @Sendable in delivery.deliver(await preparation.prepare(incoming)) }
     }
 
-    #if DEBUG
-    private static func spikePrepare(_ delivery: SpikeDelivery) async -> SpikeDelivery.Content {
-        let content = delivery.content
-        let started = Date()
-        SpikeLog.append("nse.start", ["category": content.categoryIdentifier])
-        guard let row = SpikeCategories.row(userInfo: content.userInfo), let location = SpikeLog.location else {
-            SpikeLog.append("nse.untouched")
-            return SpikeDelivery.Content(content)
-        }
-        do {
-            let registry = try Registry.open(at: location, notifier: DarwinNotifier())
-            _ = try await SpikeCategories.reconcile(registry: registry)
-            let ids = try await SpikeCategories.register([row], registry: registry)
-            let best = (content.mutableCopy() as? UNMutableNotificationContent) ?? UNMutableNotificationContent()
-            best.categoryIdentifier = row.id
-            SpikeLog.append(
-                "nse.registered",
-                [
-                    "category": row.id, "registered": String(ids.count),
-                    "ms": String(Int(-started.timeIntervalSinceNow * 1000)),
-                ])
-            return SpikeDelivery.Content(best)
-        } catch {
-            SpikeLog.append("nse.failed", ["error": String(describing: error)])
-            return SpikeDelivery.Content(content)
-        }
+    override func serviceExtensionTimeWillExpire() {
+        delivery?.deliver(nil)
     }
-    #endif
+
+    /// The App Group's files, opened once per extension process; nil without the App Group (the
+    /// notification then goes out untouched).
+    private static let preparation: NotificationPreparation? = {
+        guard let location = try? StoreLocation.appGroup("group.com.bahumia.quickr") else { return nil }
+        let stores = ReadOnlyStores(location: location)
+        let registry = Mutex<Registry?>(nil)
+        return NotificationPreparation(
+            center: SystemNotificationCenter(),
+            registry: {
+                // Retried on the next push when it failed (before first unlock).
+                try registry.withLock { cached in
+                    if let cached { return cached }
+                    let opened = try Registry.open(at: location, notifier: DarwinNotifier())
+                    cached = opened
+                    return opened
+                }
+            },
+            activeStore: { try stores.activeStore() })
+    }()
 }
 
-#if DEBUG
-/// The request's content and the content handler, carried into the task (UserNotifications
-/// doesn't mark them Sendable; the task is their only user).
-private struct SpikeDelivery: @unchecked Sendable {
-    struct Content: @unchecked Sendable {
-        let value: UNNotificationContent
+/// The request's content and the content handler, called once: with the prepared changes, or
+/// untouched (nil) when the time ran out first. UserNotifications doesn't mark them Sendable; this
+/// is their only user.
+private final class Delivery: @unchecked Sendable {
+    private let content: UNNotificationContent
+    private let handler: (UNNotificationContent) -> Void
+    private let done = Mutex(false)
 
-        init(_ value: UNNotificationContent) { self.value = value }
+    init(content: UNNotificationContent, handler: @escaping (UNNotificationContent) -> Void) {
+        self.content = content
+        self.handler = handler
     }
 
-    let content: UNNotificationContent
-    let handler: (UNNotificationContent) -> Void
-
-    func deliver(_ prepared: Content) { handler(prepared.value) }
+    func deliver(_ prepared: NotificationPreparation.Prepared?) {
+        let first = done.withLock { done in
+            defer { done = true }
+            return !done
+        }
+        guard first else { return }
+        guard let prepared, let best = content.mutableCopy() as? UNMutableNotificationContent else {
+            handler(content)
+            return
+        }
+        best.body = prepared.body
+        best.categoryIdentifier = prepared.categoryIdentifier
+        if let badge = prepared.badge { best.badge = NSNumber(value: badge) }
+        handler(best)
+    }
 }
-#endif
