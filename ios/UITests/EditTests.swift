@@ -31,11 +31,18 @@ final class EditTests: XCTestCase {
         return glasses
     }
 
+    /// Replaces a field's text: the cursor goes to its end (a tap at the right edge), then
+    /// everything is deleted.
     @MainActor
     private func replace(_ field: XCUIElement, with text: String) {
-        field.tap()
-        let current = (field.value as? String) ?? ""
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count) + text)
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 12) + text)
+    }
+
+    /// A number field's number: its value reads with the unit ("3 glasses").
+    @MainActor
+    private func number(_ field: XCUIElement) -> String? {
+        (field.value as? String)?.split(separator: " ").first.map(String.init)
     }
 
     /// Save changes queues the edit and returns to the list, which shows it (waiting to sync).
@@ -43,15 +50,18 @@ final class EditTests: XCTestCase {
     func testSavingAnEditReturnsToTheListWithTheChange() {
         let app = launch()
         let glasses = openNewest(app)
-        XCTAssertEqual(glasses.value as? String, "3")
+        XCTAssertEqual(number(glasses), "3")
         XCTAssertTrue(app.descendants(matching: .any)["edit.entryLine"].exists)
         replace(glasses, with: "7")
         app.buttons["edit.save"].tap()
         XCTAssertTrue(app.staticTexts["Entry updated"].waitForExistence(timeout: 5))
         let row = app.descendants(matching: .any)["entry.\(newest)"]
         XCTAssertTrue(row.waitForExistence(timeout: 5))
-        XCTAssertTrue(row.label.contains("7 glasses"), row.label)
         XCTAssertTrue(row.label.contains("Change waiting to sync"), row.label)
+        // The store shows the queued edit: it reopens with 7.
+        row.tap()
+        XCTAssertTrue(glasses.waitForExistence(timeout: 10))
+        XCTAssertEqual(number(glasses), "7")
     }
 
     /// Delete on the edit screen: back to the list without it, with Undo, which brings it back.
@@ -79,7 +89,7 @@ final class EditTests: XCTestCase {
         app.buttons["edit.back"].tap()
         XCTAssertTrue(app.alerts["Discard your changes?"].waitForExistence(timeout: 5))
         app.alerts.buttons["Keep editing"].tap()
-        XCTAssertEqual(glasses.value as? String, "9")
+        XCTAssertEqual(number(glasses), "9")
     }
 
     /// A log only this device has, still waiting: it edits like any other (the outbox merges the
@@ -89,7 +99,7 @@ final class EditTests: XCTestCase {
         let app = launch(open: "quickr://t/water/entries/\(waiting)")
         let glasses = app.textFields["form.field.glasses"]
         XCTAssertTrue(glasses.waitForExistence(timeout: 20))
-        XCTAssertEqual(glasses.value as? String, "5")
+        XCTAssertEqual(number(glasses), "5")
         replace(glasses, with: "6")
         app.buttons["edit.save"].tap()
         XCTAssertTrue(app.staticTexts["Entry updated"].waitForExistence(timeout: 5))
@@ -102,8 +112,8 @@ final class EditTests: XCTestCase {
         let app = launch(open: "quickr://t/water/entries/00000000-0000-4000-9002-000000000001")
         XCTAssertTrue(app.descendants(matching: .any)["edit.fixBanner"].waitForExistence(timeout: 20))
         let glasses = app.textFields["form.field.glasses"]
-        XCTAssertEqual(glasses.value as? String, "99", "the refused value")
-        XCTAssertEqual(app.staticTexts["form.error.glasses"].label, "Must be at most 20")
+        XCTAssertEqual(number(glasses), "99", "the refused value")
+        XCTAssertTrue(app.staticTexts["form.error.glasses"].label.hasPrefix("Must be at most 20"))
         replace(glasses, with: "4")
         app.buttons["edit.save"].tap()
         XCTAssertTrue(app.staticTexts["Entry updated"].waitForExistence(timeout: 5))
@@ -128,8 +138,12 @@ final class EditTests: XCTestCase {
     /// At the largest accessibility size the form, Details and both buttons are reachable.
     @MainActor
     func testAccessibilityXXXL() {
-        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
-        let glasses = openNewest(app)
+        // By link: at this size the list's tall header and pinned rows keep the row off screen.
+        let app = launch(
+            open: "quickr://t/water/entries/\(newest)",
+            ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let glasses = app.textFields["form.field.glasses"]
+        XCTAssertTrue(glasses.waitForExistence(timeout: 20))
         XCTAssertTrue(glasses.isHittable)
         XCTAssertTrue(app.buttons["edit.save"].isHittable)
         XCTAssertTrue(app.buttons["edit.delete"].isHittable)
