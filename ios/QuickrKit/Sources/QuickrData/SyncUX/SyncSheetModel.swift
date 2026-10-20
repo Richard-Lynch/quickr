@@ -74,9 +74,10 @@ public struct SyncSheetModel: Sendable, Hashable {
         self.online = online
         self.lastSyncAt = lastSyncAt
         let failed = rows.count { $0.tone == .failed }
-        let waiting = rows.count - failed
+        // A delete in its undo window isn't waiting to sync yet (as on the pill).
+        let waiting = rows.count { $0.tone != .failed && $0.tone != .held }
         headline =
-            rows.isEmpty
+            waiting + failed == 0
             ? "Everything is synced."
             : [
                 waiting > 0 ? "\(waiting) \(waiting == 1 ? "item" : "items") waiting" : nil,

@@ -156,7 +156,14 @@ import Testing
         let g = try #require(rows[gone.id])
         #expect(g.status == "Deleted on another device" && g.canDismiss && !g.canDiscard && !g.canRetry)
 
-        #expect(m.headline == "4 items waiting · 2 failed" && m.canSyncNow)
+        #expect(m.headline == "3 items waiting · 2 failed" && m.canSyncNow)  // the held delete isn't counted
+    }
+
+    @Test func aHeldDeleteAloneIsNotWaiting() throws {
+        let held = try Self.item(
+            .entryDelete(entryId: Self.entryId, topicId: Self.topicId), state: .held, seq: 1)
+        let m = model([held])
+        #expect(m.headline == "Everything is synced." && !m.canSyncNow && m.rows.count == 1)
     }
 
     @Test func offlineRetriesWhenBackOnline() throws {
