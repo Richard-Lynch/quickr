@@ -117,6 +117,22 @@ import Testing
             var text: String
         }
 
+        struct Synthetic: Decodable {
+            var name: String
+            var chart: String
+            var bucket: QuestionSeries.Bucket
+            var points: [JSONValue]
+            var empty: Bool?
+            var kept: [Int]?
+            var ticks: [Double]?
+            var labelled: [String: [Int]]?
+            var labels: Labels?
+            var options: [[String]]?
+            var max: Int?
+            var legend: [[String]]?
+            var segments: [[[JSONValue]]]?
+        }
+
         struct Pick: Decodable {
             var xs: [Double]
             var gap: Double
@@ -130,10 +146,11 @@ import Testing
         var percents: [Percent]
         var pick: [Pick]
         var series: [Series]
+        var synthetic: [Synthetic]
         var stats: [Stats]
 
         enum CodingKeys: String, CodingKey {
-            case meta, ticks, numbers, percents, pick, series, stats
+            case meta, ticks, numbers, percents, pick, series, synthetic, stats
             case defaultBucket = "default_bucket"
         }
     }
@@ -291,6 +308,47 @@ import Testing
 
     /// `JSON.stringify` of a width: 320, not 320.0.
     static func key(_ width: Double) -> String { String(Int(width)) }
+
+    /// Shapes the server doesn't send today: buckets without a mean or without answers, and
+    /// values no option has.
+    @Test(arguments: charts.synthetic.map(\.name)) func synthetic(_ name: String) throws {
+        let expected = try #require(Self.charts.synthetic.first { $0.name == name })
+        let body = JSONValue.object([
+            "key": .string("k"), "type": .string(expected.chart == "line" ? "double" : "enum"),
+            "bucket": .string(expected.bucket.rawValue), "points": .array(expected.points),
+        ])
+        let series = try QuestionSeriesDTO.decode(JSONEncoder().encode(body), using: WireCoding.decoder()).toDomain()
+        let widths = Self.charts.meta.widths
+        let utc = try Self.zone("UTC")
+        if expected.chart == "line" {
+            let models = widths.map { LineChartModel(series: series.points, width: $0) }
+            if expected.empty == true {
+                #expect(models.allSatisfy { $0 == nil })
+                return
+            }
+            let model = try #require(models[0])
+            #expect(model.kept == expected.kept)
+            #expect(model.ticks == expected.ticks)
+            for (index, width) in widths.enumerated() {
+                #expect(models[index]?.labelled.sorted() == expected.labelled?[Self.key(width)], "width \(width)")
+            }
+            try expectLabels(model.points, series.bucket, utc, expected.labels)
+        } else {
+            let options = (expected.options ?? []).map { EnumOption(value: $0[0], label: $0[1]) }
+            let models = widths.map { StackedBarsModel(series: series.points, options: options, width: $0) }
+            let model = try #require(models[0])
+            #expect(model.kept == expected.kept)
+            #expect(model.max == expected.max)
+            #expect(model.legend.map { [$0.value, $0.label] } == expected.legend)
+            let segments = model.points.map {
+                model.segments($0).map { [JSONValue.string($0.value), .number(Double($0.count))] }
+            }
+            #expect(segments == expected.segments)
+            for (index, width) in widths.enumerated() {
+                #expect(models[index]?.labelled.sorted() == expected.labelled?[Self.key(width)], "width \(width)")
+            }
+        }
+    }
 
     // MARK: - Stats
 

@@ -14,7 +14,14 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 
-import type { EnumStats, NumericStats, QuestionSeries, StrStats, TopicStats } from '../../client';
+import type {
+  EnumStats,
+  NumericStats,
+  QuestionSeries,
+  SeriesPoint,
+  StrStats,
+  TopicStats,
+} from '../../client';
 import { RANGE_PRESETS } from '../../lib/dates';
 import { formatNumber, formatPercent, plural } from '../../lib/format';
 import { optionColors } from './EnumBars';
@@ -26,7 +33,7 @@ import {
   stackedModel,
   seriesTotal,
 } from './chartModels';
-import { formatBucket, formatTick, niceTicks, pickLabels } from './chartUtils';
+import { formatBucket, formatTick, niceTicks, pickLabels, type Bucket } from './chartUtils';
 
 // No @types/node in the app's tsconfig: reach Node through narrow local types.
 interface NodeProcess {
@@ -120,6 +127,97 @@ const NUMBERS: (number | null)[] = [
 const PERCENTS = [0, 0.004, 0.005, 0.015, 0.125, 0.5, 2 / 3, 0.335, 0.995, 1, 1.5];
 
 // pickLabels on plain positions: the rule alone, without a chart's layout.
+// Shapes the server doesn't send today, for the models' guards: buckets without a mean, a bucket
+// without answers, and a value no option has (an option renamed away). Keys are in sorted order,
+// as the iOS model reads them (a JSON object's order doesn't survive decoding there).
+function point(start: string, patch: Partial<SeriesPoint>): SeriesPoint {
+  return { start, count: 0, mean: null, min: null, max: null, option_counts: {}, ...patch };
+}
+const SYNTHETIC_OPTIONS = [
+  { value: 'a', label: 'A' },
+  { value: 'b', label: 'B' },
+];
+const SYNTHETIC: {
+  name: string;
+  bucket: Bucket;
+  points: SeriesPoint[];
+  chart: 'line' | 'stacked';
+}[] = [
+  {
+    name: 'line: buckets without a mean are skipped',
+    bucket: 'day',
+    chart: 'line',
+    points: [
+      point('2025-01-01T00:00:00Z', { count: 1 }),
+      point('2025-01-02T00:00:00Z', { count: 2, mean: 4, min: 3, max: 5 }),
+      point('2025-01-03T00:00:00Z', { count: 1 }),
+      point('2025-01-05T00:00:00Z', { count: 1, mean: 6.5 }),
+    ],
+  },
+  {
+    name: 'line: no bucket has a mean',
+    bucket: 'week',
+    chart: 'line',
+    points: [point('2025-01-06T00:00:00Z', { count: 3 })],
+  },
+  {
+    name: 'line: one bucket',
+    bucket: 'month',
+    chart: 'line',
+    points: [point('2025-02-01T00:00:00Z', { count: 1, mean: 7, min: 7, max: 7 })],
+  },
+  {
+    name: 'stacked: a bucket without answers, and values no option has',
+    bucket: 'day',
+    chart: 'stacked',
+    points: [
+      point('2025-01-01T00:00:00Z', { count: 2, option_counts: { b: 1, zz: 1 } }),
+      point('2025-01-02T00:00:00Z', { count: 0 }),
+      point('2025-01-03T00:00:00Z', { count: 3, option_counts: { a: 2, b: 1, c: 1 } }),
+    ],
+  },
+];
+
+function syntheticCase(c: (typeof SYNTHETIC)[number]) {
+  const labels = (points: { start: string }[]) =>
+    inZone('UTC', () => ({
+      short: points.map((p) => formatBucket(p.start, c.bucket)),
+      long: points.map((p) => formatBucket(p.start, c.bucket, 'long')),
+    }));
+  if (c.chart === 'line') {
+    const models = WIDTHS.map((w) => lineModel(c.points, w));
+    const model = models[0];
+    if (!model)
+      return { name: c.name, chart: c.chart, bucket: c.bucket, points: c.points, empty: true };
+    return {
+      name: c.name,
+      chart: c.chart,
+      bucket: c.bucket,
+      points: c.points,
+      kept: model.data.map((p) => c.points.indexOf(p)),
+      ticks: model.ticks,
+      labelled: labelledByWidth(models),
+      labels: labels(model.data),
+    };
+  }
+  const models = WIDTHS.map((w) => stackedModel(c.points, SYNTHETIC_OPTIONS, w));
+  const model = models[0];
+  if (!model)
+    return { name: c.name, chart: c.chart, bucket: c.bucket, points: c.points, empty: true };
+  return {
+    name: c.name,
+    chart: c.chart,
+    bucket: c.bucket,
+    points: c.points,
+    options: SYNTHETIC_OPTIONS.map((o) => [o.value, o.label]),
+    kept: model.data.map((p) => c.points.indexOf(p)),
+    max: model.max,
+    legend: model.legend.map((o) => [o.value, o.label]),
+    segments: model.data.map((p) => stackSegments(p, model.legend).map((s) => [s.value, s.n])),
+    labelled: labelledByWidth(models),
+  };
+}
+
 const PICK_CASES: { xs: number[]; gap: number }[] = [
   { xs: [], gap: 52 },
   { xs: [10], gap: 52 },
@@ -290,6 +388,7 @@ function build(input: { cases: InputCase[] }) {
       labelled: [...pickLabels(c.xs, c.gap)].sort((a, b) => a - b),
     })),
     series: input.cases.filter((c) => c.kind === 'series').map((c) => seriesCase(c, statsByTopic)),
+    synthetic: SYNTHETIC.map(syntheticCase),
     stats: input.cases.filter((c) => c.kind === 'stats').map(statsCase),
   };
 }
