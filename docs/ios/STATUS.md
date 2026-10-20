@@ -302,6 +302,15 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 09:25 (EDT): Codex results.
+  - STATS r3: approved. Its final run on the m2-ui merge (afad7e0) is going, then the merge.
+  - UIT-2 r2: approved (c47406c). Its final run is going, then the merge, then EDIT can follow.
+  - CSV r3: the handOver race is resolved, but the launch sweep can delete an active export (start() re-runs on background refresh); the fix is to sweep once per process, over pre-existing folders only.
+  - HANDLER r1: 3 Majors (background-task expiry doesn't guarantee completion; no foreground local/remote dedupe; isActive goes stale across awaits for badge and flush) and 1 Minor (a duplicate tap skips the forced flush).
+  - EDIT r1 fixes: gates done or pending.
+  
+  TOPIC: host-side schedule, details and requests in progress; the BUILDER landing (step 0) is still to do. Machine load peaked around 97.
+
 - 2026-10-20 08:55 (EDT): More parallel host-first work. TOPIC started (skeleton agent): step 0 lands BUILDER (ios/m6-builder 22865b8, which was never merged into m2-ui; the trial merge conflicts only in the Makefile vectors and the fixtures README). HANDLER (M3) started (test-isolation agent, ios/m3-handler): action handling host-first, local notifications on the simulator until the Team ID and APNs key arrive. EDIT r1 fixes in 687678d (fix mode prefills from before the refused edit; the user's correction wins over later queued updates, written into outbox.md §11; a CAS miss reconciles the draft; mutations 7/7). STATS r2 fix in 0c80a8f (abandonment check after every await). CSV and UIT-2 final simulator runs in progress.
 
 - 2026-10-20 08:40 (EDT): STATS r2: zone and freshness RESOLVED; overlapping loads NOT RESOLVED (the cache-miss branch mutates state without an abandonment check); fixing. EDIT final run green on 862e2a5 (Unit 591, UI 48, mutations 15/15; 9 PWA deviations accepted). Codex r1: 2 Majors in fix mode (the prefill includes later queued updates, which then overwrite the correction; CAS recovery keeps a stale draft); fixing. CSV r1 fixes in 2b942ab (store-owned exports, fail-closed identity, a directory per export, streaming to disk with a 120 s deadline; mutations 9/9); simulator gates running. UIT-2: the keyboard Save is now a labelled prominent "Save" after Next/Done (7c94e88); final runs going. Merge order: UIT-2, then EDIT.
