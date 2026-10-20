@@ -113,6 +113,59 @@ import Testing
             == .failed(.init(message: ConnectProblem.notQuickr.description, detail: nil, suggestsAccessToken: true)))
 }
 
+/// sync-protocol.md §8.4: with a change still unsynced, another server at the new address asks
+/// first; the same server at a new address doesn't.
+@MainActor
+@Test func switchingServersWithUnsyncedChangesAsksFirst() async throws {
+    let location = try await TestStores.seededLocation()  // server "test-server"
+    defer { TestStores.remove(location) }
+    let suite = "settings-tests-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let transport = RecordingTransport()  // 503 until told otherwise: the log stays unsynced
+    let credentials = KeychainAccessCredentials(keychain: InMemoryKeychain())
+    let session = try AppSession(
+        configuration: .init(location: location, transport: transport, credentials: credentials, notifier: nil))
+    await session.start()
+    #expect(session.phase == .ready)
+    _ = try await session.log(
+        topic: TopicRef(id: PlaceholderTopicRepository.coffee, slug: "coffee", name: "Coffee"), answers: [:], version: 1
+    )
+    let setup = ServerSetup(session: session, settings: AppSettings(defaults: defaults), credentials: credentials)
+
+    // The same server at another address: no warning, the store stays.
+    transport.answer = .feed(serverId: "test-server")
+    setup.address = "https://quickr-new.example"
+    await setup.connect()
+    #expect(setup.state == .connected(note: nil))
+    #expect(session.binding?.serverId == "test-server")
+    #expect(session.binding?.baseURL == URL(string: "https://quickr-new.example"))
+
+    // Another server: stop and ask, nothing switched yet.
+    transport.answer = .feed(serverId: "other-server")
+    setup.address = "https://other.example"
+    await setup.connect()
+    guard case .confirmSwitch(let warning) = setup.state else {
+        Issue.record("expected the switch warning, got \(setup.state)")
+        await session.shutdown()
+        return
+    }
+    #expect(warning.count == 1 && warning.failedCount == 0)
+    #expect(warning.oldServer == "quickr-new.example" && warning.targetServerId == "other-server")
+    #expect(session.binding?.serverId == "test-server")
+
+    // Cancel leaves everything as it was; "Switch anyway" switches.
+    setup.edit()
+    #expect(setup.state == .editing && session.binding?.serverId == "test-server")
+    await setup.connect()
+    setup.confirmSwitch(syncFirst: false)
+    for _ in 0..<50 where setup.isWorking { try await Task.sleep(for: .milliseconds(100)) }
+    #expect(setup.state == .connected(note: nil))
+    #expect(session.binding?.serverId == "other-server")
+    #expect(setup.settings.serverURL == URL(string: "https://other.example"))
+    await session.shutdown()
+}
+
 @MainActor
 @Test func routerOpensLinksAndRemembersOnesItCannot() {
     let router = Router()

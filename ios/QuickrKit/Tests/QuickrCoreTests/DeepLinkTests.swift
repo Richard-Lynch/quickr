@@ -112,7 +112,7 @@ private let pwaPaths: [(String, [Route])] = [
         "/t/water/record/extra", "/t/water/entries/not-a-uuid", "/t/water/entries/123", "/t/water/overview",
         "/t/water/unknown", "/settings/x", "/new/x", "/topics/water", "/api/v1/topics", "/T/water",
         "/t/water/record?fix=", "/t/water/record?fix=a%20b", "/t/water/record?fix=\(String(repeating: "f", count: 65))",
-        "/t/%E0%A4%A", "/%",
+        "/t/%E0%A4%A", "/%", "//settings", "/t/water/entries//", "/settings//",
     ])
     func junkIsRejected(_ path: String) {
         #expect(DeepLink.routes(forPath: path) == nil)

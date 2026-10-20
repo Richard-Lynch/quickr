@@ -85,9 +85,8 @@ public enum DeepLink {
         if path.isEmpty || path == "/" { return [] }
         guard path.hasPrefix("/") else { return nil }
         if path.count > 1 && path.hasSuffix("/") { path.removeLast() }
-        // "//" anywhere (an empty segment) is not a PWA path.
+        // An empty segment ("//") never matches: not a slug, an id or a page name.
         let raw = path.dropFirst().split(separator: "/", omittingEmptySubsequences: false)
-        guard !raw.contains(where: \.isEmpty) else { return nil }
         var segments: [String] = []
         for segment in raw {
             guard let decoded = segment.removingPercentEncoding else { return nil }
