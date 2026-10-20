@@ -125,6 +125,8 @@ final class RecordUITests: XCTestCase {
             XCTAssertEqual(saves.count, 1, when)
             let save = saves.firstMatch
             XCTAssertTrue(save.isHittable, when)
+            XCTAssertEqual(save.label, "Save", when)
+            XCTAssertGreaterThan(save.frame.minX, advance.frame.maxX, "after Next/Done: \(when)")
             XCTAssertFalse(save.frame.intersects(advance.frame), when)
             // Not covered: on screen, below the field and above the keys.
             XCTAssertTrue(app.windows.firstMatch.frame.contains(save.frame), when)
