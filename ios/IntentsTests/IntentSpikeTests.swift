@@ -132,7 +132,8 @@ final class IntentSpikeTests: XCTestCase {
 
     /// LogTopicIntent end to end in the Shortcuts app over the demo store: Workout's two questions
     /// asked (minutes, then kind), then the confirmation snippet, confirmed. Records what each step
-    /// showed (screenshots and notes): the snippet check research §Spike left open.
+    /// showed (screenshots and notes): the snippet check research §Spike left open. Any step that
+    /// doesn't happen skips as inconclusive: a pass means the entry was logged and said so.
     @MainActor
     func testLogTopicInShortcuts() throws {
         let app = XCUIApplication()
@@ -145,12 +146,13 @@ final class IntentSpikeTests: XCTestCase {
         sleep(3)
         if shortcuts.buttons["BackButton"].exists { shortcuts.buttons["BackButton"].tap() }
         let quickr = shortcuts.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'quickR'")).firstMatch
-        guard quickr.waitForExistence(timeout: 10) else { return note("log topic: no quickR in the library") }
+        guard quickr.waitForExistence(timeout: 10) else { throw XCTSkip("inconclusive: no quickR in the library (nothing was logged, so nothing is claimed)") }
         quickr.tap()
         // Shortcuts expands "Log <topic>" into one tile per topic; the Log group comes first.
         let tile = shortcuts.descendants(matching: .any).matching(NSPredicate(format: "label == 'Workout'")).firstMatch
-        guard tile.waitForExistence(timeout: 10) else { return note("log topic: no Workout tile") }
-        tile.tap()
+        guard tile.waitForExistence(timeout: 10) else { throw XCTSkip("inconclusive: no Workout tile (nothing was logged, so nothing is claimed)") }
+        // The tile's icon button sits above its label: tapping the label didn't start a run.
+        tile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: -45)).tap()
         let started = Date()
         func element(_ label: String) -> XCUIElement? {
             let deadline = Date().addingTimeInterval(20)
@@ -183,7 +185,7 @@ final class IntentSpikeTests: XCTestCase {
         // Minutes.
         guard let minutes = field() else {
             attachTree(springboard, "log-topic-minutes-missing")
-            return note("log topic: no minutes prompt")
+            throw XCTSkip("inconclusive: no minutes prompt (nothing was logged, so nothing is claimed)")
         }
         minutes.tap()
         minutes.typeText("30")
@@ -192,7 +194,7 @@ final class IntentSpikeTests: XCTestCase {
         // Kind.
         guard let run = element("Run") else {
             attachTree(springboard, "log-topic-kind-missing")
-            return note("log topic: no kind choice")
+            throw XCTSkip("inconclusive: no kind choice (nothing was logged, so nothing is claimed)")
         }
         run.tap()
         note("log topic: kind answered at \(Date().timeIntervalSince(started)) s")
@@ -200,7 +202,7 @@ final class IntentSpikeTests: XCTestCase {
         sleep(3)
         attachTree(springboard, "log-topic-confirmation")
         attachTree(shortcuts, "log-topic-confirmation-app")
-        guard let log = element("Log") else { return note("log topic: no Log confirmation button") }
+        guard let log = element("Log") else { throw XCTSkip("inconclusive: no Log confirmation button (nothing was logged, so nothing is claimed)") }
         log.tap()
         sleep(4)
         attachTree(springboard, "log-topic-after")
@@ -208,6 +210,9 @@ final class IntentSpikeTests: XCTestCase {
             $0.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Logged Workout'")).firstMatch
         }.first { $0.exists }
         note("log topic: \(logged.map { "said \"\($0.label)\"" } ?? "no Logged dialog seen") at \(Date().timeIntervalSince(started)) s")
+        guard logged != nil else {
+            throw XCTSkip("inconclusive: confirmed, but no \"Logged Workout\" dialog was seen")
+        }
     }
 
     /// Exploration: the Shortcuts app's UI, to find quickR's App Shortcuts.
