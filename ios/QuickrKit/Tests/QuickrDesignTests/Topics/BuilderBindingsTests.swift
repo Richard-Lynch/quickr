@@ -1,9 +1,8 @@
 import Foundation
 import QuickrCore
+import QuickrUI
 import SwiftUI
 import Testing
-
-@testable import QuickrUI
 
 /// The builder's field bindings read the draft when SwiftUI reads them, not when the view last
 /// rendered: under load a field's binding is read between renders, and a value captured at render

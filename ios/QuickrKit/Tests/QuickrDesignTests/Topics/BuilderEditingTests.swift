@@ -1,8 +1,7 @@
 import Foundation
 import QuickrCore
+import QuickrUI
 import Testing
-
-@testable import QuickrUI
 
 /// The builder's shared state: which cards are open, the live preview, and the Versions tab's rows.
 @MainActor @Suite struct BuilderEditingTests {
