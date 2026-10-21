@@ -166,8 +166,9 @@ public struct TopicDraft: Sendable, Hashable {
         self.changeNote = changeNote
     }
 
-    /// A new topic with one number question (`emptyTopicDraft`).
-    public static func empty() -> TopicDraft { TopicDraft(questions: [DraftQuestion(type: .int)]) }
+    /// A new topic, with no questions yet (`emptyTopicDraft`). Without any, it's a "single" topic:
+    /// logging it is one tap, an entry with no answers.
+    public static func empty() -> TopicDraft { TopicDraft(questions: []) }
 
     /// The latest version of a topic, to edit into the next one (`draftFromTopic`).
     public static func editing(name: String, slug: String, description: String, questions: [Question]) -> TopicDraft {
@@ -206,11 +207,11 @@ public struct TopicDraft: Sendable, Hashable {
         return q.id
     }
 
-    /// A topic keeps at least one question, so the last one can't be removed.
-    public var canRemoveQuestion: Bool { questions.count > 1 }
+    /// Any question can be removed, the last one too (a topic with none logs in one tap).
+    public var canRemoveQuestion: Bool { !questions.isEmpty }
 
     /// Removes a question, published or not (the compatibility check warns about published ones).
-    /// False for the last question or an unknown id.
+    /// False for an unknown id.
     @discardableResult
     public mutating func removeQuestion(_ id: DraftQuestion.ID) -> Bool {
         guard canRemoveQuestion, let i = index(of: id) else { return false }

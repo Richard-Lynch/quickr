@@ -231,16 +231,19 @@ public struct NotificationCategories: Sendable {
             return try StoreView.topics(db).compactMap { view -> Row? in
                 let topic = view.topic
                 guard topic.status == .active, let quick = QuickLog(questions: topic.questions) else { return nil }
-                let key = quick.question.key
-                let entries = try StoreView.entries(db, topicId: topic.id.wireString, countedOnly: true)
                 var counts: [String: Int] = [:]
-                if case .chips(_, let options) = quick, options.count > NotificationCategory.shownOptions {
-                    for entry in entries {
-                        if case .string(let value) = entry.entry.answers[key] { counts[value, default: 0] += 1 }
+                var last: AnswerValue?
+                // A single topic has no question: nothing to count or repeat.
+                if let key = quick.question?.key {
+                    let entries = try StoreView.entries(db, topicId: topic.id.wireString, countedOnly: true)
+                    if case .chips(_, let options) = quick, options.count > NotificationCategory.shownOptions {
+                        for entry in entries {
+                            if case .string(let value) = entry.entry.answers[key] { counts[value, default: 0] += 1 }
+                        }
                     }
+                    // Newest first (captured_at, then id): the latest answer to the key.
+                    last = entries.lazy.compactMap { $0.entry.answers[key] }.first
                 }
-                // Newest first (captured_at, then id): the latest answer to the key.
-                let last = entries.lazy.compactMap { $0.entry.answers[key] }.first
                 guard
                     let category = NotificationCategory(
                         serverId: serverId, topicId: topic.id.wireString, version: topic.currentVersion,

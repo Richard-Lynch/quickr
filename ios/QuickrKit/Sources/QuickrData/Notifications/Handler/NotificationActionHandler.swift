@@ -233,28 +233,31 @@ public struct NotificationActionHandler: Sendable {
         guard q.v == 1, q.kind == "due", let action = ActionIdentifier(identifier), action.matches(q),
             let dueSince = q.dueSince, let version = q.version, let quickLog = q.quickLog
         else { return await fail(.invalid, topicId: topicId, topic: topicName, q) }
-        let answer: AnswerValue
+        let answers: [String: AnswerValue]
         switch (action.kind, quickLog) {
         case (.more, _):
             // A `.foreground` action: the app opens on the record screen, nothing preselected.
             guard let url = q.url else { return .none }
             return .open(path: Self.path(url, topicId: topicId), serverId: q.serverId, prefill: nil)
         case (.option, _):
-            answer = .string(action.value)
+            answers = [action.key: .string(action.value)]
+        case (.single, .single):
+            answers = [:]  // "Log it": a single topic has no questions
         case (.number, .number(let number)):
             guard let last = number.lastValue else {
                 return await fail(.invalid, topicId: topicId, topic: topicName, q)
             }
-            answer =
+            let value: AnswerValue =
                 switch last {
                 case .int(let n): .int(n)
                 case .double(let x): .double(x)
                 }
+            answers = [action.key: value]
         case (.input, .number(let number)):
             let raw = response.userText ?? ""
             switch NotificationNumberInput.parse(raw, for: number) {
             case .success(let value):
-                answer = value
+                answers = [action.key: value]
             case .failure(let message):
                 await postFix(raw: raw, key: number.key, topicId: topicId, topic: topicName, q)
                 return .needsFix(raw: raw, message: message.message)
@@ -299,7 +302,7 @@ public struct NotificationActionHandler: Sendable {
         let ref = TopicRef(
             id: topicUUID, slug: view?.topic.slug ?? q.topicSlug ?? "", name: view?.topic.name ?? response.title)
         let body = EntryCreateDTO(
-            id: nil, answers: [action.key: answer], source: nil, capturedAt: wallClock.now(), notes: "", meta: [:],
+            id: nil, answers: answers, source: nil, capturedAt: wallClock.now(), notes: "", meta: [:],
             version: version)
         let result: OutboxCreateOnceResult
         do {

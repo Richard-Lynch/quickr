@@ -46,6 +46,12 @@ struct LogTopicIntent: AppIntent, UndoableIntent {
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
         guard let context = IntentWrites.context() else { throw IntentLogging.Failure.noStore }
         let (_, current) = try await IntentLogging.topic(topic.id, in: context)
+        // A single topic (no questions): nothing to ask or confirm, it's logged at once.
+        if current.questions.isEmpty {
+            let logged = try await IntentLogging.log(topicId: current.id, answers: [:], in: context)
+            await IntentUndo.register(undoManager, logged: logged, context: context)
+            return .result(value: current.name, dialog: "Logged \(current.name).")
+        }
         var draft = IntentDraft(topic: current)
 
         let extractor = OnDeviceAnswerExtractor()

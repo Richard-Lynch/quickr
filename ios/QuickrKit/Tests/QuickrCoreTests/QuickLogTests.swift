@@ -43,7 +43,12 @@ import Testing
         #expect(QuickLog(questions: [F.with(Self.intQ) { $0.required = false }]) == nil)  // only optional
         #expect(QuickLog(questions: [Self.enumQ(3, multiple: true)]) == nil)  // multi-select
         #expect(QuickLog(questions: [F.with(Self.noteQ) { $0.required = true }]) == nil)  // text
-        #expect(QuickLog(questions: []) == nil)
+    }
+
+    /// SINGLE: no questions at all logs in one tap, with no answers.
+    @Test func aTopicWithNoQuestionsIsSingle() {
+        #expect(QuickLog(questions: []) == .single)
+        #expect(QuickLog.single.question == nil)
     }
 
     @Test func prefillsNumbersWithTheLastValidValueElseMinAtLeastZero() {

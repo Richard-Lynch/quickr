@@ -96,6 +96,8 @@ public final class FormModel {
                     // A single-number topic starts from the last value, like its tile.
                     let start = QuickLog.initialText(for: question, last: last?.answers[question.key])
                     if !start.isEmpty { inputs[question.key] = .text(start) }
+                case .single:
+                    break  // `questions.count == 1`: never single
                 }
             }
         case .fix(let answers, _):

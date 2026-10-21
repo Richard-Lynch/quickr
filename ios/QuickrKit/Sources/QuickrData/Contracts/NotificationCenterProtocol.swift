@@ -179,11 +179,15 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
     case choice(Choice)
     /// An int or double question, with the latest valid value.
     case number(Number)
+    /// No questions (`{"type": "single"}`): one "Log it", an entry with no answers.
+    case single
 
+    /// The quick question's key; empty for `single`, as in its action identifier.
     public var key: String {
         switch self {
         case .choice(let choice): choice.key
         case .number(let number): number.key
+        case .single: ""
         }
     }
 
@@ -293,6 +297,7 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
         switch try container.decode(String.self, forKey: .type) {
         case "enum": self = .choice(try Choice(from: decoder))
         case "int", "double": self = .number(try Number(from: decoder))
+        case "single": self = .single
         case let tag:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: container, debugDescription: "unknown quick_log type \(tag)")
@@ -307,6 +312,9 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
             try choice.encode(to: encoder)
         case .number(let number):
             try number.encode(to: encoder)
+        case .single:
+            var tag = encoder.container(keyedBy: TagKeys.self)
+            try tag.encode("single", forKey: .type)
         }
     }
 }

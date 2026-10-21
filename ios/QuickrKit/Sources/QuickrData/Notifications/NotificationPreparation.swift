@@ -165,7 +165,9 @@ public struct NotificationPreparation: Sendable {
             ActionIdentifier.isCanonicalUUID(topicId)
         else { return false }
         guard let descriptor = q.quickLog else { return q.version.map { $0 >= 1 } ?? true }
-        guard let version = q.version, version >= 1, ActionIdentifier.isKey(descriptor.key) else { return false }
+        guard let version = q.version, version >= 1 else { return false }
+        // A single topic's descriptor has no key (its action's is empty); every other one has one.
+        guard descriptor == .single || ActionIdentifier.isKey(descriptor.key) else { return false }
         func fits(_ text: String?) -> Bool { (text?.unicodeScalars.count ?? 0) <= NotificationCategory.maxLabelLength }
         switch descriptor {
         case .choice(let choice):
@@ -180,6 +182,8 @@ public struct NotificationPreparation: Sendable {
             return ["int", "double"].contains(number.type) && fits(number.label) && fits(number.unit)
                 && (number.decimals.map { (0...10).contains($0) } ?? true)
                 && inOrder([number.min, number.lastValue, number.max], type: number.type)
+        case .single:
+            return true
         }
     }
 

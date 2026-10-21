@@ -36,7 +36,8 @@ public struct WidgetLogIntent: AppIntent {
         self.number = number
     }
 
-    /// Nothing to log yet (a Control for a chip topic never logged): says so, logs nothing.
+    /// A single topic (no questions): logs it, with no answers. For any other topic it has nothing
+    /// to log (a Control for a chip topic never logged): says so, logs nothing.
     public init(topic: TopicEntity, scope: EntryScope) {
         self.topic = topic
         self.scope = scope.id
@@ -111,6 +112,8 @@ enum WidgetLogging {
         case .number(let question)?:
             guard let number else { return "Log \(current.name) in quickR first." }
             answers = [question.key: IntentText.answer(number, for: question)]
+        case .single?:
+            answers = [:]
         case nil:
             return "\(current.name) has more than one question: log it in quickR."
         }

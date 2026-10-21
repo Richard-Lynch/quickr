@@ -27,6 +27,7 @@ import Testing
     /// A valid draft: a name and one labelled whole-number question.
     func fill() {
         model.draft.setName("Water")
+        model.addQuestion(.int)
         let id = model.draft.questions[0].id
         model.draft.setLabel(id, "Glasses")
     }
@@ -45,6 +46,15 @@ import Testing
         #expect(toasts.items.map(\.toast.title) == ["Topic created"])
         #expect(toasts.items.first?.toast.message == "Log your first entry.")
         #expect(opened.topics == [Self.created])
+    }
+
+    /// SINGLE: a new topic starts with no questions, and creates as is (logged in one tap).
+    @Test func aTopicWithNoQuestionsCreates() async {
+        #expect(model.draft.questions.isEmpty)
+        model.draft.setName("Water")
+        await model.create()
+        #expect(writer.calls == [.create(name: "Water", schedule: nil)])
+        #expect(model.draftErrors.isEmpty)
     }
 
     @Test func createSendsTheSchedule() async {

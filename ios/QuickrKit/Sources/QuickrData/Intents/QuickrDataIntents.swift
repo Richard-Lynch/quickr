@@ -70,6 +70,8 @@ public struct LogEntryIntent: AppIntent, UndoableIntent {
                 value = try await $number.requestValue("\(IntentText.prompt(for: question))")
             }
             answers = [question.key: IntentText.answer(value, for: question)]
+        case .single:
+            answers = [:]  // no questions: logged as is, nothing to ask
         }
         let logged = try await IntentLogging.log(topicId: current.id, answers: answers, in: context)
         let summary = IntentText.summary(logged.answers, topic: logged.topic)
