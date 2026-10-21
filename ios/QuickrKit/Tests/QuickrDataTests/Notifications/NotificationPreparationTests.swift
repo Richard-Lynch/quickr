@@ -191,6 +191,35 @@ import Testing
 
     /// A server the registry doesn't know: no category (its actions could only be dropped), no
     /// badge, nothing registered.
+    /// A push built by a server from before the number title became "Log 5 glasses" (a11y N1)
+    /// names the old "✓ 5 glasses" category. The NSE doesn't trust it: it registers and uses the
+    /// category it computes. The old category, registered before the change, stays registered
+    /// (append-only, §5.2), so a reminder already delivered under it keeps its buttons.
+    @Test func aPushWithThePreN1CategoryIdGetsTheCurrentCategory() async throws {
+        let w = try await World()
+        var info = Self.reminder()
+        info.quickLog = NotificationCategory.descriptor(
+            questions: [NotificationActionHandlerTests.glasses], counts: [:], last: .int(5))
+        let descriptor = try #require(info.quickLog)
+        let current = NotificationCategory(
+            serverId: Self.active, topicId: Self.water.id.wireString, version: 1, descriptor: descriptor)
+        #expect(current.actions.first?.title == "Log 5 glasses")
+        var oldActions = current.actions
+        oldActions[0].title = "✓ 5 glasses"
+        var oldCategory = current
+        oldCategory.actions = oldActions
+        oldCategory.id = "quickr.t.\(Self.water.id.wireString).\(NotificationCategory.hash(oldActions))"
+        let old = oldCategory.id
+        #expect(old != current.id)
+        _ = try await NotificationCategories(registry: w.registry, center: w.center).register(
+            [.init(serverId: Self.active, topicId: Self.water.id.wireString, category: oldCategory)])
+
+        let prepared = await w.prepare(info, category: old)
+        #expect(prepared.categoryIdentifier == current.id)
+        #expect(try Set(w.table) == [old, current.id])
+        #expect(Set(w.fake.withState { $0.categories.map(\.id) }).isSuperset(of: [old, current.id]))
+    }
+
     @Test func aReminderFromAnUnknownServerLosesItsCategory() async throws {
         let w = try await World()
         let prepared = await w.prepare(Self.reminder(server: Self.unknown))
