@@ -263,7 +263,8 @@ struct TopicLabeledField<Content: View>: View {
                 Text(label).font(.qr(.label)).foregroundStyle(.qr.inkSoft)
                 if optional { Text("optional").font(.qr(.caption)).foregroundStyle(.qr.muted) }
             }
-            .accessibilityHidden(true)
+            // Read as the field's heading: visible text stays in the accessibility tree.
+            .accessibilityElement(children: .combine)
             content.font(.qr(.body))
             if let hint { Text(hint).font(.qr(.footnote)).foregroundStyle(.qr.muted) }
             TopicFieldError(error)

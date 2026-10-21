@@ -125,6 +125,9 @@ final class TopicUITests: XCTestCase {
         let app = launch(open: "quickr://t/mood/settings", extra: AccessibilityLaunch.arguments())
         XCTAssertTrue(field("topicSettings.name", in: app).waitForExistence(timeout: 15))
         try assertAccessible(app)
+        let saveDetails = element("topicSettings.saveDetails", in: app)
+        scrollTo(saveDetails, in: app)
+        XCTAssertTrue(saveDetails.isHittable)
         // The schedule kind is a menu at this size (TP4); Daily shows the weekdays.
         pickScheduleKind("Daily", id: "topicSettings.schedule", in: app)
         // TP1: every weekday is reachable and audited unclipped.
@@ -135,7 +138,7 @@ final class TopicUITests: XCTestCase {
             XCTAssertGreaterThanOrEqual(button.frame.height, 44, "day \(day)")
         }
         try assertAccessible(app)
-        for id in ["topicSettings.saveDetails", "topicSettings.saveSchedule", "topicSettings.archive"] {
+        for id in ["topicSettings.saveSchedule", "topicSettings.archive"] {
             scrollTo(element(id, in: app), in: app)
             XCTAssertTrue(element(id, in: app).isHittable, id)
         }

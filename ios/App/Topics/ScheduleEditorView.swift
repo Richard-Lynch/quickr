@@ -23,6 +23,8 @@ struct ScheduleEditorRows: View {
         QuickrSegmentedPicker("Schedule", selection: $draft.kind) {
             ForEach(Self.kinds, id: \.0) { Text($0.1).tag($0.0) }
         }
+        .labelsHidden()
+        .accessibilityLabel("Schedule")
         .accessibilityIdentifier("\(id).kind")
 
         switch draft.kind {
@@ -64,7 +66,8 @@ struct ScheduleEditorRows: View {
                         .font(.qr(.label))
                         .foregroundStyle(.qr.inkSoft)
                         .opacity(i == 0 ? 1 : 0)
-                        .accessibilityHidden(true)
+                        // Visible text is read (the audit flags hidden text); only the first shows.
+                        .accessibilityHidden(i != 0)
                     Spacer()
                     DatePicker("Time \(i + 1)", selection: timeBinding(i), displayedComponents: .hourAndMinute)
                         .labelsHidden()

@@ -28,11 +28,14 @@ struct VersionsView: View {
                 // The button under the text at accessibility sizes (BD6).
                 FieldRow(alignment: .top) {
                     Text(VersionsList.intro).font(.qr(.subheadline)).foregroundStyle(.qr.muted)
+                        .fixedSize(horizontal: false, vertical: true)
                     if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
                     Button {
                         environment.router.open(.editQuestions(ref))
                     } label: {
                         Label("New version", systemImage: "pencil")
+                            .font(.qr(.label))
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .buttonStyle(.bordered)
                     .accessibilityIdentifier("versions.new")

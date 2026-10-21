@@ -90,6 +90,9 @@ struct NewTopicView: View {
                         Spacer()
                         if model.isCreating { ProgressView().tint(.qr.onAccent) }
                         Label("Create topic", systemImage: "checkmark").font(.qr(.label))
+                            // Wraps instead of clipping at accessibility sizes.
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
                         Spacer()
                     }
                     .frame(minHeight: 44)

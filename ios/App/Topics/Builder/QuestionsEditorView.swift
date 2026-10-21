@@ -19,6 +19,9 @@ struct BuilderPanePicker: View {
             QuickrSegmentedPicker("Builder view", selection: $pane) {
                 ForEach(BuilderPane.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
+            // The switch shows its value; the title is the accessibility label (it clipped).
+            .labelsHidden()
+            .accessibilityLabel("Builder view")
             .accessibilityIdentifier("\(id).pane")
         }
         .listRowBackground(Color.clear)
@@ -102,7 +105,8 @@ struct TypeChip: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
             .background(color.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
-            .accessibilityHidden(true)
+            // "Whole number", not "INT" (BD7).
+            .accessibilityLabel(type.builderLabel)
     }
 }
 

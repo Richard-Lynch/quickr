@@ -83,6 +83,7 @@ struct EditQuestionsView: View {
     @State private var confirmingLeave = false
     @Environment(\.dismiss) private var dismiss
     @QuickrReduceMotion private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private static let bannerId = "editQuestions.banner.section"
 
@@ -139,6 +140,8 @@ struct EditQuestionsView: View {
                         Spacer()
                         if model.isChecking { ProgressView().tint(.qr.onAccent) }
                         Label("Review changes", systemImage: "eye").font(.qr(.label))
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
                         Spacer()
                     }
                     .frame(minHeight: 44)
@@ -160,12 +163,16 @@ struct EditQuestionsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(model.hasUnsavedChanges)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                HStack(spacing: 8) {
-                    Text("Edit questions").font(.qr(.label))
-                    QuickrBadge("v\(model.base.currentVersion)")
+            // Bar items stop growing at a cap: at accessibility sizes the plain title stays, and the
+            // intro says which version this is.
+            if !typeSize.isAccessibilitySize {
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 8) {
+                        Text("Edit questions").font(.qr(.label))
+                        QuickrBadge("v\(model.base.currentVersion)")
+                    }
+                    .accessibilityElement(children: .combine)
                 }
-                .accessibilityElement(children: .combine)
             }
             if model.hasUnsavedChanges {
                 ToolbarItem(placement: .topBarLeading) {

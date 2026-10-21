@@ -137,11 +137,12 @@ final class BuilderUITests: XCTestCase {
     @MainActor
     func testBuilderAtTheLargestTextSize() throws {
         let app = launch(open: "quickr://t/workout/edit", extra: AccessibilityLaunch.arguments())
-        let header = element("editQuestions.q0.header", in: app)
-        XCTAssertTrue(header.waitForExistence(timeout: 15))
+        XCTAssertTrue(element("editQuestions.intro", in: app).waitForExistence(timeout: 15))
         try assertAccessible(app)
         // The choice question, open: its options, archive buttons and move menus.
+        let header = element("editQuestions.q0.header", in: app)
         scrollTo(header, in: app)
+        XCTAssertTrue(header.exists)
         header.tap()
         let archive = element("editQuestions.q0.option0.archive", in: app)
         scrollTo(archive, in: app)
@@ -149,7 +150,8 @@ final class BuilderUITests: XCTestCase {
         try assertAccessible(app)
         // BD3: an archived option says so.
         archive.tap()
-        XCTAssertTrue(app.textFields["editQuestions.q0.option0"].label.contains("archived"))
+        let archived = app.textFields["editQuestions.q0.option0"]
+        XCTAssertTrue(archived.label.contains("archived"), "\(archived.exists) \(archived.label)")
         let move = element("editQuestions.q0.option0.move", in: app)
         XCTAssertGreaterThanOrEqual(move.frame.width, 44)
         XCTAssertGreaterThanOrEqual(move.frame.height, 44)
