@@ -44,6 +44,44 @@ import Testing
         #expect(ActionIdentifier("\(base)|o|a|b")?.value == "a|b")
     }
 
+    /// SINGLE: a topic with no questions has one action, "Log it": kind `s`, with an empty key and
+    /// value. Only `s` takes an empty key, and `s` takes nothing else.
+    @Test func aSingleTopicsLogItRoundTripsAndMatchesOnlyASingleReminder() throws {
+        let id = "q1|\(Self.server)|\(Self.topic)|3||s|"
+        let parsed = try #require(ActionIdentifier(id))
+        #expect(parsed.kind == .single && parsed.key.isEmpty && parsed.value.isEmpty)
+        #expect(parsed.description == id)
+        for bad in [
+            "q1|\(Self.server)|\(Self.topic)|3|mood|s|",  // `s` has no key
+            "q1|\(Self.server)|\(Self.topic)|3||s|x",  // nor a value
+            "q1|\(Self.server)|\(Self.topic)|3||o|good",  // every other kind needs a key
+            "q1|\(Self.server)|\(Self.topic)|3||i|",
+        ] {
+            #expect(ActionIdentifier(bad) == nil, "\(bad)")
+        }
+        #expect(parsed.matches(Self.info(.single)))
+        #expect(!parsed.matches(Self.info(.single, version: 4)))
+        let choice = Self.info(
+            .choice(.init(key: "mood", label: "Mood", options: [.init(value: "good", label: "Good")], totalOptions: 1)))
+        #expect(!parsed.matches(choice))
+    }
+
+    /// SINGLE: the category of a topic with no questions, its `{"type": "single"}` descriptor as
+    /// JSON (both ways), and a reminder carrying it is well formed.
+    @Test func aSingleTopicsCategoryAndDescriptor() throws {
+        let category = try #require(
+            NotificationCategory(serverId: Self.server, topicId: Self.topic, version: 3, questions: []))
+        #expect(category.descriptor == .single)
+        #expect(category.actions.map(\.kind) == ["log"])
+        #expect(category.actions.map(\.title) == ["Log it"])
+        #expect(category.actions.map(\.identifier) == ["q1|\(Self.server)|\(Self.topic)|3||s|"])
+        #expect(category.id.hasPrefix("quickr.t.\(Self.topic)."))
+        let json = try JSONEncoder().encode(QuickLogDescriptor.single)
+        #expect(String(decoding: json, as: UTF8.self) == #"{"type":"single"}"#)
+        #expect(try JSONDecoder().decode(QuickLogDescriptor.self, from: Data(#"{"type":"single"}"#.utf8)) == .single)
+        #expect(NotificationPreparation.isWellFormed(Self.info(.single)))
+    }
+
     static func info(_ quickLog: QuickLogDescriptor, version: Int = 3) -> QuickrNotificationInfo {
         QuickrNotificationInfo(
             kind: "due", serverId: server, topicId: topic, version: version, quickLog: quickLog)

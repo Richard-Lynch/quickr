@@ -99,6 +99,17 @@ import Testing
         #expect(w.reloads.count == 0)
     }
 
+    /// SINGLE: a single topic's "Log it" (no option, no number) logs an entry with no answers.
+    @Test func aSingleTopicsLogItLogsWithNoAnswers() async throws {
+        let w = try await World(questions: [])
+        defer { w.directory.cleanup() }
+        let said = try await w.perform(from: w.b.scope)
+        #expect(said == "Logged Mood.")
+        let logged = try await w.b.entries.latestEntry(topicId: w.topic.id)
+        #expect(logged?.entry.answers == [:])
+        await #expect(throws: WidgetLogging.Failure.stale) { try await w.perform(from: w.a.scope) }
+    }
+
     @Test func aNumberLogsAsTheQuestionsType() async throws {
         let w = try await World(questions: [Self.cups])
         defer { w.directory.cleanup() }

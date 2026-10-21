@@ -123,6 +123,35 @@ import Testing
         #expect(items.count == 2 && items.allSatisfy { $0.origin == .siri })
     }
 
+    /// SINGLE: a topic with no questions logs from Siri and Shortcuts with no prompt at all (Log Entry,
+    /// Log Topic), and Repeat-last logs it again, each an entry with no answers.
+    @Test func aSingleTopicLogsFromEveryIntentWithoutAPrompt() async throws {
+        let location = try await Self.quickLogLocation()
+        defer { TestStores.remove(location) }
+        let environment = AppEnvironment.bootstrap(location: location, categoryCenter: nil)
+        let partitions = try #require(environment.session?.partitions)
+        let store = try #require(try await partitions.openActiveStore(role: .app)?.store)
+        var walk = try #require(
+            try await PlaceholderTopicRepository().topic(id: PlaceholderTopicRepository.mood)?.topic)
+        walk.questions = []
+        walk.revision += 10
+        try await store.writer.write { [walk] db in _ = try ServerLayer.upsert(db, topic: walk) }
+        let entity = try #require(try await TopicEntityQuery().entities(for: [PlaceholderTopicRepository.mood]).first)
+
+        #expect(try await LogEntryIntent(topic: entity).perform().value == "Mood")
+        #expect(try await LogTopicIntent(topic: entity).perform().value == "Mood")
+        #expect(try await RepeatLastEntryIntent(topic: entity).perform().value == "Mood")
+        let items = try await store.outbox.items()
+        #expect(items.count == 3 && items.allSatisfy { $0.origin == .siri })
+        for item in items {
+            guard case .entryCreate(_, let body) = try item.payload() else {
+                Issue.record("not a create")
+                continue
+            }
+            #expect(body.answers.isEmpty)
+        }
+    }
+
     /// Repeat-last re-logs the latest entry; What's Due reads the active store (the fixture topics
     /// have no schedule); OpenRecordIntent opens the record screen through the app's router.
     @Test func repeatLastWhatsDueAndOpenRecordInTheApp() async throws {

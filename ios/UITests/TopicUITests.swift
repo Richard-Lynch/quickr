@@ -82,6 +82,7 @@ final class TopicUITests: XCTestCase {
         name.tap()
         name.typeText("Water")
         XCTAssertEqual(app.textFields["newTopic.slug"].value as? String, "water", "the slug follows the name")
+        addNumberQuestion(in: app)  // a new topic starts with none
         let label = app.textFields["newTopic.q0.label"]
         label.tap()
         label.typeText("Glasses\n")  // Return closes the keyboard
@@ -93,6 +94,38 @@ final class TopicUITests: XCTestCase {
         XCTAssertTrue(created, banner.exists ? "banner: \(banner.label)" : "no toast, no banner")
         XCTAssertTrue(app.navigationBars["Water"].waitForExistence(timeout: 15), "its record screen")
         XCTAssertTrue(field("form.field.glasses", in: app).waitForExistence(timeout: 10))
+    }
+
+    /// SINGLE: a new topic starts with no questions and says what that means; created as is, it's
+    /// back on the list, where its tile's Log logs it in one tap (no form), with Undo.
+    @MainActor
+    func testASingleTopicIsCreatedAndLoggedInOneTap() {
+        let app = launch(open: "quickr://new")
+        let name = app.textFields["newTopic.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 15))
+        let none = element("newTopic.noQuestions", in: app)
+        scrollTo(none, in: app)
+        XCTAssertTrue(none.exists)
+        XCTAssertEqual(none.label, "No questions: tapping this topic logs it.")
+        XCTAssertFalse(app.textFields["newTopic.q0.label"].exists, "no question to start with")
+        name.tap()
+        name.typeText("Walk\n")
+        dismissKeyboard(app)
+        snap(app, "single-builder-empty")
+        tap("newTopic.create", in: app)
+        XCTAssertTrue(toast("Topic created", in: app).waitForExistence(timeout: 10))
+
+        let tile = element("tile.walk", in: app)
+        XCTAssertTrue(tile.waitForExistence(timeout: 15), "back on the list")
+        XCTAssertFalse(app.navigationBars["Walk"].exists, "no record screen")
+        let log = app.buttons["Log Walk"].firstMatch
+        scrollTo(log, in: app)
+        log.tap()
+        let logged = toast("Logged Walk", in: app)
+        XCTAssertTrue(logged.waitForExistence(timeout: 10))
+        snap(app, "single-logged")
+        XCTAssertTrue(app.buttons["Undo"].firstMatch.exists)
+        XCTAssertFalse(app.navigationBars["Walk"].exists, "logged without a form")
     }
 
     @MainActor
@@ -171,6 +204,7 @@ final class TopicUITests: XCTestCase {
         let app = launch(open: "quickr://new", extra: AccessibilityLaunch.arguments())
         XCTAssertTrue(app.textFields["newTopic.name"].waitForExistence(timeout: 15))
         try assertAccessible(app)
+        addNumberQuestion(in: app)
         let required = element("newTopic.q0.required", in: app)
         scrollTo(required, in: app)
         try assertAccessible(app, types: .midList)
@@ -227,6 +261,18 @@ final class TopicUITests: XCTestCase {
             ["-QuickrUITest", "-QuickrServer", "https://quickr.test", "-QuickrOpen", url] + extra
         app.launch()
         return app
+    }
+
+    /// "Add question" → Number, in the new-topic builder (it starts with none).
+    @MainActor
+    private func addNumberQuestion(in app: XCUIApplication) {
+        tap("newTopic.addQuestion", in: app)
+        // The dialog's buttons can appear twice in the tree (the sheet and its presentation).
+        let choice = app.buttons["newTopic.addQuestion.int"].firstMatch
+        XCTAssertTrue(choice.waitForExistence(timeout: 5))
+        choice.tap()
+        let label = app.textFields["newTopic.q0.label"]
+        XCTAssertTrue(label.waitForExistence(timeout: 5))
     }
 
     @MainActor

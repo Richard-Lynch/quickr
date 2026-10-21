@@ -87,10 +87,8 @@ final class BuilderUITests: XCTestCase {
     @MainActor
     func testPreviewAndCollapse() {
         let app = launch(open: "quickr://new")
-        let label = app.textFields["newTopic.q0.label"]
-        XCTAssertTrue(label.waitForExistence(timeout: 15))
-        label.tap()
-        label.typeText("Glasses of water\n")  // Return puts the keyboard away
+        XCTAssertTrue(app.textFields["newTopic.name"].waitForExistence(timeout: 15))
+        addQuestion("int", label: "Glasses of water", prefix: "newTopic", in: app)  // it starts with none
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
         snap(app, "builder-edit")
 
@@ -163,6 +161,8 @@ final class BuilderUITests: XCTestCase {
     @MainActor
     func testANewQuestionsFieldsAtTheLargestTextSize() throws {
         let app = launch(open: "quickr://new", extra: AccessibilityLaunch.arguments())
+        XCTAssertTrue(app.textFields["newTopic.name"].waitForExistence(timeout: 15))
+        addQuestion("int", label: "Steps", prefix: "newTopic", in: app)  // it starts with none
         let label = app.textFields["newTopic.q0.label"]
         scrollTo(label, in: app)
         XCTAssertTrue(label.waitForExistence(timeout: 15))

@@ -21,7 +21,7 @@ final class TopicLifecycleUITests: XCTestCase {
         let name = app.textFields["newTopic.name"]
         XCTAssertTrue(name.waitForExistence(timeout: 15))
         screen.type("Water", into: name)
-        screen.type("Glasses", into: app.textFields["newTopic.q0.label"])
+        screen.addQuestion("int", label: "Glasses", prefix: "newTopic")  // a new topic starts with none
         screen.dismissKeyboard()
         screen.tap("newTopic.create")
         XCTAssertTrue(screen.toast("Topic created").waitForExistence(timeout: 10))
