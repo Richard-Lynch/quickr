@@ -418,6 +418,10 @@ Then fill in `ios/testflight.env`, run `make ios-testflight-dry-run` to check
 the archive, and run `make ios-testflight`. A build shows under TestFlight once
 App Store Connect has processed it, usually within minutes.
 
+The archive warns "All interface orientations must be supported unless the app
+requires full screen". That is expected: the app is iPhone-only and portrait by
+design, and `UIRequiresFullScreen` is deprecated on iOS 26.
+
 ## CI
 
 `.github/workflows/ios.yml` runs on `macos-26` with Xcode 26.6 pinned through
