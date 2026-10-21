@@ -43,6 +43,7 @@ extension IntegrationTests {
                 let epoch = try await rotateEpoch(it.config)
                 #expect(epoch != oldEpoch)
                 let token = Data((0..<32).map { _ in UInt8.random(in: 0...255) })
+                let index = device.sent().count  // after onboarding's own feed requests
                 await registration.didRegister(token: token, active: old)
 
                 // The first register, with the old epoch, is refused; the coordinator rebuilds; the
@@ -61,8 +62,15 @@ extension IntegrationTests {
                 // generation.
                 let after = try await store.state()
                 #expect(after.epoch == epoch && after.layerGen > before.layerGen && !after.epochSuspect)
-                let feed = device.sent(.get).filter { $0.url.path.hasSuffix("/changes") }
-                #expect(!feed.isEmpty, "the rebuild pulled the feed")
+                // In this order: the refused register, the rebuild's feed requests, the retried one.
+                let order = device.sent(from: index).compactMap { request -> String? in
+                    if request.url.path.hasSuffix("/push/apns/devices") { return "register" }
+                    if request.url.path.hasSuffix("/changes") { return "feed" }
+                    return nil
+                }
+                let firstFeed = try #require(order.firstIndex(of: "feed"), "the rebuild pulled the feed: \(order)")
+                #expect(order.first == "register" && order.last == "register", "\(order)")
+                #expect(order.dropFirst().prefix(upTo: order.count - 1).allSatisfy { $0 == "feed" } && firstFeed == 1)
             }
         }
     }
