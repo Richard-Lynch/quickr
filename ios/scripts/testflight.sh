@@ -13,17 +13,13 @@
 #   ASC_KEY_PATH      the AuthKey_<id>.p8 file, outside the repo or gitignored
 # The IDs are printed redacted only, and xcodebuild's output is filtered for them too.
 #
-# The build number (CFBundleVersion, every target) is TESTFLIGHT_BUILD_NUMBER, else the UTC time as
-# YYYYMMDD.HHMM: it only grows, and nothing in the repo changes. The marketing version is
-# MARKETING_VERSION in project.yml.
+# The build number (CFBundleVersion, every target) is TESTFLIGHT_BUILD_NUMBER, else the UTC
+# time as YYYYMMDD.HHMMSS, which increases with the clock; one already archived here is
+# refused. Nothing in the repo changes. The marketing version is MARKETING_VERSION in
+# project.yml.
 source "$(dirname "$0")/common.sh"
-
-dry_run=0
-case "${1:-}" in
---dry-run) dry_run=1 ;;
-"") ;;
-*) die "usage: testflight.sh [--dry-run]" ;;
-esac
+# Never traced: `bash -x` would print the credentials as they are read.
+{ set +x; } 2>/dev/null
 
 names=(DEVELOPMENT_TEAM ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH)
 env_file="${TESTFLIGHT_ENV_FILE:-$IOS_DIR/testflight.env}"
@@ -108,11 +104,26 @@ scrub() {
 load_env_file
 load_local_xcconfig
 
+# Called back as the xcodebuild the watchdog runs (QUICKR_TF_SCRUB=1): xcodebuild with the
+# IDs filtered out, so nothing unfiltered reaches the watchdog's log files either.
+if [[ "${QUICKR_TF_SCRUB:-}" == 1 ]]; then
+  xcodebuild "$@" 2>&1 | scrub
+  exit "${PIPESTATUS[0]}"
+fi
+
+dry_run=0
+case "${1:-}" in
+--dry-run) dry_run=1 ;;
+"") ;;
+*) die "usage: testflight.sh [--dry-run]" ;;
+esac
+
 marketing="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*"?([0-9.]+)"?.*/\1/p' "$IOS_DIR/project.yml" | head -1)"
 [[ -n "$marketing" ]] || die "no MARKETING_VERSION in ios/project.yml"
-build="${TESTFLIGHT_BUILD_NUMBER:-$(date -u +%Y%m%d.%H%M)}"
+build="${TESTFLIGHT_BUILD_NUMBER:-$(date -u +%Y%m%d.%H%M%S)}"
 [[ "$build" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] \
   || die "TESTFLIGHT_BUILD_NUMBER '$build' must be one to three period-separated integers (CFBundleVersion)"
+(( ${#build} <= 18 )) || die "TESTFLIGHT_BUILD_NUMBER '$build' is longer than 18 characters"
 
 problems="$(credential_problems)"
 if (( !dry_run )) && [[ -n "$problems" ]]; then
@@ -128,6 +139,9 @@ require_xcodebuild
 out="$BUILD_DIR/testflight/$marketing-$build"
 archive="$out/QuickR.xcarchive"
 options="$out/ExportOptions.plist"
+# A build number is used once: App Store Connect refuses it again for the same version, and
+# its directory holds that build's archive.
+[[ ! -e "$out" ]] || die "build $marketing ($build) was already archived here (${out#"$IOS_DIR/"}); set another TESTFLIGHT_BUILD_NUMBER"
 mkdir -p "$out"
 
 echo "ios: TestFlight $( (( dry_run )) && echo "dry run" || echo upload ): version $marketing ($build)"
@@ -172,14 +186,15 @@ if (( !dry_run )); then
 fi
 
 echo "ios: 1/3 archive (Release, generic/platform=iOS) -> ${archive#"$IOS_DIR/"}"
-rm -rf "$archive"
+# Every xcodebuild runs as this script called back, which filters the IDs from its output.
+export QUICKR_TF_SCRUB=1
+XCODEBUILD="$IOS_DIR/scripts/testflight.sh"
 if (( dry_run )); then
   xcb -configuration Release -destination "generic/platform=iOS" -archivePath "$archive" \
-    CURRENT_PROJECT_VERSION="$build" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO archive 2>&1 | scrub
+    CURRENT_PROJECT_VERSION="$build" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO archive
 else
   xcb -configuration Release -destination "generic/platform=iOS" -archivePath "$archive" "${auth[@]}" \
-    CURRENT_PROJECT_VERSION="$build" DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" CODE_SIGN_STYLE=Automatic archive \
-    2>&1 | scrub
+    CURRENT_PROJECT_VERSION="$build" DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" CODE_SIGN_STYLE=Automatic archive
 fi
 
 # Every bundle in the archive carries the build number (the extensions must match the app's).
@@ -203,7 +218,7 @@ if (( dry_run )); then
 fi
 
 echo "ios: 2/3 export and 3/3 upload to App Store Connect"
-watchdog xcodebuild -exportArchive -archivePath "$archive" -exportOptionsPlist "$options" \
-  -exportPath "$out/export" "${auth[@]}" 2>&1 | scrub
+watchdog "$XCODEBUILD" -exportArchive -archivePath "$archive" -exportOptionsPlist "$options" \
+  -exportPath "$out/export" "${auth[@]}"
 echo "ios: uploaded $marketing ($build). It shows in App Store Connect > TestFlight once processed (minutes);"
 echo "  testers get it after the export-compliance question is answered there (ios/README.md, TestFlight)."

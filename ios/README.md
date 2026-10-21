@@ -362,7 +362,9 @@ run. Output goes to `ios/build/testflight/<version>-<build>/`.
 **Build number.** Every upload needs a new `CFBundleVersion` for the same
 version. The script sets it on all three bundles (the app and both extensions
 must match) from `TESTFLIGHT_BUILD_NUMBER`, else from the UTC time as
-`YYYYMMDD.HHMM`, which only grows. Nothing in the repo changes. The version
+`YYYYMMDD.HHMMSS`, which increases with the clock. A number already archived
+in `ios/build/testflight` is refused, as App Store Connect would refuse it
+again. Nothing in the repo changes. The version
 shown to testers is `MARKETING_VERSION` in `project.yml`; bump it there for a
 new release.
 
@@ -371,9 +373,11 @@ new release.
 file is read as plain `KEY=VALUE` lines and never run. `DEVELOPMENT_TEAM` is
 also read from `ios/Local.xcconfig`. A run without all four stops before
 building and names what is missing or malformed. The script prints the IDs
-only redacted (`********AB`) and filters them out of xcodebuild's output. It
-refuses a key file that git tracks, or one inside the repo that isn't ignored
-(`*.p8` is ignored repo-wide).
+only redacted (`********AB`). It filters them out of xcodebuild's output before
+anything logs it, and turns off shell tracing (`bash -x`). It refuses a key file
+that git tracks, or one inside the repo that isn't ignored (`*.p8` is ignored
+repo-wide). xcodebuild takes the IDs and the key's path as arguments, so while
+it runs they are visible to `ps` on this Mac, though the key itself is not.
 
 | Variable           | What it is                                        |
 | ------------------ | ------------------------------------------------- |

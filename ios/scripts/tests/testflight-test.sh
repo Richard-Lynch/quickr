@@ -17,14 +17,17 @@ git -C "$repo" init -q
 git -C "$repo" add -A
 git -C "$repo" -c user.name=t -c user.email=t@t commit -qm init
 
-# The fake xcodebuild: logs its arguments, prints them (as xcodebuild's own log could), and
-# for `archive` builds an archive whose bundles carry CURRENT_PROJECT_VERSION
-# (FAKE_STALE_APPEX=1: the widget keeps 1).
+# The fake xcodebuild: logs its arguments, prints them (as xcodebuild's own log could), then
+# looks for an ID in the watchdog's files under TMPDIR (FAKE_LEAKS), and for `archive` builds
+# an archive whose bundles carry CURRENT_PROJECT_VERSION (FAKE_STALE_APPEX=1: the widget
+# keeps 1).
 cat >"$tmp/bin/xcodebuild" <<'SH'
 #!/usr/bin/env bash
 [[ "$1" == -version ]] && { echo "Xcode 27.0"; exit 0; }
 printf '%s\n' "$*" >>"$FAKE_LOG"
 echo "fake xcodebuild $*"
+sleep 0.5  # the watchdog copies the output to its log
+grep -rlE "$FAKE_IDS" "$TMPDIR" >>"$FAKE_LEAKS" 2>/dev/null
 archive="" version=""
 for arg in "$@"; do
   case "$prev" in -archivePath) archive="$arg" ;; esac
@@ -43,6 +46,7 @@ SH
 chmod +x "$tmp/bin/xcodebuild"
 
 team=TEAM123456 key=KEYID12345 issuer=69a6de7a-1111-2222-3333-444455556666
+mkdir -p "$tmp/wd"
 printf -- '-----BEGIN PRIVATE KEY-----\nMIGT\n-----END PRIVATE KEY-----\n' >"$tmp/keys/AuthKey.p8"
 
 failures=0
@@ -50,11 +54,11 @@ fail() { echo "FAIL: $*"; failures=$((failures + 1)); }
 ok() { echo "ok: $*"; }
 
 # run <args...>: testflight.sh in the copy, with a clean environment (only what the test sets
-# with `env`), output in $tmp/out, the fake's log in $tmp/log; sets $status.
+# with `env`) and the watchdog on, output in $tmp/out, the fake's log in $tmp/log; sets $status.
 run() {
   : >"$tmp/log"
-  env -i HOME="$tmp/home" PATH="$tmp/bin:/usr/bin:/bin:/usr/sbin" FAKE_LOG="$tmp/log" IOS_WATCHDOG=0 \
-    "$@" >"$tmp/out" 2>&1
+  env -i HOME="$tmp/home" PATH="$tmp/bin:/usr/bin:/bin:/usr/sbin" TMPDIR="$tmp/wd" FAKE_LOG="$tmp/log" \
+    FAKE_LEAKS="$tmp/leaks" FAKE_IDS="$team|$key|$issuer" "$@" >"$tmp/out" 2>&1
   status=$?
 }
 tf="$repo/ios/scripts/testflight.sh"
@@ -71,7 +75,7 @@ else
 fi
 
 # 2. The dry run needs none: an unsigned archive, nothing exported, the steps printed.
-run "$tf" --dry-run
+run TESTFLIGHT_BUILD_NUMBER=2 "$tf" --dry-run
 if (( status == 0 )) && grep -q " archive$" "$tmp/log" && grep -q "CODE_SIGNING_ALLOWED=NO" "$tmp/log" \
   && ! grep -q -- "-exportArchive\|-authenticationKey\|-allowProvisioningUpdates" "$tmp/log" \
   && grep -q "dry run done" "$tmp/out" && grep -q "a real run would stop here" "$tmp/out"; then
@@ -109,6 +113,10 @@ else
   fail "dry run with credentials (status $status): $(cat "$tmp/out")"
 fi
 
+# Shell tracing shows no ID either.
+run "${creds[@]}" TESTFLIGHT_BUILD_NUMBER=44 bash -x "$tf"
+if (( status == 0 )) && ! leaks; then ok "bash -x shows no ID"; else fail "bash -x (status $status): $(grep -E "$team|$key|$issuer" "$tmp/out")"; fi
+
 # 4. The env file: read (quotes dropped, ~/ expanded), never run; the environment wins.
 mkdir -p "$tmp/home/keys" && cp "$tmp/keys/AuthKey.p8" "$tmp/home/keys/"
 cat >"$repo/ios/testflight.env" <<EOF
@@ -123,7 +131,7 @@ run TESTFLIGHT_BUILD_NUMBER=7 "$tf"
 (( status == 0 )) && grep -q -- "-authenticationKeyPath $tmp/home/keys/AuthKey.p8" "$tmp/log" \
   && ok "env file: values read, quotes dropped, ~/ expanded" || fail "env file (status $status): $(cat "$tmp/out")"
 [[ -e "$tmp/ran" ]] && fail "the env file ran code" || ok "the env file is never run"
-run ASC_KEY_ID=OTHERKEY99 TESTFLIGHT_BUILD_NUMBER=7 "$tf"
+run ASC_KEY_ID=OTHERKEY99 TESTFLIGHT_BUILD_NUMBER=71 "$tf"
 grep -q -- "-authenticationKeyID OTHERKEY99" "$tmp/log" && ok "the environment wins over the file" \
   || fail "environment over file: $(cat "$tmp/log")"
 rm "$repo/ios/testflight.env"
@@ -154,14 +162,23 @@ run "${creds[@]/#ASC_KEY_PATH=*/ASC_KEY_PATH=$repo/ios/AuthKey.p8}" TESTFLIGHT_B
 # 7. The build number: the default is the UTC time, a malformed one is refused, and every
 # bundle must carry it.
 run "$tf" --dry-run
-grep -qE "CURRENT_PROJECT_VERSION=20[0-9]{6}\.[0-9]{4}( |$)" "$tmp/log" && ok "default build number: YYYYMMDD.HHMM" \
+grep -qE "CURRENT_PROJECT_VERSION=20[0-9]{6}\.[0-9]{6}( |$)" "$tmp/log" && ok "default build number: YYYYMMDD.HHMMSS" \
   || fail "default build number: $(cat "$tmp/log")"
 run TESTFLIGHT_BUILD_NUMBER=1.2.3.4 "$tf" --dry-run
 (( status != 0 )) && grep -q "one to three period-separated integers" "$tmp/out" && ok "a malformed build number is refused" \
   || fail "malformed build number (status $status): $(cat "$tmp/out")"
+run TESTFLIGHT_BUILD_NUMBER=1234567890.12345678 "$tf" --dry-run
+(( status != 0 )) && grep -q "longer than 18 characters" "$tmp/out" && ok "a build number over 18 characters is refused" \
+  || fail "long build number (status $status): $(cat "$tmp/out")"
+run TESTFLIGHT_BUILD_NUMBER=42 "$tf" --dry-run
+(( status != 0 )) && grep -q "already archived here" "$tmp/out" && [[ ! -s "$tmp/log" ]] \
+  && ok "a build number already archived is refused" || fail "reused build number (status $status): $(cat "$tmp/out")"
 run FAKE_STALE_APPEX=1 TESTFLIGHT_BUILD_NUMBER=9 "$tf" --dry-run
 (( status != 0 )) && grep -q "QuickRWidgets.appex/Info.plist has CFBundleVersion '1', not 9" "$tmp/out" \
   && ok "a bundle without the build number fails the archive check" || fail "stale appex (status $status): $(cat "$tmp/out")"
+
+# No unfiltered ID ever reached the watchdog's files.
+if [[ -s "$tmp/leaks" ]]; then fail "IDs in the watchdog's files: $(sort -u "$tmp/leaks")"; else ok "the watchdog's files never held an ID"; fi
 
 if (( failures )); then
   echo "testflight-test: $failures failed"
