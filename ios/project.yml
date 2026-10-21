@@ -218,5 +218,6 @@ schemes:
         - path: TestPlans/Intents.xctestplan
         - path: TestPlans/Widgets.xctestplan
         - path: TestPlans/Spike.xctestplan
+        - path: TestPlans/Media.xctestplan
     archive:
       config: Release

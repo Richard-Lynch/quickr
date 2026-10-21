@@ -32,6 +32,8 @@ struct RootView: View {
             WidgetGalleryView(page: gallery.page, tinted: gallery.tinted)
         } else if let demo = Self.formDemo {
             FormDemoView(demo: demo)
+        } else if Self.snippetGallery {
+            SnippetGalleryView()
         } else {
             stack
         }
@@ -57,6 +59,9 @@ struct RootView: View {
         return (WidgetGalleryView.Page(rawValue: raw) ?? .home, args.contains("tinted"))
     }
 
+    /// `-QuickrSnippetGallery` shows the Siri confirmation snippet over demo drafts (screenshots).
+    private static var snippetGallery: Bool { ProcessInfo.processInfo.arguments.contains("-QuickrSnippetGallery") }
+
     /// `-QuickrFormDemo <workout|types|fix>` shows the answer form over a fixed topic (UI tests).
     private static var formDemo: FormDemoView.Demo? {
         let args = ProcessInfo.processInfo.arguments
@@ -81,6 +86,7 @@ struct RootView: View {
                 if let url = UITestLaunch.openURL {
                     environment.router.handle(url: url, serverURL: environment.settings.serverURL)
                 }
+                await DemoNotify.schedule(environment)
             }
                 #endif
                 .onChange(of: needsServer, initial: true) { _, needed in

@@ -25,7 +25,8 @@
       },
       "skippedTests" : [
         "WidgetGalleryTests",
-        "SpikeNotificationTests"
+        "SpikeNotificationTests",
+        "MediaCaptureUITests"
       ]
     }
   ],

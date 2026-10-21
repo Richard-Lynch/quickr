@@ -45,6 +45,7 @@ public struct SystemNotificationCenter: NotificationCenterProtocol {
         content.body = request.body
         if let category = request.categoryIdentifier { content.categoryIdentifier = category }
         if let thread = request.threadIdentifier { content.threadIdentifier = thread }
+        if request.sound { content.sound = .default }
         if let quickr = request.quickr,
             let object = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(quickr))
         {

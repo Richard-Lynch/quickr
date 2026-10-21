@@ -362,10 +362,12 @@ public struct LocalNotificationRequest: Sendable, Hashable, Identifiable {
     public var quickr: QuickrNotificationInfo?
     /// nil delivers now.
     public var fireDate: Date?
+    /// Plays the default sound (a reminder's `"sound": "default"`); silent otherwise.
+    public var sound: Bool
 
     public init(
         id: String, title: String, body: String, categoryIdentifier: String? = nil, threadIdentifier: String? = nil,
-        quickr: QuickrNotificationInfo? = nil, fireDate: Date? = nil
+        quickr: QuickrNotificationInfo? = nil, fireDate: Date? = nil, sound: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -374,6 +376,7 @@ public struct LocalNotificationRequest: Sendable, Hashable, Identifiable {
         self.threadIdentifier = threadIdentifier
         self.quickr = quickr
         self.fireDate = fireDate
+        self.sound = sound
     }
 }
 
