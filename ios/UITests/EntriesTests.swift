@@ -124,3 +124,12 @@ final class EntriesTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Entry deleted"].waitForExistence(timeout: 5))
     }
 }
+
+extension XCUIElement {
+    /// Waits up to 10 s for the label to start with `prefix`.
+    func waitForLabelPrefix(_ prefix: String, timeout: TimeInterval = 10) -> Bool {
+        let predicate = NSPredicate(format: "label BEGINSWITH %@", prefix)
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: self)
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+}
