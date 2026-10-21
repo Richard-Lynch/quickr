@@ -315,6 +315,17 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 14:10 (EDT): **First TestFlight build is live.**
+  - App Store Connect API access was approved, and the Admin team key "quickR TestFlight" was created. The key is at ~/.config/quickr (mode 600), its details are in the gitignored ios/testflight.env, and the issuer is recorded there only.
+  - Upload: `make ios-testflight` uploaded 0.1.0 (20261021.175156). Apple created the distribution certificate and profiles through the key. It's processed and "Ready to Submit".
+  - Two fixes were needed:
+    - `UIRequiresFullScreen: true`: iOS 27 SDK validation rejects a portrait-only bundle otherwise;
+    - testflight.sh links /usr/bin/rsync first in PATH, because Homebrew's rsync broke IPA packaging (d42cf28, 5d667bc).
+  - m6-builder is hardening and testing both.
+  - TestFlight: internal group "Me" with the account holder invited (automatic distribution). The app record is "quickR Log".
+  - Xcode's command line never saw the UI-added Apple account ("No Accounts"); the API key sidesteps that.
+  - Device use needs a reachable server (LAN `make up` or the CF tunnel); there's no server-free release mode.
+
 - 2026-10-21 13:45 (EDT): **App Store Connect:** the Terms of Service were accepted (the user approved it). The app record **"quickR Log"** (app ID 6825448752; the name "quickR" is taken) is created with bundle com.bahumia.quickr and SKU quickr-ios. **Next step blocked on the user:** the one-off "Request Access to the App Store Connect API" agreement (needed for the TestFlight upload key), or Xcode → Settings → Accounts as the no-API-key alternative. SAVE-KBD (3cb3323) has its 27/26 runs and Codex r1 in progress.
 
 - 2026-10-21 13:20 (EDT): **Host-wide iOS 27 keyboard minimization** since this afternoon. Every 27 clone (including the morning one that passed) sets `AutomaticMinimizationEnabled` during XCUITest typing, and Record and Edit then show **two Saves** (FormSaveBar keys off the keyboard frame). That's a real app bug for hardware or minimized keyboards: **SAVE-KBD** (m2-form, 3cb3323) decides from editing begin/end. It blocks the e43a533 stall A/B, which m1-testiso reruns after SAVE-KBD. **Apple setup:** the App Group and 3 App IDs are registered with App Groups and Push. Paused at the App Store Connect Terms of Service, which need the user's acceptance.
