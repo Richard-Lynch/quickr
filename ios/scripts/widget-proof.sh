@@ -8,10 +8,10 @@ require_xcode
 sim="$1"; limit="${2:-600}"
 "$(dirname "$0")/test.sh" Widgets "$sim" &
 pid=$!
-( sleep "$limit"; pkill -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null ) &
+( sleep "$limit"; kill_tree "$pid" ) &
 watchdog=$!
 status=0
 wait "$pid" || status=$?
-kill "$watchdog" 2>/dev/null || true
+kill_tree "$watchdog"
 (( status == 0 )) || die "Widgets plan failed or exceeded ${limit}s (exit $status); a stalled SpringBoard is the usual cause: rerun, or erase the simulator"
 echo "ios: widget proof passed on $sim"

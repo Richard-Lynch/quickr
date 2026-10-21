@@ -253,6 +253,15 @@ $(sed 's/^/  /' <<<"$booted")"
 # build defaults to one job per core, which oversubscribes it badly. IOS_JOBS=0 = no cap.
 IOS_JOBS="${IOS_JOBS:-4}"
 
+# Stops pid and every process under it, deepest first, by PID (a wall-clock limit's stop):
+# `pkill -P` reaches only the children, and left xcodebuild running under test.sh's watchdog
+# pipeline after its parent was gone. Never touches anything outside the tree.
+kill_tree() {
+  local child
+  for child in $(pgrep -P "$1" 2>/dev/null); do kill_tree "$child"; done
+  kill "$1" 2>/dev/null || true
+}
+
 # Runs a command under watchdog.sh: killed, with its whole process group, after
 # IOS_WATCHDOG_SILENCE_MIN minutes without any output (default 20), or 60 s after xcodebuild's
 # final "** … SUCCEEDED/FAILED **" line if it hasn't exited by then. IOS_WATCHDOG=0 turns it
