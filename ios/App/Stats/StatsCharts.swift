@@ -116,6 +116,7 @@ struct MeanLineChart: View {
             if let shown { tooltip(shown) }
         }
         .accessibilityLabel("\(label): average per \(series.bucket.rawValue)")
+        .accessibilityIdentifier("chart.line")
         .accessibilityChartDescriptor(
             MeanLineDescriptor(
                 title: "\(label): average per \(series.bucket.rawValue)", points: model.points, bucket: series.bucket,
@@ -219,6 +220,7 @@ struct OptionStackChart: View {
             if let shown { tooltip(shown, model) }
         }
         .accessibilityLabel("\(label): answers per \(series.bucket.rawValue)")
+        .accessibilityIdentifier("chart.stacked")
         .accessibilityChartDescriptor(
             OptionStackDescriptor(
                 title: "\(label): answers per \(series.bucket.rawValue)", model: model, bucket: series.bucket))
@@ -344,6 +346,7 @@ struct DistributionChart: View {
             .chartXSelection(value: selectedBin)
             .frame(height: 100 * textScale.height)
             .accessibilityLabel("Histogram of \(label)")
+            .accessibilityIdentifier("chart.histogram")
             .accessibilityChartDescriptor(
                 DistributionDescriptor(title: "Histogram of \(label)", bins: bins, unit: self.unit))
             if let first = bins.first, let last = bins.last {
