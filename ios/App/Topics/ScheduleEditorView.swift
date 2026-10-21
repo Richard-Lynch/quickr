@@ -20,7 +20,9 @@ struct ScheduleEditorRows: View {
 
     var body: some View {
         // A menu at accessibility sizes (TP4, X5).
-        QuickrSegmentedPicker("Schedule", selection: $draft.kind) {
+        QuickrSegmentedPicker(
+            "Schedule", selection: $draft.kind, valueLabel: Self.kinds.first { $0.0 == draft.kind }?.1
+        ) {
             ForEach(Self.kinds, id: \.0) { Text($0.1).tag($0.0) }
         }
         .labelsHidden()

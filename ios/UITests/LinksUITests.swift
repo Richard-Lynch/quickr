@@ -40,10 +40,41 @@ final class LinksUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["home.wordmark"].exists)
     }
 
+    // MARK: - Links that name their server (notifications.md §7.5)
+
+    /// The fake server's id and its store's generation on a clean launch, and Workout's id.
+    static let fakeScope = "00000000-0000-4000-8000-0000000000aa/1"
+    static let workoutId = "00000000-0000-4000-8000-0000000000c1"
+
+    /// A widget's link from another registered server ("Other") isn't opened on this one: the app
+    /// says which server it's from.
     @MainActor
-    private func launch(open url: String) -> XCUIApplication {
+    func testALinkFromAnotherServerIsRefusedNamingIt() {
+        let app = launch(
+            open: "quickr://t/\(Self.workoutId)/record?scope=00000000-0000-4000-8000-0000000000bb/1",
+            extra: ["-QuickrSecondServer"])
+        let alert = app.alerts["Can’t open that here"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 15))
+        XCTAssertTrue(
+            alert.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Other'")).firstMatch.exists,
+            "the message names the server")
+        alert.buttons["OK"].tap()
+        XCTAssertFalse(app.buttons["record.save"].exists, "no record screen")
+    }
+
+    /// The active server's widget link, at a cold launch (before the session has bound its
+    /// store): it waits, then opens the topic by id.
+    @MainActor
+    func testTheActiveServersScopedLinkOpensAtLaunch() {
+        let app = launch(open: "quickr://t/\(Self.workoutId)/record?scope=\(Self.fakeScope)")
+        XCTAssertTrue(app.buttons["record.save"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.navigationBars["Workout"].exists)
+    }
+
+    @MainActor
+    private func launch(open url: String, extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-QuickrUITest", "-QuickrServer", "https://quickr.test", "-QuickrOpen", url]
+        app.launchArguments = ["-QuickrUITest", "-QuickrServer", "https://quickr.test", "-QuickrOpen", url] + extra
         app.launch()
         return app
     }

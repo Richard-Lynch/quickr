@@ -16,6 +16,8 @@ import Synchronization
 ///   with the id `rejectedEntryId`, and waits until it has failed (fix mode);
 /// - `-QuickrStalePublish`: someone else publishes a version of the topic just before this
 ///   device's first version check or publish, which therefore conflicts (409);
+/// - `-QuickrSecondServer` also registers a second server, "Other" (`secondServerId`), that isn't
+///   active: links from it are refused (notifications.md §7.5);
 /// - `-QuickrSyncControls` shows `UITestSyncControls` (go offline or online, log an entry, reject
 ///   the next one) for the sync UI tests. The network path is `UITestLaunch.network`, which the
 ///   controls switch together with the fake server.
@@ -24,6 +26,7 @@ enum UITestLaunch {
     static let fakeServer = URL(string: "https://quickr.test")!
     static let fakeServerId = "00000000-0000-4000-8000-0000000000aa"
     static let rejectedEntryId = UUID(uuidString: "0f1e2d3c-4b5a-4968-8778-0000000000f1")!
+    static let secondServerId = "00000000-0000-4000-8000-0000000000bb"
 
     static var isActive: Bool { ProcessInfo.processInfo.arguments.contains(argument) }
 
@@ -63,7 +66,9 @@ enum UITestLaunch {
 
     /// Before `-QuickrOpen`: the seeds the launch asked for. Bounded: gives up after 20 s.
     @MainActor static func prepare(_ environment: AppEnvironment) async {
-        guard isActive, ProcessInfo.processInfo.arguments.contains("-QuickrSeedRejectedEntry") else { return }
+        let arguments = ProcessInfo.processInfo.arguments
+        guard isActive, arguments.contains("-QuickrSecondServer") || arguments.contains("-QuickrSeedRejectedEntry")
+        else { return }
         let deadline = ContinuousClock.now.advanced(by: .seconds(20))
         func waitFor(_ condition: () async -> Bool) async -> Bool {
             while ContinuousClock.now < deadline {
@@ -72,6 +77,13 @@ enum UITestLaunch {
             }
             return false
         }
+        if arguments.contains("-QuickrSecondServer"), await waitFor({ environment.session != nil }),
+            let registry = environment.session?.partitions.registry
+        {
+            _ = try? await registry.register(
+                serverId: secondServerId, baseURL: "https://other.example", displayName: "Other", now: Date())
+        }
+        guard arguments.contains("-QuickrSeedRejectedEntry") else { return }
         guard await waitFor({ environment.session?.outbox != nil }), let session = environment.session,
             let outbox = session.outbox, let store = session.store
         else { return }

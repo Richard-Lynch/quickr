@@ -56,8 +56,16 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     /// Device time `date` on the server's clock (`date + skew`), the "now" of due state.
     public func serverTime(_ date: Date) -> Date { date.addingTimeInterval(skew) }
 
-    /// `quickr://t/<slug>/record`: where a tap on the widget goes.
-    public var recordURL: URL { URL(string: "quickr://t/\(topic.slug)/record")! }
+    /// Where a tap on the widget goes: the topic's record screen by id, naming the store it was
+    /// read from (`quickr://t/{topic_id}/record?scope=…`), so a widget left over from another
+    /// server or store is refused, not opened on a same-slug topic (notifications.md §7.5). A
+    /// sample (no store) links by slug.
+    public var recordURL: URL {
+        guard let scope else {
+            return DeepLink.url(for: .record(TopicLinkRef(topic.slug) ?? TopicLinkRef(id: topic.id)))
+        }
+        return DeepLink.url(for: .record(TopicLinkRef(id: topic.id)), scope: scope)
+    }
 }
 
 extension WidgetTopic {

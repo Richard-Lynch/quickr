@@ -498,7 +498,9 @@ API.
   `enum Route { topic, record(fix:), entries, editEntry, versions, editQuestions, topicSettings, newTopic, settings }`.
   `Router.handle(url:)` parses the PWA paths (`/t/{slug}/record`, …) from
   `quickr://` links, the notification `url` and widget links. Universal links
-  are optional (the AASA file needs a Cloudflare Access bypass).
+  are optional (the AASA file needs a Cloudflare Access bypass). Links from a
+  notification or a widget name their server (and store) and their topic by id,
+  and open only while that server is active (notifications.md §7.5).
 - **Form engine:** `FormState` holds string drafts per key; `QuestionField`
   renders numbers (mono field, 52 pt ±, clamped, unit), text, chips (≤ 6) or a
   `Picker`, and multi-select chips with "pick 1–3" rules. Messages are ported

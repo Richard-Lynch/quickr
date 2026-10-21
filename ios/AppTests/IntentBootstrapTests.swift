@@ -135,8 +135,11 @@ import Testing
 
         #expect(try await WhatsDueIntent().perform().value?.isEmpty == true)
 
+        // Foreground: the scene starts the session, which binds the store the intent read from.
+        await environment.start()
         _ = try await OpenRecordIntent(topic: coffee).perform()
         let ref = try #require(TopicLinkRef(PlaceholderTopicRepository.coffee.uuidString))
         #expect(environment.router.path.last == .record(ref))
+        await environment.session?.shutdown()
     }
 }

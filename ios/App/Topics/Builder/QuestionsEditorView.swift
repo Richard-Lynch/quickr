@@ -16,7 +16,7 @@ struct BuilderPanePicker: View {
     var body: some View {
         Section {
             // A menu at accessibility sizes (X5).
-            QuickrSegmentedPicker("Builder view", selection: $pane) {
+            QuickrSegmentedPicker("Builder view", selection: $pane, valueLabel: pane.rawValue) {
                 ForEach(BuilderPane.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
             // The switch shows its value; the title is the accessibility label (it clipped).
