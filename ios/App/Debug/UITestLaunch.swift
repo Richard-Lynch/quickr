@@ -199,6 +199,14 @@ final class FakeServerState: Sendable {
             "version": number, "questions": questions, "change_note": note, "created_at": now, "entry_count": 0,
         ]
         put(topic)
+        appendToFeed(topic, version: version)
+        return topic
+    }
+
+    /// The topic row and a version row, next in the feed (a new topic's v1, or a published version),
+    /// as the backend logs them.
+    fileprivate func appendToFeed(_ topic: [String: Any], version: [String: Any]) {
+        guard let id = topic["id"] as? String else { return }
         state.withLock { state in
             let seq = 5 + state.feed.count
             let items: [[String: Any]] = [
@@ -213,7 +221,6 @@ final class FakeServerState: Sendable {
                 state.feed.append(String(decoding: data, as: UTF8.self))
             }
         }
-        return topic
     }
 
     /// The feed items after `cursor`, and the head.
@@ -500,6 +507,13 @@ private struct FakeServerTransport: Transport {
                 "questions": questions,
             ]
             state.put(topic)
+            // Its v1, in the feed like the backend's: an entry's screen loads its version's questions.
+            state.appendToFeed(
+                topic,
+                version: [
+                    "version": 1, "questions": questions, "change_note": "Initial version", "created_at": now,
+                    "entry_count": 0,
+                ])
             return json(201, topic)
         }
         guard parts.count >= 4, var topic = state.topic(parts[3]) else {
