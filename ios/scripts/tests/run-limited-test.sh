@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034,SC2154 # rc and start are read inside check's eval strings; g in the trap
+# shellcheck disable=SC2034,SC2154 # rc and start are read inside check's eval strings; g in the EXIT trap
 # Tests for common.sh run_limited (limit.pl): a command within its limit keeps its status; past
 # it, or on TERM, its whole process group stops (grandchildren and a pipeline included, as
 # xcodebuild sits under test.sh's watchdog pipeline), a TERM-ignoring member is KILLed after the
@@ -15,33 +15,44 @@ failures=0
 check() { if eval "$2"; then echo "ok: $1"; else echo "FAIL: $1"; failures=$((failures + 1)); fi; }
 work="$(mktemp -d "${TMPDIR:-/tmp}/quickr-limit.XXXXXX")"
 bystander=""
-# What a failing run left behind is stopped here, by the group ids the fixtures recorded.
-trap 'for g in $(cat "$work"/group 2>/dev/null); do kill -KILL -- "-$g" 2>/dev/null; done
+# What a failing case left behind is stopped here: the group of the case that didn't settle (a
+# settled case forgets its group, so no id that may since have been reused is signalled).
+trap 'g="$(cat "$work/group" 2>/dev/null)"; [[ -n "$g" ]] && kill -KILL -- "-$g" 2>/dev/null
   [[ -n "$bystander" ]] && kill "$bystander" 2>/dev/null; rm -rf "$work"' EXIT
 
-# Members of the latest fixture's group still running (zombies awaiting their reaper don't count).
-members() { ps -axo pgid=,stat= | awk -v g="$(tail -1 "$work/group")" '$1 == g && $2 !~ /^Z/' | wc -l | tr -d ' '; }
-settled() { for _ in $(seq 30); do [[ "$(members)" == 0 ]] && return 0; sleep 0.1; done; return 1; }
+# Members of the current fixture's group still running (zombies awaiting their reaper don't count).
+members() { ps -axo pgid=,stat= | awk -v g="$(cat "$work/group")" '$1 == g && $2 !~ /^Z/' | wc -l | tr -d ' '; }
+# All of the case's group stopped; the case then forgets the group.
+settled() {
+  for _ in $(seq 30); do
+    if [[ "$(members)" == 0 ]]; then : >"$work/group"; return 0; fi
+    sleep 0.1
+  done
+  return 1
+}
 
 # A fixture: records its group id (run_limited starts it, so it leads the group), starts a
 # three-level tree with a pipeline, says it is ready only once all of it is up, then does `$1`
 # (wait, exit, or ignore TERM).
 fixture="$work/fixture.sh"
-cat >"$fixture" <<SH
+cat >"$fixture" <<'SH'
 #!/usr/bin/env bash
-group=\$(ps -o pgid= -p \$\$ | tr -d ' ')
-echo "\$group" >> "$work/group"
+group=$(ps -o pgid= -p $$ | tr -d ' ')
+echo "$group" > "$WORK/group"
 bash -c 'sleep 60 | cat & wait' &
 sleep 60 &
 # Up: both sleeps and the pipeline's cat (the bash -c under them is up by then).
-until (( \$(ps -axo pgid=,comm= | awk -v g="\$group" '\$1 == g && (\$2 ~ /sleep\$/ || \$2 ~ /cat\$/)' | wc -l) >= 3 )); do sleep 0.1; done
-echo ready > "$work/ready"
-case "\$1" in
+until (( $(ps -axo pgid=,comm= | awk -v g="$group" '$1 == g && ($2 ~ /sleep$/ || $2 ~ /cat$/)' | wc -l) >= 3 )); do
+  sleep 0.1
+done
+echo ready > "$WORK/ready"
+case "$1" in
   wait) wait ;;
   exit) exit 0 ;;
   stubborn) trap '' TERM; while (( SECONDS < 60 )); do sleep 1; done ;;
 esac
 SH
+export WORK="$work"
 chmod +x "$fixture"
 sleep 60 &
 bystander=$!

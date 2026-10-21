@@ -8,17 +8,15 @@
 # anything of it is left. When the command exits by itself, whatever it left running in its
 # group is ended the same way, so nothing it started outlives it.
 #
-# The command is reaped only here, after its group was signalled, so while it runs (or is a
-# zombie) its pid, which is the group's id, can't be reused. Once it is reaped, the group's id
-# stays reserved for as long as any member is left; the one window is between reaping a command
-# whose group is already empty and the check that finds it empty (microseconds, and a new
-# process would also have to make itself a group leader with that exact id).
+# The command is reaped only at the very end, after everything in its group has stopped, so its
+# pid, which is the group's id, can't be reused while anything here signals it: its exit is seen
+# as a zombie (ps), never by reaping.
 #
 # Exits with the command's status (128 + the signal if a signal ended it), 124 (as timeout(1))
 # when the limit stopped it, or 130 / 143 when INT / TERM stopped it.
 use strict;
 use warnings;
-use POSIX qw(WNOHANG setpgid _exit);
+use POSIX qw(setpgid _exit);
 use Time::HiRes qw(time sleep);
 
 my ($limit, @command) = @ARGV;
@@ -37,23 +35,27 @@ if ($pid == 0) {
 }
 setpgid($pid, $pid);    # also from this side: the group exists before anything is signalled
 
-my $status;    # the command's wait status, once reaped
-sub reap { $status = $? if !defined $status && waitpid($pid, WNOHANG) == $pid }
-sub group_left { kill(0, -$pid) }
+# The group's members still running (the command too while it runs; not zombies).
+sub members {
+    my @live = grep { my ($group, $stat) = split; $group == $pid && $stat !~ /^Z/ } `ps -axo pgid=,stat=`;
+    return scalar @live;
+}
+sub leader_running {
+    my $stat = `ps -o stat= -p $pid`;
+    return $stat =~ /\S/ && $stat !~ /^\s*Z/;
+}
 
 # TERM to the group, then KILL after the grace if any of it is left.
 sub stop_group {
-    return unless kill('TERM', -$pid);
+    kill('TERM', -$pid);
     my $deadline = time + $grace;
     while (time < $deadline) {
-        reap();
-        return unless group_left();
+        return unless members();
         sleep 0.2;
     }
     kill('KILL', -$pid);
     for (1 .. 25) {
-        reap();
-        return unless group_left();
+        return unless members();
         sleep 0.2;
     }
 }
@@ -61,8 +63,7 @@ sub stop_group {
 my $start = time;
 my $timed_out = 0;
 while (1) {
-    reap();
-    last if defined $status;
+    last unless leader_running();
     if ($interrupted) { stop_group(); last }
     if (time - $start >= $limit) {
         print STDERR "ios: $command[0] passed its ${limit}s limit: stopping it\n";
@@ -70,10 +71,11 @@ while (1) {
         $timed_out = 1;
         last;
     }
-    sleep 0.2;
+    sleep 0.25;
 }
-stop_group() if group_left();    # what the command left behind
-unless (defined $status) { waitpid($pid, 0); $status = $? }
+stop_group() if members();    # what the command left behind
+waitpid($pid, 0);
+my $status = $?;
 
 exit $interrupted if $interrupted;
 exit 124 if $timed_out;
