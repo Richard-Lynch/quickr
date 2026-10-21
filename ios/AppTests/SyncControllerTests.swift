@@ -1,4 +1,6 @@
+import BackgroundTasks
 import Foundation
+import ObjectiveC
 import QuickrCore
 import QuickrData
 import Synchronization
@@ -314,6 +316,35 @@ import Testing
         await session.shutdown()
     }
 
+    /// The launch handler `BackgroundRefresh.register` gives the scheduler, called as the system
+    /// calls it: on a queue of the scheduler's own, off the main thread. TestFlight 0.1.0
+    /// (20261021.194105) trapped there on every background refresh: the handler was isolated to the
+    /// main actor, which Swift 6 checks at its entry (without the fix, this test process crashes).
+    @Test func theRegisteredLaunchHandlerRunsOffTheMainThread() async throws {
+        let (environment, session, observing) = try await started()
+        defer { observing.cancel() }
+        environment.scenePhaseChanged(.background)
+        try await eventually("backgrounded and paused") { await session.scheduler?.isPaused == true }
+
+        BackgroundRefresh.register(environment, scheduler: KeepingScheduler.make())
+        let registered = try #require(KeepingScheduler.registered.withLock { $0 })
+        #expect(registered.identifier == BackgroundRefresh.identifier)
+        let task = RecordingBGTask.make()
+        let requests = UITestLaunch.server.requestCount
+        let onMain = await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                registered.handler(task)
+                continuation.resume(returning: Thread.isMainThread)
+            }
+        }
+        #expect(!onMain)
+        try await eventually("completed") { !RecordingBGTask.completions.withLock { $0 }.isEmpty }
+        #expect(RecordingBGTask.completions.withLock { $0 } == [true])
+        #expect(RecordingBGTask.hasExpirationHandler.withLock { $0 })
+        #expect(UITestLaunch.server.requestCount > requests, "the refresh reached the server")
+        await session.shutdown()
+    }
+
     // MARK: - Push (REG) around startup
 
     /// The time runs out mid-start: no push work after it (none is even created). Opening the app
@@ -423,4 +454,49 @@ final class RecordingRefreshTask: BackgroundRefreshTask {
     func onExpiration(_ handler: @escaping @Sendable () -> Void) { state.withLock { $0.handler = handler } }
 
     func complete(success: Bool) { state.withLock { $0.completions.append(success) } }
+}
+
+/// A `BGTaskScheduler` that keeps the launch handler instead of registering it. The real one has
+/// no public initializer, so it is made without one: it has no stored properties to set up.
+private final class KeepingScheduler: BGTaskScheduler, @unchecked Sendable {
+    struct Registration: @unchecked Sendable {
+        let identifier: String
+        let handler: (BGTask) -> Void
+    }
+
+    static let registered = Mutex<Registration?>(nil)
+
+    static func make() -> KeepingScheduler {
+        class_createInstance(KeepingScheduler.self, 0) as! KeepingScheduler
+    }
+
+    override func register(
+        forTaskWithIdentifier identifier: String, using queue: DispatchQueue?,
+        launchHandler: @escaping (BGTask) -> Void
+    ) -> Bool {
+        Self.registered.withLock { $0 = Registration(identifier: identifier, handler: launchHandler) }
+        return true
+    }
+}
+
+/// A `BGAppRefreshTask` that records its expiration handler and how it completed. Made without
+/// an initializer, like `KeepingScheduler`: its records are static.
+private final class RecordingBGTask: BGAppRefreshTask, @unchecked Sendable {
+    static let completions = Mutex<[Bool]>([])
+    static let hasExpirationHandler = Mutex(false)
+
+    static func make() -> RecordingBGTask {
+        completions.withLock { $0 = [] }
+        hasExpirationHandler.withLock { $0 = false }
+        return class_createInstance(RecordingBGTask.self, 0) as! RecordingBGTask
+    }
+
+    override var expirationHandler: (() -> Void)? {
+        get { nil }
+        set { Self.hasExpirationHandler.withLock { $0 = newValue != nil } }
+    }
+
+    override func setTaskCompleted(success: Bool) {
+        Self.completions.withLock { $0.append(success) }
+    }
 }
