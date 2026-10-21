@@ -89,6 +89,9 @@ struct QuestionStatsCard: View {
                 }
             }
         }
+        // A container of its own: an identifier on a plain container passes down to every element
+        // inside, which then all answered to the card's id (the charts' own ids were lost).
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("overview.card.\(stats.key)")
     }
 
