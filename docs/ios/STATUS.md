@@ -316,6 +316,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 05:30 (EDT): The slice C picker valueLabel is merged (b6f7bac). ROUTE-SCOPE (c7db3fc), WIDGET-SKEW (c9e2565) and S10 (510132d) are in progress with commits. The sim-trap infra fixes haven't started yet (chased).
+
 - 2026-10-21 05:20 (EDT): Milestone fixes A merged (ce2f904; Codex approved with minors, both fixed). The CF manual check feeds the headers through `curl --config -` (no secret in argv); the MCP `--header` step warns where the secret lands; the a11y-audit E1 entry is resolved; DEVICE-DAY §6 has the SE2 token-sheet item.
 
 - 2026-10-21 05:10 (EDT): **The HANDLER-RESUME end-to-end test passes** (Media plan 3/0 on 26: the same app process scheduled the reminder and logged the action). RELTEST is merged (55b08df, `make ios-release-test-build`). **M3 milestone Codex review** (4 areas, on 42499bf):
