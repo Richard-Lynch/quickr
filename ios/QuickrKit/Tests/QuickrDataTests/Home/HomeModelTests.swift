@@ -1,6 +1,6 @@
 import Foundation
 import QuickrCore
-import QuickrData
+@_spi(Testing) import QuickrData
 import QuickrTestSupport
 import Synchronization
 import Testing
@@ -248,21 +248,30 @@ import Testing
     }
 
     /// A skew already stored applies to the first list: it never shows on the device clock
-    /// (Codex r1), whichever observation delivers first.
-    @MainActor @Test func theFirstListIsAlreadyOnTheServersClock() async throws {
+    /// (APP-SKEW, Codex r1). The sync state's observation is held back until the topics have
+    /// loaded, so only `observe()`'s pre-read can have set the clock.
+    @Test func theFirstListIsAlreadyOnTheServersClock() async throws {
         let w = try await World(topics: Self.mixed)
         defer { w.cleanup() }
         try await setSkew(w.store, 31 * 60)  // Stretch is due on the server's clock
-        for _ in 0..<20 {
+        let (held, release) = AsyncThrowingStream<SyncState?, any Error>.makeStream()
+        let model = await MainActor.run {
             let model = HomeModel(session: w.session, now: Self.now, debounce: .zero)
-            let observing = Task { await model.observe() }
-            defer { observing.cancel() }
-            // Checked the moment the list first shows, before anything else can run.
-            let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-            while !model.loaded, ContinuousClock.now < deadline { await Task.yield() }
-            #expect(model.loaded)
-            #expect(model.badgeCount == 3, "the first list is on the server's clock")
+            model.syncStatesForTesting = { _ in held }
+            return model
         }
+        let observing = Task { await model.observe() }
+        defer { observing.cancel() }
+        try await eventually("the list is read") { await MainActor.run { model.loaded } }
+        await MainActor.run {
+            #expect(model.clock.skew == 31 * 60)
+            #expect(Self.names(model.sections.due) == ["Meds", "Water", "Stretch"])
+            #expect(model.badgeCount == 3)
+        }
+        // The observation, once it delivers, agrees.
+        release.yield(try await w.store.syncState.syncState())
+        release.finish()
+        await MainActor.run { #expect(model.badgeCount == 3) }
     }
 
     /// A pull that only moves the skew relists at once (no tick needed).
