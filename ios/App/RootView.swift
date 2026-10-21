@@ -96,7 +96,7 @@ struct RootView: View {
         }
         .overlay(alignment: .topTrailing) {
             if PerfStore.isRequested {
-                Text(PerfProbe.shared.firstRender.map { "\($0)" } ?? "-")
+                Text(verbatim: PerfProbe.shared.firstRender.map(String.init) ?? "-")
                 .font(.caption2).monospacedDigit()
                 .accessibilityIdentifier("perf.firstRender")
             }
