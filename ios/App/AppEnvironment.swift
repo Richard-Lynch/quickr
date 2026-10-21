@@ -175,13 +175,11 @@ final class AppEnvironment {
             case .record(let topicId, let prefill, let scope):
                 // The store the intent read the topic from (§7.5): opened only while it's active.
                 let texts = prefill.isEmpty ? nil : prefill
-                Task {
-                    await self.openScoped(
-                        [.record(TopicLinkRef(id: topicId))], serverId: scope.serverId, storeGen: scope.storeGen,
-                        prefill: texts.map {
-                            NotificationPrefill(serverId: scope.serverId, topicId: topicId.wireString, texts: $0)
-                        })
-                }
+                await openScoped(
+                    [.record(TopicLinkRef(id: topicId))], serverId: scope.serverId, storeGen: scope.storeGen,
+                    prefill: texts.map {
+                        NotificationPrefill(serverId: scope.serverId, topicId: topicId.wireString, texts: $0)
+                    })
             }
         }
     }

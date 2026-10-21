@@ -58,6 +58,7 @@ struct NotificationResponderTests {
         let seeded = try await TestStores.seededLocation()
         defer { TestStores.remove(seeded) }
         let environment = AppEnvironment.live(location: seeded, categoryCenter: nil)
+        await environment.start()  // the session binds test-server's store: its links open
         let fix: [String: Any] = [
             "v": 1, "kind": "fix", "server_id": "test-server", "topic_id": Self.topicId, "url": "/t/coffee/record",
             "prefill": ["cups": "abc"],
@@ -65,8 +66,9 @@ struct NotificationResponderTests {
         let input = NotificationResponder.input(
             actionIdentifier: UNNotificationDefaultActionIdentifier, userText: nil, content: Self.content(fix))
         await environment.handleNotificationResponse(input)
-        #expect(environment.router.path.last == .record(TopicLinkRef("coffee")!))
         let topic = try #require(UUID(uuidString: Self.topicId))
+        // By id (notifications.md §7.5): a slug could name another server's topic.
+        #expect(environment.router.path.last == .record(TopicLinkRef(id: topic)))
         #expect(environment.takeRecordPrefill(topicId: UUID()) == nil, "another topic's screen doesn't take it")
         #expect(environment.takeRecordPrefill(topicId: topic) == ["cups": "abc"])
         #expect(environment.takeRecordPrefill(topicId: topic) == nil, "once")
@@ -77,8 +79,21 @@ struct NotificationResponderTests {
             NotificationResponder.input(
                 actionIdentifier: UNNotificationDefaultActionIdentifier, userText: nil,
                 content: Self.content(Self.reminder)))
-        #expect(environment.router.path.last == .record(TopicLinkRef("coffee")!))
+        #expect(environment.router.path.last == .record(TopicLinkRef(id: topic)))
         #expect(environment.recordPrefill == nil)
+
+        // Another registered server's reminder isn't opened here, and says which server it's from.
+        let registry = try #require(environment.session?.partitions.registry)
+        _ = try await registry.register(
+            serverId: "other-server", baseURL: "https://other.example", displayName: "Other", now: Date())
+        environment.router.path = []
+        var other = Self.reminder
+        other["server_id"] = "other-server"
+        await environment.handleNotificationResponse(
+            NotificationResponder.input(
+                actionIdentifier: UNNotificationDefaultActionIdentifier, userText: nil, content: Self.content(other)))
+        #expect(environment.router.path.isEmpty)
+        #expect(environment.router.refusedLink?.contains("Other") == true)
         await environment.session?.shutdown()
     }
 
