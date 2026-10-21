@@ -387,8 +387,9 @@ import Testing
     // MARK: - Body, dismiss and More…
 
     /// A reminder delivered before the number title became "Log 5 glasses" (a11y N1) sits under
-    /// the old "✓ 5 glasses" category id, which re-registration replaced. Its action identifier
-    /// never carried the title, so a tap still logs; without its category, the body still opens.
+    /// the old "✓ 5 glasses" category id, which stays registered (append-only; the NSE test
+    /// `aPushWithThePreN1CategoryIdGetsTheCurrentCategory` covers that). Its button's identifier
+    /// never carried the title, so a tap logs what it showed; the body opens the record screen.
     @Test func aReminderUnderThePreN1CategoryStillLogsOrOpens() async throws {
         let w = try await World()
         let r = w.reminder(w.water, last: .int(5))
