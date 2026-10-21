@@ -253,6 +253,16 @@ $(sed 's/^/  /' <<<"$booted")"
 # build defaults to one job per core, which oversubscribes it badly. IOS_JOBS=0 = no cap.
 IOS_JOBS="${IOS_JOBS:-4}"
 
+# Runs a command with a wall-clock limit (widget-proof.sh, spike-proof.sh): run_limited <seconds>
+# <command> [args...]. The command runs in a process group of its own, which is stopped as a
+# whole (TERM, then KILL after IOS_LIMIT_GRACE_SECS) past the limit, on INT or TERM, and when
+# the command exits with anything of it left running. Returns the command's status, or 124 when
+# the limit stopped it. See limit.pl. (`pkill -P` on test.sh reached only its children:
+# xcodebuild, further down the watchdog pipeline, kept running.)
+run_limited() {
+  perl "$IOS_DIR/scripts/limit.pl" "$@"
+}
+
 # Runs a command under watchdog.sh: killed, with its whole process group, after
 # IOS_WATCHDOG_SILENCE_MIN minutes without any output (default 20), or 60 s after xcodebuild's
 # final "** … SUCCEEDED/FAILED **" line if it hasn't exited by then. IOS_WATCHDOG=0 turns it

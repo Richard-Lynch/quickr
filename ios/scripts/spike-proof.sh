@@ -109,13 +109,8 @@ recorder=$!
 
 export TEST_RUNNER_SPIKE_COORDINATOR="http://127.0.0.1:$(cat "$work/port")"
 "$here/gen.sh"  # a clean checkout has no quickR.xcodeproj
-"$here/test.sh" Spike "$udid" &
-pid=$!
-( sleep "$limit"; pkill -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null ) &
-watchdog=$!
 status=0
-wait "$pid" || status=$?
-kill "$watchdog" 2>/dev/null || true
+run_limited "$limit" "$here/test.sh" Spike "$udid" || status=$?
 
 kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null; recorder=""
 group="$(xcrun simctl get_app_container "$udid" com.bahumia.quickr group.com.bahumia.quickr 2>/dev/null || true)"
