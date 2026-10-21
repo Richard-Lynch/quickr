@@ -317,9 +317,11 @@ CREATE TABLE notification_registration (     -- registry v3: one row
 ```
 
 - **A row never changes in place.** An id's actions are fixed by its hash (§4.3).
-  Only `current`, `due_at`, `used_at` and `pushed_at` change. The times are read
-  under the registry lock and only ever move forward (`MAX`), so a waiter with an
-  earlier clock never stamps an earlier time.
+  Only `current`, `due_at`, `used_at`, `pushed_at` and `push_seq` change.
+  `due_at` is replaced by each refresh. `used_at` and `pushed_at` are read under
+  the registry lock and only ever move forward (`MAX`), so a waiter with an
+  earlier clock never stamps an earlier time. `push_seq` is the next value of a
+  counter taken under the lock.
 - **Growth, measured** (`CategoryGrowthTests`: a seeded year of one person, twelve
   topics, ten of them quick-loggable: six numbers and four enums, two version edits
   each). Distinct ids registered: **42 by day 7, 104 by day 30, 197 by day 90 and 644
