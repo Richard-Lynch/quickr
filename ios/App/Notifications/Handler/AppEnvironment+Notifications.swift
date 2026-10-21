@@ -10,6 +10,7 @@ extension AppEnvironment {
     /// a tap-to-fix's text kept for the record screen.
     func handleNotificationResponse(_ response: NotificationActionResponse) async {
         guard let session else { return }
+        // `NotificationResponder` holds the store resumed around this (a tap while suspended).
         let outcome = await notificationHandler(session).handle(response)
         #if DEBUG
         // What an action did, for simulator runs (MediaCaptureUITests): no answers or text.
