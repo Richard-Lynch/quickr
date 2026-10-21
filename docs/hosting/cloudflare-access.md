@@ -138,7 +138,9 @@ everything under `/mcp/`.
    ```
 
    The command stores the secret in the client's own config file, so treat that
-   file as a secret.
+   file as a secret. While it runs, the secret is also in its arguments, which
+   other users of the same machine can see with `ps`; on a shared machine, add
+   the two headers to the client's config file in an editor instead.
 
 ## 6. Checking it end to end
 
@@ -173,19 +175,25 @@ The automated suite can't cover:
 - the hostname and path matching;
 - your policies and the token's expiry.
 
-Check those manually, from any machine. Read the secret without echoing it, so
-it stays out of your shell history:
+Check those manually, from any machine. The secret stays out of your shell
+history (read without echoing) and out of the process list (`ps` shows every
+command's arguments, so it never goes on curl's command line: curl reads the
+headers from its standard input, written by the shell's built-in `printf`):
 
 ```bash
 HOST=https://quickr.example.com
 read -r  CF_ID     # <client-id>.access
 read -rs CF_SECRET
 curl -si "$HOST/api/v1/changes?after=0&limit=1" | head -1                 # 302 (no token, either mode)
-curl -si "$HOST/api/v1/changes?after=0&limit=1" \
-  -H "CF-Access-Client-Id: $CF_ID" -H "CF-Access-Client-Secret: $CF_SECRET" \
+printf 'header = "CF-Access-Client-Id: %s"\nheader = "CF-Access-Client-Secret: %s"\n' \
+  "$CF_ID" "$CF_SECRET" \
+  | curl -si --config - "$HOST/api/v1/changes?after=0&limit=1" \
   | grep -i '^HTTP\|^x-quickr-server-id'                                  # 200 and the server id
 unset CF_SECRET
 ```
+
+(Cloudflare's IDs and secrets are hex, so they need no quoting inside curl's
+config syntax.)
 
 Then finish the check in the app, on the phone:
 

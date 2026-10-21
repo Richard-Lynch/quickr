@@ -242,6 +242,11 @@ otherwise.
       connect and a failed Edit save each move VoiceOver to the error and read
       it out. To make them fail, use a value the topic refuses (Record, Edit) and
       a wrong server address (onboarding).
+- [ ] **The token sheet keeps no secret** (audit SE2). In Settings ▸
+      Cloudflare Access ▸ Add service token…, type a Client ID and any secret.
+      VoiceOver's escape (two-finger scrub) must not close the sheet while the
+      secret is typed. Close it with Cancel: no "Save Password?" prompt appears,
+      and reopening the sheet shows the secret field empty and no token saved.
 - [ ] **Charts.** Walk through each Stats chart with VoiceOver, and play it
       with Audio Graph (the chart's rotor ▸ Audio Graph).
 - [ ] **Reduce Motion** (Settings ▸ Accessibility ▸ Motion), VoiceOver off:
