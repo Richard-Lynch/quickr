@@ -47,6 +47,37 @@ import Testing
         await session.shutdown()
     }
 
+    /// GRDB's real suspension, end to end: once the session has gone to the background, a write to
+    /// its pool is refused ("Database is suspended", what an app write after suspending would get);
+    /// back in the foreground the same write succeeds. The hosted app tests (SyncControllerTests)
+    /// use their own notification center, so this suite is where real suspension is covered.
+    @Test func aBackgroundedSessionRefusesWritesUntilItIsActiveAgain() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "quickr-suspension-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try await Self.seed(root)
+        let session = try AppSession(
+            configuration: .init(
+                location: StoreLocation(root: root), transport: ParkedPosts(), notifier: nil,
+                notificationCenter: .default))
+        await session.start()
+        let store = try #require(session.store)
+        @Sendable func touch(_ db: Database) throws { try db.execute(sql: "UPDATE sync_state SET epoch = epoch") }
+        try await store.writer.write(touch)  // writable before
+
+        _ = await session.didEnterBackground(session.beginBackground())
+        do {
+            try await store.writer.write(touch)
+            Issue.record("a suspended database accepted a write")
+        } catch let error as DatabaseError {
+            #expect(error.resultCode == .SQLITE_ABORT, "\(error)")
+            #expect(error.message?.contains("suspended") == true, "\(error)")
+        }
+
+        await session.didBecomeActive()
+        try await store.writer.write(touch)  // the same write, resumed
+        await session.shutdown()
+    }
+
     /// A store bootstrapped from server `s` (epoch E1) with one topic, so the session binds without
     /// the network.
     static func seed(_ root: URL) async throws -> TopicRef {
