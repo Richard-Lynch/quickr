@@ -37,8 +37,11 @@ enum UITestLaunch {
 
     /// `categoryCenter: nil` for unit tests: the system's category set is one per process, and
     /// tests running alongside the categories' own would replace it.
+    /// - Parameter notificationCenter: GRDB's suspend and resume (see `AppEnvironment.live`):
+    ///   hosted tests that background the session pass their own.
     @MainActor static func environment(
-        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
+        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter(),
+        notificationCenter: NotificationCenter = .default
     ) -> AppEnvironment {
         let root = FileManager.default.temporaryDirectory.appending(path: "quickr-uitest-\(UUID().uuidString)")
         let suite = "quickr.uitest.\(UUID().uuidString)"
@@ -46,7 +49,7 @@ enum UITestLaunch {
         let environment = AppEnvironment.live(
             location: StoreLocation(root: root), defaults: defaults, keychain: InMemoryKeychain(),
             transport: FakeServerTransport(fallback: URLSessionTransport(), state: server), network: network,
-            categoryCenter: categoryCenter)
+            categoryCenter: categoryCenter, notificationCenter: notificationCenter)
         environment.settings.serverURL = value(after: "-QuickrServer").flatMap(URL.init(string:))
         if ProcessInfo.processInfo.arguments.contains("-QuickrStalePublish") { server.publishElsewhereFirst() }
         return environment

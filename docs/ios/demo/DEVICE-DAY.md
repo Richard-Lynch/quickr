@@ -231,8 +231,13 @@ VoiceOver on (Settings ▸ Accessibility ▸ VoiceOver) unless the row says
 otherwise.
 
 - [ ] **Undo by gesture.** Log from a tile. The Undo toast stays up while
-      VoiceOver is on, and a two-finger double-tap anywhere undoes the log. With
-      no toast showing, the same gesture plays or pauses music as usual.
+      VoiceOver is on, and its announcement says "Undo available". A
+      two-finger double-tap (the magic tap) runs Undo by both paths:
+  - (a) from anywhere on screen, through the app delegate's
+    `accessibilityPerformMagicTap`. With no toast showing, the same gesture
+    plays or pauses music as usual.
+  - (b) with VoiceOver's focus on the toast, through the toast's own magic-tap
+    action.
 - [ ] **Errors are announced.** A failed Record Save, a failed onboarding
       connect and a failed Edit save each move VoiceOver to the error and read
       it out. To make them fail, use a value the topic refuses (Record, Edit) and
@@ -241,6 +246,19 @@ otherwise.
       with Audio Graph (the chart's rotor ▸ Audio Graph).
 - [ ] **Reduce Motion** (Settings ▸ Accessibility ▸ Motion), VoiceOver off:
       Home, the Builder and Topics show no slide or spring animations.
+- [ ] **AX XXXL, all the way down** (Settings ▸ Accessibility ▸ Display & Text
+      Size ▸ Larger Text, the largest size), VoiceOver off. Scroll through each
+      screen to the bottom:
+  - New topic, with a choice question open and the schedule on Daily and on
+    Every…;
+  - Topic settings, with the schedule on Daily with two times, the presets,
+    and Save schedule;
+  - Edit questions, with a choice card open;
+  - Versions.
+
+  No text is cut off or stops growing partway down a list, the "+ Time" row
+  included. The UI audits check these only at the top of each screen
+  (docs/ios/reviews/a11y-audit.md, slice C, "Audit placement").
 
 ## 7. Who drives what
 
