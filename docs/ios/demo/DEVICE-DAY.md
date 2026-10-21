@@ -231,8 +231,13 @@ VoiceOver on (Settings ▸ Accessibility ▸ VoiceOver) unless the row says
 otherwise.
 
 - [ ] **Undo by gesture.** Log from a tile. The Undo toast stays up while
-      VoiceOver is on, and a two-finger double-tap anywhere undoes the log. With
-      no toast showing, the same gesture plays or pauses music as usual.
+      VoiceOver is on, and its announcement says "Undo available". A
+      two-finger double-tap (the magic tap) runs Undo by both paths:
+  - (a) from anywhere on screen, through the app delegate's
+    `accessibilityPerformMagicTap`. With no toast showing, the same gesture
+    plays or pauses music as usual.
+  - (b) with VoiceOver's focus on the toast, through the toast's own magic-tap
+    action.
 - [ ] **Errors are announced.** A failed Record Save, a failed onboarding
       connect and a failed Edit save each move VoiceOver to the error and read
       it out. To make them fail, use a value the topic refuses (Record, Edit) and
