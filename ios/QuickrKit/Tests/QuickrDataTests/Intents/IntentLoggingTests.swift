@@ -152,6 +152,99 @@ import Testing
         #expect(try w.items.isEmpty && w.commits.count == 0)
     }
 
+    // MARK: - Undo
+
+    /// Undo of an intent's log: a create not sent yet goes; one that may have been sent becomes a
+    /// queued delete.
+    @Test func undoCancelsTheCreate() async throws {
+        let w = try World()
+        let logged = try await IntentLogging.log(
+            topicId: Self.coffee.id, answers: ["size": .string("small")], in: w.context)
+        #expect(try await IntentLogging.undo(entryId: logged.entryId, in: w.context) == .removed)
+        #expect(try w.items.isEmpty)
+
+        let sent = try await IntentLogging.log(
+            topicId: Self.coffee.id, answers: ["size": .string("large")], in: w.context)
+        try w.s.write { db in
+            try db.execute(
+                sql: "UPDATE outbox_item SET state = 'uncertain', maybe_delivered = 1 WHERE entity_id = ?",
+                arguments: [sent.entryId.wireString])
+        }
+        #expect(try await IntentLogging.undo(entryId: sent.entryId, in: w.context) == .deleteQueued)
+    }
+
+    // MARK: - Repeat-last
+
+    @Test func repeatLastPlansFromTheLatestEntry() async throws {
+        let w = try World()
+        // No entry yet: the record screen, empty.
+        #expect(
+            try await IntentLogging.repeatPlan(topicId: Self.coffee.id, in: w.context).1 == .openRecord(prefill: nil))
+
+        // The latest still validates: log it again (answers to questions gone since are dropped).
+        try w.s.write { db in
+            _ = try ServerLayer.upsert(
+                db, entry: Make.entry(topicId: Self.coffee.id, minutes: -2, answers: ["size": .string("small")]))
+            _ = try ServerLayer.upsert(
+                db,
+                entry: Make.entry(
+                    topicId: Self.coffee.id, minutes: -1, answers: ["size": .string("large"), "gone": .int(1)]))
+        }
+        #expect(
+            try await IntentLogging.repeatPlan(topicId: Self.coffee.id, in: w.context).1
+                == .log(["size": .string("large")]))
+
+        // A queued log (logged now, after those) is the latest one.
+        _ = try await IntentLogging.log(topicId: Self.coffee.id, answers: ["size": .string("small")], in: w.context)
+        #expect(
+            try await IntentLogging.repeatPlan(topicId: Self.coffee.id, in: w.context).1
+                == .log(["size": .string("small")]))
+
+        // The latest no longer validates (its option was archived): the record screen, prefilled.
+        try w.s.write { db in
+            _ = try ServerLayer.upsert(
+                db, entry: Make.entry(topicId: Self.coffee.id, minutes: 60, answers: ["size": .string("old")]))
+        }
+        #expect(
+            try await IntentLogging.repeatPlan(topicId: Self.coffee.id, in: w.context).1
+                == .openRecord(prefill: ["size": .string("old")]))
+        await #expect(throws: IntentLogging.Failure.topicArchived) {
+            try await IntentLogging.repeatPlan(topicId: Self.old.id, in: w.context)
+        }
+    }
+
+    // MARK: - What's due
+
+    @Test func whatsDueListsTheDueTopicsLongestDueFirst() {
+        let now = Make.t0
+        func topic(_ name: String, every minutes: Int?, last: Double?, status: TopicStatus = .active) -> Topic {
+            var topic = Make.topic(
+                name: name, status: status,
+                schedule: minutes.map { .interval(.init(everyMinutes: $0, timezone: "UTC")) })
+            topic.lastCapturedAt = last.map { now.addingTimeInterval(-$0 * 60) }
+            topic.createdAt = now.addingTimeInterval(-86_400 * 30)
+            topic.scheduleUpdatedAt = now.addingTimeInterval(-86_400 * 30)
+            return topic
+        }
+        let topics = [
+            topic("Water", every: 120, last: 130),  // due 10 min ago
+            topic("Zinc", every: 240, last: 300),  // due 60 min ago: first, though last by name
+            topic("Stretch", every: 180, last: 150),  // in 30 min
+            topic("Notes", every: nil, last: nil),
+            topic("Old", every: 60, last: 600, status: .archived),
+        ]
+        #expect(IntentDue.dueNow(topics, now: now).map(\.name) == ["Zinc", "Water"])
+        #expect(IntentText.dueSentence([]) == "Nothing is due.")
+        #expect(IntentText.dueSentence(["Water"]) == "Water is due.")
+        #expect(IntentText.dueSentence(["Meds", "Water", "Stretch"]) == "Meds, Water and Stretch are due.")
+    }
+
+    @Test func theRecordPrefillIsTheFormsText() {
+        #expect(
+            IntentNavigation.prefillTexts(["a": .int(2), "b": .double(7.5), "c": .string("good"), "d": .strings(["x"])])
+                == ["a": "2", "b": "7.5", "c": "good"])
+    }
+
     // MARK: - Options and text
 
     @Test func optionIdsRoundTripAndOnlyActiveOptionsResolve() {

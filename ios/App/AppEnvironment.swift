@@ -148,6 +148,16 @@ final class AppEnvironment {
                 origin: .siri,
                 openActiveStore: { try await current()?.partitions.openActiveStore(role: .app)?.store },
                 afterCommit: { _ in await current()?.scheduler?.requestFlush(reason: .enqueue) }))
+        // OpenRecordIntent, and repeat-last falling back to the record screen: the same hand-off as
+        // a tap-to-fix notification's prefill.
+        IntentNavigation.register { [weak self] request in
+            guard let self else { return }
+            switch request {
+            case .record(let topicId, let prefill):
+                if !prefill.isEmpty { recordPrefill = NotificationPrefill(topicId: topicId.wireString, texts: prefill) }
+                if let ref = TopicLinkRef(topicId.wireString) { router.open(.record(ref)) }
+            }
+        }
     }
 
     /// From the root view's `.task`: starts the session (finishing a bootstrap, or connecting to

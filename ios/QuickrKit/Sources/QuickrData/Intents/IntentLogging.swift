@@ -136,6 +136,50 @@ public enum IntentLogging {
         return Logged(entryId: entryId, topic: topic, answers: validated, created: created)
     }
 
+    /// Undo of an intent's log (`UndoableIntent`): `cancelCreate` (outbox.md §9.1) in the active
+    /// store. A create not sent yet is removed; one that may have been sent becomes a queued
+    /// delete, which reserves the id.
+    @discardableResult
+    public static func undo(entryId: UUID, in context: IntentWriteContext) async throws -> OutboxUndoLogResult {
+        guard let store = try? await context.openActiveStore() else { throw Failure.noStore }
+        let (clock, wall, origin) = (store.leaseClock, store.wallClock, context.origin)
+        let result: OutboxUndoLogResult
+        do {
+            result = try await store.writer.write { db in
+                try OutboxQueue.cancelCreate(
+                    db, entryId: entryId.wireString, origin: origin, now: clock.now(), wall: wall.now())
+            }
+        } catch {
+            throw Failure.storeUnavailable
+        }
+        if !Task.isCancelled { await context.afterCommit(store) }
+        return result
+    }
+
+    /// What repeat-last does for a topic (PLAN §2 "Repeat-last").
+    public enum RepeatPlan: Sendable, Hashable {
+        /// The latest entry's answers still validate against the current version: log them.
+        case log([String: AnswerValue])
+        /// They don't (or there is no entry): open the record screen, prefilled with what still
+        /// applies (nil when there is no entry).
+        case openRecord(prefill: [String: AnswerValue]?)
+    }
+
+    /// The plan for repeating `topicId`'s latest counted entry (the view's, queued logs included).
+    /// Answers to questions the current version no longer has are dropped first. An archived or
+    /// missing topic throws, like a log.
+    public static func repeatPlan(topicId: UUID, in context: IntentWriteContext) async throws -> (Topic, RepeatPlan) {
+        let (store, topic) = try await self.topic(topicId, in: context)
+        let latest = try? await store.writer.read { db in try StoreView.latestEntry(db, topicId: topicId.wireString) }
+        guard let entry = latest ?? nil else { return (topic, .openRecord(prefill: nil)) }
+        let keys = Set(topic.questions.map(\.key))
+        let carried = entry.entry.answers.filter { keys.contains($0.key) }
+        switch validate(carried, questions: topic.questions) {
+        case .success(let answers): return (topic, .log(answers))
+        case .failure: return (topic, .openRecord(prefill: carried))
+        }
+    }
+
     /// `answers` checked like the record form (`AnswerValidator`): every answer belongs to a
     /// question and validates for it, every required question is answered. The validated
     /// (normalised) answers, or the first problem.
