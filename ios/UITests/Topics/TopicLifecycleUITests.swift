@@ -20,11 +20,9 @@ final class TopicLifecycleUITests: XCTestCase {
         // 1. Create "Water" with one number question.
         let name = app.textFields["newTopic.name"]
         XCTAssertTrue(name.waitForExistence(timeout: 15))
-        name.tap()
-        name.typeText("Water")
-        let label = app.textFields["newTopic.q0.label"]
-        label.tap()
-        label.typeText("Glasses\n")
+        screen.type("Water", into: name)
+        screen.type("Glasses", into: app.textFields["newTopic.q0.label"])
+        screen.dismissKeyboard()
         screen.tap("newTopic.create")
         XCTAssertTrue(screen.toast("Topic created").waitForExistence(timeout: 10))
         XCTAssertTrue(app.navigationBars["Water"].waitForExistence(timeout: 15), "its record screen")
@@ -137,14 +135,18 @@ struct TopicScreen {
         target.tap()
     }
 
-    /// Replaces a field's text: the cursor to the end, the old text deleted.
+    /// Replaces a field's text: the cursor to the end, the old text deleted. Checked, with one retry
+    /// (see `type`); a number field may show a unit after the value.
     func replace(_ field: XCUIElement, with text: String) {
         scrollTo(field)
-        field.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
-        let current = field.value as? String ?? ""
-        let placeholder = field.placeholderValue ?? ""
-        let delete = current == placeholder ? 0 : current.count
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: delete) + text)
+        for _ in 0..<2 {
+            field.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+            let current = field.value as? String ?? ""
+            let delete = current == (field.placeholderValue ?? "") ? 0 : current.count
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: delete) + text)
+            if (field.value as? String)?.split(separator: " ").first.map(String.init) == text { return }
+        }
+        XCTAssertEqual((field.value as? String)?.split(separator: " ").first.map(String.init), text, field.identifier)
     }
 
     /// Drags until `element` exists and is hittable (bounded): down the screen by default, `up`
@@ -155,6 +157,20 @@ struct TopicScreen {
             let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: from))
             start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: to)))
         }
+    }
+
+    /// Types `text` into an empty field and checks it took: the keyboard sometimes drops a key
+    /// (seen on iOS 27), which here would name a question "Glasse". One retype, then it must match.
+    func type(_ text: String, into field: XCUIElement) {
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        for _ in 0..<2 {
+            field.tap()
+            let current = field.value as? String ?? ""
+            let stale = current == field.placeholderValue ? 0 : current.count
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: stale) + text)
+            if field.value as? String == text { return }
+        }
+        XCTAssertEqual(field.value as? String, text, "typed into \(field.identifier)")
     }
 
     func dismissKeyboard() {
@@ -175,9 +191,7 @@ struct TopicScreen {
         let field = app.textFields["\(prefix).q\(count).label"]
         scrollTo(field, up: true)
         scrollTo(field)
-        XCTAssertTrue(field.waitForExistence(timeout: 5))
-        field.tap()
-        field.typeText(label)
+        type(label, into: field)
         dismissKeyboard()
     }
 
