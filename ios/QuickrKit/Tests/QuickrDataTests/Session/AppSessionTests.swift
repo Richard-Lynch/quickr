@@ -643,6 +643,48 @@ private let otherServerURL = URL(string: "https://other.example")!
         #expect(suspended.count == suspends + 2, "and suspends again")
         await session.shutdown()
     }
+
+    /// An ended hold's work still unwinding while newer holds open, then an activation and a
+    /// refresh episode: its late release never suspends the store under them (Codex r2).
+    @Test func anEndedHoldNeverSuspendsUnderNewerHoldsOrEpisodes() async throws {
+        let w = try World()
+        let resumed = w.posted(Database.resumeNotification)
+        let suspended = w.posted(Database.suspendNotification)
+        let session = try w.session()
+        await session.start(serverURL: SyncEnv.baseURL)
+
+        let expiring = session.beginBackground()
+        let parked = session.holdStoreResumed()  // cancelled at expiry, still unwinding
+        await session.backgroundTimeExpiring(expiring, within: .seconds(5))
+        let (resumes, suspends) = (resumed.count, suspended.count)
+        let fresh = session.holdStoreResumed()  // another action, with its own background task
+        #expect(resumed.count == resumes + 1)
+        parked.release()
+        #expect(suspended.count == suspends, "the ended hold doesn't suspend under the new one")
+        fresh.release()
+        #expect(suspended.count == suspends + 1, "the new hold's release does")
+
+        // An activation: the parked work's release (a second ended hold) changes nothing.
+        let unwinding = session.holdStoreResumed()
+        await session.backgroundTimeExpiring(session.beginBackground(), within: .seconds(5))
+        await session.didBecomeActive()
+        unwinding.release()
+        #expect(suspended.count == suspends + 2, "only the expiry suspended; the foreground stays resumed")
+
+        // A refresh episode after an expiry: it resumes, the stale release doesn't suspend mid-pull,
+        // and the episode suspends at its end.
+        let stale = session.holdStoreResumed()
+        await session.backgroundTimeExpiring(session.beginBackground(), within: .seconds(5))
+        let afterExpiry = suspended.count
+        let refresh = session.beginBackground()
+        stale.release()
+        #expect(suspended.count == afterExpiry)
+        let resumesBefore = resumed.count
+        _ = await session.backgroundRefresh(refresh)
+        #expect(resumed.count == resumesBefore + 1)
+        #expect(suspended.count == afterExpiry + 1, "suspended once, by the refresh's end")
+        await session.shutdown()
+    }
 }
 
 /// The real-time case of `AppSessionTests` (see `TimingTests`).
