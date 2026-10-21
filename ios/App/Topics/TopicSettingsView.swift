@@ -9,6 +9,7 @@ struct TopicSettingsView: View {
     @State private var confirmingLeave = false
     @State private var deleting = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private let text = TopicText()
 
@@ -56,7 +57,8 @@ struct TopicSettingsView: View {
     private var detailsSection: some View {
         Section {
             if let banner = model.detailsBanner {
-                TopicBanner(text: banner).accessibilityIdentifier("topicSettings.details.banner")
+                TopicBanner(text: banner, trigger: model.detailsAttempts)
+                    .accessibilityIdentifier("topicSettings.details.banner")
             }
             TopicLabeledField("Name", error: model.detailErrors[.name]) {
                 TextField("Name", text: $model.name)
@@ -95,7 +97,8 @@ struct TopicSettingsView: View {
     private var scheduleSection: some View {
         Section {
             if let banner = model.scheduleBanner {
-                TopicBanner(text: banner).accessibilityIdentifier("topicSettings.schedule.banner")
+                TopicBanner(text: banner, trigger: model.scheduleAttempts)
+                    .accessibilityIdentifier("topicSettings.schedule.banner")
             }
             if model.isArchived {
                 Text("Archived topics are never due.").font(.qr(.subheadline)).foregroundStyle(.qr.muted)
@@ -103,13 +106,15 @@ struct TopicSettingsView: View {
             ScheduleEditorRows(
                 draft: $model.schedule, errors: model.scheduleErrors, limits: model.limits,
                 preview: model.schedulePreview, id: "topicSettings.schedule")
-            HStack {
+            // Stacked at accessibility sizes, where "Save schedule" broke mid-word.
+            FieldRow(alignment: .center) {
                 if model.scheduleDirty {
                     Button("Reset") { model.resetSchedule() }
                         .buttonStyle(.borderless)
+                        .frame(minHeight: QuickrMetrics.tapTarget)
                         .accessibilityIdentifier("topicSettings.resetSchedule")
                 }
-                Spacer()
+                if !typeSize.isAccessibilitySize { Spacer() }
                 TopicSaveButton(
                     "Save schedule", isSaving: model.isSavingSchedule, isEnabled: model.scheduleDirty,
                     id: "topicSettings.saveSchedule"
@@ -261,7 +266,8 @@ struct TopicLabeledField<Content: View>: View {
                 Text(label).font(.qr(.label)).foregroundStyle(.qr.inkSoft)
                 if optional { Text("optional").font(.qr(.caption)).foregroundStyle(.qr.muted) }
             }
-            .accessibilityHidden(true)
+            // Read as the field's heading: visible text stays in the accessibility tree.
+            .accessibilityElement(children: .combine)
             content.font(.qr(.body))
             if let hint { Text(hint).font(.qr(.footnote)).foregroundStyle(.qr.muted) }
             TopicFieldError(error)
@@ -286,11 +292,15 @@ struct TopicSaveButton: View {
         self.action = action
     }
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
                 if isSaving { ProgressView() }
-                Text(title).font(.qr(.callout))
+                // Full width at accessibility sizes, so the title wraps between words, not inside one.
+                Text(title).font(.qr(.callout)).multilineTextAlignment(.center)
+                    .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil)
             }
         }
         .buttonStyle(.borderedProminent)
@@ -306,6 +316,8 @@ struct TopicBanner: View {
 
     let text: String
     var tone: Tone = .danger
+    /// Changes per attempt (a save counter), so a repeated identical error is read again.
+    var trigger = 0
 
     var body: some View {
         Label {
@@ -318,5 +330,7 @@ struct TopicBanner: View {
         .listRowBackground(tone == .danger ? Color.qr.dangerSoft : .qr.warnSoft)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(text)
+        // VoiceOver goes to an error as it appears (TP6, X2); a warning is only read in turn.
+        .qrAnnouncesError(tone == .danger ? text : nil, trigger: trigger)
     }
 }

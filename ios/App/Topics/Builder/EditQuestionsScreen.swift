@@ -82,6 +82,8 @@ struct EditQuestionsView: View {
     @State private var pane = BuilderPane.edit
     @State private var confirmingLeave = false
     @Environment(\.dismiss) private var dismiss
+    @QuickrReduceMotion private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private static let bannerId = "editQuestions.banner.section"
 
@@ -91,7 +93,7 @@ struct EditQuestionsView: View {
                 .onChange(of: model.visibleBanner) { _, banner in
                     guard banner != nil else { return }
                     pane = .edit
-                    Task { withAnimation { proxy.scrollTo(Self.bannerId, anchor: .top) } }
+                    Task { withQRAnimation(reduceMotion: reduceMotion) { proxy.scrollTo(Self.bannerId, anchor: .top) } }
                 }
         }
         .sheet(
@@ -118,7 +120,8 @@ struct EditQuestionsView: View {
                 }
                 if let banner = model.visibleBanner {
                     Section {
-                        TopicBanner(text: banner).accessibilityIdentifier("editQuestions.banner")
+                        TopicBanner(text: banner, trigger: model.attempts).accessibilityIdentifier(
+                            "editQuestions.banner")
                         ForEach(model.bannerDetails, id: \.self) { detail in
                             Text("• \(detail)").font(.qr(.footnote)).foregroundStyle(.qr.ink)
                         }
@@ -134,12 +137,11 @@ struct EditQuestionsView: View {
                     Task { await model.reviewChanges() }
                 } label: {
                     HStack {
-                        Spacer()
                         if model.isChecking { ProgressView().tint(.qr.onAccent) }
-                        Label("Review changes", systemImage: "eye").font(.qr(.label))
-                        Spacer()
+                        // The whole width, wrapping rather than clipping at accessibility sizes.
+                        Text("Review changes").font(.qr(.label)).multilineTextAlignment(.center)
                     }
-                    .frame(minHeight: 44)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .listRowBackground(Color.qr.accentStrong)
                 .foregroundStyle(.qr.onAccent)
@@ -158,12 +160,16 @@ struct EditQuestionsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(model.hasUnsavedChanges)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                HStack(spacing: 8) {
-                    Text("Edit questions").font(.qr(.label))
-                    QuickrBadge("v\(model.base.currentVersion)")
+            // Bar items stop growing at a cap: at accessibility sizes the plain title stays, and the
+            // intro says which version this is.
+            if !typeSize.isAccessibilitySize {
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 8) {
+                        Text("Edit questions").font(.qr(.label))
+                        QuickrBadge("v\(model.base.currentVersion)")
+                    }
+                    .accessibilityElement(children: .combine)
                 }
-                .accessibilityElement(children: .combine)
             }
             if model.hasUnsavedChanges {
                 ToolbarItem(placement: .topBarLeading) {

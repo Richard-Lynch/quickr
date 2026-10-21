@@ -28,6 +28,8 @@ public final class NewTopicModel: BuilderEditing {
     public private(set) var banner: String?
     public private(set) var bannerDetails: [String] = []
     public private(set) var isCreating = false
+    /// Counts "Create topic" taps: a repeated identical banner is announced again (`qrAnnouncesError`).
+    public private(set) var attempts = 0
     /// After the first Create, edits revalidate as they happen (`reValidateMode: 'onChange'`).
     private var submitted = false
 
@@ -96,6 +98,7 @@ public final class NewTopicModel: BuilderEditing {
     /// "Create topic".
     public func create() async {
         guard !isCreating else { return }
+        attempts += 1
         submitted = true
         banner = nil
         bannerDetails = []

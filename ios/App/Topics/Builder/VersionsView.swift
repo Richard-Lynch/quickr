@@ -24,19 +24,19 @@ struct VersionsView: View {
     var body: some View {
         List {
             Section {
-                HStack(alignment: .top, spacing: 12) {
-                    Text(VersionsList.intro).font(.qr(.subheadline)).foregroundStyle(.qr.muted)
-                    Spacer(minLength: 0)
-                    Button {
-                        environment.router.open(.editQuestions(ref))
-                    } label: {
-                        Label("New version", systemImage: "pencil")
+                // Rows of their own, so neither is squeezed at accessibility sizes (BD6).
+                Text(VersionsList.intro).font(.qr(.subheadline)).foregroundStyle(.qr.muted)
+                Button {
+                    environment.router.open(.editQuestions(ref))
+                } label: {
+                    // Text that wraps (a Label's title clipped at accessibility sizes).
+                    HStack(spacing: 8) {
+                        Image(systemName: "pencil").accessibilityHidden(true)
+                        Text("New version").font(.qr(.label)).fixedSize(horizontal: false, vertical: true)
                     }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("versions.new")
                 }
+                .accessibilityIdentifier("versions.new")
             }
-            .listRowBackground(Color.clear)
             content
         }
         .listStyle(.insetGrouped)
@@ -121,24 +121,30 @@ private struct VersionSection: View {
     let row: VersionsList.Row
     let isOpen: Bool
     let toggle: () -> Void
+    @QuickrReduceMotion private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         Section {
-            Button(action: { withAnimation { toggle() } }) {
+            Button(action: { withQRAnimation(reduceMotion: reduceMotion) { toggle() } }) {
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        QuickrBadge("v\(row.version)")
-                        if row.isCurrent { QuickrBadge("current", tone: .accent) }
-                        Text(row.createdAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(.qr(.footnote))
-                            .foregroundStyle(.qr.muted)
-                        Spacer(minLength: 4)
-                        Text(row.entries()).font(.qr(.monoCaption)).foregroundStyle(.qr.inkSoft)
-                        Image(systemName: "chevron.down")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.qr.muted)
-                            .rotationEffect(.degrees(isOpen ? 180 : 0))
-                            .accessibilityHidden(true)
+                    // The date and count get lines of their own at accessibility sizes (BD6).
+                    if typeSize.isAccessibilitySize {
+                        HStack(spacing: 8) {
+                            tags
+                            Spacer(minLength: 4)
+                            chevron
+                        }
+                        date
+                        entries
+                    } else {
+                        HStack(spacing: 8) {
+                            tags
+                            date
+                            Spacer(minLength: 4)
+                            entries
+                            chevron
+                        }
                     }
                     if let note = row.note {
                         Text(note).font(.qr(.body)).foregroundStyle(.qr.ink)
@@ -158,6 +164,29 @@ private struct VersionSection: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder private var tags: some View {
+        QuickrBadge("v\(row.version)")
+        if row.isCurrent { QuickrBadge("current", tone: .accent) }
+    }
+
+    private var date: some View {
+        Text(row.createdAt.formatted(date: .abbreviated, time: .shortened))
+            .font(.qr(.footnote))
+            .foregroundStyle(.qr.muted)
+    }
+
+    private var entries: some View {
+        Text(row.entries()).font(.qr(.monoCaption)).foregroundStyle(.qr.inkSoft)
+    }
+
+    private var chevron: some View {
+        Image(systemName: "chevron.down")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.qr.muted)
+            .rotationEffect(.degrees(isOpen ? 180 : 0))
+            .accessibilityHidden(true)
     }
 }
 
@@ -184,6 +213,8 @@ private struct QuestionSummaryRow: View {
             }
             Spacer(minLength: 4)
             QuickrBadge(question.type.builderShort, tone: .info)
+                // "Whole number", not "Int" (BD7).
+                .accessibilityLabel(question.type.builderLabel)
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
