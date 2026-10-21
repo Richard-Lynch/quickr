@@ -561,6 +561,63 @@ private let otherServerURL = URL(string: "https://other.example")!
             refs.session == nil && refs.coordinator == nil
         }
     }
+
+    // MARK: - Holding the store resumed (HANDLER-RESUME)
+
+    /// A hold resumes GRDB only if the session suspended it, and its last release suspends it
+    /// again; nested holds share it, and a second release of one hold does nothing.
+    @Test func holdsResumeASuspendedStoreAndSuspendItAgain() async throws {
+        let w = try World()
+        let resumed = w.posted(Database.resumeNotification)
+        let suspended = w.posted(Database.suspendNotification)
+        let session = try w.session()
+        await session.start(serverURL: SyncEnv.baseURL)
+
+        // In the foreground nothing is suspended: a hold posts nothing.
+        let (resumes, suspends) = (resumed.count, suspended.count)
+        session.holdStoreResumed().release()
+        #expect(resumed.count == resumes && suspended.count == suspends)
+
+        _ = await session.didEnterBackground(session.beginBackground())
+        #expect(suspended.count == suspends + 1)
+
+        let outer = session.holdStoreResumed()
+        #expect(resumed.count == resumes + 1, "the first hold resumes")
+        let inner = session.holdStoreResumed()
+        inner.release()
+        #expect(resumed.count == resumes + 1 && suspended.count == suspends + 1, "one hold still open")
+        outer.release()
+        #expect(suspended.count == suspends + 2, "the last release suspends again")
+        outer.release()
+        #expect(suspended.count == suspends + 2, "a second release does nothing")
+        await session.shutdown()
+    }
+
+    /// The episode finishing while a hold is open waits for its release; an activation during a
+    /// hold wins, and the release then leaves the store resumed.
+    @Test func aSuspendDuringAHoldWaitsAndAnActivationWins() async throws {
+        let w = try World()
+        let resumed = w.posted(Database.resumeNotification)
+        let suspended = w.posted(Database.suspendNotification)
+        let session = try w.session()
+        await session.start(serverURL: SyncEnv.baseURL)
+
+        let episode = session.beginBackground()
+        let suspends = suspended.count
+        let hold = session.holdStoreResumed()  // an action arrives as the app goes to the background
+        _ = await session.didEnterBackground(episode)
+        #expect(suspended.count == suspends, "the episode's suspend waits for the hold")
+        hold.release()
+        #expect(suspended.count == suspends + 1)
+
+        let resumes = resumed.count
+        let late = session.holdStoreResumed()
+        #expect(resumed.count == resumes + 1)
+        await session.didBecomeActive()
+        late.release()
+        #expect(suspended.count == suspends + 1, "back in the foreground: not suspended again")
+        await session.shutdown()
+    }
 }
 
 /// The real-time case of `AppSessionTests` (see `TimingTests`).
@@ -631,4 +688,5 @@ extension Gate {
     var armed: Bool { Self.armedGates.withLock { $0.contains(ObjectIdentifier(self)) } }
 
     func arm() { _ = Self.armedGates.withLock { $0.insert(ObjectIdentifier(self)) } }
+
 }

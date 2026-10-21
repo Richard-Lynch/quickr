@@ -98,7 +98,8 @@ import Testing
         _ = await session.didEnterBackground(session.beginBackground())
         await #expect(throws: DatabaseError.self, "suspended before the action") { try await store.writer.write(touch) }
 
-        let descriptor = try #require(NotificationCategory.descriptor(questions: mood.questions, counts: [:], last: nil))
+        let descriptor = try #require(
+            NotificationCategory.descriptor(questions: mood.questions, counts: [:], last: nil))
         let category = NotificationCategory(
             serverId: Self.serverA, topicId: mood.id.wireString, version: mood.currentVersion, descriptor: descriptor)
         let info = QuickrNotificationInfo(
