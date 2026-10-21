@@ -400,6 +400,28 @@ import Testing
         #expect(w.registered == [dueId])
     }
 
+    /// APP-SKEW (sync-protocol.md §10): the due rank is the server's. Daily (due at 08:00 and
+    /// 09:00) at device 08:58: a server 5 min ahead is at 09:03, so it's due since 09:00 (device
+    /// 08:55); 5 min behind, at 08:53, still since 08:00 (device 08:05). `dueAt` is device time.
+    @Test(arguments: [(5.0 * 60, 8 * 60 + 55.0), (0, 8 * 60.0), (-5.0 * 60, 8 * 60 + 5.0)] as [(TimeInterval, Double)])
+    func theDueRankIsTheServers(skew: TimeInterval, dueAtMinutes: Double) async throws {
+        let s = try TestStore()
+        let midnight = Date(timeIntervalSince1970: 1_772_582_400)  // 2026-03-04T00:00:00Z
+        var daily = Make.topic(name: "Daily")
+        daily.questions = [Self.severity(2)]
+        daily.schedule = .daily(
+            .init(times: [TimeOfDay(hour: 8, minute: 0), TimeOfDay(hour: 9, minute: 0)], timezone: "UTC"))
+        daily.createdAt = midnight.addingTimeInterval(-86_400)
+        daily.scheduleUpdatedAt = daily.createdAt
+        try s.write { db in
+            _ = try ServerLayer.upsert(db, topic: daily)
+            try db.execute(sql: "UPDATE sync_state SET skew_ms = ? WHERE id = 1", arguments: [skew * 1000])
+        }
+        let rows = try await NotificationCategories.rows(
+            in: s.store, now: midnight.addingTimeInterval(8 * 3600 + 58 * 60))
+        #expect(rows.map(\.dueAt) == [midnight.addingTimeInterval(dueAtMinutes * 60)])
+    }
+
     // MARK: - Codex r1: races, starvation, installation, clocks, boundaries
 
     /// Registers `count` current rows due `dueIn` from now.

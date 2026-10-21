@@ -122,6 +122,11 @@ public final class HomeModel {
         loadError = nil
         relist()
         guard let store = session.store else { return }
+        // The store's clock before its first list, so it never shows on the device clock; the
+        // sync state's observation follows it from then on.
+        let clock = (try? await store.syncState.syncState())?.serverClock ?? .device
+        guard isCurrent(generation) else { return }
+        self.clock = clock
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.observeTopics(store, generation) }
             group.addTask { await self.observeSyncState(store, generation) }

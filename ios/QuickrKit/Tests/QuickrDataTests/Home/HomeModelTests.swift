@@ -247,6 +247,24 @@ import Testing
         #expect(Self.names(model.sections.due) == order)
     }
 
+    /// A skew already stored applies to the first list: it never shows on the device clock
+    /// (Codex r1), whichever observation delivers first.
+    @MainActor @Test func theFirstListIsAlreadyOnTheServersClock() async throws {
+        let w = try await World(topics: Self.mixed)
+        defer { w.cleanup() }
+        try await setSkew(w.store, 31 * 60)  // Stretch is due on the server's clock
+        for _ in 0..<20 {
+            let model = HomeModel(session: w.session, now: Self.now, debounce: .zero)
+            let observing = Task { await model.observe() }
+            defer { observing.cancel() }
+            // Checked the moment the list first shows, before anything else can run.
+            let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+            while !model.loaded, ContinuousClock.now < deadline { await Task.yield() }
+            #expect(model.loaded)
+            #expect(model.badgeCount == 3, "the first list is on the server's clock")
+        }
+    }
+
     /// A pull that only moves the skew relists at once (no tick needed).
     @Test func aNewSkewRelists() async throws {
         let w = try await World(topics: Self.mixed)
