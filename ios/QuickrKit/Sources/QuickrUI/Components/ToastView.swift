@@ -1,5 +1,6 @@
 #if os(iOS)
 import SwiftUI
+import UIKit
 
 /// One toast: an ink card with a tone dot, the message, an optional action (44 pt) and a
 /// 44 pt dismiss button.
@@ -44,7 +45,7 @@ public struct ToastView: View {
             .buttonStyle(.plain)
             .opacity(0.6)
             .padding(.trailing, -8)
-            .accessibilityLabel("Dismiss")
+            .accessibilityLabel("Dismiss \(toast.title)")
         }
         .foregroundStyle(.qr.paper)
         .padding(.leading, 16)
@@ -76,7 +77,9 @@ public struct ToastView: View {
 private struct ToastHostModifier: ViewModifier {
     let center: ToastCenter
     let bottomInset: CGFloat
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let voiceOverStatus = NotificationCenter.default.publisher(
+        for: UIAccessibility.voiceOverStatusDidChangeNotification)
+    @QuickrReduceMotion private var reduceMotion
 
     func body(content: Content) -> some View {
         content
@@ -99,8 +102,12 @@ private struct ToastHostModifier: ViewModifier {
             }
             .onChange(of: center.items.last?.id) { _, id in
                 guard let id, let item = center.items.first(where: { $0.id == id }) else { return }
-                AccessibilityNotification.Announcement(item.toast.title).post()
+                AccessibilityNotification.Announcement(item.toast.announcement).post()
             }
+            // Under VoiceOver the toast is the last element on screen, so its action is also a
+            // magic tap from anywhere. With no actionable toast it does nothing.
+            .accessibilityAction(.magicTap) { center.performNewestAction() }
+            .onReceive(voiceOverStatus) { _ in center.voiceOverStatusChanged() }
     }
 }
 

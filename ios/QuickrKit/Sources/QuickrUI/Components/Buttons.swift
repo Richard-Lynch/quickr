@@ -46,7 +46,8 @@ public struct QuickrButtonStyle: ButtonStyle {
     let variant: QuickrButtonVariant
     let size: QuickrButtonSize
     @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @QuickrReduceMotion private var reduceMotion
 
     public init(_ variant: QuickrButtonVariant = .secondary, size: QuickrButtonSize = .medium) {
         self.variant = variant
@@ -57,7 +58,9 @@ public struct QuickrButtonStyle: ButtonStyle {
         let pressed = configuration.isPressed
         configuration.label
             .font(size.font)
-            .lineLimit(1)
+            // One line, except at accessibility sizes, where a label wraps rather than clips.
+            .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+            .multilineTextAlignment(.center)
             .padding(.horizontal, size.padding)
             .frame(minHeight: size.height)
             .foregroundStyle(foreground)
@@ -140,31 +143,36 @@ public struct PrimaryButton: View {
 }
 
 /// A round 44 pt (or 36 pt to look at, still 44 pt to tap) icon-only button, e.g. the header's
-/// settings and add buttons.
+/// settings and add buttons. The icon and both sizes grow with Dynamic Type.
 public struct QuickrIconButton: View {
     let icon: QIcon
     let label: String
     let bordered: Bool
-    let size: CGFloat
+    let small: Bool
     let action: () -> Void
+    @ScaledMetric(relativeTo: .body) private var iconSize: CGFloat = 20
+    @ScaledMetric(relativeTo: .body) private var tapSide = QuickrMetrics.tapTarget
+    @ScaledMetric(relativeTo: .body) private var smallSide: CGFloat = 36
 
     public init(_ icon: QIcon, label: String, bordered: Bool = false, small: Bool = false, action: @escaping () -> Void)
     {
         self.icon = icon
         self.label = label
         self.bordered = bordered
-        self.size = small ? 36 : QuickrMetrics.tapTarget
+        self.small = small
         self.action = action
     }
 
+    private var size: CGFloat { small ? smallSide : tapSide }
+
     public var body: some View {
         Button(action: action) {
-            icon.view(size: 20)
+            icon.view(size: iconSize)
                 .frame(width: size, height: size)
                 .foregroundStyle(.qr.inkSoft)
                 .background(bordered ? Color.qr.surface : .clear, in: Circle())
                 .overlay { if bordered { Circle().strokeBorder(Color.qr.lineStrong, lineWidth: 1) } }
-                .frame(width: QuickrMetrics.tapTarget, height: QuickrMetrics.tapTarget)
+                .frame(width: tapSide, height: tapSide)
                 .contentShape(Rectangle())
         }
         .buttonStyle(QuickrPressStyle(scale: 0.95))

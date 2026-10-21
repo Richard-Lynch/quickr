@@ -1,6 +1,10 @@
 import Foundation
 import Observation
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 public enum ToastTone: Sendable {
     case ok
     case info
@@ -46,6 +50,22 @@ public struct Toast: Sendable {
         let d = customDuration ?? (action == nil ? Self.plainDuration : Self.actionDuration)
         return d > .zero ? d : nil
     }
+
+    /// ``duration`` while VoiceOver runs: a toast with an action or an error stays until it's
+    /// dismissed or acted on, since VoiceOver reaches the toast last and the time can't be
+    /// adjusted otherwise (WCAG 2.2.1). Plain notices still go, after being announced.
+    public var durationUnderVoiceOver: Duration? {
+        action != nil || tone == .danger ? nil : duration
+    }
+
+    /// What VoiceOver announces when it appears: the title, the message, and how to reach the
+    /// action (a two-finger double-tap runs it; see `ToastCenter.performNewestAction`).
+    public var announcement: String {
+        var parts = [title]
+        if let message { parts.append(message) }
+        if let action { parts.append("\(action.label) available: double-tap with two fingers") }
+        return parts.map { $0.hasSuffix(".") ? $0 : $0 + "." }.joined(separator: " ")
+    }
 }
 
 /// The visible stack: newest last, at most ``maxVisible``; a new toast pushes out the oldest.
@@ -82,11 +102,26 @@ public struct ToastStack: Sendable {
 public final class ToastCenter {
     public private(set) var stack = ToastStack()
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
+    @ObservationIgnored private let voiceOverRunning: @MainActor () -> Bool
     @ObservationIgnored private var timers: [Int: Task<Void, Never>] = [:]
 
-    /// `sleep` is injectable so tests can run the timers without waiting.
-    public init(sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+    /// `sleep` and `voiceOverRunning` are injectable so tests can run the timers without waiting
+    /// and without VoiceOver.
+    public init(
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        voiceOverRunning: @escaping @MainActor () -> Bool = ToastCenter.systemVoiceOverRunning
+    ) {
         self.sleep = sleep
+        self.voiceOverRunning = voiceOverRunning
+    }
+
+    /// `UIAccessibility.isVoiceOverRunning` (false where there is no UIKit).
+    public static func systemVoiceOverRunning() -> Bool {
+        #if canImport(UIKit)
+        UIAccessibility.isVoiceOverRunning
+        #else
+        false
+        #endif
     }
 
     public var items: [ToastStack.Item] { stack.items }
@@ -97,14 +132,34 @@ public final class ToastCenter {
         for gone in timers.keys where !stack.items.contains(where: { $0.id == gone }) {
             timers.removeValue(forKey: gone)?.cancel()
         }
-        if let duration = toast.duration {
-            let sleep = self.sleep
-            timers[id] = Task { [weak self] in
-                do { try await sleep(duration) } catch { return }
-                self?.dismiss(id)
-            }
-        }
+        schedule(id, toast)
         return id
+    }
+
+    /// VoiceOver was turned on or off (`UIAccessibility.voiceOverStatusDidChangeNotification`;
+    /// `.toastHost` calls it): every visible toast restarts its timer under the new rule, so
+    /// turning VoiceOver on keeps the actionable ones, and turning it off lets them go again.
+    public func voiceOverStatusChanged() {
+        for item in stack.items { schedule(item.id, item.toast) }
+    }
+
+    /// The magic tap (a two-finger double-tap anywhere): runs the newest toast's action, if any
+    /// toast has one. Returns whether it ran one.
+    @discardableResult
+    public func performNewestAction() -> Bool {
+        guard let item = stack.items.last(where: { $0.toast.action != nil }) else { return false }
+        performAction(item.id)
+        return true
+    }
+
+    private func schedule(_ id: Int, _ toast: Toast) {
+        timers.removeValue(forKey: id)?.cancel()
+        guard let duration = voiceOverRunning() ? toast.durationUnderVoiceOver : toast.duration else { return }
+        let sleep = self.sleep
+        timers[id] = Task { [weak self] in
+            do { try await sleep(duration) } catch { return }
+            self?.dismiss(id)
+        }
     }
 
     public func dismiss(_ id: Int) {
