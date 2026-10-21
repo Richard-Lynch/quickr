@@ -133,7 +133,7 @@ private let otherServerURL = URL(string: "https://other.example")!
         await session.start(serverURL: SyncEnv.baseURL)
         await session.categoryRefreshSettled()
         let store = try #require(session.store)
-        let expected = Set(try await NotificationCategories.rows(in: store).map(\.category.id))
+        let expected = Set(try await NotificationCategories.rows(in: store, now: Date()).map(\.category.id))
         #expect(!expected.isEmpty, "the fixture has quick-loggable topics")
         #expect(Set(center.withState { $0.categories.map(\.id) }) == expected)
 
@@ -143,7 +143,7 @@ private let otherServerURL = URL(string: "https://other.example")!
         #expect(await session.coordinator.sync(reason: .requested) == .synced)
         try await eventually("the new category is registered") {
             await session.categoryRefreshSettled()
-            let now = Set(try await NotificationCategories.rows(in: store).map(\.category.id))
+            let now = Set(try await NotificationCategories.rows(in: store, now: Date()).map(\.category.id))
             return !now.isSubset(of: expected) && Set(center.withState { $0.categories.map(\.id) }).isSuperset(of: now)
         }
 

@@ -8,6 +8,12 @@
     "CREATE TABLE pending_unregister (\n  server_id        TEXT NOT NULL,\n  token            TEXT NOT NULL,\n  expect_epoch     TEXT,\n  first_attempt_at REAL NOT NULL,\n  attempts         INTEGER NOT NULL DEFAULT 0,\n  due_boot_id      TEXT,\n  due_ct           INTEGER,\n  PRIMARY KEY (server_id, token)\n)",
     "CREATE TABLE apns_state (\n  id                   INTEGER PRIMARY KEY CHECK (id = 1),\n  token                TEXT,\n  environment          TEXT CHECK (environment IN ('sandbox', 'production')),\n  registered_server_id TEXT,\n  last_registered_at   REAL\n)"
   ],
+  "registry_v2" : [
+    "ALTER TABLE apns_state ADD COLUMN register_attempts INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE apns_state ADD COLUMN register_due_boot_id TEXT",
+    "ALTER TABLE apns_state ADD COLUMN register_due_ct INTEGER"
+  ],
+  "registry_v2_frozen_at" : "3d93087 (registry v2 as shipped before CATCAP's v3)",
   "store_v1" : [
     "CREATE TABLE topic (\n  id                  TEXT PRIMARY KEY NOT NULL,\n  slug                TEXT NOT NULL,\n  name                TEXT NOT NULL,\n  description         TEXT NOT NULL DEFAULT '',\n  status              TEXT NOT NULL CHECK (status IN ('active', 'archived')),\n  current_version     INTEGER NOT NULL,\n  revision            INTEGER NOT NULL,\n  question_count      INTEGER NOT NULL,\n  created_at          REAL NOT NULL,\n  updated_at          REAL NOT NULL,\n  archived_at         REAL,\n  schedule_json       TEXT,\n  schedule_updated_at REAL,\n  questions_json      TEXT NOT NULL\n)",
     "CREATE INDEX ix_topic_slug ON topic(slug)",
