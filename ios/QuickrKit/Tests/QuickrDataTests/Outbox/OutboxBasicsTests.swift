@@ -155,7 +155,9 @@ import Testing
         try h.setSyncState("rebuilding = 'E2'")
         let widget = try h.process("widget:1")
         let id = try await h.log(widget)
-        let report = try await widget.flush(force: true, budget: .seconds(4))
+        // The budget isn't under test: a generous one so a starved CI pool (3 cores, ~1,000
+        // parallel tests) can't exhaust it before the rebuilding check runs.
+        let report = try await widget.flush(force: true, budget: .seconds(120))
         #expect(report.ending == .paused)
         #expect(try h.server.requests.isEmpty && h.item(id)?.state == .pending)
     }
