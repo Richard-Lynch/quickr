@@ -15,14 +15,16 @@ failures=0
 check() { if eval "$2"; then echo "ok: $1"; else echo "FAIL: $1"; failures=$((failures + 1)); fi; }
 work="$(mktemp -d "${TMPDIR:-/tmp}/quickr-limit.XXXXXX")"
 bystander=""
-# What failing cases left behind is stopped here: processes of the unsettled cases' groups that
-# are recognisably the fixture's (its script, its sleeps and cat), each by PID, so a group id
-# reused since by something else is never signalled. A settled case forgets its group.
+# What failing cases left behind is stopped here: processes of the unsettled cases' groups whose
+# command line is the fixture's own (its script in this run's work dir, or `sleep $NAP`, unique
+# to this run), each by PID, so a group id reused since by something else is never signalled
+# (only a PID reused between the ps snapshot and the kill could be, a window of microseconds).
+# A settled case forgets its group.
 cleanup() {
   local g pid command
   for g in $(cat "$work/unsettled" "$work/group" 2>/dev/null); do
     while read -r pid command; do
-      case "$command" in "$work/fixture.sh"* | *"bash $work/fixture.sh"* | "sleep 60" | cat | "bash -c sleep 60 | cat & wait")
+      case "$command" in *"$work/fixture.sh"* | "sleep $NAP" | "bash -c sleep \"\$NAP\" | sleep \"\$NAP\" & wait")
         kill -KILL "$pid" 2>/dev/null ;;
       esac
     done < <(ps -axo pid=,pgid=,command= | awk -v g="$g" '$2 == g { $2 = ""; print }')
@@ -52,10 +54,10 @@ cat >"$fixture" <<'SH'
 #!/usr/bin/env bash
 group=$(ps -o pgid= -p $$ | tr -d ' ')
 echo "$group" > "$WORK/group"
-bash -c 'sleep 60 | cat & wait' &
-sleep 60 &
-# Up: both sleeps and the pipeline's cat (the bash -c under them is up by then).
-until (( $(ps -axo pgid=,comm= | awk -v g="$group" '$1 == g && ($2 ~ /sleep$/ || $2 ~ /cat$/)' | wc -l) >= 3 )); do
+bash -c 'sleep "$NAP" | sleep "$NAP" & wait' &
+sleep "$NAP" &
+# Up: the three sleeps, two of them a pipeline (the bash -c under it is up by then).
+until (( $(ps -axo pgid=,command= | awk -v g="$group" -v c="sleep $NAP" '$1 == g && substr($0, index($0, $2)) == c' | wc -l) >= 3 )); do
   sleep 0.1
 done
 echo ready > "$WORK/ready"
@@ -66,6 +68,8 @@ case "$1" in
 esac
 SH
 export WORK="$work"
+# Every fixture sleep takes this unique duration (under 60 s), so its command line marks it ours.
+export NAP="59.$$"
 chmod +x "$fixture"
 sleep 60 &
 bystander=$!
