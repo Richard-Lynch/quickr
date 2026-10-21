@@ -53,6 +53,8 @@ struct MeanLineChart: View {
             }
         }
         .frame(height: LineChartModel.height * textScale.height)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chart.line")
     }
 
     private func chart(_ model: LineChartModel) -> some View {
@@ -116,7 +118,6 @@ struct MeanLineChart: View {
             if let shown { tooltip(shown) }
         }
         .accessibilityLabel("\(label): average per \(series.bucket.rawValue)")
-        .accessibilityIdentifier("chart.line")
         .accessibilityChartDescriptor(
             MeanLineDescriptor(
                 title: "\(label): average per \(series.bucket.rawValue)", points: model.points, bucket: series.bucket,
@@ -182,6 +183,8 @@ struct OptionStackChart: View {
                 legend(model)
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chart.stacked")
     }
 
     private func id(_ point: QuestionSeries.Point) -> String { point.start.ISO8601Format() }
@@ -220,7 +223,6 @@ struct OptionStackChart: View {
             if let shown { tooltip(shown, model) }
         }
         .accessibilityLabel("\(label): answers per \(series.bucket.rawValue)")
-        .accessibilityIdentifier("chart.stacked")
         .accessibilityChartDescriptor(
             OptionStackDescriptor(
                 title: "\(label): answers per \(series.bucket.rawValue)", model: model, bucket: series.bucket))
@@ -346,7 +348,6 @@ struct DistributionChart: View {
             .chartXSelection(value: selectedBin)
             .frame(height: 100 * textScale.height)
             .accessibilityLabel("Histogram of \(label)")
-            .accessibilityIdentifier("chart.histogram")
             .accessibilityChartDescriptor(
                 DistributionDescriptor(title: "Histogram of \(label)", bins: bins, unit: self.unit))
             if let first = bins.first, let last = bins.last {
@@ -363,6 +364,7 @@ struct DistributionChart: View {
         }
         // The caption, the chart (its bars are elements, ST4) and the axis ends.
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chart.histogram")
     }
 }
 
