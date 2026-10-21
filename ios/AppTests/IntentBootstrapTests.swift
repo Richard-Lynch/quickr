@@ -60,6 +60,44 @@ import Testing
         #expect(await TopicProvider.timeline(for: SelectTopicIntent()).entries.allSatisfy { $0.topic == nil })
     }
 
+    /// Both widgets' timelines put the due change at the device time of the server's boundary
+    /// (sync-protocol.md §10): Coffee, every 50 min, last logged 40 min ago by the server's clock,
+    /// turns due 10 min from now on either clock; read uncorrected, the device clock 5 min behind
+    /// (skew +5 min) or ahead would put it 5 min late or early.
+    @Test(arguments: [5.0 * 60, -5.0 * 60])
+    func widgetTimelinesFollowTheServersClock(skew: TimeInterval) async throws {
+        let location = try await TestStores.seededLocation()
+        defer { TestStores.remove(location) }
+        let now = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 / 60).rounded(.down) * 60)
+        let partitions = try StorePartitions.open(at: location, notifier: nil)
+        let store = try #require(try await partitions.openActiveStore(role: .app)?.store)
+        var coffee = try #require(
+            try await PlaceholderTopicRepository().topic(id: PlaceholderTopicRepository.coffee)?.topic)
+        coffee.schedule = .interval(.init(everyMinutes: 50, timezone: "UTC"))
+        coffee.createdAt = now.addingTimeInterval(-86_400)
+        coffee.scheduleUpdatedAt = coffee.createdAt
+        coffee.lastCapturedAt = now.addingTimeInterval(skew - 40 * 60)
+        coffee.revision += 1
+        try await store.writer.write { [coffee] db in
+            _ = try ServerLayer.upsert(db, topic: coffee)
+            try db.execute(sql: "UPDATE sync_state SET skew_ms = ? WHERE id = 1", arguments: [skew * 1000])
+        }
+        WidgetBootstrap.register(location: location)
+        let turnsDue = now.addingTimeInterval(10 * 60)
+        let uncorrected = turnsDue.addingTimeInterval(skew)  // the server's boundary read as device time
+
+        let topic = await TopicProvider.timeline(for: SelectTopicIntent(topic: TopicEntity(coffee)), now: now)
+        #expect(topic.entries.map(\.date).contains(turnsDue))
+        #expect(!topic.entries.map(\.date).contains(uncorrected))
+        let list = await DueListProvider.timeline(now: now)
+        #expect(list.entries.map(\.date).contains(turnsDue))
+        #expect(!list.entries.map(\.date).contains(uncorrected))
+        // At that entry Coffee is due; at the first, not yet.
+        let atDue = try #require(list.entries.first { $0.date == turnsDue })
+        #expect(atDue.topics.first { $0.id == coffee.id }?.due(at: turnsDue)?.isDue == true)
+        #expect(list.entries.first?.topics.first { $0.id == coffee.id }?.due(at: now)?.isDue == false)
+    }
+
     /// The app's write path: a number and an option, durably queued in the active store with
     /// source `ios.siri`, the dialog saying what was logged.
     @Test func logEntryIntentLogsThroughTheActiveStore() async throws {

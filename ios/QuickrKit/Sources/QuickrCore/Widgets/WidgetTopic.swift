@@ -49,17 +49,12 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     }
 
     /// The due state at device time `date` (timeline entries are rendered ahead of time): the
-    /// server's at `date + skew`, with its times mapped back to device time, so the views'
-    /// relative text ("Due in 25 min") against `date` is the server's.
-    public func due(at date: Date) -> DueStatus? {
-        TopicListing.due(of: topic, at: date.addingTimeInterval(skew)).map { status in
-            var status = status
-            status.dueSince = status.dueSince?.addingTimeInterval(-skew)
-            status.nextDueAt = status.nextDueAt?.addingTimeInterval(-skew)
-            status.lastEntryAt = status.lastEntryAt?.addingTimeInterval(-skew)
-            return status
-        }
-    }
+    /// server's, at `serverTime(date)`. Its times are the server's ("Next 08:00" is 08:00), so
+    /// show it against `serverTime(date)` too (`DueView(due:now:)`).
+    public func due(at date: Date) -> DueStatus? { TopicListing.due(of: topic, at: serverTime(date)) }
+
+    /// Device time `date` on the server's clock (`date + skew`), the "now" of due state.
+    public func serverTime(_ date: Date) -> Date { date.addingTimeInterval(skew) }
 
     /// `quickr://t/<slug>/record`: where a tap on the widget goes.
     public var recordURL: URL { URL(string: "quickr://t/\(topic.slug)/record")! }

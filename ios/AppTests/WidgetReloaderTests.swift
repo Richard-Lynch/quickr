@@ -88,11 +88,24 @@ import Testing
         try await store.writer.write { db in _ = try ServerLayer.upsert(db, entry: entry) }
         #expect(await eventually { counter.timelines == 3 && counter.controls == 2 }, "a new last answer")
 
+        // A pull that only moves the clock skew: under a minute, nothing; by minutes, the timelines
+        // (due state moves with it), not the Controls.
+        func setSkew(_ ms: Double) async throws {
+            try await store.writer.write { db in
+                try db.execute(sql: "UPDATE sync_state SET skew_ms = ? WHERE id = 1", arguments: [ms])
+            }
+        }
+        try await setSkew(20_000)
+        #expect(try await stays(counter, timelines: 3, controls: 2), "a few seconds of drift")
+        try await setSkew(5 * 60_000)
+        #expect(await eventually { counter.timelines == 4 }, "a clock 5 min off")
+        #expect(try await stays(counter, timelines: 4, controls: 2), "Controls don't show due state")
+
         // Another server's store with the same topic id: both, though nothing else differs.
         following.cancel()
         _ = await following.value
         let other = try await self.store(partitions, "b", coffee)
         following = Task { await reloader.observe(other) }
-        #expect(await eventually { counter.timelines == 4 && counter.controls == 3 }, "a server switch")
+        #expect(await eventually { counter.timelines == 5 && counter.controls == 3 }, "a server switch")
     }
 }

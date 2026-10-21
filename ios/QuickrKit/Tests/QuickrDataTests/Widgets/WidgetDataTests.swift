@@ -161,11 +161,21 @@ import Testing
         let uncorrected = WidgetTopic(topic: Self.water, quick: nil, lastAnswer: nil)
         let between = Self.serverDue.addingTimeInterval(-skew / 2)
         #expect(shown.due(at: between)?.isDue != uncorrected.due(at: between)?.isDue)
-        // Times come back in device time, so "Due in…" against the entry date is the server's.
+        // Its times are the server's ("Next 08:00" is 08:00, not 07:55), and against the server's
+        // now the widget at device time d reads exactly what a widget without skew reads at d + skew.
         let before = shown.due(at: deviceDue.addingTimeInterval(-10 * 60))
-        #expect(before?.nextDueAt == deviceDue)
-        #expect(before?.lastEntryAt == Make.t0.addingTimeInterval(-skew))
-        #expect(shown.due(at: deviceDue.addingTimeInterval(60))?.dueSince == deviceDue)
+        #expect(before?.nextDueAt == Self.serverDue)
+        #expect(before?.lastEntryAt == Make.t0)
+        #expect(shown.due(at: deviceDue.addingTimeInterval(60))?.dueSince == Self.serverDue)
+        let utc = TimeZone(identifier: "UTC")!
+        for minutes in [-90.0, -10, -1, 1, 10, 90] {
+            let device = deviceDue.addingTimeInterval(minutes * 60)
+            let label = DueView(due: shown.due(at: device), now: shown.serverTime(device))
+                .label(locale: Locale(identifier: "en_GB"), timeZone: utc)
+            let unskewed = DueView(due: uncorrected.due(at: device + skew), now: device + skew)
+                .label(locale: Locale(identifier: "en_GB"), timeZone: utc)
+            #expect(label == unskewed, "\(minutes) min from the device boundary")
+        }
     }
 
     @Test(arguments: [5.0 * 60, -5.0 * 60])
