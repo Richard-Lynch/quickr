@@ -94,6 +94,33 @@ func systemKeychainStoresUpdatesAndDeletes() throws {
     #expect(transport.requests.isEmpty)
 }
 
+/// AUTOFILL: onboarding offers the build's default server (Release: the hosted one), still
+/// editable; a configured address wins, and an unset or unexpanded setting offers nothing.
+@MainActor
+@Test func onboardingOffersTheBuildsDefaultServer() throws {
+    #expect(
+        ServerSetup.defaultAddress(info: ["QuickrDefaultServerURL": "https://quickr.bahumia.com"])
+            == "https://quickr.bahumia.com")
+    #expect(ServerSetup.defaultAddress(info: ["QuickrDefaultServerURL": " "]) == "")
+    #expect(ServerSetup.defaultAddress(info: ["QuickrDefaultServerURL": "$(QUICKR_DEFAULT_SERVER_URL)"]) == "")
+    #expect(ServerSetup.defaultAddress(info: [:]) == "")
+    #expect(ServerSetup.defaultAddress(info: nil) == "")
+    // This test bundle's host is a Debug build: no default.
+    #expect(ServerSetup.defaultAddress() == "")
+
+    let (setup, _, done) = try makeSetup()
+    defer { done() }
+    let fresh = ServerSetup(
+        switcher: setup.switcher, settings: setup.settings, credentials: setup.credentials,
+        defaultAddress: "https://quickr.bahumia.com")
+    #expect(fresh.address == "https://quickr.bahumia.com")
+    setup.settings.serverURL = URL(string: "https://mine.example")
+    let configured = ServerSetup(
+        switcher: setup.switcher, settings: setup.settings, credentials: setup.credentials,
+        defaultAddress: "https://quickr.bahumia.com")
+    #expect(configured.address == "https://mine.example")
+}
+
 @MainActor
 @Test func onboardingConnectsAndRemembersTheAddress() async throws {
     let (setup, transport, done) = try makeSetup()
@@ -106,7 +133,7 @@ func systemKeychainStoresUpdatesAndDeletes() throws {
     await setup.connect()
     #expect(setup.state == .connected(note: nil))
     #expect(setup.settings.serverURL == URL(string: "https://quickr.example"))
-    #expect(setup.clientSecret.isEmpty)
+    #expect(setup.clientSecret == "secret", "left for AutoFill to offer to save as the form goes")
     // Filed under the server's id once connected.
     #expect(try setup.credentials?.stored(serverId: "00000000-0000-4000-8000-0000000000aa")?.clientId == "abc.access")
     #expect(transport.requests.allSatisfy { $0.url.host() == "quickr.example" })

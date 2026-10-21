@@ -104,6 +104,9 @@ Where the token lives, and how it's sent:
   request. The app keeps no cookies, so a revoked token stops working on the
   very next request.
 - Requests, errors and logs show the headers redacted.
+- **Password AutoFill** can fill the two fields from the Passwords app or a
+  password manager, and offers to save a token typed by hand (section 7). That
+  copy is yours, and quickR's own copy is still only the Keychain item above.
 
 **Settings ▸ Cloudflare Access** shows the Client ID, never the secret, and has
 **Replace token…** and **Remove token**.
@@ -203,11 +206,42 @@ Then finish the check in the app, on the phone:
 3. Turn on flight mode, log another entry, turn flight mode off, and check that
    it's sent.
 
-## 7. Universal links (AASA)
+## 7. Password AutoFill (AASA bypass, required)
 
-The app doesn't use universal links today. If it ever does, iOS fetches
-`https://quickr.example.com/.well-known/apple-app-site-association` through
-Apple's CDN, with no token. Access would answer that request with its login
-page, and the links would silently not work. Add a self-hosted application for
-the path `.well-known/apple-app-site-association`, with one policy whose action
-is **Bypass** and whose include is **Everyone**.
+The app's token fields are labelled for Password AutoFill (the Client ID as the
+username, the Secret as the password), so iOS's Passwords app or a password
+manager such as 1Password can fill them, and offer to save a token typed by hand.
+That works only if iOS can confirm the app belongs to the domain:
+
+- The app's entitlement is `webcredentials:quickr.bahumia.com`, and **only that
+  domain**. A server on another domain gets no AutoFill unless the entitlement
+  (`ios/project.yml`) and a rebuild change it. Typing the token by hand always
+  works.
+- The web origin serves
+  `https://quickr.bahumia.com/.well-known/apple-app-site-association`, which
+  is `frontend/public/.well-known/apple-app-site-association`, served by nginx
+  as `application/json` with status 200 and no redirect. CI's docker smoke test
+  checks it.
+- Apple fetches that file through its CDN, **with no token**. Behind Access, the
+  fetch gets the login redirect, the association fails silently, and AutoFill
+  never offers or fills the token.
+
+So add a **Bypass** for exactly that path: a self-hosted application for
+`quickr.bahumia.com` with the path `.well-known/apple-app-site-association`,
+and one policy whose action is **Bypass** and whose include is **Everyone**. As
+a more specific path, it takes precedence over the hostname's application. The
+infrastructure-as-code setup adds this application. Check it from any machine:
+
+```bash
+curl -sI https://quickr.bahumia.com/.well-known/apple-app-site-association
+# HTTP/2 200, content-type: application/json, and no location header
+curl -s https://app-site-association.cdn-apple.com/a/v1/quickr.bahumia.com
+# Apple's cached copy: {"webcredentials":{"apps":["J26MC29Z55.com.bahumia.quickr"]}}
+```
+
+Apple's CDN can take a while to pick up a change. A development build can skip
+it: append `?mode=developer` to the entitlement's domain, and turn on Settings ▸
+Developer ▸ Associated Domains Development on the phone.
+
+The app doesn't use universal links (`applinks`). If it ever does, the same
+bypass covers them.

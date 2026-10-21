@@ -22,6 +22,13 @@ No Apple Developer team is needed for simulator work. For device builds later,
 copy `Local.xcconfig.example` to `Local.xcconfig` (gitignored) and set
 `DEVELOPMENT_TEAM`.
 
+Onboarding prefills the server address from `QUICKR_DEFAULT_SERVER_URL`
+(`Config/Shared.xcconfig`): `https://quickr.bahumia.com` in Release (TestFlight)
+and nothing in Debug. The field stays editable. To use another server in your own
+Release builds, set `QUICKR_DEFAULT_SERVER_URL[config=Release] = https:/$()/…` in
+`Local.xcconfig`. A plain setting there would also prefill Debug, where the UI
+tests type their own address.
+
 ## Make targets
 
 Run from the repo root. The simulator variables take a name or UDID: `ios-test`
