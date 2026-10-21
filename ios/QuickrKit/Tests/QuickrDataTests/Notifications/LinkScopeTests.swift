@@ -147,6 +147,9 @@ import Testing
         // A active again: opens.
         #expect(try await w.check(scope.serverId, storeGen: scope.storeGen, active: w.scope(Self.serverA)) == .open)
         // A reset since (a new store generation): stale, the widget refreshes.
+        try await w.partitions.registry.writer.write { db in
+            try db.execute(sql: "UPDATE server SET store_gen = 2 WHERE server_id = ?", arguments: [Self.serverA])
+        }
         #expect(
             try await w.check(
                 scope.serverId, storeGen: scope.storeGen, active: EntryScope(serverId: Self.serverA, storeGen: 2))
@@ -170,6 +173,15 @@ import Testing
         #expect(
             try await w.check(Self.serverA, active: w.scope(Self.serverB), registry: .some(Self.serverA)) == .busy)
         #expect(try await w.check(Self.serverA, active: nil, registry: .some(Self.serverB)) == .busy)
+        // A reset under way: the registry is at A's generation 2, the binding still at 1. A cached
+        // generation-1 link isn't opened on the old binding.
+        try await w.partitions.registry.writer.write { db in
+            try db.execute(sql: "UPDATE server SET store_gen = 2 WHERE server_id = ?", arguments: [Self.serverA])
+        }
+        #expect(try await w.check(Self.serverA, storeGen: 1, active: w.scope(Self.serverA)) == .busy)
+        #expect(
+            try await w.check(Self.serverA, storeGen: 2, active: EntryScope(serverId: Self.serverA, storeGen: 2))
+                == .open)
         #expect(LinkScope.message(.busy) != nil)
     }
 

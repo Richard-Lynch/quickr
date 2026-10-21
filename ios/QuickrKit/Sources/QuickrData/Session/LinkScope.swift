@@ -18,13 +18,12 @@ public enum LinkScope {
     }
 
     /// The check for a link from `serverId` (and `storeGen`, when the link names one) while
-    /// `active` is bound. The registry must agree that `active`'s server is the active one (else a
-    /// switch is under way: `.busy`), and names another server.
+    /// `active` is bound. The registry's active server and its store generation must be `active`
+    /// (else a switch or a reset is under way: `.busy`); it also names another server.
     public static func check(
         serverId: String, storeGen: Int?, active: EntryScope?, registry: Registry
     ) async -> Check {
-        let registryActive = try? await registry.repository.activeServerId()
-        if registryActive != active?.serverId { return .busy }
+        if await registryScope(registry) != active { return .busy }
         if let active, active.serverId == serverId {
             guard let storeGen, storeGen != active.storeGen else { return .open }
             return .stale
@@ -55,6 +54,12 @@ public enum LinkScope {
             return result
         }
         return result
+    }
+
+    /// The registry's active server and its store generation, in one read (nil while a reset is
+    /// under way: `RegistryActiveGate`'s rule).
+    static func registryScope(_ registry: Registry) async -> EntryScope? {
+        try? await registry.writer.read { db in try RegistryActiveGate.activeScope(db) }
     }
 
     /// What the user calls a server: its name, else its address's host.

@@ -232,18 +232,11 @@ final class AppEnvironment {
         starting = nil
     }
 
-    /// Waits for the launch's start to finish (bounded, 10 s): a link or a notification tap can
+    /// Waits for the launch's start to finish, 10 s at most: a link or a notification tap can
     /// arrive before the session has bound its store (a cold launch from a widget).
     func startSettled() async {
-        if let starting {
-            await starting.value
-            return
-        }
-        for _ in 0..<100 where !hasStarted {
-            if let starting {
-                await starting.value
-                return
-            }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !hasStarted, ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(100))
         }
     }

@@ -648,8 +648,9 @@ A, or a widget rendered from A's store, can be tapped after the user switched to
   - **A server quickR no longer has, or a store since reset** (a widget link
     whose generation isn't the active one): refuse, and reload the widgets'
     timelines so they render from the current store.
-  - **A switch in progress** (the registry's active server isn't the bound
-    store's), **or a binding that changed during the check:** check again, up to
+  - **A switch or a reset in progress** (the registry's active server and
+    store generation aren't the bound store's, or a reset is pending), **or a
+    binding that changed during the check:** check again, up to
     20 times 100 ms apart. If it never settles, refuse with "quickR is changing
     servers. Try again in a moment." The route (and the prefill) is set with no
     suspension after the binding was last confirmed.
