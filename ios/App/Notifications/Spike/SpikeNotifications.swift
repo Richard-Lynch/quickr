@@ -59,6 +59,8 @@ final class SpikeAppDelegate: AppDelegate, UNUserNotificationCenterDelegate {
     override func application(
         _ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+        // Checkpoint D's category probe, only with `-QuickrDProbe` (DeviceProbeLaunch).
+        DeviceProbeLaunch.startIfRequested()
         // Opt-in only (SpikeGate): `-spikeServer` turns the spike on; a later background launch
         // for an action finds the marker. Otherwise the app's own handler stays the delegate.
         let configuration = SpikeConfiguration.fromArguments()

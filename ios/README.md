@@ -125,7 +125,8 @@ Generated and gitignored: `quickR.xcodeproj`, the targets' `Info.plist` and
 
 The app and both extensions share the App Group `group.com.bahumia.quickr` and
 the keychain group `$(AppIdentifierPrefix)com.bahumia.quickr.shared`.
-`aps-environment` is added in M3.
+The app alone also has `aps-environment: development`, for APNs (see
+[TestFlight](#testflight) for production).
 
 The test plans reference targets by XcodeGen's deterministic ids. If a test
 target is renamed or added, regenerate and update the `identifier` in the
@@ -418,6 +419,18 @@ it runs they are visible to `ps` on this Mac, though the key itself is not.
 Then fill in `ios/testflight.env`, run `make ios-testflight-dry-run` to check
 the archive, and run `make ios-testflight`. A build shows under TestFlight once
 App Store Connect has processed it, usually within minutes.
+
+**Push environment.** The app's entitlements say `aps-environment: development`,
+which is what a signed device build uses (APNs sandbox). Exporting for App Store
+Connect re-signs the app with the App Store distribution profile, whose
+`aps-environment` is `production`, so the build TestFlight gets uses production
+APNs. Nothing in the repo changes for it. Simulator and unsigned builds ignore
+the entitlement. The app tells the two apart at run time (an App Store or
+TestFlight build has no `embedded.mobileprovision`; notifications.md §9.1). To
+see it for yourself once, export to a folder instead of uploading. Copy the
+export options with `destination` set to `export` and run `xcodebuild -exportArchive`
+with them. Then unzip the `.ipa` and run
+`codesign -d --entitlements - Payload/QuickR.app`.
 
 The archive warns "All interface orientations must be supported unless the app
 requires full screen". That is expected: the app is iPhone-only and portrait by
