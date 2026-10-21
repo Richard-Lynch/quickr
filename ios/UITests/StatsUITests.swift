@@ -86,11 +86,14 @@ final class StatsUITests: XCTestCase {
         snap(app, "stats-4-ax")
         try assertAccessible(app, allowing: StatsAccessibility.known)
 
-        // The charts, further down.
-        let duration = element(app, "overview.card.duration")
-        scrollTo(duration, in: app)
-        XCTAssertTrue(duration.waitForExistence(timeout: 10))
-        try assertAccessible(app, allowing: StatsAccessibility.known)
+        // Each chart, scrolled into view: the stacked bars, the line and the histogram.
+        for prefix in ["Type: answers per", "Duration: average per", "Histogram of Duration"] {
+            let chart = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+            scrollTo(chart, in: app)
+            XCTAssertTrue(chart.isHittable, "\(prefix) is on screen")
+            try assertAccessible(app, allowing: StatsAccessibility.known)
+        }
 
         // The tabs switch from the menu.
         selectTopicTab("Entries", in: app)

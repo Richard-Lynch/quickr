@@ -75,14 +75,14 @@ struct MeanLineChart: View {
                         .foregroundStyle(Color.qr.accent)
                         .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                         .accessibilityHidden(model.points.count <= 40)
-                        .accessibilityLabel(ChartFormat.bucket(point.start, series.bucket, style: .long))
+                        .accessibilityLabel(spokenBucket(point.start, series.bucket))
                         .accessibilityValue(pointValue(point))
                 }
                 if model.points.count <= 40 {
                     PointMark(x: .value("Bucket", point.start), y: .value("Mean", point.mean ?? 0))
                         .foregroundStyle(Color.qr.accent)
                         .symbolSize(shown?.start == point.start ? 100 : 50)
-                        .accessibilityLabel(ChartFormat.bucket(point.start, series.bucket, style: .long))
+                        .accessibilityLabel(spokenBucket(point.start, series.bucket))
                         .accessibilityValue(pointValue(point))
                 }
             }
@@ -196,7 +196,7 @@ struct OptionStackChart: View {
                         .foregroundStyle(by: .value("Option", segment.value))
                         .opacity(shown == nil || shown?.start == point.start ? 1 : 0.55)
                         // The bucket's date and the option, not the x value's ISO string (ST2).
-                        .accessibilityLabel(ChartFormat.bucket(point.start, series.bucket, style: .long))
+                        .accessibilityLabel(spokenBucket(point.start, series.bucket))
                         .accessibilityValue("\(legendLabel(segment.value, model)) \(segment.count)")
                 }
             }
@@ -321,6 +321,7 @@ struct DistributionChart: View {
     var body: some View {
         let unit = unit.map { " \($0)" } ?? ""
         let shown = selected.flatMap { bins.indices.contains($0) ? bins[$0] : nil }
+        let categories = DistributionDescriptor.categories(bins, unit: self.unit)
         VStack(alignment: .leading, spacing: 4) {
             Text(
                 shown.map {
@@ -335,7 +336,7 @@ struct DistributionChart: View {
                     BarMark(x: .value("Bin", String(index)), y: .value("Count", bin.count), width: .ratio(0.9))
                         .foregroundStyle(Color.qr.accent.opacity(selected == nil || selected == index ? 0.85 : 0.4))
                         .clipShape(UnevenRoundedRectangle(topLeadingRadius: 4, topTrailingRadius: 4))
-                        .accessibilityLabel(DistributionDescriptor.label(bin, unit: self.unit))
+                        .accessibilityLabel(categories[index])
                         .accessibilityValue(ChartFormat.plural(bin.count, "answer"))
                 }
             }
