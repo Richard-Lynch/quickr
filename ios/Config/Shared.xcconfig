@@ -2,4 +2,11 @@
 // Machine-specific values (DEVELOPMENT_TEAM, device id, dev server URL) live in the
 // gitignored ios/Local.xcconfig; copy ios/Local.xcconfig.example to start one.
 // Simulator builds work without it.
+
+// Onboarding's prefilled server address (Info.plist `QuickrDefaultServerURL`), still editable:
+// the hosted server in Release builds (TestFlight), none in Debug, where UI tests type the fake
+// server's. `//` is escaped as `/$()/`. Local.xcconfig, included last, may override it.
+QUICKR_DEFAULT_SERVER_URL =
+QUICKR_DEFAULT_SERVER_URL[config=Release] = https:/$()/quickr.bahumia.com
+
 #include? "../Local.xcconfig"

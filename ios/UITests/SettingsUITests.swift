@@ -52,6 +52,7 @@ final class SettingsUITests: XCTestCase {
         secret.tap()
         secret.typeText("very-secret")
         app.buttons["token.save"].tap()
+        dismissSavePasswordOffer(app)
         let shown = app.descendants(matching: .any)["settings.accessClientId"]
         XCTAssertTrue(shown.waitForExistence(timeout: 5))
         XCTAssertTrue(shown.label.contains("abc123.access"), shown.label)
@@ -67,11 +68,11 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(version.exists)
     }
 
-    /// With a secret typed, a swipe down doesn't close the token sheet (it would leave the secret in
-    /// a secure field, which iOS 27 offers to Passwords); Cancel closes it, emptied, with no
-    /// "Save Password?" and no token saved.
+    /// The token fields are labelled for AutoFill (Client ID as the username, Secret as the
+    /// password), so iOS may offer to save them as the sheet goes: Cancel still saves nothing in
+    /// quickR, whatever the user answers to the offer.
     @MainActor
-    func testTheTokenSheetClosesOnlyThroughItsButtonsWithASecretTyped() {
+    func testCancellingTheTokenSheetSavesNothing() {
         let app = launch()
         onboard(app)
         app.buttons["home.settings"].tap()
@@ -84,32 +85,56 @@ final class SettingsUITests: XCTestCase {
         let secret = app.secureTextFields["token.clientSecret"]
         secret.tap()
         secret.typeText("very-secret")
-
-        let title = app.navigationBars["Service token"]
-        XCTAssertTrue(title.exists)
-        title.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)))
-        XCTAssertTrue(secret.waitForExistence(timeout: 2), "the sheet stays")
-        XCTAssertFalse(offersToSavePassword(app, within: 0))
-
         app.buttons["token.cancel"].tap()
+        dismissSavePasswordOffer(app)
         XCTAssertTrue(app.buttons["settings.addToken"].waitForExistence(timeout: 5), "closed, no token saved")
-        XCTAssertFalse(secret.exists)
-        XCTAssertFalse(offersToSavePassword(app, within: 3), "no offer to save the secret")
+        XCTAssertFalse(app.descendants(matching: .any)["settings.accessClientId"].exists)
     }
 
-    /// Whether iOS 27's "Save Password?" (from the Passwords app) shows within `seconds`, in the
-    /// app or above it (SpringBoard). Polls both.
+    /// Onboarding with a service token: it connects with it (the fake server takes any), and iOS
+    /// may offer to save it as the server step goes.
     @MainActor
-    private func offersToSavePassword(_ app: XCUIApplication, within seconds: TimeInterval) -> Bool {
-        let title = NSPredicate(format: "label == 'Save Password?'")
+    func testOnboardingWithAServiceToken() {
+        let app = launch()
+        let address = app.textFields["server.address"]
+        XCTAssertTrue(address.waitForExistence(timeout: 15))
+        address.tap()
+        address.typeText("https://quickr.test")
+        app.buttons["Cloudflare Access token"].tap()
+        let clientId = app.textFields["server.clientId"]
+        XCTAssertTrue(clientId.waitForExistence(timeout: 5))
+        clientId.tap()
+        clientId.typeText("abc123.access")
+        let secret = app.secureTextFields["server.clientSecret"]
+        secret.tap()
+        secret.typeText("very-secret")
+        app.buttons["server.connect"].tap()
+        dismissSavePasswordOffer(app)
+        finishOnboarding(app)
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 15))
+        app.buttons["home.settings"].tap()
+        let shown = app.descendants(matching: .any)["settings.accessClientId"]
+        XCTAssertTrue(shown.waitForExistence(timeout: 10))
+        XCTAssertTrue(shown.label.contains("abc123.access"), shown.label)
+    }
+
+    /// Dismisses iOS's "Save Password?" offer (AutoFill, for the token fields) if it shows within
+    /// `seconds`, in the app or above it (SpringBoard): saving it is the user's choice, and a test
+    /// declines it.
+    @MainActor
+    private func dismissSavePasswordOffer(_ app: XCUIApplication, within seconds: TimeInterval = 3) {
         let places = [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")]
         let deadline = Date().addingTimeInterval(seconds)
         repeat {
-            if places.contains(where: { $0.staticTexts.matching(title).firstMatch.exists }) { return true }
+            for place in places {
+                let notNow = place.buttons["Not Now"]
+                if notNow.exists {
+                    notNow.tap()
+                    return
+                }
+            }
             usleep(200_000)
         } while Date() < deadline
-        return false
     }
 
     /// At the largest accessibility text size, onboarding still fits: the address and Connect are
