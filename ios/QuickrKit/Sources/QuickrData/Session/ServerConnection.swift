@@ -3,9 +3,10 @@ import QuickrCore
 
 /// Why a server address didn't work, as onboarding and Settings say it.
 public enum ConnectProblem: Error, Sendable, Hashable, CustomStringConvertible {
-    /// No usable answer: offline, a wrong address, a timeout, a 5xx, a redirect.
+    /// No usable answer: offline, a wrong address, a timeout, a 5xx.
     case unreachable(String)
-    /// Something answered, but not quickR (a login page, a proxy, another site).
+    /// Something answered, but not quickR (a login page or a redirect to one, a proxy, another
+    /// site).
     case notQuickr
     /// 401 or 403: an access gate in front of quickR (Cloudflare Access) said no.
     case accessDenied(status: Int)
@@ -107,6 +108,9 @@ public enum ServerProbe {
         if let status = response.status, status == 401 || status == 403 {
             if case .success = response.outcome {} else { return .failure(.accessDenied(status: status)) }
         }
+        // Cloudflare Access without a valid token (and not in strict mode) redirects to its login
+        // page: something answered, and a token may be what's missing.
+        if case .retryable(.redirect) = response.outcome { return .failure(.notQuickr) }
         switch response.outcome {
         case .success(let page): return .success(page.serverId)
         case .identityMismatch: return .failure(.notQuickr)
