@@ -316,6 +316,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 09:25 (EDT): **AppSettings fix merged** (e5b5775): AppSettings+Builder 11/0 on 26 and 27, TopicUITests 8/0 on 27, Codex r3 approved, and shared mid-list helpers. Targeted rerun on e5b5775: Unit on 27 1049/0/27 (the D9 fix is confirmed); UI on 26.2 is running. **User decisions:** open the M3 PR once 26.2 UI passes, with the iOS 27 stall as a known issue. Investigate the stall in parallel against the user's hypothesis (memory pressure plus stale simulators): m1-outbox measures `memory_pressure` during runs; m1-testiso builds SIMCLEAN (`make ios-prune`, plus memory and disk guards in sim admission). 31 stale clones are deleted (CoreSimulator 118 GB to 27 GB). **Device:** Team ID in Local.xcconfig, the APNs key at ~/.config/quickr/apns (outside the repo), Xcode signed in; Developer Mode on the phone is pending.
+
 - 2026-10-21 08:55 (EDT): **The disk filled (126 MB free)** and stalled runs. Regenerable build caches of every inactive worktree were removed, leaving 94 GB free; stopped simulator clones still hold about 118 GB, which the user can clear. AppSettings fix 37f4fa5: AppSettings+Builder 11/0 on 26 and 27; the TopicUITests rerun on 27 is in progress. The iOS 27 stall isn't only the Save bar: with the pre-F8 bar EditTests went 12/12, but under load 95 Record's leave-alert also stalled with no keyboard. It looks like the UIT-6 stall (27 only, load-dependent); the suspect is an indefinitely animating indicator while work is slow. Low-load bisect (m1-outbox).
 
 - 2026-10-21 08:35 (EDT): **Final validation is complete on 1ee19c8.**
