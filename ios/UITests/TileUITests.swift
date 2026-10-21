@@ -81,19 +81,14 @@ final class TileUITests: XCTestCase {
     /// the screen passes the accessibility audit.
     @MainActor
     func testTilesWorkAtAnAccessibilityTextSize() throws {
-        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let app = launch(AccessibilityLaunch.arguments())
         XCTAssertTrue(app.descendants(matching: .any)["tile.water"].waitForExistence(timeout: 20))
         attach(app, "tiles-ax")
         // The first screenful: the due tiles, a number quick-log and its ✓.
         // TILES audits its tiles; issues elsewhere on the home screen are HOME's.
         let tiles = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'tile.'"))
             .allElementsBoundByIndex.map(\.frame)
-        try app.performAccessibilityAudit(for: [
-            .dynamicType, .elementDetection, .hitRegion, .sufficientElementDescription,
-        ]) { issue in
-            guard let frame = issue.element?.frame else { return false }
-            return !tiles.contains { $0.contains(frame) }
-        }
+        try assertAccessible(app, within: tiles)
 
         let headache = tile(app, "headache")
         let chip = headache.buttons["chip.severe"]

@@ -58,9 +58,10 @@ final class AppSettingsUITests: XCTestCase {
 
     /// At XXXL the section's actions are reachable and a licence opens.
     @MainActor
-    func testAccessibilityXXXL() {
-        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+    func testAccessibilityXXXL() throws {
+        let app = launch(extra: AccessibilityLaunch.arguments())
         XCTAssertTrue(reveal(element(app, "settings.sync.headline"), in: app))
+        try assertAccessible(app)
         XCTAssertTrue(reveal(element(app, "settings.syncNow"), in: app), "Sync now is reachable")
         snap(app, "appset-4-ax")
         element(app, "settings.syncNow").tap()

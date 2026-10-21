@@ -8,6 +8,8 @@ import SwiftUI
 struct PushDeviceRow: View {
     let push: PushLifecycle
     @State private var testing = false
+    /// Counts tests, so each result is read, even the same one again.
+    @State private var tests = 0
     @State private var result: String?
 
     var body: some View {
@@ -39,6 +41,8 @@ struct PushDeviceRow: View {
                     .font(.qr(.subheadline))
                     .foregroundStyle(.qr.inkSoft)
                     .accessibilityIdentifier("push.testResult")
+                    // Read as it appears: the button only changes back from "Sending…" (audit SE8).
+                    .qrMovesVoiceOverFocus(on: tests)
             }
         }
         .padding(.vertical, 4)
@@ -49,6 +53,7 @@ struct PushDeviceRow: View {
     }
 
     private func test() async {
+        tests += 1
         testing = true
         defer { testing = false }
         result =

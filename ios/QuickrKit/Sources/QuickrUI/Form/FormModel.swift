@@ -51,6 +51,12 @@ public final class FormModel {
     /// and report the user's own focus changes through ``focusChanged(_:isFocused:)``.
     public private(set) var focus: String?
     public private(set) var scrollRequest: FormScrollRequest?
+    /// Where VoiceOver should go, and when (the serial): the first error after a failed save, or
+    /// with ``voiceOverStartsAtFirstQuestion`` a fresh form's first question.
+    public private(set) var voiceOverRequest: FormScrollRequest?
+    /// Set on a form that replaces another on the same screen (Log another), where VoiceOver
+    /// would otherwise lose its place: it moves to the first question when the form appears.
+    public var voiceOverStartsAtFirstQuestion = false
     /// An auto-save is being saved: further picks are ignored (and the chips disabled) until
     /// ``autoSaveFinished(succeeded:)``.
     public private(set) var isAutoSaving = false
@@ -212,6 +218,7 @@ public final class FormModel {
             focus = first.key
         }
         scroll(to: .question(first.key))
+        if voiceOverStartsAtFirstQuestion { voiceOverRequest = scrollRequest }
     }
 
     // MARK: - Same as last time
@@ -312,6 +319,8 @@ public final class FormModel {
         }
     }
 
+    /// Scrolls to the first error (keyboard focus too, when it takes typing). VoiceOver goes to
+    /// the banner when there is one (it says what happened), else to the first field's error.
     private func revealFirstError() {
         if let first = questions.first(where: { errors[$0.key] != nil }) {
             focus = Self.takesTyping(first) ? first.key : nil
@@ -319,6 +328,8 @@ public final class FormModel {
         } else if banner != nil {
             scroll(to: .banner)
         }
+        guard let request = scrollRequest else { return }
+        voiceOverRequest = banner != nil ? FormScrollRequest(target: .banner, serial: request.serial) : request
     }
 
     private func scroll(to target: FormScrollTarget) {

@@ -102,7 +102,11 @@ private struct ToastHostModifier: ViewModifier {
             }
             .onChange(of: center.items.last?.id) { _, id in
                 guard let id, let item = center.items.first(where: { $0.id == id }) else { return }
-                AccessibilityNotification.Announcement(item.toast.announcement).post()
+                // High priority: an auto-save closes Record as the toast appears, and the screen
+                // change would cut a normal announcement off.
+                var announcement = AttributedString(item.toast.announcement)
+                announcement.accessibilitySpeechAnnouncementPriority = .high
+                AccessibilityNotification.Announcement(announcement).post()
             }
             .onReceive(voiceOverStatus) { _ in center.voiceOverStatusChanged() }
     }

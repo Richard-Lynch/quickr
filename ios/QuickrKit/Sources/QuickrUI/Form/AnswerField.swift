@@ -21,6 +21,7 @@ public struct AnswerField: View {
     let focus: FocusState<Bool>.Binding?
     let submitLabel: SubmitLabel
     let onSubmit: () -> Void
+    let voiceOverRequest: Int?
 
     @FocusState private var ownFocus: Bool
 
@@ -28,10 +29,12 @@ public struct AnswerField: View {
     ///   - options: for choices, usually `question.visibleOptions(keeping:)`.
     ///   - focus: lets a form drive keyboard focus (number and text questions).
     ///   - submitLabel, onSubmit: the Return key of a single-line text or number field.
+    ///   - voiceOverRequest: each new value moves VoiceOver here: to the error when there is one
+    ///     (a failed save), else to the question's label (a fresh form).
     public init(
         question: Question, input: Binding<AnswerInput>, options: [EnumOption]? = nil, error: String? = nil,
         characterCount: CharacterCount? = nil, focus: FocusState<Bool>.Binding? = nil,
-        submitLabel: SubmitLabel = .next, onSubmit: @escaping () -> Void = {}
+        submitLabel: SubmitLabel = .next, onSubmit: @escaping () -> Void = {}, voiceOverRequest: Int? = nil
     ) {
         self.question = question
         self._input = input
@@ -41,6 +44,7 @@ public struct AnswerField: View {
         self.focus = focus
         self.submitLabel = submitLabel
         self.onSubmit = onSubmit
+        self.voiceOverRequest = voiceOverRequest
     }
 
     public var body: some View {
@@ -58,6 +62,7 @@ public struct AnswerField: View {
                     .font(.qr(.sansMedium, size: 14, relativeTo: .subheadline))
                     .foregroundStyle(.qr.danger)
                     .accessibilityIdentifier("form.error.\(question.key)")
+                    .qrAnnouncesError(voiceOverRequest == nil ? nil : error, trigger: voiceOverRequest)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -68,15 +73,23 @@ public struct AnswerField: View {
     private var header: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                title.fixedSize()
+                titleView.fixedSize()
                 Spacer(minLength: 0)
                 trailing
             }
             VStack(alignment: .leading, spacing: 2) {
-                title.fixedSize(horizontal: false, vertical: true)
+                titleView.fixedSize(horizontal: false, vertical: true)
                 trailing
             }
         }
+    }
+
+    /// The label as a heading (VoiceOver's headings rotor steps through a long form), where a
+    /// fresh form's VoiceOver starts.
+    private var titleView: some View {
+        title
+            .accessibilityAddTraits(.isHeader)
+            .qrMovesVoiceOverFocus(on: error == nil ? voiceOverRequest : nil)
     }
 
     private var title: Text {
@@ -116,6 +129,7 @@ public struct AnswerField: View {
             .submitLabel(submitLabel)
             .onSubmit(onSubmit)
             .accessibilityIdentifier("form.field.\(question.key)")
+            .accessibilityHint(errorHint)
         case .string(let rules):
             TextAnswerControl(
                 label: question.label, text: textBinding, multiline: rules.multiline, isInvalid: error != nil,
@@ -124,6 +138,7 @@ public struct AnswerField: View {
             .submitLabel(submitLabel)
             .onSubmit(onSubmit)
             .accessibilityIdentifier("form.field.\(question.key)")
+            .accessibilityHint(errorHint)
         case .choice(let rules) where rules.multiple:
             let bounds = SelectionBounds(question: question, rules: rules)
             ChipGrid(
@@ -136,6 +151,7 @@ public struct AnswerField: View {
                     isInvalid: error != nil
                 )
                 .accessibilityIdentifier("form.field.\(question.key)")
+                .accessibilityHint(errorHint)
             } else {
                 ChipGrid(
                     question.label, options: chipOptions, selection: singleBinding, required: question.required,
@@ -143,6 +159,10 @@ public struct AnswerField: View {
             }
         }
     }
+
+    /// A field's error as its hint, so VoiceOver says it with the field (chips say theirs on the
+    /// group's error text, which follows them).
+    private var errorHint: String { error.map { "Error: \($0)" } ?? "" }
 
     private var chipOptions: [ChipOption] { options.map { ChipOption($0.value, label: $0.label) } }
 
@@ -219,6 +239,7 @@ private struct ChoicePicker: View {
     let required: Bool
     @Binding var value: String
     let isInvalid: Bool
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: QuickrMetrics.controlRadius, style: .continuous)
@@ -234,7 +255,7 @@ private struct ChoicePicker: View {
                 Text(selected?.label ?? placeholder)
                     .font(.qr(.body))
                     .foregroundStyle(selected == nil ? .qr.muted : .qr.ink)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 Spacer(minLength: 8)
                 QIcon.chevronDown.view(size: 14)
                     .foregroundStyle(.qr.muted)

@@ -52,6 +52,7 @@ struct NotificationExplainer: View {
                 Text("Reminders")
                     .font(.qr(.section))
                     .foregroundStyle(.qr.ink)
+                    .accessibilityAddTraits(.isHeader)
             }
             Text(
                 "quickR reminds you when a topic is due, and you can log straight from the reminder without opening the app. It never sends anything else."
@@ -65,10 +66,13 @@ struct NotificationExplainer: View {
                     .font(.qr(.callout))
                     .foregroundStyle(QuickrTone.ok.foreground)
                     .accessibilityIdentifier("notifications.allowed")
+                    .onAppear { QuickrAnnouncer.announce("Reminders are on") }
             case .denied:
                 Text("Reminders are off for quickR. Turn them on in Settings ▸ Notifications ▸ quickR.")
                     .font(.qr(.subheadline))
                     .foregroundStyle(.qr.muted)
+                    .accessibilityLabel(
+                        "Reminders are off for quickR. Turn them on in Settings, Notifications, quickR.")
                 Button("Open Settings") {
                     if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
                 }

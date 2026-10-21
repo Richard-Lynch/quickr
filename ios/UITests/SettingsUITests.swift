@@ -115,10 +115,11 @@ final class SettingsUITests: XCTestCase {
     /// At the largest accessibility text size, onboarding still fits: the address and Connect are
     /// reachable, and it ends at the topic list.
     @MainActor
-    func testOnboardingWorksAtAnAccessibilityTextSize() {
-        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+    func testOnboardingWorksAtAnAccessibilityTextSize() throws {
+        let app = launch(extra: AccessibilityLaunch.arguments())
         let address = app.textFields["server.address"]
         XCTAssertTrue(address.waitForExistence(timeout: 15))
+        try assertAccessible(app)
         address.tap()
         address.typeText("quickr.test\n")  // Go connects from the keyboard
         finishOnboarding(app)

@@ -8,6 +8,8 @@ struct ServerForm: View {
     @Bindable var setup: ServerSetup
     var connectLabel = "Connect"
     @FocusState private var focus: Field?
+    /// Counts Connect taps, so the same failure twice is announced twice.
+    @State private var attempt = 0
 
     private enum Field: Hashable {
         case address, clientId, clientSecret
@@ -19,6 +21,7 @@ struct ServerForm: View {
                 Text("Server address")
                     .font(.qr(.label))
                     .foregroundStyle(.qr.ink)
+                    .accessibilityHidden(true)  // the field says it
                 // Verbatim: a title string is Markdown, which would turn the example into a link.
                 TextField(text: $setup.address, prompt: Text(verbatim: "https://quickr.example.com")) {
                     Text("Server address")
@@ -31,10 +34,12 @@ struct ServerForm: View {
                 .onSubmit(connect)
                 .focused($focus, equals: .address)
                 .modifier(FieldStyle(isInvalid: isFailed))
+                .accessibilityHint("The address you open quickR at in a browser.")
                 .accessibilityIdentifier("server.address")
                 Text("The address you open quickR at in a browser.")
                     .font(.qr(.subheadline))
                     .foregroundStyle(.qr.muted)
+                    .accessibilityHidden(true)  // the field's hint
             }
 
             DisclosureGroup(isExpanded: $setup.showsAccessToken) {
@@ -49,6 +54,8 @@ struct ServerForm: View {
                         .autocorrectionDisabled()
                         .focused($focus, equals: .clientId)
                         .modifier(FieldStyle(isInvalid: false))
+                        .accessibilityLabel("Client ID")
+                        .accessibilityInputLabels(["Client ID"])
                         .accessibilityIdentifier("server.clientId")
                     SecureField("Client Secret", text: $setup.clientSecret)
                         .textInputAutocapitalization(.never)
@@ -91,6 +98,7 @@ struct ServerForm: View {
                 .font(.qr(.subheadline))
                 .foregroundStyle(.qr.muted)
                 .accessibilityIdentifier("server.progress")
+                .onAppear { QuickrAnnouncer.announce(message) }
         case .failed(let failure):
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -98,6 +106,11 @@ struct ServerForm: View {
                     Text(failure.message)
                         .font(.qr(.callout))
                 }
+                // One element VoiceOver moves to as the failure appears (audit O1); Details
+                // stays a control of its own.
+                .accessibilityElement(children: .combine)
+                .qrAnnouncesError(failure.message, trigger: attempt)
+                .accessibilityIdentifier("server.error")
                 if let detail = failure.detail {
                     DisclosureGroup("Details") {
                         Text(detail)
@@ -115,8 +128,7 @@ struct ServerForm: View {
                 QuickrTone.danger.background,
                 in: RoundedRectangle(cornerRadius: QuickrMetrics.controlRadius, style: .continuous)
             )
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("server.error")
+            .accessibilityElement(children: .contain)
         case .connected(let note?):
             Text(note)
                 .font(.qr(.subheadline))
@@ -155,6 +167,7 @@ struct ServerForm: View {
     private func changes(_ n: Int) -> String { n == 1 ? "1 change" : "\(n) changes" }
 
     private func connect() {
+        attempt += 1
         focus = nil
         Task { await setup.connect() }
     }
