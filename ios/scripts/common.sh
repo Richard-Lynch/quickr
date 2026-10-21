@@ -253,13 +253,57 @@ $(sed 's/^/  /' <<<"$booted")"
 # build defaults to one job per core, which oversubscribes it badly. IOS_JOBS=0 = no cap.
 IOS_JOBS="${IOS_JOBS:-4}"
 
-# Stops pid and every process under it, deepest first, by PID (a wall-clock limit's stop):
-# `pkill -P` reaches only the children, and left xcodebuild running under test.sh's watchdog
-# pipeline after its parent was gone. Never touches anything outside the tree.
-kill_tree() {
-  local child
-  for child in $(pgrep -P "$1" 2>/dev/null); do kill_tree "$child"; done
-  kill "$1" 2>/dev/null || true
+# Runs a command with a wall-clock limit (widget-proof.sh, spike-proof.sh): run_limited <seconds>
+# <command> [args...]. The command runs in a process group of its own; past the limit the whole
+# group gets TERM (watchdog.sh passes it on to xcodebuild's own group and waits for it), then
+# KILL after IOS_LIMIT_GRACE_SECS (default 15) if anything of it is left. Returns the command's
+# status, or 124 (as timeout(1)) when the limit stopped it. `pkill -P` on the command reached
+# only its children: xcodebuild, further down test.sh's pipeline, kept running.
+# The command is reaped only after any signal is sent, so its pid (the group's id) can't have
+# been reused by then. INT or TERM to the caller stops the group too, then exits 130 or 143
+# (the caller's EXIT trap still runs); its INT and TERM traps are restored afterwards.
+run_limited() {
+  local limit="$1" grace="${IOS_LIMIT_GRACE_SECS:-15}" pid rc start saved_int saved_term
+  shift
+  # setpgrp(0, 0): the group's id is the command's pid.
+  perl -e 'setpgrp(0, 0); exec { $ARGV[0] } @ARGV or die "run_limited: cannot run $ARGV[0]: $!\n"' "$@" &
+  pid=$!
+  saved_int="$(trap -p INT)"
+  saved_term="$(trap -p TERM)"
+  # shellcheck disable=SC2064 # $pid now, on purpose
+  trap "_limit_stop $pid $grace; exit 130" INT
+  # shellcheck disable=SC2064
+  trap "_limit_stop $pid $grace; exit 143" TERM
+  start=$SECONDS
+  rc=""
+  # kill -0 on a zombie still succeeds: an exit is seen by `ps` state, not by signal 0.
+  while [[ "$(ps -o stat= -p "$pid" 2>/dev/null)" != Z* ]] && kill -0 "$pid" 2>/dev/null; do
+    if (( SECONDS - start >= limit )); then
+      echo "ios: $1 passed its ${limit}s limit: stopping it" >&2
+      _limit_stop "$pid" "$grace"
+      rc=124
+      break
+    fi
+    sleep 1
+  done
+  local status=0
+  wait "$pid" || status=$?
+  trap - INT TERM
+  [[ -n "$saved_int" ]] && eval "$saved_int"
+  [[ -n "$saved_term" ]] && eval "$saved_term"
+  return "${rc:-$status}"
+}
+
+# TERM to the group, then KILL after `grace` seconds if any of it is left.
+_limit_stop() {
+  local pid="$1" grace="$2" waited=0
+  kill -TERM -- "-$pid" 2>/dev/null || return 0
+  while kill -0 -- "-$pid" 2>/dev/null && (( waited < grace * 2 )); do
+    sleep 0.5
+    waited=$((waited + 1))
+  done
+  kill -KILL -- "-$pid" 2>/dev/null
+  return 0
 }
 
 # Runs a command under watchdog.sh: killed, with its whole process group, after

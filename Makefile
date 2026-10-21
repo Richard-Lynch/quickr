@@ -208,7 +208,7 @@ ios-fmt: ## iOS: swift-format in place
 ios-script-test: ## iOS: tests for the shell tooling (xcodebuild watchdog, simulator cap, process-tree stop, TestFlight, device run, D probe summary); no Xcode needed
 	@$(IOS_SCRIPTS)/tests/watchdog-test.sh
 	@$(IOS_SCRIPTS)/tests/sim-cap-test.sh
-	@$(IOS_SCRIPTS)/tests/kill-tree-test.sh
+	@$(IOS_SCRIPTS)/tests/run-limited-test.sh
 	@$(IOS_SCRIPTS)/tests/testflight-test.sh
 	@$(IOS_SCRIPTS)/tests/device-run-test.sh
 	@$(IOS_SCRIPTS)/tests/dprobe-summary-test.sh
