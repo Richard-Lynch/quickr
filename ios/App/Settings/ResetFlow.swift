@@ -180,12 +180,17 @@ struct ResetSection: View {
             .disabled(flow.isBusy)
             .accessibilityIdentifier("settings.reset")
             switch flow.state {
+            // Each outcome is read as it appears (the dialogs have closed and VoiceOver is back on
+            // the disabled Reset button; audit SE5).
             case .syncing:
                 Text("Sending your changes…").foregroundStyle(.qr.muted)
+                    .onAppear { QuickrAnnouncer.announce("Sending your changes") }
             case .done(let message):
                 Text(message).foregroundStyle(QuickrTone.ok.foreground).accessibilityIdentifier("settings.resetDone")
+                    .qrMovesVoiceOverFocus(on: message)
             case .failed(let message):
                 Text(message).foregroundStyle(QuickrTone.danger.foreground)
+                    .qrAnnouncesError(message)
             default:
                 EmptyView()
             }

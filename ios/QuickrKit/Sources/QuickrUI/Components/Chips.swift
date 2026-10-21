@@ -260,6 +260,7 @@ public struct QuickChipGrid: View {
     let busy: String?
     let flash: ConfirmFlash
     let onPick: (ChipOption) -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     /// - Parameters:
     ///   - label: the group's accessible name, e.g. "Log Headache".
@@ -278,7 +279,7 @@ public struct QuickChipGrid: View {
     }
 
     public var body: some View {
-        let columns = ChipSelection.quickColumns(count: options.count)
+        let columns = ChipSelection.quickColumns(count: options.count, accessibilitySize: typeSize.isAccessibilitySize)
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: columns), spacing: 6) {
             ForEach(options) { option in
                 Chip(

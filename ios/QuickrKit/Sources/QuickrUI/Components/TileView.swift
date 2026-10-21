@@ -14,6 +14,8 @@ public struct TileView<Meta: View, Quick: View>: View {
     let onLog: (() -> Void)?
     let meta: Meta
     let quick: Quick
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .callout) private var plusSize: CGFloat = 24
 
     /// - Parameters:
     ///   - onOpen: tapping anywhere outside the controls opens the topic.
@@ -31,7 +33,11 @@ public struct TileView<Meta: View, Quick: View>: View {
     }
 
     public var body: some View {
-        HStack(spacing: 0) {
+        // At accessibility sizes the Log block goes under the body, full width: beside it, its
+        // fixed column left the quick-log too narrow for its digits (audit H4).
+        let stacked = typeSize.isAccessibilitySize
+        let layout = stacked ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+        layout {
             VStack(alignment: .leading, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
@@ -45,6 +51,12 @@ public struct TileView<Meta: View, Quick: View>: View {
                 }
                 // Text passes taps through to the open button behind it.
                 .allowsHitTesting(false)
+                // For VoiceOver the title, badges and "Last …" line are the open button: one
+                // element that reads them all (audit H2). The button behind is for touch only.
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("Opens the topic")
+                .accessibilityAction(.default, onOpen)
                 quick
             }
             .padding(.leading, 16)
@@ -54,10 +66,9 @@ public struct TileView<Meta: View, Quick: View>: View {
             .background {
                 Button(action: onOpen) { Color.clear.contentShape(Rectangle()) }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(title)
-                    .accessibilityHint("Opens the topic")
+                    .accessibilityHidden(true)
             }
-            if let onLog { logBlock(onLog) }
+            if let onLog { logBlock(onLog, stacked: stacked) }
         }
         .overlay(alignment: .leading) {
             if isDue { Color.qr.accent.frame(width: 4).accessibilityHidden(true) }
@@ -68,18 +79,21 @@ public struct TileView<Meta: View, Quick: View>: View {
         .accessibilityLabel(title)
     }
 
-    private func logBlock(_ action: @escaping () -> Void) -> some View {
+    private func logBlock(_ action: @escaping () -> Void, stacked: Bool) -> some View {
         Button(action: action) {
-            VStack(spacing: 4) {
-                QIcon.plus.view(size: 24, weight: .bold)
+            let layout = stacked ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 4))
+            layout {
+                QIcon.plus.view(size: plusSize, weight: .bold)
                 Text("Log").font(.qr(.callout))
             }
             .foregroundStyle(isDue ? Color.qr.onAccent : .qr.accentStrong)
-            .frame(width: QuickrMetrics.logBlockWidth)
-            .frame(maxHeight: .infinity)
+            .frame(width: stacked ? nil : QuickrMetrics.logBlockWidth)
+            .frame(maxWidth: stacked ? .infinity : nil, maxHeight: .infinity)
+            .frame(minHeight: stacked ? QuickrMetrics.tapTarget + 12 : nil)
             .background(isDue ? Color.qr.accent : .qr.accentSoft)
-            .overlay(alignment: .leading) {
-                (isDue ? Color.qr.accentStrong.opacity(0.3) : .qr.line).frame(width: 1)
+            .overlay(alignment: stacked ? .top : .leading) {
+                let line = isDue ? Color.qr.accentStrong.opacity(0.3) : .qr.line
+                if stacked { line.frame(height: 1) } else { line.frame(width: 1) }
             }
             .contentShape(Rectangle())
         }
@@ -109,6 +123,9 @@ public struct QuickNumberRow: View {
     let onLog: () -> Void
     @ScaledMetric(relativeTo: .title3) private var height = QuickrMetrics.tapTarget
     @ScaledMetric(relativeTo: .title3) private var checkSize: CGFloat = 20
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// Counts Log taps, so a repeated error is read again.
+    @State private var attempts = 0
 
     public init(
         label: String, text: Binding<String>, rule: NumberStepRule, unit: String? = nil, isBusy: Bool = false,
@@ -129,14 +146,22 @@ public struct QuickNumberRow: View {
                 .font(.qr(.sansMedium, size: 12, relativeTo: .caption))
                 .foregroundStyle(.qr.muted)
                 .accessibilityHidden(true)
-            HStack(spacing: 6) {
+            // At accessibility sizes the ✓ goes under the stepper, which keeps the width for its digits.
+            let stacked = typeSize.isAccessibilitySize
+            let layout = stacked ? AnyLayout(VStackLayout(spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))
+            layout {
                 NumberStepper(text: $text, rule: rule, label: label, size: .compact, isInvalid: error != nil)
                     .disabled(isBusy)
                     .accessibilityIdentifier("quick.number")
-                Button(action: onLog) {
+                    .accessibilityHint(error.map { "Error: \($0)" } ?? "")
+                Button {
+                    attempts += 1
+                    onLog()
+                } label: {
                     QIcon.check.view(size: checkSize, weight: .heavy)
                         .foregroundStyle(.qr.paper)
-                        .frame(width: max(48, checkSize + 16), height: height)
+                        .frame(width: stacked ? nil : max(48, checkSize + 16), height: height)
+                        .frame(maxWidth: stacked ? .infinity : nil)
                         .background(Color.qr.ink, in: RoundedRectangle(cornerRadius: QuickrMetrics.controlRadius))
                         .contentShape(Rectangle())
                 }
@@ -151,6 +176,7 @@ public struct QuickNumberRow: View {
                 Text(error)
                     .font(.qr(.sansMedium, size: 12, relativeTo: .caption))
                     .foregroundStyle(.qr.danger)
+                    .qrAnnouncesError(error, trigger: attempts)
             }
         }
     }

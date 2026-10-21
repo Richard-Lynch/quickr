@@ -52,8 +52,9 @@ public enum ChipSelection {
     }
 
     /// Tile quick-log layout: one option fills the row, six use three columns, the rest two.
-    public static func quickColumns(count: Int) -> Int {
-        if count == 1 { return 1 }
+    public static func quickColumns(count: Int, accessibilitySize: Bool = false) -> Int {
+        // At accessibility sizes a two-column chip is too narrow for one word ("Moderate").
+        if count == 1 || accessibilitySize { return 1 }
         return count > 3 && count % 3 == 0 ? 3 : 2
     }
 }

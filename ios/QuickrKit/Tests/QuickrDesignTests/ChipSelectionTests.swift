@@ -47,6 +47,8 @@ import Testing
         #expect(ChipSelection.quickColumns(count: 4) == 2)
         #expect(ChipSelection.quickColumns(count: 5) == 2)
         #expect(ChipSelection.quickColumns(count: 6) == 3)
+        // At accessibility sizes one column, so a word like "Moderate" fits (audit H6).
+        for count in 1...6 { #expect(ChipSelection.quickColumns(count: count, accessibilitySize: true) == 1) }
     }
 }
 

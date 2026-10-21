@@ -255,6 +255,7 @@ public final class RecordModel {
     /// Log another: a fresh form whose "Same as last time" is the entry just logged.
     private func startAnother(last: LastEntry) {
         form = FormModel(questions: topic.questions, mode: .create(last: last))
+        form.voiceOverStartsAtFirstQuestion = true
         baseline = form.inputs
         notes = ""
         baselineNotes = ""
