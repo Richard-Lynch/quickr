@@ -62,6 +62,9 @@ public final class HomeModel {
     @ObservationIgnored private let session: AppSession
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private var queryTask: Task<Void, Never>?
+    /// Tests: replaces the store's sync-state observation, to hold it back while the topics load.
+    @_spi(Testing) @ObservationIgnored public var syncStatesForTesting:
+        (@MainActor (LocalStore) -> AsyncThrowingStream<SyncState?, any Error>)?
 
     public init(session: AppSession, now: Date = Date(), debounce: Duration = .milliseconds(250)) {
         self.session = session
@@ -155,7 +158,8 @@ public final class HomeModel {
 
     private func observeSyncState(_ store: LocalStore, _ observation: Int) async {
         do {
-            for try await state in store.observeSyncState(refresh: session.refresh.stream()) {
+            let states = syncStatesForTesting?(store) ?? store.observeSyncState(refresh: session.refresh.stream())
+            for try await state in states {
                 guard isCurrent(observation) else { return }
                 bootstrapped = state?.bootstrapComplete ?? false
                 let clock = state?.serverClock ?? .device
