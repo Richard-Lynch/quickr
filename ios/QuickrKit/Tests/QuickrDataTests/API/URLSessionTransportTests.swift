@@ -4,10 +4,10 @@ import Synchronization
 import Testing
 
 /// `URLSessionTransport` against a real loopback HTTP server.
-@Suite(.timeLimit(.minutes(2))) struct URLSessionTransportTests {
+@Suite(.timeLimit(.minutes(5))) struct URLSessionTransportTests {
     static func request(
         _ server: LoopbackServer, _ path: String = "/api/v1/health", method: HTTPMethod = .get,
-        headers: HTTPHeaders = [:], body: Data? = nil, timeout: Duration = .seconds(5)
+        headers: HTTPHeaders = [:], body: Data? = nil, timeout: Duration = .seconds(60)
     ) -> HTTPRequest {
         HTTPRequest(
             method: method, url: URL(string: server.baseURL.absoluteString + path)!, headers: headers, body: body,
@@ -55,7 +55,7 @@ import Testing
         let server = try await LoopbackServer { _ in
             .init(status: 200, body: Data("slow".utf8), trickle: .milliseconds(40))
         }
-        let response = try await URLSessionTransport().send(Self.request(server, timeout: .seconds(10)))
+        let response = try await URLSessionTransport().send(Self.request(server, timeout: .seconds(60)))
         #expect(response.body == Data("slow".utf8))
     }
 

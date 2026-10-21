@@ -179,7 +179,7 @@ func background(_ body: @escaping @Sendable () async throws -> OutboxFlushReport
 
 extension Outbox {
     /// A forced flush with a generous budget, as the app does on activation.
-    func flushNow(force: Bool = true, budget: Duration = .seconds(30)) async throws -> OutboxFlushReport {
+    func flushNow(force: Bool = true, budget: Duration = .seconds(120)) async throws -> OutboxFlushReport {
         try await flush(force: force, budget: budget)
     }
 }

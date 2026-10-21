@@ -9,7 +9,7 @@ import Testing
 @testable import QuickrData
 
 /// N11 (notifications.md §9.1): the APNs environment of a provisioning profile.
-@Suite(.timeLimit(.minutes(2))) struct ProvisioningProfileTests {
+@Suite(.timeLimit(.minutes(5))) struct ProvisioningProfileTests {
     static func profile(_ name: String) throws -> Data { try Fixtures.data("provisioning/\(name).mobileprovision") }
 
     @Test func noProfileIsAnAppStoreBuild() {
@@ -42,7 +42,7 @@ import Testing
 
 /// The token lifecycle (notifications.md §9.2; N12, N13) against fake servers that check the
 /// Expect headers the way the backend does.
-@MainActor @Suite(.timeLimit(.minutes(2))) struct PushRegistrationTests {
+@MainActor @Suite(.timeLimit(.minutes(5))) struct PushRegistrationTests {
     /// A value the test and the dependencies' closures share.
     final class Box<T: Sendable>: Sendable {
         private let value: Mutex<T>

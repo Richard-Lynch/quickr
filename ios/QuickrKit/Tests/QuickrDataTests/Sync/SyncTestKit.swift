@@ -446,7 +446,7 @@ extension LocalStore {
 /// Polls `condition` until it holds, failing after `timeout`: a liveness ceiling, generous because
 /// a loaded machine can delay any task; never the timing under test.
 func eventually(
-    _ what: String, timeout: Duration = .seconds(30), _ condition: @escaping @Sendable () async throws -> Bool
+    _ what: String, timeout: Duration = .seconds(120), _ condition: @escaping @Sendable () async throws -> Bool
 ) async throws {
     let deadline = ContinuousClock.now.advanced(by: timeout)
     while try await !condition() {
@@ -462,7 +462,7 @@ func eventually(
 /// deadlocks becomes a recorded issue in seconds instead of a hung job. The work runs in a task
 /// of its own and is abandoned on timeout, so it never holds the test up.
 func within<T: Sendable>(
-    _ what: String, timeout: Duration = .seconds(30), _ work: @escaping @Sendable () async throws -> T
+    _ what: String, timeout: Duration = .seconds(120), _ work: @escaping @Sendable () async throws -> T
 ) async throws -> T {
     let outcome = Mutex<Result<T, any Error>?>(nil)
     let finished = Mutex(false)

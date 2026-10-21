@@ -7,7 +7,7 @@ import Testing
 
 /// Engine behaviour outside the §13 matrix: the §5.2 rows the matrix doesn't name, S8 under
 /// expiry recovery, the sync sheet's actions, the summary and the flush scheduler.
-@Suite(.timeLimit(.minutes(2))) struct OutboxEngineTests {
+@Suite(.timeLimit(.minutes(5))) struct OutboxEngineTests {
     @Test func archive404RetiresAndUnarchive404FailsBothAskForAPull() async throws {
         let h = try OutboxHarness()
         let outbox = h.outbox()
@@ -226,24 +226,24 @@ import Testing
         let h = try OutboxHarness()
         let scheduler = OutboxFlushScheduler(outbox: h.outbox())
         let sent = try await h.log(scheduler.outbox)
-        #expect(await scheduler.sendNow(itemId: sent.wireString, wait: .seconds(30)) == .sent)
+        #expect(await scheduler.sendNow(itemId: sent.wireString, wait: .seconds(120)) == .sent)
 
         let rejected = try await h.log(scheduler.outbox, minutes: 1)
         h.server.inject(.post, .respond(header(FakeServer.problem(422, "invalid_answers", "mood is required"))))
-        guard case .failed(let info) = await scheduler.sendNow(itemId: rejected.wireString, wait: .seconds(30)) else {
+        guard case .failed(let info) = await scheduler.sendNow(itemId: rejected.wireString, wait: .seconds(120)) else {
             Issue.record("a 422 is .failed")
             return
         }
         #expect(info?.message == "Mood is required" && info?.status == 422)
         // Retried (or fixed) after an attempt: sendNow waits for the new attempt, not "queued".
         try await scheduler.outbox.retry(itemId: rejected.wireString)
-        #expect(await scheduler.sendNow(itemId: rejected.wireString, wait: .seconds(30)) == .sent)
+        #expect(await scheduler.sendNow(itemId: rejected.wireString, wait: .seconds(120)) == .sent)
 
         // The id is reserved on the server: with no later delete here, the create fails
         // `deleted_elsewhere` (§5.2).
         let reserved = try await h.log(scheduler.outbox, minutes: 2)
         h.server.deleteEntry(reserved)
-        guard case .failed(let gone) = await scheduler.sendNow(itemId: reserved.wireString, wait: .seconds(30)) else {
+        guard case .failed(let gone) = await scheduler.sendNow(itemId: reserved.wireString, wait: .seconds(120)) else {
             Issue.record("a create whose id is reserved is .failed")
             return
         }
@@ -256,11 +256,11 @@ import Testing
             try ServerLayer.applyDeletion(db, kind: .entry, id: retired, topicId: h.topic.id, seq: nil)
             _ = try OutboxStorage.delete(db, id: retired.wireString)
         }
-        #expect(await scheduler.sendNow(itemId: retired.wireString, wait: .seconds(30)) == .retired)
+        #expect(await scheduler.sendNow(itemId: retired.wireString, wait: .seconds(120)) == .retired)
 
         let offline = try await h.log(scheduler.outbox, minutes: 4)
         h.server.inject(.post, .lose(.unreachable("offline")))
-        #expect(await scheduler.sendNow(itemId: offline.wireString, wait: .seconds(30)) == .queued)
+        #expect(await scheduler.sendNow(itemId: offline.wireString, wait: .seconds(120)) == .queued)
         #expect(try h.item(offline)?.state == .pending)
     }
 

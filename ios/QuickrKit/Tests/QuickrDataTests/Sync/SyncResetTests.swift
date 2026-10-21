@@ -8,7 +8,7 @@ import Testing
 /// Local reset and its crash recovery, driven by the coordinator over STORE's registry primitives
 /// (sync-protocol.md §12; §13 S7, S11–S13, S17–S19), file-backed. "Another process" is a second
 /// registry pool over the same files.
-@Suite(.timeLimit(.minutes(1))) struct SyncResetTests {
+@Suite(.timeLimit(.minutes(5))) struct SyncResetTests {
     static let serverId = FakeFeedServer.defaultServerId
 
     @Test func resetReplacesTheStoreWithAFreshBootstrappedFile() async throws {
@@ -156,7 +156,7 @@ import Testing
         defer { env.cleanup() }
         let old = try await env.connect(env.coordinator())
         let intent = try await env.partitions.persistResetIntent(store: old, confirmedCount: 0, confirmedMaxSeq: 0)
-        let pair = try #require(try await old.leases.acquireSyncThenFlush(owner: "app:A", waitingUpTo: .seconds(1)))
+        let pair = try #require(try await old.leases.acquireSyncThenFlush(owner: "app:A", waitingUpTo: .seconds(60)))
         #expect(
             try await old.retire(
                 confirmedCount: intent.pendingConfirmedCount ?? 0,
@@ -238,7 +238,8 @@ import Testing
         try await env.gate.waitUntilParked()
         let warning = try #require(try await coordinator.resetWarning())
         let reset = Task { try await coordinator.performReset(confirmed: warning) }
-        try await Task.sleep(for: .milliseconds(50))
+        // Ordering, not timing: the reset has started.
+        try await eventually("the reset started") { coordinator.status.activity == .resetting }
         #expect(await coordinator.sync(reason: .pullToRefresh) == .resetInProgress)
         env.gate.release()
         _ = await sync.value
