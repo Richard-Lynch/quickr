@@ -29,7 +29,11 @@ struct VersionsView: View {
                 Button {
                     environment.router.open(.editQuestions(ref))
                 } label: {
-                    Label("New version", systemImage: "pencil").font(.qr(.label))
+                    // Text that wraps (a Label's title clipped at accessibility sizes).
+                    HStack(spacing: 8) {
+                        Image(systemName: "pencil").accessibilityHidden(true)
+                        Text("New version").font(.qr(.label)).fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .accessibilityIdentifier("versions.new")
             }

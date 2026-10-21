@@ -268,21 +268,30 @@ struct QuestionCard<Model: BuilderEditing>: View {
             }
         } else {
             VStack(alignment: .leading, spacing: 4) {
+                // At accessibility sizes the title goes above, so the value has the whole row.
+                if typeSize.isAccessibilitySize {
+                    Text("Type").font(.qr(.label)).foregroundStyle(.qr.inkSoft).accessibilityHidden(true)
+                }
                 Picker(
                     "Type",
                     selection: model.typeBinding(id, default: question.type)
                 ) {
                     ForEach(QuestionType.allCases, id: \.self) { Text($0.builderLabel).tag($0) }
                 }
+                .labelsHidden(typeSize.isAccessibilitySize)
                 .accessibilityIdentifier("\(tag).type")
                 Text(question.typeHint).font(.qr(.footnote)).foregroundStyle(.qr.muted)
             }
         }
         TopicLabeledField("Help text", optional: true, error: error(.helpText)) {
-            TextField("Shown under the question", text: binding(\.helpText, default: ""), axis: .vertical)
-                .lineLimit(1...4)
-                .accessibilityLabel("Help text")
-                .accessibilityIdentifier("\(tag).help")
+            // No placeholder at accessibility sizes, where it can only be cut off.
+            TextField(
+                typeSize.isAccessibilitySize ? "" : "Shown under the question", text: binding(\.helpText, default: ""),
+                axis: .vertical
+            )
+            .lineLimit(1...4)
+            .accessibilityLabel("Help text")
+            .accessibilityIdentifier("\(tag).help")
         }
         Toggle(isOn: binding(\.required, default: false)) {
             VStack(alignment: .leading, spacing: 2) {
@@ -498,5 +507,12 @@ struct FieldRow<Content: View>: View {
         } else {
             HStack(alignment: alignment) { content }
         }
+    }
+}
+
+extension View {
+    /// `labelsHidden()` when `hidden`.
+    @ViewBuilder func labelsHidden(_ hidden: Bool) -> some View {
+        if hidden { labelsHidden() } else { self }
     }
 }
