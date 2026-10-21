@@ -316,6 +316,12 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 11:15 (EDT): **M3 merged into feat/ios-app: PR #11, squash e73e01f.** CI green: backend, frontend, docker, swift test, and build + Unit plan on iOS 26.2. ios/m3 records the squash (ours-merge, trees equal) and stays the collection branch for the follow-ups:
+  - the iOS 27 back-button swap stall fix (m1-outbox, e43a533, being measured);
+  - the HomeModel first-list test seam (m2-form);
+  - device day and TestFlight, blocked on Chrome access to developer.apple.com and App Store Connect;
+  - then the final feat/ios-app → main PR.
+
 - 2026-10-21 10:40 (EDT): PR #11 CI fixes:
   - Xcode 26-only compile errors fixed (f0683c1, 4f567c8: explicit @Sendable Task closures, no `$0` in `defer`, no Mutex captured into a task group);
   - **SettingsTests time bomb** (a fake feed with a fixed server_time of 2026-10-20T12:00Z; after 24 h the entry fails as future_time; 4b7a6f0);
