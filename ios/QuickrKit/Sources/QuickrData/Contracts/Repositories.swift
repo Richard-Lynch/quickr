@@ -53,6 +53,6 @@ public protocol RegistryRepository: Sendable {
     func servers() async throws -> [RegisteredServer]
     func server(id: String) async throws -> RegisteredServer?
     func activeServerId() async throws -> String?
-    /// The full union, for registration and reconciliation (notifications.md §5).
+    /// Every row of the table (notifications.md §5.1).
     func notificationCategories() async throws -> [NotificationCategoryRecord]
 }

@@ -87,20 +87,195 @@ target_sim_udid() {
 # with IOS_SIM_WAIT=1 polls every IOS_SIM_WAIT_POLL seconds (default 15) until a slot frees.
 # Admission is atomic across worktrees: one machine-wide lock is held from the check until
 # the device shows as booted, and released while waiting (then the check runs again).
+#
+# Waiters are served in order (FIFO): one that has to wait takes a ticket, and a free slot goes
+# only to the lowest live ticket, never to whoever polls first. A newcomer finding waiters
+# queued joins the queue even when a slot is free. A ticket is the file
+# `<number>.<pid>` in SIM_CAP_QUEUE, holding its waiter's start time; it is removed when the
+# waiter is admitted or gives up, by an EXIT trap, and, for a waiter that died (its pid gone,
+# or reused by another process), by the next waiter that looks. Re-booting a device that is
+# already booted, and IOS_SIM_CAP=0, never queue.
 SIM_CAP_LOCK="${QUICKR_SIM_CAP_LOCK:-${TMPDIR:-/tmp}/quickr-sim-cap.lockf}"
+SIM_CAP_QUEUE="${QUICKR_SIM_CAP_QUEUE:-${SIM_CAP_LOCK%.lockf}.queue}"
+_sim_ticket=""
+# The caller's handlers for EXIT and the signals, set aside while this process waits.
+_sim_saved_traps=""
+
+# A process's start time, which tells it from a later process with the same pid.
+_sim_started() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' '; }
+
+# Under the lock: removes dead waiters' tickets, then prints the live ones, lowest first.
+_sim_live_tickets() {
+  local file pid
+  mkdir -p "$SIM_CAP_QUEUE"
+  for file in "$SIM_CAP_QUEUE"/[0-9]*.[0-9]*; do
+    [[ -e "$file" ]] || continue
+    pid="${file##*.}"
+    if [[ "$(_sim_started "$pid")" == "$(cat "$file" 2>/dev/null)" && -n "$(_sim_started "$pid")" ]]; then
+      echo "$file"
+    else
+      rm -f "$file"
+    fi
+  done | sort
+}
+
+# Under the lock: this process's ticket, taken from the counter if it has none. The waiter is
+# the process running this, which in a subshell isn't `$$` (bash 3.2 has no BASHPID): a child
+# `sh` started as a plain command reports it as its parent.
+_sim_take_ticket() {
+  [[ -n "$_sim_ticket" && -e "$_sim_ticket" ]] && return 0
+  local next pid
+  next="$(cat "$SIM_CAP_QUEUE/next" 2>/dev/null || echo 0)"
+  [[ "$next" =~ ^[0-9]+$ ]] || next=0
+  echo $((next + 1)) >"$SIM_CAP_QUEUE/next"
+  sh -c 'echo $PPID' >"$SIM_CAP_QUEUE/pid.$next"
+  read -r pid <"$SIM_CAP_QUEUE/pid.$next"
+  rm -f "$SIM_CAP_QUEUE/pid.$next"
+  _sim_ticket="$SIM_CAP_QUEUE/$(printf '%012d' "$next").$pid"
+  _sim_started "$pid" >"$_sim_ticket"
+}
+
+# While waiting: the ticket is dropped however the process ends. EXIT drops it, then runs the
+# caller's own EXIT handler with `$?` as it was and errexit as it was; INT, TERM and HUP (fatal
+# by default, and then no EXIT trap would run) end the process through EXIT, unless the caller
+# traps them itself (an ignored signal, `trap '' TERM`, stays ignored). The caller's traps are
+# saved as they were, present or absent, and put back when admitted.
+_sim_trap_ticket() {
+  local words sig handler present
+  _sim_saved_traps=""
+  for sig in EXIT INT TERM HUP; do
+    words=()
+    eval "words=($(trap -p "$sig"))"
+    present=0; handler=""
+    if (( ${#words[@]} > 0 )); then present=1; handler="${words[2]}"; fi
+    _sim_saved_traps+="$(printf '%s %s %q' "$sig" "$present" "$handler")"$'\n'
+    case "$sig" in
+      EXIT)
+        # The handler runs at the end of an `||` list, after a command that returns the saved
+        # status: `$?` is that status inside it, and errexit (if the caller set it) still applies.
+        # (An empty handler, `trap '' EXIT`, has nothing to run, and would leave empty bodies.)
+        if (( present )) && [[ -n "$handler" ]]; then
+          trap "_sim_rc=\$?; _sim_drop_ticket; if (( _sim_rc == 0 )); then $handler
+else _sim_status \$_sim_rc || { $handler
+}; fi" EXIT
+        else
+          trap '_sim_drop_ticket' EXIT
+        fi
+        ;;
+      INT) (( present )) || trap 'exit 130' INT ;;
+      TERM) (( present )) || trap 'exit 143' TERM ;;
+      HUP) (( present )) || trap 'exit 129' HUP ;;
+    esac
+  done
+}
+
+_sim_status() { return "$1"; }
+
+# Admitted: the caller's traps back exactly as they were (absent, ignored or a handler).
+_sim_untrap_ticket() {
+  local sig present handler
+  while read -r sig present handler; do
+    [[ -n "$sig" ]] || continue
+    eval "handler=$handler"
+    if (( present )); then trap -- "$handler" "$sig"; else trap - "$sig"; fi
+  done <<<"$_sim_saved_traps"
+  _sim_saved_traps=""
+}
+
+_sim_drop_ticket() {
+  [[ -n "$_sim_ticket" ]] && rm -f "$_sim_ticket"
+  _sim_ticket=""
+}
+
+# Resource guards for a new boot (sim_boot, before admission):
+# - disk: refuses while the volume holding the simulators has under IOS_SIM_MIN_FREE_GB
+#   (default 15) free, suggesting `make ios-prune`: a full disk fails boots and builds midway;
+# - memory: while `memory_pressure` reports under IOS_SIM_MIN_FREE_PCT (default 20) % of memory
+#   free, waits (polling every IOS_SIM_MEM_POLL s, default 15) up to IOS_SIM_MEM_WAIT s
+#   (default 600), saying why, then refuses: another simulator under pressure stalls them all.
+# Both are checked before admission and again when the boot is admitted (a wait for a slot can
+# be long), without holding the cap lock while waiting.
+# An unreadable figure doesn't block. IOS_SIM_RESOURCE_GUARD=0 turns both off.
+_sim_free_gb() {
+  local dir="${IOS_SIM_DATA_DIR:-$HOME/Library/Developer/CoreSimulator}"
+  [[ -d "$dir" ]] || dir="$HOME"
+  df -k "$dir" 2>/dev/null | awk 'NR == 2 && $4 ~ /^[0-9]+$/ { print int($4 / 1048576) }'
+}
+_sim_free_mem_pct() {
+  memory_pressure -Q 2>/dev/null | sed -nE 's/.*memory free percentage: *([0-9]+)%.*/\1/p' | head -1
+}
+# Non-blocking: 0 when both are fine, 1 for the disk, 2 for memory.
+_sim_resources_now() {
+  [[ "${IOS_SIM_RESOURCE_GUARD:-1}" == 0 ]] && return 0
+  local gb pct
+  gb="$(_sim_free_gb)"
+  [[ -n "$gb" ]] && (( gb < ${IOS_SIM_MIN_FREE_GB:-15} )) && return 1
+  pct="$(_sim_free_mem_pct)"
+  [[ -n "$pct" ]] && (( pct < ${IOS_SIM_MIN_FREE_PCT:-20} )) && return 2
+  return 0
+}
+# The memory wait's start, so waits before and during admission share one bound.
+_sim_mem_wait_start=""
+_sim_resources_ok() {
+  [[ "${IOS_SIM_RESOURCE_GUARD:-1}" == 0 ]] && return 0
+  local min_gb="${IOS_SIM_MIN_FREE_GB:-15}" min_pct="${IOS_SIM_MIN_FREE_PCT:-20}"
+  local limit="${IOS_SIM_MEM_WAIT:-600}" poll="${IOS_SIM_MEM_POLL:-15}" gb pct said=0
+  gb="$(_sim_free_gb)"
+  if [[ -n "$gb" ]] && (( gb < min_gb )); then
+    die "only ${gb} GB free on the simulators' disk (under IOS_SIM_MIN_FREE_GB=$min_gb): not booting another simulator. Free space first: make ios-prune (IOS_PRUNE_DRY_RUN=1 to see what it would remove)"
+  fi
+  while pct="$(_sim_free_mem_pct)"; [[ -n "$pct" ]] && (( pct < min_pct )); do
+    [[ -n "$_sim_mem_wait_start" ]] || _sim_mem_wait_start=$SECONDS
+    if (( SECONDS - _sim_mem_wait_start >= limit )); then
+      die "memory still under pressure after ${limit}s (${pct}% free, under IOS_SIM_MIN_FREE_PCT=$min_pct): not booting another simulator. Shut one down, or quit something big"
+    fi
+    if (( !said )); then
+      echo "ios: waiting for memory: ${pct}% free, under IOS_SIM_MIN_FREE_PCT=$min_pct (up to ${limit}s; another simulator under pressure stalls them all)" >&2
+      said=1
+    fi
+    sleep "$poll"
+  done
+  return 0
+}
+
 sim_boot() {
-  local udid="$1" cap="${IOS_SIM_CAP:-2}" booted count announced=0 lock_status
+  local udid="$1" cap="${IOS_SIM_CAP:-2}" booted count announced=0 lock_status tickets ahead position
+  local last_position=0 trapped=0
   # CI runs one simulator per runner: no cap to enforce, and xcodebuild boots the device itself
   # (an unbounded `simctl bootstatus -b` there stalled a run until the step's time limit).
   [[ -n "${CI:-}" ]] && return 0
+  # Booting another simulator needs room: refuse on a nearly full disk, wait out memory pressure.
+  [[ "$(booted_clones "$udid")" == self ]] || _sim_resources_ok
   while :; do
     exec 8>>"$SIM_CAP_LOCK"
     lock_status=0
     /usr/bin/lockf -t "${IOS_SIM_LOCK_WAIT:-900}" 8 >/dev/null 2>&1 || lock_status=$?
-    (( lock_status == 0 )) || { exec 8>&-; die "could not take the simulator lock $SIM_CAP_LOCK (lockf $lock_status)"; }
+    (( lock_status == 0 )) || { exec 8>&-; _sim_drop_ticket; die "could not take the simulator lock $SIM_CAP_LOCK (lockf $lock_status)"; }
     booted="$(booted_clones "$udid")"
     count="$(grep -c . <<<"$booted" || true)"
-    if [[ "$booted" == self || "$cap" == 0 ]] || (( count < cap )); then
+    tickets="$(_sim_live_tickets)"
+    # Live tickets ahead of this process's own (all of them if it has none yet).
+    if [[ -n "$_sim_ticket" ]]; then
+      ahead="$(grep -c . <<<"$(awk -v me="$_sim_ticket" '$0 < me' <<<"$tickets")" || true)"
+    else
+      ahead="$(grep -c . <<<"$tickets" || true)"
+    fi
+    if [[ "$booted" == self || "$cap" == 0 ]] || { (( count < cap )) && (( ahead == 0 )); }; then
+      # The disk and memory again, now that it is its turn (a wait for a slot can be long). Under
+      # pressure: let go of the lock, wait (the same bound), and take its turn again.
+      if [[ "$booted" != self ]] && ! _sim_resources_now; then
+        exec 8>&-
+        _sim_resources_ok
+        continue
+      fi
+      _sim_drop_ticket
+      # A held device this admission boots is marked as booted by a hold, under the same lock
+      # as the decision, so the run's release shuts it down (and only then: one it found booted
+      # is someone else's).
+      if [[ "$booted" != self && "$_sim_held" == "$udid" ]]; then
+        mkdir -p "$SIM_HOLDS/$udid"
+        : >"$SIM_HOLDS/$udid/ours"
+      fi
       # The boot runs without fd 8, so nothing it starts can hold the lock.
       # Bounded: a boot that never completes fails here instead of stalling the caller.
       if ! perl -e 'alarm shift; exec @ARGV' "${IOS_SIM_BOOT_TIMEOUT:-300}" \
@@ -109,25 +284,190 @@ sim_boot() {
         die "simulator $udid did not finish booting within ${IOS_SIM_BOOT_TIMEOUT:-300} s"
       fi
       exec 8>&-
+      (( trapped )) && _sim_untrap_ticket
       return 0
     fi
-    exec 8>&-
     if [[ "${IOS_SIM_WAIT:-0}" != 1 ]]; then
+      exec 8>&-
+      if (( count < cap )); then
+        die "$ahead waiting ahead for a simulator slot (IOS_SIM_CAP=$cap); wait your turn (--wait / IOS_SIM_WAIT=1)"
+      fi
       die "$count quickR simulators are booted (IOS_SIM_CAP=$cap); shut one down or wait (--wait / IOS_SIM_WAIT=1):
 $(sed 's/^/  /' <<<"$booted")"
     fi
+    if [[ -z "$_sim_ticket" ]]; then
+      # Traps first: a signal between taking the ticket and trapping would leave it behind.
+      _sim_trap_ticket
+      trapped=1
+      _sim_take_ticket
+    fi
+    exec 8>&-
+    position=$(( ahead + 1 ))
     if (( !announced )); then
-      echo "ios: waiting for a simulator slot ($count booted, IOS_SIM_CAP=$cap):" >&2
+      echo "ios: waiting for a simulator slot ($count booted, IOS_SIM_CAP=$cap; place $position in the queue):" >&2
       sed 's/^/  /' <<<"$booted" >&2
       announced=1
+      last_position=$position
+    elif (( position != last_position )); then
+      echo "ios: still waiting for a simulator slot: place $position in the queue" >&2
+      last_position=$position
     fi
     sleep "${IOS_SIM_WAIT_POLL:-15}"
+  done
+}
+
+# Simulator holds: an automated run (test.sh, check-ios.sh, perf-cold-start.sh, spike-proof.sh,
+# demo-record.sh, shots.sh) never leaves a simulator booted that it booted, so a finished or
+# failed run doesn't keep a cap slot. `sim_hold <udid>` registers the run as a holder of the
+# device, then boots it through the cap (sim_boot); `sim_release`, also run by the EXIT trap it
+# installs (INT, TERM and HUP end the run through EXIT), shuts the device down when a hold booted
+# it and no other live run still holds it. A device already booted with no hold on it (an
+# interactive session: sim-run.sh, sim-clone.sh, Xcode) is left booted, and so is any device
+# when IOS_SIM_KEEP=1 (it also stops later holders shutting it down). Under CI sim_boot boots
+# nothing (xcodebuild boots the runner's one simulator, and the runner is discarded), so there
+# is nothing of the run's to shut down: sim_hold is sim_boot.
+#
+# A hold is the file <SIM_HOLDS>/<udid>/<pid> with the holder's start time (like the cap's
+# tickets: a dead holder's file is pruned), and <udid>/ours marks a device a hold's admission
+# booted (set by sim_boot under the cap lock, removed once the device is shut down).
+# Registering and the last release's check-and-shutdown run under the cap lock, so no run joins
+# a device while it is being shut down. Callers set their own EXIT trap before sim_hold (it
+# runs theirs after releasing), or call sim_release in it.
+SIM_HOLDS="${QUICKR_SIM_HOLDS:-${SIM_CAP_LOCK%.lockf}.holds}"
+# <SIM_OWNERS>/<udid>: the worktree a clone belongs to, written by sim-clone.sh (prune.sh).
+SIM_OWNERS="${QUICKR_SIM_OWNERS:-${SIM_CAP_LOCK%.lockf}.owners}"
+_sim_held=""
+_sim_holder=""
+
+# Under the lock: the live holds of device directory $1 (dead ones removed).
+_sim_live_holds() {
+  local file pid
+  for file in "$1"/[0-9]*; do
+    [[ -e "$file" ]] || continue
+    pid="${file##*/}"
+    if [[ -n "$(_sim_started "$pid")" && "$(_sim_started "$pid")" == "$(cat "$file" 2>/dev/null)" ]]; then
+      echo "$file"
+    else
+      rm -f "$file"
+    fi
+  done
+}
+
+# Whether simctl confirms device $1 isn't booted: a failed query (CoreSimulator down, a
+# device it doesn't list) confirms nothing.
+_sim_confirmed_down() {
+  local state
+  state="$(xcrun simctl list -j devices 2>/dev/null | python3 -c '
+import json, sys
+for devices in json.load(sys.stdin)["devices"].values():
+    for d in devices:
+        if d["udid"] == sys.argv[1]:
+            print(d["state"])
+' "$1" 2>/dev/null)" || return 1
+  [[ -n "$state" && "$state" != Booted && "$state" != Booting && "$state" != "Shutting Down" ]]
+}
+
+# The cap lock on fd 7 (sim_boot uses fd 8: never call it with this held).
+_sim_hold_lock() {
+  exec 7>>"$SIM_CAP_LOCK"
+  /usr/bin/lockf -t "${IOS_SIM_LOCK_WAIT:-900}" 7 >/dev/null 2>&1 && return 0
+  exec 7>&-
+  return 1
+}
+
+sim_hold() {
+  local udid="$1" dir pid
+  [[ -n "${CI:-}" ]] && { sim_boot "$udid"; return; }
+  [[ -z "$_sim_held" ]] || die "sim_hold: already holding $_sim_held (sim_release it first)"
+  dir="$SIM_HOLDS/$udid"
+  _sim_trap_hold
+  _sim_hold_lock || die "could not take the simulator lock $SIM_CAP_LOCK to hold $udid"
+  mkdir -p "$dir"
+  # The holder is the process running this (in a subshell that isn't `$$`; see _sim_take_ticket):
+  # a child `sh` reports it as its parent. Through a file: in `$(...)` the parent would be the
+  # substitution's own subshell, gone by the time it is read.
+  sh -c 'echo $PPID' >"$dir/pid.$$"
+  read -r pid <"$dir/pid.$$"
+  rm -f "$dir/pid.$$"
+  _sim_holder="$dir/$pid"
+  _sim_started "$pid" >"$_sim_holder"
+  _sim_held="$udid"
+  exec 7>&-
+  # sim_boot marks the device `ours` if its admission boots it. A device found booted keeps
+  # whatever mark it has: a hold booted it (perhaps one that died), or someone's session did.
+  sim_boot "$udid"
+}
+
+sim_release() {
+  [[ -n "$_sim_held" ]] || return 0
+  local udid="$_sim_held" dir="$SIM_HOLDS/$_sim_held"
+  _sim_held=""
+  # Interrupted inside sim_boot's admission, this process still holds the cap lock on fd 8:
+  # let go of it first, or taking it again on fd 7 below would wait on itself.
+  exec 8>&-
+  if ! _sim_hold_lock; then
+    rm -f "$_sim_holder"
+    warn "could not take the simulator lock to release $udid; it may stay booted"
+    return 0
+  fi
+  rm -f "$_sim_holder"
+  if [[ "${IOS_SIM_KEEP:-0}" == 1 ]]; then
+    rm -f "$dir/ours"
+    echo "ios: keeping $udid booted (IOS_SIM_KEEP=1)" >&2
+  elif [[ -e "$dir/ours" && -z "$(_sim_live_holds "$dir")" ]]; then
+    echo "ios: shutting down $udid (booted for this run)" >&2
+    # The mark goes only once it is down: a failed shutdown leaves it for the next hold to retry.
+    if perl -e 'alarm shift; exec @ARGV' "${IOS_SIM_SHUTDOWN_TIMEOUT:-120}" xcrun simctl shutdown "$udid" \
+      >/dev/null 2>&1 || _sim_confirmed_down "$udid"; then
+      rm -f "$dir/ours"
+    else
+      warn "could not shut down $udid; the next run that holds it will try again"
+    fi
+  fi
+  exec 7>&-
+  return 0
+}
+
+# sim_hold's traps: EXIT releases, then runs the caller's own EXIT handler with `$?` and errexit
+# as they were (as _sim_trap_ticket does); INT, TERM and HUP end the run through EXIT unless the
+# caller traps them itself.
+_sim_trap_hold() {
+  local words sig handler present
+  for sig in EXIT INT TERM HUP; do
+    words=()
+    eval "words=($(trap -p "$sig"))"
+    present=0; handler=""
+    if (( ${#words[@]} > 0 )); then present=1; handler="${words[2]}"; fi
+    case "$sig" in
+      EXIT)
+        if (( present )) && [[ -n "$handler" ]]; then
+          trap "_sim_rc=\$?; sim_release; if (( _sim_rc == 0 )); then $handler
+else _sim_status \$_sim_rc || { $handler
+}; fi" EXIT
+        else
+          trap 'sim_release' EXIT
+        fi
+        ;;
+      INT) (( present )) || trap 'exit 130' INT ;;
+      TERM) (( present )) || trap 'exit 143' TERM ;;
+      HUP) (( present )) || trap 'exit 129' HUP ;;
+    esac
   done
 }
 
 # Parallel compile jobs per build. Several worktrees build at once on one Mac, and each
 # build defaults to one job per core, which oversubscribes it badly. IOS_JOBS=0 = no cap.
 IOS_JOBS="${IOS_JOBS:-4}"
+
+# Runs a command with a wall-clock limit (widget-proof.sh, spike-proof.sh): run_limited <seconds>
+# <command> [args...]. The command runs in a process group of its own, which is stopped as a
+# whole (TERM, then KILL after IOS_LIMIT_GRACE_SECS) past the limit, on INT or TERM, and when
+# the command exits with anything of it left running. Returns the command's status, or 124 when
+# the limit stopped it. See limit.pl. (`pkill -P` on test.sh reached only its children:
+# xcodebuild, further down the watchdog pipeline, kept running.)
+run_limited() {
+  perl "$IOS_DIR/scripts/limit.pl" "$@"
+}
 
 # Runs a command under watchdog.sh: killed, with its whole process group, after
 # IOS_WATCHDOG_SILENCE_MIN minutes without any output (default 20), or 60 s after xcodebuild's
@@ -138,6 +478,7 @@ watchdog() {
 }
 
 # xcodebuild against the generated project, with shared DerivedData and SPM checkout dirs.
+# XCODEBUILD runs instead of xcodebuild when set (testflight.sh filters the output first).
 # Packages resolve only to the tracked pins when there are any. Runs under the watchdog;
 # output goes through xcbeautify when it is installed. xcbeautify block-buffers a pipe (a CI
 # log saw nothing until it exited), so it writes to a terminal of its own (linebuffered.py)
@@ -153,9 +494,9 @@ xcb() {
   local silence="${IOS_WATCHDOG_SILENCE_MIN:-20}"
   [[ -d "$SPM_DIR/checkouts" ]] || (( silence >= 40 )) || silence=40
   if command -v xcbeautify >/dev/null; then
-    IOS_WATCHDOG_SILENCE_MIN="$silence" watchdog xcodebuild "${args[@]}" | "$IOS_DIR/scripts/linebuffered.py" xcbeautify --quiet
+    IOS_WATCHDOG_SILENCE_MIN="$silence" watchdog "${XCODEBUILD:-xcodebuild}" "${args[@]}" | "$IOS_DIR/scripts/linebuffered.py" xcbeautify --quiet
   else
-    IOS_WATCHDOG_SILENCE_MIN="$silence" watchdog xcodebuild "${args[@]}"
+    IOS_WATCHDOG_SILENCE_MIN="$silence" watchdog "${XCODEBUILD:-xcodebuild}" "${args[@]}"
   fi
 }
 

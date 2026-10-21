@@ -115,6 +115,7 @@ struct SettingsView: View {
             }
             if let tokenError {
                 Text(tokenError).foregroundStyle(QuickrTone.danger.foreground)
+                    .qrAnnouncesError(tokenError)
             }
         } header: {
             Text("Cloudflare Access")
@@ -167,6 +168,8 @@ private struct AccessTokenEditor: View {
     @State private var clientId: String
     @State private var clientSecret = ""
     @State private var error: String?
+    /// Counts Save taps, so the same error twice is read twice.
+    @State private var attempt = 0
     @Environment(\.dismiss) private var dismiss
 
     init(credentials: KeychainAccessCredentials?, target: TokenTarget?, current: AccessCredentials?) {
@@ -182,6 +185,8 @@ private struct AccessTokenEditor: View {
                     TextField("Client ID (….access)", text: $clientId)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .accessibilityLabel("Client ID")
+                        .accessibilityInputLabels(["Client ID"])
                         .accessibilityIdentifier("token.clientId")
                     SecureField("Client Secret", text: $clientSecret)
                         .textInputAutocapitalization(.never)
@@ -189,9 +194,12 @@ private struct AccessTokenEditor: View {
                         .accessibilityIdentifier("token.clientSecret")
                 } footer: {
                     Text("From Cloudflare Zero Trust ▸ Access ▸ Service Auth. Stored only in this iPhone’s Keychain.")
+                        .accessibilityLabel(
+                            "From Cloudflare Zero Trust, Access, Service Auth. Stored only in this iPhone’s Keychain.")
                 }
                 if let error {
                     Text(error).foregroundStyle(QuickrTone.danger.foreground)
+                        .qrAnnouncesError(error, trigger: attempt)
                 }
             }
             .navigationTitle("Service token")
@@ -222,6 +230,7 @@ private struct AccessTokenEditor: View {
     }
 
     private func save() async {
+        attempt += 1
         switch AccessCredentials.validated(clientId: clientId, clientSecret: clientSecret) {
         case .success(let token?):
             guard let credentials, let target else {

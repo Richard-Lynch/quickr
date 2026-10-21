@@ -37,8 +37,12 @@ public final class HomeModel {
     public var sort: TopicSort = .due {
         didSet { if sort != oldValue { relist() } }
     }
-    /// The clock the due states and labels use: one instant for the whole list.
+    /// The device clock: one instant for the whole list ("… ago" text). Due state uses `serverNow`.
     public private(set) var now: Date
+    /// The bound store's server clock (sync-protocol.md §10), from its sync state.
+    public private(set) var clock = ServerClock.device
+    /// `now` on the server's clock: what the due states, order, sections and badge use.
+    public var serverNow: Date { clock.now(at: now) }
 
     /// Every topic in the store (the list's input).
     public private(set) var topics: [ViewTopic] = []
@@ -113,10 +117,16 @@ public final class HomeModel {
         let generation = generation
         topics = []
         bootstrapped = false
+        clock = .device
         loaded = false
         loadError = nil
         relist()
         guard let store = session.store else { return }
+        // The store's clock before its first list, so it never shows on the device clock; the
+        // sync state's observation follows it from then on.
+        let clock = (try? await store.syncState.syncState())?.serverClock ?? .device
+        guard isCurrent(generation) else { return }
+        self.clock = clock
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.observeTopics(store, generation) }
             group.addTask { await self.observeSyncState(store, generation) }
@@ -148,6 +158,11 @@ public final class HomeModel {
             for try await state in store.observeSyncState(refresh: session.refresh.stream()) {
                 guard isCurrent(observation) else { return }
                 bootstrapped = state?.bootstrapComplete ?? false
+                let clock = state?.serverClock ?? .device
+                if clock != self.clock {
+                    self.clock = clock
+                    relist()
+                }
             }
         } catch {
             // As above: the topics' observation reports store failures.
@@ -187,6 +202,7 @@ public final class HomeModel {
     }
 
     private func relist() {
+        let now = serverNow
         rows = TopicListing.list(
             topics, topic: \.topic, now: now, status: status, sort: sort, query: query)
         sections = TopicListing.sections(rows, now: now)

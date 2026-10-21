@@ -114,6 +114,16 @@ struct EntriesView: View {
                 .accessibilityIdentifier("entry.delete")
             }
             .accessibilityAction(named: "Delete") { delete(listed) }
+            // A long press too: at accessibility sizes a row can be taller than the screen, and the
+            // swipe's button lands under the home indicator (a11y L1).
+            .contextMenu {
+                Button(role: .destructive) {
+                    delete(listed)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .accessibilityIdentifier("entry.contextDelete")
+            }
         }
     }
 
@@ -168,22 +178,17 @@ struct EntriesView: View {
     private var filters: some View {
         @Bindable var model = model
         return VStack(alignment: .leading, spacing: 8) {
-            if typeSize.isAccessibilitySize {
-                Picker("Date range", selection: $model.filters.range) {
-                    ForEach(EntryRange.allCases, id: \.self) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.menu)
-                .tint(.qr.ink)
-                .accessibilityIdentifier("entries.range")
-            } else {
-                Picker("Date range", selection: $model.filters.range) {
-                    ForEach(EntryRange.allCases, id: \.self) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("entries.range")
+            QuickrSegmentedPicker("Date range", selection: $model.filters.range, valueLabel: model.filters.range.label)
+            {
+                ForEach(EntryRange.allCases, id: \.self) { Text($0.label).tag($0) }
             }
+            .accessibilityIdentifier("entries.range")
             if !model.versionChoices.isEmpty || model.showsSourceFilter {
-                HStack(spacing: 8) {
+                // Side by side, or stacked at accessibility sizes, where two menus don't fit (L3).
+                let menus =
+                    typeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(spacing: 8))
+                menus {
                     if !model.versionChoices.isEmpty {
                         Picker("Version", selection: $model.filters.version) {
                             Text("All versions").tag(Int?.none)
@@ -303,7 +308,8 @@ private struct EntryRow: View {
                 Text(entry.entry.notes)
                     .font(.qr(.footnote))
                     .foregroundStyle(.qr.inkSoft)
-                    .lineLimit(2)
+                    // Two lines in the list; at accessibility sizes two lines hold a few words (L5).
+                    .lineLimit(typeSize.isAccessibilitySize ? 6 : 2)
             }
             EntryFooter(entry: entry.entry)
         }
@@ -418,30 +424,41 @@ private struct AnswerGrid: View {
         }
     }
 
+    /// The cells, two to a row (one at accessibility sizes).
+    private func rows(_ cells: [Cell]) -> [[Cell]] {
+        let width = oneColumn ? 1 : 2
+        return stride(from: 0, to: cells.count, by: width).map { Array(cells[$0..<min($0 + width, cells.count)]) }
+    }
+
+    // A `Grid`, not a `LazyVGrid`: the row reads as one VoiceOver element (`.combine`), and a lazy
+    // grid's cells were left out of it, so the answers went unread.
     var body: some View {
         let cells = cells
         if !cells.isEmpty {
-            LazyVGrid(
-                columns: oneColumn ? [GridItem(.flexible())] : [GridItem(.flexible()), GridItem(.flexible())],
-                alignment: .leading, spacing: 8
-            ) {
-                ForEach(cells) { cell in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(cell.label).font(.qr(.caption)).foregroundStyle(.qr.muted)
-                        if let chips = cell.chips {
-                            FlowChips(labels: chips)
-                        } else {
-                            Text(cell.value)
-                                .font(cell.style)
-                                .foregroundStyle(.qr.ink)
-                                .lineLimit(cell.wide ? 2 : nil)
-                        }
+            Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 8) {
+                ForEach(rows(cells), id: \.first?.id) { row in
+                    GridRow {
+                        ForEach(row) { cell in cellView(cell) }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityElement(children: .combine)
                 }
             }
         }
+    }
+
+    private func cellView(_ cell: Cell) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(cell.label).font(.qr(.caption)).foregroundStyle(.qr.muted)
+            if let chips = cell.chips {
+                FlowChips(labels: chips)
+            } else {
+                Text(cell.value)
+                    .font(cell.style)
+                    .foregroundStyle(.qr.ink)
+                    .lineLimit(cell.wide ? 2 : nil)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -464,15 +481,23 @@ private struct FlowChips: View {
 /// The source (as the server has it), the channel (not for the web UI), and how long ago.
 private struct EntryFooter: View {
     let entry: Entry
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            HStack(spacing: 6) {
-                QuickrBadge(entry.source)
-                if let channel = Self.label(entry.channel) {
-                    QuickrBadge(channel, tone: entry.channel == .ios ? .info : .neutral)
+            // The badges and the time on one line, or the time under the badges at accessibility
+            // sizes, where they don't fit beside each other (L4).
+            let layout =
+                typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))
+            layout {
+                HStack(spacing: 6) {
+                    QuickrBadge(entry.source)
+                    if let channel = Self.label(entry.channel) {
+                        QuickrBadge(channel, tone: entry.channel == .ios ? .info : .neutral)
+                    }
                 }
-                Spacer(minLength: 0)
+                if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
                 Text(TopicText().relative(entry.capturedAt, now: context.date))
                     .font(.qr(.caption))
                     .foregroundStyle(.qr.muted)

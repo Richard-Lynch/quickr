@@ -3,9 +3,10 @@
 Sits between the app under test and a backend, passing requests through until a test
 installs a rule that makes one misbehave: drop the response after the backend has
 committed, garble a 2xx body, answer with a captive-portal page, delay or hold a request,
-answer 503/429 without reaching the backend, or strip the identity headers. The proxy
-can also be re-pointed at another named upstream, so "the same URL now reaches a
-different server" is one control call.
+answer 503/429 without reaching the backend, strip the identity headers, or stand in
+for Cloudflare Access's service-token check (``access``). The proxy can also be re-pointed
+at another named upstream, so "the same URL now reaches a different server" is one control
+call.
 
 Standard library only, so it runs from the backend image without extra dependencies::
 
@@ -50,6 +51,11 @@ HOP_BY_HOP = frozenset(
 # Recomputed by the proxy for every message it writes (bodies are buffered and de-chunked).
 FRAMING = frozenset({"content-length", "transfer-encoding"})
 IDENTITY_HEADERS = frozenset({"x-quickr-server-id", "x-quickr-epoch"})
+# Cloudflare Access's service-token headers. Access checks them and never forwards them; the
+# origin gets a signed JWT in their place (a fake one here).
+ACCESS_ID, ACCESS_SECRET = "cf-access-client-id", "cf-access-client-secret"
+ACCESS_JWT = "Cf-Access-Jwt-Assertion"
+ACCESS_LOGIN = "https://quickr.cloudflareaccess.com/cdn-cgi/access/login/quickr.example.com"
 
 ACTIONS = frozenset(
     {
@@ -62,6 +68,7 @@ ACTIONS = frozenset(
         "captive",  # answer 200 text/html without forwarding
         "status",  # answer `status` (503 by default) without forwarding
         "strip_identity",  # forward, then remove X-QuickR-Server-Id / X-QuickR-Epoch
+        "access",  # Cloudflare Access with a Service Auth policy: forward only with the token
     }
 )
 GARBLE_MODES = frozenset({"truncate", "drop_field", "not_json", "empty"})
@@ -75,7 +82,10 @@ REASONS = {
     200: "OK",
     201: "Created",
     204: "No Content",
+    302: "Found",
     400: "Bad Request",
+    401: "Unauthorized",
+    403: "Forbidden",
     404: "Not Found",
     409: "Conflict",
     429: "Too Many Requests",
@@ -96,6 +106,7 @@ CHUNK_SIZE = re.compile(rb"[0-9A-Fa-f]{1,12}")
 STATUS_LINE = re.compile(r"HTTP/1\.[01] ([0-9]{3})(?: (.*))?")
 METHOD = re.compile(r"\*|[A-Za-z]+")
 HEADER_VALUE = re.compile(r"[\x20-\x7e]*")  # what a rule may put in a response header
+TOKEN_VALUE = re.compile(r"[\x21-\x7e]+")  # a service-token id or secret, as a header value
 
 Headers = list[tuple[str, str]]
 
@@ -303,6 +314,9 @@ class Rule:
     retry_after: str | None = None
     garble: str = "truncate"
     field: str = "revision"
+    client_id: str | None = None
+    client_secret: str | None = None
+    strict: bool = False
     hits: int = 0
     waiting: int = 0
     released: asyncio.Event = dataclass_field(default_factory=asyncio.Event)
@@ -322,11 +336,15 @@ class Rule:
             "retry_after",
             "garble",
             "field",
+            "client_id",
+            "client_secret",
+            "strict",
         }
     )
 
     INT_FIELDS = frozenset({"times", "delay_ms", "status"})
-    OPTIONAL_STR_FIELDS = frozenset({"body", "content_type", "retry_after"})
+    OPTIONAL_STR_FIELDS = frozenset({"body", "content_type", "retry_after", "client_id", "client_secret"})
+    BOOL_FIELDS = frozenset({"sticky", "strict"})
     HEADER_VALUE_FIELDS = frozenset({"content_type", "retry_after"})
 
     @classmethod
@@ -342,7 +360,7 @@ class Rule:
         for name, value in data.items():
             if name in cls.INT_FIELDS:
                 ok, kind = type(value) is int, "an integer"
-            elif name == "sticky":
+            elif name in cls.BOOL_FIELDS:
                 ok, kind = type(value) is bool, "a boolean"
             elif name in cls.OPTIONAL_STR_FIELDS:
                 ok, kind = value is None or isinstance(value, str), "a string or null"
@@ -366,6 +384,10 @@ class Rule:
             raise ValueError("times must be >= 1")
         if not 0 <= rule.delay_ms <= MAX_DELAY_MS:
             raise ValueError(f"delay_ms must be in 0..{MAX_DELAY_MS}")
+        if rule.action == "access" and not all(
+            value and TOKEN_VALUE.fullmatch(value) for value in (rule.client_id, rule.client_secret)
+        ):
+            raise ValueError("access needs client_id and client_secret (printable ASCII, no spaces)")
         if not 200 <= rule.status <= 599:
             # A synthetic 1xx would never be followed by a final response.
             raise ValueError("status must be a final HTTP status code (200..599)")
@@ -539,6 +561,11 @@ class FaultProxy:
             return await self._reply(entry, writer, req, self._captive(rule))
         if rule and action == "status":
             return await self._reply(entry, writer, req, self._status(rule))
+        if rule and action == "access":
+            denied = self._access(rule, req)
+            entry["access"] = "denied" if denied else "granted"
+            if denied:
+                return await self._reply(entry, writer, req, denied)
         if rule and action == "hold":
             entry["state"] = "held"
             rule.waiting += 1
@@ -581,6 +608,28 @@ class FaultProxy:
             return False
         entry["state"] = "responded"
         return keep_alive
+
+    @staticmethod
+    def _access(rule: Rule, req: Request) -> Response | None:
+        """Cloudflare Access with a Service Auth policy, deciding on the service-token headers.
+        Returns the refusal, or None after swapping the token for a (fake) JWT in ``req``.
+
+        Like Access: a request without the headers goes to the team's login page (``302``). One
+        with a wrong token does too, unless ``strict`` (the organisation's strict service-token
+        authentication, which applies only to requests carrying the headers): then ``403``.
+        """
+        sent = {k.lower(): v for k, v in req.headers if k.lower() in (ACCESS_ID, ACCESS_SECRET)}
+        if sent.get(ACCESS_ID) == rule.client_id and sent.get(ACCESS_SECRET) == rule.client_secret:
+            # The origin sees only Access's assertion, never the token or a client-supplied one.
+            dropped = (ACCESS_ID, ACCESS_SECRET, ACCESS_JWT.lower())
+            req.headers = [(k, v) for k, v in req.headers if k.lower() not in dropped]
+            req.headers.append((ACCESS_JWT, "faultproxy.access.jwt"))
+            return None
+        if sent and rule.strict:
+            return simple_response(403, "403 Cloudflare Access (faultproxy)\n", "text/html")
+        return simple_response(
+            302, "", "text/html", [("Location", f"{ACCESS_LOGIN}?redirect_url={req.path}")]
+        )
 
     @staticmethod
     def _captive(rule: Rule) -> Response:

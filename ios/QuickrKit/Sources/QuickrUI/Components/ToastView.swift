@@ -1,5 +1,6 @@
 #if os(iOS)
 import SwiftUI
+import UIKit
 
 /// One toast: an ink card with a tone dot, the message, an optional action (44 pt) and a
 /// 44 pt dismiss button.
@@ -26,6 +27,7 @@ public struct ToastView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("toast.text")
+            .modifier(magicTap)
             if let action = toast.action {
                 Button(action.label, action: onAction)
                     .font(.qr(.sansSemiBold, size: 14, relativeTo: .subheadline))
@@ -35,6 +37,7 @@ public struct ToastView: View {
                     .contentShape(Capsule())
                     .buttonStyle(QuickrPressStyle())
                     .accessibilityIdentifier("toast.action")
+                    .modifier(magicTap)
             }
             Button(action: onDismiss) {
                 QIcon.x.view(size: 16)
@@ -44,7 +47,8 @@ public struct ToastView: View {
             .buttonStyle(.plain)
             .opacity(0.6)
             .padding(.trailing, -8)
-            .accessibilityLabel("Dismiss")
+            .accessibilityLabel("Dismiss \(toast.title)")
+            .modifier(magicTap)
         }
         .foregroundStyle(.qr.paper)
         .padding(.leading, 16)
@@ -58,6 +62,12 @@ public struct ToastView: View {
         )
         .qrShadow(.float)
     }
+
+    /// While VoiceOver is on one of the toast's elements, a magic tap (two-finger double-tap)
+    /// runs its action. Only an actionable toast has it, so play/pause elsewhere is untouched; the
+    /// app delegate also catches one from anywhere (audit X1). Focus never moves here by itself:
+    /// the announcement says the action is there.
+    private var magicTap: ToastMagicTap { ToastMagicTap(action: toast.action == nil ? nil : onAction) }
 
     private var toneIcon: some View {
         let (icon, color): (QIcon, Color) =
@@ -73,10 +83,26 @@ public struct ToastView: View {
     }
 }
 
+/// The toast's own magic tap, only when it has an action (a toast's kind never changes, so the
+/// branch never changes a live toast's identity).
+private struct ToastMagicTap: ViewModifier {
+    let action: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        if let action {
+            content.accessibilityAction(.magicTap, action)
+        } else {
+            content
+        }
+    }
+}
+
 private struct ToastHostModifier: ViewModifier {
     let center: ToastCenter
     let bottomInset: CGFloat
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let voiceOverStatus = NotificationCenter.default.publisher(
+        for: UIAccessibility.voiceOverStatusDidChangeNotification)
+    @QuickrReduceMotion private var reduceMotion
 
     func body(content: Content) -> some View {
         content
@@ -99,8 +125,13 @@ private struct ToastHostModifier: ViewModifier {
             }
             .onChange(of: center.items.last?.id) { _, id in
                 guard let id, let item = center.items.first(where: { $0.id == id }) else { return }
-                AccessibilityNotification.Announcement(item.toast.title).post()
+                // High priority: an auto-save closes Record as the toast appears, and the screen
+                // change would cut a normal announcement off.
+                var announcement = AttributedString(item.toast.announcement)
+                announcement.accessibilitySpeechAnnouncementPriority = .high
+                AccessibilityNotification.Announcement(announcement).post()
             }
+            .onReceive(voiceOverStatus) { _ in center.voiceOverStatusChanged() }
     }
 }
 

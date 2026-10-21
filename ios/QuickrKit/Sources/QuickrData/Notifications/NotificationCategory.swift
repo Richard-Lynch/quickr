@@ -206,7 +206,7 @@ public struct NotificationCategory: Sendable, Hashable {
                 actions.append(
                     Action(
                         kind: "log", identifier: id(number.key, .number, text),
-                        title: "✓ \(text)" + (number.unit.map { " \($0)" } ?? "")))
+                        title: "Log \(text)" + (number.unit.map { " \($0)" } ?? "")))
             }
             actions.append(
                 Action(
@@ -299,7 +299,7 @@ public struct ActionIdentifier: Sendable, Hashable, CustomStringConvertible {
         }
     }
 
-    private static func isCanonicalUUID(_ text: String) -> Bool {
+    static func isCanonicalUUID(_ text: String) -> Bool {
         guard let uuid = UUID(uuidString: text) else { return false }
         return uuid.uuidString.lowercased() == text
     }
@@ -309,7 +309,7 @@ public struct ActionIdentifier: Sendable, Hashable, CustomStringConvertible {
         return Int(text)
     }
 
-    private static func isKey(_ text: String) -> Bool {
+    static func isKey(_ text: String) -> Bool {
         // \A…\z: the whole string, whatever a regex engine's `$` does before a final newline.
         text.range(of: #"\A[a-z][a-z0-9_]{0,62}\z"#, options: .regularExpression) != nil
     }

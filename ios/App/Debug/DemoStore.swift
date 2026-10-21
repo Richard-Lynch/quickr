@@ -1,5 +1,6 @@
 #if DEBUG
 import Foundation
+import OSLog
 import QuickrCore
 @_spi(Testing) import QuickrData
 
@@ -15,20 +16,80 @@ enum DemoStore {
     /// the server refused, for the entries list's pinned rows.
     static var withOutbox: Bool { ProcessInfo.processInfo.arguments.contains("-QuickrDemoOutbox") }
 
+    /// `-QuickrDemoShared [fresh]` (with `-QuickrDemoStore`, simulator only): the demo goes into
+    /// the App Group's store instead of a temporary one, so the widget extension, Controls and an
+    /// app the system launches for a notification action (without these arguments) see the demo
+    /// topics too (widget screenshots, MediaCaptureUITests). It is seeded once and then kept, so a
+    /// relaunch shows what was logged; `fresh` seeds a new demo server (a new id) and makes it the
+    /// active one. Nothing is deleted (an extension may hold the old files open): earlier demo
+    /// servers stay registered, inactive. Ignored on a device, where the App Group holds real data.
+    static var shared: Shared? {
+        #if targetEnvironment(simulator)
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-QuickrDemoShared") else { return nil }
+        return i + 1 < args.count && args[i + 1] == "fresh" ? .fresh : .keep
+        #else
+        nil
+        #endif
+    }
+
+    enum Shared { case keep, fresh }
+
     /// The demo environment: the store is seeded before the session opens.
     @MainActor static func environment() -> AppEnvironment {
-        let location = StoreLocation(
-            root: URL.temporaryDirectory.appending(path: "quickr-demo-\(UUID().uuidString)"))
+        let mode = shared
+        let location =
+            mode == nil
+            ? StoreLocation(root: URL.temporaryDirectory.appending(path: "quickr-demo-\(UUID().uuidString)"))
+            : StoreLocation.shared(appGroup: AppGroup.identifier)
         return AppEnvironment(
             settings: AppSettings(defaults: UserDefaults(suiteName: "quickr-demo-\(UUID().uuidString)")!),
-            prepare: { try? await seed(location) },
+            prepare: {
+                do {
+                    if let mode {
+                        _ = try await prepareShared(location, mode: mode)
+                    } else {
+                        try await seed(location)
+                    }
+                } catch {
+                    Logger(subsystem: "com.bahumia.quickr", category: "demo").error(
+                        "demo seeding failed: \(error, privacy: .public)")
+                }
+            },
             makeSession: { try AppSession(configuration: .init(location: location, transport: OfflineTransport())) })
     }
 
+    /// The temporary demo's server id. Server ids are lowercase UUIDs, as a reminder's action
+    /// identifiers require (notifications.md §4.2).
+    static let serverId = "0de00000-0000-4000-8000-000000000001"
+    /// Every demo server's address (it never answers: the demo session is offline).
+    static let baseURL = "https://quickr.example"
+
+    /// `-QuickrDemoShared`'s store at `location`: `.keep` keeps the active server when it is a
+    /// demo (a completely seeded one: a demo server becomes active only once its seeding is done),
+    /// otherwise, and always for `.fresh`, seeds a new demo server. Returns the active demo's id.
+    static func prepareShared(
+        _ location: StoreLocation, mode: Shared, notifier: (any ChangeNotifier)? = DarwinNotifier()
+    ) async throws -> String {
+        // Other processes (the widget extension) follow the App Group's registry: tell them.
+        let partitions = try StorePartitions.open(at: location, notifier: notifier)
+        let registry = partitions.registry.repository
+        if mode == .keep, let active = try await registry.activeServerId(),
+            try await registry.server(id: active)?.baseURL == baseURL
+        {
+            return active
+        }
+        let id = UUID().uuidString.lowercased()
+        try await seed(partitions, serverId: id, now: Date())
+        return id
+    }
+
     static func seed(_ location: StoreLocation, now: Date = Date()) async throws {
-        let partitions = try StorePartitions.open(at: location, notifier: nil)
-        let store = try await partitions.createStore(serverId: "demo-server", baseURL: "https://quickr.example")
-        try await partitions.registry.setActive("demo-server")
+        try await seed(StorePartitions.open(at: location, notifier: nil), serverId: serverId, now: now)
+    }
+
+    static func seed(_ partitions: StorePartitions, serverId: String, now: Date) async throws {
+        let store = try await partitions.createStore(serverId: serverId, baseURL: baseURL)
         let topics = topics(now: now)
         try await store.writer.write { db in
             for topic in topics {
@@ -54,6 +115,8 @@ enum DemoStore {
             try db.execute(sql: "UPDATE sync_state SET epoch = 'demo-epoch'")
         }
         if withOutbox { try await seedOutbox(store, now: now) }
+        // Last: other processes see the demo only once it is all there.
+        try await partitions.registry.setActive(serverId)
     }
 
     /// The refused edit's error: a 422 whose `Problem` puts the message on the glasses field.
@@ -175,13 +238,6 @@ enum DemoStore {
             topic(
                 7, "old-habit", "Old habit", status: .archived, entries: 3, last: ago(60 * 24 * 20), questions: [note]),
         ]
-    }
-}
-
-/// Every request fails as if offline.
-private struct OfflineTransport: Transport {
-    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        throw URLError(.notConnectedToInternet)
     }
 }
 #endif

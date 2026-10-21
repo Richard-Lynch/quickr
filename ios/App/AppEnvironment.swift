@@ -21,6 +21,8 @@ final class AppEnvironment {
     let router = Router()
     /// The sync pill and sheet's state, and the network and timer flush triggers (SYNC-UX).
     let sync: SyncController
+    /// Reloads the widgets when what they show changes (WIDGETS).
+    let widgets = WidgetReloader()
     /// Every screen's toasts, hosted once at the root so a toast outlives navigation.
     let toasts = ToastCenter()
     /// How far above the bottom toasts sit: a screen with a sticky bar (Record's Save) raises them
@@ -36,6 +38,8 @@ final class AppEnvironment {
     let entryToasts: EntryToasts
     /// Every tile's quick-log model, kept while the app runs (QuickLogModels).
     let quickLogModels: QuickLogModels
+    /// A tap-to-fix notification's text, until its record screen takes it (`takeRecordPrefill`).
+    var recordPrefill: NotificationPrefill?
     /// Nil only when it couldn't be created (`sessionError`); `start()` tries again.
     private(set) var session: AppSession?
     private(set) var sessionError: String?
@@ -87,11 +91,15 @@ final class AppEnvironment {
     /// The live session over the App Group's files, sending through URLSession with the
     /// Cloudflare Access token from the shared Keychain. `categoryCenter` is the system's: app
     /// tests pass nil unless they hold `SystemCategoriesLock` (the set is one per process).
+    /// `notificationCenter` carries GRDB's suspend and resume: `.default` is GRDB's own, so the
+    /// app's databases really suspend in the background; a hosted test that backgrounds a session
+    /// passes its own, or it would suspend every other suite's database in the process.
     static func live(
         location: StoreLocation = .shared(appGroup: AppGroup.identifier), defaults: UserDefaults = AppGroup.defaults,
         keychain: any KeychainStore = SystemKeychain(), transport: any Transport = URLSessionTransport(),
         network: any NetworkMonitoring = NWNetworkMonitor(),
-        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
+        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter(),
+        notificationCenter: NotificationCenter = .default
     ) -> AppEnvironment {
         let credentials = KeychainAccessCredentials(keychain: keychain)
         // APNs registration (REG) sends through the same transport and Access token.
@@ -104,7 +112,7 @@ final class AppEnvironment {
             let session = try AppSession(
                 configuration: .init(
                     location: location, transport: transport, credentials: credentials,
-                    categoryCenter: categoryCenter))
+                    notificationCenter: notificationCenter, categoryCenter: categoryCenter))
             // Addresses resolve to servers through the registry, so each request gets its server's token.
             credentials.directory.attach(session.partitions.registry.repository)
             return session
@@ -117,12 +125,22 @@ final class AppEnvironment {
     /// The app's launch path: builds the live environment and registers the active store's topics
     /// for App Intents. Siri, Shortcuts and widget buttons can launch the app for an intent without
     /// a scene, so this runs in `QuickRApp.init`, before anything can query an entity. It opens
-    /// the registry only; the store opens on first use.
-    static func bootstrap(location: StoreLocation = .shared(appGroup: AppGroup.identifier)) -> AppEnvironment {
+    /// the registry only; the store opens on first use. `categoryCenter` as in `live` (app tests
+    /// pass nil unless they hold `SystemCategoriesLock`).
+    static func bootstrap(
+        location: StoreLocation = .shared(appGroup: AppGroup.identifier),
+        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
+    ) -> AppEnvironment {
         #if DEBUG
-        let environment = UITestLaunch.isActive ? UITestLaunch.environment() : live(location: location)
+        // A probe launch (DeviceProbeLaunch) holds the app's category registrations back while it runs.
+        let environment =
+            UITestLaunch.isActive
+            ? UITestLaunch.environment()
+            : DeviceProbeLaunch.requested() != nil
+                ? live(location: location, categoryCenter: DeviceProbeLaunch.gatedCenter())
+                : live(location: location, categoryCenter: categoryCenter)
         #else
-        let environment = live(location: location)
+        let environment = live(location: location, categoryCenter: categoryCenter)
         #endif
         environment.registerIntentTopics()
         return environment
@@ -133,6 +151,37 @@ final class AppEnvironment {
 
     func registerIntentTopics() {
         IntentTopicSource.register(topics)
+        // Writes from Siri, Shortcuts and the Action button (origin `.siri`). An intent can launch
+        // the app with no scene, before `start()` binds the session, so the active store is opened
+        // through the partitions (with its recovery); the flush is asked of the bound scheduler,
+        // when there is one (otherwise the entry goes at the next sync).
+        // The session is read when an intent runs (a demo store opens it in `start()`).
+        let current: @Sendable () async -> AppSession? = { [weak self] in await MainActor.run { self?.session } }
+        IntentWrites.register(
+            IntentWriteContext(
+                origin: .siri,
+                openActiveStore: { try await current()?.partitions.openActiveStore(role: .app)?.store },
+                afterCommit: { _ in await current()?.scheduler?.requestFlush(reason: .enqueue) },
+                // The app may be suspended in the background (Siri, the Action button): resumed for the write.
+                holdStore: {
+                    let hold = await current()?.holdStoreResumed()
+                    return { await hold?.release() }
+                }))
+        // OpenRecordIntent, and repeat-last falling back to the record screen: the same hand-off as
+        // a tap-to-fix notification's prefill.
+        IntentNavigation.register { [weak self] request in
+            guard let self else { return }
+            switch request {
+            case .record(let topicId, let prefill, let scope):
+                // The store the intent read the topic from (§7.5): opened only while it's active.
+                let texts = prefill.isEmpty ? nil : prefill
+                await openScoped(
+                    [.record(TopicLinkRef(id: topicId))], serverId: scope.serverId, storeGen: scope.storeGen,
+                    prefill: texts.map {
+                        NotificationPrefill(serverId: scope.serverId, topicId: topicId.wireString, texts: $0)
+                    })
+            }
+        }
     }
 
     /// From the root view's `.task`: starts the session (finishing a bootstrap, or connecting to
@@ -152,9 +201,18 @@ final class AppEnvironment {
                 openSession()
                 registerIntentTopics()
             }
+            #if DEBUG || QUICKR_PERF
+            PerfProbe.mark("start: begins")
+            #endif
             // Before the first request, so it already carries the migrated token.
             await migrateLegacyToken()
+            #if DEBUG || QUICKR_PERF
+            PerfProbe.mark("start: token migrated")
+            #endif
             await session?.start(serverURL: settings.serverURL)
+            #if DEBUG || QUICKR_PERF
+            PerfProbe.mark("start: session started (bound)")
+            #endif
             if let session { sync.startMonitoring(session) }
             // A background refresh's time ran out mid-start (`cancelStart`): the connect may not
             // have happened, and the session won't redo it; the next activation does.
@@ -170,6 +228,15 @@ final class AppEnvironment {
         starting = attempt
         await attempt.value
         starting = nil
+    }
+
+    /// Waits for the launch's start to finish, 10 s at most: a link or a notification tap can
+    /// arrive before the session has bound its store (a cold launch from a widget).
+    func startSettled() async {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !hasStarted, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
     }
 
     /// The `scenePhase` hooks (outbox.md §10, sync-protocol.md §9): on `.active`, resume, rebind,

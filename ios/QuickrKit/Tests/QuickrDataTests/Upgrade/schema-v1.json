@@ -1,0 +1,49 @@
+{
+  "frozen_at" : "48fa566 (M1, the first store schema; unchanged since)",
+  "registry_v1" : [
+    "CREATE TABLE server (\n  server_id                 TEXT PRIMARY KEY NOT NULL,\n  base_url                  TEXT NOT NULL,\n  display_name              TEXT,\n  store_gen                 INTEGER NOT NULL DEFAULT 1,\n  created_at                REAL NOT NULL,\n  last_sync_at              REAL,\n  pending_gen               INTEGER,\n  pending_confirmed_count   INTEGER,\n  pending_confirmed_max_seq INTEGER,\n  pending_token             TEXT\n)",
+    "CREATE TABLE active (\n  id        INTEGER PRIMARY KEY CHECK (id = 1),\n  server_id TEXT NOT NULL\n)",
+    "CREATE TABLE retired_file (\n  path            TEXT PRIMARY KEY NOT NULL,\n  retired_at_wall REAL NOT NULL,\n  retired_boot_id TEXT NOT NULL,\n  retired_ct      INTEGER NOT NULL\n)",
+    "CREATE TABLE notification_category (\n  id            TEXT PRIMARY KEY,\n  server_id     TEXT NOT NULL,\n  topic_id      TEXT NOT NULL,\n  actions_json  TEXT NOT NULL,\n  created_at    REAL NOT NULL\n)",
+    "CREATE TABLE pending_unregister (\n  server_id        TEXT NOT NULL,\n  token            TEXT NOT NULL,\n  expect_epoch     TEXT,\n  first_attempt_at REAL NOT NULL,\n  attempts         INTEGER NOT NULL DEFAULT 0,\n  due_boot_id      TEXT,\n  due_ct           INTEGER,\n  PRIMARY KEY (server_id, token)\n)",
+    "CREATE TABLE apns_state (\n  id                   INTEGER PRIMARY KEY CHECK (id = 1),\n  token                TEXT,\n  environment          TEXT CHECK (environment IN ('sandbox', 'production')),\n  registered_server_id TEXT,\n  last_registered_at   REAL\n)"
+  ],
+  "registry_v2" : [
+    "ALTER TABLE apns_state ADD COLUMN register_attempts INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE apns_state ADD COLUMN register_due_boot_id TEXT",
+    "ALTER TABLE apns_state ADD COLUMN register_due_ct INTEGER"
+  ],
+  "registry_v2_frozen_at" : "3d93087 (registry v2 as shipped before CATCAP's v3)",
+  "store_v1" : [
+    "CREATE TABLE topic (\n  id                  TEXT PRIMARY KEY NOT NULL,\n  slug                TEXT NOT NULL,\n  name                TEXT NOT NULL,\n  description         TEXT NOT NULL DEFAULT '',\n  status              TEXT NOT NULL CHECK (status IN ('active', 'archived')),\n  current_version     INTEGER NOT NULL,\n  revision            INTEGER NOT NULL,\n  question_count      INTEGER NOT NULL,\n  created_at          REAL NOT NULL,\n  updated_at          REAL NOT NULL,\n  archived_at         REAL,\n  schedule_json       TEXT,\n  schedule_updated_at REAL,\n  questions_json      TEXT NOT NULL\n)",
+    "CREATE INDEX ix_topic_slug ON topic(slug)",
+    "CREATE TABLE topic_version (\n  id             TEXT PRIMARY KEY NOT NULL,\n  topic_id       TEXT NOT NULL,\n  version        INTEGER NOT NULL,\n  questions_json TEXT NOT NULL,\n  change_note    TEXT NOT NULL DEFAULT '',\n  created_at     REAL NOT NULL,\n  UNIQUE (topic_id, version)\n)",
+    "CREATE TABLE entry (\n  id           TEXT PRIMARY KEY NOT NULL,\n  topic_id     TEXT NOT NULL,\n  version      INTEGER NOT NULL,\n  revision     INTEGER NOT NULL,\n  source       TEXT NOT NULL,\n  channel      TEXT NOT NULL,\n  captured_at  REAL NOT NULL,\n  created_at   REAL NOT NULL,\n  updated_at   REAL NOT NULL,\n  notes        TEXT NOT NULL DEFAULT '',\n  meta_json    TEXT NOT NULL DEFAULT '{}',\n  answers_json TEXT NOT NULL\n)",
+    "CREATE INDEX ix_entry_topic ON entry(topic_id, captured_at)",
+    "CREATE TABLE tombstone (\n  kind     TEXT NOT NULL CHECK (kind IN ('entry', 'topic', 'version')),\n  id       TEXT NOT NULL,\n  topic_id TEXT NOT NULL,\n  seq      INTEGER,\n  PRIMARY KEY (kind, id)\n)",
+    "CREATE INDEX ix_tombstone_topic ON tombstone(topic_id)",
+    "CREATE TABLE sync_state (\n  id                 INTEGER PRIMARY KEY CHECK (id = 1),\n  server_id          TEXT NOT NULL,\n  base_url           TEXT NOT NULL,\n  epoch              TEXT,\n  cursor             INTEGER NOT NULL DEFAULT 0,\n  head_seen          INTEGER NOT NULL DEFAULT 0,\n  layer_gen          INTEGER NOT NULL DEFAULT 1,\n  rebuilding         TEXT,\n  epoch_suspect      INTEGER NOT NULL DEFAULT 0 CHECK (epoch_suspect IN (0, 1)),\n  retired            INTEGER NOT NULL DEFAULT 0 CHECK (retired IN (0, 1)),\n  identity_mismatch  INTEGER NOT NULL DEFAULT 0 CHECK (identity_mismatch IN (0, 1)),\n  last_pull_at       REAL,\n  skew_ms            REAL NOT NULL DEFAULT 0,\n  skew_measured_at   REAL,\n  bootstrap_complete INTEGER NOT NULL DEFAULT 0 CHECK (bootstrap_complete IN (0, 1))\n)",
+    "CREATE TABLE stage_topic (\n  id                  TEXT PRIMARY KEY NOT NULL,\n  slug                TEXT NOT NULL,\n  name                TEXT NOT NULL,\n  description         TEXT NOT NULL DEFAULT '',\n  status              TEXT NOT NULL CHECK (status IN ('active', 'archived')),\n  current_version     INTEGER NOT NULL,\n  revision            INTEGER NOT NULL,\n  question_count      INTEGER NOT NULL,\n  created_at          REAL NOT NULL,\n  updated_at          REAL NOT NULL,\n  archived_at         REAL,\n  schedule_json       TEXT,\n  schedule_updated_at REAL,\n  questions_json      TEXT NOT NULL\n)",
+    "CREATE INDEX ix_stage_topic_slug ON stage_topic(slug)",
+    "CREATE TABLE stage_topic_version (\n  id             TEXT PRIMARY KEY NOT NULL,\n  topic_id       TEXT NOT NULL,\n  version        INTEGER NOT NULL,\n  questions_json TEXT NOT NULL,\n  change_note    TEXT NOT NULL DEFAULT '',\n  created_at     REAL NOT NULL,\n  UNIQUE (topic_id, version)\n)",
+    "CREATE TABLE stage_entry (\n  id           TEXT PRIMARY KEY NOT NULL,\n  topic_id     TEXT NOT NULL,\n  version      INTEGER NOT NULL,\n  revision     INTEGER NOT NULL,\n  source       TEXT NOT NULL,\n  channel      TEXT NOT NULL,\n  captured_at  REAL NOT NULL,\n  created_at   REAL NOT NULL,\n  updated_at   REAL NOT NULL,\n  notes        TEXT NOT NULL DEFAULT '',\n  meta_json    TEXT NOT NULL DEFAULT '{}',\n  answers_json TEXT NOT NULL\n)",
+    "CREATE INDEX ix_stage_entry_topic ON stage_entry(topic_id, captured_at)",
+    "CREATE TABLE stage_tombstone (\n  kind     TEXT NOT NULL CHECK (kind IN ('entry', 'topic', 'version')),\n  id       TEXT NOT NULL,\n  topic_id TEXT NOT NULL,\n  seq      INTEGER,\n  PRIMARY KEY (kind, id)\n)",
+    "CREATE INDEX ix_stage_tombstone_topic ON stage_tombstone(topic_id)",
+    "CREATE TABLE stage_state (\n  id     INTEGER PRIMARY KEY CHECK (id = 1),\n  cursor INTEGER NOT NULL DEFAULT 0\n)",
+    "INSERT INTO stage_state (id, cursor) VALUES (1, 0)",
+    "CREATE TABLE reset_veto (\n  token TEXT PRIMARY KEY NOT NULL\n)",
+    "CREATE TABLE outbox_item (\n  seq             INTEGER PRIMARY KEY AUTOINCREMENT,\n  id              TEXT NOT NULL UNIQUE,\n  kind            TEXT NOT NULL,\n  entity_kind     TEXT NOT NULL,\n  entity_id       TEXT NOT NULL,\n  topic_id        TEXT NOT NULL,\n  payload_json    TEXT NOT NULL,\n  base_revision   INTEGER,\n  state           TEXT NOT NULL CHECK (state IN ('held','pending','in_flight','uncertain','failed')),\n  maybe_delivered INTEGER NOT NULL DEFAULT 0,\n  attempts        INTEGER NOT NULL DEFAULT 0,\n  due_boot_id     TEXT,\n  due_ct          INTEGER,\n  hold_boot_id    TEXT,\n  hold_ct         INTEGER,\n  claim_token     TEXT,\n  claim_owner     TEXT,\n  claim_layer_gen INTEGER,\n  claim_epoch     TEXT,\n  pre_claim_json  TEXT,\n  failure_reason  TEXT,\n  last_error_json TEXT,\n  rebase_count    INTEGER NOT NULL DEFAULT 0,\n  cancels_create  INTEGER NOT NULL DEFAULT 0,\n  origin          TEXT NOT NULL,\n  created_at      REAL NOT NULL,\n  updated_at      REAL NOT NULL,\n  row_version     INTEGER NOT NULL DEFAULT 0\n)",
+    "CREATE INDEX ix_outbox_entity ON outbox_item(entity_kind, entity_id, seq)",
+    "CREATE INDEX ix_outbox_topic  ON outbox_item(topic_id, seq)",
+    "CREATE INDEX ix_outbox_state  ON outbox_item(state)",
+    "CREATE TABLE lease (\n  name       TEXT PRIMARY KEY,\n  owner      TEXT,\n  token      TEXT,\n  boot_id    TEXT,\n  expires_ct INTEGER\n)",
+    "INSERT INTO lease (name) VALUES ('sync'), ('flush')",
+    "CREATE TABLE ui_draft (\n  key          TEXT PRIMARY KEY NOT NULL,\n  topic_id     TEXT NOT NULL,\n  payload_json TEXT NOT NULL,\n  updated_at   REAL NOT NULL\n)",
+    "CREATE INDEX ix_ui_draft_topic ON ui_draft(topic_id)",
+    "CREATE TABLE stats_cache (\n  key          TEXT PRIMARY KEY NOT NULL,\n  topic_id     TEXT NOT NULL,\n  epoch        TEXT NOT NULL,\n  payload_json TEXT NOT NULL,\n  fetched_at   REAL NOT NULL\n)",
+    "CREATE INDEX ix_stats_cache_topic ON stats_cache(topic_id)",
+    "CREATE TABLE widget_state (\n  key          TEXT PRIMARY KEY NOT NULL,\n  topic_id     TEXT,\n  payload_json TEXT NOT NULL,\n  updated_at   REAL NOT NULL\n)",
+    "CREATE INDEX ix_widget_state_topic ON widget_state(topic_id)"
+  ]
+}

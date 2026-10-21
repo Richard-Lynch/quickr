@@ -191,7 +191,7 @@ due list and the badge are the safety net.
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `enum` with _n_ options (1 ≤ _n_ ≤ 4) | One action per option. The title is the label.                                                                         |
 | `enum` with 5–6 options (Q4)          | The 3 most-used options, then **"More…"**: an `open` action (`.foreground`) that opens `url` with nothing preselected. |
-| `int`/`double`, `last_value ≠ null`   | 1. "✓ {fmt(last)}", which logs `last_value`. 2. "Other value…", a text input.                                          |
+| `int`/`double`, `last_value ≠ null`   | 1. "Log {fmt(last)}", which logs `last_value`. 2. "Other value…", a text input.                                        |
 | `int`/`double`, `last_value = null`   | 1. "Other value…", a text input.                                                                                       |
 | `null`                                | No category. Tapping opens `url`.                                                                                      |
 
@@ -217,7 +217,7 @@ the most useful ones:
 
 - for enums: the two most-used options (with 5–6 options; "More…" is then the
   4th action, visible only when expanded), or the first two (with fewer);
-- for numbers: "✓ last" and "Other value…".
+- for numbers: "Log {fmt(last)}" and "Other value…".
 
 Everything else is one tap away via the body. Checkpoint D counts how many
 actions iOS actually shows.
@@ -267,7 +267,8 @@ H = "quickr-cat-v1"
 
 - An enum title is the payload label, exactly as given.
 - The number action title is
-  `"✓ " + fmt(last_value) + (unit ? " " + unit : "")`.
+  `"Log " + fmt(last_value) + (unit ? " " + unit : "")`. Words, not a "✓"
+  glyph, so VoiceOver and Voice Control read and match it (a11y audit N1).
 - `fmt(x)` (decided 2026-10-17 after the B7 review; **no rounding anywhere**):
   - for `int`: base 10, with no grouping;
   - for `double`: the **shortest round-trip decimal** of the binary64 value (the
@@ -275,7 +276,7 @@ H = "quickr-cat-v1"
     **without an exponent**, with no trailing zeros and no trailing dot, and never
     `-0`. `decimals` is a display hint only and is **not** used here.
 - The decimal separator is always `.`. The `n` identifier value uses the same
-  `fmt`, so "✓ {fmt}" logs exactly `last_value`.
+  `fmt`, so "Log {fmt}" logs exactly `last_value`.
 - `last_value` is kept whenever the server would accept it as an answer to the
   current question (finite, in bounds, integral for `int`); extra fraction digits
   beyond `decimals` do not drop it.
@@ -284,9 +285,15 @@ H = "quickr-cat-v1"
 
 ## 5. Category registration
 
-Rule 9 pruning is deferred (§5.1). This matches PLAN rule 16, in the amendments from the M0 specs review.
+**[decided 2026-10-21, CATCAP]** Registration is **capped and prioritised**. The
+original design registered the whole append-only table every time. Checkpoint D's
+probe (DPROBE) found that `notificationCategories()` reads back at most **100**
+categories on the iOS 26 simulator, whatever is registered (100 of 150, 1,000 and
+5,000). A typical user passes 100 rows within a month (§5.1), so the union would
+silently lose actions, and §5.3 would re-register on every activation. This
+supersedes the "never prunes" rule below it in the M0 specs review (PLAN rule 16).
 
-### 5.1 Table (registry, app-global, append-only)
+### 5.1 Table (registry, app-global)
 
 ```sql
 CREATE TABLE notification_category (
@@ -294,32 +301,104 @@ CREATE TABLE notification_category (
   server_id     TEXT NOT NULL,
   topic_id      TEXT NOT NULL,
   actions_json  TEXT NOT NULL,      -- the rendered action descriptor
-  created_at    REAL NOT NULL
+  created_at    REAL NOT NULL,
+  -- registry v3 (CATCAP):
+  current       INTEGER NOT NULL DEFAULT 0,  -- the topic's category as of the app's last refresh
+  due_at        REAL,                        -- the topic's due time then (due since, or next due); null: no reminders
+  used_at       REAL NOT NULL DEFAULT 0,     -- when a process last wanted it (v3 sets it to created_at); never moves back
+  pushed_at     REAL,                        -- when the NSE last showed a push with it; never moves back
+  push_seq      INTEGER                      -- push order: a registry counter, not a clock
+);
+
+CREATE TABLE notification_registration (     -- registry v3: one row
+  id            INTEGER PRIMARY KEY CHECK (id = 1),
+  generation    INTEGER NOT NULL             -- moved by every setNotificationCategories call
 );
 ```
 
-- **The table is append-only, and v1 never prunes it.** Rows are only ever
-  inserted. PLAN rule 9's "prune after 7 days" is deferred until growth has been
-  measured. Growth is one row per distinct action descriptor: per topic, per version,
-  per option ordering and, for number topics, per distinct last value. Number
-  topics with continuously varying values can grow without bound, so **the growth
-  rate is to be measured** (checkpoint D, D1, and again after M3 and M4).
+- **A row never changes in place.** An id's actions are fixed by its hash (§4.3).
+  Only `current`, `due_at`, `used_at`, `pushed_at` and `push_seq` change.
+  `due_at` is replaced by each refresh. `used_at` and `pushed_at` are read under
+  the registry lock and only ever move forward (`MAX`), so a waiter with an
+  earlier clock never stamps an earlier time. `push_seq` is the next value of a
+  counter taken under the lock.
+- **Growth, measured** (`CategoryGrowthTests`: a seeded year of one person, twelve
+  topics, ten of them quick-loggable: six numbers and four enums, two version edits
+  each). Distinct ids registered: **42 by day 7, 104 by day 30, 197 by day 90 and 644
+  by day 365.** Nearly all are number topics, since every new last value is a new id.
+  The current set is only **10**. N1 ("Log 72 kg") adds one new row per number topic
+  on upgrade, on top of the user's history.
+- **Rows are deleted** once nothing can need them (§5.2): outside the capped
+  selection, not current, not on screen, and not wanted in the last day.
 - The table lives in the registry because `setNotificationCategories` replaces
   the **whole app's** set, for all servers.
 
 ### 5.2 Registration procedure
 
 ```
-register(newRows):
+REGISTRATION_CAP = 90                               // one constant (NotificationCategories.registrationCap)
+PUSH_WINDOW = 1 day
+DUE_WINDOW = 7 days
+DELETE_GRACE = 1 day
+
+register(rows, role, replacingCurrentOf: server?, onlyIfMissing):
+  if onlyIfMissing:                                 // outside any transaction, in this order:
+    asked_gen = SELECT generation                   //   the generation first,
+    installed = await center.notificationCategories()   // then the system's set
+  delivered = await center.deliveredNotifications() // outside, too (category ids on screen)
   TX IMMEDIATE on registry:                         // registry write lock = the cross-process mutex
-    INSERT OR IGNORE newRows
-    rows = SELECT * FROM notification_category      // the full union
-    center.setNotificationCategories(build(rows))   // synchronous call; no await inside the TX
+    now = wall clock                                // read under the lock
+    if server: UPDATE … SET current = 0 WHERE server_id = server
+    role current: UPSERT rows SET current = 1, due_at = row.due, used_at = MAX(used_at, now)
+    role pushed:  seq = MAX(push_seq) + 1
+                  UPSERT rows SET push_seq = seq, pushed_at = MAX(pushed_at, now), used_at = MAX(used_at, now)
+    selected = select(now, delivered, required: role pushed ? rows : ∅)   // actions never change
+    if the caller prunes (the app; not the NSE):
+      DELETE rows ∉ selected AND current = 0 AND id ∉ delivered AND used_at < now − DELETE_GRACE
+    if not onlyIfMissing                            // always
+       or generation ≠ asked_gen                    // someone registered since `installed` was read
+       or selected ⊄ installed:
+      center.setNotificationCategories(selected)    // synchronous; no await inside the TX
+      UPDATE notification_registration SET generation = generation + 1
   COMMIT
+
+select(now, delivered, required):                   // the same rule in every process
+  rank each row:
+    0. id ∈ required                                // the push this registration is for
+    1. pushed_at ≥ now − PUSH_WINDOW                // a push shown in the last day; latest push_seq first
+    2. current AND |due_at − now| ≤ DUE_WINDOW      // due within 7 days either way; closest first
+    3. id ∈ delivered                               // still on screen; most recently wanted first
+    4. the rest                                     // most recently wanted first
+  ties by id; the first REGISTRATION_CAP
 ```
 
-- **Always the union.** Every call registers every row ever inserted, so no
-  process can register a set that is missing another process's category.
+- **Always the capped selection, from the shared table.** Every process selects
+  from the same table by the same rule while it holds the registry's write lock. No
+  process can register a set that drops another process's higher-priority
+  category. Two processes registering at once give a set that reflects both, in
+  rank order (N4).
+- **The reminder being shown comes first.** The NSE registers its push's category
+  as `pushed`. Its own registration must include it (tier 0). After that it ranks
+  in tier 1 for a day, even when the cap is full of due topics. Push order is
+  `push_seq`, a counter read and incremented under the lock, so the latest push
+  stays first after a clock change or between pushes with the same timestamp. Pushing doesn't touch `current`, which is the app's view. An app refresh
+  working from an older delivered snapshot therefore can't demote or delete it.
+  The least recently wanted row makes room.
+- **Due is bounded both ways.** A topic due, or overdue, by more than 7 days ranks
+  by use. That covers an inactive server's topics, whose due times aren't
+  refreshed, so they can't hold the top of the selection forever.
+- **Old ids drop out** once they're outside the selection, not current (a newer
+  last value, a new version, an archived topic), not on any delivered
+  notification, and a day has passed since a process last wanted them. The grace
+  covers a notification shown after the caller's delivered snapshot. For example,
+  the app's refresh can make the NSE's row not current before that notification
+  is on any snapshot. A notification still on screen keeps its category registered when
+  it's in the selection. When it isn't (more than the cap of higher-ranked rows),
+  its row is still kept, so it can come back. An action from a category that is
+  no longer registered can't be tapped. If one arrives anyway, the handler checks
+  it against the notification's own payload and never looks at the registry
+  (§7.1), so it logs or refuses exactly as before. The NSE registers its own
+  computed category whatever id the push names (§6).
 - **No awaits inside transactions.** `getDeliveredNotifications`,
   `getNotificationCategories` and `getNotificationSettings` are asynchronous.
   They are called **outside** any SQLite transaction, and their results are
@@ -328,14 +407,28 @@ register(newRows):
   held, so two processes' calls don't interleave. Apple doesn't document a
   barrier proving the system has applied one replacement before the next
   arrives. Reconciliation (§5.3) covers that gap, and checkpoint D tests it.
+- **The NSE only adds and evicts.** It never deletes rows, which keeps its work
+  small on its tight budget. Deleting is the app's job, at its next refresh. Over a
+  650-row registry, the NSE's reconcile and register take about 9 ms on the host,
+  and the app's pruning registration takes about 11 ms (`TimingTests`).
+- **The cap is one constant.** 90 leaves headroom under the simulator's 100.
+  Checkpoint D9 on a device confirms the real limit (DeviceProbe registers
+  uncapped to measure it), and the constant changes after D if needed.
 
 **Callers:**
 
-- **The app**, at launch, after every sync that changed topics, versions or
-  entries, after a server switch, and after a reset. It inserts the current
+- **The app** (`refresh`), at launch, after every sync that changed topics,
+  versions or entries, after a server switch, and after a reset. The current
   descriptor of every quick-loggable active topic in the active store, computed
-  locally with the server's rules.
-- **The NSE**, for the incoming push (§6).
+  locally with the server's rules, with its due time, becomes that server's
+  current set (`replacingCurrentOf`). It calls `setNotificationCategories` only
+  when the system (asked before the transaction) is missing any of the
+  selection, or when another registration happened after it asked. The
+  generation it read before asking no longer matches under the lock, so its
+  answer may be stale. Time moving a row in, or a system that lost its set (after the v3
+  migration, say), is therefore repaired at the next refresh, not just at the
+  next activation.
+- **The NSE**, for the incoming push (§6): one row, `pushed`, with no deleting.
 
 Registering before notification permission has been granted is allowed.
 
@@ -345,13 +438,18 @@ These run **on every app activation** and **at the start of every NSE run**:
 
 ```
 reconcile():
+  asked_gen = SELECT generation                         // first, so a later registration is noticed
   registered = await center.notificationCategories()   // outside any transaction
-  ids = SELECT id FROM notification_category            // short read transaction
-  if ids ⊄ registered.ids: register([])                 // re-register the full union
+  delivered = await center.deliveredNotifications()     // outside any transaction
+  selected, gen = select(now, delivered), generation    // one short read transaction
+  if gen ≠ asked_gen or selected.ids ⊄ registered.ids:
+    register([])                                        // re-register the selection
 ```
 
 Reconciliation repairs a replacement that lost a race, a crash between the
-insert and the call, and any loss on reboot.
+insert and the call, and any loss on reboot. It compares against the **capped
+selection**, so a table bigger than the system's limit doesn't re-register on
+every activation (N5).
 
 ### 5.4 Device test (checkpoint D)
 
@@ -382,7 +480,7 @@ didReceive(request):
   if q.quick_log != nil:
       actions = render(q); cid = categoryId(q.topic_id, actions)                // §4
       if cid != best.categoryIdentifier: log("category drift", server: …, client: cid)
-      register([row(cid, actions)])                                             // §5.2
+      register([row(cid, actions)], role: pushed)                               // §5.2: adds, evicts, never deletes
       best.categoryIdentifier = cid
   if q.server_id == registry.active.server_id and the active store opens:
       if the view shows slot (topic_id, due_since) already satisfied by a local entry:
@@ -466,8 +564,10 @@ didReceive(response, completion):
 3. The parsed value must be finite.
 4. Validate it as `parseQuickNumber` does:
    - `int` requires an integer;
-   - `min ≤ x ≤ max`;
-   - at most `decimals` fraction digits.
+   - `min ≤ x ≤ max`.
+
+   Extra fraction digits beyond `decimals` are accepted, as `parseQuickNumber` and
+   the server accept them: `decimals` is a display hint (§4.4), not a rule.
 5. If the value is invalid, write nothing. Post a local notification:
    - title "Couldn't log {topic}";
    - body "“{raw}” isn't a valid value — tap to fix";
@@ -510,6 +610,59 @@ id   = lowercase 8-4-4-4-12 hex of h
   can still edit the entry, or log another from the app.
 - Entries logged from the app's own screens keep random ids: only reminder actions
   share this rule.
+- **App Intents and widgets [decided: INTENTS, 2026-10-20]:** an intent uses this id
+  only when it is **bound to a reminder slot**, that is, it carries the slot's
+  `(server_id, topic_id, due_since)`: a `WhatsDueIntent` snippet button, or any
+  intent or widget button built for one due slot. Plain logs ("Log coffee" from
+  Siri, a widget tile, a Control, the Action button) get **random ids**, like the
+  tiles: logging the same topic twice on purpose must not be deduped.
+
+### 7.5 Opening the app keeps the server (M3 milestone review, ROUTE-SCOPE)
+
+A link that comes from one server must never open another server's topic. Slugs
+are per server: `mood` on A and `mood` on B are different topics. A reminder from
+A, or a widget rendered from A's store, can be tapped after the user switched to B.
+
+- **What a link carries.**
+  - A notification outcome that opens the app (the body, "More…", a failure or
+    tap-to-fix message) is `.open(path, serverId, prefill)`. `path` is `quickr.url`
+    with its topic named **by id** (`/t/{topic_id}/record`), from the payload's
+    `topic_id`. A tap-to-fix's prefill also carries `serverId`.
+  - A widget's links (the background tap, a due-list row, the form fallback) are
+    `quickr://t/{topic_id}/record?scope={server_id}/{store_gen}`. The scope is the
+    store the snapshot was read from (`EntryScope`). A sample in the app's widget
+    gallery has no store and links by slug. A `scope` with no value, a malformed
+    one, or more than one makes the link invalid; it is never read as unscoped.
+  - An intent that opens the record screen (OpenRecordIntent, repeat-last's
+    fallback) carries the store it read the topic and the prefill from.
+- **What the app does** (`LinkScope.open`, before any routing). It first waits,
+  for up to 10 s, for the launch's start. A widget or a notification can cold-launch
+  the app before the session has bound its store. Then it checks:
+  - **The active server** (and, for a widget link, the active store generation):
+    open the route, by topic id.
+  - **Another registered server:** refuse with "This is from {name}, not the
+    server quickR is using now. Switch to {name} in Settings to open it." quickR
+    **never switches servers for a link**. A switch rebinds the session, the outbox
+    and the widgets, which is too much to trigger from a tap, and the user may not
+    expect it.
+  - **A server quickR no longer has, or a store since reset** (a widget link
+    whose generation isn't the active one): refuse, and reload the widgets'
+    timelines so they render from the current store.
+  - **A switch or a reset in progress** (the registry's active server and
+    store generation aren't the bound store's, or a reset is pending), **or a
+    binding that changed during the check:** check again, up to
+    20 times 100 ms apart. If it never settles, refuse with "quickR is changing
+    servers. Try again in a moment." The route (and the prefill) is set with no
+    suspension after the binding was last confirmed.
+- **Prefill** is handed to a record screen only for its topic on the server it
+  came from, while that server is active.
+- **Links without a scope keep working for the active server:** `quickr://t/{slug}/…`
+  typed or shared, the PWA's own `https://` links to the configured server (that
+  server's by their address), and links from older widgets until they refresh.
+  `Router.handle(url:)` opens only unscoped links; a scoped link goes through the
+  check.
+- Writes were already scoped: an action logs into the reminder's server's store
+  (§7.1), and a widget's buttons (`WidgetLogIntent`) refuse another store.
 
 ## 8. Badge
 
@@ -583,7 +736,7 @@ All registration runs in the **app process only**. Every call is a mutation and
   - An enum shows the first `Notification.maxActions` options, as
     `{action: "log|o|" + value, title: label}`.
   - A number with `last_value` shows
-    `{action: "log|n|" + fmt(last), title: "✓ …"}`. **Exception:** an `int`
+    `{action: "log|n|" + fmt(last), title: "Log …"}`. **Exception:** an `int`
     whose `last_value` is beyond 2^53 shows no action, because JS numbers can't
     hold its digits exactly (the descriptor still carries it; iOS is unaffected).
   - There is no text input and no "More…": the notification body opens `url`.
@@ -662,8 +815,8 @@ the same vectors and `device_now + skew`.
 | N1  | (M3, with B7) Python and Swift produce byte-identical action descriptors and category ids from the vectors.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | §4.3, §4.4   |
 | N2  | The worst-case payload is ≤ 4096 bytes, has no `aps.badge`, and has `due_since` in canonical form.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | §2           |
 | N3  | Action ids round-trip, and a tampered value is rejected.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | §4.2, §7.1   |
-| N4  | Two processes (MP) insert and register at the same time, 100 times. The table holds the union, and the last `setNotificationCategories` call in each process received the full union.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | §5.2         |
-| N5  | Reconciliation with a fake center that is missing a category re-registers the union. When nothing is missing, it makes no call.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | §5.3         |
+| N4  | Two processes (MP) insert and register at the same time, 100 times. Uncapped: the table holds the union, and the last `setNotificationCategories` call in each process received the full union. Capped (cap 50 of 120): every call is a capped subset of what was committed before it, and both processes' last calls select the same rows. | §5.2         |
+| N5  | Reconciliation with a fake center that is missing a category of the capped selection re-registers it. When nothing is missing, it makes no call, however often it runs and however far the table is over the system's limit. The cap, the rank order, deletion and the NSE's due-now row are host-tested (`NotificationCategoriesTests`, `NotificationPreparationTests`). | §5.3         |
 | N6  | No transaction is open across `getDeliveredNotifications` or `notificationCategories()`. Asserted with a GRDB transaction observer in tests.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | §5.2         |
 | N7  | The handler drops an action with an unknown `server_id` and posts the explanatory notification.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | §7.1, rule 8 |
 | N8  | The handler writes into an inactive store, and **the badge does not change**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | §7.1, §8     |
@@ -675,7 +828,7 @@ the same vectors and `device_now + skew`.
 | N14 | The handler logs against `q.version` after a newer version has been published.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | §7.1         |
 | N15 | L1–L4 with a fake center: both arrival orders leave one reminder, and logging clears pending and delivered reminders.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | §11.2        |
 | N16 | Python, Swift and TypeScript derive identical action entry ids from `action-entry-id-vectors.json`. Actioning the same reminder twice (another option, or after the first was sent) leaves one entry on the server.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | §7.4         |
-| D1  | **Checkpoint D (device):** <br>• concurrent replacement as in §5.4; <br>• the visible action count (2 or 4); <br>• Lock Screen logging before first unlock; <br>• whether a category registered by the NSE takes effect before display; <br>• **category growth**: rows added per day, measured with real use of a number topic and an enum topic; <br>• **registration budget**: the wall time of `setNotificationCategories` plus the time until `notificationCategories()` reflects it, at 100, 1,000 and 5,000 categories, run in the NSE and in the app. If the NSE can't register within its 3 s target at the projected one-year row count, pruning (open question 5) becomes required for M3. | §5, §6       |
+| D1  | **Checkpoint D (device):** <br>• concurrent replacement as in §5.4; <br>• the visible action count (2 or 4); <br>• Lock Screen logging before first unlock; <br>• whether a category registered by the NSE takes effect before display; <br>• **category growth**: rows added per day, measured with real use of a number topic and an enum topic; <br>• **registration budget**: the wall time of `setNotificationCategories` plus the time until `notificationCategories()` reflects it, at 100, 1,000 and 5,000 categories, run in the NSE and in the app. **[CATCAP]** The simulator keeps 100, so registration is capped (§5.2); D9 confirms the limit on a device, and the time of registering 90. | §5, §6       |
 
 ## Open questions
 
@@ -693,11 +846,10 @@ the same vectors and `device_now + skew`.
    reboot.
 4. **A confirmation after a notification log.** Should the handler post a quiet
    "Logged ✓ · Undo"? The default is no: errors only.
-5. **Category growth.** v1 never prunes (§5.1). Growth and the registration
-   budget are measured in D1, and again after M3 and M4. Add pruning only if
-   needed. That would restore rule 9's 7-day
-   retention, computed from a snapshot of delivered notifications taken outside
-   the transaction.
+5. **Category growth [decided 2026-10-21, CATCAP].** Measured (§5.1): the
+   union passes 100 within a month, and the system keeps at most 100. Registration
+   is capped at 90 by priority, and rows that can't be needed are deleted (§5.2).
+   D9 confirms the device limit.
 
 ## Traceability
 

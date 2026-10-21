@@ -16,6 +16,8 @@ import Synchronization
 ///   with the id `rejectedEntryId`, and waits until it has failed (fix mode);
 /// - `-QuickrStalePublish`: someone else publishes a version of the topic just before this
 ///   device's first version check or publish, which therefore conflicts (409);
+/// - `-QuickrSecondServer` also registers a second server, "Other" (`secondServerId`), that isn't
+///   active: links from it are refused (notifications.md §7.5);
 /// - `-QuickrSyncControls` shows `UITestSyncControls` (go offline or online, log an entry, reject
 ///   the next one) for the sync UI tests. The network path is `UITestLaunch.network`, which the
 ///   controls switch together with the fake server.
@@ -24,6 +26,7 @@ enum UITestLaunch {
     static let fakeServer = URL(string: "https://quickr.test")!
     static let fakeServerId = "00000000-0000-4000-8000-0000000000aa"
     static let rejectedEntryId = UUID(uuidString: "0f1e2d3c-4b5a-4968-8778-0000000000f1")!
+    static let secondServerId = "00000000-0000-4000-8000-0000000000bb"
 
     static var isActive: Bool { ProcessInfo.processInfo.arguments.contains(argument) }
 
@@ -37,8 +40,11 @@ enum UITestLaunch {
 
     /// `categoryCenter: nil` for unit tests: the system's category set is one per process, and
     /// tests running alongside the categories' own would replace it.
+    /// - Parameter notificationCenter: GRDB's suspend and resume (see `AppEnvironment.live`):
+    ///   hosted tests that background the session pass their own.
     @MainActor static func environment(
-        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
+        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter(),
+        notificationCenter: NotificationCenter = .default
     ) -> AppEnvironment {
         let root = FileManager.default.temporaryDirectory.appending(path: "quickr-uitest-\(UUID().uuidString)")
         let suite = "quickr.uitest.\(UUID().uuidString)"
@@ -46,7 +52,7 @@ enum UITestLaunch {
         let environment = AppEnvironment.live(
             location: StoreLocation(root: root), defaults: defaults, keychain: InMemoryKeychain(),
             transport: FakeServerTransport(fallback: URLSessionTransport(), state: server), network: network,
-            categoryCenter: categoryCenter)
+            categoryCenter: categoryCenter, notificationCenter: notificationCenter)
         environment.settings.serverURL = value(after: "-QuickrServer").flatMap(URL.init(string:))
         if ProcessInfo.processInfo.arguments.contains("-QuickrStalePublish") { server.publishElsewhereFirst() }
         return environment
@@ -60,7 +66,9 @@ enum UITestLaunch {
 
     /// Before `-QuickrOpen`: the seeds the launch asked for. Bounded: gives up after 20 s.
     @MainActor static func prepare(_ environment: AppEnvironment) async {
-        guard isActive, ProcessInfo.processInfo.arguments.contains("-QuickrSeedRejectedEntry") else { return }
+        let arguments = ProcessInfo.processInfo.arguments
+        guard isActive, arguments.contains("-QuickrSecondServer") || arguments.contains("-QuickrSeedRejectedEntry")
+        else { return }
         let deadline = ContinuousClock.now.advanced(by: .seconds(20))
         func waitFor(_ condition: () async -> Bool) async -> Bool {
             while ContinuousClock.now < deadline {
@@ -69,6 +77,13 @@ enum UITestLaunch {
             }
             return false
         }
+        if arguments.contains("-QuickrSecondServer"), await waitFor({ environment.session != nil }),
+            let registry = environment.session?.partitions.registry
+        {
+            _ = try? await registry.register(
+                serverId: secondServerId, baseURL: "https://other.example", displayName: "Other", now: Date())
+        }
+        guard arguments.contains("-QuickrSeedRejectedEntry") else { return }
         guard await waitFor({ environment.session?.outbox != nil }), let session = environment.session,
             let outbox = session.outbox, let store = session.store
         else { return }
@@ -199,6 +214,14 @@ final class FakeServerState: Sendable {
             "version": number, "questions": questions, "change_note": note, "created_at": now, "entry_count": 0,
         ]
         put(topic)
+        appendToFeed(topic, version: version)
+        return topic
+    }
+
+    /// The topic row and a version row, next in the feed (a new topic's v1, or a published version),
+    /// as the backend logs them.
+    fileprivate func appendToFeed(_ topic: [String: Any], version: [String: Any]) {
+        guard let id = topic["id"] as? String else { return }
         state.withLock { state in
             let seq = 5 + state.feed.count
             let items: [[String: Any]] = [
@@ -213,7 +236,6 @@ final class FakeServerState: Sendable {
                 state.feed.append(String(decoding: data, as: UTF8.self))
             }
         }
-        return topic
     }
 
     /// The feed items after `cursor`, and the head.
@@ -500,6 +522,13 @@ private struct FakeServerTransport: Transport {
                 "questions": questions,
             ]
             state.put(topic)
+            // Its v1, in the feed like the backend's: an entry's screen loads its version's questions.
+            state.appendToFeed(
+                topic,
+                version: [
+                    "version": 1, "questions": questions, "change_note": "Initial version", "created_at": now,
+                    "entry_count": 0,
+                ])
             return json(201, topic)
         }
         guard parts.count >= 4, var topic = state.topic(parts[3]) else {
@@ -631,12 +660,17 @@ private struct FakeServerTransport: Transport {
                 """#
             return HTTPResponse(status: 422, headers: headers, body: Data(problem.utf8))
         }
-        // The outbox posts by topic id; a slug works too.
+        // The outbox posts by topic id; a slug works too. A topic created here (TOPIC, UIT-6) is
+        // its own; anything else falls back to the seeded two.
         let ref = request.url.pathComponents.dropLast().last ?? ""
-        let topicId = ref == "mood" || ref == FakeServer.moodId.wireString ? FakeServer.moodId : FakeServer.workoutId
+        let topicId =
+            state.topic(ref) != nil
+            ? ref
+            : (ref == "mood" || ref == FakeServer.moodId.wireString ? FakeServer.moodId : FakeServer.workoutId)
+                .wireString
         let now = ISO8601DateFormatter().string(from: Date())
         let entry: [String: Any] = [
-            "id": body["id"] as? String ?? UUID().wireString, "topic_id": topicId.wireString,
+            "id": body["id"] as? String ?? UUID().wireString, "topic_id": topicId,
             "answers": FakeServer.echo(answers), "captured_at": body["captured_at"] as? String ?? now,
             "channel": "ios", "created_at": now, "updated_at": now, "meta": [String: String](),
             "notes": body["notes"] as? String ?? "", "revision": 1, "source": body["source"] as? String ?? "ios",

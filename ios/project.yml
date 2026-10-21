@@ -36,7 +36,7 @@ packages:
   QuickrKit:
     path: QuickrKit
 
-# Shared by the app and both extensions. aps-environment is added to the app in M3.
+# Shared by the app and both extensions. The app adds aps-environment.
 entitlementProperties: &sharedEntitlements
   com.apple.security.application-groups:
     - group.com.bahumia.quickr
@@ -64,6 +64,10 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: quickR
+        # Export compliance, answered once for every TestFlight/App Store build: the app's only
+        # encryption is the OS's own (TLS through URLSession, the Keychain), which is exempt.
+        # Set it to true if the app ever ships its own cryptography (ios/README.md, TestFlight).
+        ITSAppUsesNonExemptEncryption: false
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
@@ -85,7 +89,11 @@ targets:
               - quickr
     entitlements:
       path: App/QuickR.entitlements
-      properties: *sharedEntitlements
+      properties:
+        <<: *sharedEntitlements
+        # APNs. Device builds register in the sandbox; exporting for App Store Connect re-signs
+        # with the distribution profile, whose value is production (ios/README.md, TestFlight).
+        aps-environment: development
 
   QuickRWidgets:
     type: app-extension
@@ -94,7 +102,7 @@ targets:
       - Widgets
     dependencies:
       - package: QuickrKit
-        products: [QuickrCore, QuickrData]
+        products: [QuickrCore, QuickrData, QuickrUI]
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
     settings:
@@ -117,8 +125,6 @@ targets:
     platform: iOS
     sources:
       - NotificationService
-      # SPIKE (DEBUG only): category registration through the registry table, shared with the app.
-      - App/Notifications/Spike/Shared
     dependencies:
       - package: QuickrKit
         products: [QuickrCore, QuickrData]
@@ -146,6 +152,8 @@ targets:
       # The widget's bootstrap and timeline rules, so its intent path runs in CI's Unit plan.
       - Widgets/WidgetBootstrap.swift
       - Widgets/TopicWidget.swift
+      - Widgets/DueListWidget.swift
+      - Widgets/TopicControl.swift
     dependencies:
       - target: QuickR
       - package: QuickrKit
@@ -210,5 +218,6 @@ schemes:
         - path: TestPlans/Intents.xctestplan
         - path: TestPlans/Widgets.xctestplan
         - path: TestPlans/Spike.xctestplan
+        - path: TestPlans/Media.xctestplan
     archive:
       config: Release

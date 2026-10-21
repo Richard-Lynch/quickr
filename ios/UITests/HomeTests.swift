@@ -59,9 +59,7 @@ final class HomeTests: XCTestCase {
         XCTAssertTrue(meds.waitForExistence(timeout: 5))
         meds.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.15)).tap()  // the title, not a control
         // The topic opens on its Overview tab (STATS).
-        let tabs = app.segmentedControls["topic.tabs"]
-        XCTAssertTrue(tabs.waitForExistence(timeout: 5))
-        XCTAssertTrue(tabs.buttons["Overview"].isSelected)
+        XCTAssertEqual(selectedTopicTab(in: app), "Overview")
         XCTAssertTrue(app.descendants(matching: .any)["overview.list"].firstMatch.exists)
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
@@ -103,13 +101,48 @@ final class HomeTests: XCTestCase {
         XCTAssertEqual(app.staticTexts["home.count"].label, "1 archived topic")
     }
 
+    /// With Reduce Motion (QuickrUI's DEBUG `-QuickrReduceMotion`, as the system setting can't be
+    /// set from a test), every reduced path still works: the filter panel opens and closes without
+    /// its slide, a quick-log chip logs, its toast's Undo undoes, and the search clears.
+    @MainActor
+    func testReduceMotionKeepsEverythingWorking() {
+        let app = launch(AccessibilityLaunch.arguments(contentSize: nil, reduceMotion: true))
+        XCTAssertTrue(tile(app, "meds").waitForExistence(timeout: 5))
+        app.buttons["home.filter"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["home.status"].waitForExistence(timeout: 5))
+        app.buttons["home.filter"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["home.status"].waitForNonExistence(timeout: 5))
+
+        let headache = tile(app, "headache")
+        let chip = headache.buttons["chip.severe"]
+        for _ in 0..<6 where !chip.isHittable { scroll(app, by: 200) }
+        chip.tap()
+        let undo = app.buttons["toast.action"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 10))
+        undo.tap()
+        XCTAssertTrue(undo.waitForNonExistence(timeout: 10))
+
+        let search = app.textFields["home.search"]
+        for _ in 0..<10 where !search.isHittable { scroll(app, by: -200) }
+        search.tap()
+        search.typeText("med")
+        let clear = app.buttons["home.clearSearch"]
+        XCTAssertTrue(clear.waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(clear.frame.width, 44, "a 44 pt target (audit H1)")
+        XCTAssertGreaterThanOrEqual(clear.frame.height, 44)
+        clear.tap()
+        XCTAssertTrue(clear.waitForNonExistence(timeout: 5), "the search is empty again")
+    }
+
     /// At the largest accessibility size the screen still works: sections, tiles, search and the
     /// filter (a menu instead of a segmented control).
     @MainActor
-    func testAccessibilityXXXL() {
-        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+    func testAccessibilityXXXL() throws {
+        let app = launch(AccessibilityLaunch.arguments())
         XCTAssertTrue(tile(app, "meds").waitForExistence(timeout: 5))
         XCTAssertTrue(tile(app, "meds").isHittable)
+        // The first screenful: header, sections, the first tiles (audit test plan).
+        try assertAccessible(app)
         let search = app.textFields["home.search"]
         // Scroll in small steps until the search row is clear of the header (two rows deep at
         // this size), so the filter tap can't land on a header button above it.

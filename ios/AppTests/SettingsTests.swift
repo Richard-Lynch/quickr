@@ -145,7 +145,10 @@ func systemKeychainStoresUpdatesAndDeletes() throws {
     let suite = "settings-tests-\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
-    let transport = RecordingTransport()  // 503 until told otherwise: the log stays unsynced
+    // The log stays unsynced: its sends get 503 whatever the address checks are answered, so a
+    // flush landing while `answer` is another server's feed can't change the entry's state.
+    let transport = RecordingTransport()
+    transport.writes = .status(503, identity: false)
     let credentials = KeychainAccessCredentials(keychain: InMemoryKeychain())
     let session = try AppSession(
         configuration: .init(location: location, transport: transport, credentials: credentials, notifier: nil))
@@ -204,6 +207,12 @@ func systemKeychainStoresUpdatesAndDeletes() throws {
     #expect(router.path == [.topic(TopicLinkRef("water")!, .overview)])
     #expect(router.unopenedLink == URL(string: "quickr://nope"))
     #expect(router.handle(url: URL(string: "quickr://")!, serverURL: server))
+    #expect(router.path.isEmpty)
+
+    // A link that names its store (a widget's) isn't opened here: AppEnvironment checks it first
+    // (notifications.md §7.5).
+    let scoped = URL(string: "quickr://t/water/record?scope=0b9e0000-0000-4000-8000-0000000000aa/1")!
+    #expect(!router.handle(url: scoped, serverURL: server))
     #expect(router.path.isEmpty)
 }
 
@@ -556,25 +565,30 @@ private func makeSetup() throws -> (ServerSetup, RecordingTransport, () -> Void)
     )
 }
 
-/// Records requests and answers with `answer`.
+/// Records requests and answers with `answer`; writes (anything but GET) with `writes` when set.
 final class RecordingTransport: Transport {
     enum Answer {
         case feed(serverId: String)
         case status(Int, identity: Bool)
     }
 
-    private let state = Mutex<(requests: [HTTPRequest], answer: Answer)>(([], .status(503, identity: false)))
+    private let state = Mutex<(requests: [HTTPRequest], answer: Answer, writes: Answer?)>(
+        ([], .status(503, identity: false), nil))
 
     var requests: [HTTPRequest] { state.withLock { $0.requests } }
     var answer: Answer {
         get { state.withLock { $0.answer } }
         set { state.withLock { $0.answer = newValue } }
     }
+    var writes: Answer? {
+        get { state.withLock { $0.writes } }
+        set { state.withLock { $0.writes = newValue } }
+    }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let answer = state.withLock {
             $0.requests.append(request)
-            return $0.answer
+            return request.method != .get ? $0.writes ?? $0.answer : $0.answer
         }
         switch answer {
         case .feed(let serverId):
@@ -582,10 +596,15 @@ final class RecordingTransport: Transport {
                 QuickrHeader.serverId: serverId, QuickrHeader.epoch: "00000000-0000-4000-8000-0000000000bb",
                 "Content-Type": "application/json",
             ]
+            // The server's clock is the device's (no skew). A fixed time would drift: a day after
+            // it, every entry logged now is more than 24 h ahead of the server and fails as
+            // future_time (`OutboxFlush.capturedAtMaxFutureHours`), which made the switch warning
+            // count a failed change.
+            let now = Date().formatted(.iso8601)
             let body = #"""
                 {"items": [], "deleted": [], "next": 0, "has_more": false, "head": 0,
                  "epoch": "00000000-0000-4000-8000-0000000000bb", "server_id": "\#(serverId)",
-                 "server_time": "2026-10-20T12:00:00+00:00"}
+                 "server_time": "\#(now)"}
                 """#
             return HTTPResponse(status: 200, headers: headers, body: Data(body.utf8))
         case .status(let status, let identity):

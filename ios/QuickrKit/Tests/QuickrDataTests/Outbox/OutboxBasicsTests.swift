@@ -3,6 +3,7 @@ import GRDB
 import QuickrCore
 import QuickrData
 import QuickrTestSupport
+import Synchronization
 import Testing
 
 /// outbox.md §13 cases 1–7, 41, 42, 47, 48: persistence, classification, backoff and the flush loop.
@@ -19,6 +20,26 @@ import Testing
         #expect(items.allSatisfy { $0.state == .pending && $0.attempts == 0 && $0.kind == .entryCreate })
         #expect(items[0].seq < items[1].seq)
         #expect(items[0].entityId == first.wireString)
+    }
+
+    /// notifications.md §7.1 step 10: a flush asked whether to proceed once it holds the lease.
+    @Test func aFlushThatShouldNotProceedClaimsNothingAndReleasesTheLease() async throws {
+        let h = try OutboxHarness()
+        let outbox = h.outbox()
+        try await h.log(outbox)
+        let asked = Mutex(false)
+        let report = try await outbox.flush(
+            force: true, budget: .seconds(5),
+            shouldProceed: {
+                asked.withLock { $0 = true }
+                return false
+            })
+        #expect(report.ending == .paused && report.requests == 0)
+        #expect(asked.withLock { $0 })
+        #expect(h.server.handled.isEmpty)
+        #expect(try await h.items.map(\.state) == [.pending])
+        // The lease was released: the next flush sends it.
+        #expect(try await outbox.flush(force: true, budget: .seconds(5), shouldProceed: { true }).acked == 1)
     }
 
     /// The PWA's `classifyStatus` table (`outbox.test.ts`), through `APIClassifier` and the

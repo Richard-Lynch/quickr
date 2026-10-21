@@ -57,6 +57,8 @@ public final class EditQuestionsModel: BuilderEditing {
     public private(set) var isChecking = false
     public private(set) var isPublishing = false
     public private(set) var isReloading = false
+    /// Counts reviews and publishes: a repeated identical banner is announced again (`qrAnnouncesError`).
+    public private(set) var attempts = 0
     /// "Add an option…" text not added yet, by question.
     public var newOptionLabels: [DraftQuestion.ID: String] = [:]
 
@@ -131,6 +133,7 @@ public final class EditQuestionsModel: BuilderEditing {
     /// "Review changes".
     public func reviewChanges() async {
         guard !isBusy else { return }
+        attempts += 1
         submitted = true
         banner = nil
         bannerDetails = []
@@ -157,6 +160,7 @@ public final class EditQuestionsModel: BuilderEditing {
     /// "Publish v(n+1)" in the review.
     public func publish() async {
         guard let review, review.report.ok, !isPublishing else { return }
+        attempts += 1
         let note = JSNumber.trim(draft.changeNote)
         if BuilderText.count(note) > limits.maxChangeNoteLength {
             noteError = "At most \(limits.maxChangeNoteLength) characters"

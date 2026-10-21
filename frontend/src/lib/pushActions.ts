@@ -4,7 +4,7 @@
  * Bundled into `sw.ts`; pure apart from the outbox and `crypto.subtle`.
  *
  * - An enum offers its first `Notification.maxActions` options, `{action: "log|o|" + value}`.
- * - A number with a last value offers `{action: "log|n|" + fmt(last), title: "✓ …"}`.
+ * - A number with a last value offers `{action: "log|n|" + fmt(last), title: "Log …"}`.
  * - No text input, no "More…" (the body opens the record screen).
  *
  * A click is validated against the notification's own data, then enqueues an `entry.create`
@@ -59,7 +59,7 @@ export function pushActions(p: PushPayload, maxActions: number): PushAction[] {
   if (q.last_value === null) return [];
   const shown = formatQuickLogNumber(q.type, q.last_value);
   if (shown === null) return [];
-  return [{ action: `log|n|${shown}`, title: q.unit ? `✓ ${shown} ${q.unit}` : `✓ ${shown}` }];
+  return [{ action: `log|n|${shown}`, title: q.unit ? `Log ${shown} ${q.unit}` : `Log ${shown}` }];
 }
 
 /** The answer a clicked action stands for, or null when it doesn't match the reminder. */

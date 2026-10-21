@@ -20,6 +20,8 @@ public final class TopicSettingsModel {
     public var description: String
     public private(set) var detailErrors: [DraftField: String] = [:]
     public private(set) var detailsBanner: String?
+    /// Counts "Save details" taps: a repeated identical banner is announced again (`qrAnnouncesError`).
+    public private(set) var detailsAttempts = 0
     public private(set) var isSavingDetails = false
 
     // MARK: Schedule
@@ -29,6 +31,8 @@ public final class TopicSettingsModel {
     }
     public private(set) var scheduleErrors: [ScheduleField: String] = [:]
     public private(set) var scheduleBanner: String?
+    /// Counts "Save schedule" taps (as `detailsAttempts`).
+    public private(set) var scheduleAttempts = 0
     public private(set) var isSavingSchedule = false
     /// After a failed save, edits revalidate as they happen (`reValidateMode: 'onChange'`).
     private var scheduleSubmitted = false
@@ -104,6 +108,7 @@ public final class TopicSettingsModel {
     /// "Save details": validates like the form, sends only the changed fields.
     public func saveDetails() async {
         guard !isSavingDetails else { return }
+        detailsAttempts += 1
         detailsBanner = nil
         let draft = TopicDraft.editing(name: name, slug: slug, description: description, questions: topic.questions)
         let details: TopicDraft.Details
@@ -168,6 +173,7 @@ public final class TopicSettingsModel {
     /// "Save schedule": sets it, or removes it when the kind is None.
     public func saveSchedule() async {
         guard !isSavingSchedule else { return }
+        scheduleAttempts += 1
         scheduleBanner = nil
         scheduleSubmitted = true
         let value: Schedule?

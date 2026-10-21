@@ -69,6 +69,7 @@ if (( delete )); then
   udid="${existing%% *}"
   xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
   xcrun simctl delete "$udid"
+  rm -f "$SIM_OWNERS/$udid"
   echo "sim-clone: deleted '$name' ($udid)" >&2
   exit 0
 fi
@@ -87,6 +88,9 @@ else
     echo "sim-clone: '$source_name' is $src_state; created '$name' from its device type and runtime" >&2
   fi
 fi
+
+# Who it belongs to, for make ios-prune (under the lock prune takes too).
+mkdir -p "$SIM_OWNERS" && printf '%s\n' "$root_real" >"$SIM_OWNERS/$udid"
 
 # Booting (and waiting for a slot) must not hold this lock: other worktrees' lookups need it.
 exec 9>&-

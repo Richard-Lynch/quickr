@@ -188,7 +188,7 @@ final class EditTests: XCTestCase {
         let water = app.descendants(matching: .any)["tile.water"]
         XCTAssertTrue(water.waitForExistence(timeout: 10))
         water.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.15)).tap()
-        app.segmentedControls["topic.tabs"].buttons["Entries"].tap()
+        selectTopicTab("Entries", in: app)
         let row = app.descendants(matching: .any)["entry.00000000-0000-4000-9002-000000000001"]
         XCTAssertTrue(row.waitForExistence(timeout: 10))
         row.tap()
@@ -262,15 +262,15 @@ final class EditTests: XCTestCase {
 
     /// At the largest accessibility size the form, Details and both buttons are reachable.
     @MainActor
-    func testAccessibilityXXXL() {
+    func testAccessibilityXXXL() throws {
         // By link: at this size the list's tall header and pinned rows keep the row off screen.
-        let app = launch(
-            open: "quickr://t/water/entries/\(newest)",
-            ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let app = launch(open: "quickr://t/water/entries/\(newest)", AccessibilityLaunch.arguments())
         let glasses = app.textFields["form.field.glasses"]
         XCTAssertTrue(glasses.waitForExistence(timeout: 20))
         XCTAssertTrue(glasses.isHittable)
         XCTAssertTrue(app.buttons["edit.save"].isHittable)
+        // At the top: nothing sits under the Save bar (the audit reads that as clipped text).
+        try assertAccessible(app, allowing: EntriesAccessibility.edit)
         // Delete is the form's last row: scroll to it.
         let delete = app.buttons["edit.delete"]
         for _ in 0..<6 where !delete.isHittable { app.swipeUp() }

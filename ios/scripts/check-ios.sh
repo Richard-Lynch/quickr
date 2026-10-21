@@ -11,6 +11,11 @@ here="$(dirname "$0")"
 "$here/gen.sh"
 "$here/tests/watchdog-test.sh"
 "$here/tests/sim-cap-test.sh"
+"$here/tests/run-limited-test.sh"
+"$here/tests/prune-test.sh"
+"$here/tests/testflight-test.sh"
+"$here/tests/device-run-test.sh"
+"$here/tests/dprobe-summary-test.sh"
 "$here/swift-test.sh"
 "$here/timing-test.sh"
 # GRDB's suspension is process-wide: the lifecycle tests get a swift test process of their own.
@@ -20,6 +25,8 @@ names=("$1" "$2")
 for i in 0 1; do
   udid="$(IOS_SIM_DEFAULTED="${defaulted[i]}" target_sim_udid "${names[i]}")"
   sim="$udid"  # test.sh gets the UDID: used as given
+  # Held across its plans (one boot, not one per plan); shut down before the next runtime's.
+  sim_hold "$udid"
   "$here/test.sh" Unit "$sim"
   "$here/test.sh" UI "$sim"
   # AppIntentsTesting only loads on an iOS 27+ runtime (project.yml, QuickRIntentsTests).
@@ -29,6 +36,7 @@ for i in 0 1; do
   else
     echo "ios: Intents plan skipped on $sim (iOS ${major:-?}; AppIntentsTesting needs 27+)"
   fi
+  sim_release
 done
 "$here/resolved-check.sh"
 "$here/lint.sh"

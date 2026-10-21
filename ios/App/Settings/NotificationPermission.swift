@@ -52,6 +52,7 @@ struct NotificationExplainer: View {
                 Text("Reminders")
                     .font(.qr(.section))
                     .foregroundStyle(.qr.ink)
+                    .accessibilityAddTraits(.isHeader)
             }
             Text(
                 "quickR reminds you when a topic is due, and you can log straight from the reminder without opening the app. It never sends anything else."
@@ -69,6 +70,8 @@ struct NotificationExplainer: View {
                 Text("Reminders are off for quickR. Turn them on in Settings ▸ Notifications ▸ quickR.")
                     .font(.qr(.subheadline))
                     .foregroundStyle(.qr.muted)
+                    .accessibilityLabel(
+                        "Reminders are off for quickR. Turn them on in Settings, Notifications, quickR.")
                 Button("Open Settings") {
                     if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
                 }
@@ -78,6 +81,8 @@ struct NotificationExplainer: View {
                 Button("Allow reminders") {
                     Task {
                         await permission.request()
+                        // Said once, as the answer to Allow (not on every visit).
+                        if permission.status == .allowed { QuickrAnnouncer.announce("Reminders are on") }
                         // Granted: register this device for push now (notifications.md §9.2).
                         if permission.status == .allowed { await environment.push?.permissionGranted() }
                     }

@@ -121,16 +121,85 @@ final class TopicUITests: XCTestCase {
     }
 
     @MainActor
-    func testSettingsAtTheLargestTextSize() {
-        let app = launch(
-            open: "quickr://t/mood/settings",
-            extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+    func testSettingsAtTheLargestTextSize() throws {
+        let app = launch(open: "quickr://t/mood/settings", extra: AccessibilityLaunch.arguments())
         XCTAssertTrue(field("topicSettings.name", in: app).waitForExistence(timeout: 15))
-        for id in ["topicSettings.saveDetails", "topicSettings.saveSchedule", "topicSettings.archive"] {
+        try assertAccessible(app)
+        let saveDetails = element("topicSettings.saveDetails", in: app)
+        scrollTo(saveDetails, in: app)
+        XCTAssertTrue(saveDetails.isHittable)
+        // The schedule kind is a menu at this size (TP4), not a segmented control.
+        XCTAssertFalse(app.segmentedControls["topicSettings.schedule.kind"].exists)
+        let kind = element("topicSettings.schedule.kind", in: app)
+        scrollTo(kind, in: app)
+        XCTAssertEqual(kind.value as? String, "None", "the menu reports its selection")
+        pickScheduleKind("Daily", id: "topicSettings.schedule", in: app)
+        XCTAssertEqual(element("topicSettings.schedule.kind", in: app).value as? String, "Daily")
+        // TP3: a second time can be removed through a 44 pt target.
+        tap("topicSettings.schedule.addTime", in: app)
+        let remove = element("topicSettings.schedule.removeTime.1", in: app)
+        scrollTo(remove, in: app)
+        XCTAssertGreaterThanOrEqual(remove.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(remove.frame.height, 44)
+        try assertAccessible(app, types: .midList)
+        // TP1: every weekday is reachable at 44 pt; each group is audited as it shows.
+        for day in 1...7 {
+            let button = element("topicSettings.schedule.day.\(day)", in: app)
+            scrollTo(button, in: app)
+            XCTAssertTrue(button.isHittable, "day \(day)")
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44, "day \(day)")
+            if day == 4 { try assertAccessible(app, types: .midList) }
+        }
+        try assertAccessible(app, types: .midList)
+        // TP2: the presets are 44 pt.
+        for preset in ["Every day", "Weekdays", "Weekends"] {
+            let button = element("topicSettings.schedule.preset.\(preset)", in: app)
+            scrollTo(button, in: app)
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44, preset)
+        }
+        try assertAccessible(app, types: .midList)
+        for id in ["topicSettings.saveSchedule", "topicSettings.archive"] {
             scrollTo(element(id, in: app), in: app)
             XCTAssertTrue(element(id, in: app).isHittable, id)
         }
+        try assertAccessible(app, types: .midList)
         snap(app, "topic-settings-xxxl")
+    }
+
+    @MainActor
+    func testNewTopicAndItsScheduleAtTheLargestTextSize() throws {
+        let app = launch(open: "quickr://new", extra: AccessibilityLaunch.arguments())
+        XCTAssertTrue(app.textFields["newTopic.name"].waitForExistence(timeout: 15))
+        try assertAccessible(app)
+        let required = element("newTopic.q0.required", in: app)
+        scrollTo(required, in: app)
+        try assertAccessible(app, types: .midList)
+        pickScheduleKind("Every…", id: "newTopic.schedule", in: app)
+        let every = element("newTopic.schedule.every", in: app)
+        scrollTo(every, in: app)
+        XCTAssertTrue(every.isHittable)
+        try assertAccessible(app, types: .midList)
+        // TP6: a failed create shows the banner. Its VoiceOver focus and announcement are checked by
+        // hand (DEVICE-DAY §6); the per-attempt trigger is host-tested (NewTopicModelTests).
+        tap("newTopic.create", in: app)
+        XCTAssertTrue(element("newTopic.banner", in: app).waitForExistence(timeout: 5))
+    }
+
+    /// The schedule kind: a segmented control, or a menu at accessibility sizes.
+    @MainActor
+    private func pickScheduleKind(_ kind: String, id: String, in app: XCUIApplication) {
+        let segmented = app.segmentedControls["\(id).kind"]
+        if segmented.exists {
+            segmented.buttons[kind].tap()
+            return
+        }
+        let menu = element("\(id).kind", in: app)
+        scrollTo(menu, in: app)
+        XCTAssertTrue(menu.waitForExistence(timeout: 5), "\(id).kind")
+        menu.tap()
+        let choice = app.buttons[kind].firstMatch
+        XCTAssertTrue(choice.waitForExistence(timeout: 5), kind)
+        choice.tap()
     }
 
     /// The demo screenshots (docs/ios/demo/m2/topic-*.png): run once per appearance.

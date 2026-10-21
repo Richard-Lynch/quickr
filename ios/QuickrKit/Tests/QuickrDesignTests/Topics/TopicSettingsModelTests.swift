@@ -96,6 +96,21 @@ final class FakeTopicWriter: TopicWriter {
 
     // MARK: Details
 
+    /// TP6: each save is a new attempt, so the same banner is read again (`qrAnnouncesError`).
+    @Test func eachSaveIsANewAttempt() async {
+        writer.topicResult = .offline
+        model.name = "Feelings"
+        await model.saveDetails()
+        await model.saveDetails()
+        #expect(model.detailsAttempts == 2)
+        #expect(model.detailsBanner == TopicWriteMessage.offline)
+        model.schedule.kind = .daily
+        await model.saveSchedule()
+        await model.saveSchedule()
+        #expect(model.scheduleAttempts == 2)
+        #expect(model.scheduleBanner == TopicWriteMessage.offline)
+    }
+
     @Test func detailsStartCleanAndSaveOnlyWhatChanged() async {
         #expect(!model.detailsDirty)
         model.description = "Feelings, daily"

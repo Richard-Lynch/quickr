@@ -14,7 +14,7 @@ public struct FormView<Footer: View>: View {
     let model: FormModel
     let onAutoSave: AutoSave?
     let footer: Footer
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @QuickrReduceMotion private var reduceMotion
     @Environment(\.formSave) private var formSave
 
     /// - Parameter onAutoSave: called with the entry when a pick on ``FormModel/autoSaveKey``
@@ -34,6 +34,8 @@ public struct FormView<Footer: View>: View {
                 VStack(alignment: .leading, spacing: 16) {
                     if let banner = model.banner {
                         FormBannerView(banner: banner).id(FormScrollTarget.banner)
+                            .qrMovesVoiceOverFocus(
+                                on: model.voiceOverRequest.flatMap { $0.target == .banner ? $0.serial : nil })
                     }
                     if model.showsSameAsLast, let prefill = model.prefill {
                         SameAsLastButton(prefill: prefill, isApplied: model.isSameAsLastApplied) {
@@ -55,7 +57,7 @@ public struct FormView<Footer: View>: View {
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: model.scrollRequest) { _, request in
                 guard let request else { return }
-                withAnimation(QuickrMotion.animation(QuickrMotion.rise, reduceMotion: reduceMotion)) {
+                withQRAnimation(QuickrMotion.rise, reduceMotion: reduceMotion) {
                     proxy.scrollTo(request.target, anchor: .center)
                 }
             }
@@ -134,6 +136,7 @@ private struct FormRow: View {
 
     var body: some View {
         let key = question.key
+        let voiceOver = model.voiceOverRequest.flatMap { $0.target == .question(key) ? $0 : nil }
         AnswerField(
             question: question,
             input: Binding(
@@ -148,7 +151,8 @@ private struct FormRow: View {
             options: model.options(for: question), error: model.errors[key],
             characterCount: model.characterCount(for: key), focus: $isFocused,
             submitLabel: model.nextField(after: key) == nil ? .done : .next,
-            onSubmit: { model.advance(from: key) }
+            onSubmit: { model.advance(from: key) },
+            voiceOverRequest: voiceOver
         )
         .onChange(of: model.focus == key, initial: true) { _, wanted in
             if isFocused != wanted { isFocused = wanted }
@@ -209,26 +213,36 @@ struct SameAsLastButton: View {
     let prefill: FormPrefill
     let isApplied: Bool
     let action: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .callout) private var iconSide: CGFloat = 36
+    @ScaledMetric(relativeTo: .callout) private var iconSize: CGFloat = 18
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: QuickrMetrics.cardRadius, style: .continuous)
         Button(action: action) {
-            HStack(spacing: 12) {
-                (isApplied ? QIcon.check : QIcon.restore).view(size: 18, weight: .bold)
-                    .frame(width: 36, height: 36)
-                    .foregroundStyle(isApplied ? Color.qr.onAccent : .qr.inkSoft)
-                    .background(isApplied ? Color.qr.accent : .qr.sunken, in: Circle())
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(isApplied ? "Filled in from last time" : "Same as last time")
-                        .font(.qr(.callout))
-                        .foregroundStyle(.qr.ink)
-                    (Text(prefill.summary) + Text(" · ")
-                        + Text(prefill.capturedAt, format: .relative(presentation: .named)))
-                        .font(.qr(.subheadline))
-                        .foregroundStyle(.qr.muted)
-                        .lineLimit(1)
+            // At accessibility sizes the summary takes the full width, with Fill/Undo under it.
+            let layout =
+                typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+                : AnyLayout(HStackLayout(spacing: 12))
+            layout {
+                HStack(spacing: 12) {
+                    (isApplied ? QIcon.check : QIcon.restore).view(size: iconSize, weight: .bold)
+                        .frame(width: iconSide, height: iconSide)
+                        .foregroundStyle(isApplied ? Color.qr.onAccent : .qr.inkSoft)
+                        .background(isApplied ? Color.qr.accent : .qr.sunken, in: Circle())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(isApplied ? "Filled in from last time" : "Same as last time")
+                            .font(.qr(.callout))
+                            .foregroundStyle(.qr.ink)
+                        (Text(prefill.summary) + Text(" · ")
+                            + Text(prefill.capturedAt, format: .relative(presentation: .named)))
+                            .font(.qr(.subheadline))
+                            .foregroundStyle(.qr.muted)
+                            .lineLimit(typeSize.isAccessibilitySize ? 4 : 1)
+                    }
                 }
-                Spacer(minLength: 8)
+                if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
                 Text(isApplied ? "Undo" : "Fill")
                     .font(.qr(.sansSemiBold, size: 14, relativeTo: .subheadline))
                     .foregroundStyle(.qr.accentStrong)

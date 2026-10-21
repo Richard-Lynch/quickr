@@ -3,7 +3,12 @@ import QuickrCore
 import QuickrData
 import Testing
 
-/// sync-protocol.md §13.1 S1, S8 and S9 against the real backend.
+/// sync-protocol.md §13.1 S1, S8 and S9 against the real backend. S10 (APNs registration across
+/// an epoch rotation) is in PushIntegrationTests. The MP cases (gate G5) run in
+/// `QuickrDataTests/MultiProcess/SyncMultiProcessTests`. S21 is a server property, tested in
+/// backend/tests/test_identity.py: a rotation before the lookup
+/// (`test_headers_are_read_after_the_handler`) and between the lookup and the response
+/// (`test_headers_after_a_rotation_between_lookup_and_response`), each for a 2xx and a 404.
 extension IntegrationTests {
     @Suite("Sync") struct SyncCases {
         @Test("S1 · empty device: pages commit with their cursor; interrupted, it resumes and matches the server")

@@ -88,11 +88,13 @@ struct RecordScreen: View {
                 let last = try await store.entries.latestEntry(topicId: topic.id)
                 mode = .new(last: last.map { LastEntry($0.entry) })
             }
-            load = .ready(
-                RecordModel(
-                    topic: topic, mode: mode, writer: environment.entryWriter, toasts: environment.entryToasts,
-                    scope: scope,
-                    logAnother: environment.settings.logAnother))
+            let model = RecordModel(
+                topic: topic, mode: mode, writer: environment.entryWriter, toasts: environment.entryToasts,
+                scope: scope,
+                logAnother: environment.settings.logAnother)
+            // A reminder's typed number that didn't validate (its tap-to-fix notification).
+            if fix == nil, let texts = environment.takeRecordPrefill(topicId: topic.id) { model.prefill(texts) }
+            load = .ready(model)
         } catch {
             load = .failed(String(describing: error))
         }

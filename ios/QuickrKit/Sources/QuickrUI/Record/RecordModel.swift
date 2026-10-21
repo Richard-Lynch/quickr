@@ -137,6 +137,17 @@ public final class RecordModel {
         !saved && (form.inputs != baseline || notes != baselineNotes || capturedAtEdited)
     }
 
+    /// Puts text the user typed elsewhere into its fields and shows their validation: a reminder's
+    /// number that didn't validate, brought back by its tap-to-fix notification
+    /// (notifications.md §7.3). Keys the topic doesn't have are ignored.
+    public func prefill(_ texts: [String: String]) {
+        for (key, text) in texts.sorted(by: { $0.key < $1.key })
+        where form.questions.contains(where: { $0.key == key }) {
+            form.change(key, to: .text(text))
+            form.focusChanged(key, isFocused: false)  // touched: the message shows
+        }
+    }
+
     /// Validates and saves. `.leave` when the screen should close. While it runs, `isSaving` is
     /// true: the view disables editing (so nothing typed meanwhile is lost) and a second Save is
     /// ignored.
@@ -244,6 +255,7 @@ public final class RecordModel {
     /// Log another: a fresh form whose "Same as last time" is the entry just logged.
     private func startAnother(last: LastEntry) {
         form = FormModel(questions: topic.questions, mode: .create(last: last))
+        form.voiceOverStartsAtFirstQuestion = true
         baseline = form.inputs
         notes = ""
         baselineNotes = ""

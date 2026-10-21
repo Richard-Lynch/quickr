@@ -21,6 +21,7 @@ struct HomeView: View {
     var actions = HomeActions()
     @State private var model: HomeModel
     @State private var filtersOpen = false
+    @QuickrReduceMotion private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(AppEnvironment.self) private var environment
@@ -51,7 +52,12 @@ struct HomeView: View {
             if !typeSize.isAccessibilitySize { header }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .task(id: ObservationKey(binding: session.binding, attempt: model.attempt)) { await model.observe() }
+        .task(id: ObservationKey(binding: session.binding, attempt: model.attempt)) {
+            #if DEBUG || QUICKR_PERF
+            PerfProbe.mark("Home observes (store \(session.store == nil ? "not yet bound" : "bound"))")
+            #endif
+            await model.observe()
+        }
         .task {
             // The PWA's `useNow`: due states and labels move with the clock.
             while !Task.isCancelled {
@@ -65,6 +71,9 @@ struct HomeView: View {
         // Tiles keep their quick-log models for the run; topics that left the store let theirs go.
         .onChange(of: model.topics.map(\.id), initial: true) { _, ids in
             environment.quickLogModels.retain(Set(ids))
+            #if DEBUG || QUICKR_PERF
+            if !ids.isEmpty { PerfProbe.mark("Home has \(ids.count) topics") }
+            #endif
         }
         .onChange(of: model.badgeCount, initial: true) { _, count in
             // Fails quietly until notifications are authorized (M3).
@@ -182,8 +191,12 @@ struct HomeView: View {
     private func tileRows(_ rows: [HomeModel.Row]) -> some View {
         ForEach(rows, id: \.value.id) { row in
             TopicTile(
-                topic: row.value, now: model.now, onOpen: { actions.open(row.value) },
-                onRecord: { actions.record(row.value) })
+                topic: row.value, now: model.now, serverNow: model.serverNow, onOpen: { actions.open(row.value) },
+                onRecord: { actions.record(row.value) }
+            )
+            #if DEBUG || QUICKR_PERF
+            .onAppear { PerfProbe.shared.tileAppeared() }
+            #endif
         }
     }
 
@@ -220,9 +233,15 @@ struct HomeView: View {
                         model.search = ""
                     } label: {
                         QIcon.x.view(size: 14, weight: .bold)
+                            // A 44 pt target around the glyph (audit H1); the trailing padding
+                            // absorbs the part that would widen the field.
+                            .frame(width: QuickrMetrics.tapTarget, height: QuickrMetrics.tapTarget)
+                            .contentShape(Rectangle())
                     }
+                    .padding(.trailing, -12)
                     .foregroundStyle(.qr.muted)
                     .accessibilityLabel("Clear search")
+                    .accessibilityIdentifier("home.clearSearch")
                 }
             }
             .padding(.horizontal, 14)
@@ -232,7 +251,7 @@ struct HomeView: View {
                 RoundedRectangle(cornerRadius: QuickrMetrics.controlRadius).strokeBorder(Color.qr.line, lineWidth: 1)
             }
             Button {
-                withAnimation(.snappy) { filtersOpen.toggle() }
+                withQRAnimation(.snappy, reduceMotion: reduceMotion) { filtersOpen.toggle() }
             } label: {
                 QIcon.list.view(size: 18, weight: .semibold)
                     .frame(width: QuickrMetrics.tapTarget, height: QuickrMetrics.tapTarget)
@@ -281,7 +300,7 @@ struct HomeView: View {
                 .accessibilityIdentifier("home.sort")
             }
         }
-        .transition(.opacity.combined(with: .move(edge: .top)))
+        .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
     }
 
     private var skeletons: some View {
@@ -349,7 +368,8 @@ private struct HomeSection<Content: View>: View {
     var tone: Tone = .plain
     let identifier: String
     @ViewBuilder let content: Content
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @QuickrReduceMotion private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var pulse = false
 
     enum Tone { case plain, accent }
@@ -365,14 +385,17 @@ private struct HomeSection<Content: View>: View {
                         .accessibilityHidden(true)
                         .onAppear {
                             guard count > 0, !reduceMotion else { return }
-                            withAnimation(.easeInOut(duration: 1).repeatForever()) { pulse = true }
+                            withQRAnimation(.easeInOut(duration: 1).repeatForever(), reduceMotion: reduceMotion) {
+                                pulse = true
+                            }
                         }
                 }
                 Text(title.uppercased())
                     .font(.qr(.label))
                     .tracking(0.8)
-                    // One word per title: shrink a little rather than break it mid-word.
-                    .lineLimit(1)
+                    // One word per title: shrink a little rather than break it mid-word, but wrap at
+                    // accessibility sizes rather than truncate (audit H7).
+                    .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
                     .minimumScaleFactor(0.6)
                     .foregroundStyle(tone == .accent ? Color.qr.accentStrong : .qr.muted)
                 Text(count.formatted())
@@ -448,16 +471,20 @@ private struct ErrorBanner: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label {
-                Text("Could not load topics").font(.qr(.label))
-            } icon: {
-                QIcon.alert.view(size: 16, weight: .bold)
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
+                    Text("Could not load topics").font(.qr(.label))
+                } icon: {
+                    QIcon.alert.view(size: 16, weight: .bold)
+                }
+                .foregroundStyle(.qr.danger)
+                Text(message)
+                    .font(.qr(.footnote))
+                    .foregroundStyle(.qr.inkSoft)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .foregroundStyle(.qr.danger)
-            Text(message)
-                .font(.qr(.footnote))
-                .foregroundStyle(.qr.inkSoft)
-                .fixedSize(horizontal: false, vertical: true)
+            .accessibilityElement(children: .combine)
+            .qrAnnouncesError(message)
             Button("Retry", action: retry)
                 .buttonStyle(.qr(.secondary, size: .small))
                 .accessibilityIdentifier("home.retry")

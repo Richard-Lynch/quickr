@@ -40,9 +40,9 @@ import Testing
     #expect(try await query.entities(for: [PlaceholderTopicRepository.mood]).map(\.name) == ["Mood"])
 }
 
-/// The returned value is asserted end to end in `QuickRUITests/IntentResolutionTests`.
-@Test(.timeLimit(.minutes(5))) func logEntryStubPerformsWithoutAStore() async throws {
+/// Without a write context (no process registered one) the intent refuses, writing nothing; the
+/// logging itself is `IntentLoggingTests`, and end to end the hosted `IntentBootstrapTests`.
+@Test(.timeLimit(.minutes(5))) func logEntryNeedsAWriteContext() async throws {
     let topic = TopicEntity(id: PlaceholderTopicRepository.coffee, name: "Coffee", slug: "coffee")
-    let intent = LogEntryIntent(topic: topic)
-    _ = try await intent.perform()
+    await #expect(throws: IntentLogging.Failure.noStore) { try await LogEntryIntent(topic: topic, number: 2).perform() }
 }

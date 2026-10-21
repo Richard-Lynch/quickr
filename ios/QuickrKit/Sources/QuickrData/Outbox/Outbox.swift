@@ -290,7 +290,14 @@ public struct Outbox: Sendable {
     /// an answer already received, and the release. Under write contention from another process
     /// each can wait up to SQLite's busy timeout (5 s), so choose a budget with headroom below
     /// the process's real limit (extensions use 4–5 s of a ~30 s window).
-    public func flush(force: Bool, budget: Duration, leaseWait: Duration = .zero) async throws -> OutboxFlushReport {
+    ///
+    /// `shouldProceed` is asked once the lease is held, before anything is claimed: false releases
+    /// it and ends `.paused` (the notification handler flushes a store only while it is the active
+    /// one, notifications.md §7.1 step 10).
+    public func flush(
+        force: Bool, budget: Duration, leaseWait: Duration = .zero,
+        shouldProceed: (@Sendable () async -> Bool)? = nil
+    ) async throws -> OutboxFlushReport {
         let start = ContinuousClock.now
         let grace = min(shutdownGrace, budget * 0.2)
         let requestDeadline = start.advanced(by: max(.zero, budget - grace - min(Self.cleanupReserve, budget * 0.1)))
@@ -309,7 +316,11 @@ public struct Outbox: Sendable {
         run.report.startedAt = start
         var failure: (any Error)?
         do {
-            run.report.ending = try await pass(&run)
+            if let shouldProceed, await !shouldProceed() {
+                run.report.ending = .paused
+            } else {
+                run.report.ending = try await pass(&run)
+            }
         } catch is CancellationError {
             run.report.ending = .cancelled
         } catch {
@@ -600,6 +611,37 @@ private final class FirstResult<T: Sendable>: Sendable {
                 return nil
             }
             if let ready { continuation.resume(returning: ready) }
+        }
+    }
+}
+
+extension LocalStore {
+    /// A reminder action's log (notifications.md §7.1 step 5, §7.4): `entry.create` with the
+    /// reminder's shared id, unless that id is already queued, on the server or tombstoned; then
+    /// nothing is written (the first answer wins). The check and the enqueue are one `IMMEDIATE`
+    /// transaction, so racing actions log once. A retired file throws `StoreError.retired` before
+    /// anything is looked at. Needs no sender: the caller flushes (or not) on its own.
+    public func createEntryIfAbsent(id: UUID, topic: TopicRef, body: EntryCreateDTO, origin: OutboxOrigin)
+        async throws -> OutboxCreateOnceResult
+    {
+        var body = body
+        body.id = nil
+        body.source = origin.source  // what the request will carry (outbox.md §4)
+        let item = NewOutboxItem(id: id, payload: .entryCreate(topic: topic, body: body), origin: origin)
+        let entryId = id.wireString
+        let (clock, wallClock) = (leaseClock, self.wallClock)
+        return try await writer.write { db in
+            if try StoreFence.isRetired(db) { throw StoreError.retired }
+            if try !OutboxStorage.items(db, entityKind: .entry, entityId: entryId).isEmpty {
+                return .duplicate(.queued)
+            }
+            if try ServerLayer.isTombstoned(db, kind: .entry, id: entryId) { return .duplicate(.deleted) }
+            if try ServerLayer.revision(db, entityKind: .entry, id: entryId) != nil { return .duplicate(.onServer) }
+            let enqueued = try OutboxQueue.enqueue(db, item, holdFor: nil, now: clock.now(), wall: wallClock.now())
+            guard case .appended(let appended) = enqueued else {
+                throw OutboxError.notAllowed("a create is never coalesced")
+            }
+            return .created(appended)
         }
     }
 }

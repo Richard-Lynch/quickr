@@ -7,7 +7,14 @@ import Foundation
 /// A parse gives the navigation stack to show above the topic list: `[]` is the list itself,
 /// one route otherwise (back returns to the list, like the PWA's back button with no history).
 /// Anything the PWA wouldn't route, or with a malformed slug or id, is nil. Query parameters
-/// other than the record screen's `fix` are ignored (the PWA's list and chart filters).
+/// other than the record screen's `fix` and the app's `scope` are ignored (the PWA's list and
+/// chart filters).
+///
+/// **Provenance** (notifications.md §7.5): a link quickR makes for a widget names the store it
+/// was read from, `scope={server_id}/{store_gen}`, and its topic by id
+/// (`quickr://t/{topic_id}/record?scope=…`), so the app can refuse it once another server or
+/// store is active instead of opening that one's same-slug topic. A link without a scope (the
+/// PWA's, a typed one) opens against the active server, as before.
 public enum DeepLink {
     public static let scheme = "quickr"
 
@@ -27,6 +34,43 @@ public enum DeepLink {
     /// The stack a `quickr://` URL opens, or an http(s) URL under `serverURL` (its path prefix
     /// respected). Nil for other URLs and for paths quickR doesn't have.
     public static func routes(for url: URL, serverURL: URL? = nil) -> [Route]? {
+        link(for: url, serverURL: serverURL)?.routes
+    }
+
+    /// A parsed link: its stack, and the store it names (`scope=`), if any.
+    public struct Link: Sendable, Hashable {
+        public var routes: [Route]
+        public var scope: EntryScope?
+
+        public init(routes: [Route], scope: EntryScope?) {
+            self.routes = routes
+            self.scope = scope
+        }
+    }
+
+    /// `routes(for:serverURL:)` with the link's `scope` (a `quickr://` link's only: a server's
+    /// PWA link is that server's by its address). A `scope` parameter that is malformed, has no
+    /// value or appears more than once makes the link nil: never read as a link without one.
+    public static func link(for url: URL, serverURL: URL? = nil) -> Link? {
+        guard let routes = parse(url, serverURL: serverURL) else { return nil }
+        let scopes = (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+            .filter { $0.name == "scope" }
+        guard url.scheme?.lowercased() == scheme, !scopes.isEmpty else { return Link(routes: routes, scope: nil) }
+        guard scopes.count == 1, let raw = scopes[0].value else { return nil }
+        let scope = EntryScope(raw)
+        guard !scope.serverId.isEmpty, scope.storeGen != nil, isScopeServer(scope.serverId) else { return nil }
+        return Link(routes: routes, scope: scope)
+    }
+
+    /// The app's URL for a route, naming the store it belongs to:
+    /// `quickr://t/{topic_id}/record?scope={server_id}/{store_gen}`.
+    public static func url(for route: Route, scope: EntryScope) -> URL {
+        var components = URLComponents(url: url(for: route), resolvingAgainstBaseURL: false)!
+        components.queryItems = (components.queryItems ?? []) + [URLQueryItem(name: "scope", value: scope.id)]
+        return components.url ?? url(for: route)
+    }
+
+    private static func parse(_ url: URL, serverURL: URL?) -> [Route]? {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
             let scheme = components.scheme?.lowercased(), components.user == nil, components.password == nil
         else { return nil }
@@ -136,6 +180,9 @@ public enum DeepLink {
                     || b == 0x5F
             }
     }
+
+    /// A server id as the registry has it: 1–64 of `[A-Za-z0-9_-]`.
+    private static func isScopeServer(_ s: String) -> Bool { isFixId(s) }
 
     private static func effectivePort(_ components: URLComponents) -> Int? {
         if let port = components.port { return port }

@@ -31,28 +31,34 @@ use `IOS_SIM` (default `IOS_SIM_MIN`), and `check-ios` uses `IOS_SIM_MIN` and
 this worktree's own clone of that device (`sim-clone.sh`, created on first use),
 never on the shared base device.
 
-| Target                      | Does                                                                                                                                                                                          |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `make ios-gen`              | Generate `ios/quickR.xcodeproj`, the Info.plists and entitlements from `project.yml`                                                                                                          |
-| `make ios-build`            | Simulator Debug build                                                                                                                                                                         |
-| `make ios-core-test`        | `swift test` for `QuickrKit` on the Mac, strict cooperative pool (fast; Core and Data; skips the real-time tests)                                                                             |
-| `make ios-timing-test`      | The real-time tests (`TimingTests`, `MultiProcessTests`) alone, one at a time, normal pool (`QUICKR_TIMING_TESTS=1`)                                                                          |
-| `make ios-lifecycle-test`   | The GRDB-suspension lifecycle tests, alone in their own `swift test` process (`ios-core-test` skips them; `check-ios` and CI run it)                                                          |
-| `make ios-test`             | Unit test plan on the iOS 26.0 simulator                                                                                                                                                      |
-| `make ios-uitest`           | UI test plan on `IOS_SIM`                                                                                                                                                                     |
-| `make check-ios`            | The local gate: gen, swift test, Unit and UI plans on **both** simulators, Intents plan on iOS 27, lint, Xcode version                                                                        |
-| `make ios-check-ci`         | What CI runs on a ready PR: gen, build and Unit plan with signing off, on an iPhone with an **iOS 26.x** runtime (fails if none; `IOS_SIM_CI` picks the preferred model, default `iPhone 17`) |
-| `make ios-sim-run`          | Build, install and launch; `URL=quickr://...` then opens a link                                                                                                                               |
-| `make ios-shots`            | Clean status bar, light and dark screenshots into `IOS_SHOTS` (default `docs/ios/demo/m0`)                                                                                                    |
-| `make ios-demo-record`      | Record a launch and convert it to `IOS_GIF`                                                                                                                                                   |
-| `make ios-lint` / `ios-fmt` | swift-format lint / format in place (config in `ios/.swift-format`). `check-ios` fails without swift-format; `ios-lint` only warns                                                            |
-| `make ios-resolve`          | Update the package pins (see below)                                                                                                                                                           |
-| `make ios-clean`            | Remove the generated project and all build output                                                                                                                                             |
+| Target                        | Does                                                                                                                                                                                          |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make ios-gen`                | Generate `ios/quickR.xcodeproj`, the Info.plists and entitlements from `project.yml`                                                                                                          |
+| `make ios-build`              | Simulator Debug build                                                                                                                                                                         |
+| `make ios-core-test`          | `swift test` for `QuickrKit` on the Mac, strict cooperative pool (fast; Core and Data; skips the real-time tests)                                                                             |
+| `make ios-release-test-build` | QuickrKit and its tests compile in Release (`swift test -c release --list-tests`; `swift build --build-tests` can't: Release has no testability for the `@testable` test files)               |
+| `make ios-timing-test`        | The real-time tests (`TimingTests`, `MultiProcessTests`) alone, one at a time, normal pool (`QUICKR_TIMING_TESTS=1`)                                                                          |
+| `make ios-lifecycle-test`     | The GRDB-suspension lifecycle tests, alone in their own `swift test` process (`ios-core-test` skips them; `check-ios` and CI run it)                                                          |
+| `make ios-test`               | Unit test plan on the iOS 26.0 simulator                                                                                                                                                      |
+| `make ios-uitest`             | UI test plan on `IOS_SIM`                                                                                                                                                                     |
+| `make check-ios`              | The local gate: gen, swift test, Unit and UI plans on **both** simulators, Intents plan on iOS 27, lint, Xcode version                                                                        |
+| `make ios-check-ci`           | What CI runs on a ready PR: gen, build and Unit plan with signing off, on an iPhone with an **iOS 26.x** runtime (fails if none; `IOS_SIM_CI` picks the preferred model, default `iPhone 17`) |
+| `make ios-sim-run`            | Build, install and launch; `URL=quickr://...` then opens a link                                                                                                                               |
+| `make ios-shots`              | Clean status bar, light and dark screenshots into `IOS_SHOTS` (default `docs/ios/demo/m0`)                                                                                                    |
+| `make ios-demo-record`        | Record a launch and convert it to `IOS_GIF`                                                                                                                                                   |
+| `make ios-lint` / `ios-fmt`   | swift-format lint / format in place (config in `ios/.swift-format`). `check-ios` fails without swift-format; `ios-lint` only warns                                                            |
+| `make ios-resolve`            | Update the package pins (see below)                                                                                                                                                           |
+| `make ios-clean`              | Remove the generated project and all build output                                                                                                                                             |
+| `make ios-device-run`         | Signed Debug build, install and launch on the paired iPhone (`IOS_DEVICE`, `URL=`); see [docs/ios/demo/DEVICE-DAY.md](../docs/ios/demo/DEVICE-DAY.md)                                         |
+| `make ios-testflight`         | Archive (Release) and upload to TestFlight with the App Store Connect API key; see [TestFlight](#testflight)                                                                                  |
+| `make ios-testflight-dry-run` | The same archive unsigned, then the steps an upload would take; no credentials, nothing exported                                                                                              |
 
 Override the simulators with `IOS_SIM_MIN=... IOS_SIM_CUR=...`. Build output
 goes to `ios/build/` (DerivedData in `build/dd`, package checkouts in
-`build/spm`, test results in `build/results/<plan>-<udid>.xcresult`; read one
-with `xcrun xcresulttool get test-results summary --path ...`).
+`build/spm`, test results in a directory of each run's own,
+`build/results/<plan>-<date>-<time>-<random>/<plan>.xcresult`, whose path `test.sh` prints
+first (`IOS_RESULT_BUNDLE=<new path>` picks it instead); read one with
+`xcrun xcresulttool get test-results summary --path ...`).
 
 **Hangs and simulator load.** Every `xcodebuild` and `swift test` runs under
 `scripts/watchdog.sh`, in a process group of its own. It is killed, with
@@ -71,9 +77,24 @@ Simulators boot through one admission (`sim-clone.sh`, `test.sh`, `sim-run.sh`):
 it refuses while `IOS_SIM_CAP` (default 2; 0 = off) other quickR simulators
 (worktree clones and the base `quickR …` devices alike) are booted, and names them; `sim-clone.sh --wait` or `IOS_SIM_WAIT=1` waits for a
 slot instead. A machine-wide lock covers the check and the boot, so two
-worktrees can't both take the last slot. A clone that is already booted never
+worktrees can't both take the last slot. Waiters are served first come, first served: each
+takes a ticket and only the oldest live one gets a freed slot (it prints its place in the
+queue); a dead waiter's ticket is skipped. A clone that is already booted never
 counts against itself. `sim-clone.sh` boots its clone; `--no-boot` only prints
-the UDID. `make ios-script-test` tests both (no Xcode needed).
+the UDID. Automated runs (`test.sh` and everything built on it, `check-ios`, the perf, demo,
+shots and proof scripts) hold the simulator they use and shut it down when they end, by error
+or signal too, if they booted it and no other run still holds it; a simulator that was already
+booted (by `sim-run.sh`, `sim-clone.sh` or Xcode) stays booted. `IOS_SIM_KEEP=1` keeps it
+booted for an interactive session afterwards. A new boot also needs room: it is refused under
+`IOS_SIM_MIN_FREE_GB` (default 15) free on the simulators' disk, and waits up to
+`IOS_SIM_MEM_WAIT` seconds (default 600) while `memory_pressure` reports under
+`IOS_SIM_MIN_FREE_PCT` (default 20) % free (`IOS_SIM_RESOURCE_GUARD=0` turns both off).
+`make ios-prune` frees disk from finished work: the simulator clones of worktrees that are gone,
+or merged (into `origin/ios/m3` or a merged pull request), unused and idle for
+`IOS_PRUNE_IDLE_HOURS` (default 3), with those worktrees' `ios/build` and `QuickrKit/.build`,
+and unavailable simulators; never a booted or held simulator, a base device or this worktree.
+`IOS_PRUNE_DRY_RUN=1` (or `--dry-run`) only lists what it would remove. `make ios-script-test` tests all of this (no
+Xcode needed).
 
 `simctl openurl` with the `quickr://` scheme shows a system "Open in quickR?"
 alert, which stays on screen until tapped. Reboot the simulator (or tap it)
@@ -122,7 +143,8 @@ Generated and gitignored: `quickR.xcodeproj`, the targets' `Info.plist` and
 
 The app and both extensions share the App Group `group.com.bahumia.quickr` and
 the keychain group `$(AppIdentifierPrefix)com.bahumia.quickr.shared`.
-`aps-environment` is added in M3.
+The app alone also has `aps-environment: development`, for APNs (see
+[TestFlight](#testflight) for production).
 
 The test plans reference targets by XcodeGen's deterministic ids. If a test
 target is renamed or added, regenerate and update the `identifier` in the
@@ -185,7 +207,7 @@ is the child process for the multi-process tests
   library's intents metadata into every binary that links it, so the app and
   the widget extension get them with no extra declaration.
 - **No `AppIntentsPackage`** (contrary to research/02 §1 and 04). On iOS 26.0,
-  linkd resolves an `includedPackages` entry against the binary's *imported*
+  linkd resolves an `includedPackages` entry against the binary's _imported_
   symbols. A static library's never are, so linkd logs "did not match any
   imported symbol" and drops all of the bundle's intents: no App Shortcuts, and
   widgets that can't be configured. iOS 27 accepts it, which is why this only
@@ -309,17 +331,18 @@ applies. A rule applies `times` times (one-shot by default), or forever when
 header values such as `retry_after` and `content_type` must not contain CR/LF),
 and an invalid rule gets a JSON 400 and is not installed. The actions are:
 
-| `action`         | Behaviour                                                                                                                                                                                                                           | Extra fields                                                                                                      |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `pass`           | Forward unchanged (a counted no-op)                                                                                                                                                                                                 |                                                                                                                   |
-| `drop_response`  | Forward, wait for the server's full answer (it has committed), then reset the client connection. Outbox 59, "maybe delivered"                                                                                                       |                                                                                                                   |
-| `drop_request`   | Reset the connection without forwarding                                                                                                                                                                                             |                                                                                                                   |
-| `garble`         | Forward, then corrupt a **2xx** body. `Content-Length` stays correct, so the HTTP is valid and only the body is bad                                                                                                                 | `garble`: `truncate` (default), `drop_field` (removes top-level `field`, default `revision`), `not_json`, `empty` |
-| `captive`        | `200 text/html` captive-portal page, without forwarding                                                                                                                                                                             | `body`, `content_type`                                                                                            |
-| `status`         | Answer `status` (default 503) without forwarding                                                                                                                                                                                    | `status`, `retry_after`, `body`, `content_type`                                                                   |
-| `strip_identity` | Forward, then remove `X-QuickR-Server-Id` and `X-QuickR-Epoch`                                                                                                                                                                      |                                                                                                                   |
-| `delay`          | Sleep `delay_ms`, then forward                                                                                                                                                                                                      | `delay_ms`, `phase`: `request` (before the server sees it, the default) or `response` (after it commits)          |
-| `hold`           | Park the request **before** it reaches the server until `POST /rules/{id}/release`. The request still reaches the server after the client has given up. This is the deterministic "POST delayed in the network" of outbox 12 and 51 | Poll `GET /rules/{id}` until `waiting` ≥ 1                                                                        |
+| `action`         | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                      | Extra fields                                                                                                      |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `pass`           | Forward unchanged (a counted no-op)                                                                                                                                                                                                                                                                                                                                                                                            |                                                                                                                   |
+| `drop_response`  | Forward, wait for the server's full answer (it has committed), then reset the client connection. Outbox 59, "maybe delivered"                                                                                                                                                                                                                                                                                                  |                                                                                                                   |
+| `drop_request`   | Reset the connection without forwarding                                                                                                                                                                                                                                                                                                                                                                                        |                                                                                                                   |
+| `garble`         | Forward, then corrupt a **2xx** body. `Content-Length` stays correct, so the HTTP is valid and only the body is bad                                                                                                                                                                                                                                                                                                            | `garble`: `truncate` (default), `drop_field` (removes top-level `field`, default `revision`), `not_json`, `empty` |
+| `captive`        | `200 text/html` captive-portal page, without forwarding                                                                                                                                                                                                                                                                                                                                                                        | `body`, `content_type`                                                                                            |
+| `status`         | Answer `status` (default 503) without forwarding                                                                                                                                                                                                                                                                                                                                                                               | `status`, `retry_after`, `body`, `content_type`                                                                   |
+| `strip_identity` | Forward, then remove `X-QuickR-Server-Id` and `X-QuickR-Epoch`                                                                                                                                                                                                                                                                                                                                                                 |                                                                                                                   |
+| `access`         | Cloudflare Access with a Service Auth policy (use `sticky`): forward only requests carrying `CF-Access-Client-Id`/`-Secret` equal to the rule's, swapped for a fake `Cf-Access-Jwt-Assertion`; refuse the rest with a `302` to a login page, or, with `strict`, a `403` when a wrong token was sent (no token is still a `302`). The log entry gets `"access": "granted"` or `"denied"`. See docs/hosting/cloudflare-access.md | `client_id`, `client_secret` (both required), `strict`                                                            |
+| `delay`          | Sleep `delay_ms`, then forward                                                                                                                                                                                                                                                                                                                                                                                                 | `delay_ms`, `phase`: `request` (before the server sees it, the default) or `response` (after it commits)          |
+| `hold`           | Park the request **before** it reaches the server until `POST /rules/{id}/release`. The request still reaches the server after the client has given up. This is the deterministic "POST delayed in the network" of outbox 12 and 51                                                                                                                                                                                            | Poll `GET /rules/{id}` until `waiting` ≥ 1                                                                        |
 
 Each **log** entry is
 `{"seq", "at", "method", "path" (with query), "rule", "action", "upstream" ("a"/"b", or null if never forwarded), "upstream_status" (the server's status, or null), "status" (what the client got, or null), "state"}`.
@@ -345,6 +368,91 @@ exits or dies: the script and any child that inherited the descriptor. If the
 source simulator is shut down, the script copies it with `simctl clone`. If it
 is booted (in use), the script never touches it and creates a fresh device with
 the same device type and runtime instead.
+
+## TestFlight
+
+`make ios-testflight` archives the app (Release, any iOS device), signs it
+automatically and uploads it to App Store Connect, where it becomes a
+TestFlight build. Signing and the upload both go through an App Store Connect
+API key, so no Apple ID sign-in is needed in Xcode. `make ios-testflight-dry-run`
+needs no credentials: it builds the same archive with signing off
+(`CODE_SIGNING_ALLOWED=NO`), checks that every bundle in it carries the build
+number, writes the export options, and prints the export and upload it would
+run. Output goes to `ios/build/testflight/<version>-<build>/`.
+
+**Build number.** Every upload needs a new `CFBundleVersion` for the same
+version. The script sets it on all three bundles (the app and both extensions
+must match) from `TESTFLIGHT_BUILD_NUMBER`, else from the UTC time as
+`YYYYMMDD.HHMMSS`, which increases with the clock. A number already archived
+in `ios/build/testflight` is refused, as App Store Connect would refuse it
+again. Nothing in the repo changes. The version
+shown to testers is `MARKETING_VERSION` in `project.yml`; bump it there for a
+new release.
+
+**Credentials.** Four values, from the environment or from `ios/testflight.env`
+(gitignored; copy `ios/testflight.env.example`). The environment wins. The
+file is read as plain `KEY=VALUE` lines and never run. `DEVELOPMENT_TEAM` is
+also read from `ios/Local.xcconfig`. A run without all four stops before
+building and names what is missing or malformed. The script prints the IDs
+only redacted (`********AB`). It filters them out of xcodebuild's output before
+anything logs it, and turns off shell tracing (`bash -x`). It refuses a key file
+that git tracks, or one inside the repo that isn't ignored (`*.p8` is ignored
+repo-wide). xcodebuild takes the IDs and the key's path as arguments, so while
+it runs they are visible to `ps` on this Mac, though the key itself is not.
+
+| Variable           | What it is                                        |
+| ------------------ | ------------------------------------------------- |
+| `DEVELOPMENT_TEAM` | Your Team ID (10 characters)                      |
+| `ASC_KEY_ID`       | The API key's Key ID (10 characters)              |
+| `ASC_ISSUER_ID`    | The Issuer ID shown above the keys list (a UUID)  |
+| `ASC_KEY_PATH`     | Path to the downloaded `AuthKey_<Key ID>.p8` file |
+
+### What you need to provide
+
+1. **Apple Developer Program membership** (H3), and its **Team ID**: on
+   developer.apple.com, Account ▸ Membership details.
+2. **The app record** in App Store Connect (H7): Apps ▸ + ▸ New App, platform
+   iOS, bundle ID `com.bahumia.quickr`, any name, SKU and primary language. If
+   the bundle ID isn't offered, register it first under Certificates,
+   Identifiers & Profiles ▸ Identifiers, or run one signed device build
+   (automatic signing registers it). Automatic signing registers the extensions'
+   IDs (`com.bahumia.quickr.widgets`, `com.bahumia.quickr.notification-service`),
+   the App Group `group.com.bahumia.quickr` and keychain sharing.
+3. **A Team API key**: Users and Access ▸ Integrations ▸ App Store Connect API ▸
+   Team Keys ▸ +. Use the **Admin** role: automatic signing creates the
+   distribution certificate and the App Store profiles, and lesser roles may be
+   refused that. Note the **Key ID** and the **Issuer ID**.
+4. **The key file**: download `AuthKey_<Key ID>.p8`. It can be downloaded
+   once only. Keep it outside the repo, for example in
+   `~/.appstoreconnect/private_keys/` with `chmod 600`, and don't send it
+   anywhere. Revoke it in the same screen if it leaks.
+5. **Export compliance**: nothing to do. The app's `info` in `project.yml` sets
+   `ITSAppUsesNonExemptEncryption: false`, because its only encryption is the
+   OS's own (TLS through URLSession, the Keychain), which is exempt. App Store
+   Connect then doesn't ask about it for each build. If the app ever adds its
+   own cryptography, change it to `true` and answer the questions there.
+6. **Testers**: TestFlight ▸ Internal Testing ▸ + adds a group. Add yourself, then
+   install the TestFlight app on the phone.
+
+Then fill in `ios/testflight.env`, run `make ios-testflight-dry-run` to check
+the archive, and run `make ios-testflight`. A build shows under TestFlight once
+App Store Connect has processed it, usually within minutes.
+
+**Push environment.** The app's entitlements say `aps-environment: development`,
+which is what a signed device build uses (APNs sandbox). Exporting for App Store
+Connect re-signs the app with the App Store distribution profile, whose
+`aps-environment` is `production`, so the build TestFlight gets uses production
+APNs. Nothing in the repo changes for it. Simulator and unsigned builds ignore
+the entitlement. The app tells the two apart at run time (an App Store or
+TestFlight build has no `embedded.mobileprovision`; notifications.md §9.1). To
+see it for yourself once, export to a folder instead of uploading. Copy the
+export options with `destination` set to `export` and run `xcodebuild -exportArchive`
+with them. Then unzip the `.ipa` and run
+`codesign -d --entitlements - Payload/QuickR.app`.
+
+The archive warns "All interface orientations must be supported unless the app
+requires full screen". That is expected: the app is iPhone-only and portrait by
+design, and `UIRequiresFullScreen` is deprecated on iOS 26.
 
 ## CI
 

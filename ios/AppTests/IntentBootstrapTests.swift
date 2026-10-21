@@ -1,5 +1,6 @@
 import AppIntents
 import Foundation
+import QuickrCore
 import QuickrData
 import Testing
 
@@ -11,6 +12,28 @@ import Testing
 /// (AppIntentsTesting, widget-proof.sh) can't run there. Serialized: the registration is
 /// process-wide.
 @Suite(.serialized) @MainActor struct IntentBootstrapTests {
+    /// The seeded store with Coffee and Mood made quick-loggable (a number, an option), for the
+    /// write paths. Only here: other suites' sessions on the fixture store must not register
+    /// notification categories with the system while CAT's tests read them.
+    static func quickLogLocation() async throws -> StoreLocation {
+        let location = try await TestStores.seededLocation()
+        let partitions = try StorePartitions.open(at: location, notifier: nil)
+        let store = try #require(try await partitions.openActiveStore(role: .app)?.store)
+        var topics = try await PlaceholderTopicRepository().topics().map(\.topic)
+        let cups = Question(key: "cups", label: "Cups", kind: .int(.init(min: 0, max: 20, unit: "cups")))
+        let mood = Question(
+            key: "mood", label: "Mood",
+            kind: .choice(
+                .init(options: [EnumOption(value: "good", label: "Good"), EnumOption(value: "bad", label: "Bad")])))
+        for index in topics.indices {
+            topics[index].questions = topics[index].id == PlaceholderTopicRepository.coffee ? [cups] : [mood]
+            topics[index].revision += 1
+        }
+        let seeded = topics
+        try await store.writer.write { db in for topic in seeded { _ = try ServerLayer.upsert(db, topic: topic) } }
+        return location
+    }
+
     @Test func appBootstrapServesTheTopicQuery() async throws {
         let location = try await TestStores.seededLocation()
         defer { TestStores.remove(location) }
@@ -31,17 +54,92 @@ import Testing
 
         let mood = try #require(try await TopicEntityQuery().entities(for: [PlaceholderTopicRepository.mood]).first)
         let configured = SelectTopicIntent(topic: mood)
-        #expect(await TopicProvider.snapshotEntry(for: configured).topic?.name == "Mood")
-        #expect(TopicProvider.timeline(for: configured).entries.map(\.topic?.name) == ["Mood"])
-        #expect(TopicProvider.timeline(for: SelectTopicIntent()).entries.map(\.topic?.name) == [nil])
+        #expect(await TopicProvider.snapshotEntry(for: configured).topic?.topic.name == "Mood")
+        let timeline = await TopicProvider.timeline(for: configured)
+        #expect(!timeline.entries.isEmpty && timeline.entries.allSatisfy { $0.topic?.topic.name == "Mood" })
+        #expect(await TopicProvider.timeline(for: SelectTopicIntent()).entries.allSatisfy { $0.topic == nil })
     }
 
-    @Test func logEntryIntentPerformsWithAResolvedTopic() async throws {
+    /// Both widgets' timelines put the due change at the device time of the server's boundary
+    /// (sync-protocol.md §10): Coffee, every 50 min, last logged 37 min ago by the server's clock,
+    /// turns due 13 min from now on either clock; read uncorrected, the device clock 5 min behind
+    /// (skew +5 min) or ahead would put it 5 min late or early (both off the 15-min refresh points).
+    @Test(arguments: [5.0 * 60, -5.0 * 60])
+    func widgetTimelinesFollowTheServersClock(skew: TimeInterval) async throws {
         let location = try await TestStores.seededLocation()
         defer { TestStores.remove(location) }
-        _ = AppEnvironment.bootstrap(location: location)
+        let now = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 / 60).rounded(.down) * 60)
+        let partitions = try StorePartitions.open(at: location, notifier: nil)
+        let store = try #require(try await partitions.openActiveStore(role: .app)?.store)
+        var coffee = try #require(
+            try await PlaceholderTopicRepository().topic(id: PlaceholderTopicRepository.coffee)?.topic)
+        coffee.schedule = .interval(.init(everyMinutes: 50, timezone: "UTC"))
+        coffee.createdAt = now.addingTimeInterval(-86_400)
+        coffee.scheduleUpdatedAt = coffee.createdAt
+        coffee.revision += 1
+        // The store derives the last entry from its entries.
+        let logged = now.addingTimeInterval(skew - 37 * 60)
+        let entry = Entry(
+            id: UUID(), topicId: coffee.id, version: coffee.currentVersion, revision: 1, source: "test", channel: .ios,
+            capturedAt: logged, createdAt: logged, updatedAt: logged, answers: [:])
+        try await store.writer.write { [coffee] db in
+            _ = try ServerLayer.upsert(db, topic: coffee)
+            _ = try ServerLayer.upsert(db, entry: entry)
+            try db.execute(sql: "UPDATE sync_state SET skew_ms = ? WHERE id = 1", arguments: [skew * 1000])
+        }
+        WidgetBootstrap.register(location: location)
+        let turnsDue = now.addingTimeInterval(13 * 60)
+        let uncorrected = turnsDue.addingTimeInterval(skew)  // the server's boundary read as device time
+
+        let topic = await TopicProvider.timeline(for: SelectTopicIntent(topic: TopicEntity(coffee)), now: now)
+        #expect(topic.entries.map(\.date).contains(turnsDue))
+        #expect(!topic.entries.map(\.date).contains(uncorrected))
+        let list = await DueListProvider.timeline(now: now)
+        #expect(list.entries.map(\.date).contains(turnsDue))
+        #expect(!list.entries.map(\.date).contains(uncorrected))
+        // At that entry Coffee is due; at the first, not yet.
+        let atDue = try #require(list.entries.first { $0.date == turnsDue })
+        #expect(atDue.topics.first { $0.id == coffee.id }?.due(at: turnsDue)?.isDue == true)
+        #expect(list.entries.first?.topics.first { $0.id == coffee.id }?.due(at: now)?.isDue == false)
+    }
+
+    /// The app's write path: a number and an option, durably queued in the active store with
+    /// source `ios.siri`, the dialog saying what was logged.
+    @Test func logEntryIntentLogsThroughTheActiveStore() async throws {
+        let location = try await Self.quickLogLocation()
+        defer { TestStores.remove(location) }
+        let environment = AppEnvironment.bootstrap(location: location, categoryCenter: nil)
         let coffee = try #require(try await TopicEntityQuery().entities(for: [PlaceholderTopicRepository.coffee]).first)
-        let result = try await LogEntryIntent(topic: coffee).perform()
-        #expect(result.value == "Coffee")
+        let logged = try await LogEntryIntent(topic: coffee, number: 2).perform()
+        #expect(logged.value == "Coffee: 2 cups")
+        let mood = try #require(try await TopicEntityQuery().entities(for: [PlaceholderTopicRepository.mood]).first)
+        let good = QuestionOptionEntity(
+            topicId: PlaceholderTopicRepository.mood, key: "mood", option: EnumOption(value: "good", label: "Good"))
+        #expect(try await LogEntryIntent(topic: mood, option: good).perform().value == "Mood: Good")
+
+        let partitions = try #require(environment.session?.partitions)
+        let store = try #require(try await partitions.openActiveStore(role: .app)?.store)
+        let items = try await store.outbox.items()
+        #expect(items.count == 2 && items.allSatisfy { $0.origin == .siri })
+    }
+
+    /// Repeat-last re-logs the latest entry; What's Due reads the active store (the fixture topics
+    /// have no schedule); OpenRecordIntent opens the record screen through the app's router.
+    @Test func repeatLastWhatsDueAndOpenRecordInTheApp() async throws {
+        let location = try await Self.quickLogLocation()
+        defer { TestStores.remove(location) }
+        let environment = AppEnvironment.bootstrap(location: location, categoryCenter: nil)
+        let coffee = try #require(try await TopicEntityQuery().entities(for: [PlaceholderTopicRepository.coffee]).first)
+        _ = try await LogEntryIntent(topic: coffee, number: 3).perform()
+        #expect(try await RepeatLastEntryIntent(topic: coffee).perform().value == "Coffee: 3 cups")
+
+        #expect(try await WhatsDueIntent().perform().value?.isEmpty == true)
+
+        // Foreground: the scene starts the session, which binds the store the intent read from.
+        await environment.start()
+        _ = try await OpenRecordIntent(topic: coffee).perform()
+        let ref = try #require(TopicLinkRef(PlaceholderTopicRepository.coffee.uuidString))
+        #expect(environment.router.path.last == .record(ref))
+        await environment.session?.shutdown()
     }
 }

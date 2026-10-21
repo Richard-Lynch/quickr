@@ -11,16 +11,20 @@ final class Router {
     }
     /// The last link quickR couldn't open, until the root has said so.
     var unopenedLink: URL?
+    /// Why quickR didn't open a link that names another server or store (notifications.md §7.5),
+    /// until the root has said so.
+    var refusedLink: String?
 
     /// Shows the screen `url` names, above the topic list (back returns to it). Returns false, and
-    /// leaves the screen as it is, for a link quickR doesn't have.
+    /// leaves the screen as it is, for a link quickR doesn't have, and for one that names its store
+    /// (`scope=`): only `AppEnvironment.open(url:)` opens those, after checking the store.
     @discardableResult
     func handle(url: URL, serverURL: URL?) -> Bool {
-        guard let routes = DeepLink.routes(for: url, serverURL: serverURL) else {
+        guard let link = DeepLink.link(for: url, serverURL: serverURL), link.scope == nil else {
             unopenedLink = url
             return false
         }
-        path = routes
+        path = link.routes
         return true
     }
 

@@ -20,6 +20,18 @@ public enum Route: Hashable, Sendable {
     /// `/t/:ref/settings`: the topic's details, schedule, archive and delete.
     case topicSettings(TopicLinkRef)
 
+    /// The same screen, naming its topic as `ref` (a link's slug swapped for the topic's id).
+    public func with(topic ref: TopicLinkRef) -> Route {
+        switch self {
+        case .settings, .newTopic: self
+        case .topic(_, let tab): .topic(ref, tab)
+        case .record(_, let fix): .record(ref, fix: fix)
+        case .entry(_, let entryId): .entry(ref, entryId: entryId)
+        case .editQuestions: .editQuestions(ref)
+        case .topicSettings: .topicSettings(ref)
+        }
+    }
+
     /// The topic this route belongs to, if any.
     public var topic: TopicLinkRef? {
         switch self {
