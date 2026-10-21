@@ -386,6 +386,25 @@ import Testing
 
     // MARK: - Body, dismiss and More…
 
+    /// A reminder delivered before the number title became "Log 5 glasses" (a11y N1) sits under
+    /// the old "✓ 5 glasses" category id, which re-registration replaced. Its action identifier
+    /// never carried the title, so a tap still logs; without its category, the body still opens.
+    @Test func aReminderUnderThePreN1CategoryStillLogsOrOpens() async throws {
+        let w = try await World()
+        let r = w.reminder(w.water, last: .int(5))
+        #expect(r.category.actions.map(\.title) == ["Log 5 glasses", "Other value…"])
+        var old = r.category.actions
+        old[0].title = "✓ 5 glasses"
+        #expect(NotificationCategory.hash(old) != NotificationCategory.hash(r.category.actions), "the title is hashed")
+        #expect(
+            await w.handler.handle(.init(action: .open, quickr: r.info))
+                == .open(path: "/t/\(w.water.slug)/record", prefill: nil))
+        let stale = "q1|\(Self.serverA)|\(w.water.id.wireString)|1|glasses|n|5"  // as sent before N1
+        #expect(stale == old[0].identifier)
+        let outcome = await w.handler.handle(.init(action: .custom(stale), title: "Water", quickr: r.info))
+        #expect(outcome == .logged(entryId: w.entryId(w.water), serverId: Self.serverA, flush: .drained))
+    }
+
     @Test func theBodyOpensTheRecordScreenAndMoreDoesTooWithoutLogging() async throws {
         let w = try await World()
         let r = w.reminder(w.moodTopic)

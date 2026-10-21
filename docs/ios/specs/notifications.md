@@ -217,7 +217,7 @@ the most useful ones:
 
 - for enums: the two most-used options (with 5–6 options; "More…" is then the
   4th action, visible only when expanded), or the first two (with fewer);
-- for numbers: "✓ last" and "Other value…".
+- for numbers: "Log {fmt(last)}" and "Other value…".
 
 Everything else is one tap away via the body. Checkpoint D counts how many
 actions iOS actually shows.
