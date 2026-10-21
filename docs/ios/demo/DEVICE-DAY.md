@@ -8,7 +8,8 @@ validation only (DAG §1, move 1). The order is:
 2. build and install (§2);
 3. **D**, which is a go/no-go gate (§3);
 4. **M3-DEV** (§4) and **M4-DEV** (§5);
-5. at M7, the regression pass (§7).
+5. VoiceOver checks (§6) on any build;
+6. at M7, the regression pass (§8).
 
 D, M3-DEV and M4-DEV each end in a short findings PR. Every row is ticked `[x]`,
 failed `[!]` with what was seen, or skipped `[-]` with the reason. A no-go in D
@@ -148,7 +149,7 @@ From PLAN §7 M4, DAG row M4-DEV and STATUS M4.
 
 Some rows depend on work packages that haven't merged yet. At f695859,
 ios/m3 has `LogEntryIntent` (the "Log … in quickR" phrase) and the topic
-widget, but not `RepeatLastEntryIntent`, `LogTopicIntent` or a Control. W2, W4–W6
+widget, but not `RepeatLastEntryIntent`, `LogTopicIntent` or a Control. W2, W4–W6, W9
 and W7 wait for INTENTS and WIDGETS; skip them with `[-]` until those have
 merged.
 
@@ -162,12 +163,31 @@ merged.
 | W6  | One sentence (Apple Intelligence)      | "Log a 30 minute run, effort 7, in quickR"                                                                                                   | It parses into one confirmation without per-field turns                                                                                                                                                      |
 | W7  | Controls                               | Add the quickR Control to Control Center (and the Lock Screen), then run it                                                                  | It logs or opens the record screen, as configured                                                                                                                                                            |
 | W8  | Multi-process soak                     | For ~2 minutes, log from the app, a widget and notification actions in quick succession, with the app in front and killed in turn            | Console shows no `SQLITE_BUSY`, and there is no 0xDEAD10CC crash (check Settings ▸ Privacy & Security ▸ Analytics & Improvements ▸ Analytics Data for `QuickR` reports). Every entry reaches the server once |
+| W9  | Shortcuts: a per-topic Log tile        | In the Shortcuts app, run quickR's Log tile for a multi-question topic (Workout). The simulator can't start a run from a per-topic tile      | Each question prompts in turn. The confirmation snippet shows chips, toggles and ± buttons. Editing then confirming logs the entry, and Undo removes it                                                      | Recording |
 
-**Record:** a recording of W1–W3 and W4–W6 in `docs/ios/demo/m4/`, plus GIFs of
+**Record:** a recording of W1–W3, W4–W6 and W9 in `docs/ios/demo/m4/`, plus GIFs of
 the widget and the Siri card. Mark W2 `[-]` only on a phone without an Action
 button; this one has one.
 
-## 6. Who drives what
+## 6. VoiceOver (A11Y)
+
+These are the checks the simulator can't make. Run them on any build, with
+VoiceOver on (Settings ▸ Accessibility ▸ VoiceOver) unless the row says
+otherwise.
+
+- [ ] **Undo by gesture.** Log from a tile. The Undo toast stays up while
+      VoiceOver is on, and a two-finger double-tap anywhere undoes the log. With
+      no toast showing, the same gesture plays or pauses music as usual.
+- [ ] **Errors are announced.** A failed Record Save, a failed onboarding
+      connect and a failed Edit save each move VoiceOver to the error and read
+      it out. To make them fail, use a value the topic refuses (Record, Edit) and
+      a wrong server address (onboarding).
+- [ ] **Charts.** Walk through each Stats chart with VoiceOver, and play it
+      with Audio Graph (the chart's rotor ▸ Audio Graph).
+- [ ] **Reduce Motion** (Settings ▸ Accessibility ▸ Motion), VoiceOver off:
+      Home, the Builder and Topics show no slide or spring animations.
+
+## 7. Who drives what
 
 The agent can run everything that goes through a terminal on the Mac. A person
 holds the phone for the rest. An agent never taps on the phone.
@@ -182,7 +202,7 @@ holds the phone for the rest. An agent never taps on the phone.
 | Publishing a new version (M5) in the PWA or through the API                             | Screen recordings from Control Center (or the agent with QuickTime) |
 | Writing the findings PRs and the GIFs                                                   | Killing the app (app switcher), and Settings ▸ Action Button        |
 
-## 7. M7 regression pass (on the device)
+## 8. M7 regression pass (on the device)
 
 PLAN §7 M7 requires "the full regression checklist passes on the device". This
 is that list, from the requirements matrix (PLAN §11) and the M2–M6 features.
