@@ -41,29 +41,23 @@ public enum QuickrAnnouncer {
 private struct ErrorFocus<Trigger: Equatable>: ViewModifier {
     let message: String?
     let trigger: Trigger
-    @AccessibilityFocusState private var focused: Bool
+    @AccessibilityFocusState(for: .voiceOver) private var focused: Bool
 
-    /// Long enough for a view inserted with the error to reach the accessibility tree.
+    /// A heuristic: long enough for a view inserted with the error to reach the accessibility
+    /// tree (and a scroll to it to start). Not a guarantee; device D checks it.
     static var settle: Duration { .milliseconds(150) }
 
     func body(content: Content) -> some View {
         content
             .accessibilityFocused($focused)
-            .onAppear {
-                if QuickrErrorFocusRule.shouldFocus(from: (nil, trigger), to: (message, trigger)) { focus() }
+            // One request per (message, trigger): a new one cancels the last, and leaving the
+            // screen cancels it, so a stale request never moves focus.
+            .task(id: ErrorKey(message: message, trigger: trigger)) {
+                guard QuickrErrorFocusRule.shouldFocus(from: (nil, trigger), to: (message, trigger)) else { return }
+                focused = false  // a repeat of the same error is a new focus change, read again
+                do { try await Task.sleep(for: Self.settle) } catch { return }
+                focused = true
             }
-            .onChange(of: ErrorKey(message: message, trigger: trigger)) { old, new in
-                let shouldFocus = QuickrErrorFocusRule.shouldFocus(
-                    from: (old.message, old.trigger), to: (new.message, new.trigger))
-                if shouldFocus { focus() }
-            }
-    }
-
-    private func focus() {
-        Task { @MainActor in
-            try? await Task.sleep(for: Self.settle)
-            focused = true
-        }
     }
 }
 

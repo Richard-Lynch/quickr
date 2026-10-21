@@ -116,4 +116,19 @@ import Testing
         #expect(!center.performNewestAction())
         #expect(undone == ["B", "A"])
     }
+
+    @MainActor @Test func aTimerThatFinishedAsVoiceOverTurnedOnLeavesTheToast() async {
+        let sleeper = Sleeper()
+        var voiceOver = false
+        let center = ToastCenter(sleep: { try await sleeper.sleep($0) }, voiceOverRunning: { voiceOver })
+        center.show(Toast("Logged", action: .init("Undo") {}))
+        await sleeper.waitFor(requested: 1, asleep: 1)
+        // The sleep returns normally, but the timer can't run its dismissal until the main actor
+        // is free: VoiceOver turns on first, so the toast must stay.
+        await sleeper.wakeAll()
+        voiceOver = true
+        center.voiceOverStatusChanged()
+        for _ in 0..<50 { await Task.yield() }
+        #expect(center.items.map(\.toast.title) == ["Logged"])
+    }
 }

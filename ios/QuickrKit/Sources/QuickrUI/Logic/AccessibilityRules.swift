@@ -13,6 +13,7 @@ public enum QuickrChoicePresentation: Sendable, Hashable {
 
 /// When `.qrAnnouncesError` moves VoiceOver to an error: each time a message appears, and again
 /// when the same message comes back for a new attempt (`trigger` changed), never when it clears.
+/// (The modifier runs once per distinct `(message, trigger)`, as `from: (nil, trigger)`.)
 public enum QuickrErrorFocusRule {
     public static func shouldFocus<Trigger: Equatable>(
         from old: (message: String?, trigger: Trigger), to new: (message: String?, trigger: Trigger)

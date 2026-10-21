@@ -53,7 +53,7 @@ extension XCUIAccessibilityAuditType {
 }
 
 extension XCTestCase {
-    /// Audits what `app` shows now. Fails for every issue not in `known` (and, with `within`, inside
+    /// Audits what `app` shows now. Fails for every issue not in `known` (and, with `within`, touching
     /// one of those frames: a test that owns only part of the screen), and for every `known` entry
     /// that no longer occurs. Attaches the issues it accepted.
     @MainActor
@@ -67,7 +67,10 @@ extension XCTestCase {
         try app.performAccessibilityAudit(for: types) { issue in
             guard let element = issue.element else { return false }
             let frame = element.frame
-            if let frames, !frames.contains(where: { $0.contains(frame) }) { return true }  // not ours
+            // Not ours unless it touches one of the frames (an overflow across the edge counts).
+            if let frames, !frames.contains(where: { $0.intersects(frame) || $0.contains(frame.origin) }) {
+                return true
+            }
             let identifier = element.identifier
             let label = element.label
             guard

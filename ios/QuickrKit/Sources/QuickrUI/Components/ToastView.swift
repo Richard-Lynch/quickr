@@ -104,9 +104,6 @@ private struct ToastHostModifier: ViewModifier {
                 guard let id, let item = center.items.first(where: { $0.id == id }) else { return }
                 AccessibilityNotification.Announcement(item.toast.announcement).post()
             }
-            // Under VoiceOver the toast is the last element on screen, so its action is also a
-            // magic tap from anywhere. With no actionable toast it does nothing.
-            .accessibilityAction(.magicTap) { center.performNewestAction() }
             .onReceive(voiceOverStatus) { _ in center.voiceOverStatusChanged() }
     }
 }

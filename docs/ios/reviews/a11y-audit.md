@@ -310,6 +310,99 @@ These are worth fixing once, in the shared code, rather than screen by screen.
    - N1 and N2;
    - W1.
 
+## Split for the App/ phase
+
+Three agents work in parallel, one per slice, each on its own branch from `ios/m3-a11y`
+(after 4a016cd and the r1 fixes). Each slice:
+
+- owns the App/ and UI-test files listed for it, and fixes every High and Medium finding on its
+  screens;
+- adds its screens' XXXL audits with `assertAccessible`;
+- reports its Low findings to the orchestrator for the STATUS backlog, except trivial ones,
+  which it fixes.
+
+### Slice A: Home, Record, Form, Sync, toasts, onboarding, Settings
+
+- **App files:**
+  - `App/Home/**`, `App/Record/**`, `App/Sync/**`, `App/Undo/**`;
+  - `App/Settings/**`, including `App/Settings/App/**`;
+  - `App/Notifications/Registration/PushDeviceRow.swift` and `AppDelegate.swift`;
+  - `App/RootView.swift` and `App/AppEnvironment.swift`.
+- **QuickrUI files:**
+  - `UI/Form/**`, `UI/QuickLog/**`, `UI/Record/**`;
+  - `UI/Components/{TileView,Chips,NumberStepper,ToastView,SyncPill,Surfaces,Buttons}.swift`;
+  - `UI/Logic/Toasts.swift`.
+- **Findings:**
+  - X1: the magic tap goes into `AppDelegate`, which becomes a `UIResponder` and overrides
+    `accessibilityPerformMagicTap()` to call `ToastCenter.performNewestAction()`, returning
+    false when there's no toast so the system's own magic tap still works;
+  - X2 call sites: Form, ServerForm, the token sheet, Home's banner, reset, the push row;
+  - X4: the HomeView call sites;
+  - R2, O1–O6, H1–H9, F1–F8, T1–T5, S1–S3, SE1–SE8.
+- **Tests:** `HomeTests`, `TileUITests`, `RecordUITests`, `FormUITests`, `SyncUITests`,
+  `SettingsUITests`, `AppSettingsUITests`, `LaunchTests`. Slice A also writes the **Reduce
+  Motion launch test** (Home: the filter panel and a toast with `-QuickrReduceMotion`).
+- **Simulator check:** confirm on the simulator that the magic tap reaches the delegate from a
+  focused element inside the SwiftUI hierarchy, and that the system's own magic tap still works
+  when no toast is up.
+
+### Slice B: Entries, Edit, Export, Stats and the topic tabs
+
+- **App files:** `App/Entries/**` (including `TopicTabsView.swift` and
+  `EntryDetailsSection.swift`) and `App/Stats/**`.
+- **QuickrUI files:** `UI/Edit/**`, and `QuickrCore/Charts/ChartModels.swift` for the chart
+  heights.
+- **Findings:**
+  - B1: `QuickrSegmentedPicker` replaces both the tabs' Picker and Overview's private
+    `segmentedOrMenu`, which is deleted;
+  - L1–L5, including the context-menu Delete that fixes the `EntriesTests` XXXL flake;
+  - E1–E4 (X2 in Edit);
+  - C1–C2;
+  - ST1–ST7 (chart descriptors).
+- **Tests:** `EntriesTests`, `EditTests`, `EntriesExportUITests`, `StatsUITests`,
+  `Entries/EntriesEndToEndUITests`.
+
+### Slice C: Topics, Builder, Schedule
+
+- **App files:** `App/Topics/**`, including `Builder/**` and `VersionsView.swift`.
+- **QuickrUI files:** `UI/Topics/**`.
+- **Findings:**
+  - TP1–TP6 (X2 in NewTopic and TopicSettings, and X5 for the schedule kind picker);
+  - BD1–BD8 (X5 for Edit/Preview, and X4 for the Builder, NewTopic and EditQuestions call
+    sites).
+- **Tests:** `TopicUITests`, `BuilderUITests`, including Versions at XXXL.
+
+### Cross-slice touch points
+
+1. **Topic tabs in other slices' tests (B):** at AX sizes the tabs become a menu, so
+   `app.segmentedControls["topic.tabs"]` no longer matches.
+   - Slice B adds `UITests/TopicTabsSupport.swift` with a `selectTopicTab(_:in:)` helper that
+     works for both a segmented control and a menu.
+   - B switches every `topic.tabs` query that can run at an AX size to that helper. Today the
+     queries are in `EditTests:191`, `EntriesTests:101`, `HomeTests:62`, `LinksUITests:16` and
+     `StatsUITests:63,67`.
+   - B makes those one-line edits in A's `HomeTests` and the shared `LinksUITests` too. These
+     are the only cross-slice file edits.
+2. **Versions (C) is reached through the tabs (B):** until B merges, C's Versions XXXL test opens
+   Versions by deep link (`quickr://…/versions`, as `LinksUITests` does). It switches to the
+   helper afterwards.
+3. **Shared QuickrUI components:** Buttons, Surfaces, Typography, Motion and Accessibility belong
+   to slice A after the shared-code commit.
+   - B or C asks A for any change there, or makes it in a separate small commit that A
+     reviews.
+   - New shared helpers go in new files, not in existing ones.
+4. **`UITests/AccessibilitySupport.swift`:** additions only. Every slice may append a
+   `KnownAccessibilityIssue` helper or a new audit-type preset, but no slice changes
+   `assertAccessible`'s behaviour without telling the others.
+5. **Motion lint:** the slices convert their own `withAnimation` call sites (A: HomeView; C:
+   Builder, NewTopic, EditQuestions). The last slice to merge sets the
+   `QUICKR_MOTION_LINT` default to `strict` in `scripts/lint-motion.sh`.
+6. **This document and STATUS:** each slice marks its own finding ids as fixed, in its own
+   sections only. Lows for the backlog go to the orchestrator by message, not as edits to
+   STATUS, which would conflict.
+7. **Merge order:** C, then B (the tabs helper), then A (the delegate, plus the strict motion
+   lint once the others have landed). Any order works if the touch points above are kept.
+
 ## Suggested order
 
 1. The High items:

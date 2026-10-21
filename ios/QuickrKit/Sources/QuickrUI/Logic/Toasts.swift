@@ -104,6 +104,10 @@ public final class ToastCenter {
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private let voiceOverRunning: @MainActor () -> Bool
     @ObservationIgnored private var timers: [Int: Task<Void, Never>] = [:]
+    /// Each timer's generation: a timer whose sleep finished just as it was replaced (VoiceOver
+    /// turned on) finds a newer generation and leaves the toast alone.
+    @ObservationIgnored private var generations: [Int: Int] = [:]
+    @ObservationIgnored private var nextGeneration = 0
 
     /// `sleep` and `voiceOverRunning` are injectable so tests can run the timers without waiting
     /// and without VoiceOver.
@@ -144,7 +148,10 @@ public final class ToastCenter {
     }
 
     /// The magic tap (a two-finger double-tap anywhere): runs the newest toast's action, if any
-    /// toast has one. Returns whether it ran one.
+    /// toast has one. Returns whether it ran one, so the caller can let the system's own magic tap
+    /// (play/pause) through when it didn't. The app calls it from its delegate's
+    /// `accessibilityPerformMagicTap()`, the end of the responder chain: a SwiftUI
+    /// `.accessibilityAction(.magicTap)` can't decline, and would swallow the system's.
     @discardableResult
     public func performNewestAction() -> Bool {
         guard let item = stack.items.last(where: { $0.toast.action != nil }) else { return false }
@@ -154,16 +161,25 @@ public final class ToastCenter {
 
     private func schedule(_ id: Int, _ toast: Toast) {
         timers.removeValue(forKey: id)?.cancel()
+        nextGeneration += 1
+        let generation = nextGeneration
+        generations[id] = generation
         guard let duration = voiceOverRunning() ? toast.durationUnderVoiceOver : toast.duration else { return }
         let sleep = self.sleep
         timers[id] = Task { [weak self] in
             do { try await sleep(duration) } catch { return }
-            self?.dismiss(id)
+            self?.timerFired(id, generation: generation)
         }
+    }
+
+    private func timerFired(_ id: Int, generation: Int) {
+        guard generations[id] == generation else { return }
+        dismiss(id)
     }
 
     public func dismiss(_ id: Int) {
         timers.removeValue(forKey: id)?.cancel()
+        generations.removeValue(forKey: id)
         stack.dismiss(id)
     }
 
