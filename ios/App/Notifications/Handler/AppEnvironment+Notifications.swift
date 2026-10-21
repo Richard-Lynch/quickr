@@ -9,7 +9,9 @@ extension AppEnvironment {
     /// a tap-to-fix's text kept for the record screen.
     func handleNotificationResponse(_ response: NotificationActionResponse) async {
         guard let session else { return }
-        let outcome = await notificationHandler(session).handle(response)
+        // Tapped while the app is suspended in the background, its GRDB is suspended too: resumed
+        // for this response, suspended again after it unless the app came to the foreground.
+        let outcome = await session.withStoreResumed { await notificationHandler(session).handle(response) }
         guard case .open(let path, let prefill) = outcome else { return }
         recordPrefill = prefill
         router.handle(path: path)

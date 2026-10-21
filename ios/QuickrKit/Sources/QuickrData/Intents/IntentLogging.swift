@@ -15,16 +15,22 @@ public struct IntentWriteContext: Sendable {
     /// effort and cancellation-aware: the entry is already durable (spike S3: 30 s, then cancel).
     public var afterCommit: @Sendable (LocalStore) async -> Void
     public var wallClock: any WallClock
+    /// Keeps this process's databases writable while an intent's write runs, returning the
+    /// release: the app's is `AppSession.holdStoreResumed` (Siri or a widget button can act while
+    /// the app is suspended in the background, its GRDB suspended); an extension never suspends.
+    public var holdStore: @Sendable () async -> @Sendable () async -> Void
 
     public init(
         origin: OutboxOrigin, openActiveStore: @escaping @Sendable () async throws -> LocalStore?,
         afterCommit: @escaping @Sendable (LocalStore) async -> Void = { _ in },
-        wallClock: any WallClock = SystemWallClock()
+        wallClock: any WallClock = SystemWallClock(),
+        holdStore: @escaping @Sendable () async -> @Sendable () async -> Void = { {} }
     ) {
         self.origin = origin
         self.openActiveStore = openActiveStore
         self.afterCommit = afterCommit
         self.wallClock = wallClock
+        self.holdStore = holdStore
     }
 }
 
@@ -114,8 +120,28 @@ public enum IntentLogging {
 
     /// Validates `answers` against the topic's current version (required questions answered,
     /// each answer valid for its question) and logs them, durably, before returning.
+    /// Runs `work` with the store held writable (`IntentWriteContext.holdStore`), released on
+    /// every path.
+    public static func holding<T>(_ context: IntentWriteContext, _ work: () async throws -> T) async throws -> T {
+        let release = await context.holdStore()
+        do {
+            let value = try await work()
+            await release()
+            return value
+        } catch {
+            await release()
+            throw error
+        }
+    }
+
     public static func log(
         topicId: UUID, answers: [String: AnswerValue], slot: Slot? = nil, in context: IntentWriteContext
+    ) async throws -> Logged {
+        try await holding(context) { try await commit(topicId: topicId, answers: answers, slot: slot, in: context) }
+    }
+
+    private static func commit(
+        topicId: UUID, answers: [String: AnswerValue], slot: Slot?, in context: IntentWriteContext
     ) async throws -> Logged {
         let (store, topic) = try await self.topic(topicId, in: context)
         if let slot, slot.serverId.lowercased() != store.serverId.lowercased() { throw Failure.otherServer }
@@ -149,6 +175,10 @@ public enum IntentLogging {
     /// `storeUnavailable`: its file is gone, and the entry with it.
     @discardableResult
     public static func undo(_ logged: Logged, in context: IntentWriteContext) async throws -> OutboxUndoLogResult {
+        try await holding(context) { try await cancel(logged, in: context) }
+    }
+
+    private static func cancel(_ logged: Logged, in context: IntentWriteContext) async throws -> OutboxUndoLogResult {
         let (store, entryId) = (logged.store, logged.entryId)
         let (clock, wall, origin) = (store.leaseClock, store.wallClock, context.origin)
         let result: OutboxUndoLogResult

@@ -161,7 +161,12 @@ final class AppEnvironment {
             IntentWriteContext(
                 origin: .siri,
                 openActiveStore: { try await current()?.partitions.openActiveStore(role: .app)?.store },
-                afterCommit: { _ in await current()?.scheduler?.requestFlush(reason: .enqueue) }))
+                afterCommit: { _ in await current()?.scheduler?.requestFlush(reason: .enqueue) },
+                // The app may be suspended in the background (Siri, the Action button): resumed for the write.
+                holdStore: {
+                    let hold = await current()?.holdStoreResumed()
+                    return { await hold?.release() }
+                }))
         // OpenRecordIntent, and repeat-last falling back to the record screen: the same hand-off as
         // a tap-to-fix notification's prefill.
         IntentNavigation.register { [weak self] request in
