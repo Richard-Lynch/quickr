@@ -8,6 +8,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     func application(
         _ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+        #if DEBUG || QUICKR_PERF
+        PerfProbe.mark("didFinishLaunching")
+        #endif
         UNUserNotificationCenter.current().delegate = NotificationResponder.shared
         return true
     }

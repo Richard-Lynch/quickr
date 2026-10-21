@@ -24,6 +24,9 @@ ios/build/
 ios/QuickrKit/.build/
 ios/QuickrKit/.swiftpm/
 ios/Local.xcconfig
+# TestFlight credentials (ios/README.md, TestFlight): never in the repo
+ios/testflight.env
+*.p8
 DerivedData/
 xcuserdata/
 *.xcresult
