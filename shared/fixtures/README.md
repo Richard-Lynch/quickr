@@ -12,6 +12,7 @@ result.
 | `answer-text-vectors.json`     | `backend/tests/test_answer_text_vectors.py` (`services/answers.py`)                               | pytest drift check; `frontend/src/lib/answerText.vectors.test.ts`; Swift `AnswerTextVectorTests` |
 | `jsnumber-vectors.json`        | `frontend/scripts/gen-jsnumber-vectors.js` (V8 `String(x)`, run once by hand)                     | Swift `JSNumberVectorTests`; pytest (`js_number_string` in `services/quicklog.py`)               |
 | `notification-vectors.json`    | `backend/tests/test_notification_vectors.py` (`services/notification.py`)                         | pytest drift check; Swift notification categories (M3, spec test N1)                             |
+| `apns-payload-vectors.json`    | `backend/tests/test_apns_payload_vectors.py` (`push/apns.render`)                                 | pytest drift check; Swift DEBUG demo reminder (`DueReminderVectorTests`, M3 media)               |
 | `action-entry-id-vectors.json` | `backend/tests/test_action_entry_id_vectors.py` (`services/notification.py`)                      | pytest drift check; `frontend/src/lib/pushActions.test.ts`; Swift action handler (M3)            |
 | `home-vectors.json`            | `backend/tests/test_home_vectors.py` (`list_topics`, test database)                               | pytest drift check; Swift home list ordering, status filter and search (M2)                      |
 | `home-due-vectors.json`        | `frontend/src/lib/home.vectors.test.ts` (`dueParts`, `splitByDue`, vitest)                        | vitest drift check; Swift home due pill and sections (M2)                                        |
@@ -103,6 +104,22 @@ produce byte-identical descriptors, actions and category ids.
   and identifiers: the shortest round-trip decimal, positional, never rounded to
   `decimals`. Doubles carry `bits` (IEEE 754, big-endian hex), so a port can
   build the exact value without trusting its JSON parser.
+
+## `apns-payload-vectors.json`
+
+Whole due-reminder payloads, as `apns.render` lays them out over the
+scheduler's inputs ([notifications.md](../../docs/ios/specs/notifications.md)
+§2). The iOS app's DEBUG demo reminder (`-QuickrDemoNotify`, for the milestone
+screenshots) builds the same notification on the simulator, so it must match.
+
+- `cases[]`: `{name, server_id, topic_id, topic_slug, title, body, version,
+  due_since, questions, counts, last, expected}`. `title` is the topic name,
+  `body` the scheduler's message, and `questions`, `counts` and `last` feed the
+  descriptor as in `notification-vectors.json`. `due_since` may be any ISO 8601
+  instant. `expected` is the APNs JSON body: `aps` (alert title and body,
+  `category`, `thread-id`, `sound`, `mutable-content`, `relevance-score`) and
+  `quickr`.
+- `meta.semantics`: the rules in prose (title cut, body suffix, canonical slot).
 
 ## `home-vectors.json`
 
