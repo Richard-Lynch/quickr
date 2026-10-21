@@ -413,20 +413,118 @@ import Testing
         return rows
     }
 
-    /// The NSE pushes B while the app's refresh still works from a delivered snapshot without
-    /// it, and with rows that don't include it: B stays registered and in the table.
-    @Test func aPushSurvivesARefreshWithAStaleSnapshot() async throws {
-        let w = World()
-        _ = try await Self.dueRows(w, NotificationCategories.registrationCap, dueIn: -3_600)
-        let pushed = Self.row()
+    /// The NSE pushes B, the app's current category for topic T. The app's next refresh, from a
+    /// delivered snapshot without B and on the same server, makes B not current (T moved to a
+    /// new version) while the cap is full of due topics: B, pushed, stays registered and in the
+    /// table.
+    @Test func aPushSurvivesARefreshThatMakesItNotCurrent() async throws {
+        let w = World(cap: 2)
+        let s = try TestStore()
+        var topic = Make.topic(name: "T")
+        topic.questions = [Self.severity(2)]
+        try s.write { db in _ = try ServerLayer.upsert(db, topic: topic) }
+        let b = try #require(try await w.categories.refresh(from: s.store).first)
+        _ = try await Self.dueRows(w, 2, dueIn: -3_600)  // another server's, due: they fill the cap
+        let pushed = NotificationCategories.Row(
+            serverId: s.store.serverId, topicId: topic.id.wireString,
+            category: NotificationCategory(
+                serverId: s.store.serverId, topicId: topic.id.wireString, version: 1, questions: topic.questions)!)
+        #expect(pushed.category.id == b)
         try await w.categories.register([pushed], as: .pushed)
-        #expect(w.registered.contains(pushed.category.id))
-        // The app's refresh (another server's store, so the due rows stay current) from a snapshot
-        // that doesn't show B yet.
+        #expect(w.registered.contains(b))
+
+        topic.currentVersion = 2
+        try s.write { db in _ = try ServerLayer.upsert(db, topic: topic) }
         w.clock.advance(by: 1)
-        try await w.categories.refresh(from: try TestStore().store)
-        #expect(w.registered.contains(pushed.category.id))
-        #expect(try w.table.contains(pushed.category.id))
+        let now = try await w.categories.refresh(from: s.store)
+        #expect(!now.contains(b))
+        let current = try await w.registry.writer.read { db in
+            try Bool.fetchOne(db, sql: "SELECT current FROM notification_category WHERE id = ?", arguments: [b])
+        }
+        #expect(current == false, "the refresh cleared it")
+        #expect(w.registered.contains(b))
+        #expect(try w.table.contains(b))
+    }
+
+    /// Push order is the registry's counter, not the clock: after the clock goes back an hour, the
+    /// incoming push is in its registration, and it outranks earlier pushes in later ones.
+    @Test func pushOrderSurvivesAClockGoingBack() async throws {
+        let w = World(cap: 2)
+        let (x, y, z) = (Self.row(), Self.row(), Self.row())
+        try await w.categories.register([x], as: .pushed)
+        try await w.categories.register([y], as: .pushed)
+        w.clock.advance(by: -3_600)
+        try await w.categories.register([z], as: .pushed)
+        #expect(w.registered == [z.category.id, y.category.id])
+        try await w.categories.register([])
+        #expect(w.registered == [z.category.id, y.category.id], "z is the latest push")
+    }
+
+    /// Pushes at the same instant: the incoming one is always in its own registration, whatever
+    /// its id.
+    @Test func theIncomingPushIsAlwaysIncluded() async throws {
+        let w = World(cap: 1)
+        let rows = (0..<5).map { _ in Self.row() }.sorted { $0.category.id > $1.category.id }  // last by id last
+        for row in rows {
+            try await w.categories.register([row], as: .pushed)
+            #expect(w.registered == [row.category.id])
+        }
+    }
+
+    /// The selection's must-include (the push a registration is for) wins over every tier, even
+    /// for a row that would rank last: a backstop to the push counter.
+    @Test func aRequiredRowIsSelectedWhateverItsRank() async throws {
+        let w = World(cap: 1)
+        let rows = try await Self.dueRows(w, 3, dueIn: 0)
+        let lowest = Self.row()
+        try await w.registry.writer.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO notification_category (id, server_id, topic_id, actions_json, created_at, used_at)
+                    VALUES (?, 's', 't', '[]', 0, 0)
+                    """,
+                arguments: [lowest.category.id])
+        }
+        let now = w.clock.now()
+        let selected = try await w.registry.writer.read { db in
+            try NotificationCategories.select(db, now: now, delivered: [], cap: 1, required: [lowest.category.id])
+                .selected.map(\.id)
+        }
+        #expect(selected == [lowest.category.id])
+        let without = try await w.registry.writer.read { db in
+            try NotificationCategories.select(db, now: now, delivered: [], cap: 1).selected.map(\.id)
+        }
+        #expect(Set(rows.map(\.category.id)).contains(try #require(without.first)))
+    }
+
+    /// The app asks the system for its set, then the NSE registers, then the app takes the lock:
+    /// its answer is stale, so it registers even though its selection looks installed.
+    @Test func aRefreshDoesntTrustASnapshotAnotherRegistrationOutdated() async throws {
+        let center = GatedCenter(.delivered)
+        let w = World(center: center.inner, cap: 2)
+        let app = NotificationCategories(registry: w.registry, center: center, wallClock: w.clock, cap: 2)
+        let (d, b, c) = (Self.row(), Self.row(), Self.row())
+        try await w.categories.register([d])
+        w.clock.advance(by: 60)
+        try await w.categories.register([b])
+        w.clock.advance(by: 60)
+        try await w.categories.register([c])
+        #expect(w.registered == [b.category.id, c.category.id])
+
+        // The app's refresh reads the generation and the system's set {B, C}, then waits.
+        let refresh = Task { try await app.refresh(from: try TestStore().store) }
+        await center.waitUntilHeld()
+        // The NSE, with D on screen, pushes B: {B, D}.
+        w.center.withState { $0.delivered = [NotificationSnapshot(id: "d", categoryIdentifier: d.category.id)] }
+        let nse = NotificationCategories(
+            registry: w.registry, center: w.center, wallClock: w.clock, cap: 2, prunes: false)
+        try await nse.register([b], as: .pushed)
+        #expect(w.registered == [b.category.id, d.category.id])
+        // D is dismissed; the app goes on and selects {B, C}, which its stale answer shows.
+        w.center.withState { $0.delivered = [] }
+        center.release()
+        _ = try await refresh.value
+        #expect(w.registered == [b.category.id, c.category.id])
     }
 
     /// A push beats a cap full of current topics that were due yesterday, and a push from a

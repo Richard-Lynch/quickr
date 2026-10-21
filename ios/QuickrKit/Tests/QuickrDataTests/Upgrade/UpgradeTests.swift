@@ -43,7 +43,7 @@ import Testing
     static let otherServer = "5eed0000-0000-4000-8000-0000000000b2"
     static let spec = PerfSeed.Spec(topics: 10, entries: 2_000)
     /// notification_category's v3 columns (the capped registration).
-    static let v3Columns = ["current", "due_at", "used_at", "pushed_at"]
+    static let v3Columns = ["current", "due_at", "used_at", "pushed_at", "push_seq"]
 
     // MARK: - Shipped migrations stay shipped
 
@@ -286,14 +286,16 @@ import Testing
             try await registry.read { db in try Self.migrations(db) } == RegistrySchema.migrations.map(\.identifier))
         let migrated = try await registry.read { db in
             try Row.fetchAll(
-                db, sql: "SELECT current, due_at, used_at, created_at, pushed_at FROM notification_category"
+                db, sql: "SELECT current, due_at, used_at, created_at, pushed_at, push_seq FROM notification_category"
             )
             .filter {
                 ($0["current"] as Int) == 0 && ($0["due_at"] as Double?) == nil && ($0["pushed_at"] as Double?) == nil
+                    && ($0["push_seq"] as Int64?) == nil
                     && ($0["used_at"] as Double) == ($0["created_at"] as Double)
             }.count
         }
         #expect(migrated == 653, "the 650 and M1's 3, all at v3's starting values")
+        #expect(try await registry.read(NotificationCategories.generation) == 0)
 
         // The app's first refresh, with two old notifications still on screen.
         let opened = try #require(try await partitions.openActiveStore(role: .app))

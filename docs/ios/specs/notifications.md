@@ -306,7 +306,13 @@ CREATE TABLE notification_category (
   current       INTEGER NOT NULL DEFAULT 0,  -- the topic's category as of the app's last refresh
   due_at        REAL,                        -- the topic's due time then (due since, or next due); null: no reminders
   used_at       REAL NOT NULL DEFAULT 0,     -- when a process last wanted it (v3 sets it to created_at); never moves back
-  pushed_at     REAL                         -- when the NSE last showed a push with it; never moves back
+  pushed_at     REAL,                        -- when the NSE last showed a push with it; never moves back
+  push_seq      INTEGER                      -- push order: a registry counter, not a clock
+);
+
+CREATE TABLE notification_registration (     -- registry v3: one row
+  id            INTEGER PRIMARY KEY CHECK (id = 1),
+  generation    INTEGER NOT NULL             -- moved by every setNotificationCategories call
 );
 ```
 
@@ -334,23 +340,30 @@ DUE_WINDOW = 7 days
 DELETE_GRACE = 1 day
 
 register(rows, role, replacingCurrentOf: server?, onlyIfMissing):
-  delivered = await center.deliveredNotifications() // outside any transaction (category ids on screen)
-  installed = onlyIfMissing ? await center.notificationCategories() : nil   // outside, too
+  if onlyIfMissing:                                 // outside any transaction, in this order:
+    asked_gen = SELECT generation                   //   the generation first,
+    installed = await center.notificationCategories()   // then the system's set
+  delivered = await center.deliveredNotifications() // outside, too (category ids on screen)
   TX IMMEDIATE on registry:                         // registry write lock = the cross-process mutex
     now = wall clock                                // read under the lock
     if server: UPDATE … SET current = 0 WHERE server_id = server
     role current: UPSERT rows SET current = 1, due_at = row.due, used_at = MAX(used_at, now)
-    role pushed:  UPSERT rows SET pushed_at = MAX(pushed_at, now), used_at = MAX(used_at, now)
-    selected = select(now, delivered)               // actions never change
+    role pushed:  seq = MAX(push_seq) + 1
+                  UPSERT rows SET push_seq = seq, pushed_at = MAX(pushed_at, now), used_at = MAX(used_at, now)
+    selected = select(now, delivered, required: role pushed ? rows : ∅)   // actions never change
     if the caller prunes (the app; not the NSE):
       DELETE rows ∉ selected AND current = 0 AND id ∉ delivered AND used_at < now − DELETE_GRACE
-    if installed == nil or selected ⊄ installed:
+    if not onlyIfMissing                            // always
+       or generation ≠ asked_gen                    // someone registered since `installed` was read
+       or selected ⊄ installed:
       center.setNotificationCategories(selected)    // synchronous; no await inside the TX
+      UPDATE notification_registration SET generation = generation + 1
   COMMIT
 
-select(now, delivered):                             // the same rule in every process
+select(now, delivered, required):                   // the same rule in every process
   rank each row:
-    1. pushed_at ≥ now − PUSH_WINDOW                // a push shown in the last day; newest first
+    0. id ∈ required                                // the push this registration is for
+    1. pushed_at ≥ now − PUSH_WINDOW                // a push shown in the last day; latest push_seq first
     2. current AND |due_at − now| ≤ DUE_WINDOW      // due within 7 days either way; closest first
     3. id ∈ delivered                               // still on screen; most recently wanted first
     4. the rest                                     // most recently wanted first
@@ -363,8 +376,10 @@ select(now, delivered):                             // the same rule in every pr
   category. Two processes registering at once give a set that reflects both, in
   rank order (N4).
 - **The reminder being shown comes first.** The NSE registers its push's category
-  as `pushed`, so it ranks in tier 1 for a day even when the cap is full of due
-  topics. Pushing doesn't touch `current`, which is the app's view. An app refresh
+  as `pushed`. Its own registration must include it (tier 0). After that it ranks
+  in tier 1 for a day, even when the cap is full of due topics. Push order is
+  `push_seq`, a counter read and incremented under the lock, so the latest push
+  stays first after a clock change or between pushes with the same timestamp. Pushing doesn't touch `current`, which is the app's view. An app refresh
   working from an older delivered snapshot therefore can't demote or delete it.
   The least recently wanted row makes room.
 - **Due is bounded both ways.** A topic due, or overdue, by more than 7 days ranks
@@ -406,7 +421,9 @@ select(now, delivered):                             // the same rule in every pr
   locally with the server's rules, with its due time, becomes that server's
   current set (`replacingCurrentOf`). It calls `setNotificationCategories` only
   when the system (asked before the transaction) is missing any of the
-  selection. Time moving a row in, or a system that lost its set (after the v3
+  selection, or when another registration happened after it asked. The
+  generation it read before asking no longer matches under the lock, so its
+  answer may be stale. Time moving a row in, or a system that lost its set (after the v3
   migration, say), is therefore repaired at the next refresh, not just at the
   next activation.
 - **The NSE**, for the incoming push (§6): one row, `pushed`, with no deleting.

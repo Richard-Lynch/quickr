@@ -18,8 +18,8 @@ import QuickrCore
 ///   becomes the server's current set. The NSE may never run (spike F1), so these must be
 ///   registered ahead of any push.
 ///
-/// The selection (§5.2), in order: categories of pushes shown in the last ``pushWindow`` (newest
-/// first); current categories of topics due within ``dueWindow`` of now, either way (closest
+/// The selection (§5.2), in order: the push a registration is for; categories of pushes shown in
+/// the last ``pushWindow`` (latest push first, by a registry counter); current categories of topics due within ``dueWindow`` of now, either way (closest
 /// first); categories of delivered notifications (still on screen); then the most recently
 /// wanted. A row outside the selection that is neither current nor on screen, and wasn't
 /// wanted in the last day, can't be needed again, so the same transaction deletes it.
@@ -121,17 +121,24 @@ public struct NotificationCategories: Sendable {
 
     /// One registry transaction: `replacingCurrentOf`'s rows stop being current, `rows` are
     /// inserted or touched as `role` says, rows that can't be needed are deleted (unless this
-    /// process doesn't prune), and the selection is registered: always, or when the system (asked
-    /// before the transaction) is missing any of it.
+    /// process doesn't prune), and the selection is registered: always, or when the system's set
+    /// (asked before the transaction) is missing any of it or may have changed since (another
+    /// registration moved the registry's registration generation in between).
     private func update(_ rows: [Row], role: Role, replacingCurrentOf serverId: String?, always: Bool)
         async throws -> [String]
     {
         // A cancelled caller (the NSE out of time) registers nothing.
         try Task.checkCancellation()
-        // Asked outside any transaction (§5.2), before the write lock: what's on screen and, when
-        // registering only on a change, what the system has.
+        // Asked outside any transaction (§5.2), before the write lock: when registering only on a
+        // change, what the system has (with the registration generation read before asking, so a
+        // registration after it is noticed under the lock); and what's on screen.
+        var asked: (generation: Int64, ids: Set<String>)?
+        if !always {
+            let generation = try await registry.writer.read(Self.generation)
+            asked = (generation, Set(await center.notificationCategories().map(\.id)))
+        }
+        let installed = asked
         let delivered = await deliveredCategories()
-        let installed = always ? nil : Set(await center.notificationCategories().map(\.id))
         try Task.checkCancellation()
         let (cap, prunes, center, wallClock) = (cap, prunes, center, wallClock)
         let encoded = try rows.map { row in (row, try Self.encode(row.category.actions)) }
@@ -162,26 +169,39 @@ public struct NotificationCategories: Sendable {
                                 row.dueAt?.timeIntervalSince1970, time,
                             ])
                     case .pushed:
+                        // Push order is a registry counter, not a clock: a later push always ranks
+                        // first, whatever the clocks say.
+                        let sequence =
+                            try Int64.fetchOne(
+                                db, sql: "SELECT COALESCE(MAX(push_seq), 0) + 1 FROM notification_category")
+                            ?? 1
                         try db.execute(
                             sql: """
                                 INSERT INTO notification_category
-                                  (id, server_id, topic_id, actions_json, created_at, used_at, pushed_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                  (id, server_id, topic_id, actions_json, created_at, used_at, pushed_at, push_seq)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                                 ON CONFLICT (id) DO UPDATE SET
                                   used_at = MAX(used_at, excluded.used_at),
-                                  pushed_at = MAX(COALESCE(pushed_at, 0), excluded.pushed_at)
+                                  pushed_at = MAX(COALESCE(pushed_at, 0), excluded.pushed_at),
+                                  push_seq = excluded.push_seq
                                 """,
-                            arguments: [row.category.id, row.serverId, row.topicId, actions, time, time, time])
+                            arguments: [
+                                row.category.id, row.serverId, row.topicId, actions, time, time, time, sequence,
+                            ])
                     }
                 }
-                let after = try Self.select(db, now: now, delivered: delivered, cap: cap)
+                // The push being shown is in this registration, whatever else ranks.
+                let required = role == .pushed ? Set(encoded.map(\.0.category.id)) : []
+                let after = try Self.select(db, now: now, delivered: delivered, cap: cap, required: required)
                 for id in prunes ? after.unneeded : [] {
                     try db.execute(sql: "DELETE FROM notification_category WHERE id = ?", arguments: [id])
                 }
                 registered = after.selected.map(\.id)
                 // Synchronous, under the registry's write lock: no other process registers in between.
-                if installed.map({ !Set(registered).isSubset(of: $0) }) ?? true {
+                let stale = try installed.map { try Self.generation(db) != $0.generation } ?? true
+                if stale || !Set(registered).isSubset(of: installed?.ids ?? []) {
                     center.setNotificationCategories(after.selected)
+                    try db.execute(sql: "UPDATE notification_registration SET generation = generation + 1 WHERE id = 1")
                 }
                 return .commit
             }
@@ -230,7 +250,8 @@ public struct NotificationCategories: Sendable {
     /// The capped selection (§5.2) and the rows that can't be needed any more: outside it, not
     /// current, not on screen and not wanted within ``deleteGrace``. A row this build can't read
     /// (an unknown action kind from a newer build) keeps its readable actions.
-    static func select(_ db: Database, now: Date, delivered: Set<String>, cap: Int?) throws
+    static func select(_ db: Database, now: Date, delivered: Set<String>, cap: Int?, required: Set<String> = [])
+        throws
         -> (selected: [NotificationCategorySpec], unneeded: [String])
     {
         struct Candidate {
@@ -240,22 +261,24 @@ public struct NotificationCategories: Sendable {
             let dueAt: Double?
             let usedAt: Double
             let pushedAt: Double?
+            let pushSeq: Int64?
         }
         let candidates = try GRDB.Row.fetchAll(
-            db, sql: "SELECT id, actions_json, current, due_at, used_at, pushed_at FROM notification_category"
+            db, sql: "SELECT id, actions_json, current, due_at, used_at, pushed_at, push_seq FROM notification_category"
         ).map {
             Candidate(
                 id: $0["id"], json: $0["actions_json"], current: $0["current"], dueAt: $0["due_at"],
-                usedAt: $0["used_at"], pushedAt: $0["pushed_at"])
+                usedAt: $0["used_at"], pushedAt: $0["pushed_at"], pushSeq: $0["push_seq"])
         }
         let time = now.timeIntervalSince1970
         // (tier, then the order within it); the id breaks ties, so every process selects the
         // same rows from the same table at the same time.
         func rank(_ c: Candidate) -> (Int, Double) {
-            if let pushed = c.pushedAt, pushed >= time - pushWindow { return (0, -pushed) }
-            if c.current, let due = c.dueAt, abs(due - time) <= dueWindow { return (1, abs(due - time)) }
-            if delivered.contains(c.id) { return (2, -c.usedAt) }
-            return (3, -c.usedAt)
+            if required.contains(c.id) { return (0, 0) }
+            if let pushed = c.pushedAt, pushed >= time - pushWindow { return (1, -Double(c.pushSeq ?? 0)) }
+            if c.current, let due = c.dueAt, abs(due - time) <= dueWindow { return (2, abs(due - time)) }
+            if delivered.contains(c.id) { return (3, -c.usedAt) }
+            return (4, -c.usedAt)
         }
         let ordered = candidates.map { ($0, rank($0)) }.sorted { a, b in
             a.1 != b.1 ? a.1 < b.1 : a.0.id < b.0.id
@@ -270,6 +293,11 @@ public struct NotificationCategories: Sendable {
             NotificationCategorySpec(id: c.id, actions: ((try? decode(c.json)) ?? []).compactMap(\.spec))
         }
         return (selected, unneeded.map(\.id))
+    }
+
+    /// The registry's registration generation: moved by every `setNotificationCategories` call.
+    static func generation(_ db: Database) throws -> Int64 {
+        try Int64.fetchOne(db, sql: "SELECT generation FROM notification_registration WHERE id = 1") ?? 0
     }
 
     static func encode(_ actions: [NotificationCategory.Action]) throws -> String {

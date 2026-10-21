@@ -225,6 +225,7 @@ public enum RegistrySchema {
 
     public static let tables = [
         "server", "active", "retired_file", "notification_category", "pending_unregister", "apns_state",
+        "notification_registration",
     ]
 
     static let v1: [String] = [
@@ -311,6 +312,16 @@ public enum RegistrySchema {
         "ALTER TABLE notification_category ADD COLUMN due_at REAL",
         "ALTER TABLE notification_category ADD COLUMN used_at REAL NOT NULL DEFAULT 0",
         "ALTER TABLE notification_category ADD COLUMN pushed_at REAL",
+        "ALTER TABLE notification_category ADD COLUMN push_seq INTEGER",
+        // Moved by every registration, so a caller that asked the system before taking the lock
+        // can tell whether its answer still stands.
+        """
+        CREATE TABLE notification_registration (
+          id         INTEGER PRIMARY KEY CHECK (id = 1),
+          generation INTEGER NOT NULL
+        )
+        """,
+        "INSERT INTO notification_registration (id, generation) VALUES (1, 0)",
         "UPDATE notification_category SET used_at = created_at",
     ]
 }
