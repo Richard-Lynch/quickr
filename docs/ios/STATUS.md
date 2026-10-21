@@ -317,6 +317,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 07:05 (EDT): Final M3 validation is running on 1ee19c8 (m3-final-validate.sh, three lanes: 26.2 Unit/UI/Media, 27 Unit/UI/Intents/E2E, and host check/vectors/release-test/script/integration ×2). Intents is 27+ only (AppIntentsTesting). The PR body is ready apart from Validation.
+
 - 2026-10-21 06:55 (EDT): **APP-SKEW merged:** Home and topic due state and order on server time, and the category due rank at server time mapped back to device time. Unit 1048/0 on 26; core 799/0; Codex r1–r2 resolved. **All M3 work is merged into ios/m3.** Next: the final validation matrix (m1-testiso), the PR body (m1-review), then the M3 PR.
 
 - 2026-10-21 06:45 (EDT): **SIMINFRA merged** (e3e774b): every automated simulator run holds its device and shuts down only a clone it booted (on exit, error or signal; `IOS_SIM_KEEP=1` keeps it), with per-run result dirs and `IOS_RESULT_BUNDLE`. Codex r3 clean. APP-SKEW (b5fffbb): Home and topic due state on server time, and the category due rank on server time mapped back to device time. Codex r2 clean; awaiting its Unit result. Next: merge APP-SKEW, then the final validation matrix (m1-testiso) and the PR body (m1-review), then the M3 PR into feat/ios-app.
