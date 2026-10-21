@@ -61,9 +61,9 @@ import Testing
     }
 
     /// Both widgets' timelines put the due change at the device time of the server's boundary
-    /// (sync-protocol.md §10): Coffee, every 50 min, last logged 40 min ago by the server's clock,
-    /// turns due 10 min from now on either clock; read uncorrected, the device clock 5 min behind
-    /// (skew +5 min) or ahead would put it 5 min late or early.
+    /// (sync-protocol.md §10): Coffee, every 50 min, last logged 37 min ago by the server's clock,
+    /// turns due 13 min from now on either clock; read uncorrected, the device clock 5 min behind
+    /// (skew +5 min) or ahead would put it 5 min late or early (both off the 15-min refresh points).
     @Test(arguments: [5.0 * 60, -5.0 * 60])
     func widgetTimelinesFollowTheServersClock(skew: TimeInterval) async throws {
         let location = try await TestStores.seededLocation()
@@ -78,7 +78,7 @@ import Testing
         coffee.scheduleUpdatedAt = coffee.createdAt
         coffee.revision += 1
         // The store derives the last entry from its entries.
-        let logged = now.addingTimeInterval(skew - 40 * 60)
+        let logged = now.addingTimeInterval(skew - 37 * 60)
         let entry = Entry(
             id: UUID(), topicId: coffee.id, version: coffee.currentVersion, revision: 1, source: "test", channel: .ios,
             capturedAt: logged, createdAt: logged, updatedAt: logged, answers: [:])
@@ -88,7 +88,7 @@ import Testing
             try db.execute(sql: "UPDATE sync_state SET skew_ms = ? WHERE id = 1", arguments: [skew * 1000])
         }
         WidgetBootstrap.register(location: location)
-        let turnsDue = now.addingTimeInterval(10 * 60)
+        let turnsDue = now.addingTimeInterval(13 * 60)
         let uncorrected = turnsDue.addingTimeInterval(skew)  // the server's boundary read as device time
 
         let topic = await TopicProvider.timeline(for: SelectTopicIntent(topic: TopicEntity(coffee)), now: now)
