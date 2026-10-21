@@ -8,8 +8,8 @@ import QuickrCore
 /// through the real handler. Checked against shared/fixtures/apns-payload-vectors.json.
 ///
 /// It stands in for a push, so `quickr.origin` stays remote (a §11 local fallback would say
-/// local). The push's delivery settings (`sound`, `mutable-content`, `relevance-score`) have no
-/// local equivalent and are left out.
+/// local), and it plays the default sound as the push does. The push's other delivery settings
+/// (`mutable-content`, `relevance-score`) have no local equivalent and are left out.
 public enum DueReminder {
     /// `apns.MAX_TITLE_LENGTH`: the title is cut to this many Unicode scalars, "…" included.
     public static let maxTitleLength = 120
@@ -28,7 +28,7 @@ public enum DueReminder {
             quickr: QuickrNotificationInfo(
                 kind: "due", serverId: serverId, topicId: topicId, topicSlug: topicSlug, version: version,
                 dueSince: slot, url: "/t/\(topicSlug)/record", quickLog: category?.descriptor),
-            fireDate: fireDate)
+            fireDate: fireDate, sound: true)
     }
 
     /// The reminder for `topic` at `now`, as the scheduler's tick would build it: the slot and the

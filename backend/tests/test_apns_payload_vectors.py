@@ -191,8 +191,8 @@ def build() -> dict[str, Any]:
                 "aps.alert.title is cut to 120 Unicode scalars with '…'; aps.alert.body is body + "
                 "the descriptor's body suffix; aps.category is the category id (absent without a "
                 "quick_log); aps.thread-id is topic-{topic_id}.",
-                "aps.sound, aps.mutable-content and aps.relevance-score are delivery settings: a "
-                "local notification has no equivalent for the last two.",
+                "aps.sound is 'default'; aps.mutable-content and aps.relevance-score are delivery "
+                "settings with no local-notification equivalent.",
                 "quickr.due_since is canonical: UTC, whole seconds, Z.",
             ],
         },

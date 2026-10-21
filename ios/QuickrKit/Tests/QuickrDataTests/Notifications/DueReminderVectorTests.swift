@@ -38,6 +38,7 @@ import Testing
         #expect(request.body == aps.alert.body, "\(vector.name): body")
         #expect(request.categoryIdentifier == aps.category, "\(vector.name): category")
         #expect(request.threadIdentifier == aps.threadId, "\(vector.name): thread")
+        #expect(request.sound == (aps.sound == "default"), "\(vector.name): sound")
         #expect(request.quickr == vector.expected.quickr, "\(vector.name): quickr")
         #expect(request.quickr?.origin == .remote, "it stands in for a push")
         // What the handler reads back from userInfo is the server's object.
@@ -51,8 +52,8 @@ import Testing
     @Test func everyApsKeyIsAccountedFor() throws {
         let raw = try JSONSerialization.jsonObject(with: Fixtures.data("apns-payload-vectors.json")) as? [String: Any]
         let cases = try #require(raw?["cases"] as? [[String: Any]])
-        let rendered: Set<String> = ["alert", "category", "thread-id"]
-        let deliveryOnly: Set<String> = ["sound", "mutable-content", "relevance-score"]
+        let rendered: Set<String> = ["alert", "category", "thread-id", "sound"]
+        let deliveryOnly: Set<String> = ["mutable-content", "relevance-score"]
         for item in cases {
             let aps = try #require((item["expected"] as? [String: Any])?["aps"] as? [String: Any])
             #expect(Set(aps.keys).subtracting(rendered.union(deliveryOnly)).isEmpty, "\(item["name"] ?? "")")
@@ -151,6 +152,7 @@ import Testing
             var alert: Alert
             var category: String?
             var threadId: String?
+            var sound: String?
 
             struct Alert: Decodable, Sendable {
                 var title: String
@@ -158,7 +160,7 @@ import Testing
             }
 
             enum CodingKeys: String, CodingKey {
-                case alert, category
+                case alert, category, sound
                 case threadId = "thread-id"
             }
         }

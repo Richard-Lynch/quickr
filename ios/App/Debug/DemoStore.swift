@@ -1,5 +1,6 @@
 #if DEBUG
 import Foundation
+import OSLog
 import QuickrCore
 @_spi(Testing) import QuickrData
 
@@ -44,19 +45,16 @@ enum DemoStore {
         return AppEnvironment(
             settings: AppSettings(defaults: UserDefaults(suiteName: "quickr-demo-\(UUID().uuidString)")!),
             prepare: {
-                guard let mode else {
-                    try? await seed(location)
-                    return
+                do {
+                    if let mode {
+                        _ = try await prepareShared(location, mode: mode)
+                    } else {
+                        try await seed(location)
+                    }
+                } catch {
+                    Logger(subsystem: "com.bahumia.quickr", category: "demo").error(
+                        "demo seeding failed: \(error, privacy: .public)")
                 }
-                // Other processes follow the App Group's registry: tell them it changed.
-                guard let partitions = try? StorePartitions.open(at: location) else { return }
-                let registry = partitions.registry.repository
-                if mode == .keep, let active = try? await registry.activeServerId(),
-                    (try? await registry.server(id: active))?.baseURL == baseURL
-                {
-                    return
-                }
-                try? await seed(partitions, serverId: UUID().uuidString.lowercased(), now: Date())
             },
             makeSession: { try AppSession(configuration: .init(location: location, transport: OfflineTransport())) })
     }
@@ -67,13 +65,31 @@ enum DemoStore {
     /// Every demo server's address (it never answers: the demo session is offline).
     static let baseURL = "https://quickr.example"
 
+    /// `-QuickrDemoShared`'s store at `location`: `.keep` keeps the active server when it is a
+    /// demo (a completely seeded one: a demo server becomes active only once its seeding is done),
+    /// otherwise, and always for `.fresh`, seeds a new demo server. Returns the active demo's id.
+    static func prepareShared(
+        _ location: StoreLocation, mode: Shared, notifier: (any ChangeNotifier)? = DarwinNotifier()
+    ) async throws -> String {
+        // Other processes (the widget extension) follow the App Group's registry: tell them.
+        let partitions = try StorePartitions.open(at: location, notifier: notifier)
+        let registry = partitions.registry.repository
+        if mode == .keep, let active = try await registry.activeServerId(),
+            try await registry.server(id: active)?.baseURL == baseURL
+        {
+            return active
+        }
+        let id = UUID().uuidString.lowercased()
+        try await seed(partitions, serverId: id, now: Date())
+        return id
+    }
+
     static func seed(_ location: StoreLocation, now: Date = Date()) async throws {
         try await seed(StorePartitions.open(at: location, notifier: nil), serverId: serverId, now: now)
     }
 
     static func seed(_ partitions: StorePartitions, serverId: String, now: Date) async throws {
         let store = try await partitions.createStore(serverId: serverId, baseURL: baseURL)
-        try await partitions.registry.setActive(serverId)
         let topics = topics(now: now)
         try await store.writer.write { db in
             for topic in topics {
@@ -99,6 +115,8 @@ enum DemoStore {
             try db.execute(sql: "UPDATE sync_state SET epoch = 'demo-epoch'")
         }
         if withOutbox { try await seedOutbox(store, now: now) }
+        // Last: other processes see the demo only once it is all there.
+        try await partitions.registry.setActive(serverId)
     }
 
     /// The refused edit's error: a 422 whose `Problem` puts the message on the glasses field.

@@ -10,6 +10,9 @@
   ],
   "defaultOptions" : {
     "codeCoverage" : false,
+    "defaultTestExecutionTimeAllowance" : 300,
+    "maximumTestExecutionTimeAllowance" : 600,
+    "testTimeoutsEnabled" : true,
     "targetForVariableExpansion" : {
       "containerPath" : "container:quickR.xcodeproj",
       "identifier" : "FBF13E34ED2D154BC1EAF4DE",

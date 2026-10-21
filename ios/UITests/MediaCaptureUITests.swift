@@ -1,3 +1,4 @@
+#if targetEnvironment(simulator)
 import XCTest
 
 /// The milestone PR media (screenshots and GIFs; docs/ios/demo/m3), driven over the demo store:
@@ -7,7 +8,8 @@ import XCTest
 ///
 /// Its own plan (Media), skipped in the UI plan: the notification and widget tests drive
 /// SpringBoard, whose automation can stall for minutes (see WidgetGalleryTests), so the capture
-/// script runs them one at a time under a wall-clock limit.
+/// script runs them one at a time under a wall-clock limit. Simulator only: on a device the demo
+/// can't reach the App Group, and a real widget's ✓ would log real data.
 final class MediaCaptureUITests: XCTestCase {
     @MainActor private var springboard: XCUIApplication { XCUIApplication(bundleIdentifier: "com.apple.springboard") }
 
@@ -55,9 +57,12 @@ final class MediaCaptureUITests: XCTestCase {
         snap("notification-actions")
         log.tap()
 
-        sleep(3)  // the handler commits in the background
-        relaunchOnWaterEntries(app)
-        XCTAssertTrue(pending(app).waitForExistence(timeout: 15), "the action's entry, waiting to sync")
+        // The app that handled it (suspended, or launched afresh for the action) comes forward;
+        // relaunched, it keeps the shared demo as the action left it.
+        app.launchArguments = Self.keep
+        app.activate()
+        app.open(URL(string: "quickr://t/water/entries")!)
+        XCTAssertTrue(pending(app).waitForExistence(timeout: 30), "the action's entry, waiting to sync")
         snap("notification-logged")
     }
 
@@ -89,11 +94,14 @@ final class MediaCaptureUITests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// The app again over the shared demo as it now is (kept, not reseeded), on Water's entries.
+    /// The shared demo as it now is (kept, not reseeded).
+    static let keep = ["-QuickrDemoStore", "-QuickrDemoShared"]
+
+    /// The app again over the shared demo, on Water's entries.
     @MainActor
     private func relaunchOnWaterEntries(_ app: XCUIApplication) {
         app.terminate()
-        app.launchArguments = ["-QuickrDemoStore", "-QuickrDemoShared", "-QuickrOpen", "quickr://t/water/entries"]
+        app.launchArguments = Self.keep + ["-QuickrOpen", "quickr://t/water/entries"]
         app.launch()
     }
 
@@ -176,3 +184,4 @@ final class MediaCaptureUITests: XCTestCase {
         add(shot)
     }
 }
+#endif
