@@ -1,5 +1,6 @@
 import Foundation
 import QuickrCore
+import Synchronization
 import Testing
 
 @testable import QuickrData
@@ -167,17 +168,24 @@ import Testing
         #expect(try await AnswerExtraction.withDeadline(.seconds(5)) { () async throws -> Int in throw Boom() } == nil)
     }
 
-    /// A model call that ignores cancellation is abandoned at the deadline, not waited for.
+    /// A model call that ignores cancellation is abandoned at the deadline, not waited for: the
+    /// result comes back while the call is still stuck, and the call is released only afterwards.
     @Test func aStuckModelIsAbandonedAtTheDeadline() async throws {
-        let (stream, release) = AsyncStream.makeStream(of: Void.self)
-        let started = ContinuousClock.now
+        let stuck = Mutex<CheckedContinuation<Void, Never>?>(nil)
         let value = try await AnswerExtraction.withDeadline(.milliseconds(100)) { () async -> Int in
-            for await _ in stream {}  // ignores cancellation until released
+            await withCheckedContinuation { continuation in stuck.withLock { $0 = continuation } }  // no cancel
             return 1
         }
-        #expect(value == nil)
-        #expect(ContinuousClock.now - started < .seconds(20))
-        release.finish()
+        #expect(value == nil, "returned at the deadline")
+        // Still stuck: the worker hasn't finished, so nothing waited for it.
+        var parked: CheckedContinuation<Void, Never>?
+        for _ in 0..<200 {
+            parked = stuck.withLock { $0.take() }
+            if parked != nil { break }
+            await Task.yield()
+        }
+        #expect(parked != nil, "the call was still parked after the deadline returned")
+        parked?.resume()
     }
 
     /// The intent's own cancellation (the system's 30 s) propagates instead of reading as no answers.

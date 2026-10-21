@@ -78,7 +78,12 @@ struct LogTopicIntent: AppIntent, UndoableIntent {
         for round in 1...Self.attempts {
             try await requestConfirmation(
                 actionName: .log, dialog: dialog, snippetIntent: EntryDraftSnippetIntent(draftID: draft.id.uuidString))
-            let confirmed = IntentDrafts.get(draft.id) ?? draft
+            // The edits live only in the held draft: one that's gone (evicted, or another process)
+            // must not fall back to the answers before the edits.
+            guard let confirmed = IntentDrafts.get(draft.id) else {
+                throw IntentLogging.Failure.invalid(
+                    "This entry isn't open any more. Ask again to log \(draft.topic.name).")
+            }
             switch confirmed.validated {
             case .success(let answers): return answers
             case .failure(let failure):
