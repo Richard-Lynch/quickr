@@ -316,6 +316,10 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 08:20 (EDT): Final validation lane B: UI 27 86/3/20 and Intents 27 6/0/5; E2E is running. Two blockers for the PR:
+  1. AppSettingsUITests XXXL (both runtimes; the mid-list audit pattern; m1-review);
+  2. **EditTests keyboard-toolbar Save stalls on iOS 27** (2 tests, "wait for app to idle" never returns, with the app idle per spindump; passes on 26.2 and passed on 27 at the M2 final). The suspect is the F8 FormSaveBar change; m1-outbox is reproducing on 27 (ios/m3-savebar27). This may also explain UIT-6's earlier one-off stall on 27.
+
 - 2026-10-21 08:05 (EDT): Final validation (1ee19c8): lane A is done. Unit 26.2 1049/0, UI 26.2 88/1/20, Media 3/0, and Intents is n/a on 26. The UI failure, also seen on 27, is AppSettingsUITests XXXL: an element-less "Text clipped" from a mid-list audit with a row under the translucent bar, the same pattern as slice C. It's being fixed (m1-review, a57c9a0+). Lane B: UI 27 is finishing, then Intents and E2E. H is all green.
 
 - 2026-10-21 07:35 (EDT): Final validation (1ee19c8) so far: H all green (check 711+856, vectors, release-test-build, script tests, integration 22/22 ×2); A Unit 26.2 1049/0/27; B Unit 27 1048/1 (the DeviceProbe timing test, since fixed by DPROBE-CLOCK at 7dab4b0). UI, Media, Intents and E2E are still running.
