@@ -6,7 +6,7 @@ import SwiftUI
 public struct SyncPill: View {
     let status: SyncStatus?
     let action: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @QuickrReduceMotion private var reduceMotion
     /// 32 pt and a 16 pt icon at the default size, growing with Dynamic Type.
     @ScaledMetric(relativeTo: .caption) private var height: CGFloat = 32
     @ScaledMetric(relativeTo: .caption) private var iconSize: CGFloat = 16
