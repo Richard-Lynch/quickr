@@ -133,7 +133,7 @@ private let otherServerURL = URL(string: "https://other.example")!
         await session.start(serverURL: SyncEnv.baseURL)
         await session.categoryRefreshSettled()
         let store = try #require(session.store)
-        let expected = Set(try await NotificationCategories.rows(in: store).map(\.category.id))
+        let expected = Set(try await NotificationCategories.rows(in: store, now: Date()).map(\.category.id))
         #expect(!expected.isEmpty, "the fixture has quick-loggable topics")
         #expect(Set(center.withState { $0.categories.map(\.id) }) == expected)
 
@@ -143,7 +143,7 @@ private let otherServerURL = URL(string: "https://other.example")!
         #expect(await session.coordinator.sync(reason: .requested) == .synced)
         try await eventually("the new category is registered") {
             await session.categoryRefreshSettled()
-            let now = Set(try await NotificationCategories.rows(in: store).map(\.category.id))
+            let now = Set(try await NotificationCategories.rows(in: store, now: Date()).map(\.category.id))
             return !now.isSubset(of: expected) && Set(center.withState { $0.categories.map(\.id) }).isSuperset(of: now)
         }
 
@@ -561,6 +561,130 @@ private let otherServerURL = URL(string: "https://other.example")!
             refs.session == nil && refs.coordinator == nil
         }
     }
+
+    // MARK: - Holding the store resumed (HANDLER-RESUME)
+
+    /// A hold resumes GRDB only if the session suspended it, and its last release suspends it
+    /// again; nested holds share it, and a second release of one hold does nothing.
+    @Test func holdsResumeASuspendedStoreAndSuspendItAgain() async throws {
+        let w = try World()
+        let resumed = w.posted(Database.resumeNotification)
+        let suspended = w.posted(Database.suspendNotification)
+        let session = try w.session()
+        await session.start(serverURL: SyncEnv.baseURL)
+
+        // In the foreground nothing is suspended: a hold posts nothing.
+        let (resumes, suspends) = (resumed.count, suspended.count)
+        session.holdStoreResumed().release()
+        #expect(resumed.count == resumes && suspended.count == suspends)
+
+        _ = await session.didEnterBackground(session.beginBackground())
+        #expect(suspended.count == suspends + 1)
+
+        let outer = session.holdStoreResumed()
+        #expect(resumed.count == resumes + 1, "the first hold resumes")
+        let inner = session.holdStoreResumed()
+        inner.release()
+        #expect(resumed.count == resumes + 1 && suspended.count == suspends + 1, "one hold still open")
+        outer.release()
+        #expect(suspended.count == suspends + 2, "the last release suspends again")
+        outer.release()
+        #expect(suspended.count == suspends + 2, "a second release does nothing")
+        await session.shutdown()
+    }
+
+    /// The episode finishing while a hold is open waits for its release; an activation during a
+    /// hold wins, and the release then leaves the store resumed.
+    @Test func aSuspendDuringAHoldWaitsAndAnActivationWins() async throws {
+        let w = try World()
+        let resumed = w.posted(Database.resumeNotification)
+        let suspended = w.posted(Database.suspendNotification)
+        let session = try w.session()
+        await session.start(serverURL: SyncEnv.baseURL)
+
+        let episode = session.beginBackground()
+        let suspends = suspended.count
+        let hold = session.holdStoreResumed()  // an action arrives as the app goes to the background
+        _ = await session.didEnterBackground(episode)
+        #expect(suspended.count == suspends, "the episode's suspend waits for the hold")
+        hold.release()
+        #expect(suspended.count == suspends + 1)
+
+        let resumes = resumed.count
+        let late = session.holdStoreResumed()
+        #expect(resumed.count == resumes + 1)
+        await session.didBecomeActive()
+        late.release()
+        #expect(suspended.count == suspends + 1, "back in the foreground: not suspended again")
+        await session.shutdown()
+    }
+
+    /// An expiring episode doesn't wait for a hold: GRDB is suspended before its background task
+    /// ends, the hold's late release does nothing, and a later hold resumes it again (Codex r1).
+    @Test func anExpirySuspendsDespiteAnOpenHold() async throws {
+        let w = try World()
+        let resumed = w.posted(Database.resumeNotification)
+        let suspended = w.posted(Database.suspendNotification)
+        let session = try w.session()
+        await session.start(serverURL: SyncEnv.baseURL)
+
+        let episode = session.beginBackground()
+        let parked = session.holdStoreResumed()  // a response still running when the time is up
+        let suspends = suspended.count
+        await session.backgroundTimeExpiring(episode, within: .seconds(5))
+        #expect(suspended.count == suspends + 1, "suspended at expiry, the hold still open")
+        parked.release()
+        #expect(suspended.count == suspends + 1, "the ended hold's release does nothing")
+
+        let resumes = resumed.count
+        let next = session.holdStoreResumed()
+        #expect(resumed.count == resumes + 1, "a later hold resumes")
+        next.release()
+        #expect(suspended.count == suspends + 2, "and suspends again")
+        await session.shutdown()
+    }
+
+    /// An ended hold's work still unwinding while newer holds open, then an activation and a
+    /// refresh episode: its late release never suspends the store under them (Codex r2).
+    @Test func anEndedHoldNeverSuspendsUnderNewerHoldsOrEpisodes() async throws {
+        let w = try World()
+        let resumed = w.posted(Database.resumeNotification)
+        let suspended = w.posted(Database.suspendNotification)
+        let session = try w.session()
+        await session.start(serverURL: SyncEnv.baseURL)
+
+        let expiring = session.beginBackground()
+        let parked = session.holdStoreResumed()  // cancelled at expiry, still unwinding
+        await session.backgroundTimeExpiring(expiring, within: .seconds(5))
+        let (resumes, suspends) = (resumed.count, suspended.count)
+        let fresh = session.holdStoreResumed()  // another action, with its own background task
+        #expect(resumed.count == resumes + 1)
+        parked.release()
+        #expect(suspended.count == suspends, "the ended hold doesn't suspend under the new one")
+        fresh.release()
+        #expect(suspended.count == suspends + 1, "the new hold's release does")
+
+        // An activation: the parked work's release (a second ended hold) changes nothing.
+        let unwinding = session.holdStoreResumed()
+        await session.backgroundTimeExpiring(session.beginBackground(), within: .seconds(5))
+        await session.didBecomeActive()
+        unwinding.release()
+        #expect(suspended.count == suspends + 2, "only the expiry suspended; the foreground stays resumed")
+
+        // A refresh episode after an expiry: it resumes, the stale release doesn't suspend mid-pull,
+        // and the episode suspends at its end.
+        let stale = session.holdStoreResumed()
+        await session.backgroundTimeExpiring(session.beginBackground(), within: .seconds(5))
+        let afterExpiry = suspended.count
+        let refresh = session.beginBackground()
+        stale.release()
+        #expect(suspended.count == afterExpiry)
+        let resumesBefore = resumed.count
+        _ = await session.backgroundRefresh(refresh)
+        #expect(resumed.count == resumesBefore + 1)
+        #expect(suspended.count == afterExpiry + 1, "suspended once, by the refresh's end")
+        await session.shutdown()
+    }
 }
 
 /// The real-time case of `AppSessionTests` (see `TimingTests`).
@@ -631,4 +755,5 @@ extension Gate {
     var armed: Bool { Self.armedGates.withLock { $0.contains(ObjectIdentifier(self)) } }
 
     func arm() { _ = Self.armedGates.withLock { $0.insert(ObjectIdentifier(self)) } }
+
 }

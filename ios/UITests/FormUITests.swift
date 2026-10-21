@@ -56,17 +56,15 @@ final class FormUITests: XCTestCase {
     /// At the largest accessibility text size the Workout form still works: every question can
     /// be reached by scrolling, and Save stays on screen and tappable.
     @MainActor
-    func testWorkoutFormWorksAtAnAccessibilityTextSize() {
+    func testWorkoutFormWorksAtAnAccessibilityTextSize() throws {
         let app = XCUIApplication()
-        app.launchArguments = [
-            "-QuickrFormDemo", "workout", "-UIPreferredContentSizeCategoryName",
-            "UICTContentSizeCategoryAccessibilityXXXL",
-        ]
+        app.launchArguments = ["-QuickrFormDemo", "workout"] + AccessibilityLaunch.arguments()
         app.launch()
 
         let save = app.buttons["formDemo.save"]
         XCTAssertTrue(save.waitForExistence(timeout: 10))
         XCTAssertTrue(save.isHittable, "Save must stay tappable")
+        try assertAccessible(app)
 
         app.buttons["Run"].tap()
         let duration = app.textFields["form.field.duration"]

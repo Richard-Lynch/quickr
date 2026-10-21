@@ -91,11 +91,15 @@ final class AppEnvironment {
     /// The live session over the App Group's files, sending through URLSession with the
     /// Cloudflare Access token from the shared Keychain. `categoryCenter` is the system's: app
     /// tests pass nil unless they hold `SystemCategoriesLock` (the set is one per process).
+    /// `notificationCenter` carries GRDB's suspend and resume: `.default` is GRDB's own, so the
+    /// app's databases really suspend in the background; a hosted test that backgrounds a session
+    /// passes its own, or it would suspend every other suite's database in the process.
     static func live(
         location: StoreLocation = .shared(appGroup: AppGroup.identifier), defaults: UserDefaults = AppGroup.defaults,
         keychain: any KeychainStore = SystemKeychain(), transport: any Transport = URLSessionTransport(),
         network: any NetworkMonitoring = NWNetworkMonitor(),
-        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
+        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter(),
+        notificationCenter: NotificationCenter = .default
     ) -> AppEnvironment {
         let credentials = KeychainAccessCredentials(keychain: keychain)
         // APNs registration (REG) sends through the same transport and Access token.
@@ -108,7 +112,7 @@ final class AppEnvironment {
             let session = try AppSession(
                 configuration: .init(
                     location: location, transport: transport, credentials: credentials,
-                    categoryCenter: categoryCenter))
+                    notificationCenter: notificationCenter, categoryCenter: categoryCenter))
             // Addresses resolve to servers through the registry, so each request gets its server's token.
             credentials.directory.attach(session.partitions.registry.repository)
             return session
@@ -128,9 +132,13 @@ final class AppEnvironment {
         categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
     ) -> AppEnvironment {
         #if DEBUG
+        // A probe launch (DeviceProbeLaunch) holds the app's category registrations back while it runs.
         let environment =
             UITestLaunch.isActive
-            ? UITestLaunch.environment() : live(location: location, categoryCenter: categoryCenter)
+            ? UITestLaunch.environment()
+            : DeviceProbeLaunch.requested() != nil
+                ? live(location: location, categoryCenter: DeviceProbeLaunch.gatedCenter())
+                : live(location: location, categoryCenter: categoryCenter)
         #else
         let environment = live(location: location, categoryCenter: categoryCenter)
         #endif
@@ -153,7 +161,12 @@ final class AppEnvironment {
             IntentWriteContext(
                 origin: .siri,
                 openActiveStore: { try await current()?.partitions.openActiveStore(role: .app)?.store },
-                afterCommit: { _ in await current()?.scheduler?.requestFlush(reason: .enqueue) }))
+                afterCommit: { _ in await current()?.scheduler?.requestFlush(reason: .enqueue) },
+                // The app may be suspended in the background (Siri, the Action button): resumed for the write.
+                holdStore: {
+                    let hold = await current()?.holdStoreResumed()
+                    return { await hold?.release() }
+                }))
         // OpenRecordIntent, and repeat-last falling back to the record screen: the same hand-off as
         // a tap-to-fix notification's prefill.
         IntentNavigation.register { [weak self] request in

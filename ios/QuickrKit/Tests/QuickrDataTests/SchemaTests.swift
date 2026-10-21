@@ -70,8 +70,10 @@ import Testing
             #expect(try tables(db) == Set(RegistrySchema.tables))
             #expect(
                 try columns(db, "notification_category") == [
-                    "id", "server_id", "topic_id", "actions_json", "created_at",
+                    "id", "server_id", "topic_id", "actions_json", "created_at", "current", "due_at", "used_at",
+                    "pushed_at", "push_seq",
                 ])
+            #expect(try columns(db, "notification_registration") == ["id", "generation"])
             #expect(
                 try columns(db, "server") == [
                     "server_id", "base_url", "display_name", "store_gen", "created_at", "last_sync_at", "pending_gen",

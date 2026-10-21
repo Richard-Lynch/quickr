@@ -13,10 +13,11 @@ struct TopicTabsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Tab", selection: tabBinding) {
+            // Segments, or a menu at accessibility sizes, where segments stop growing (a11y B1).
+            QuickrSegmentedPicker("Tab", selection: tabBinding, valueLabel: tab.rawValue.capitalized) {
                 ForEach(TopicTab.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
             }
-            .pickerStyle(.segmented)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .accessibilityIdentifier("topic.tabs")

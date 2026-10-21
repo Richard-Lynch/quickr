@@ -94,6 +94,9 @@ public final class FakeNotificationCenter: NotificationCenterProtocol {
         public var categories: [NotificationCategorySpec] = []
         /// Every `setNotificationCategories` call, in order.
         public var categoryRegistrations: [[NotificationCategorySpec]] = []
+        /// The system's limit on registered categories (checkpoint D: 100 on the simulator). Over
+        /// it, the fake keeps an arbitrary subset (the first by id), as the system doesn't say which.
+        public var categoryCapacity: Int?
         public var delivered: [NotificationSnapshot] = []
         public var pending: [NotificationSnapshot] = []
         public var added: [LocalNotificationRequest] = []
@@ -117,7 +120,8 @@ public final class FakeNotificationCenter: NotificationCenterProtocol {
 
     public func setNotificationCategories(_ categories: [NotificationCategorySpec]) {
         state.withLock {
-            $0.categories = categories
+            let kept = $0.categoryCapacity.map { Array(categories.sorted { $0.id < $1.id }.prefix($0)) }
+            $0.categories = kept ?? categories
             $0.categoryRegistrations.append(categories)
         }
     }

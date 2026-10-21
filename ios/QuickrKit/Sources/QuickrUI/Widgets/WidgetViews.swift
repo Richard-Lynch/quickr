@@ -80,21 +80,27 @@ public struct TopicWidgetView: View {
 
     private func home(_ topic: WidgetTopic) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(topic.topic.name)
-                    .font(.qr(.section))
-                    .foregroundStyle(.qr.ink)
+            // Name, due, queued and the last line read as one element; the controls stay apart.
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(topic.topic.name)
+                        .font(.qr(.section))
+                        .foregroundStyle(.qr.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 4)
+                    if topic.queued > 0 { QueuedMark(count: topic.queued, compact: style.family == .systemSmall) }
+                }
+                DueBadge(DueView(due: topic.due(at: date), now: date))
                     .lineLimit(1)
-                Spacer(minLength: 4)
-                if topic.queued > 0 { QueuedMark(count: topic.queued, compact: style.family == .systemSmall) }
+                    .widgetAccentable()
+                lastLine(topic)
+                    .font(.qr(.footnote))
+                    .foregroundStyle(.qr.muted)
+                    .lineLimit(2)
             }
-            DueBadge(DueView(due: topic.due(at: date), now: date))
-                .lineLimit(1)
-                .widgetAccentable()
-            lastLine(topic)
-                .font(.qr(.footnote))
-                .foregroundStyle(.qr.muted)
-                .lineLimit(2)
+            .accessibilityElement(children: .combine)
             Spacer(minLength: 0)
             quick(topic)
         }
@@ -117,6 +123,8 @@ public struct TopicWidgetView: View {
                                     isAccented: style.isAccented)
                             }
                             .accessibilityLabel("Log \(option.label)")
+                            // The dot marks the last answer; say it too.
+                            .accessibilityValue(topic.lastAnswer == .string(option.value) ? "Last answer" : "")
                         }
                     }
                 }
@@ -132,6 +140,7 @@ public struct TopicWidgetView: View {
             Link(destination: topic.recordURL) {
                 WidgetChip(label: "Log", isLast: false, isAccented: style.isAccented, isPrimary: true)
             }
+            .accessibilityLabel("Log \(topic.topic.name)")
         }
     }
 
@@ -164,7 +173,10 @@ public struct TopicWidgetView: View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 4) {
                 Text(topic.topic.name).font(.headline).widgetAccentable().lineLimit(1)
-                if topic.queued > 0 { Image(systemName: "clock.arrow.circlepath").font(.caption) }
+                if topic.queued > 0 {
+                    Image(systemName: "clock.arrow.circlepath").font(.caption)
+                        .accessibilityLabel("\(topic.queued) waiting to sync")
+                }
             }
             if let due = dueLabel(topic) { Text(due).font(.caption).lineLimit(1) }
             lastLine(topic).font(.caption).lineLimit(1)
@@ -279,6 +291,10 @@ public struct DueListWidgetView: View {
                     .widgetAccentable()
                 Text("\(dueNow.count)").font(.qr(.monoCaption)).foregroundStyle(.qr.muted)
             }
+            // One heading, "2 due now", instead of "DUE NOW" and a bare number.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(dueNow.count) due now")
+            .accessibilityAddTraits(.isHeader)
             if rows.isEmpty {
                 Text("Nothing due — you’re all caught up.")
                     .font(.qr(.footnote))
@@ -291,6 +307,7 @@ public struct DueListWidgetView: View {
                             .font(.qr(.callout))
                             .foregroundStyle(.qr.ink)
                             .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                         Spacer(minLength: 4)
                         if topic.queued > 0 { QueuedMark(count: topic.queued, compact: true) }
                         DueBadge(DueView(due: topic.due(at: date), now: date))

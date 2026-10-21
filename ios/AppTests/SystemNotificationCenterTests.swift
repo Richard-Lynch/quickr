@@ -50,7 +50,7 @@ import UserNotifications
         let session = try #require(environment.session)
         await session.categoryRefreshSettled()
 
-        let expected = try await NotificationCategories.rows(in: try #require(session.store))
+        let expected = try await NotificationCategories.rows(in: try #require(session.store), now: Date())
         #expect(Set(expected.map(\.topicId)) == [chips.wireString, number.wireString])
         // The system applies the set asynchronously: poll, bounded.
         var registered: Set<UNNotificationCategory> = []

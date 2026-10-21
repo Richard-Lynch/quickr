@@ -115,6 +115,27 @@ struct NotificationResponderTests {
         #expect(completions == 1 && tasks.ended.count == 1)
     }
 
+    /// The store hold is released before the task ends, on expiry and on finishing (Codex r1:
+    /// GRDB must be suspended again before the background time runs out).
+    @Test func theHoldIsReleasedBeforeTheTaskEnds() async {
+        for expires in [false, true] {
+            let tasks = FakeBackgroundTasks()
+            let gate = Gate()
+            var events: [String] = []
+            tasks.onEnd = { events.append("end") }
+            let hold = StoreHold { events.append("release") }
+            let run = Task {
+                await NotificationResponder.run(
+                    tasks: tasks, hold: hold, completion: { events.append("completion") }, work: { await gate.wait() })
+            }
+            while !gate.isWaiting { await Task.yield() }
+            if expires { tasks.expire() }
+            gate.open()
+            await run.value
+            #expect(events == ["release", "end", "completion"], "expires: \(expires)")
+        }
+    }
+
     @Test func expiryAfterTheWorkChangesNothing() async {
         let tasks = FakeBackgroundTasks()
         var completions = 0
@@ -140,7 +161,12 @@ private final class FakeBackgroundTasks: BackgroundTasking {
         return issued
     }
 
-    func end(_ task: UIBackgroundTaskIdentifier) { ended.append(task) }
+    var onEnd: (() -> Void)?
+
+    func end(_ task: UIBackgroundTaskIdentifier) {
+        ended.append(task)
+        onEnd?()
+    }
 
     func expire() { expiration?() }
 }

@@ -7,12 +7,19 @@ import SwiftUI
 public struct QuickrSegmentedPicker<Selection: Hashable, Content: View>: View {
     let title: String
     @Binding var selection: Selection
+    /// The selected option's text, which a menu picker can't read from its content.
+    let valueLabel: String?
     let content: Content
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    public init(_ title: String, selection: Binding<Selection>, @ViewBuilder content: () -> Content) {
+    /// `valueLabel` comes before the content so a trailing closure still fills it.
+    public init(
+        _ title: String, selection: Binding<Selection>, valueLabel: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
         self.title = title
         self._selection = selection
+        self.valueLabel = valueLabel
         self.content = content()
     }
 
@@ -25,6 +32,9 @@ public struct QuickrSegmentedPicker<Selection: Hashable, Content: View>: View {
                 .pickerStyle(.menu)
                 .tint(.qr.ink)
                 .frame(minHeight: QuickrMetrics.tapTarget)
+                // A segmented control reports its selected segment itself; a menu's button doesn't
+                // (an empty value reads as none).
+                .accessibilityValue(valueLabel ?? "")
         }
     }
 }
@@ -74,6 +84,12 @@ extension View {
     /// is read again. Does nothing without VoiceOver.
     public func qrAnnouncesError<Trigger: Equatable>(_ message: String?, trigger: Trigger) -> some View {
         modifier(ErrorFocus(message: message, trigger: trigger))
+    }
+
+    /// Moves VoiceOver to this view each time `request` changes to a new non-nil value (a fresh
+    /// form's first question). Does nothing without VoiceOver.
+    public func qrMovesVoiceOverFocus<Request: Equatable>(on request: Request?) -> some View {
+        modifier(ErrorFocus(message: request == nil ? nil : "focus", trigger: request))
     }
 
     /// ``qrAnnouncesError(_:trigger:)`` for an error that is read again only when its text changes.

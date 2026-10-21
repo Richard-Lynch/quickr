@@ -237,12 +237,11 @@ final class RecordUITests: XCTestCase {
     /// At the largest accessibility size, Save is in the keyboard's toolbar while typing (the field
     /// stays in view), and the bar is back to save once the keyboard goes.
     @MainActor
-    func testRecordAtAnAccessibilityTextSize() {
-        let app = launch(
-            open: "quickr://t/workout/record",
-            extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+    func testRecordAtAnAccessibilityTextSize() throws {
+        let app = launch(open: "quickr://t/workout/record", extra: AccessibilityLaunch.arguments())
         XCTAssertTrue(app.buttons["Run"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["record.save"].isHittable)
+        try assertAccessible(app)
         app.buttons["Run"].tap()
         let duration = app.textFields["form.field.duration"]
         XCTAssertTrue(duration.waitForKeyboardFocus())
