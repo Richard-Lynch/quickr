@@ -209,6 +209,13 @@ sim_boot() {
     fi
     if [[ "$booted" == self || "$cap" == 0 ]] || { (( count < cap )) && (( ahead == 0 )); }; then
       _sim_drop_ticket
+      # A held device this admission boots is marked as booted by a hold, under the same lock
+      # as the decision, so the run's release shuts it down (and only then: one it found booted
+      # is someone else's).
+      if [[ "$booted" != self && "$_sim_held" == "$udid" ]]; then
+        mkdir -p "$SIM_HOLDS/$udid"
+        : >"$SIM_HOLDS/$udid/ours"
+      fi
       # The boot runs without fd 8, so nothing it starts can hold the lock.
       # Bounded: a boot that never completes fails here instead of stalling the caller.
       if ! perl -e 'alarm shift; exec @ARGV' "${IOS_SIM_BOOT_TIMEOUT:-300}" \
@@ -256,11 +263,13 @@ $(sed 's/^/  /' <<<"$booted")"
 # installs (INT, TERM and HUP end the run through EXIT), shuts the device down when a hold booted
 # it and no other live run still holds it. A device already booted with no hold on it (an
 # interactive session: sim-run.sh, sim-clone.sh, Xcode) is left booted, and so is any device
-# when IOS_SIM_KEEP=1 (it also stops later holders shutting it down). Under CI nothing is held:
-# one simulator per runner, and sim_hold is sim_boot.
+# when IOS_SIM_KEEP=1 (it also stops later holders shutting it down). Under CI sim_boot boots
+# nothing (xcodebuild boots the runner's one simulator, and the runner is discarded), so there
+# is nothing of the run's to shut down: sim_hold is sim_boot.
 #
 # A hold is the file <SIM_HOLDS>/<udid>/<pid> with the holder's start time (like the cap's
-# tickets: a dead holder's file is pruned), and <udid>/ours marks a device a hold booted.
+# tickets: a dead holder's file is pruned), and <udid>/ours marks a device a hold's admission
+# booted (set by sim_boot under the cap lock, removed once the device is shut down).
 # Registering and the last release's check-and-shutdown run under the cap lock, so no run joins
 # a device while it is being shut down. Callers set their own EXIT trap before sim_hold (it
 # runs theirs after releasing), or call sim_release in it.
@@ -307,10 +316,9 @@ sim_hold() {
   _sim_holder="$dir/$pid"
   _sim_started "$pid" >"$_sim_holder"
   _sim_held="$udid"
-  # Not booted: this run boots it, so a release shuts it down. Booted with an `ours` mark: a
-  # hold booted it (perhaps one that died), the mark stays. Booted without: someone's session.
-  [[ "$(booted_clones "$udid")" == self ]] || : >"$dir/ours"
   exec 7>&-
+  # sim_boot marks the device `ours` if its admission boots it. A device found booted keeps
+  # whatever mark it has: a hold booted it (perhaps one that died), or someone's session did.
   sim_boot "$udid"
 }
 
@@ -318,6 +326,9 @@ sim_release() {
   [[ -n "$_sim_held" ]] || return 0
   local udid="$_sim_held" dir="$SIM_HOLDS/$_sim_held"
   _sim_held=""
+  # Interrupted inside sim_boot's admission, this process still holds the cap lock on fd 8:
+  # let go of it first, or taking it again on fd 7 below would wait on itself.
+  exec 8>&-
   if ! _sim_hold_lock; then
     rm -f "$_sim_holder"
     warn "could not take the simulator lock to release $udid; it may stay booted"
@@ -328,10 +339,14 @@ sim_release() {
     rm -f "$dir/ours"
     echo "ios: keeping $udid booted (IOS_SIM_KEEP=1)" >&2
   elif [[ -e "$dir/ours" && -z "$(_sim_live_holds "$dir")" ]]; then
-    rm -f "$dir/ours"
     echo "ios: shutting down $udid (booted for this run)" >&2
-    perl -e 'alarm shift; exec @ARGV' "${IOS_SIM_SHUTDOWN_TIMEOUT:-120}" xcrun simctl shutdown "$udid" \
-      >/dev/null 2>&1 || warn "could not shut down $udid"
+    # The mark goes only once it is down: a failed shutdown leaves it for the next hold to retry.
+    if perl -e 'alarm shift; exec @ARGV' "${IOS_SIM_SHUTDOWN_TIMEOUT:-120}" xcrun simctl shutdown "$udid" \
+      >/dev/null 2>&1 || [[ "$(booted_clones "$udid")" != self ]]; then
+      rm -f "$dir/ours"
+    else
+      warn "could not shut down $udid; the next run that holds it will try again"
+    fi
   fi
   exec 7>&-
   return 0
