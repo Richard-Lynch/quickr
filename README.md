@@ -164,7 +164,7 @@ the first five fields and `kind: "test"`.
 
 **Actions (Chrome, Edge, Android).** A reminder for a one-tap topic shows
 buttons: the first options of a single-select question (up to the browser's
-`Notification.maxActions`, usually 2), or "✓ 7.5 h" to log a number question's
+`Notification.maxActions`, usually 2), or "Log 7.5 h" to log a number question's
 last value again. Clicking one logs the entry from the service worker, even with
 the app closed: it goes into the same offline outbox as the app (source
 `pwa.notification`) and is sent at once, or later by Background Sync or the
