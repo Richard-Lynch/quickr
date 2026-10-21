@@ -78,7 +78,8 @@ unset IOS_SIM_WAIT IOS_SIM_CAP CI IOS_SIM_DEFAULTED IOS_SIM IOS_SIM_MIN  # CI sk
 fails=0
 fail() { echo "FAIL $*"; fails=$((fails + 1)); }
 boot() {  # boot <udid>: sim_boot in a subshell; sets status and out
-  out="$(bash -c 'source "$1/../common.sh"; sim_boot "$2"' _ "$here" "$1" 2>&1)"; status=$?
+  # Bounded: a regression that never admits fails here (status 142) instead of hanging the suite.
+  out="$(perl -e 'alarm shift; exec @ARGV' 120 bash -c 'source "$1/../common.sh"; sim_boot "$2"' _ "$here" "$1" 2>&1)"; status=$?
 }
 expect() {  # expect <name> <status> [output must contain]
   if [[ "$status" == "$2" && ( -z "${3:-}" || "$out" == *"$3"* ) ]]; then echo "ok   $1"
@@ -255,22 +256,40 @@ rm -f "$QUICKR_SIM_CAP_QUEUE/000000000002.$$"
 # A waiter stopped by TERM drops its ticket at once, and the caller's EXIT trap still runs, seeing
 # the real status (143).
 devices "a:Booted:$A" "c:Shutdown:$C"
-IOS_SIM_CAP=1 IOS_SIM_WAIT=1 bash -c 'trap "echo caller-trap-ran rc=\$?" EXIT; source "$1/../common.sh"; sim_boot c' _ "$here" >"$fake/fe.out" 2>&1 &
+IOS_SIM_CAP=1 IOS_SIM_WAIT=1 bash -c 'trap "echo caller-trap-ran rc=\$?; false; echo errexit-lost" EXIT; source "$1/../common.sh"; sim_boot c' _ "$here" >"$fake/fe.out" 2>&1 &
 pe=$!
 until_true "the waiter has a ticket" tickets_are 1
 kill -TERM "$pe"; reap "$pe"
 [[ "$(tickets)" == 0 ]] && echo "ok   a stopped waiter's ticket is dropped at once" || fail "ticket left after TERM"
 grep -q "caller-trap-ran rc=143" "$fake/fe.out" && echo "ok   the caller's EXIT trap still runs, with the real status" \
   || fail "caller trap: $(cat "$fake/fe.out")"
-[[ "$reaped" == 143 ]] && echo "ok   the waiter exits 143" || fail "status $reaped"
+# (Its handler's `false`, under errexit, then ends the process with 1, as it would without us.)
+[[ "$reaped" == 1 ]] && echo "ok   the waiter's status is the caller's handler's" || fail "status $reaped"
+grep -q errexit-lost "$fake/fe.out" && fail "the caller's EXIT handler ran without errexit" \
+  || echo "ok   the caller's EXIT handler keeps errexit (common.sh's set -e)"
+
+# A caller that ignores TERM: it stays ignored while waiting (the waiter keeps its place) and
+# after admission.
+devices "a:Booted:$A" "c:Shutdown:$C"
+IOS_SIM_CAP=1 IOS_SIM_WAIT=1 perl -e 'alarm shift; exec @ARGV' 120 \
+  bash -c 'trap "" TERM; source "$1/../common.sh"; sim_boot c; trap -p >"$2"' _ "$here" "$fake/ign.traps" >/dev/null 2>&1 &
+pi=$!
+until_true "the ignoring waiter has a ticket" tickets_are 1
+kill -TERM "$pi" 2>/dev/null; sleep 1
+! gone "$pi" && [[ "$(tickets)" == 1 ]] && echo "ok   an ignored TERM stays ignored while waiting" || fail "TERM wasn't ignored"
+setstate a Shutdown
+reap "$pi"
+[[ "$reaped" == 0 && "$(cat "$fake/ign.traps")" == "trap -- '' SIGTERM" ]] \
+  && echo "ok   and still ignored once admitted" || fail "after admission: $reaped $(cat "$fake/ign.traps")"
 
 # Admitted after waiting: the caller's own traps are back, unchanged.
 devices "a:Booted:$A" "c:Shutdown:$C"
 ( sleep 2; setstate a Shutdown ) &
 # (`trap -p` straight into a file: in a pipeline or `$(…)` it would run in a subshell, which has
 # no traps.)
-IOS_SIM_CAP=1 IOS_SIM_WAIT=1 bash -c 'trap "echo mine" INT; source "$1/../common.sh"; sim_boot c; trap -p >"$2"' \
-  _ "$here" "$fake/traps.out" >/dev/null 2>&1
+IOS_SIM_CAP=1 IOS_SIM_WAIT=1 perl -e 'alarm shift; exec @ARGV' 120 \
+  bash -c 'trap "echo mine" INT; source "$1/../common.sh"; sim_boot c; trap -p >"$2"' _ "$here" "$fake/traps.out" \
+  >/dev/null 2>&1
 wait
 traps="$(cat "$fake/traps.out")"
 [[ "$traps" == "trap -- 'echo mine' SIGINT" ]] \

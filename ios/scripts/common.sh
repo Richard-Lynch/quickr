@@ -135,33 +135,48 @@ _sim_take_ticket() {
   _sim_started "$pid" >"$_sim_ticket"
 }
 
-# While waiting: the ticket is dropped however the process ends. EXIT drops it, keeping `$?` for
-# the caller's own EXIT trap, which then runs; INT, TERM and HUP (fatal by default, and then no
-# EXIT trap would run) end the process through EXIT, unless the caller handles them itself.
+# While waiting: the ticket is dropped however the process ends. EXIT drops it, then runs the
+# caller's own EXIT handler with `$?` as it was and errexit as it was; INT, TERM and HUP (fatal
+# by default, and then no EXIT trap would run) end the process through EXIT, unless the caller
+# traps them itself (an ignored signal, `trap '' TERM`, stays ignored). The caller's traps are
+# saved as they were, present or absent, and put back when admitted.
 _sim_trap_ticket() {
-  local words sig handler
+  local words sig handler present
   _sim_saved_traps=""
   for sig in EXIT INT TERM HUP; do
+    words=()
     eval "words=($(trap -p "$sig"))"
-    handler="${words[2]:-}"
-    _sim_saved_traps+="$(printf '%s %q\n' "$sig" "$handler")"$'\n'
+    present=0; handler=""
+    if (( ${#words[@]} > 0 )); then present=1; handler="${words[2]}"; fi
+    _sim_saved_traps+="$(printf '%s %s %q' "$sig" "$present" "$handler")"$'\n'
     case "$sig" in
-      # (`set +e` first: under errexit the `( exit … )` that restores `$?` would end the trap.)
-      EXIT) trap "_sim_rc=\$?; _sim_drop_ticket${handler:+; set +e; ( exit \$_sim_rc ); $handler}" EXIT ;;
-      INT) [[ -n "$handler" ]] || trap 'exit 130' INT ;;
-      TERM) [[ -n "$handler" ]] || trap 'exit 143' TERM ;;
-      HUP) [[ -n "$handler" ]] || trap 'exit 129' HUP ;;
+      EXIT)
+        # The handler runs at the end of an `||` list, after a command that returns the saved
+        # status: `$?` is that status inside it, and errexit (if the caller set it) still applies.
+        if (( present )); then
+          trap "_sim_rc=\$?; _sim_drop_ticket; if (( _sim_rc == 0 )); then $handler
+else _sim_status \$_sim_rc || { $handler
+}; fi" EXIT
+        else
+          trap '_sim_drop_ticket' EXIT
+        fi
+        ;;
+      INT) (( present )) || trap 'exit 130' INT ;;
+      TERM) (( present )) || trap 'exit 143' TERM ;;
+      HUP) (( present )) || trap 'exit 129' HUP ;;
     esac
   done
 }
 
-# Admitted: the caller's handlers back (or none), now that there is no ticket to drop.
+_sim_status() { return "$1"; }
+
+# Admitted: the caller's traps back exactly as they were (absent, ignored or a handler).
 _sim_untrap_ticket() {
-  local sig handler
-  while read -r sig handler; do
+  local sig present handler
+  while read -r sig present handler; do
     [[ -n "$sig" ]] || continue
     eval "handler=$handler"
-    if [[ -n "$handler" ]]; then trap "$handler" "$sig"; else trap - "$sig"; fi
+    if (( present )); then trap -- "$handler" "$sig"; else trap - "$sig"; fi
   done <<<"$_sim_saved_traps"
   _sim_saved_traps=""
 }
