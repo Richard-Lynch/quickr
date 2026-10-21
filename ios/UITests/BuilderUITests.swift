@@ -170,7 +170,8 @@ final class BuilderUITests: XCTestCase {
         let min = element("newTopic.q0.min", in: app)
         let max = element("newTopic.q0.max", in: app)
         scrollTo(max, in: app)
-        XCTAssertGreaterThan(max.frame.minY, min.frame.minY, "stacked, not side by side")
+        XCTAssertTrue(min.exists && max.exists && !min.frame.isEmpty && !max.frame.isEmpty)
+        XCTAssertGreaterThanOrEqual(max.frame.minY, min.frame.maxY, "stacked, not side by side")
         try assertAccessible(app)
         // The pane switch is a menu at this size (BD5).
         let pane = element("newTopic.pane", in: app)

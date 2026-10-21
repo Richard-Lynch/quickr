@@ -128,14 +128,30 @@ final class TopicUITests: XCTestCase {
         let saveDetails = element("topicSettings.saveDetails", in: app)
         scrollTo(saveDetails, in: app)
         XCTAssertTrue(saveDetails.isHittable)
-        // The schedule kind is a menu at this size (TP4); Daily shows the weekdays.
+        // The schedule kind is a menu at this size (TP4), not a segmented control.
+        XCTAssertFalse(app.segmentedControls["topicSettings.schedule.kind"].exists)
         pickScheduleKind("Daily", id: "topicSettings.schedule", in: app)
-        // TP1: every weekday is reachable and audited unclipped.
+        // TP3: a second time can be removed through a 44 pt target.
+        tap("topicSettings.schedule.addTime", in: app)
+        let remove = element("topicSettings.schedule.removeTime.1", in: app)
+        scrollTo(remove, in: app)
+        XCTAssertGreaterThanOrEqual(remove.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(remove.frame.height, 44)
+        try assertAccessible(app)
+        // TP1: every weekday is reachable at 44 pt; each group is audited as it shows.
         for day in 1...7 {
             let button = element("topicSettings.schedule.day.\(day)", in: app)
             scrollTo(button, in: app)
             XCTAssertTrue(button.isHittable, "day \(day)")
             XCTAssertGreaterThanOrEqual(button.frame.height, 44, "day \(day)")
+            if day == 4 { try assertAccessible(app) }
+        }
+        try assertAccessible(app)
+        // TP2: the presets are 44 pt.
+        for preset in ["Every day", "Weekdays", "Weekends"] {
+            let button = element("topicSettings.schedule.preset.\(preset)", in: app)
+            scrollTo(button, in: app)
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44, preset)
         }
         try assertAccessible(app)
         for id in ["topicSettings.saveSchedule", "topicSettings.archive"] {
@@ -159,7 +175,8 @@ final class TopicUITests: XCTestCase {
         scrollTo(every, in: app)
         XCTAssertTrue(every.isHittable)
         try assertAccessible(app)
-        // TP6: a failed create shows (and, with VoiceOver, focuses) the banner.
+        // TP6: a failed create shows the banner. Its VoiceOver focus and announcement are checked by
+        // hand (DEVICE-DAY §6); the per-attempt trigger is host-tested (NewTopicModelTests).
         tap("newTopic.create", in: app)
         XCTAssertTrue(element("newTopic.banner", in: app).waitForExistence(timeout: 5))
     }

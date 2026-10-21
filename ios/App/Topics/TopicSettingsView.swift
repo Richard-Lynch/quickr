@@ -9,6 +9,7 @@ struct TopicSettingsView: View {
     @State private var confirmingLeave = false
     @State private var deleting = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private let text = TopicText()
 
@@ -105,13 +106,15 @@ struct TopicSettingsView: View {
             ScheduleEditorRows(
                 draft: $model.schedule, errors: model.scheduleErrors, limits: model.limits,
                 preview: model.schedulePreview, id: "topicSettings.schedule")
-            HStack {
+            // Stacked at accessibility sizes, where "Save schedule" broke mid-word.
+            FieldRow(alignment: .center) {
                 if model.scheduleDirty {
                     Button("Reset") { model.resetSchedule() }
                         .buttonStyle(.borderless)
+                        .frame(minHeight: QuickrMetrics.tapTarget)
                         .accessibilityIdentifier("topicSettings.resetSchedule")
                 }
-                Spacer()
+                if !typeSize.isAccessibilitySize { Spacer() }
                 TopicSaveButton(
                     "Save schedule", isSaving: model.isSavingSchedule, isEnabled: model.scheduleDirty,
                     id: "topicSettings.saveSchedule"
@@ -289,11 +292,15 @@ struct TopicSaveButton: View {
         self.action = action
     }
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
                 if isSaving { ProgressView() }
-                Text(title).font(.qr(.callout))
+                // Full width at accessibility sizes, so the title wraps between words, not inside one.
+                Text(title).font(.qr(.callout)).multilineTextAlignment(.center)
+                    .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil)
             }
         }
         .buttonStyle(.borderedProminent)

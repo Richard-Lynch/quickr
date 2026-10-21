@@ -272,14 +272,32 @@ struct QuestionCard<Model: BuilderEditing>: View {
                 if typeSize.isAccessibilitySize {
                     Text("Type").font(.qr(.label)).foregroundStyle(.qr.inkSoft).accessibilityHidden(true)
                 }
-                Picker(
-                    "Type",
-                    selection: model.typeBinding(id, default: question.type)
-                ) {
-                    ForEach(QuestionType.allCases, id: \.self) { Text($0.builderLabel).tag($0) }
+                if typeSize.isAccessibilitySize {
+                    // The system menu picker cuts its value short ("Whol…mber"): our own label wraps.
+                    Menu {
+                        Picker("Type", selection: model.typeBinding(id, default: question.type)) {
+                            ForEach(QuestionType.allCases, id: \.self) { Text($0.builderLabel).tag($0) }
+                        }
+                    } label: {
+                        HStack {
+                            Text(question.type.builderLabel).font(.qr(.body)).multilineTextAlignment(.leading)
+                            Spacer(minLength: 4)
+                            Image(systemName: "chevron.up.chevron.down").accessibilityHidden(true)
+                        }
+                        .frame(minHeight: QuickrMetrics.tapTarget)
+                    }
+                    .accessibilityLabel("Type")
+                    .accessibilityValue(question.type.builderLabel)
+                    .accessibilityIdentifier("\(tag).type")
+                } else {
+                    Picker(
+                        "Type",
+                        selection: model.typeBinding(id, default: question.type)
+                    ) {
+                        ForEach(QuestionType.allCases, id: \.self) { Text($0.builderLabel).tag($0) }
+                    }
+                    .accessibilityIdentifier("\(tag).type")
                 }
-                .labelsHidden(typeSize.isAccessibilitySize)
-                .accessibilityIdentifier("\(tag).type")
                 Text(question.typeHint).font(.qr(.footnote)).foregroundStyle(.qr.muted)
             }
         }
@@ -295,7 +313,7 @@ struct QuestionCard<Model: BuilderEditing>: View {
         }
         Toggle(isOn: binding(\.required, default: false)) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Required")
+                Text("Required").fixedSize(horizontal: false, vertical: true)
                 Text("Must be answered to save an entry").font(.qr(.footnote)).foregroundStyle(.qr.muted)
             }
         }
@@ -326,7 +344,7 @@ struct QuestionCard<Model: BuilderEditing>: View {
             }
             Toggle(isOn: binding(\.multiline, default: false)) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Multiline")
+                    Text("Multiline").fixedSize(horizontal: false, vertical: true)
                     Text("Show a text area instead of a single line").font(.qr(.footnote)).foregroundStyle(.qr.muted)
                 }
             }
@@ -337,7 +355,7 @@ struct QuestionCard<Model: BuilderEditing>: View {
                 isOn: model.multipleBinding(id)
             ) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Allow multiple selections")
+                    Text("Allow multiple selections").fixedSize(horizontal: false, vertical: true)
                     Text(question.multipleHint).font(.qr(.footnote)).foregroundStyle(.qr.muted)
                 }
             }
@@ -390,7 +408,8 @@ struct OptionsRows<Model: BuilderEditing>: View {
                 ForEach(Array(question.options.enumerated()), id: \.element.id) { o, option in
                     row(question, o, option)
                 }
-                HStack {
+                // Stacked at accessibility sizes, where "Add" broke over two lines.
+                FieldRow(alignment: .center) {
                     TextField("Add an option…", text: newLabel)
                         .onSubmit(add)
                         .submitLabel(.done)
@@ -418,7 +437,7 @@ struct OptionsRows<Model: BuilderEditing>: View {
                     optionButtons(question, o, option)
                 }
             }
-            HStack(spacing: 6) {
+            FieldRow(alignment: .center) {
                 Text("value").font(.qr(.monoCaption)).foregroundStyle(.qr.muted)
                 if option.locked {
                     Text(option.value).font(.qr(.monoCaption)).foregroundStyle(.qr.muted)
@@ -507,12 +526,5 @@ struct FieldRow<Content: View>: View {
         } else {
             HStack(alignment: alignment) { content }
         }
-    }
-}
-
-extension View {
-    /// `labelsHidden()` when `hidden`.
-    @ViewBuilder func labelsHidden(_ hidden: Bool) -> some View {
-        if hidden { labelsHidden() } else { self }
     }
 }
