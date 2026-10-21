@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import QuickrData
 import UIKit
 import WidgetKit
@@ -10,6 +11,20 @@ extension AppEnvironment {
     func handleNotificationResponse(_ response: NotificationActionResponse) async {
         guard let session else { return }
         let outcome = await notificationHandler(session).handle(response)
+        #if DEBUG
+        // What an action did, for simulator runs (MediaCaptureUITests): no answers or text.
+        let kind =
+            switch outcome {
+            case .none: "none"
+            case .open: "open"
+            case .logged: "logged"
+            case .alreadyLogged: "already logged"
+            case .refused(let failure): "refused: \(failure)"
+            case .needsFix: "needs fix"
+            }
+        Logger(subsystem: "com.bahumia.quickr", category: "notification-action").notice(
+            "outcome: \(kind, privacy: .public)")
+        #endif
         guard case .open(let path, let prefill) = outcome else { return }
         recordPrefill = prefill
         router.handle(path: path)
