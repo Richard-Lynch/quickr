@@ -191,7 +191,7 @@ struct TopicScreen {
         let field = app.textFields["\(prefix).q\(count).label"]
         scrollTo(field, up: true)
         scrollTo(field)
-        type(label, into: field)
+        self.type(label, into: field)  // `type` here is the question type
         dismissKeyboard()
     }
 
