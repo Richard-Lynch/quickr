@@ -23,16 +23,16 @@ redacted the same way as in `make ios-testflight` (last two characters only).
 
 ## 1. Prerequisites, in order
 
-| #   | Step                                                                                                                                                                                                                                                                                                                           | Who        | Check                                                                    |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- | ------------------------------------------------------------------------ |
-| 1   | **Team ID** (H3) into `ios/Local.xcconfig`: copy `ios/Local.xcconfig.example` and set `DEVELOPMENT_TEAM`. The file is gitignored.                                                                                                                                                                                              | user/agent | `grep DEVELOPMENT_TEAM ios/Local.xcconfig` is not empty                  |
-| 2   | **Xcode signed in** (H4): Xcode ▸ Settings ▸ Accounts ▸ + with the developer Apple ID. Automatic signing for device builds uses this account.                                                                                                                                                                                  | user       | The team shows under the account                                         |
-| 3   | **iPhone** (H5): connect it by cable, unlock it and tap **Trust**. Turn on Settings ▸ Privacy & Security ▸ **Developer Mode**, then restart and confirm. Optionally, in Xcode ▸ Devices and Simulators, tick "Connect via network".                                                                                            | user       | `xcrun devicectl list devices` shows the iPhone as paired and available  |
-| 4   | **Push entitlement.** `aps-environment` is not in `ios/project.yml` yet (ios/README.md says it lands in M3). Without it the app gets no APNs token. Before M3-DEV, add `aps-environment: development` to the **app** target's entitlements and run `make ios-gen`. Automatic signing switches it to production for TestFlight. | agent      | The installed app's Settings ▸ Reminders shows a registered device       |
-| 5   | **APNs key** (H6): create the `.p8`, then mount it into the backend through the compose override, exactly as in [docs/hosting/apns.md](../../hosting/apns.md). Also set `QUICKR_SCHEDULER_INTERVAL_SECONDS: 10` there for the day, so a due reminder goes out within seconds.                                                  | user/agent | `curl -s localhost:8080/api/v1/push/config` shows `"apns_enabled": true` |
-| 6   | **A server the phone can reach**: `make up` on this Mac, with the iPhone on the same Wi-Fi. In the app, the server is `http://<mac>.local:8080`, where `<mac>` is the Mac's local hostname from System Settings ▸ General ▸ Sharing. The app allows local HTTP (`NSAllowsLocalNetworking`). Allow the Local Network prompt.    | user/agent | The app connects and Home shows the topics                               |
-| 7   | **App Store Connect key** (H7, M7 only): an **Admin**-role Team API key in `ios/testflight.env`, as in [ios/README.md, TestFlight](../../../ios/README.md#testflight).                                                                                                                                                         | user       | `make ios-testflight-dry-run`, then `make ios-testflight`                |
-| 8   | **Cloudflare** (H8, M7 only): [docs/hosting/cloudflare-access.md](../../hosting/cloudflare-access.md) and [docs/hosting/README.md](../../hosting/README.md).                                                                                                                                                                   | user       | The app connects through the tunnel with the service token               |
+| #   | Step                                                                                                                                                                                                                                                                                                                        | Who        | Check                                                                    |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------ |
+| 1   | **Team ID** (H3) into `ios/Local.xcconfig`: copy `ios/Local.xcconfig.example` and set `DEVELOPMENT_TEAM`. The file is gitignored.                                                                                                                                                                                           | user/agent | `grep DEVELOPMENT_TEAM ios/Local.xcconfig` is not empty                  |
+| 2   | **Xcode signed in** (H4): Xcode ▸ Settings ▸ Accounts ▸ + with the developer Apple ID. Automatic signing for device builds uses this account.                                                                                                                                                                               | user       | The team shows under the account                                         |
+| 3   | **iPhone** (H5): connect it by cable, unlock it and tap **Trust**. Turn on Settings ▸ Privacy & Security ▸ **Developer Mode**, then restart and confirm. Optionally, in Xcode ▸ Devices and Simulators, tick "Connect via network".                                                                                         | user       | `xcrun devicectl list devices` shows the iPhone as paired and available  |
+| 4   | **Push entitlement.** The app target has `aps-environment: development` (`ios/project.yml`), so the development profile needs the Push Notifications capability. Automatic signing adds it on the first signed build. TestFlight's export re-signs it as production (ios/README.md, TestFlight).                            | agent      | The installed app's Settings ▸ Reminders shows a registered device       |
+| 5   | **APNs key** (H6): create the `.p8`, then mount it into the backend through the compose override, exactly as in [docs/hosting/apns.md](../../hosting/apns.md). Also set `QUICKR_SCHEDULER_INTERVAL_SECONDS: 10` there for the day, so a due reminder goes out within seconds.                                               | user/agent | `curl -s localhost:8080/api/v1/push/config` shows `"apns_enabled": true` |
+| 6   | **A server the phone can reach**: `make up` on this Mac, with the iPhone on the same Wi-Fi. In the app, the server is `http://<mac>.local:8080`, where `<mac>` is the Mac's local hostname from System Settings ▸ General ▸ Sharing. The app allows local HTTP (`NSAllowsLocalNetworking`). Allow the Local Network prompt. | user/agent | The app connects and Home shows the topics                               |
+| 7   | **App Store Connect key** (H7, M7 only): an **Admin**-role Team API key in `ios/testflight.env`, as in [ios/README.md, TestFlight](../../../ios/README.md#testflight).                                                                                                                                                      | user       | `make ios-testflight-dry-run`, then `make ios-testflight`                |
+| 8   | **Cloudflare** (H8, M7 only): [docs/hosting/cloudflare-access.md](../../hosting/cloudflare-access.md) and [docs/hosting/README.md](../../hosting/README.md).                                                                                                                                                                | user       | The app connects through the tunnel with the service token               |
 
 D needs steps 1–3 and 6. D's push rows and M3-DEV need 4 and 5 as well, and M7
 needs 7 and 8.
@@ -106,22 +106,77 @@ docs/ios/demo/m1/spike-findings.md (F1, F2, F6, F7, F8).
 | D5  | Action budget (spike F7)                                                    | Kill the app (swipe it away). Tap an action from the Lock Screen. From the `nse` and handler logs, take the background launch to the committed enqueue and the flush; check the entry on the server                                                                                                   | The entry commits and flushes well inside the ~30 s window; note the times. A miss is a no-go to raise                                                                                              | The times, 3 runs                                                                     |
 | D6  | Lock Screen logging (open question 1)                                       | With the phone locked (unlocked once since boot), tap a chip on the Lock Screen                                                                                                                                                                                                                       | It logs with no unlock prompt, no "Open quickR" bounce and no failure notification                                                                                                                  | Recording                                                                             |
 | D7  | Before first unlock (spike F8, open question 3)                             | Restart the phone and **don't unlock it**. Make a topic due and tap an action if one shows                                                                                                                                                                                                            | The handler fails gracefully (notifications §7.1 step 3) and nothing is lost or duplicated. Decide open question 3: leave the content untouched, or clear the category                              | What showed, and what the handler did                                                 |
-| D8  | Concurrent category replacement (notifications §5.4)                        | **Needs the D probe (below).** 100 times: the NSE registers {A, B} while the app registers {A, C}, overlapping in time. After each round, read `notificationCategories()`                                                                                                                             | It reports A, B and C, either at once or after one reconcile. Otherwise, it is a no-go to report                                                                                                    | Pass count out of 100; how many needed the reconcile                                  |
-| D9  | Registration budget and category growth (notifications D1, open question 5) | **Needs the D probe (below).** Time `setNotificationCategories` plus the time until `notificationCategories()` reflects it, at 100, 1,000 and 5,000 categories, in the app **and** in the NSE. Separately, over the day, count the categories added with real use of a number topic and an enum topic | Project the one-year category count from the daily growth. If the NSE can't register within its 3 s target at that count, pruning (open question 5) becomes required for M3. Repeat after M3 and M4 | A table of the timings (app and NSE × 3 sizes), the growth per day and the projection |
+| D8  | Concurrent category replacement (notifications §5.4)                        | **The D probe (below), `d8`.** 100 times: the NSE registers {A, B} while the app registers {A, C}, overlapping in time. After each round, the app reads `notificationCategories()`                                                                                                                    | It reports A, B and C, either at once or after one reconcile. Otherwise, it is a no-go to report                                                                                                    | Pass count out of 100; how many needed the reconcile                                  |
+| D9  | Registration budget and category growth (notifications D1, open question 5) | **The D probe (below), `d9`.** Time `setNotificationCategories` plus the time until `notificationCategories()` reflects it, at 100, 1,000 and 5,000 categories, in the app **and** in the NSE. Separately, over the day, count the categories added with real use of a number topic and an enum topic | Project the one-year category count from the daily growth. If the NSE can't register within its 3 s target at that count, pruning (open question 5) becomes required for M3. Repeat after M3 and M4 | A table of the timings (app and NSE × 3 sizes), the growth per day and the projection |
 | D10 | Widget buttons                                                              | Add the quickR widget to the Home Screen and configure a topic. With the app killed, tap a chip                                                                                                                                                                                                       | It logs, the widget shows the result, and the entry reaches the server on the next flush                                                                                                            | Recording                                                                             |
 | D11 | Action button                                                               | Settings ▸ Action Button ▸ Shortcut ▸ quickR. Use Repeat-last if INTENTS shipped it, else "Log Entry" for a topic. Press it                                                                                                                                                                           | It logs without opening the app                                                                                                                                                                     | Recording                                                                             |
 
-**The D probe.** D8 and D9 need instrumentation that isn't built yet: a
-DEBUG-only probe, gated by an App Group marker like the spike's (the NSE gets no
-launch arguments). It would have the app and the NSE:
+**The D probe** (`DeviceProbe`, DEBUG builds only). The app starts it with a
+launch argument and writes a request into the App Group. The NSE gets no launch
+arguments, so it takes the request on the next **test push** (Settings ▸
+Reminders ▸ Test this device, or `apns_send.py`). A request expires after 3
+minutes and belongs to the latest run, so a later test push never starts an old
+one. Both sides append JSON lines to `Library/quickr/dprobe/results.jsonl` in the
+App Group.
 
-- run the {A, B} / {A, C} replacement rounds, triggered by a probe push to the
-  NSE while the app registers;
-- register 100, 1,000 and 5,000 synthetic categories and log both times to an
-  App Group file that `devicectl device copy from` can fetch.
+While the probe runs, the system's categories are the probe's:
 
-Build it as a small work package before D. Until then, D8 and D9 are `[-]`
-"probe not built" and D is not complete.
+- A probe launch holds back the app's own category registrations until the
+  NSE's side is done too, then registers its whole table, including anything it
+  held back.
+- One lock orders every run's checks and changes, so an older run never touches
+  a newer run's set.
+- An ordinary launch cancels a probe still pending.
+- Each side re-registers the real categories when it finishes, even when the NSE
+  is out of time.
+- If a process dies first, or the system kills the NSE mid-restore, the app's
+  next normal launch reconciles them (§5.3).
+- Don't make topics due during a run: a real reminder in that window would show
+  without actions, and its NSE run would replace the probe's set.
+
+- **D9:** `make ios-device-run IOS_LAUNCH_ARGS="-QuickrDProbe d9"`. Wait for
+  Console (category `dprobe`) to say "the app's side is done", then send a test
+  push.
+  - The sizes are 100, 150, 1,000 and 5,000. 150 brackets a possible
+    100-category cap.
+  - Each size records `set_ms` (the center's call: building the category set and
+    `setNotificationCategories`), `register_ms` (the registry insert too),
+    `readback_ms`, and how many of its categories the last read showed (`seen`).
+  - On the iOS 26 simulator, the readback showed only 100 of 1,000 and 100 of
+    5,000. If the device also keeps only about 100, §5's append-only, full-union
+    registration needs a bound whatever the timings (open question 5). Check the
+    retained ids, and that a reminder for a category past the first 100 still
+    shows its actions.
+  - The NSE stops at 22 s, keeping the rest of its ~30 s to restore, and skips a
+    size it can't finish in time (`timeout`). That is itself a D1 finding.
+- **D8:** `make ios-device-run IOS_LAUNCH_ARGS="-QuickrDProbe d8"`. Keep the app
+  in front and send a test push within 3 minutes.
+  - The app drives the 100 rounds. In each round, both processes meet at an
+    agreed instant and register at once, starting from an empty probe table, so
+    the system only ever gets that round's {A, B, C}.
+  - Each round records whether the two attempts overlapped.
+  - All rounds must fit in the NSE's 22 s.
+- **Read the results back**, then judge them:
+
+  ```bash
+  xcrun devicectl device copy from --device "<device name>" --domain-type appGroupDataContainer \
+    --domain-identifier group.com.bahumia.quickr --source Library/quickr/dprobe/results.jsonl \
+    --destination /tmp/dprobe-results.jsonl
+  python3 ios/scripts/dprobe-summary.py /tmp/dprobe-results.jsonl
+  ```
+
+  - **D8 go:** all 100 rounds, both sides done with the real categories
+    restored, and no error, timeout or stop.
+  - **No-go:** a round still missing a category after one reconcile.
+  - **Incomplete:** anything else; run it again.
+  - **D9:** prints the table, plus any size whose readback never showed every
+    category.
+  - The file holds only probe timings and synthetic ids.
+
+- **On a simulator** only D9's app side runs, because the NSE never runs for
+  `simctl push` (spike F1). To try it, run
+  `IOS_LAUNCH_ARGS="-QuickrDProbe d9" ios/scripts/sim-run.sh <udid>`. The file is
+  under `xcrun simctl get_app_container <udid> com.bahumia.quickr group.com.bahumia.quickr`.
 
 **Output:** a findings PR, `docs/ios/demo/d/findings.md`, with the table above
 filled in and a go/no-go for each row.
@@ -176,8 +231,13 @@ VoiceOver on (Settings ▸ Accessibility ▸ VoiceOver) unless the row says
 otherwise.
 
 - [ ] **Undo by gesture.** Log from a tile. The Undo toast stays up while
-      VoiceOver is on, and a two-finger double-tap anywhere undoes the log. With
-      no toast showing, the same gesture plays or pauses music as usual.
+      VoiceOver is on, and its announcement says "Undo available". A
+      two-finger double-tap (the magic tap) runs Undo by both paths:
+  - (a) from anywhere on screen, through the app delegate's
+    `accessibilityPerformMagicTap`. With no toast showing, the same gesture
+    plays or pauses music as usual.
+  - (b) with VoiceOver's focus on the toast, through the toast's own magic-tap
+    action.
 - [ ] **Errors are announced.** A failed Record Save, a failed onboarding
       connect and a failed Edit save each move VoiceOver to the error and read
       it out. To make them fail, use a value the topic refuses (Record, Edit) and

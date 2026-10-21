@@ -23,6 +23,16 @@ final class NotificationService: UNNotificationServiceExtension {
             id: request.identifier, body: request.content.body,
             categoryIdentifier: request.content.categoryIdentifier,
             quickr: QuickrNotificationInfo(userInfo: request.content.userInfo))
+        #if DEBUG
+        // Checkpoint D's category probe: a test push while a request is pending (DeviceProbe).
+        if let probe = Self.probe(incoming.quickr) {
+            preparing = Task { @Sendable in
+                await probe()
+                delivery.deliver(nil)
+            }
+            return
+        }
+        #endif
         guard let preparation = Self.preparation else {
             delivery.deliver(nil)
             return
@@ -58,6 +68,26 @@ final class NotificationService: UNNotificationServiceExtension {
             activeStore: { try stores.activeStore() })
     }()
 }
+
+#if DEBUG
+extension NotificationService {
+    /// The probe's NSE side, when `quickr` is a test push and the app left a current, unexpired
+    /// request (DEBUG only; docs/ios/demo/DEVICE-DAY.md D8, D9). It stops at 22 s, leaving the
+    /// rest of the NSE's ~30 s for restoring the real categories.
+    fileprivate static func probe(_ quickr: QuickrNotificationInfo?) -> (@Sendable () async -> Void)? {
+        guard quickr?.kind == "test", let location = try? StoreLocation.appGroup("group.com.bahumia.quickr")
+        else { return nil }
+        let files = DeviceProbe.Files(location: location)
+        guard let request = files.take() else { return nil }
+        let center = SystemNotificationCenter()
+        let runner = DeviceProbeRunner(files: files, process: .nse, center: center) {
+            await DeviceProbe.restore(location: location, center: center)
+        }
+        let deadline = DeviceProbe.uptime() + 22_000_000_000
+        return { await runner.run(request, until: deadline) }
+    }
+}
+#endif
 
 /// The request's content and the content handler, called once: with the prepared changes, or
 /// untouched (nil) when the time ran out first. UserNotifications doesn't mark them Sendable; this

@@ -13,6 +13,7 @@ here="$(dirname "$0")"
 "$here/tests/sim-cap-test.sh"
 "$here/tests/testflight-test.sh"
 "$here/tests/device-run-test.sh"
+"$here/tests/dprobe-summary-test.sh"
 "$here/swift-test.sh"
 "$here/timing-test.sh"
 # GRDB's suspension is process-wide: the lifecycle tests get a swift test process of their own.
