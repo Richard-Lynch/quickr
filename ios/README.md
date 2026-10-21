@@ -55,8 +55,10 @@ never on the shared base device.
 
 Override the simulators with `IOS_SIM_MIN=... IOS_SIM_CUR=...`. Build output
 goes to `ios/build/` (DerivedData in `build/dd`, package checkouts in
-`build/spm`, test results in `build/results/<plan>-<udid>.xcresult`; read one
-with `xcrun xcresulttool get test-results summary --path ...`).
+`build/spm`, test results in a directory of each run's own,
+`build/results/<plan>-<date>-<time>-<random>/<plan>.xcresult`, whose path `test.sh` prints
+first (`IOS_RESULT_BUNDLE=<new path>` picks it instead); read one with
+`xcrun xcresulttool get test-results summary --path ...`).
 
 **Hangs and simulator load.** Every `xcodebuild` and `swift test` runs under
 `scripts/watchdog.sh`, in a process group of its own. It is killed, with
@@ -79,7 +81,12 @@ worktrees can't both take the last slot. Waiters are served first come, first se
 takes a ticket and only the oldest live one gets a freed slot (it prints its place in the
 queue); a dead waiter's ticket is skipped. A clone that is already booted never
 counts against itself. `sim-clone.sh` boots its clone; `--no-boot` only prints
-the UDID. `make ios-script-test` tests both (no Xcode needed).
+the UDID. Automated runs (`test.sh` and everything built on it, `check-ios`, the perf, demo,
+shots and proof scripts) hold the simulator they use and shut it down when they end, by error
+or signal too, if they booted it and no other run still holds it; a simulator that was already
+booted (by `sim-run.sh`, `sim-clone.sh` or Xcode) stays booted. `IOS_SIM_KEEP=1` keeps it
+booted for an interactive session afterwards. `make ios-script-test` tests all of this (no
+Xcode needed).
 
 `simctl openurl` with the `quickr://` scheme shows a system "Open in quickR?"
 alert, which stays on screen until tapped. Reboot the simulator (or tap it)

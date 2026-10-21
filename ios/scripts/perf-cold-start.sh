@@ -13,11 +13,13 @@ udid="$(target_sim_udid "$1")"
 config="${IOS_PERF_CONFIG:-Release}"; runs="${IOS_PERF_RUNS:-5}"; target="${IOS_PERF_TARGET_MS:-1000}"
 args=(-configuration "$config")
 [[ "$config" == Release ]] && args+=(SWIFT_ACTIVE_COMPILATION_CONDITIONS=QUICKR_PERF)
-sim_boot "$udid"
+log="$(mktemp -t quickr-perf)"; trap 'rm -f "$log"' EXIT
+# The build first, without a simulator slot; then the device, held for the measurements (shut
+# down afterwards if this run booted it; IOS_SIM_KEEP=1 keeps it).
 xcb -destination "id=$udid" "${args[@]}" build >/dev/null
+sim_hold "$udid"
 app="$DERIVED/Build/Products/$config-iphonesimulator/QuickR.app"
 xcrun simctl install "$udid" "$app"
-log="$(mktemp -t quickr-perf)"; trap 'rm -f "$log"' EXIT
 
 # One launch: waits up to $1 seconds for the first tile, prints the launch's PERF lines and
 # leaves the first tile's milliseconds in $first.
