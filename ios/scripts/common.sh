@@ -87,9 +87,55 @@ target_sim_udid() {
 # with IOS_SIM_WAIT=1 polls every IOS_SIM_WAIT_POLL seconds (default 15) until a slot frees.
 # Admission is atomic across worktrees: one machine-wide lock is held from the check until
 # the device shows as booted, and released while waiting (then the check runs again).
+#
+# Waiters are served in order (FIFO): one that has to wait takes a ticket, and a free slot goes
+# only to the lowest live ticket, never to whoever polls first. A newcomer finding waiters
+# queued joins the queue even when a slot is free. A ticket is the file
+# `<number>.<pid>` in SIM_CAP_QUEUE, holding its waiter's start time; it is removed when the
+# waiter is admitted or gives up, by an EXIT trap, and, for a waiter that died (its pid gone,
+# or reused by another process), by the next waiter that looks. Re-booting a device that is
+# already booted, and IOS_SIM_CAP=0, never queue.
 SIM_CAP_LOCK="${QUICKR_SIM_CAP_LOCK:-${TMPDIR:-/tmp}/quickr-sim-cap.lockf}"
+SIM_CAP_QUEUE="${QUICKR_SIM_CAP_QUEUE:-${SIM_CAP_LOCK%.lockf}.queue}"
+_sim_ticket=""
+
+# A process's start time, which tells it from a later process with the same pid.
+_sim_started() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' '; }
+
+# Under the lock: removes dead waiters' tickets, then prints the live ones, lowest first.
+_sim_live_tickets() {
+  local file pid
+  mkdir -p "$SIM_CAP_QUEUE"
+  for file in "$SIM_CAP_QUEUE"/[0-9]*.[0-9]*; do
+    [[ -e "$file" ]] || continue
+    pid="${file##*.}"
+    if [[ "$(_sim_started "$pid")" == "$(cat "$file" 2>/dev/null)" && -n "$(_sim_started "$pid")" ]]; then
+      echo "$file"
+    else
+      rm -f "$file"
+    fi
+  done | sort
+}
+
+# Under the lock: this process's ticket, taken from the counter if it has none.
+_sim_take_ticket() {
+  [[ -n "$_sim_ticket" && -e "$_sim_ticket" ]] && return 0
+  local next
+  next="$(cat "$SIM_CAP_QUEUE/next" 2>/dev/null || echo 0)"
+  [[ "$next" =~ ^[0-9]+$ ]] || next=0
+  echo $((next + 1)) >"$SIM_CAP_QUEUE/next"
+  _sim_ticket="$SIM_CAP_QUEUE/$(printf '%012d' "$next").$$"
+  _sim_started $$ >"$_sim_ticket"
+}
+
+_sim_drop_ticket() {
+  [[ -n "$_sim_ticket" ]] && rm -f "$_sim_ticket"
+  _sim_ticket=""
+}
+
 sim_boot() {
-  local udid="$1" cap="${IOS_SIM_CAP:-2}" booted count announced=0 lock_status
+  local udid="$1" cap="${IOS_SIM_CAP:-2}" booted count announced=0 lock_status tickets ahead position
+  local last_position=0 trapped=0 previous_exit="" trap_words
   # CI runs one simulator per runner: no cap to enforce, and xcodebuild boots the device itself
   # (an unbounded `simctl bootstatus -b` there stalled a run until the step's time limit).
   [[ -n "${CI:-}" ]] && return 0
@@ -97,10 +143,18 @@ sim_boot() {
     exec 8>>"$SIM_CAP_LOCK"
     lock_status=0
     /usr/bin/lockf -t "${IOS_SIM_LOCK_WAIT:-900}" 8 >/dev/null 2>&1 || lock_status=$?
-    (( lock_status == 0 )) || { exec 8>&-; die "could not take the simulator lock $SIM_CAP_LOCK (lockf $lock_status)"; }
+    (( lock_status == 0 )) || { exec 8>&-; _sim_drop_ticket; die "could not take the simulator lock $SIM_CAP_LOCK (lockf $lock_status)"; }
     booted="$(booted_clones "$udid")"
     count="$(grep -c . <<<"$booted" || true)"
-    if [[ "$booted" == self || "$cap" == 0 ]] || (( count < cap )); then
+    tickets="$(_sim_live_tickets)"
+    # Live tickets ahead of this process's own (all of them if it has none yet).
+    if [[ -n "$_sim_ticket" ]]; then
+      ahead="$(grep -c . <<<"$(awk -v me="$_sim_ticket" '$0 < me' <<<"$tickets")" || true)"
+    else
+      ahead="$(grep -c . <<<"$tickets" || true)"
+    fi
+    if [[ "$booted" == self || "$cap" == 0 ]] || { (( count < cap )) && (( ahead == 0 )); }; then
+      _sim_drop_ticket
       # The boot runs without fd 8, so nothing it starts can hold the lock.
       # Bounded: a boot that never completes fails here instead of stalling the caller.
       if ! perl -e 'alarm shift; exec @ARGV' "${IOS_SIM_BOOT_TIMEOUT:-300}" \
@@ -109,17 +163,38 @@ sim_boot() {
         die "simulator $udid did not finish booting within ${IOS_SIM_BOOT_TIMEOUT:-300} s"
       fi
       exec 8>&-
+      # Back to the caller's EXIT trap (or none), now that there is no ticket to drop.
+      if (( trapped )); then
+        if [[ -n "$previous_exit" ]]; then trap "$previous_exit" EXIT; else trap - EXIT; fi
+      fi
       return 0
     fi
-    exec 8>&-
     if [[ "${IOS_SIM_WAIT:-0}" != 1 ]]; then
+      exec 8>&-
+      if (( count < cap )); then
+        die "$ahead waiting ahead for a simulator slot (IOS_SIM_CAP=$cap); wait your turn (--wait / IOS_SIM_WAIT=1)"
+      fi
       die "$count quickR simulators are booted (IOS_SIM_CAP=$cap); shut one down or wait (--wait / IOS_SIM_WAIT=1):
 $(sed 's/^/  /' <<<"$booted")"
     fi
+    if [[ -z "$_sim_ticket" ]]; then
+      _sim_take_ticket
+      # The ticket goes with this process, whatever ends it; an earlier EXIT trap still runs.
+      eval "trap_words=($(trap -p EXIT))"
+      previous_exit="${trap_words[2]:-}"
+      trap "_sim_drop_ticket${previous_exit:+; $previous_exit}" EXIT
+      trapped=1
+    fi
+    exec 8>&-
+    position=$(( ahead + 1 ))
     if (( !announced )); then
-      echo "ios: waiting for a simulator slot ($count booted, IOS_SIM_CAP=$cap):" >&2
+      echo "ios: waiting for a simulator slot ($count booted, IOS_SIM_CAP=$cap; place $position in the queue):" >&2
       sed 's/^/  /' <<<"$booted" >&2
       announced=1
+      last_position=$position
+    elif (( position != last_position )); then
+      echo "ios: still waiting for a simulator slot: place $position in the queue" >&2
+      last_position=$position
     fi
     sleep "${IOS_SIM_WAIT_POLL:-15}"
   done

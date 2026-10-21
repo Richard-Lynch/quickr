@@ -71,6 +71,7 @@ for ds in json.load(open(sys.argv[1]))["devices"].values():
 }
 export FAKE_DEVICES="$fake/devices.json" PATH="$fake:$PATH" IOS_SIM_WAIT_POLL=1
 export QUICKR_SIM_CAP_LOCK="$fake/cap.lockf" QUICKR_SIM_CLONE_LOCK="$fake/clone.lockf"
+export QUICKR_SIM_CAP_QUEUE="$fake/queue"
 # The caller's settings must not leak in: an inherited IOS_SIM_WAIT=1 (check-ios run with it)
 # turns the "refused" cases into waits that never end.
 unset IOS_SIM_WAIT IOS_SIM_CAP CI IOS_SIM_DEFAULTED IOS_SIM IOS_SIM_MIN  # CI skips the cap in sim_boot
@@ -180,5 +181,78 @@ got="$(mk IOS_SIM_MIN=x -- ios-test)"
 [[ "$got" == "IOS_SIM_DEFAULTED=0 "* ]] && echo "ok   IOS_SIM_MIN from the environment counts as set" || fail "env IOS_SIM_MIN: $got"
 got="$(MAKEFLAGS=" -- IOS_SIM_MIN=x" MAKEOVERRIDES="IOS_SIM_MIN=x" mk -- ios-test)"
 [[ "$got" == "IOS_SIM_DEFAULTED=1 "* ]] && echo "ok   an outer make's overrides don't leak into these" || fail "leaked override: $got"
+
+# FIFO admission (tickets in QUICKR_SIM_CAP_QUEUE).
+setstate() {  # setstate <udid> <state>: one device, the others untouched (atomic rewrite)
+  python3 - "$fake/devices.json" "$1" "$2" <<'PY'
+import json, os, sys
+path, udid, new = sys.argv[1:]
+data = json.load(open(path))
+for devices in data["devices"].values():
+    for d in devices:
+        if d["udid"] == udid:
+            d["state"] = new
+json.dump(data, open(path + ".tmp", "w"))
+os.replace(path + ".tmp", path)
+PY
+}
+tickets() { ls "$QUICKR_SIM_CAP_QUEUE" 2>/dev/null | grep -c '^[0-9]*\.[0-9]*$'; }
+tickets_are() { [[ "$(tickets)" == "$1" ]]; }  # evaluated at each poll
+until_true() {  # until_true <what> <command...>: polls for up to 30 s
+  local what="$1"; shift
+  for _ in $(seq 1 300); do "$@" && return 0; sleep 0.1; done
+  fail "timed out waiting until $what"; return 1
+}
+started() { ps -o lstart= -p "$1" | tr -s ' '; }
+rm -rf "$QUICKR_SIM_CAP_QUEUE"
+
+# Order: with one slot (taken by a), c queues first, then d; when a's slot frees, c gets it,
+# not whichever polls first; d gets the next.
+devices "a:Booted:$A" "c:Shutdown:$C" "d:Shutdown:$D"
+IOS_SIM_CAP=1 IOS_SIM_WAIT=1 bash -c 'source "$1/../common.sh"; sim_boot c' _ "$here" >"$fake/fc.out" 2>&1 &
+pc=$!
+until_true "c has a ticket" tickets_are 1
+IOS_SIM_CAP=1 IOS_SIM_WAIT=1 bash -c 'source "$1/../common.sh"; sim_boot d' _ "$here" >"$fake/fd.out" 2>&1 &
+pd=$!
+until_true "d has a ticket" tickets_are 2
+until_true "d says where it is" grep -q "place 2 in the queue" "$fake/fd.out"
+grep -q "place 1 in the queue" "$fake/fc.out" && echo "ok   the first waiter is told it is first" || fail "c's place: $(cat "$fake/fc.out")"
+setstate a Shutdown
+wait "$pc"; sc=$?
+[[ "$sc" == 0 && "$(state c)" == Booted && "$(state d)" == Shutdown ]] \
+  && echo "ok   the freed slot goes to the first waiter" || fail "order: c=$sc $(state c), d=$(state d)"
+kill -0 "$pd" 2>/dev/null && echo "ok   the second keeps waiting while the slot is taken" || fail "d stopped waiting"
+setstate c Shutdown
+wait "$pd"; sd=$?
+[[ "$sd" == 0 && "$(state d)" == Booted ]] && echo "ok   then the second gets it" || fail "d=$sd $(state d)"
+[[ "$(tickets)" == 0 ]] && echo "ok   admitted waiters leave no ticket" || fail "tickets left: $(ls "$QUICKR_SIM_CAP_QUEUE")"
+
+# A dead waiter's ticket (its pid gone, or reused by another process) holds nobody up.
+mkdir -p "$QUICKR_SIM_CAP_QUEUE"
+sleep 0 & dead=$!; wait "$dead"
+echo "Mon Jan  1 00:00:00 2001" >"$QUICKR_SIM_CAP_QUEUE/000000000000.$dead"
+echo "Mon Jan  1 00:00:00 2001" >"$QUICKR_SIM_CAP_QUEUE/000000000001.$$"  # a live pid, another start time
+devices "c:Shutdown:$C"
+IOS_SIM_CAP=1 boot c; expect "a dead waiter's ticket is skipped and removed" 0
+[[ "$(tickets)" == 0 ]] || fail "dead tickets left: $(ls "$QUICKR_SIM_CAP_QUEUE")"
+
+# A live waiter ahead: a newcomer that won't wait is refused even with a slot free; cap 0
+# ignores the queue; re-booting a booted device never queues.
+started $$ >"$QUICKR_SIM_CAP_QUEUE/000000000002.$$"
+devices "c:Shutdown:$C" "d:Booted:$D"
+IOS_SIM_CAP=3 boot c; expect "a free slot still goes to the waiter ahead" 1 "1 waiting ahead"
+[[ "$(state c)" == Shutdown ]] || fail "c jumped the queue"
+IOS_SIM_CAP=0 boot c; expect "IOS_SIM_CAP=0 ignores the queue" 0
+IOS_SIM_CAP=3 boot d; expect "a booted device re-booting never queues" 0
+rm -f "$QUICKR_SIM_CAP_QUEUE/000000000002.$$"
+
+# The EXIT trap drops a waiter's ticket when it is stopped, and keeps the caller's own trap.
+devices "a:Booted:$A" "c:Shutdown:$C"
+IOS_SIM_CAP=1 IOS_SIM_WAIT=1 bash -c 'trap "echo caller-trap-ran" EXIT; source "$1/../common.sh"; sim_boot c' _ "$here" >"$fake/fe.out" 2>&1 &
+pe=$!
+until_true "the waiter has a ticket" tickets_are 1
+kill -TERM "$pe"; wait "$pe" 2>/dev/null
+[[ "$(tickets)" == 0 ]] && echo "ok   a stopped waiter's ticket is dropped by its EXIT trap" || fail "ticket left after TERM"
+grep -q caller-trap-ran "$fake/fe.out" && echo "ok   the caller's EXIT trap still runs" || fail "caller trap lost: $(cat "$fake/fe.out")"
 
 (( fails == 0 )) && echo "sim cap: all passed" || { echo "sim cap: $fails failed"; exit 1; }
