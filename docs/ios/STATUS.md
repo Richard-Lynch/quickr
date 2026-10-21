@@ -316,6 +316,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 06:45 (EDT): **SIMINFRA merged** (e3e774b): every automated simulator run holds its device and shuts down only a clone it booted (on exit, error or signal; `IOS_SIM_KEEP=1` keeps it), with per-run result dirs and `IOS_RESULT_BUNDLE`. Codex r3 clean. APP-SKEW (b5fffbb): Home and topic due state on server time, and the category due rank on server time mapped back to device time. Codex r2 clean; awaiting its Unit result. Next: merge APP-SKEW, then the final validation matrix (m1-testiso) and the PR body (m1-review), then the M3 PR into feat/ios-app.
+
 - 2026-10-21 06:30 (EDT): **M3 media merged** (0f5f254) into docs/ios/demo/m3/: the widget gallery (light, dark, tinted, lock, XXXL), A11Y XXXL before/after for Home and Stats, the Siri snippet (light and dark), the notification with actions, and GIFs of logging from a notification (10 s) and from a widget (31 s). Demo data only. The Topic pair is omitted (identical above the fold; the mid-screen changes are in DEVICE-DAY §6). Waiting on APP-SKEW (0b3a9de) and SIMINFRA (9d9f401) before the M3 PR.
 
 - 2026-10-21 06:15 (EDT): **WIDGET-SKEW merged** (04bbd9a): widget due state and order use server time (device time plus skew_ms); timeline transitions map back to device time; the fingerprint includes the skew; skew-only pulls reload the timelines; PushLifecycleTests are isolated. Unit 1043/0 on 26; Codex r1–r2 resolved. run_limited (limit.pl process-group supervisor) is merged via ios/m3-media (43e7618). **Last two WPs before the M3 PR:** APP-SKEW (m2-form: Home and topic due state on server time, the same §10 gap in the app) and SIMINFRA (m1-testiso: shutdown traps and unique result dirs).
