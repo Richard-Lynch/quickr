@@ -157,7 +157,6 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
-- HomeModelTests.theFirstListIsAlreadyOnTheServersClock depends on scheduling: the sync-state observation always delivers before the topics, so removing the clock pre-read in HomeModel.observe() is not caught. Add a `@_spi(Testing)` sync-state stream factory, hold the stream, let the topics load, assert the badge on server time, then release it.
 - A11Y L5 (answers): the answer values in Entries rows keep `lineLimit(2)` at AX sizes (UIT-6's Grid change left them as they were); lift it at AX sizes.
 - A11Y C1: check "Export CSV" at XXXL now that slice A's X3 lets capsule buttons wrap; close it if it's fine.
 - A11Y L2 (Low): a day rotor for the long, date-ordered Entries list.
@@ -315,6 +314,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-21 11:30 (EDT): The HomeModel first-list seam is merged (`@_spi(Testing)` syncStatesForTesting). The test holds the sync-state stream, and the mutant without the clock pre-read now fails 3/3. The backlog item is closed.
 
 - 2026-10-21 11:15 (EDT): **M3 merged into feat/ios-app: PR #11, squash e73e01f.** CI green: backend, frontend, docker, swift test, and build + Unit plan on iOS 26.2. ios/m3 records the squash (ours-merge, trees equal) and stays the collection branch for the follow-ups:
   - the iOS 27 back-button swap stall fix (m1-outbox, e43a533, being measured);
