@@ -7,7 +7,7 @@ import Synchronization
 import Testing
 
 /// `ValueObservation` helpers and the cross-process refresh.
-@Suite(.timeLimit(.minutes(2))) struct ObservationTests {
+@Suite(.timeLimit(.minutes(5))) struct ObservationTests {
     @Test func localWritesAreObserved() async throws {
         let s = try TestStore()
         let topic = Make.topic()

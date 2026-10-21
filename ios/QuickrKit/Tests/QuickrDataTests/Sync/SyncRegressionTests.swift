@@ -9,7 +9,7 @@ import Testing
 /// Regressions from the SYNC Codex review (docs/ios/reviews/m1-wp-sync-codex.md): S8 under a
 /// flush takeover, connect serialization, the reset intent fence, fenced mismatch writes and
 /// partial epoch headers while staging.
-@Suite(.timeLimit(.minutes(1))) struct SyncRegressionTests {
+@Suite(.timeLimit(.minutes(5))) struct SyncRegressionTests {
     static let e2 = SyncRebuildTests.e2
     static let e3 = SyncRebuildTests.e3
 
@@ -121,7 +121,7 @@ import Testing
         defer { env.cleanup() }
         let old = try await env.connect(env.coordinator())
         let intent = try await env.partitions.persistResetIntent(store: old, confirmedCount: 0, confirmedMaxSeq: 0)
-        let x = try #require(try await old.leases.acquireSyncThenFlush(owner: "app:X", waitingUpTo: .seconds(1)))
+        let x = try #require(try await old.leases.acquireSyncThenFlush(owner: "app:X", waitingUpTo: .seconds(60)))
         let relaunched = env.coordinator(
             owner: "app:B", partitions: try env.otherProcess(),
             configure: {

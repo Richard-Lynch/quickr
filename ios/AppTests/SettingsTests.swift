@@ -1,13 +1,32 @@
 import Foundation
 import QuickrCore
 import QuickrData
+import Security
 import Synchronization
 import Testing
 
 @testable import QuickR
 
 /// The real Keychain on the simulator, under a throwaway service.
-@Test func systemKeychainStoresUpdatesAndDeletes() throws {
+/// Whether this build can use the real Keychain. CI's simulator build is unsigned, so every
+/// Keychain call fails with `errSecMissingEntitlement` (-34018); a signed local build works.
+enum SystemKeychainProbe {
+    static let isAvailable: Bool = {
+        let keychain = SystemKeychain(service: "com.bahumia.quickr.tests.probe.\(UUID().uuidString)")
+        do {
+            try keychain.set(Data("probe".utf8), for: "probe")
+            try keychain.delete("probe")
+            return true
+        } catch let error as KeychainError where error.status == errSecMissingEntitlement {
+            return false
+        } catch {
+            return true  // any other failure is the test's to report
+        }
+    }()
+}
+
+@Test(.enabled(if: SystemKeychainProbe.isAvailable, "no Keychain entitlement in this (unsigned) build"))
+func systemKeychainStoresUpdatesAndDeletes() throws {
     let keychain = SystemKeychain(service: "com.bahumia.quickr.tests.\(UUID().uuidString)")
     defer { try? keychain.delete("item") }
     #expect(try keychain.data(for: "item") == nil)

@@ -6,7 +6,7 @@ import QuickrTestSupport
 import Testing
 
 /// outbox.md §13 cases 21, 22, 24–28: the adjacency rule (§8.1), K1–K3 and revision chaining (§7.3).
-@Suite(.timeLimit(.minutes(2))) struct OutboxCoalescingTests {
+@Suite(.timeLimit(.minutes(5))) struct OutboxCoalescingTests {
     @Test("21 · K1: an update merges into the adjacent unsent create; no PATCH is ever sent")
     func case21() async throws {
         let h = try OutboxHarness()

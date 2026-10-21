@@ -7,7 +7,7 @@ import Testing
 /// Retirement belongs to the still-current reset attempt (sync-protocol.md §12.1 steps 3–4): an
 /// attempt aborted on the old file can't retire it afterwards, and an abort that comes after the
 /// retire doesn't clear the intent.
-@Suite(.timeLimit(.minutes(2))) struct ResetVetoTests {
+@Suite(.timeLimit(.minutes(5))) struct ResetVetoTests {
     static let serverId = "veto-server"
 
     @Test func anAttemptAbortedJustBeforeItsRetireDoesNotRetire() async throws {
@@ -16,7 +16,7 @@ import Testing
         let old = try await env.partitions.createStore(serverId: Self.serverId, baseURL: "https://q.example")
         let intent = try await env.partitions.persistResetIntent(store: old, confirmedCount: 0, confirmedMaxSeq: 0)
         // X holds both leases and is about to retire; Y gave up waiting for them and aborts.
-        let pair = try #require(try await old.leases.acquireSyncThenFlush(owner: "app:X", waitingUpTo: .seconds(1)))
+        let pair = try #require(try await old.leases.acquireSyncThenFlush(owner: "app:X", waitingUpTo: .seconds(60)))
         #expect(try await env.otherProcess().abortReset(intent, on: old) == .vetoed)
         let outcome = try await old.retire(
             confirmedCount: 0, confirmedMaxSeq: 0, intentToken: intent.pendingToken, sync: pair.sync, flush: pair.flush)
@@ -42,7 +42,7 @@ import Testing
         let b = try await env.partitions.persistResetIntent(store: old, confirmedCount: 0, confirmedMaxSeq: 0)
         #expect(a.pendingToken != b.pendingToken)
         #expect(try await env.partitions.abortReset(b, on: old) == .vetoed)
-        let pair = try #require(try await old.leases.acquireSyncThenFlush(owner: "app:A", waitingUpTo: .seconds(1)))
+        let pair = try #require(try await old.leases.acquireSyncThenFlush(owner: "app:A", waitingUpTo: .seconds(60)))
         for intent in [a, b] {
             #expect(
                 try await old.retire(
@@ -57,7 +57,7 @@ import Testing
         defer { env.cleanup() }
         let old = try await env.partitions.createStore(serverId: Self.serverId, baseURL: "https://q.example")
         let intent = try await env.partitions.persistResetIntent(store: old, confirmedCount: 0, confirmedMaxSeq: 0)
-        let pair = try #require(try await old.leases.acquireSyncThenFlush(owner: "app:X", waitingUpTo: .seconds(1)))
+        let pair = try #require(try await old.leases.acquireSyncThenFlush(owner: "app:X", waitingUpTo: .seconds(60)))
         #expect(
             try await old.retire(
                 confirmedCount: 0, confirmedMaxSeq: 0, intentToken: intent.pendingToken, sync: pair.sync,

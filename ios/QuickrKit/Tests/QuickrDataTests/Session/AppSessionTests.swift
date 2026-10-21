@@ -481,20 +481,20 @@ private let otherServerURL = URL(string: "https://other.example")!
         #expect(await old.isPaused)
 
         let rebind = Task { await session.connect(baseURL: SyncEnv.baseURL) }  // forced: a new scheduler
-        try await within("the rebind holds its bind", timeout: .seconds(10)) { await gate.arrival() }
+        try await within("the rebind holds its bind") { await gate.arrival() }
         let activation = Task { await session.didBecomeActive() }  // its rebind queues behind the held one
-        try await eventually("the activation resumed the old scheduler", timeout: .seconds(10)) {
+        try await eventually("the activation resumed the old scheduler") {
             await !old.isPaused
         }
         gate.open()
-        _ = try await within("the rebind finished", timeout: .seconds(10)) { await rebind.value }
-        try await within("the activation finished", timeout: .seconds(10)) { await activation.value }
+        _ = try await within("the rebind finished") { await rebind.value }
+        try await within("the activation finished") { await activation.value }
 
         let scheduler = try #require(session.scheduler)
         #expect(scheduler !== old)
         #expect(await !scheduler.isPaused, "published resumed: the scene is in the foreground")
         _ = try await session.log(topic: Payloads.water, answers: ["glasses": .int(1)], version: 1)
-        try await eventually("the log is delivered", timeout: .seconds(10)) {
+        try await eventually("the log is delivered") {
             try await session.store?.outbox.items().isEmpty == true
         }
         await session.shutdown()

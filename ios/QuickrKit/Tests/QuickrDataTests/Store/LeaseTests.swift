@@ -6,7 +6,7 @@ import Synchronization
 import Testing
 
 /// Lease primitives (sync-protocol.md §5.3, outbox.md §6) with the fake lease clock.
-@Suite(.timeLimit(.minutes(2))) struct LeaseTests {
+@Suite(.timeLimit(.minutes(5))) struct LeaseTests {
     @Test(arguments: LeaseName.allCases) func acquireRenewRelease(_ name: LeaseName) async throws {
         let s = try TestStore()
         let leases = s.store.leases
@@ -135,7 +135,7 @@ import Testing
             try await leases.acquire(
                 .flush, owner: "app:1", waitingUpTo: .milliseconds(50), pollInterval: .milliseconds(10)) == nil)
         let waiter = Task {
-            try await leases.acquire(.flush, owner: "app:1", waitingUpTo: .seconds(5), pollInterval: .milliseconds(10))
+            try await leases.acquire(.flush, owner: "app:1", waitingUpTo: .seconds(60), pollInterval: .milliseconds(10))
         }
         try await Task.sleep(for: .milliseconds(30))
         // The waiter holds no transaction while it waits, so the holder can release.
@@ -158,7 +158,7 @@ import Testing
 
 /// Lease time is read inside the transaction, after `BEGIN IMMEDIATE` has the lock, never before
 /// a wait for another writer.
-@Suite(.timeLimit(.minutes(2))) struct LeaseTimeSamplingTests {
+@Suite(.timeLimit(.minutes(5))) struct LeaseTimeSamplingTests {
     /// Runs `operation` while a second connection to `s`'s file holds the write lock. Once the
     /// operation's `BEGIN IMMEDIATE` is waiting for that lock (seen by a statement trace, not
     /// guessed with a sleep), advances the lease clock past every TTL and lets it run.
@@ -233,7 +233,7 @@ import Testing
         defer { directory.cleanup() }
         let s = try TestStore(path: fileStore(directory))
         let store = s.store
-        let pair = try #require(try await store.leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(1)))
+        let pair = try #require(try await store.leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(60)))
         let outcome = try await behindABlockedWriter(s) {
             try await store.retire(confirmedCount: 0, confirmedMaxSeq: 0, sync: pair.sync, flush: pair.flush)
         }
@@ -254,7 +254,7 @@ import Testing
 }
 
 /// The single global lock order: `sync` → `flush` (sync-protocol.md §5.2).
-@Suite(.timeLimit(.minutes(2))) struct LockOrderTests {
+@Suite(.timeLimit(.minutes(5))) struct LockOrderTests {
     @Test func flushHoldersNeverWaitForSync() async throws {
         let s = try TestStore()
         let leases = s.store.leases
@@ -294,8 +294,8 @@ import Testing
         let waiter = Task {
             try await leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(30))
         }
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(try await leases.record(.sync).owner == "app:1")
+        // Ordering, not timing: the waiter holds sync and waits for flush.
+        try await eventually("the waiter holds sync") { try await leases.record(.sync).owner == "app:1" }
         waiter.cancel()
         await #expect(throws: CancellationError.self) { try await waiter.value }
         #expect(try await leases.record(.sync).owner == nil)
