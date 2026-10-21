@@ -269,13 +269,17 @@ final class EditTests: XCTestCase {
         XCTAssertTrue(glasses.waitForExistence(timeout: 20))
         XCTAssertTrue(glasses.isHittable)
         XCTAssertTrue(app.buttons["edit.save"].isHittable)
+        // At the top: nothing sits under the Save bar (the audit reads that as clipped text).
+        let details = app.descendants(matching: .any)["edit.details"].firstMatch
+        let save = app.buttons["edit.save"].frame
+        if details.exists {
+            XCTAssertFalse(details.frame.intersects(save), "Details \(details.frame) under Save \(save)")
+        }
+        try assertAccessible(app, allowing: EntriesAccessibility.edit)
         // Delete is the form's last row: scroll to it.
         let delete = app.buttons["edit.delete"]
         for _ in 0..<6 where !delete.isHittable { app.swipeUp() }
         XCTAssertTrue(delete.isHittable)
-        // Audited here, scrolled to the end: at the top, Details sits under the floating Save
-        // button, which the audit reports as clipped text although the card scrolls clear of it.
-        try assertAccessible(app, allowing: EntriesAccessibility.edit)
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "edit-ax-xxxl"
         shot.lifetime = .keepAlways
