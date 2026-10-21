@@ -259,6 +259,7 @@ otherwise.
   - Topic settings, with the schedule on Daily with two times, the presets,
     and Save schedule;
   - Edit questions, with a choice card open;
+  - Settings, down through Offline & sync (Status, Last synced, Sync now);
   - Versions.
 
   No text is cut off or stops growing partway down a list, the "+ Time" row

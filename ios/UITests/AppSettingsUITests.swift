@@ -75,12 +75,18 @@ final class AppSettingsUITests: XCTestCase {
         XCTAssertTrue(reveal(headline, in: app))
         XCTAssertTrue(reveal(syncNow, in: app), "Sync now is reachable")
         bringIntoFullView([headline, syncNow], in: app)
+        // What's cheap and deterministic mid-list (the rest is DEVICE-DAY §6's manual XXXL pass):
+        // both rows wholly between the bar and the bottom, the width of the list, and hittable;
+        // Status, a label over its value at this size, takes more than one line.
         let top = app.navigationBars.firstMatch.frame.maxY
-        let bottom = app.windows.firstMatch.frame.maxY
+        let window = app.windows.firstMatch.frame
         for (name, row) in [("Status", headline), ("Sync now", syncNow)] {
             XCTAssertGreaterThanOrEqual(row.frame.minY, top, "\(name) starts below the navigation bar")
-            XCTAssertLessThanOrEqual(row.frame.maxY, bottom, "\(name) ends on screen")
+            XCTAssertLessThanOrEqual(row.frame.maxY, window.maxY, "\(name) ends on screen")
+            XCTAssertGreaterThanOrEqual(row.frame.width, window.width * 0.8, "\(name) spans the list")
+            XCTAssertTrue(row.isHittable, "\(name) is hittable")
         }
+        XCTAssertGreaterThan(headline.frame.height, syncNow.frame.height * 1.5, "Status wraps: label over value")
         try assertAccessible(app, types: .midList, within: [headline.frame, syncNow.frame])
         snap(app, "appset-4-ax")
         element(app, "settings.syncNow").tap()
@@ -89,28 +95,6 @@ final class AppSettingsUITests: XCTestCase {
     }
 
     // MARK: - Helpers
-
-    /// Nudges the list (bounded) until every element sits wholly between the navigation bar and the
-    /// bottom of the window.
-    @MainActor
-    private func bringIntoFullView(_ elements: [XCUIElement], in app: XCUIApplication) {
-        let top = app.navigationBars.firstMatch.frame.maxY
-        let bottom = app.windows.firstMatch.frame.maxY
-        for _ in 0..<8 {
-            let minY = elements.map(\.frame.minY).min() ?? top
-            let maxY = elements.map(\.frame.maxY).max() ?? bottom
-            let down: CGFloat
-            if minY < top + 8 {
-                down = -(top + 8 - minY)  // drag down: content moves down
-            } else if maxY > bottom - 8 {
-                down = maxY - (bottom - 8)
-            } else {
-                break
-            }
-            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -down)))
-        }
-    }
 
     @MainActor
     private func openLicences(_ app: XCUIApplication) {
