@@ -31,23 +31,25 @@ use `IOS_SIM` (default `IOS_SIM_MIN`), and `check-ios` uses `IOS_SIM_MIN` and
 this worktree's own clone of that device (`sim-clone.sh`, created on first use),
 never on the shared base device.
 
-| Target                      | Does                                                                                                                                                                                          |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `make ios-gen`              | Generate `ios/quickR.xcodeproj`, the Info.plists and entitlements from `project.yml`                                                                                                          |
-| `make ios-build`            | Simulator Debug build                                                                                                                                                                         |
-| `make ios-core-test`        | `swift test` for `QuickrKit` on the Mac, strict cooperative pool (fast; Core and Data; skips the real-time tests)                                                                             |
-| `make ios-timing-test`      | The real-time tests (`TimingTests`, `MultiProcessTests`) alone, one at a time, normal pool (`QUICKR_TIMING_TESTS=1`)                                                                          |
-| `make ios-lifecycle-test`   | The GRDB-suspension lifecycle tests, alone in their own `swift test` process (`ios-core-test` skips them; `check-ios` and CI run it)                                                          |
-| `make ios-test`             | Unit test plan on the iOS 26.0 simulator                                                                                                                                                      |
-| `make ios-uitest`           | UI test plan on `IOS_SIM`                                                                                                                                                                     |
-| `make check-ios`            | The local gate: gen, swift test, Unit and UI plans on **both** simulators, Intents plan on iOS 27, lint, Xcode version                                                                        |
-| `make ios-check-ci`         | What CI runs on a ready PR: gen, build and Unit plan with signing off, on an iPhone with an **iOS 26.x** runtime (fails if none; `IOS_SIM_CI` picks the preferred model, default `iPhone 17`) |
-| `make ios-sim-run`          | Build, install and launch; `URL=quickr://...` then opens a link                                                                                                                               |
-| `make ios-shots`            | Clean status bar, light and dark screenshots into `IOS_SHOTS` (default `docs/ios/demo/m0`)                                                                                                    |
-| `make ios-demo-record`      | Record a launch and convert it to `IOS_GIF`                                                                                                                                                   |
-| `make ios-lint` / `ios-fmt` | swift-format lint / format in place (config in `ios/.swift-format`). `check-ios` fails without swift-format; `ios-lint` only warns                                                            |
-| `make ios-resolve`          | Update the package pins (see below)                                                                                                                                                           |
-| `make ios-clean`            | Remove the generated project and all build output                                                                                                                                             |
+| Target                        | Does                                                                                                                                                                                          |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make ios-gen`                | Generate `ios/quickR.xcodeproj`, the Info.plists and entitlements from `project.yml`                                                                                                          |
+| `make ios-build`              | Simulator Debug build                                                                                                                                                                         |
+| `make ios-core-test`          | `swift test` for `QuickrKit` on the Mac, strict cooperative pool (fast; Core and Data; skips the real-time tests)                                                                             |
+| `make ios-timing-test`        | The real-time tests (`TimingTests`, `MultiProcessTests`) alone, one at a time, normal pool (`QUICKR_TIMING_TESTS=1`)                                                                          |
+| `make ios-lifecycle-test`     | The GRDB-suspension lifecycle tests, alone in their own `swift test` process (`ios-core-test` skips them; `check-ios` and CI run it)                                                          |
+| `make ios-test`               | Unit test plan on the iOS 26.0 simulator                                                                                                                                                      |
+| `make ios-uitest`             | UI test plan on `IOS_SIM`                                                                                                                                                                     |
+| `make check-ios`              | The local gate: gen, swift test, Unit and UI plans on **both** simulators, Intents plan on iOS 27, lint, Xcode version                                                                        |
+| `make ios-check-ci`           | What CI runs on a ready PR: gen, build and Unit plan with signing off, on an iPhone with an **iOS 26.x** runtime (fails if none; `IOS_SIM_CI` picks the preferred model, default `iPhone 17`) |
+| `make ios-sim-run`            | Build, install and launch; `URL=quickr://...` then opens a link                                                                                                                               |
+| `make ios-shots`              | Clean status bar, light and dark screenshots into `IOS_SHOTS` (default `docs/ios/demo/m0`)                                                                                                    |
+| `make ios-demo-record`        | Record a launch and convert it to `IOS_GIF`                                                                                                                                                   |
+| `make ios-lint` / `ios-fmt`   | swift-format lint / format in place (config in `ios/.swift-format`). `check-ios` fails without swift-format; `ios-lint` only warns                                                            |
+| `make ios-resolve`            | Update the package pins (see below)                                                                                                                                                           |
+| `make ios-clean`              | Remove the generated project and all build output                                                                                                                                             |
+| `make ios-testflight`         | Archive (Release) and upload to TestFlight with the App Store Connect API key; see [TestFlight](#testflight)                                                                                  |
+| `make ios-testflight-dry-run` | The same archive unsigned, then the steps an upload would take; no credentials, nothing exported                                                                                              |
 
 Override the simulators with `IOS_SIM_MIN=... IOS_SIM_CUR=...`. Build output
 goes to `ios/build/` (DerivedData in `build/dd`, package checkouts in
@@ -345,6 +347,72 @@ exits or dies: the script and any child that inherited the descriptor. If the
 source simulator is shut down, the script copies it with `simctl clone`. If it
 is booted (in use), the script never touches it and creates a fresh device with
 the same device type and runtime instead.
+
+## TestFlight
+
+`make ios-testflight` archives the app (Release, any iOS device), signs it
+automatically and uploads it to App Store Connect, where it becomes a
+TestFlight build. Signing and the upload both go through an App Store Connect
+API key, so no Apple ID sign-in is needed in Xcode. `make ios-testflight-dry-run`
+needs no credentials: it builds the same archive with signing off
+(`CODE_SIGNING_ALLOWED=NO`), checks that every bundle in it carries the build
+number, writes the export options, and prints the export and upload it would
+run. Output goes to `ios/build/testflight/<version>-<build>/`.
+
+**Build number.** Every upload needs a new `CFBundleVersion` for the same
+version. The script sets it on all three bundles (the app and both extensions
+must match) from `TESTFLIGHT_BUILD_NUMBER`, else from the UTC time as
+`YYYYMMDD.HHMM`, which only grows. Nothing in the repo changes. The version
+shown to testers is `MARKETING_VERSION` in `project.yml`; bump it there for a
+new release.
+
+**Credentials.** Four values, from the environment or from `ios/testflight.env`
+(gitignored; copy `ios/testflight.env.example`). The environment wins. The
+file is read as plain `KEY=VALUE` lines and never run. `DEVELOPMENT_TEAM` is
+also read from `ios/Local.xcconfig`. A run without all four stops before
+building and names what is missing or malformed. The script prints the IDs
+only redacted (`********AB`) and filters them out of xcodebuild's output. It
+refuses a key file that git tracks, or one inside the repo that isn't ignored
+(`*.p8` is ignored repo-wide).
+
+| Variable           | What it is                                        |
+| ------------------ | ------------------------------------------------- |
+| `DEVELOPMENT_TEAM` | Your Team ID (10 characters)                      |
+| `ASC_KEY_ID`       | The API key's Key ID (10 characters)              |
+| `ASC_ISSUER_ID`    | The Issuer ID shown above the keys list (a UUID)  |
+| `ASC_KEY_PATH`     | Path to the downloaded `AuthKey_<Key ID>.p8` file |
+
+### What you need to provide
+
+1. **Apple Developer Program membership** (H3), and its **Team ID**: on
+   developer.apple.com, Account ▸ Membership details.
+2. **The app record** in App Store Connect (H7): Apps ▸ + ▸ New App, platform
+   iOS, bundle ID `com.bahumia.quickr`, any name, SKU and primary language. If
+   the bundle ID isn't offered, register it first under Certificates,
+   Identifiers & Profiles ▸ Identifiers, or run one signed device build
+   (automatic signing registers it). Automatic signing registers the extensions'
+   IDs (`com.bahumia.quickr.widgets`, `com.bahumia.quickr.notification-service`),
+   the App Group `group.com.bahumia.quickr` and keychain sharing.
+3. **A Team API key**: Users and Access ▸ Integrations ▸ App Store Connect API ▸
+   Team Keys ▸ +. Use the **Admin** role: automatic signing creates the
+   distribution certificate and the App Store profiles, and lesser roles may be
+   refused that. Note the **Key ID** and the **Issuer ID**.
+4. **The key file**: download `AuthKey_<Key ID>.p8`. It can be downloaded
+   once only. Keep it outside the repo, for example in
+   `~/.appstoreconnect/private_keys/` with `chmod 600`, and don't send it
+   anywhere. Revoke it in the same screen if it leaks.
+5. **Export compliance**: App Store Connect asks for each build whether the app
+   uses non-exempt encryption, and testers get the build only once that is
+   answered. quickR uses only the system's HTTPS. To answer it once for all
+   builds, add `ITSAppUsesNonExemptEncryption: false` to the app's `info`
+   properties in `project.yml`. That is your declaration to make, so it isn't
+   set.
+6. **Testers**: TestFlight ▸ Internal Testing ▸ + adds a group. Add yourself, then
+   install the TestFlight app on the phone.
+
+Then fill in `ios/testflight.env`, run `make ios-testflight-dry-run` to check
+the archive, and run `make ios-testflight`. A build shows under TestFlight once
+App Store Connect has processed it, usually within minutes.
 
 ## CI
 
