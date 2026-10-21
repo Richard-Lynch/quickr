@@ -82,6 +82,9 @@ struct EntryDetailsSection<Model: EntryDetailsEditing>: View {
                 }
                 Text(summary).font(.qr(.subheadline)).foregroundStyle(.qr.muted)
                     .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                    // Its full height: the disclosure row proposed a couple of points short of two
+                    // lines at XXXL, which the audit reports as clipped text.
+                    .fixedSize(horizontal: false, vertical: typeSize.isAccessibilitySize)
                 if !model.metaErrors.isEmpty {
                     QIcon.alert.view(size: 14).foregroundStyle(.qr.danger)
                 }
