@@ -119,12 +119,18 @@ final class AppEnvironment {
     /// The app's launch path: builds the live environment and registers the active store's topics
     /// for App Intents. Siri, Shortcuts and widget buttons can launch the app for an intent without
     /// a scene, so this runs in `QuickRApp.init`, before anything can query an entity. It opens
-    /// the registry only; the store opens on first use.
-    static func bootstrap(location: StoreLocation = .shared(appGroup: AppGroup.identifier)) -> AppEnvironment {
+    /// the registry only; the store opens on first use. `categoryCenter` as in `live` (app tests
+    /// pass nil unless they hold `SystemCategoriesLock`).
+    static func bootstrap(
+        location: StoreLocation = .shared(appGroup: AppGroup.identifier),
+        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
+    ) -> AppEnvironment {
         #if DEBUG
-        let environment = UITestLaunch.isActive ? UITestLaunch.environment() : live(location: location)
+        let environment =
+            UITestLaunch.isActive
+            ? UITestLaunch.environment() : live(location: location, categoryCenter: categoryCenter)
         #else
-        let environment = live(location: location)
+        let environment = live(location: location, categoryCenter: categoryCenter)
         #endif
         environment.registerIntentTopics()
         return environment
