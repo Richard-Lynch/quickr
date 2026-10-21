@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from app.services.notification import descriptor
+from app.services.notification import actions, descriptor
 from tests.helpers import make_topic, record
 
 
@@ -99,6 +99,11 @@ async def test_csv_of_a_single_topic_has_no_answer_columns(client: httpx.AsyncCl
     assert (rows[0]["entry_id"], rows[0]["notes"]) == (entry["id"], "morning")
 
 
-def test_a_single_topic_has_no_quick_log_descriptor() -> None:
-    # Its reminder carries no question to answer (the APNs and Web Push quick_log stay null).
-    assert descriptor([], counts={}, last=None) is None
+def test_a_single_topics_reminder_logs_it_with_one_action() -> None:
+    # Its reminder's quick_log is {"type": "single"}, with one "Log it" action (no key or value).
+    single = descriptor([], counts={}, last=None)
+    assert single is not None
+    assert single.model_dump(mode="json") == {"type": "single"}
+    assert [(a.kind, a.identifier, a.title) for a in actions("srv", "top", 3, single)] == [
+        ("log", "q1|srv|top|3||s|", "Log it")
+    ]

@@ -714,16 +714,15 @@ class QuickLogNumber(StrictModel):
     last_value: int | float | None
 
 
-type QuickLogDescriptor = QuickLogEnum | QuickLogNumber
-
-
 class QuickLogSingle(StrictModel):
     """A topic with no questions (a "single" topic): its reminder logs it with one action,
-    "Log it", an entry with no answers. Web Push only: the APNs payload keeps ``quick_log``
-    null for these topics.
+    "Log it", an entry with no answers (docs/ios/specs/notifications.md §4.1).
     """
 
     type: Literal["single"] = "single"
+
+
+type QuickLogDescriptor = QuickLogEnum | QuickLogNumber | QuickLogSingle
 
 
 class PushPayload(StrictModel):

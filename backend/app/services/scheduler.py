@@ -53,7 +53,7 @@ from app.services import push as push_svc
 from app.services.feed import feed_identity
 from app.services.notification import MAX_SHOWN_OPTIONS, descriptor
 from app.services.push import Notification
-from app.services.quicklog import QuickLogChips, quick_log_for
+from app.services.quicklog import QuickLogChips, QuickLogNumber, quick_log_for
 from app.services.schedule import compute_due, due_message, parse_schedule
 from app.services.topics import parse_questions
 
@@ -134,7 +134,6 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
                 version=version,
                 due_since=due_since,
                 quick_log=quick_logs.get(topic_id),
-                single=questions.get(topic_id) == [],
             )
             due_topics.append((due_since, topic_id, slug, notification))
         targets = await push_svc.targets(db)
@@ -198,7 +197,7 @@ async def prepare_quick_logs(
         if isinstance(quick, QuickLogChips):
             if len(quick.options) > MAX_SHOWN_OPTIONS:
                 ranked.append((topic_id, quick.question.key))
-        elif quick is not None:
+        elif isinstance(quick, QuickLogNumber):  # a single topic (no questions) needs neither
             numbers.append((topic_id, quick.question.key))
     answered = tuple_(Answer.topic_id, Answer.question_key)
     counts: dict[UUID, dict[str, int]] = {}

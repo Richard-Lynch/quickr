@@ -29,16 +29,18 @@ from decimal import Decimal
 from typing import Literal
 
 from app.errors import InvalidAnswers
-from app.schemas.api import QuickLogDescriptor, QuickLogEnum, QuickLogNumber, QuickLogOption
+from app.schemas.api import QuickLogDescriptor, QuickLogEnum, QuickLogNumber, QuickLogOption, QuickLogSingle
 from app.schemas.questions import DoubleQuestion, IntQuestion
 from app.services.answers import validate_answers
 from app.services.quicklog import AnyQuestion, QuickLogChips, quick_log_for
+from app.services.quicklog import QuickLogNumber as QuickNumber
 
 MAX_LABEL_LENGTH = 64  # question and option labels, units (Unicode scalars, "…" included)
 MAX_SHOWN_OPTIONS = 4  # up to this many active options: one action each
 MOST_USED_OPTIONS = 3  # above it: the most-used ones, then "More…"
 MORE_TITLE = "More…"
 OTHER_VALUE_TITLE = "Other value…"
+SINGLE_TITLE = "Log it"
 TEXT_INPUT_BUTTON_TITLE = "Log"
 ACTION_SCHEME = "q1"
 CATEGORY_HASH_PREFIX = "quickr-cat-v1"
@@ -74,6 +76,8 @@ def descriptor(
     quick = quick_log_for(questions)
     if quick is None:
         return None
+    if not isinstance(quick, QuickLogChips | QuickNumber):
+        return QuickLogSingle()
     if isinstance(quick, QuickLogChips):
         options = list(quick.options)
         if len(options) > MAX_SHOWN_OPTIONS:
@@ -151,14 +155,23 @@ class Action:
 
 
 def action_identifier(
-    server_id: str, topic_id: str, version: int, key: str, k: Literal["o", "n", "i", "m"], value: str = ""
+    server_id: str,
+    topic_id: str,
+    version: int,
+    key: str,
+    k: Literal["o", "n", "i", "m", "s"],
+    value: str = "",
 ) -> str:
-    """``q1|{server_id}|{topic_id}|{version}|{key}|{k}|{value}`` (§4.2)."""
+    """``q1|{server_id}|{topic_id}|{version}|{key}|{k}|{value}`` (§4.2). A single topic's one
+    action has an empty key and value: ``q1|{server_id}|{topic_id}|{version}||s|``."""
     return "|".join((ACTION_SCHEME, server_id, topic_id, str(version), key, k, value))
 
 
 def actions(server_id: str, topic_id: str, version: int, quick_log: QuickLogDescriptor) -> list[Action]:
     """The ordered actions a notification with ``quick_log`` offers (§4.1)."""
+    if isinstance(quick_log, QuickLogSingle):
+        # One "Log it": an entry with no answers. No question, so no key, value or "More…".
+        return [Action("log", action_identifier(server_id, topic_id, version, "", "s"), SINGLE_TITLE)]
 
     def ident(k: Literal["o", "n", "i", "m"], value: str = "") -> str:
         return action_identifier(server_id, topic_id, version, quick_log.key, k, value)

@@ -24,7 +24,7 @@ from app.services.push.base import Notification
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
 
 PATH = FIXTURES_DIR / "apns-payload-vectors.json"
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
 
 SERVER_ID = "0b9e0000-0000-4000-8000-0000000000aa"
 
@@ -100,6 +100,18 @@ CASES: dict[str, tuple[int, str, str, str, int, str, list[dict[str, Any]], dict[
         4,
         "2026-10-21T18:00:00Z",
         [MINUTES, KIND],
+        {},
+        None,
+    ),
+    # No questions (a single topic): quick_log single and its one "Log it" category.
+    "single": (
+        10,
+        "vitamins",
+        "Vitamins",
+        "Time to log",
+        2,
+        "2026-10-21T09:00:00Z",
+        [],
         {},
         None,
     ),
@@ -208,6 +220,9 @@ def test_vectors_cover_the_payload() -> None:
     cases = {c["name"]: c["expected"] for c in build()["cases"]}
     assert cases["int-last"]["aps"]["category"].startswith("quickr.t.")
     assert "category" not in cases["not-quick-loggable"]["aps"]
+    assert cases["single"]["quickr"]["quick_log"] == {"type": "single"}
+    assert cases["single"]["aps"]["category"].startswith("quickr.t.")
+    assert cases["single"]["aps"]["alert"]["body"] == "Time to log"
     assert cases["not-quick-loggable"]["quickr"]["quick_log"] is None
     assert cases["enum-6-cut"]["aps"]["alert"]["body"].endswith(" · 3 of 6 shown, More for all")
     assert cases["slot-canonical"]["quickr"]["due_since"] == "2026-10-21T08:00:00Z"

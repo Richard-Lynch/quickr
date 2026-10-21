@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import httpx
 import pytest
@@ -25,8 +26,8 @@ from app import push_guard
 from app.config import Settings
 from app.db import get_engine, get_sessionmaker
 from app.models import PushSubscription, Topic
+from app.services import notification, scheduler
 from app.services import push as push_svc
-from app.services import scheduler
 from app.services.push import apns, base
 from app.services.push import web as web_push
 from tests.helpers import backdate_schedule, make_topic, record
@@ -554,11 +555,9 @@ def test_no_redirect_session(monkeypatch: pytest.MonkeyPatch) -> None:
     assert seen[0]["allow_redirects"] is False
 
 
-async def test_a_single_topics_reminder_offers_log_it_on_the_web_only(
-    client: httpx.AsyncClient, outbox: list[Sent]
-) -> None:
-    # A topic with no questions: its Web Push reminder carries quick_log {"type": "single"}
-    # (the PWA shows one "Log it" action); the APNs payload keeps quick_log null.
+async def test_a_single_topics_reminder_offers_log_it(client: httpx.AsyncClient, outbox: list[Sent]) -> None:
+    # A topic with no questions: its reminder carries quick_log {"type": "single"} on the web
+    # and in APNs, where its one "Log it" action makes the category.
     await client.post("/push/subscriptions", json=sub(1))
     r = await client.post(
         "/topics",
@@ -574,6 +573,19 @@ async def test_a_single_topics_reminder_offers_log_it_on_the_web_only(
     assert outbox[0].payload["quick_log"] == {"type": "single"}
     assert outbox[0].payload["url"] == "/t/vitamins/record"
 
-    n = base.Notification(kind="due", title="Vitamins", body="Time to log", url="/", tag="t", single=True)
-    assert web_push.render(n).quick_log is not None
-    assert apns.render(n)["quickr"]["quick_log"] is None
+    single = notification.descriptor([], counts={}, last=None)
+    n = base.Notification(
+        kind="due",
+        title="Vitamins",
+        body="Time to log",
+        url="/",
+        tag="t",
+        server_id="s",
+        topic_id=UUID(r.json()["id"]),
+        version=1,
+        quick_log=single,
+    )
+    payload = apns.render(n)
+    assert payload["quickr"]["quick_log"] == {"type": "single"}
+    rendered = notification.actions("s", r.json()["id"], 1, single) if single else []
+    assert payload["aps"]["category"] == notification.category_id(r.json()["id"], rendered)
