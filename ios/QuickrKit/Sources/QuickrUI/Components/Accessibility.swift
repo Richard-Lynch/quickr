@@ -28,16 +28,13 @@ public struct QuickrSegmentedPicker<Selection: Hashable, Content: View>: View {
         case .segmented:
             Picker(title, selection: $selection) { content }.pickerStyle(.segmented)
         case .menu:
-            let menu = Picker(title, selection: $selection) { content }
+            Picker(title, selection: $selection) { content }
                 .pickerStyle(.menu)
                 .tint(.qr.ink)
                 .frame(minHeight: QuickrMetrics.tapTarget)
-            // A segmented control reports its selected segment itself; a menu's button doesn't.
-            if let valueLabel {
-                menu.accessibilityValue(valueLabel)
-            } else {
-                menu
-            }
+                // A segmented control reports its selected segment itself; a menu's button doesn't
+                // (an empty value reads as none).
+                .accessibilityValue(valueLabel ?? "")
         }
     }
 }
