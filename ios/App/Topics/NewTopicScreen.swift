@@ -87,15 +87,11 @@ struct NewTopicView: View {
                     Task { await model.create() }
                 } label: {
                     HStack {
-                        Spacer()
                         if model.isCreating { ProgressView().tint(.qr.onAccent) }
-                        Label("Create topic", systemImage: "checkmark").font(.qr(.label))
-                            // Wraps instead of clipping at accessibility sizes.
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer()
+                        // The whole width, wrapping rather than clipping at accessibility sizes.
+                        Text("Create topic").font(.qr(.label)).multilineTextAlignment(.center)
                     }
-                    .frame(minHeight: 44)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .listRowBackground(Color.qr.accentStrong)
                 .foregroundStyle(.qr.onAccent)

@@ -10,7 +10,6 @@ struct VersionsView: View {
     let session: AppSession
     let ref: TopicLinkRef
     @Environment(AppEnvironment.self) private var environment
-    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var topic: ViewTopic?
     @State private var resolved = false
     @State private var versions: [TopicVersion]?
@@ -25,23 +24,15 @@ struct VersionsView: View {
     var body: some View {
         List {
             Section {
-                // The button under the text at accessibility sizes (BD6).
-                FieldRow(alignment: .top) {
-                    Text(VersionsList.intro).font(.qr(.subheadline)).foregroundStyle(.qr.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
-                    Button {
-                        environment.router.open(.editQuestions(ref))
-                    } label: {
-                        Label("New version", systemImage: "pencil")
-                            .font(.qr(.label))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("versions.new")
+                // Rows of their own, so neither is squeezed at accessibility sizes (BD6).
+                Text(VersionsList.intro).font(.qr(.subheadline)).foregroundStyle(.qr.muted)
+                Button {
+                    environment.router.open(.editQuestions(ref))
+                } label: {
+                    Label("New version", systemImage: "pencil").font(.qr(.label))
                 }
+                .accessibilityIdentifier("versions.new")
             }
-            .listRowBackground(Color.clear)
             content
         }
         .listStyle(.insetGrouped)

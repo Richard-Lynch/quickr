@@ -137,14 +137,11 @@ struct EditQuestionsView: View {
                     Task { await model.reviewChanges() }
                 } label: {
                     HStack {
-                        Spacer()
                         if model.isChecking { ProgressView().tint(.qr.onAccent) }
-                        Label("Review changes", systemImage: "eye").font(.qr(.label))
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer()
+                        // The whole width, wrapping rather than clipping at accessibility sizes.
+                        Text("Review changes").font(.qr(.label)).multilineTextAlignment(.center)
                     }
-                    .frame(minHeight: 44)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .listRowBackground(Color.qr.accentStrong)
                 .foregroundStyle(.qr.onAccent)
