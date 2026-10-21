@@ -315,6 +315,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 04:10 (EDT): **CATCAP Codex r4: no Blocker or Major** (one spec wording Minor being fixed); it merges next. **HANDLER-RESUME Codex r2 clean.** A process-wide hold resumes GRDB for notification, intent and widget responses and re-suspends afterwards, with epoch and generation guards; the Unit run and the Media end-to-end proof follow. A11Y C: 17/17 on fbf37eb, rerunning on db8b014 with slice B merged.
+
 - 2026-10-21 03:55 (EDT): CATCAP Codex r3 resolved r2; its 1 new Major (the same stale-answer race in reconcile) is fixed in cb97ece; r4 is running. HANDLER-RESUME is committed (244b283) and MEDIA is updated (f013ce9). A11Y C's final run is on fbf37eb.
 
 - 2026-10-21 03:40 (EDT): **A11Y slice B merged** (9af89e6). It covers topic tabs, Entries (long-press Delete fixes the XXXL flake), Edit, Export, Stats charts (AXChartDescriptor with the year in bucket names, scaled heights), the FormSaveBar below content (F8) and the picker valueLabel. Every B audit allow-list is empty. Codex r4 is clean. Stats 4/4; the full UI run gave 82/1 before the Stats-only fix. On the merge: lint, core and the app build are green, and the vectors show no drift. A11Y C is on its final run (fbf37eb); mid-list audits are element-scoped only (a full-list audit re-lays out the List), and the manual check is in DEVICE-DAY §6.
