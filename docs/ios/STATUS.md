@@ -316,6 +316,18 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 05:10 (EDT): **The HANDLER-RESUME end-to-end test passes** (Media plan 3/0 on 26: the same app process scheduled the reminder and logged the action). RELTEST is merged (55b08df, `make ios-release-test-build`). **M3 milestone Codex review** (4 areas, on 42499bf):
+  - Notifications: REQUEST CHANGES.
+  - Intents and widgets: REQUEST CHANGES.
+  - A11Y: APPROVE WITH MINORS.
+  - Infra: REQUEST CHANGES.
+  - No Blockers. Six Majors, being fixed in parallel:
+    - **ROUTE-SCOPE** (m1-sync): notification body and More… taps, and cached widget links, lose server provenance, so a same-slug topic on another server opens or saves.
+    - **WIDGET-SKEW** (m2-form): widget due state ignores the stored clock skew.
+    - **Sim traps** (m1-testiso): test.sh and perf-cold-start boot clones with no shutdown trap.
+    - **CF docs** (m1-review): the curl check exposes the secret in `ps`.
+  - Minors: picker valueLabel in slice C (m1-skel), the PushLifecycleTests category center (m2-form), unique result bundles (m1-testiso), A11Y doc and DEVICE-DAY fixes (m1-review), and the S10 integration test (m6-builder).
+
 - 2026-10-21 04:50 (EDT): **A11Y slice C merged (360e66d). A11Y is complete:** A, B, C, Lows and widgets are all on ios/m3. C covers Topics, Schedule, Builder and Versions (TP1–6, BD1–8); full audits at each screen's top, element-scoped mid-list, with the manual XXXL check in DEVICE-DAY §6. Topic+Builder+Lifecycle 17/0 with B merged; Codex r1–r3 resolved. **The Reduce Motion lint is now strict by default** (47edc15). On the merge: lint, core, script tests and the app build are green. **The M3 milestone Codex review starts now**, in parallel with the small tails (RELTEST make target, widget-proof process-group fix, the notification E2E on ios/m3).
 
 - 2026-10-21 04:40 (EDT): RELTEST: three QuickrUI test files drop `@testable` (84d2e26, Codex approved). QuickrDataTests' 19 `@testable` files can't build with plain `swift build -c release --build-tests`, so the release check uses `swift test -c release` or `-enable-testing` through a new make target. A11Y C's final result and the notification E2E on ios/m3 are pending.
