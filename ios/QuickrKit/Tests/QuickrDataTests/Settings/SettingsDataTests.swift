@@ -312,6 +312,15 @@ private struct FakeRegistry: RegistryRepository {
                 .success(APITest.response(403, json: APITest.problem("forbidden"), identity: nil)),
                 .accessDenied(status: 403)
             ),
+            // Cloudflare Access without a token: a redirect to its login page.
+            (
+                .success(
+                    HTTPResponse(
+                        status: 302,
+                        headers: ["Location": "https://team.cloudflareaccess.com/cdn-cgi/access/login/quickr"],
+                        body: Data())),
+                .notQuickr
+            ),
         ]
         for (answer, problem) in cases {
             let transport = FakeTransport()

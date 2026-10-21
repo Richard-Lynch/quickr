@@ -248,6 +248,45 @@ async def test_strip_identity(h: Harness) -> None:
     assert len(h.a.requests) == 1
 
 
+TOKEN = {"CF-Access-Client-Id": "app.access", "CF-Access-Client-Secret": "s3cret"}
+
+
+async def test_access_forwards_with_the_token_and_swaps_it_for_a_jwt(h: Harness) -> None:
+    await h.rule(action="access", sticky=True, client_id="app.access", client_secret="s3cret")
+    r = await h.client.get("/api/v1/changes", headers=TOKEN)
+    assert r.status_code == 200
+    seen = r.json()["headers"]
+    assert "cf-access-client-id" not in seen
+    assert "cf-access-client-secret" not in seen
+    assert seen["cf-access-jwt-assertion"] == "faultproxy.access.jwt"
+    [entry] = await h.log()
+    assert (entry["access"], entry["upstream"]) == ("granted", "a")
+
+
+@pytest.mark.parametrize(
+    ("strict", "headers", "status"),
+    [
+        (False, {}, 302),
+        (False, {**TOKEN, "CF-Access-Client-Secret": "wrong"}, 302),
+        (True, {}, 401),
+        (True, {"CF-Access-Client-Id": "app.access"}, 403),
+        (True, {**TOKEN, "CF-Access-Client-Secret": "wrong"}, 403),
+    ],
+)
+async def test_access_refuses_without_the_right_token(
+    h: Harness, strict: bool, headers: dict[str, str], status: int
+) -> None:
+    await h.rule(action="access", sticky=True, strict=strict, client_id="app.access", client_secret="s3cret")
+    r = await h.client.get("/api/v1/changes", headers=headers)
+    assert r.status_code == status
+    assert "x-quickr-server-id" not in r.headers
+    if status == 302:
+        assert r.headers["location"].startswith("https://quickr.cloudflareaccess.com/")
+    assert h.a.requests == []
+    [entry] = await h.log()
+    assert (entry["access"], entry["upstream"], entry["status"]) == ("denied", None, status)
+
+
 @pytest.mark.parametrize("phase", ["request", "response"])
 async def test_delay(h: Harness, phase: str) -> None:
     await h.rule(action="delay", delay_ms=200, phase=phase)
@@ -385,6 +424,10 @@ async def test_upstream_down_is_a_502_with_no_upstream_status(h: Harness) -> Non
         {"action": "status", "retry_after": "\U0001f600"},
         {"action": "captive", "content_type": "text/html; charset=\u00e9"},
         {"action": "status", "retry_after": "1\t2"},
+        {"action": "access"},
+        {"action": "access", "client_id": "x"},
+        {"action": "access", "client_id": "x", "client_secret": ""},
+        {"action": "access", "client_id": "x", "client_secret": "y", "strict": "yes"},
     ],
 )
 async def test_rejects_bad_rules(h: Harness, rule: Any) -> None:
