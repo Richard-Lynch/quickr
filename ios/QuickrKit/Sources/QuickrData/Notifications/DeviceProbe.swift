@@ -250,15 +250,18 @@ public enum DeviceProbe {
 
         /// The same lock for an asynchronous holder: it waits by polling, never blocking a thread
         /// of the cooperative pool (the other side may be in this process, as in tests), and gives
-        /// up with `OutOfTime` at `deadline` (uptime ns).
-        func exclusively<T>(until deadline: UInt64? = nil, _ body: () async throws -> T) async throws -> T {
+        /// up with `OutOfTime` at `deadline` (uptime ns, as `now` reads it).
+        func exclusively<T>(
+            until deadline: UInt64? = nil, now: @Sendable () -> UInt64 = DeviceProbe.uptime,
+            _ body: () async throws -> T
+        ) async throws -> T {
             let fd = try openLock()
             while flock(fd, LOCK_EX | LOCK_NB) != 0 {
                 guard errno == EWOULDBLOCK || errno == EINTR else {
                     Darwin.close(fd)
                     throw CocoaError(.fileLocking)
                 }
-                if let deadline, DeviceProbe.uptime() >= deadline {
+                if let deadline, now() >= deadline {
                     Darwin.close(fd)
                     throw DeviceProbe.OutOfTime()
                 }
@@ -427,6 +430,9 @@ public struct DeviceProbeRunner: Sendable {
     var startLimit: Duration = .seconds(180)
     /// D8: how far ahead the app sets each round's rendezvous.
     var rendezvousLead: Duration = .milliseconds(30)
+    /// The clock deadlines, limits and rendezvous are read on (uptime ns): `DeviceProbe.uptime`,
+    /// or a test's own, so a test decides when a deadline passes instead of racing real time.
+    var now: @Sendable () -> UInt64 = DeviceProbe.uptime
 
     public init(
         files: DeviceProbe.Files, process: DeviceProbe.Process, center: any NotificationCenterProtocol,
@@ -496,8 +502,8 @@ public struct DeviceProbeRunner: Sendable {
                 reconciled: reconciled, overlap: overlap, overrun: overrun, seen: seen, note: note))
     }
 
-    private func past(_ deadline: UInt64?, at instant: UInt64 = DeviceProbe.uptime()) -> Bool {
-        deadline.map { instant >= $0 } == true
+    private func past(_ deadline: UInt64?, at instant: UInt64? = nil) -> Bool {
+        deadline.map { (instant ?? now()) >= $0 } == true
     }
 
     private func stopped(_ deadline: UInt64?) -> Bool { Task.isCancelled || past(deadline) }
@@ -510,8 +516,8 @@ public struct DeviceProbeRunner: Sendable {
     }
 
     private func sleep(until instant: UInt64) async {
-        let now = DeviceProbe.uptime()
-        if instant > now { try? await Task.sleep(nanoseconds: instant - now) }
+        let current = now()
+        if instant > current { try? await Task.sleep(nanoseconds: instant - current) }
     }
 
     // MARK: D9
@@ -523,7 +529,7 @@ public struct DeviceProbeRunner: Sendable {
         var last: (size: Int, nanoseconds: UInt64)?
         for size in request.sizes {
             let estimate = last.map { $0.nanoseconds * UInt64(size) / UInt64(max($0.size, 1)) } ?? 0
-            guard !stopped(deadline), !past(deadline, at: DeviceProbe.uptime() + estimate) else {
+            guard !stopped(deadline), !past(deadline, at: now() + estimate) else {
                 record(request, "timeout", size: size, note: "not enough time left for this size")
                 return
             }
@@ -534,12 +540,12 @@ public struct DeviceProbeRunner: Sendable {
             let rows = DeviceProbe.rows(size: size, process: process)
             let expected = Set(rows.map(\.category.id))
             let (start, registered) = try await registerIfCurrent(request, deadline: deadline) {
-                let start = DeviceProbe.uptime()
+                let start = now()
                 try await categories.register(rows)
-                return (start, DeviceProbe.uptime())
+                return (start, now())
             }
             let (seenAt, count) = await readback(expected, deadline: deadline)
-            let end = DeviceProbe.uptime()
+            let end = now()
             // A newer run may have changed the set meanwhile: this measurement no longer stands.
             guard files.isCurrent(request.run) else { throw DeviceProbe.Superseded() }
             last = (size, end - start)
@@ -558,7 +564,7 @@ public struct DeviceProbeRunner: Sendable {
     private func registerIfCurrent<T>(
         _ request: DeviceProbe.Request, deadline: UInt64? = nil, _ change: () async throws -> T
     ) async throws -> T {
-        try await files.exclusively(until: deadline) {
+        try await files.exclusively(until: deadline, now: now) {
             guard files.isCurrent(request.run) else { throw DeviceProbe.Superseded() }
             guard !past(deadline) else { throw DeviceProbe.OutOfTime() }
             return try await change()
@@ -594,14 +600,14 @@ public struct DeviceProbeRunner: Sendable {
     /// When `notificationCategories()` first included all of `expected` (uptime ns; nil if it
     /// didn't within the limit or before the deadline), and how many of them the last read held.
     private func readback(_ expected: Set<String>, deadline: UInt64?) async -> (UInt64?, Int) {
-        let limit = DeviceProbe.uptime() + DeviceProbe.nanoseconds(readbackLimit)
+        let limit = now() + DeviceProbe.nanoseconds(readbackLimit)
         var count = 0
-        while DeviceProbe.uptime() < limit, !stopped(deadline) {
+        while now() < limit, !stopped(deadline) {
             let missing = DeviceProbe.missing(expected, in: await center.notificationCategories())
             count = expected.count - missing.count
             // A reply that arrives after the limit doesn't count as seen in time.
-            let now = DeviceProbe.uptime()
-            if missing.isEmpty { return now <= limit ? (now, count) : (nil, count) }
+            let current = now()
+            if missing.isEmpty { return current <= limit ? (current, count) : (nil, count) }
             try? await Task.sleep(for: poll)
         }
         return (nil, count)
@@ -625,14 +631,14 @@ public struct DeviceProbeRunner: Sendable {
             }
             // Each round starts from an empty table: the system only ever gets this round's set.
             try await registry.writer.write { try $0.execute(sql: "DELETE FROM notification_category") }
-            let rendezvous = DeviceProbe.uptime() + DeviceProbe.nanoseconds(rendezvousLead)
+            let rendezvous = now() + DeviceProbe.nanoseconds(rendezvousLead)
             files.write([Int64(round), Int64(rendezvous)], to: files.appRound(request.run))
             await sleep(until: rendezvous)
             guard !Task.isCancelled else { return }
             try await ensureCurrent(request)
-            let start = DeviceProbe.uptime()
+            let start = now()
             try await categories.register(DeviceProbe.d8Rows(round: round, process: .app))
-            let end = DeviceProbe.uptime()
+            let end = now()
             try await confirmCurrent(request)
             guard let nse = await nseAttempt(request, round: round) else {
                 record(request, "timeout", round: round, note: "the NSE didn't finish this round")
@@ -690,9 +696,9 @@ public struct DeviceProbeRunner: Sendable {
                 await sleep(until: UInt64(app[1]))
                 guard !stopped(deadline) else { break }
                 try await ensureCurrent(request, deadline: deadline)
-                let start = DeviceProbe.uptime()
+                let start = now()
                 try await categories.register(DeviceProbe.d8Rows(round: Int(app[0]), process: .nse))
-                let end = DeviceProbe.uptime()
+                let end = now()
                 try await confirmCurrent(request)
                 files.write([app[0], Int64(start), Int64(end)], to: files.nseRound(request.run))
                 last = app[0]
