@@ -316,6 +316,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 05:45 (EDT): **S10 merged** (2a73596): the real-backend APNs register across an epoch rotation (409, then rebuild, then a 201 retry), integration 22/22 ×2; the obsolete stub is removed. ROUTE-SCOPE: links carry the topic id plus the server or store scope, and LinkScope refuses another registered server (never switches) and refuses a stale or unknown one, which reloads the widgets. Spec §7.5. Codex r1's Majors are fixed; r2 and the sim runs (Unit, Links, WidgetViews, the Media widget test, plus a refusal-alert UI test) are in progress. WIDGET-SKEW: r1's 2 Majors are fixed; r2 and Unit are running. Infra traps: the run_limited process-group helper is done (Codex r2); the test.sh/perf traps and unique result dirs are next.
+
 - 2026-10-21 05:30 (EDT): The slice C picker valueLabel is merged (b6f7bac). ROUTE-SCOPE (c7db3fc), WIDGET-SKEW (c9e2565) and S10 (510132d) are in progress with commits. The sim-trap infra fixes haven't started yet (chased).
 
 - 2026-10-21 05:20 (EDT): Milestone fixes A merged (ce2f904; Codex approved with minors, both fixed). The CF manual check feeds the headers through `curl --config -` (no secret in argv); the MCP `--header` step warns where the secret lands; the a11y-audit E1 entry is resolved; DEVICE-DAY §6 has the SE2 token-sheet item.
