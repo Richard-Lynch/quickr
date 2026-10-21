@@ -289,28 +289,32 @@ extension TimingTests {
         }
 
         /// The enqueue's own flush often reaches the item before `sendNow` does. An attempt that had
-        /// already failed, or that is in flight and then fails, still ends the wait at once.
-        @Test func sendNowSeesAnAttemptThatStartedBeforeIt() async throws {
+        /// already failed ends the wait at once.
+        @Test func sendNowSeesAnAttemptThatAlreadyFailed() async throws {
             let h = try OutboxHarness()
             let scheduler = OutboxFlushScheduler(outbox: h.outbox())
-
-            // (a) Already attempted and back in the queue.
             let failed = try await h.log(scheduler.outbox)
             h.server.inject(.post, .lose(.unreachable("offline")))
             _ = try await scheduler.outbox.flushNow()
             #expect(try h.item(failed)?.attempts == 1)
-            var started = ContinuousClock.now
+            let started = ContinuousClock.now
             #expect(await scheduler.sendNow(itemId: failed.wireString, wait: .seconds(30)) == .queued)
             #expect(ContinuousClock.now - started < .seconds(5))
+        }
 
-            // (b) In flight when sendNow starts; then the server fails it (uncertain).
-            let claimed = try await h.log(scheduler.outbox, minutes: 1)
+        /// An attempt in flight when `sendNow` starts, which the server then fails (uncertain), ends
+        /// the wait as soon as it fails. Its own store: an item queued before it would be sent
+        /// first by the forced flush and be the one held at the gate (CI flake, PR #11).
+        @Test func sendNowSeesAnAttemptInFlightWhenItStarts() async throws {
+            let h = try OutboxHarness()
+            let scheduler = OutboxFlushScheduler(outbox: h.outbox())
+            let claimed = try await h.log(scheduler.outbox)
             let gate = Gate()
             h.server.inject(.post, .delay(gate, override: header(FakeServer.problem(503, "internal_error", "down"))))
             let flush = background { try await scheduler.outbox.flushNow() }
             await gate.arrival()
             #expect(try h.item(claimed)?.state == .inFlight)
-            started = ContinuousClock.now
+            let started = ContinuousClock.now
             let waiting = Task { await scheduler.sendNow(itemId: claimed.wireString, wait: .seconds(30)) }
             gate.open()
             #expect(await waiting.value == .queued)
