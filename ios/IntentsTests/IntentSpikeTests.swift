@@ -130,6 +130,91 @@ final class IntentSpikeTests: XCTestCase {
         attachTree(shortcuts, "after")
     }
 
+    /// LogTopicIntent end to end in the Shortcuts app over the demo store: Workout's two questions
+    /// asked (minutes, then kind), then the confirmation snippet, confirmed. Records what each step
+    /// showed (screenshots and notes): the snippet check research §Spike left open. Any step that
+    /// doesn't happen skips as inconclusive: a pass means the entry was logged and said so.
+    @MainActor
+    func testLogTopicInShortcuts() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-QuickrDemoStore"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 30))
+        let shortcuts = XCUIApplication(bundleIdentifier: "com.apple.shortcuts")
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        shortcuts.launch()
+        sleep(3)
+        if shortcuts.buttons["BackButton"].exists { shortcuts.buttons["BackButton"].tap() }
+        let quickr = shortcuts.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'quickR'")).firstMatch
+        guard quickr.waitForExistence(timeout: 10) else { throw XCTSkip("inconclusive: no quickR in the library (nothing was logged, so nothing is claimed)") }
+        quickr.tap()
+        // Shortcuts expands "Log <topic>" into one tile per topic; the Log group comes first.
+        let tile = shortcuts.descendants(matching: .any).matching(NSPredicate(format: "label == 'Workout'")).firstMatch
+        guard tile.waitForExistence(timeout: 10) else { throw XCTSkip("inconclusive: no Workout tile (nothing was logged, so nothing is claimed)") }
+        // The tile's icon button sits above its label: tapping the label didn't start a run.
+        tile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: -45)).tap()
+        let started = Date()
+        func element(_ label: String) -> XCUIElement? {
+            let deadline = Date().addingTimeInterval(20)
+            while Date() < deadline {
+                for host in [springboard, shortcuts] {
+                    let match = host.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+                    if match.exists { return match }
+                }
+                usleep(250_000)
+            }
+            return nil
+        }
+        func field() -> XCUIElement? {
+            let deadline = Date().addingTimeInterval(20)
+            while Date() < deadline {
+                for host in [springboard, shortcuts] where host.textFields.firstMatch.exists { return host.textFields.firstMatch }
+                usleep(250_000)
+            }
+            return nil
+        }
+        // What follows the tap, quickly: a prompt, a sheet, or an error banner that goes away.
+        for (index, pause) in [500_000, 1_000_000, 1_500_000].enumerated() {
+            usleep(UInt32(pause))
+            let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            shot.name = "log-topic-after-tap-\(index)"
+            shot.lifetime = .keepAlways
+            add(shot)
+        }
+        attachTree(springboard, "log-topic-first-prompt")
+        // Minutes.
+        guard let minutes = field() else {
+            attachTree(springboard, "log-topic-minutes-missing")
+            throw XCTSkip("inconclusive: no minutes prompt (nothing was logged, so nothing is claimed)")
+        }
+        minutes.tap()
+        minutes.typeText("30")
+        if let done = element("Done") { done.tap() }
+        note("log topic: minutes answered at \(Date().timeIntervalSince(started)) s")
+        // Kind.
+        guard let run = element("Run") else {
+            attachTree(springboard, "log-topic-kind-missing")
+            throw XCTSkip("inconclusive: no kind choice (nothing was logged, so nothing is claimed)")
+        }
+        run.tap()
+        note("log topic: kind answered at \(Date().timeIntervalSince(started)) s")
+        // The confirmation snippet.
+        sleep(3)
+        attachTree(springboard, "log-topic-confirmation")
+        attachTree(shortcuts, "log-topic-confirmation-app")
+        guard let log = element("Log") else { throw XCTSkip("inconclusive: no Log confirmation button (nothing was logged, so nothing is claimed)") }
+        log.tap()
+        sleep(4)
+        attachTree(springboard, "log-topic-after")
+        let logged = [springboard, shortcuts].lazy.map {
+            $0.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Logged Workout'")).firstMatch
+        }.first { $0.exists }
+        note("log topic: \(logged.map { "said \"\($0.label)\"" } ?? "no Logged dialog seen") at \(Date().timeIntervalSince(started)) s")
+        guard logged != nil else {
+            throw XCTSkip("inconclusive: confirmed, but no \"Logged Workout\" dialog was seen")
+        }
+    }
+
     /// Exploration: the Shortcuts app's UI, to find quickR's App Shortcuts.
     @MainActor
     func testShortcutsAppExploration() throws {

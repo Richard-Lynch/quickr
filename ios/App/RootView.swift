@@ -111,6 +111,15 @@ struct RootView: View {
             if UITestLaunch.showsSyncControls { UITestSyncControls().padding(.bottom, 24) }
         }
         #endif
+        #if DEBUG || QUICKR_PERF
+        .overlay(alignment: .topTrailing) {
+            if PerfStore.isRequested {
+                Text(verbatim: PerfProbe.shared.firstRender.map(String.init) ?? "-")
+                .font(.caption2).monospacedDigit()
+                .accessibilityIdentifier("perf.firstRender")
+            }
+        }
+        #endif
         .alert(
             "Can’t open that link", isPresented: unopenedLink,
             actions: { Button("OK", role: .cancel) {} },

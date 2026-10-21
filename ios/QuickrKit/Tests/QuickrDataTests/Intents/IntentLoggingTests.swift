@@ -160,7 +160,7 @@ import Testing
         let w = try World()
         let logged = try await IntentLogging.log(
             topicId: Self.coffee.id, answers: ["size": .string("small")], in: w.context)
-        #expect(try await IntentLogging.undo(entryId: logged.entryId, in: w.context) == .removed)
+        #expect(try await IntentLogging.undo(logged, in: w.context) == .removed)
         #expect(try w.items.isEmpty)
 
         let sent = try await IntentLogging.log(
@@ -170,7 +170,45 @@ import Testing
                 sql: "UPDATE outbox_item SET state = 'uncertain', maybe_delivered = 1 WHERE entity_id = ?",
                 arguments: [sent.entryId.wireString])
         }
-        #expect(try await IntentLogging.undo(entryId: sent.entryId, in: w.context) == .deleteQueued)
+        #expect(try await IntentLogging.undo(sent, in: w.context) == .deleteQueued)
+    }
+
+    /// Log on server A, switch to B, undo: A's entry is cancelled, and B (where the same id is
+    /// queued too, for the test) is untouched.
+    @Test func undoGoesToTheStoreTheEntryWasLoggedIn() async throws {
+        let w = try World()
+        let queue = try TestDatabase.store()
+        let coffee = Self.coffee
+        try await queue.write { db in
+            try LocalStore.createSyncState(db, serverId: "server-2", baseURL: "https://b.example")
+            _ = try ServerLayer.upsert(db, topic: coffee)
+        }
+        let b = LocalStore(
+            serverId: "server-2", storeGen: 1, url: nil, writer: queue, leaseClock: FakeLeaseClock(),
+            wallClock: FakeClock(Make.t0))
+        let logged = try await IntentLogging.log(
+            topicId: Self.coffee.id, answers: ["size": .string("small")], in: w.context)
+        #expect(logged.scope == w.s.store.scope)
+        try await b.createEntryIfAbsent(
+            id: logged.entryId, topic: TopicRef(id: Self.coffee.id, slug: "coffee", name: "Coffee"),
+            body: EntryCreateDTO(
+                id: nil, answers: ["size": .string("large")], source: nil, capturedAt: Make.t0, version: 1),
+            origin: .siri)
+        let switched = IntentWriteContext(origin: .siri, openActiveStore: { b })  // the user moved to B
+        #expect(try await IntentLogging.undo(logged, in: switched) == .removed)
+        #expect(try w.items.isEmpty, "A's entry is gone")
+        #expect(try await queue.read { db in try OutboxStorage.items(db) }.count == 1, "B's is untouched")
+    }
+
+    /// A store reset since the log (its file retired): undo refuses instead of writing to it.
+    @Test func undoRefusesARetiredStore() async throws {
+        let w = try World()
+        let logged = try await IntentLogging.log(
+            topicId: Self.coffee.id, answers: ["size": .string("small")], in: w.context)
+        try w.s.write { db in try db.execute(sql: "UPDATE sync_state SET retired = 1 WHERE id = 1") }
+        await #expect(throws: IntentLogging.Failure.storeUnavailable) {
+            try await IntentLogging.undo(logged, in: w.context)
+        }
     }
 
     // MARK: - Repeat-last

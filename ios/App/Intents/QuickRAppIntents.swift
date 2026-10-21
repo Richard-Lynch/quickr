@@ -9,8 +9,10 @@ import QuickrData
 /// `AppEnvironment.start()` refreshes the topic parameters; STORE calls it again after topic changes.
 struct QuickRShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
+        // Any topic: its questions asked one per turn, then a confirmation snippet. A quick-log
+        // topic is just its one question. `LogEntryIntent` stays an action (Shortcuts, widgets).
         AppShortcut(
-            intent: LogEntryIntent(),
+            intent: LogTopicIntent(),
             phrases: [
                 "Log \(\.$topic) in \(.applicationName)",
                 "Log an entry in \(.applicationName)",

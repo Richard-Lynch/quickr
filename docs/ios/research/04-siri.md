@@ -355,6 +355,10 @@ from the host under the simulator's `data/Containers/Shared/AppGroup`.
 `testPromptsInShortcuts` runs `SpikePromptIntent` from the Shortcuts app and
 answers its prompts; the other tests skip unless the variable is set.
 
-Still open for INTENTS itself (checked while building, in the Shortcuts app on
-the simulator): `requestConfirmation(snippetIntent:)` and the cost of a
-snippet's re-`perform()` after each tap.
+Still open, deferred to **M4-DEV** [2026-10-21]: `requestConfirmation(snippetIntent:)`
+and the cost of a snippet's re-`perform()` after each tap. `testLogTopicInShortcuts`
+drives LogTopicIntent from its Shortcuts tile. On the simulator, tapping the tile's
+label never started a run, so no prompt appeared. The test now taps the tile's icon
+instead, which hasn't been run yet because no simulator slot was free. The
+test skips as inconclusive whenever a step doesn't happen; it passes only once
+the entry is logged and "Logged Workout" is shown.

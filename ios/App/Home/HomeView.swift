@@ -51,7 +51,12 @@ struct HomeView: View {
             if !typeSize.isAccessibilitySize { header }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .task(id: ObservationKey(binding: session.binding, attempt: model.attempt)) { await model.observe() }
+        .task(id: ObservationKey(binding: session.binding, attempt: model.attempt)) {
+            #if DEBUG || QUICKR_PERF
+            PerfProbe.mark("Home observes (store \(session.store == nil ? "not yet bound" : "bound"))")
+            #endif
+            await model.observe()
+        }
         .task {
             // The PWA's `useNow`: due states and labels move with the clock.
             while !Task.isCancelled {
@@ -65,6 +70,9 @@ struct HomeView: View {
         // Tiles keep their quick-log models for the run; topics that left the store let theirs go.
         .onChange(of: model.topics.map(\.id), initial: true) { _, ids in
             environment.quickLogModels.retain(Set(ids))
+            #if DEBUG || QUICKR_PERF
+            if !ids.isEmpty { PerfProbe.mark("Home has \(ids.count) topics") }
+            #endif
         }
         .onChange(of: model.badgeCount, initial: true) { _, count in
             // Fails quietly until notifications are authorized (M3).
@@ -183,7 +191,11 @@ struct HomeView: View {
         ForEach(rows, id: \.value.id) { row in
             TopicTile(
                 topic: row.value, now: model.now, onOpen: { actions.open(row.value) },
-                onRecord: { actions.record(row.value) })
+                onRecord: { actions.record(row.value) }
+            )
+            #if DEBUG || QUICKR_PERF
+            .onAppear { PerfProbe.shared.tileAppeared() }
+            #endif
         }
     }
 

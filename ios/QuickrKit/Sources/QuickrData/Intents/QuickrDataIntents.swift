@@ -73,7 +73,7 @@ public struct LogEntryIntent: AppIntent, UndoableIntent {
         }
         let logged = try await IntentLogging.log(topicId: current.id, answers: answers, in: context)
         let summary = IntentText.summary(logged.answers, topic: logged.topic)
-        await IntentUndo.register(undoManager, entryId: logged.entryId, summary: summary, context: context)
+        await IntentUndo.register(undoManager, logged: logged, context: context)
         return .result(value: summary, dialog: "Logged \(summary).")
     }
 }

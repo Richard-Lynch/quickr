@@ -13,6 +13,8 @@ final class IntentResolutionTests: XCTestCase {
     static let app = "com.bahumia.quickr"
     /// The demo store's Water (`DemoStore`: ids are fixed).
     static let water = "00000000-0000-4000-8000-000000000002"
+    /// The demo store's Headache: severity chips, last answer "mild".
+    static let headache = "00000000-0000-4000-8000-000000000008"
     /// The demo store's active topics, by name (archived "Old habit" is left out of lists).
     static let listed = [
         "Headache", "Medication", "Mood", "Sleep", "Stretch", "Water", "Water the plants", "Workout",
@@ -54,6 +56,46 @@ final class IntentResolutionTests: XCTestCase {
         let result = try await intent.run()
         let summary: String = try result.value
         XCTAssertEqual(summary, "Water: 2 glasses")
+    }
+
+    /// A quick-log option resolves by id, through the active store's topic.
+    func testQuestionOptionEntityResolves() async throws {
+        guard #available(iOS 27.0, *) else { return }
+        let options = IntentDefinitions(bundleIdentifier: Self.app).entities["QuestionOptionEntity"]
+        let found = try await options.entities(identifiers: ["\(Self.headache)|severity|mild"])
+        XCTAssertEqual(try found.map { try $0.label as String }, ["Mild"])
+        let missing = try await options.entities(identifiers: ["\(Self.headache)|severity|nope"])
+        XCTAssertTrue(missing.isEmpty)
+    }
+
+    /// A widget's chip: the topic and the option given, nothing asked.
+    func testLogEntryIntentLogsAnOption() async throws {
+        guard #available(iOS 27.0, *) else { return }
+        let definitions = IntentDefinitions(bundleIdentifier: Self.app)
+        let topic = definitions.entities["TopicEntity"].makeReference(identifier: Self.headache)
+        let option = definitions.entities["QuestionOptionEntity"].makeReference(
+            identifier: "\(Self.headache)|severity|severe")
+        let result = try await definitions.intents["LogEntryIntent"].makeIntent(topic: topic, option: option).run()
+        let summary: String = try result.value
+        XCTAssertEqual(summary, "Headache: Severe")
+    }
+
+    /// The Action button's intent: the latest entry's answers, again.
+    func testRepeatLastEntryIntentRelogsTheLatest() async throws {
+        guard #available(iOS 27.0, *) else { return }
+        let definitions = IntentDefinitions(bundleIdentifier: Self.app)
+        let topic = definitions.entities["TopicEntity"].makeReference(identifier: Self.headache)
+        let result = try await definitions.intents["RepeatLastEntryIntent"].makeIntent(topic: topic).run()
+        let summary: String = try result.value
+        XCTAssertEqual(summary, "Headache: Mild")
+    }
+
+    /// What's due in the demo store, longest due first.
+    func testWhatsDueIntentListsTheDueTopics() async throws {
+        guard #available(iOS 27.0, *) else { return }
+        let result = try await IntentDefinitions(bundleIdentifier: Self.app).intents["WhatsDueIntent"].makeIntent().run()
+        let due: [AnyAppEntity] = try result.value
+        XCTAssertEqual(try due.map { try $0.name as String }, ["Medication", "Water"])
     }
 }
 #endif

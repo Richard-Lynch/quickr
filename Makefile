@@ -204,9 +204,11 @@ ios-fmt: ## iOS: swift-format in place
 	cd ios && xcrun swift-format format --in-place --recursive --parallel App AppTests UITests Widgets NotificationService QuickrKit
 
 .PHONY: ios-script-test
-ios-script-test: ## iOS: tests for the shell tooling (xcodebuild watchdog, simulator cap); no Xcode needed
+ios-script-test: ## iOS: tests for the shell tooling (xcodebuild watchdog, simulator cap, TestFlight, device run); no Xcode needed
 	@$(IOS_SCRIPTS)/tests/watchdog-test.sh
 	@$(IOS_SCRIPTS)/tests/sim-cap-test.sh
+	@$(IOS_SCRIPTS)/tests/testflight-test.sh
+	@$(IOS_SCRIPTS)/tests/device-run-test.sh
 
 .PHONY: check-ios
 check-ios: ## iOS gate: gen, swift test, Unit + UI plans on iOS 26.0 and 27.0, lint, Xcode version
@@ -238,6 +240,27 @@ ios-integration: ## iOS: integration suite vs this worktree's stacks (up, smoke,
 .PHONY: ios-uitest-e2e
 ios-uitest-e2e: ios-gen ## iOS: end-to-end UI tests vs this worktree's stack (IOS_SIM; up, test, down)
 	@$(IOS_SCRIPTS)/uitest-e2e.sh "$(IOS_SIM)"
+
+.PHONY: ios-device-run
+ios-device-run: ios-gen ## iOS: signed Debug build, install and launch on the paired iPhone (IOS_DEVICE; URL=quickr://...)
+	@$(IOS_SCRIPTS)/device-run.sh "$(IOS_DEVICE)" "$(URL)"
+
+.PHONY: ios-testflight
+ios-testflight: ios-gen ## iOS: archive and upload to TestFlight (ASC API key; see ios/README.md, TestFlight)
+	@$(IOS_SCRIPTS)/testflight.sh
+
+.PHONY: ios-testflight-dry-run
+ios-testflight-dry-run: ios-gen ## iOS: the TestFlight archive unsigned; no export or upload, no credentials
+	@$(IOS_SCRIPTS)/testflight.sh --dry-run
+
+.PHONY: ios-perf-launch
+ios-perf-launch: ios-gen ## iOS: debug-build launch timings over the 10k-entry perf store (IOS_SIM; PerfLaunchUITests)
+	@IOS_SIM_DEFAULTED=$(IOS_SIM_DEFAULTED) $(IOS_SCRIPTS)/perf-launch.sh "$(IOS_SIM)"
+
+IOS_PERF_CONFIG ?= Release
+.PHONY: ios-perf-cold-start
+ios-perf-cold-start: ios-gen ## iOS: the < 1 s cold-start target over the perf store (IOS_SIM; IOS_PERF_CONFIG, default Release)
+	@IOS_SIM_DEFAULTED=$(IOS_SIM_DEFAULTED) IOS_PERF_CONFIG=$(IOS_PERF_CONFIG) $(IOS_SCRIPTS)/perf-cold-start.sh "$(IOS_SIM)"
 
 .PHONY: ios-integration-up
 ios-integration-up: ## iOS: start this worktree's integration stacks (writes ios/build/integration.env)

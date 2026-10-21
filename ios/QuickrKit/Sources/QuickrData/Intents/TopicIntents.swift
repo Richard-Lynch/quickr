@@ -29,7 +29,7 @@ public struct RepeatLastEntryIntent: AppIntent, UndoableIntent {
         case .log(let answers):
             let logged = try await IntentLogging.log(topicId: current.id, answers: answers, in: context)
             let summary = IntentText.summary(logged.answers, topic: logged.topic)
-            await IntentUndo.register(undoManager, entryId: logged.entryId, summary: summary, context: context)
+            await IntentUndo.register(undoManager, logged: logged, context: context)
             return .result(value: summary, dialog: "Logged \(summary) again.")
         case .openRecord(let prefill):
             let reason =
@@ -110,17 +110,19 @@ public enum IntentDue {
     }
 }
 
-/// The undo an intent registers after it logged (`UndoableIntent`): cancels that create.
-enum IntentUndo {
+/// The undo an intent registers after it logged (`UndoableIntent`): cancels that create, in the
+/// store it was committed to.
+public enum IntentUndo {
     final class Target: Sendable {
         static let shared = Target()
     }
 
     @MainActor
-    static func register(_ undoManager: UndoManager?, entryId: UUID, summary: String, context: IntentWriteContext) {
+    public static func register(_ undoManager: UndoManager?, logged: IntentLogging.Logged, context: IntentWriteContext)
+    {
         undoManager?.registerUndo(withTarget: Target.shared) { _ in
-            Task { try? await IntentLogging.undo(entryId: entryId, in: context) }
+            Task { try? await IntentLogging.undo(logged, in: context) }
         }
-        undoManager?.setActionName("Log \(summary)")
+        undoManager?.setActionName("Log \(IntentText.summary(logged.answers, topic: logged.topic))")
     }
 }

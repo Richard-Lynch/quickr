@@ -121,12 +121,18 @@ final class AppEnvironment {
     /// The app's launch path: builds the live environment and registers the active store's topics
     /// for App Intents. Siri, Shortcuts and widget buttons can launch the app for an intent without
     /// a scene, so this runs in `QuickRApp.init`, before anything can query an entity. It opens
-    /// the registry only; the store opens on first use.
-    static func bootstrap(location: StoreLocation = .shared(appGroup: AppGroup.identifier)) -> AppEnvironment {
+    /// the registry only; the store opens on first use. `categoryCenter` as in `live` (app tests
+    /// pass nil unless they hold `SystemCategoriesLock`).
+    static func bootstrap(
+        location: StoreLocation = .shared(appGroup: AppGroup.identifier),
+        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
+    ) -> AppEnvironment {
         #if DEBUG
-        let environment = UITestLaunch.isActive ? UITestLaunch.environment() : live(location: location)
+        let environment =
+            UITestLaunch.isActive
+            ? UITestLaunch.environment() : live(location: location, categoryCenter: categoryCenter)
         #else
-        let environment = live(location: location)
+        let environment = live(location: location, categoryCenter: categoryCenter)
         #endif
         environment.registerIntentTopics()
         return environment
@@ -177,9 +183,18 @@ final class AppEnvironment {
                 openSession()
                 registerIntentTopics()
             }
+            #if DEBUG || QUICKR_PERF
+            PerfProbe.mark("start: begins")
+            #endif
             // Before the first request, so it already carries the migrated token.
             await migrateLegacyToken()
+            #if DEBUG || QUICKR_PERF
+            PerfProbe.mark("start: token migrated")
+            #endif
             await session?.start(serverURL: settings.serverURL)
+            #if DEBUG || QUICKR_PERF
+            PerfProbe.mark("start: session started (bound)")
+            #endif
             if let session { sync.startMonitoring(session) }
             // A background refresh's time ran out mid-start (`cancelStart`): the connect may not
             // have happened, and the session won't redo it; the next activation does.

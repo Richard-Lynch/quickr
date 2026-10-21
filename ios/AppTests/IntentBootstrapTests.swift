@@ -12,6 +12,28 @@ import Testing
 /// (AppIntentsTesting, widget-proof.sh) can't run there. Serialized: the registration is
 /// process-wide.
 @Suite(.serialized) @MainActor struct IntentBootstrapTests {
+    /// The seeded store with Coffee and Mood made quick-loggable (a number, an option), for the
+    /// write paths. Only here: other suites' sessions on the fixture store must not register
+    /// notification categories with the system while CAT's tests read them.
+    static func quickLogLocation() async throws -> StoreLocation {
+        let location = try await TestStores.seededLocation()
+        let partitions = try StorePartitions.open(at: location, notifier: nil)
+        let store = try #require(try await partitions.openActiveStore(role: .app)?.store)
+        var topics = try await PlaceholderTopicRepository().topics().map(\.topic)
+        let cups = Question(key: "cups", label: "Cups", kind: .int(.init(min: 0, max: 20, unit: "cups")))
+        let mood = Question(
+            key: "mood", label: "Mood",
+            kind: .choice(
+                .init(options: [EnumOption(value: "good", label: "Good"), EnumOption(value: "bad", label: "Bad")])))
+        for index in topics.indices {
+            topics[index].questions = topics[index].id == PlaceholderTopicRepository.coffee ? [cups] : [mood]
+            topics[index].revision += 1
+        }
+        let seeded = topics
+        try await store.writer.write { db in for topic in seeded { _ = try ServerLayer.upsert(db, topic: topic) } }
+        return location
+    }
+
     @Test func appBootstrapServesTheTopicQuery() async throws {
         let location = try await TestStores.seededLocation()
         defer { TestStores.remove(location) }
@@ -41,9 +63,9 @@ import Testing
     /// The app's write path: a number and an option, durably queued in the active store with
     /// source `ios.siri`, the dialog saying what was logged.
     @Test func logEntryIntentLogsThroughTheActiveStore() async throws {
-        let location = try await TestStores.seededLocation()
+        let location = try await Self.quickLogLocation()
         defer { TestStores.remove(location) }
-        let environment = AppEnvironment.bootstrap(location: location)
+        let environment = AppEnvironment.bootstrap(location: location, categoryCenter: nil)
         let coffee = try #require(try await TopicEntityQuery().entities(for: [PlaceholderTopicRepository.coffee]).first)
         let logged = try await LogEntryIntent(topic: coffee, number: 2).perform()
         #expect(logged.value == "Coffee: 2 cups")
@@ -61,9 +83,9 @@ import Testing
     /// Repeat-last re-logs the latest entry; What's Due reads the active store (the fixture topics
     /// have no schedule); OpenRecordIntent opens the record screen through the app's router.
     @Test func repeatLastWhatsDueAndOpenRecordInTheApp() async throws {
-        let location = try await TestStores.seededLocation()
+        let location = try await Self.quickLogLocation()
         defer { TestStores.remove(location) }
-        let environment = AppEnvironment.bootstrap(location: location)
+        let environment = AppEnvironment.bootstrap(location: location, categoryCenter: nil)
         let coffee = try #require(try await TopicEntityQuery().entities(for: [PlaceholderTopicRepository.coffee]).first)
         _ = try await LogEntryIntent(topic: coffee, number: 3).perform()
         #expect(try await RepeatLastEntryIntent(topic: coffee).perform().value == "Coffee: 3 cups")
