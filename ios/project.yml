@@ -75,6 +75,9 @@ targets:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # Portrait only by design. App Store validation (iOS 27 SDK) rejects a portrait-only
+        # bundle unless it opts out of multitasking resizing.
+        UIRequiresFullScreen: true
         UIBackgroundModes:
           - fetch
           - remote-notification

@@ -18,6 +18,9 @@
 # refused. Nothing in the repo changes. The marketing version is MARKETING_VERSION in
 # project.yml.
 source "$(dirname "$0")/common.sh"
+# Xcode's IPA packaging shells out to `rsync`; Homebrew's rsync 3.x rejects the options it
+# passes ("syntax or usage error"), so the system tools come first.
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 # Never traced: `bash -x` would print the credentials as they are read.
 { set +x; } 2>/dev/null
 
