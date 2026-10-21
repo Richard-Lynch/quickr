@@ -9,21 +9,24 @@ public enum IntentNavigation {
     /// What to open.
     public enum Request: Sendable, Hashable {
         /// A topic's record screen, prefilled with each question's text (numbers and single
-        /// options; a multi-select isn't prefilled).
-        case record(topicId: UUID, prefill: [String: String])
+        /// options; a multi-select isn't prefilled). `scope` is the store the topic and the
+        /// prefill were read from: the app opens it only while that store is active
+        /// (notifications.md §7.5).
+        case record(topicId: UUID, prefill: [String: String], scope: EntryScope)
     }
 
-    private static let handler = Mutex<(@MainActor @Sendable (Request) -> Void)?>(nil)
+    private static let handler = Mutex<(@MainActor @Sendable (Request) async -> Void)?>(nil)
 
-    public static func register(_ open: @escaping @MainActor @Sendable (Request) -> Void) {
+    public static func register(_ open: @escaping @MainActor @Sendable (Request) async -> Void) {
         handler.withLock { $0 = open }
     }
 
-    /// Opens `request`; false when no process registered a handler (the widget extension).
+    /// Opens `request` (returning once the app has opened it or said why not); false when no
+    /// process registered a handler (the widget extension).
     @discardableResult
     public static func open(_ request: Request) async -> Bool {
         guard let open = handler.withLock({ $0 }) else { return false }
-        await MainActor.run { open(request) }
+        await open(request)
         return true
     }
 

@@ -218,6 +218,9 @@ import Testing
         // No entry yet: the record screen, empty.
         #expect(
             try await IntentLogging.repeatPlan(topicId: Self.coffee.id, in: w.context).1 == .openRecord(prefill: nil))
+        // The store it read them from, for the record screen's scope check (notifications.md §7.5).
+        let scope = try await IntentLogging.repeatPlan(topicId: Self.coffee.id, in: w.context).2
+        #expect(scope == (try #require(try await w.context.openActiveStore())).scope)
 
         // The latest still validates: log it again (answers to questions gone since are dropped).
         try w.s.write { db in

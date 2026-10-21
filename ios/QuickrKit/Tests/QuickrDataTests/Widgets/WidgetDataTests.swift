@@ -46,7 +46,10 @@ import Testing
         #expect(options.map(\.value) == ["good", "meh"])
         #expect(shown.lastAnswer == .string("meh"))
         #expect(shown.queued == 0 && shown.failed == 0)
-        #expect(shown.recordURL.absoluteString == "quickr://t/mood/record")
+        // By id, naming the store it was read from (notifications.md §7.5).
+        #expect(
+            shown.recordURL.absoluteString
+                == "quickr://t/\(mood.id.wireString)/record?scope=\(store.store.serverId)/\(store.store.storeGen)")
     }
 
     @Test func aTopicThatNeedsTheFormHasNoQuickLog() async throws {

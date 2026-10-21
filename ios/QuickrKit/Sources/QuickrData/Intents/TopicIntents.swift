@@ -24,7 +24,7 @@ public struct RepeatLastEntryIntent: AppIntent, UndoableIntent {
 
     public func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
         guard let context = IntentWrites.context() else { throw IntentLogging.Failure.noStore }
-        let (current, plan) = try await IntentLogging.repeatPlan(topicId: topic.id, in: context)
+        let (current, plan, scope) = try await IntentLogging.repeatPlan(topicId: topic.id, in: context)
         switch plan {
         case .log(let answers):
             let logged = try await IntentLogging.log(topicId: current.id, answers: answers, in: context)
@@ -37,7 +37,7 @@ public struct RepeatLastEntryIntent: AppIntent, UndoableIntent {
                 ? "\(current.name) has no entry to repeat yet." : "\(current.name)'s last entry no longer fits."
             try await continueInForeground("\(reason) Open quickR to log it?")
             await IntentNavigation.open(
-                .record(topicId: current.id, prefill: IntentNavigation.prefillTexts(prefill ?? [:])))
+                .record(topicId: current.id, prefill: IntentNavigation.prefillTexts(prefill ?? [:]), scope: scope))
             return .result(value: current.name, dialog: "Opening \(current.name) in quickR.")
         }
     }
@@ -61,8 +61,8 @@ public struct OpenRecordIntent: AppIntent {
 
     public func perform() async throws -> some IntentResult {
         guard let context = IntentWrites.context() else { throw IntentLogging.Failure.noStore }
-        let (_, current) = try await IntentLogging.topic(topic.id, in: context)
-        await IntentNavigation.open(.record(topicId: current.id, prefill: [:]))
+        let (store, current) = try await IntentLogging.topic(topic.id, in: context)
+        await IntentNavigation.open(.record(topicId: current.id, prefill: [:], scope: store.scope))
         return .result()
     }
 }

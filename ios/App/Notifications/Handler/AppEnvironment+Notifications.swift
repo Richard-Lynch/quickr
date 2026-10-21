@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import QuickrCore
 import QuickrData
 import UIKit
 import WidgetKit
@@ -26,9 +27,10 @@ extension AppEnvironment {
         Logger(subsystem: "com.bahumia.quickr", category: "notification-action").notice(
             "outcome: \(kind, privacy: .public)")
         #endif
-        guard case .open(let path, let prefill) = outcome else { return }
-        recordPrefill = prefill
-        router.handle(path: path)
+        // §7.5: the reminder's server's topic, by id, and only while that server is active.
+        guard case .open(let path, let serverId, let prefill) = outcome, let routes = DeepLink.routes(forPath: path)
+        else { return }
+        await openScoped(routes, serverId: serverId, storeGen: nil, prefill: prefill)
     }
 
     /// §7.2: whether a notification arriving in the foreground is shown.
@@ -37,9 +39,11 @@ extension AppEnvironment {
         return await notificationHandler(session).shouldPresent(notification)
     }
 
-    /// The tap-to-fix text for `topicId`'s record screen, once.
+    /// The tap-to-fix text for `topicId`'s record screen, once: only the active server's topic's.
     func takeRecordPrefill(topicId: UUID) -> [String: String]? {
-        guard let prefill = recordPrefill, prefill.topicId == topicId.wireString else { return nil }
+        guard let prefill = recordPrefill, prefill.topicId == topicId.wireString,
+            prefill.serverId == session?.binding?.serverId
+        else { return nil }
         recordPrefill = nil
         return prefill.texts
     }

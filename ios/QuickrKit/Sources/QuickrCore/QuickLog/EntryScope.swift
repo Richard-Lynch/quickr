@@ -14,4 +14,13 @@ public struct EntryScope: Sendable, Hashable {
     public init(serverId: String, storeGen: Int) {
         self.init("\(serverId)/\(storeGen)")
     }
+
+    /// The server part ("" when the id has none).
+    public var serverId: String { String(id.split(separator: "/", maxSplits: 1).first ?? "") }
+
+    /// The store generation, when the id has one.
+    public var storeGen: Int? {
+        let parts = id.split(separator: "/", maxSplits: 1)
+        return parts.count == 2 ? Int(parts[1]) : nil
+    }
 }
