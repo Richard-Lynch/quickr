@@ -175,9 +175,11 @@ struct ServerForm: View {
     private func changes(_ n: Int) -> String { n == 1 ? "1 change" : "\(n) changes" }
 
     /// The address for a wrapping field, whose Return inserts a line break. Only Return itself (one
-    /// line break and nothing else added, wherever the cursor is) connects; a pasted address never
-    /// does, and any line break it carries is dropped (an address has none). The IME's Return
-    /// commits its text without one.
+    /// line break and nothing else added, wherever the cursor is) connects; a pasted address
+    /// doesn't, and any line break it carries is dropped (an address has none). The IME's Return
+    /// commits its text without one. A binding sees text, not keys: pasting a lone line break, or
+    /// the very same address plus one, reads as Return and connects that unchanged address, which
+    /// is what Go would do; accepted (Codex r3), since only a UIKit text view could tell them apart.
     private var returnConnects: Binding<String> {
         Binding(
             get: { setup.address },
