@@ -98,7 +98,7 @@ struct ScheduleEditorRows: View {
                 // Our text, which grows fully (a Label here was capped at accessibility sizes).
                 HStack(spacing: 8) {
                     Image(systemName: "plus").accessibilityHidden(true)
-                    Text("Time").font(.qr(.body))
+                    Text("Time").font(.qr(.label)).fixedSize(horizontal: false, vertical: true)
                 }
             }
             .accessibilityLabel("Add a time")

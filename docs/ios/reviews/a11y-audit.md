@@ -424,6 +424,12 @@ view could tell a paste from Return (Codex r3; documented in `ServerForm.swift`)
   - BD1–BD8 (X5 for Edit/Preview, and X4 for the Builder, NewTopic and EditQuestions call
     sites).
 - **Tests:** `TopicUITests`, `BuilderUITests`, including Versions at XXXL.
+- **Audit placement (slice C):** each screen gets the full audit at its top. Partway down a
+  `List` the audit's own text-size stepping re-lays the List out (rows under the translucent bar
+  read as clipped, or the List blanks), with no element to scope, so mid-list calls use only the
+  element-scoped types (`topicsMidList`: hit region, description, trait) plus geometric
+  assertions (44 pt, stacking, hittable). Dynamic Type and clipping partway down the topic
+  screens are checked by hand at XXXL (DEVICE-DAY §6), the "+ Time" row included.
 
 ### Cross-slice touch points
 
