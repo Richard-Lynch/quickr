@@ -157,6 +157,11 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- A11Y H3: home tile reading order. The open button sits behind the content with no sort priority; give it `accessibilitySortPriority` so the combined title element is read before the quick-log controls (TileView.swift).
+- A11Y T5: at AX XXXL the toast's single HStack (text, Undo, ✕) squeezes the text column; stack the actions under the text at AX sizes (ToastView.swift).
+- A11Y SE6: each licence is one huge Text element; split it into paragraphs so VoiceOver can move through it (LicencesView.swift).
+- A11Y SE2: on the device, check that VoiceOver's escape gesture does nothing on the Cloudflare token sheet while a secret is typed, and that leaving through Cancel keeps no secret (DEVICE-DAY).
+- A11Y: the Home due-pulse doesn't stop if Reduce Motion is switched on mid-animation; stop or restart it when the setting changes (HomeView.swift).
 - UIT-6 stall (not reproduced): once, on iOS 27 under load from other simulators, the app never went idle on the record screen just after a topic was created. Every XCUITest action waited out the 120 s "wait for app to idle" ("App animations complete notification not received", 4×), so TopicLifecycleUITests overran its 5 min allowance; the screen looked static. Not reproduced in 6 further runs (test times 102–129 s), with the app's log stream and periodic `sample` showing nothing stuck. Ruled out: the A11Y shared code (not in that build), PerfProbe (passive), and the full keyboard on the int field (by design: no minimum means negatives are allowed). If it recurs, sample the app during the stall and check the record screen's `.task`s and any repeating animation.
 - Tooling: `make ios-uitest-e2e` doesn't pass the IOS_SIM_DEFAULTED marker, so a plain run picks the shared base device rather than the worktree clone (it still counts toward the cap). Extend simcap's per-target defaulting to it.
 - LIST flake: EntriesTests.testAccessibilityXXXL. The swipe-Delete button can land under the home indicator in the full-plan layout (it passes alone 2/2; seen by TOPIC).
