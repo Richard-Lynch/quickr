@@ -15,7 +15,10 @@ import Testing
     private func started() async throws -> (AppEnvironment, AppSession, Task<Void, Never>) {
         UITestLaunch.server.offline = false
         UITestLaunch.network.set(online: true)
-        let environment = UITestLaunch.environment(categoryCenter: nil)
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
         environment.settings.serverURL = UITestLaunch.fakeServer
         await environment.start()
         let session = try #require(environment.session)
@@ -108,15 +111,18 @@ import Testing
     /// unsuccessfully, and no background episode begins.
     @Test func expiryDuringStartupStopsBeforeAnyEpisode() async throws {
         UITestLaunch.server.offline = false
-        let environment = UITestLaunch.environment(categoryCenter: nil)
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
         environment.settings.serverURL = UITestLaunch.fakeServer
         environment.scenePhaseChanged(.background)
         // GRDB's resume: a refresh episode posts it when it starts.
         let resumes = Counter()
-        let observer = NotificationCenter.default.addObserver(
+        let observer = notifications.addObserver(
             forName: Notification.Name("GRDB.Database.Resume"), object: nil, queue: nil
         ) { _ in resumes.increment() }
-        defer { NotificationCenter.default.removeObserver(observer) }
+        defer { notifications.removeObserver(observer) }
         let task = RecordingRefreshTask()
         let refresh = Task { await environment.backgroundRefresh(task) }
         await Task.yield()
@@ -136,14 +142,17 @@ import Testing
         UITestLaunch.server.offline = false
         UITestLaunch.server.holdFeed()
         defer { UITestLaunch.server.releaseFeed() }
-        let environment = UITestLaunch.environment(categoryCenter: nil)
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
         environment.settings.serverURL = UITestLaunch.fakeServer
         environment.scenePhaseChanged(.background)
         let suspends = Counter()
-        let observer = NotificationCenter.default.addObserver(
+        let observer = notifications.addObserver(
             forName: Notification.Name("GRDB.Database.Suspend"), object: nil, queue: nil
         ) { _ in suspends.increment() }
-        defer { NotificationCenter.default.removeObserver(observer) }
+        defer { notifications.removeObserver(observer) }
         let task = RecordingRefreshTask()
         let refresh = Task { await environment.backgroundRefresh(task) }
         try await eventually("startup is fetching") { UITestLaunch.server.heldCount == 1 }
@@ -171,7 +180,10 @@ import Testing
     /// the app stays in the foreground (nothing paused or suspended).
     @Test func activationDuringStartupWins() async throws {
         UITestLaunch.server.offline = false
-        let environment = UITestLaunch.environment(categoryCenter: nil)
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
         environment.settings.serverURL = UITestLaunch.fakeServer
         environment.scenePhaseChanged(.background)
         let task = RecordingRefreshTask()
@@ -194,7 +206,10 @@ import Testing
         UITestLaunch.server.offline = false
         UITestLaunch.server.holdFeed()
         defer { UITestLaunch.server.releaseFeed() }
-        let environment = UITestLaunch.environment(categoryCenter: nil)
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
         environment.settings.serverURL = UITestLaunch.fakeServer
         environment.scenePhaseChanged(.background)
         let task = RecordingRefreshTask()
@@ -225,7 +240,10 @@ import Testing
         UITestLaunch.server.holdFeed()
         UITestLaunch.server.holdCancellations()
         defer { UITestLaunch.server.releaseFeed() }
-        let environment = UITestLaunch.environment(categoryCenter: nil)
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
         environment.settings.serverURL = UITestLaunch.fakeServer
         environment.scenePhaseChanged(.background)
         let task = RecordingRefreshTask()
@@ -304,7 +322,10 @@ import Testing
         UITestLaunch.server.offline = false
         UITestLaunch.server.holdFeed()
         defer { UITestLaunch.server.releaseFeed() }
-        let environment = UITestLaunch.environment(categoryCenter: nil)
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
         environment.settings.serverURL = UITestLaunch.fakeServer
         environment.scenePhaseChanged(.background)
         let task = RecordingRefreshTask()
@@ -331,7 +352,10 @@ import Testing
         UITestLaunch.server.offline = false
         UITestLaunch.server.holdFeed()
         defer { UITestLaunch.server.releaseFeed() }
-        let environment = UITestLaunch.environment(categoryCenter: nil)
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
         environment.settings.serverURL = UITestLaunch.fakeServer
         let starting = Task { await environment.start() }
         try await eventually("startup is fetching") { UITestLaunch.server.heldCount == 1 }
@@ -356,7 +380,10 @@ import Testing
     @Test(arguments: [false, true])
     func launchActivatesPushOncePerTripToTheForeground(activeFirst: Bool) async throws {
         UITestLaunch.server.offline = false
-        let environment = UITestLaunch.environment(categoryCenter: nil)
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
         environment.settings.serverURL = UITestLaunch.fakeServer
         if activeFirst { environment.scenePhaseChanged(.active) }
         await environment.start()
