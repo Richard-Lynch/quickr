@@ -171,7 +171,7 @@ def actions(server_id: str, topic_id: str, version: int, quick_log: QuickLogDesc
     rendered = []
     if quick_log.last_value is not None:
         shown = fmt(quick_log.type, quick_log.last_value)
-        title = f"✓ {shown} {quick_log.unit}" if quick_log.unit else f"✓ {shown}"
+        title = f"Log {shown} {quick_log.unit}" if quick_log.unit else f"Log {shown}"
         rendered.append(Action("log", ident("n", shown), title))
     placeholder = f"Value in {quick_log.unit}" if quick_log.unit else "Value"
     rendered.append(Action("input", ident("i"), OTHER_VALUE_TITLE, TEXT_INPUT_BUTTON_TITLE, placeholder))

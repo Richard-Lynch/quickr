@@ -21,7 +21,7 @@ from app.services import notification
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
 
 PATH = FIXTURES_DIR / "notification-vectors.json"
-GENERATOR_VERSION = 2
+GENERATOR_VERSION = 3
 
 SERVER_ID = "0b9e0000-0000-4000-8000-0000000000aa"
 TOPIC_ID = "6f1c0000-0000-4000-8000-000000000001"
@@ -223,7 +223,7 @@ def build() -> dict[str, Any]:
                 "actions: enum: one {kind: 'log', identifier: q1|server|topic|version|key|o|value, "
                 "title: label} per option, then {kind: 'open', identifier: ...|m|, title: 'More…'} "
                 "when total_options > options.length. Number: when last_value != null, {kind: 'log', "
-                "identifier: ...|n|fmt(last), title: '✓ ' + fmt(last) + (unit ? ' ' + unit : '')}; "
+                "identifier: ...|n|fmt(last), title: 'Log ' + fmt(last) + (unit ? ' ' + unit : '')}; "
                 "then {kind: 'input', identifier: ...|i|, title: 'Other value…', "
                 "text_input_button_title: 'Log', text_input_placeholder: unit ? 'Value in ' + unit : "
                 "'Value'}.",

@@ -51,7 +51,7 @@ DUE = push_svc.Notification(
     due_since=datetime(2026, 10, 17, 10, 0, 0, 999999, tzinfo=ZoneInfo("Europe/Berlin")),
 )
 # The category ids' hashes: they change only with the actions (notifications.md §4.3).
-CATEGORY_HASHES = {"enum-3": "ac13c7153ebee78d", "enum-6": "d83ae3e8e449bdf4", "double": "746b872f70e41f41"}
+CATEGORY_HASHES = {"enum-3": "ac13c7153ebee78d", "enum-6": "d83ae3e8e449bdf4", "double": "48483ec8d23790bb"}
 QUESTIONS = [{"key": "n", "label": "N", "type": "int"}]
 INTERVAL = {"kind": "interval", "every_minutes": 15, "timezone": "UTC"}
 WEB_SUB = {

@@ -241,6 +241,7 @@ struct StepDraftNumberIntent: AppIntent {
 /// The snippet's view: system styling (it renders in the system's UI, not the app's).
 struct EntryDraftSnippet: View {
     let draft: IntentDraft?
+    @ScaledMetric(relativeTo: .body) private var valueWidth: CGFloat = 64
 
     var body: some View {
         if let draft {
@@ -259,6 +260,7 @@ struct EntryDraftSnippet: View {
     private func row(_ question: Question, _ draft: IntentDraft) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(question.required ? question.label : "\(question.label) (optional)").font(.subheadline.bold())
+                .accessibilityAddTraits(.isHeader)
             switch question.kind {
             case .int, .double:
                 HStack {
@@ -266,8 +268,11 @@ struct EntryDraftSnippet: View {
                         Image(systemName: "minus")
                     }
                     .accessibilityLabel("Less \(question.label)")
-                    Text(draft.answers[question.key].map { IntentText.text($0, for: question) } ?? "–")
-                        .monospacedDigit().frame(minWidth: 64)
+                    let value = draft.answers[question.key].map { IntentText.text($0, for: question) }
+                    Text(value ?? "–")
+                        .monospacedDigit().frame(minWidth: valueWidth)
+                        .accessibilityLabel(question.label)
+                        .accessibilityValue(value ?? "No value")
                     Button(intent: StepDraftNumberIntent(draftID: draft.id, key: question.key, direction: 1)) {
                         Image(systemName: "plus")
                     }
@@ -282,25 +287,31 @@ struct EntryDraftSnippet: View {
                     ) { Text(option.label) }
                 }
             case .choice(let rules):
-                HStack {
-                    ForEach(rules.activeOptions, id: \.value) { option in
-                        let selected = draft.answers[question.key] == .string(option.value)
-                        Button(intent: SetDraftOptionIntent(draftID: draft.id, key: question.key, value: option.value))
-                        {
-                            Text(option.label)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(selected ? .accentColor : .secondary)
-                        .accessibilityAddTraits(selected ? .isSelected : [])
-                    }
+                // One row while the options fit; stacked at large text sizes instead of clipping.
+                ViewThatFits(in: .horizontal) {
+                    HStack { options(rules, question, draft) }
+                    VStack(alignment: .leading) { options(rules, question, draft) }
                 }
             case .string:
                 Text(draft.answers[question.key].map { IntentText.text($0, for: question) } ?? "Say it to Siri")
                     .foregroundStyle(.secondary)
             }
             if let problem = draft.problem(for: question) {
-                Text(problem).font(.footnote).foregroundStyle(.red)
+                Label(problem, systemImage: "exclamationmark.circle").font(.footnote).foregroundStyle(.red)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func options(_ rules: Question.ChoiceRules, _ question: Question, _ draft: IntentDraft) -> some View {
+        ForEach(rules.activeOptions, id: \.value) { option in
+            let selected = draft.answers[question.key] == .string(option.value)
+            Button(intent: SetDraftOptionIntent(draftID: draft.id, key: question.key, value: option.value)) {
+                Text(option.label)
+            }
+            .buttonStyle(.bordered)
+            .tint(selected ? .accentColor : .secondary)
+            .accessibilityAddTraits(selected ? .isSelected : [])
         }
     }
 
