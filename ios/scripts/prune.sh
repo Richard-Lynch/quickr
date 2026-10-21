@@ -9,9 +9,10 @@
 # - unavailable simulators (no runtime) that aren't quickR's.
 # Never touches a booted simulator, one a run holds (common.sh sim_hold), a base device, this
 # worktree, or a worktree with a clone running or held. A clone's owner is the worktree
-# sim-clone.sh recorded for it; a clone with no record (made before records) counts as gone only
-# when no directory of its name exists beside this repo's worktrees. Anything it can't establish
-# (a failed git or process query) means keep, or stop.
+# sim-clone.sh recorded for it (and one looked up within the idle time is in use); a clone with
+# no record (made before records) is judged by its name's hash against this repo's worktrees, and
+# kept when that finds none. Anything it can't establish (a failed git, process or file query)
+# means keep, or stop.
 #
 # Simulators are re-read, checked and deleted holding sim-clone.sh's lock and the cap lock (in
 # that order, as sim-clone.sh takes them), so nothing creates, looks up or boots one meanwhile;
@@ -61,7 +62,7 @@ merged() {
 in_use=""
 read_processes() {
   local cwds args
-  cwds="$(lsof -nP -a -d cwd -Fn 2>/dev/null)"
+  cwds="$(lsof -nP -a -d cwd -Fn 2>/dev/null)" || die "prune: lsof failed; not pruning"
   [[ -n "$cwds" ]] || die "prune: lsof listed no working directories; not pruning"
   args="$(ps -wwaxo command= 2>/dev/null)" || die "prune: ps failed; not pruning"
   in_use="$(sed -n 's/^n//p' <<<"$cwds")"$'\n'"$args"
@@ -78,14 +79,17 @@ busy() {  # busy <path>: <path> appears as a path (followed by /, a space, a quo
 }
 # idle <path>: clean, and nothing changed in it for idle_min (any file of either build tree).
 idle() {
-  local gitdir status tree
+  local gitdir status tree recent
   status="$(GIT_OPTIONAL_LOCKS=0 git -C "$1" status --porcelain 2>/dev/null)" || return 1
   [[ -z "$status" ]] || return 1
   gitdir="$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null)" || return 1
-  [[ -z "$(find "$gitdir/HEAD" "$gitdir/logs/HEAD" -mmin "-$idle_min" 2>/dev/null)" ]] || return 1
+  # (A find that fails, say on a permission error, proves nothing: not idle.)
+  recent="$(find "$gitdir/HEAD" "$gitdir/logs/HEAD" -mmin "-$idle_min" 2>/dev/null)" || return 1
+  [[ -z "$recent" ]] || return 1
   for tree in "$1/ios/build" "$1/ios/QuickrKit/.build"; do
     [[ -d "$tree" ]] || continue
-    [[ -z "$(find "$tree" -mmin "-$idle_min" -print -quit 2>/dev/null)" ]] || return 1
+    recent="$(find "$tree" -mmin "-$idle_min" -print -quit 2>/dev/null)" || return 1
+    [[ -z "$recent" ]] || return 1
   done
 }
 
@@ -134,25 +138,22 @@ read_worktrees() {
     esac
   done <<<"$list"$'\n'
 }
-# Directories that may hold a worktree: this repo's worktrees' parents.
-parents() { awk 'NF { print $3 }' <<<"$worktrees" | while read -r p; do dirname "$p"; done | sort -u; }
-
 # A clone's owner state: finished, active, current, gone, or unknown (keep).
 owner_state() {  # owner_state <udid> <hash6> <dir name>
-  local recorded state p
+  local recorded state
   recorded="$(cat "$SIM_OWNERS/$1" 2>/dev/null)"
   if [[ -n "$recorded" ]]; then
+    # Looked up recently (sim-clone.sh rewrites the record each time): a run may be about to boot
+    # or hold it.
+    [[ -z "$(find "$SIM_OWNERS/$1" -mmin "-$idle_min" 2>/dev/null)" ]] || { echo active; return; }
     [[ -d "$recorded" ]] || { echo gone; return; }
     state="$(awk -v p="$recorded" '$3 == p { print $2; exit }' <<<"$worktrees")"
     echo "${state:-unknown}"  # a directory that is no worktree of this repo: not ours to judge
     return
   fi
+  # No record (a clone made before records): its hash names this repo's worktree, or it's unknown.
   state="$(awk -v h="$2" '$1 == h { print $2; exit }' <<<"$worktrees")"
-  if [[ -n "$state" ]]; then echo "$state"; return; fi
-  while read -r p; do
-    [[ -e "$p/$3" ]] && { echo unknown; return; }
-  done < <(parents)
-  echo gone
+  echo "${state:-unknown}"
 }
 
 # --- simulators: under sim-clone.sh's lock, then the cap lock, with a fresh read ------------------
@@ -167,6 +168,7 @@ while read -r udid state avail name; do
   [[ -n "$udid" ]] || continue
   if (( !avail )) && [[ "$name" != "quickR "* ]]; then
     # No runtime for it, so unbootable, and not quickR's: Xcode's leftovers. quickR's are judged below.
+    if [[ "$state" != Shutdown ]] || held "$udid"; then echo "prune: keeping $name: $state or held"; continue; fi
     size="$(kb "$data/$udid")"
     if (( !dry )) && ! xcrun simctl delete "$udid" >/dev/null 2>&1; then warn "could not delete $name ($udid)"; continue; fi
     note "unavailable simulator $name" "${size:-0}"
@@ -175,6 +177,7 @@ while read -r udid state avail name; do
   read -r hash dir <<<"$(clone_hash "$name")"
   [[ -n "$hash" ]] || continue  # a base device (or not quickR's): never
   owner="$(owner_state "$udid" "$hash" "$dir")"
+  [[ "$owner" != unknown ]] || { echo "prune: keeping $name: its owner is unknown (no record; delete it by hand if it's stale)"; continue; }
   [[ "$owner" == finished || "$owner" == gone ]] || continue
   if [[ "$state" != Shutdown ]]; then echo "prune: keeping $name: $state"; continue; fi
   if held "$udid"; then echo "prune: keeping $name: held by a run"; continue; fi

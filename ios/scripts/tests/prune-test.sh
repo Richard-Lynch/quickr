@@ -9,7 +9,7 @@ set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 fake="$(mktemp -d "${TMPDIR:-/tmp}/quickr-prune.XXXXXX")"
 fake="$(cd "$fake" && pwd -P)"
-trap 'rm -rf "$fake"' EXIT
+trap 'chmod -R u+rwx "$fake" 2>/dev/null; rm -rf "$fake"' EXIT
 fails=0
 fail() { echo "FAIL $*"; fails=$((fails + 1)); }
 ok() { echo "ok   $*"; }
@@ -46,6 +46,8 @@ gone="$(mk gone wp/gone)"
 squashed="$(mk squashed wp/squashed)"; commit "$squashed" three; build "$squashed"; old "$squashed"
 squash_oid="$(git -C "$squashed" rev-parse HEAD)"
 current="$(mk current wp/current)"; build "$current"; old "$current"
+# Finished but for a build directory find can't read: nothing proves it idle, so it stays.
+perm="$(mk perm wp/perm)"; build "$perm"; mkdir -p "$perm/ios/build/noread"; old "$perm"; chmod 000 "$perm/ios/build/noread"
 # Finished when classified, but a build starts in it before its output goes.
 late="$(mk late wp/late)"; build "$late"; old "$late"
 hash() { printf '%s' "$(cd "$1" && pwd -P)" | shasum | cut -c1-6; }
@@ -84,6 +86,16 @@ dev c-rec-foreign Shutdown "quickR iOS27 foreign-654321"
 mkdir -p "$fake/owners" "$fake/foreign"
 echo "$fake/vanished" >"$fake/owners/c-rec-gone"
 echo "$fake/foreign" >"$fake/owners/c-rec-foreign"
+# A finished worktree's clone that sim-clone.sh looked up a moment ago (a run is about to use it).
+looked="$(mk looked wp/looked)"; build "$looked"; old "$looked"
+dev c-looked Shutdown "quickR iOS-26-0 looked-$(hash "$looked")"
+echo "$looked" >"$fake/owners/c-looked"
+# An unavailable non-quickR device a run holds, and one whose deletion fails.
+dev old-held Shutdown "iPhone 14" 0
+dev old-stuck Shutdown "iPhone 13" 0
+mkdir -p "$fake/holds/old-held"; ps -o lstart= -p $$ | tr -s ' ' >"$fake/holds/old-held/$$"
+# Records made long ago, except the fresh lookup.
+for f in c-rec-gone c-rec-foreign; do touch -t "$(date -v-1d +%Y%m%d%H%M)" "$fake/owners/$f"; done
 python3 - "$fake/devices.txt" "$devices_json" <<'PY'
 import json, sys
 devs = []
@@ -97,7 +109,7 @@ cat >"$bin/xcrun" <<'SH'
 case "$*" in
 "simctl list -j devices") exec cat "$FAKE_DEVICES" ;;
 "simctl delete unavailable") echo BULK >>"$FAKE_DELETED" ;;
-"simctl delete "*) echo "$3" >>"$FAKE_DELETED" ;;
+"simctl delete "*) [ "$3" = "${FAKE_DELETE_FAIL:-}" ] && exit 1; echo "$3" >>"$FAKE_DELETED" ;;
 *) exit 1 ;;
 esac
 SH
@@ -128,7 +140,7 @@ deleted() { grep -qx "$1" "$fake/deleted" 2>/dev/null; }
 prune --dry-run
 (( status == 0 )) && ok "a dry run succeeds" || fail "dry run: status $status: $out"
 kept_all=1
-for w in "$finished" "$unmerged" "$recent" "$dirty" "$inuse" "$held" "$squashed" "$current"; do
+for w in "$finished" "$unmerged" "$recent" "$dirty" "$inuse" "$held" "$squashed" "$current" "$late" "$looked"; do
   [[ -d "$w/ios/build" && -d "$w/ios/QuickrKit/.build" ]] || kept_all=0
 done
 [[ ! -e "$fake/deleted" ]] && (( kept_all )) && ok "and removes nothing (no simulator, no build tree)" \
@@ -137,24 +149,36 @@ done
   && ok "it says what it would remove, and how much" || fail "dry-run output: $out"
 
 # --- the real run -------------------------------------------------------------------------------
-prune
+# The finished worktree's build tree has a file rm can't remove: reported, not counted.
+blocked="$squashed/ios/QuickrKit/.build/locked"; touch -t "$(date -v-1d +%Y%m%d%H%M)" "$blocked"; chflags uchg "$blocked"
+touch -t "$(date -v-1d +%Y%m%d%H%M)" "$(dirname "$blocked")"  # adding it changed the directory
+trap 'chflags nouchg "$blocked" 2>/dev/null; chmod 755 "$perm/ios/build/noread" 2>/dev/null; rm -rf "$fake"' EXIT
+FAKE_DELETE_FAIL=old-stuck prune
 (( status == 0 )) && ok "a run succeeds" || fail "run: status $status: $out"
-for d in c-fin c-fin27 c-gone c-squash c-rec-gone old-phone; do
+for d in c-fin c-fin27 c-squash c-rec-gone old-phone; do
   deleted "$d" && ok "deletes $d" || fail "kept $d: $out"
 done
-for d in c-unm c-rec c-dirty c-inuse c-held c-gone-booted c-cur base phone old-base c-other c-rec-foreign BULK; do
+for d in c-unm c-rec c-dirty c-inuse c-held c-gone c-gone-booted c-cur base phone old-base c-other c-rec-foreign \
+  c-looked old-held old-stuck BULK; do
   deleted "$d" && fail "deleted $d" || ok "keeps $d"
 done
 [[ ! -d "$finished/ios/build" && ! -d "$finished/ios/QuickrKit/.build" ]] && ok "removes a finished worktree's build output" \
   || fail "finished build output kept"
 [[ ! -d "$squashed/ios/build" ]] && ok "and a squash-merged PR worktree's" || fail "squashed build output kept"
-for w in "$unmerged" "$recent" "$dirty" "$inuse" "$held" "$current" "$late"; do
+for w in "$unmerged" "$recent" "$dirty" "$inuse" "$held" "$current" "$late" "$perm"; do
   [[ -d "$w/ios/build" ]] || fail "removed $(basename "$w")'s build output"
 done
 ok "keeps the build output of unmerged, recent, dirty, in-use, held and current worktrees"
 [[ "$out" == *"keeping $late: in use now"* ]] && ok "and of one that came into use after it was classified" \
   || fail "late worktree: $out"
-[[ "$out" == *"removed "*" in all"* ]] && ok "it prints what it freed" || fail "no total: $out"
+[[ "$out" == *"keeping quickR iOS-26-0 gone-$gone_hash: its owner is unknown"* ]] \
+  && ok "an unrecorded clone matching no worktree is kept, and said so" || fail "unknown owner: $out"
+[[ "$out" == *"could not delete iPhone 13"* && "$out" != *"removed unavailable simulator iPhone 13"* ]] \
+  && ok "a failed simulator deletion is reported, not counted" || fail "failed deletion: $out"
+[[ "$out" == *"could not remove all of $squashed/ios/QuickrKit/.build"* && "$out" != *"removed $squashed/ios/QuickrKit/.build"* ]] \
+  && ok "a build tree rm can't remove is reported, not counted" || fail "failed rm: $out"
+total="$(sed -nE 's/^prune: removed ([0-9.]+ [MG]B) in all$/\1/p' <<<"$out")"
+[[ -n "$total" && "$total" != "0 MB" ]] && ok "it prints what it freed ($total)" || fail "no total: $out"
 
 # Without gh (or with IOS_PRUNE_MERGED_PRS=0), a squash-merged branch isn't finished.
 rm -f "$fake/deleted"
