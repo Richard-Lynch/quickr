@@ -92,7 +92,10 @@ export QUICKR_SIM_CAP_LOCK="$fake/cap.lockf" QUICKR_SIM_CLONE_LOCK="$fake/clone.
 export QUICKR_SIM_CAP_QUEUE="$fake/queue" QUICKR_SIM_HOLDS="$fake/holds"
 # The caller's settings must not leak in: an inherited IOS_SIM_WAIT=1 (check-ios run with it)
 # turns the "refused" cases into waits that never end.
-unset IOS_SIM_WAIT IOS_SIM_CAP CI IOS_SIM_DEFAULTED IOS_SIM IOS_SIM_MIN IOS_SIM_KEEP  # CI skips the cap in sim_boot
+unset IOS_SIM_WAIT IOS_SIM_CAP CI IOS_SIM_DEFAULTED IOS_SIM IOS_SIM_MIN IOS_SIM_KEEP
+# The disk and memory guards read this Mac's real figures: off here, except in their own cases
+# below, which fake `df` and `memory_pressure`.
+export IOS_SIM_RESOURCE_GUARD=0  # CI skips the cap in sim_boot
 fails=0
 fail() { echo "FAIL $*"; fails=$((fails + 1)); }
 boot() {  # boot <udid>: sim_boot in a subshell; sets status and out
@@ -449,5 +452,73 @@ out="$(perl -e 'alarm shift; exec @ARGV' 60 bash -c 'source "$1/../common.sh"; t
 status=$?
 expect "the caller's EXIT handler still runs after the release, with the run's status" 7 "caller-exit 7"
 [[ "$(state h)" == Shutdown ]] && echo "ok   and the device is shut down" || fail "with a caller trap: $(state h)"
+
+# Resource guards (a new boot only): fake `df` and `memory_pressure` read FAKE_FREE_KB and
+# FAKE_FREE_PCT (the second can change while a boot waits).
+cat >"$fake/df" <<'SH'
+#!/bin/sh
+echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+echo "/dev/disk3s5 971350180 800000000 ${FAKE_FREE_KB:-104857600} 88% /System/Volumes/Data"
+SH
+cat >"$fake/memory_pressure" <<'SH'
+#!/bin/sh
+echo "The system has 25769803776 (1572864 pages with a page size of 16384)."
+echo "System-wide memory free percentage: $(cat "$FAKE_FREE_PCT_FILE" 2>/dev/null || echo 60)%"
+SH
+chmod +x "$fake/df" "$fake/memory_pressure"
+export FAKE_FREE_PCT_FILE="$fake/free.pct"
+guarded() {  # guarded <udid> [VAR=value ...]: sim_boot with the guards on; sets status and out
+  local udid="$1"; shift
+  out="$(env IOS_SIM_RESOURCE_GUARD=1 IOS_SIM_MEM_POLL=1 "$@" perl -e 'alarm shift; exec @ARGV' 60 \
+    bash -c 'source "$1/../common.sh"; sim_boot "$2"' _ "$here" "$udid" 2>&1)"
+  status=$?
+}
+echo 60 >"$FAKE_FREE_PCT_FILE"
+devices "g:Shutdown:quickR iOS-26-0 guard-1"
+guarded g FAKE_FREE_KB=$((100 * 1048576))
+expect "100 GB free and 60% memory free: it boots" 0
+devices "g:Shutdown:quickR iOS-26-0 guard-1"
+guarded g FAKE_FREE_KB=$((10 * 1048576))
+expect "10 GB free: refused, suggesting ios-prune" 1 "make ios-prune"
+[[ "$(state g)" == Shutdown ]] && echo "ok   and nothing is booted" || fail "booted on a full disk"
+guarded g FAKE_FREE_KB=$((10 * 1048576)) IOS_SIM_MIN_FREE_GB=5
+expect "IOS_SIM_MIN_FREE_GB lowers the floor" 0
+
+devices "g:Shutdown:quickR iOS-26-0 guard-1"
+echo 10 >"$FAKE_FREE_PCT_FILE"
+guarded g IOS_SIM_MEM_WAIT=3
+expect "10% memory free past IOS_SIM_MEM_WAIT: refused, saying why" 1 "memory still under pressure"
+[[ "$out" == *"waiting for memory: 10% free"* ]] && echo "ok   it said what it was waiting for" || fail "no wait message: $out"
+[[ "$(state g)" == Shutdown ]] && echo "ok   and nothing is booted" || fail "booted under memory pressure"
+( sleep 2; echo 50 >"$FAKE_FREE_PCT_FILE" ) &
+start=$SECONDS
+guarded g IOS_SIM_MEM_WAIT=30
+expect "memory frees while it waits: it boots" 0 "waiting for memory"
+(( SECONDS - start >= 2 )) && echo "ok   only once memory freed" || fail "it booted before memory freed"
+wait
+
+# Checked again at admission: memory drops while it waits for a slot, so when the slot frees it
+# waits for memory first, without holding the lock.
+devices "a:Booted:$A" "g:Shutdown:quickR iOS-26-0 guard-1"
+echo 60 >"$FAKE_FREE_PCT_FILE"
+env IOS_SIM_RESOURCE_GUARD=1 IOS_SIM_MEM_POLL=1 IOS_SIM_MEM_WAIT=60 IOS_SIM_CAP=1 IOS_SIM_WAIT=1 \
+  bash -c 'source "$1/../common.sh"; sim_boot g' _ "$here" >"$fake/adm.out" 2>&1 &
+adm=$!
+until_true "the boot queues for a slot" grep -q "waiting for a simulator slot" "$fake/adm.out"
+echo 10 >"$FAKE_FREE_PCT_FILE"
+setstate a Shutdown
+until_true "it waits for memory at admission" grep -q "waiting for memory" "$fake/adm.out"
+[[ "$(state g)" == Shutdown ]] && echo "ok   a slot alone doesn't boot it under memory pressure" || fail "booted under pressure at admission"
+# Another boot gets an answer at once (the lock is free): it queues behind the one waiting for
+# memory, which keeps its place.
+boot a; expect "the cap lock isn't held meanwhile; the memory waiter keeps its place" 1 "1 waiting ahead"
+echo 50 >"$FAKE_FREE_PCT_FILE"
+reap "$adm"
+[[ "$reaped" == 0 && "$(state g)" == Booted ]] && echo "ok   it boots once memory frees" || fail "after memory freed: $reaped $(state g); $(cat "$fake/adm.out")"
+
+echo 10 >"$FAKE_FREE_PCT_FILE"
+guarded g FAKE_FREE_KB=$((1 * 1048576)) IOS_SIM_MEM_WAIT=3
+expect "a device already booted is reused whatever the disk and memory" 0
+echo 60 >"$FAKE_FREE_PCT_FILE"
 
 (( fails == 0 )) && echo "sim cap: all passed" || { echo "sim cap: $fails failed"; exit 1; }

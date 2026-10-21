@@ -210,11 +210,16 @@ ios-fmt: ## iOS: swift-format in place
 	@$(IOS_SCRIPTS)/require-xcode.sh
 	cd ios && xcrun swift-format format --in-place --recursive --parallel App AppTests UITests Widgets NotificationService QuickrKit
 
+.PHONY: ios-prune
+ios-prune: ## iOS: free disk from finished work (old worktrees' simulator clones and build output, unavailable simulators); IOS_PRUNE_DRY_RUN=1 only lists
+	@$(IOS_SCRIPTS)/prune.sh
+
 .PHONY: ios-script-test
-ios-script-test: ## iOS: tests for the shell tooling (xcodebuild watchdog, simulator cap, process-tree stop, TestFlight, device run, D probe summary); no Xcode needed
+ios-script-test: ## iOS: tests for the shell tooling (xcodebuild watchdog, simulator cap and guards, process-tree stop, prune, TestFlight, device run, D probe summary); no Xcode needed
 	@$(IOS_SCRIPTS)/tests/watchdog-test.sh
 	@$(IOS_SCRIPTS)/tests/sim-cap-test.sh
 	@$(IOS_SCRIPTS)/tests/run-limited-test.sh
+	@$(IOS_SCRIPTS)/tests/prune-test.sh
 	@$(IOS_SCRIPTS)/tests/testflight-test.sh
 	@$(IOS_SCRIPTS)/tests/device-run-test.sh
 	@$(IOS_SCRIPTS)/tests/dprobe-summary-test.sh

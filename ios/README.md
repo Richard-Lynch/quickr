@@ -85,7 +85,15 @@ the UDID. Automated runs (`test.sh` and everything built on it, `check-ios`, the
 shots and proof scripts) hold the simulator they use and shut it down when they end, by error
 or signal too, if they booted it and no other run still holds it; a simulator that was already
 booted (by `sim-run.sh`, `sim-clone.sh` or Xcode) stays booted. `IOS_SIM_KEEP=1` keeps it
-booted for an interactive session afterwards. `make ios-script-test` tests all of this (no
+booted for an interactive session afterwards. A new boot also needs room: it is refused under
+`IOS_SIM_MIN_FREE_GB` (default 15) free on the simulators' disk, and waits up to
+`IOS_SIM_MEM_WAIT` seconds (default 600) while `memory_pressure` reports under
+`IOS_SIM_MIN_FREE_PCT` (default 20) % free (`IOS_SIM_RESOURCE_GUARD=0` turns both off).
+`make ios-prune` frees disk from finished work: the simulator clones of worktrees that are gone,
+or merged (into `origin/ios/m3` or a merged pull request), unused and idle for
+`IOS_PRUNE_IDLE_HOURS` (default 3), with those worktrees' `ios/build` and `QuickrKit/.build`,
+and unavailable simulators; never a booted or held simulator, a base device or this worktree.
+`IOS_PRUNE_DRY_RUN=1` (or `--dry-run`) only lists what it would remove. `make ios-script-test` tests all of this (no
 Xcode needed).
 
 `simctl openurl` with the `quickr://` scheme shows a system "Open in quickR?"
