@@ -63,14 +63,14 @@ struct FormSaveBar: ViewModifier {
                     .background(Color.qr.paper)
             }
         }
-            // FormView puts it in the keyboard's toolbar, after its Next/Done: one toolbar, in order.
-            .environment(\.formSave, FormSave(title: title, identifier: identifier, isSaving: isSaving, action: save))
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-                keyboardUp = true
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-                keyboardUp = false
-            }
+        // FormView puts it in the keyboard's toolbar, after its Next/Done: one toolbar, in order.
+        .environment(\.formSave, FormSave(title: title, identifier: identifier, isSaving: isSaving, action: save))
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            keyboardUp = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardUp = false
+        }
     }
 }
 #endif
