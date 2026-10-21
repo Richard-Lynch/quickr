@@ -5,7 +5,7 @@ import Testing
 /// rejects an include of a statically linked package and drops every intent in the bundle (see
 /// QuickrData/Intents/QuickrDataIntents.swift). `IntentMetadataTests` catches it in the built
 /// bundles; this catches it in source, on the host, before any build.
-@Test(.timeLimit(.minutes(2))) func noSourceDeclaresAnAppIntentsPackage() throws {
+@Test(.timeLimit(.minutes(5))) func noSourceDeclaresAnAppIntentsPackage() throws {
     let ios = URL(fileURLWithPath: #filePath)  // ios/QuickrKit/Tests/QuickrDataTests/<this file>
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent()

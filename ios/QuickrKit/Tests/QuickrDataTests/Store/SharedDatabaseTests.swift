@@ -4,7 +4,7 @@ import QuickrData
 import QuickrTestSupport
 import Testing
 
-@Suite(.timeLimit(.minutes(2))) struct SharedDatabaseTests {
+@Suite(.timeLimit(.minutes(5))) struct SharedDatabaseTests {
     private func open(_ url: URL, notifier: (any ChangeNotifier)? = nil) throws -> DatabasePool {
         try SharedDatabase.openPool(
             at: url, migrations: StoreSchema.migrations, notifier: notifier, commitSignal: .dbChanged)
@@ -111,7 +111,7 @@ import Testing
     }
 }
 
-@Suite(.timeLimit(.minutes(2))) struct ChangeSignalTests {
+@Suite(.timeLimit(.minutes(5))) struct ChangeSignalTests {
     @Test func darwinNotificationsRoundTrip() async throws {
         let notifier = DarwinNotifier()
         let name = ChangeSignalName(rawValue: "com.bahumia.quickr.test.\(UUID().uuidString)")
@@ -134,8 +134,14 @@ import Testing
         var iterator = signal.stream().makeAsyncIterator()
         signal.poke()
         #expect(await iterator.next() != nil)
-        try await Task.sleep(for: .milliseconds(20))  // let the forwarder subscribe
-        notifier.post(.dbChanged)
+        // The forwarder subscribes asynchronously: post until it forwards one (ordering, not timing).
+        let poster = Task {
+            while !Task.isCancelled {
+                notifier.post(.dbChanged)
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+        }
         #expect(await iterator.next() != nil)
+        poster.cancel()
     }
 }

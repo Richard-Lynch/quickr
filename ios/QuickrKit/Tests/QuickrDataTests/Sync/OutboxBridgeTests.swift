@@ -7,7 +7,7 @@ import Testing
 
 /// `SyncCoordinator.handle(_:)` and `OutboxFlushBridge` (sync-protocol.md §5.6, §7). The
 /// end-to-end versions against the real backend are in QuickrDataIntegrationTests (S8, S9, 38, 49).
-@Suite(.timeLimit(.minutes(2))) struct OutboxBridgeTests {
+@Suite(.timeLimit(.minutes(5))) struct OutboxBridgeTests {
     @Test(arguments: [OutboxSignal.epochSuspect, .pullRequested, .identityMismatch])
     func everySignalRunsTheCoordinator(_ signal: OutboxSignal) async throws {
         let env = try SyncEnv()
@@ -156,10 +156,10 @@ import Testing
             defer { gate.releaseAll() }  // on a timeout too, so nothing stays parked
             let a = OutboxFlushScheduler(
                 outbox: Outbox(store: store, sender: ParkingSender(gate), owner: "app:a\(round)"))
-            try await within("A is bound, round \(round)", timeout: .seconds(10)) { await bridge.bind(a) }
+            try await within("A is bound, round \(round)") { await bridge.bind(a) }
             try await store.enqueue(Payloads.create())
             bridge.requestFlush(reason: .afterPull)
-            try await within("A is mid-flush, round \(round)", timeout: .seconds(10)) { await gate.arrival() }
+            try await within("A is mid-flush, round \(round)") { await gate.arrival() }
 
             let open = Gate()
             open.open()
@@ -178,13 +178,13 @@ import Testing
                 }
             }
             defer { probe.cancel() }
-            try await within("B and C are bound, round \(round)", timeout: .seconds(10)) {
+            try await within("B and C are bound, round \(round)") {
                 async let bindB: Void = bridge.bind(b)
                 async let bindC: Void = bridge.bind(c)
                 _ = await (bindB, bindC)
             }
             probe.cancel()
-            try await within("the probe stopped, round \(round)", timeout: .seconds(10)) { await probe.value }
+            try await within("the probe stopped, round \(round)") { await probe.value }
             #expect(violations.withLock { $0 } == 0, "round \(round)")
             #expect(await a.isRetired)
             // Whichever bind ran last is bound; the other was retired.

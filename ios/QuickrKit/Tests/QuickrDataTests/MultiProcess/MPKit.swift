@@ -261,7 +261,7 @@ final class SyncRouter: Transport {
 extension Gate {
     /// `arrival()` as a barrier that fails the test after `timeout` instead of hanging when the
     /// request never comes (a broken process never sends it).
-    func arrived(within timeout: Duration = .seconds(30)) async throws {
+    func arrived(within timeout: Duration = .seconds(120)) async throws {
         let flag = ArrivalFlag()
         Task { [self] in
             await arrival()

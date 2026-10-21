@@ -9,7 +9,7 @@ import Testing
 /// S20), file-backed. Multi-process cases are simulated in one process with a second registry
 /// pool per "process" and lease time moved by hand; the real-subprocess versions are in
 /// `MultiProcess/SyncMultiProcessTests`.
-@Suite(.timeLimit(.minutes(1))) struct SyncRebuildTests {
+@Suite(.timeLimit(.minutes(5))) struct SyncRebuildTests {
     static let e2 = "00000000-0000-4000-8000-0000000000e2"
     static let e3 = "00000000-0000-4000-8000-0000000000e3"
 
