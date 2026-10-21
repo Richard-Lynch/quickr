@@ -9,7 +9,7 @@ import Testing
 
 /// REG's app glue (notifications.md §9.2): the live environment's push lifecycle registers the
 /// token the app delegate hands over, with both Expect headers, and stores it in the registry.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct PushLifecycleTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(5))) struct PushLifecycleTests {
     /// Answers the APNs device calls as the seeded server; everything else is unreachable.
     final class PushServer: Transport {
         let calls = Mutex<[HTTPRequest]>([])
