@@ -74,7 +74,9 @@ Simulators boot through one admission (`sim-clone.sh`, `test.sh`, `sim-run.sh`):
 it refuses while `IOS_SIM_CAP` (default 2; 0 = off) other quickR simulators
 (worktree clones and the base `quickR …` devices alike) are booted, and names them; `sim-clone.sh --wait` or `IOS_SIM_WAIT=1` waits for a
 slot instead. A machine-wide lock covers the check and the boot, so two
-worktrees can't both take the last slot. A clone that is already booted never
+worktrees can't both take the last slot. Waiters are served first come, first served: each
+takes a ticket and only the oldest live one gets a freed slot (it prints its place in the
+queue); a dead waiter's ticket is skipped. A clone that is already booted never
 counts against itself. `sim-clone.sh` boots its clone; `--no-boot` only prints
 the UDID. `make ios-script-test` tests both (no Xcode needed).
 

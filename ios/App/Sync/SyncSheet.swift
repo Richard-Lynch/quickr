@@ -70,6 +70,7 @@ struct SyncSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(model.headline)
                 .font(.qr(.body))
+                .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("sync.headline")
             Text(lastSync(model.lastSyncAt))
                 .font(.qr(.footnote))
@@ -78,9 +79,11 @@ struct SyncSheet: View {
             if model.canSyncNow {
                 Button {
                     syncing = true
+                    QuickrAnnouncer.announce("Syncing")
                     Task {
                         await environment.sync.syncNow()
                         syncing = false
+                        QuickrAnnouncer.announce("Sync finished")
                     }
                 } label: {
                     Label("Sync now", systemImage: "arrow.triangle.2.circlepath")
@@ -132,6 +135,8 @@ private struct SyncItemRowView: View {
     let perform: (@escaping () async throws -> Void) -> Void
     @Environment(AppEnvironment.self) private var environment
     @State private var confirmingDiscard = false
+    /// Counts Discard taps: VoiceOver moves to "Discard for good" as it replaces Discard (audit S1).
+    @State private var discardRequests = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -186,7 +191,9 @@ private struct SyncItemRowView: View {
                 perform { try await environment.sync.discard(row) }
             }
             .buttonStyle(.qr(.danger, size: .small))
+            .accessibilityHint("Deletes this change from this iPhone. It can’t be undone.")
             .accessibilityIdentifier("sync.row.\(index).discardConfirm")
+            .qrMovesVoiceOverFocus(on: discardRequests)
         } else {
             if row.canDismiss {
                 Button("Dismiss") { perform { try await environment.sync.dismiss(row) } }
@@ -194,9 +201,12 @@ private struct SyncItemRowView: View {
                     .accessibilityIdentifier("sync.row.\(index).dismiss")
             }
             if row.canDiscard {
-                Button("Discard") { confirmingDiscard = true }
-                    .buttonStyle(.qr(.quietDanger, size: .small))
-                    .accessibilityIdentifier("sync.row.\(index).discard")
+                Button("Discard") {
+                    discardRequests += 1
+                    confirmingDiscard = true
+                }
+                .buttonStyle(.qr(.quietDanger, size: .small))
+                .accessibilityIdentifier("sync.row.\(index).discard")
             }
             if row.fix != nil {
                 Button {
