@@ -241,7 +241,13 @@ final class RecordUITests: XCTestCase {
         let app = launch(open: "quickr://t/workout/record", extra: AccessibilityLaunch.arguments())
         XCTAssertTrue(app.buttons["Run"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["record.save"].isHittable)
-        try assertAccessible(app)
+        try assertAccessible(
+            app,
+            allowing: [
+                KnownAccessibilityIssue(
+                    "E1", .textClipped, element: "· iOS app",
+                    reason: "EntryDetailsSection's one-line summary; slice B fixes it (remove on merge)")
+            ])
         app.buttons["Run"].tap()
         let duration = app.textFields["form.field.duration"]
         XCTAssertTrue(duration.waitForKeyboardFocus())

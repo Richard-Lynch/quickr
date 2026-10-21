@@ -10,6 +10,7 @@ struct ServerForm: View {
     @FocusState private var focus: Field?
     /// Counts Connect taps, so the same failure twice is announced twice.
     @State private var attempt = 0
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private enum Field: Hashable {
         case address, clientId, clientSecret
@@ -23,7 +24,12 @@ struct ServerForm: View {
                     .foregroundStyle(.qr.ink)
                     .accessibilityHidden(true)  // the field says it
                 // Verbatim: a title string is Markdown, which would turn the example into a link.
-                TextField(text: $setup.address, prompt: Text(verbatim: "https://quickr.example.com")) {
+                // At accessibility sizes the example moves to the help text: in the one-line field
+                // it was cut off.
+                TextField(
+                    text: $setup.address,
+                    prompt: typeSize.isAccessibilitySize ? nil : Text(verbatim: "https://quickr.example.com")
+                ) {
                     Text("Server address")
                 }
                 .textContentType(.URL)
@@ -36,10 +42,14 @@ struct ServerForm: View {
                 .modifier(FieldStyle(isInvalid: isFailed))
                 .accessibilityHint("The address you open quickR at in a browser.")
                 .accessibilityIdentifier("server.address")
-                Text("The address you open quickR at in a browser.")
-                    .font(.qr(.subheadline))
-                    .foregroundStyle(.qr.muted)
-                    .accessibilityHidden(true)  // the field's hint
+                Text(
+                    verbatim: typeSize.isAccessibilitySize
+                        ? "The address you open quickR at in a browser, like https://quickr.example.com."
+                        : "The address you open quickR at in a browser."
+                )
+                .font(.qr(.subheadline))
+                .foregroundStyle(.qr.muted)
+                .accessibilityHidden(true)  // the field's hint
             }
 
             DisclosureGroup(isExpanded: $setup.showsAccessToken) {

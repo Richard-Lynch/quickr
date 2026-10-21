@@ -25,6 +25,7 @@ public struct NumberStepper: View {
     @ScaledMetric(relativeTo: .title3) private var compactSide = QuickrMetrics.tapTarget
     @FocusState private var ownFocus: Bool
     @State private var haptic: (QuickrHaptic, Int) = (.increase, 0)
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     /// - Parameters:
     ///   - label: the accessible name ("Glasses"); the visible label is the caller's.
@@ -43,12 +44,27 @@ public struct NumberStepper: View {
     }
 
     public var body: some View {
-        HStack(spacing: size == .regular ? 8 : 6) {
-            stepButton(.down)
-            field
-            stepButton(.up)
+        let spacing: CGFloat = size == .regular ? 8 : 6
+        Group {
+            if typeSize.isAccessibilitySize {
+                // At accessibility sizes the field takes the full width, with − and + under it:
+                // between them it was too narrow for its digits or range hint (audit F9).
+                VStack(spacing: spacing) {
+                    field.frame(height: side)
+                    HStack(spacing: spacing) {
+                        stepButton(.down)
+                        stepButton(.up)
+                    }
+                }
+            } else {
+                HStack(spacing: spacing) {
+                    stepButton(.down)
+                    field
+                    stepButton(.up)
+                }
+                .frame(height: side)
+            }
         }
-        .frame(height: side)
         .sensoryFeedback(trigger: haptic.1) { _, _ in haptic.0.feedback }
     }
 
@@ -128,7 +144,8 @@ public struct NumberStepper: View {
             Text(direction == .up ? "+" : "−")
                 .font(.qr(.sansSemiBold, size: 24, relativeTo: .title2))
                 .foregroundStyle(.qr.inkSoft)
-                .frame(width: buttonWidth, height: side)
+                .frame(width: typeSize.isAccessibilitySize ? nil : buttonWidth, height: side)
+                .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil)
                 .background(Color.qr.surface, in: shape)
                 .overlay(shape.strokeBorder(Color.qr.lineStrong, lineWidth: 1))
                 .contentShape(shape)
