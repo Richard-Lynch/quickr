@@ -188,7 +188,7 @@ final class EditTests: XCTestCase {
         let water = app.descendants(matching: .any)["tile.water"]
         XCTAssertTrue(water.waitForExistence(timeout: 10))
         water.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.15)).tap()
-        app.segmentedControls["topic.tabs"].buttons["Entries"].tap()
+        selectTopicTab("Entries", in: app)
         let row = app.descendants(matching: .any)["entry.00000000-0000-4000-9002-000000000001"]
         XCTAssertTrue(row.waitForExistence(timeout: 10))
         row.tap()

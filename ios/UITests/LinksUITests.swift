@@ -13,7 +13,7 @@ final class LinksUITests: XCTestCase {
         // A topic tab's link (Versions, BUILDER-UI's) opens on that tab.
         let app = launch(open: "quickr://t/workout/versions")
         XCTAssertTrue(app.descendants(matching: .any)["versions.v1"].firstMatch.waitForExistence(timeout: 15))
-        XCTAssertEqual(app.segmentedControls["topic.tabs"].buttons["Versions"].isSelected, true)
+        XCTAssertEqual(selectedTopicTab(in: app), "Versions")
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 5))
     }

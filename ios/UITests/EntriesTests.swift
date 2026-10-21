@@ -98,9 +98,7 @@ final class EntriesTests: XCTestCase {
         let water = app.descendants(matching: .any)["tile.water"]
         XCTAssertTrue(water.waitForExistence(timeout: 20))
         water.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.15)).tap()
-        let tabs = app.segmentedControls["topic.tabs"]
-        XCTAssertTrue(tabs.waitForExistence(timeout: 5))
-        tabs.buttons["Entries"].tap()
+        selectTopicTab("Entries", in: app)
         XCTAssertTrue(app.staticTexts["entries.count"].waitForExistence(timeout: 10))
     }
 

@@ -76,6 +76,7 @@ struct QuestionStatsCard: View {
     let question: Question?
     let series: OverviewModel.Load<QuestionSeries>?
     let bucket: QuestionSeries.Bucket
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         Card {
@@ -198,9 +199,11 @@ struct QuestionStatsCard: View {
                 let maxTop = max(1, s.top.map(\.count).max() ?? 0)
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Most common").font(.qr(.caption)).bold().foregroundStyle(.qr.inkSoft)
+                        .accessibilityAddTraits(.isHeader)
                     ForEach(s.top.prefix(5), id: \.value) { item in
                         HStack {
-                            Text(item.value).lineLimit(1)
+                            // One line beside the count, or wrapped at accessibility sizes.
+                            Text(item.value).lineLimit(typeSize.isAccessibilitySize ? 4 : 1)
                             Spacer(minLength: 8)
                             Text("\(item.count)").font(.qr(.monoCaption)).foregroundStyle(.qr.inkSoft)
                         }
@@ -215,11 +218,15 @@ struct QuestionStatsCard: View {
                         }
                         .background(Color.qr.sunken.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(item.value)
+                        .accessibilityValue(ChartFormat.plural(item.count, "answer"))
                     }
                 }
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("Recent").font(.qr(.caption)).bold().foregroundStyle(.qr.inkSoft)
+                    .accessibilityAddTraits(.isHeader)
                 if s.recent.isEmpty {
                     Text("No answers in this range.").font(.qr(.subheadline)).foregroundStyle(.qr.muted)
                 } else {
@@ -230,6 +237,7 @@ struct QuestionStatsCard: View {
                                 .qr.muted)
                         }
                         .padding(.vertical, 4)
+                        .accessibilityElement(children: .combine)
                     }
                 }
             }
