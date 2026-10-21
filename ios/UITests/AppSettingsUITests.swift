@@ -76,13 +76,11 @@ final class AppSettingsUITests: XCTestCase {
         XCTAssertTrue(reveal(syncNow, in: app), "Sync now is reachable")
         bringIntoFullView([headline, syncNow], in: app)
         // What's cheap and deterministic mid-list (the rest is DEVICE-DAY §6's manual XXXL pass):
-        // both rows wholly between the bar and the bottom, the width of the list, and hittable;
-        // Status, a label over its value at this size, takes more than one line.
-        let top = app.navigationBars.firstMatch.frame.maxY
+        // both rows wholly between the bar and the bottom (asserted by bringIntoFullView), the
+        // width of the list, and hittable; Status, a label over its value here, takes more than
+        // one line.
         let window = app.windows.firstMatch.frame
         for (name, row) in [("Status", headline), ("Sync now", syncNow)] {
-            XCTAssertGreaterThanOrEqual(row.frame.minY, top, "\(name) starts below the navigation bar")
-            XCTAssertLessThanOrEqual(row.frame.maxY, window.maxY, "\(name) ends on screen")
             XCTAssertGreaterThanOrEqual(row.frame.width, window.width * 0.8, "\(name) spans the list")
             XCTAssertTrue(row.isHittable, "\(name) is hittable")
         }

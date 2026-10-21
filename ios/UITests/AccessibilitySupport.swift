@@ -115,9 +115,13 @@ extension XCTestCase {
 
 extension XCTestCase {
     /// Nudges the list (bounded) until every element sits wholly between the navigation bar and the
-    /// bottom of the window, with `margin` to spare (a drag can land a few points short).
+    /// bottom of the window, with `margin` to spare (a drag can land a few points short), then
+    /// asserts that they do.
     @MainActor
-    func bringIntoFullView(_ elements: [XCUIElement], in app: XCUIApplication, margin: CGFloat = 24) {
+    func bringIntoFullView(
+        _ elements: [XCUIElement], in app: XCUIApplication, margin: CGFloat = 24,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
         let top = app.navigationBars.firstMatch.frame.maxY
         let bottom = app.windows.firstMatch.frame.maxY
         for _ in 0..<8 {
@@ -133,6 +137,11 @@ extension XCTestCase {
             }
             let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -down)))
+        }
+        for element in elements {
+            let name = element.identifier
+            XCTAssertGreaterThanOrEqual(element.frame.minY, top, "\(name) under the bar", file: file, line: line)
+            XCTAssertLessThanOrEqual(element.frame.maxY, bottom, "\(name) below the window", file: file, line: line)
         }
     }
 }
