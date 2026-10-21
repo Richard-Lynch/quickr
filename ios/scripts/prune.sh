@@ -37,7 +37,7 @@ freed_kb=0
 
 kb() { du -sk "$1" 2>/dev/null | awk '{ print $1 }'; }
 human() { awk -v k="$1" 'BEGIN { if (k >= 1048576) printf "%.1f GB", k / 1048576; else printf "%.0f MB", k / 1024 }'; }
-note() { echo "prune: $verb $1 ($(human "${2:-0}"))"; freed_kb=$((freed_kb + ${2:-0})); }
+note() { echo "prune: $verb $1 ($(human "${2:-0}"), ${2:-0} KB)"; freed_kb=$((freed_kb + ${2:-0})); }
 
 # Finished work: reachable from the base, or from a merged pull request's head (from `gh`;
 # IOS_PRUNE_MERGED_PRS=0, or no gh or network: the base alone).
@@ -145,7 +145,9 @@ owner_state() {  # owner_state <udid> <hash6> <dir name>
   if [[ -n "$recorded" ]]; then
     # Looked up recently (sim-clone.sh rewrites the record each time): a run may be about to boot
     # or hold it.
-    [[ -z "$(find "$SIM_OWNERS/$1" -mmin "-$idle_min" 2>/dev/null)" ]] || { echo active; return; }
+    local fresh
+    fresh="$(find "$SIM_OWNERS/$1" -mmin "-$idle_min" 2>/dev/null)" || { echo unknown; return; }
+    [[ -z "$fresh" ]] || { echo active; return; }
     [[ -d "$recorded" ]] || { echo gone; return; }
     state="$(awk -v p="$recorded" '$3 == p { print $2; exit }' <<<"$worktrees")"
     echo "${state:-unknown}"  # a directory that is no worktree of this repo: not ours to judge
@@ -206,4 +208,4 @@ while read -r hash state path; do
   done
 done <<<"$worktrees"
 
-echo "prune: $verb $(human "$freed_kb") in all$( (( dry )) && echo " (dry run: nothing removed)")"
+echo "prune: $verb $(human "$freed_kb") in all ($freed_kb KB)$( (( dry )) && echo "; dry run: nothing removed")"

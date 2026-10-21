@@ -145,7 +145,7 @@ for w in "$finished" "$unmerged" "$recent" "$dirty" "$inuse" "$held" "$squashed"
 done
 [[ ! -e "$fake/deleted" ]] && (( kept_all )) && ok "and removes nothing (no simulator, no build tree)" \
   || fail "the dry run removed: $(cat "$fake/deleted" 2>/dev/null)"
-[[ "$out" == *"would remove simulator quickR iOS-26-0 finished-"* && "$out" == *"in all (dry run"* ]] \
+[[ "$out" == *"would remove simulator quickR iOS-26-0 finished-"* && "$out" == *"dry run: nothing removed"* ]] \
   && ok "it says what it would remove, and how much" || fail "dry-run output: $out"
 
 # --- the real run -------------------------------------------------------------------------------
@@ -177,8 +177,11 @@ ok "keeps the build output of unmerged, recent, dirty, in-use, held and current 
   && ok "a failed simulator deletion is reported, not counted" || fail "failed deletion: $out"
 [[ "$out" == *"could not remove all of $squashed/ios/QuickrKit/.build"* && "$out" != *"removed $squashed/ios/QuickrKit/.build"* ]] \
   && ok "a build tree rm can't remove is reported, not counted" || fail "failed rm: $out"
-total="$(sed -nE 's/^prune: removed ([0-9.]+ [MG]B) in all$/\1/p' <<<"$out")"
-[[ -n "$total" && "$total" != "0 MB" ]] && ok "it prints what it freed ($total)" || fail "no total: $out"
+# The total is exactly what the removals it lists add up to (failed ones aren't among them).
+total="$(sed -nE 's/^prune: removed .* in all \(([0-9]+) KB\)$/\1/p' <<<"$out")"
+listed="$(sed -nE 's/^prune: removed .*, ([0-9]+) KB\)$/\1/p' <<<"$out" | awk '{ s += $1 } END { print s + 0 }')"
+[[ -n "$total" ]] && (( total > 0 && total == listed )) && ok "it prints what it freed ($total KB, the sum of what it lists)" \
+  || fail "total $total vs listed $listed: $out"
 
 # Without gh (or with IOS_PRUNE_MERGED_PRS=0), a squash-merged branch isn't finished.
 rm -f "$fake/deleted"
