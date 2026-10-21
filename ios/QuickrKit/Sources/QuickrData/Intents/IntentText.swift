@@ -28,6 +28,16 @@ public enum IntentText {
         return parts.isEmpty ? topic.name : "\(topic.name): \(parts.joined(separator: ", "))"
     }
 
+    /// "Nothing is due." / "Water is due." / "Water and Meds are due." / "Water, Meds and Stretch
+    /// are due."
+    public static func dueSentence(_ names: [String]) -> String {
+        switch names.count {
+        case 0: return "Nothing is due."
+        case 1: return "\(names[0]) is due."
+        default: return "\(names.dropLast().joined(separator: ", ")) and \(names.last!) are due."
+        }
+    }
+
     static func text(_ answer: AnswerValue, for question: Question) -> String {
         let unit = question.numericRules?.unit.flatMap { $0.isEmpty ? nil : " \($0)" } ?? ""
         switch answer {

@@ -56,4 +56,21 @@ import Testing
         let items = try await store.outbox.items()
         #expect(items.count == 2 && items.allSatisfy { $0.origin == .siri })
     }
+
+    /// Repeat-last re-logs the latest entry; What's Due reads the active store (the fixture topics
+    /// have no schedule); OpenRecordIntent opens the record screen through the app's router.
+    @Test func repeatLastWhatsDueAndOpenRecordInTheApp() async throws {
+        let location = try await TestStores.seededLocation()
+        defer { TestStores.remove(location) }
+        let environment = AppEnvironment.bootstrap(location: location)
+        let coffee = try #require(try await TopicEntityQuery().entities(for: [PlaceholderTopicRepository.coffee]).first)
+        _ = try await LogEntryIntent(topic: coffee, number: 3).perform()
+        #expect(try await RepeatLastEntryIntent(topic: coffee).perform().value == "Coffee: 3 cups")
+
+        #expect(try await WhatsDueIntent().perform().value?.isEmpty == true)
+
+        _ = try await OpenRecordIntent(topic: coffee).perform()
+        let ref = try #require(TopicLinkRef(PlaceholderTopicRepository.coffee.uuidString))
+        #expect(environment.router.path.last == .record(ref))
+    }
 }

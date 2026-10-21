@@ -13,12 +13,12 @@ import QuickrCore
 /// prompts; from Siri a missing option is asked for (`requestDisambiguation`) and a missing number
 /// too (`requestValue`). The write is `IntentLogging.log`: checked against the active store,
 /// validated, one durable `entry.create` with a random id, then a best-effort flush. A topic with
-/// more questions says to use the record screen.
-public struct LogEntryIntent: AppIntent {
+/// more questions says to use the record screen. Undoable (`UndoableIntent`): undo cancels the
+/// create.
+public struct LogEntryIntent: AppIntent, UndoableIntent {
     public static let title: LocalizedStringResource = "Log Entry"
     public static let description = IntentDescription("Logs an entry for a topic in quickR.")
-    @available(iOS 26.0, macOS 26.0, *)
-    public static var supportedModes: IntentModes { .background }
+    public static let supportedModes: IntentModes = .background
 
     @Parameter(title: "Topic") public var topic: TopicEntity
     @Parameter(title: "Option") public var option: QuestionOptionEntity?
@@ -73,6 +73,7 @@ public struct LogEntryIntent: AppIntent {
         }
         let logged = try await IntentLogging.log(topicId: current.id, answers: answers, in: context)
         let summary = IntentText.summary(logged.answers, topic: logged.topic)
+        await IntentUndo.register(undoManager, entryId: logged.entryId, summary: summary, context: context)
         return .result(value: summary, dialog: "Logged \(summary).")
     }
 }
