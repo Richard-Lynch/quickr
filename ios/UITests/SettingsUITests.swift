@@ -117,8 +117,9 @@ final class SettingsUITests: XCTestCase {
     @MainActor
     func testOnboardingWorksAtAnAccessibilityTextSize() throws {
         let app = launch(extra: AccessibilityLaunch.arguments())
-        // At this size the address wraps (a text view): a long one stays readable while typed.
-        let address = app.textViews["server.address"]
+        // At this size the address wraps (vertical axis; still a text field to XCUITest), so a long
+        // one stays readable while typed.
+        let address = app.textFields["server.address"]
         XCTAssertTrue(address.waitForExistence(timeout: 15))
         try assertAccessible(app)
         address.tap()
