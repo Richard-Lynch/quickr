@@ -318,14 +318,16 @@ import Testing
         let order = Flag()
         async let first: Void = {
             let pair = try #require(
-                try await leases.acquireSyncThenFlush(owner: "app:rebuild", waitingUpTo: .seconds(5)))
+                try await leases.acquireSyncThenFlush(owner: "app:rebuild", waitingUpTo: .seconds(60)))
             order.set()
             try await Task.sleep(for: .milliseconds(30))
             _ = try await leases.release(pair.flush)
             _ = try await leases.release(pair.sync)
         }()
         try await Task.sleep(for: .milliseconds(5))
-        let second = try await leases.acquireSyncThenFlush(owner: "app:reset", waitingUpTo: .seconds(5))
+        // Upper bounds only (both acquisitions succeed): generous so a starved CI pool can't
+        // time the second out while the first still holds the lease.
+        let second = try await leases.acquireSyncThenFlush(owner: "app:reset", waitingUpTo: .seconds(60))
         try await first
         #expect(order.value)
         #expect(second?.sync.owner == "app:reset")
