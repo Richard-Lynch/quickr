@@ -20,8 +20,9 @@ xcconfig_value() {
 
 # Filters a stream: every identifier in QUICKR_DR_SECRETS (newline-separated, those of every
 # device devicectl listed) becomes <device>, matched literally; so does anything shaped like a
-# UDID (00008xxx-xxxxxxxxxxxxxxxx, or 40 hex digits) or labelled as an ECID or serial number,
-# in case a tool prints one devicectl didn't list. The Team ID keeps its last two characters.
+# UDID (00008xxx-xxxxxxxxxxxxxxxx, or 40 hex digits) or labelled as an ECID or serial number
+# (a value of 6+ letters and digits, with a digit, so prose like "serial number is unavailable"
+# stays), in case a tool prints one devicectl didn't list. The Team ID keeps its last two characters.
 scrub() {
   perl -pe '
     BEGIN {
@@ -32,7 +33,7 @@ scrub() {
     for my $id (@ids) { s/\Q$id\E/<device>/g }
     s/\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}\b/<device>/g;
     s/\b[0-9a-fA-F]{40}\b/<device>/g;
-    s/\b(ecid|ECID|serial ?number|serialNumber|Serial ?Number)(["\x27]?\s*[:=]\s*["\x27]?|\s+)(0x)?[0-9A-Za-z]+/$1$2<device>/g;
+    s/\b(ecid|ECID|serial ?number|serialNumber|Serial ?Number)(["\x27]?\s*[:=]\s*["\x27]?|\s+)(0x)?(?=[0-9A-Za-z]*[0-9])[0-9A-Za-z]{6,}\b/$1$2<device>/g;
     if (length $team) { my $r = "****" . substr($team, -2); s/\Q$team\E/$r/g }
   '
 }

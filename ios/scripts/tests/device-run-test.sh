@@ -35,6 +35,7 @@ if [[ "$1 $2 $3" == "devicectl list devices" ]]; then
 fi
 echo "devicectl $* (ecid 7711, serial SERAAAA, identifier 11111111-AAAA)"
 echo "ECID: 0x1234ABCD, Serial Number: XYZ999, udid 00008150-0011223344556677"  # none listed
+echo "note: serial number is unavailable; ECID lookup failed"  # prose, left as is
 SH
 cat >"$tmp/bin/xcodebuild" <<'SH'
 #!/usr/bin/env bash
@@ -109,6 +110,8 @@ if (( status == 0 )) && grep -q "Test iPhone" "$tmp/out" \
 else
   fail "identifiers in the output (status $status): $(cat "$tmp/out")"
 fi
+grep -q "serial number is unavailable; ECID lookup failed" "$tmp/out" && ok "prose about a serial number or ECID is left alone" \
+  || fail "prose was filtered: $(grep -i "note:" "$tmp/out")"
 grep -q "<device>" "$tmp/out" && grep -q "\*\*\*\*56" "$tmp/out" && ok "identifiers show as <device>, the team redacted" \
   || fail "no redaction marks: $(cat "$tmp/out")"
 [[ -s "$tmp/leaks" ]] && fail "identifiers in the watchdog's files: $(sort -u "$tmp/leaks")" || ok "the watchdog's files never held an identifier"
