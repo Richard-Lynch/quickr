@@ -450,9 +450,22 @@ export options with `destination` set to `export` and run `xcodebuild -exportArc
 with them. Then unzip the `.ipa` and run
 `codesign -d --entitlements - Payload/QuickR.app`.
 
-The archive warns "All interface orientations must be supported unless the app
-requires full screen". That is expected: the app is iPhone-only and portrait by
-design, and `UIRequiresFullScreen` is deprecated on iOS 26.
+**Portrait only needs `UIRequiresFullScreen`.** The app is iPhone-only and
+portrait by design. App Store validation with the iOS 27 SDK refuses a bundle that
+doesn't support all four orientations unless it opts out of multitasking resizing
+("include all orientations to support iPad multitasking"). So the app's `info` in
+`project.yml` sets `UIRequiresFullScreen: true`, even though iOS 26 deprecates the
+key. The script checks the archive for this, so a dry run fails before an upload
+would, and `tests/testflight-test.sh` checks `project.yml`. To support more
+orientations, list all four and drop the key.
+
+**The system rsync for packaging.** Xcode's IPA packaging (in the export) runs
+whichever `rsync` comes first in `PATH`. Homebrew's or MacPorts' rsync 3.x rejects
+Xcode's options with "syntax or usage error (code 1)". So the script links
+`/usr/bin/rsync` into `ios/build/testflight/.bin` and puts that directory first in
+`PATH` for its own run. It holds only that one link, so every other tool resolves
+as usual. Without a `/usr/bin/rsync` the script warns and leaves `PATH` alone.
+Nothing on the machine changes.
 
 ## CI
 
