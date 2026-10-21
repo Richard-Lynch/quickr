@@ -119,7 +119,9 @@ import Testing
             open.open()
             let next = OutboxFlushScheduler(
                 outbox: Outbox(store: store, sender: ParkingSender(open), owner: "app:next\(round)"))
-            let probe = Task {
+            // Explicit @Sendable with a capture list: Xcode 26's region checker rejects the
+            // inferred closure (Xcode 27 accepts it).
+            let probe = Task { @Sendable [bridge, next, parked] in
                 while !Task.isCancelled {
                     bridge.requestFlush(reason: .afterPull)
                     if await !next.started.isEmpty, await parked.isFlushing { violations.withLock { $0 += 1 } }
