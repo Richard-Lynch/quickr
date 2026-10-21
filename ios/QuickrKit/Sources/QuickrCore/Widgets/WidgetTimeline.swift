@@ -65,6 +65,7 @@ public struct WidgetFingerprint: Sendable, Hashable {
         var lastAnswer: AnswerValue?
         var queued: Int
         var failed: Int
+        var scope: EntryScope?
     }
 
     let topics: [Topic]
@@ -75,7 +76,33 @@ public struct WidgetFingerprint: Sendable, Hashable {
                 id: $0.topic.id, name: $0.topic.name, slug: $0.topic.slug, status: $0.topic.status,
                 currentVersion: $0.topic.currentVersion, schedule: $0.topic.schedule,
                 scheduleUpdatedAt: $0.topic.scheduleUpdatedAt, lastCapturedAt: $0.topic.lastCapturedAt,
-                entryCount: $0.topic.entryCount, lastAnswer: $0.lastAnswer, queued: $0.queued, failed: $0.failed)
+                entryCount: $0.topic.entryCount, lastAnswer: $0.lastAnswer, queued: $0.queued, failed: $0.failed,
+                scope: $0.scope)
+        }
+        .sorted { $0.id.uuidString < $1.id.uuidString }
+    }
+}
+
+/// What a topic's Control shows and does (`TopicControl`): its name, whether it logs and what
+/// (questions version, last answer), and the store its action is pinned to. Not "queued" or the
+/// schedule: a Control doesn't show them, so they don't spend its reloads.
+public struct ControlFingerprint: Sendable, Hashable {
+    struct Topic: Sendable, Hashable {
+        var id: UUID
+        var name: String
+        var status: TopicStatus
+        var currentVersion: Int
+        var lastAnswer: AnswerValue?
+        var scope: EntryScope?
+    }
+
+    let topics: [Topic]
+
+    public init(_ topics: [WidgetTopic]) {
+        self.topics = topics.map {
+            Topic(
+                id: $0.topic.id, name: $0.topic.name, status: $0.topic.status,
+                currentVersion: $0.topic.currentVersion, lastAnswer: $0.lastAnswer, scope: $0.scope)
         }
         .sorted { $0.id.uuidString < $1.id.uuidString }
     }
@@ -83,13 +110,13 @@ public struct WidgetFingerprint: Sendable, Hashable {
 
 /// The app's side of the reload policy: reload the widgets only when what they show changed
 /// (the first state after launch, or after a server switch, always reloads).
-public struct WidgetReloadGate: Sendable {
-    private var last: WidgetFingerprint?
+public struct WidgetReloadGate<Fingerprint: Hashable & Sendable>: Sendable {
+    private var last: Fingerprint?
 
     public init() {}
 
     /// Whether `fingerprint` differs from the last one seen (and remembers it).
-    public mutating func shouldReload(_ fingerprint: WidgetFingerprint) -> Bool {
+    public mutating func shouldReload(_ fingerprint: Fingerprint) -> Bool {
         defer { last = fingerprint }
         return fingerprint != last
     }

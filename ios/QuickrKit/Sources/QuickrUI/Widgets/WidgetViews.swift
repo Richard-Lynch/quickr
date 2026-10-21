@@ -122,8 +122,9 @@ public struct TopicWidgetView: View {
                 }
             }
         case .number(let question):
-            let last = topic.lastAnswer.flatMap { text.answer($0, for: question) }
-            control(topic.lastAnswer.flatMap { actions?.number($0) }, topic) {
+            // Shows exactly what it logs (the last value, or the start once the rules changed).
+            let last = topic.checkAnswer.flatMap { text.answer($0, for: question) }
+            control(topic.checkAnswer.flatMap { actions?.number($0) }, topic) {
                 WidgetChip(label: "✓ " + (last ?? "Log"), isLast: false, isAccented: style.isAccented, isPrimary: true)
             }
             .accessibilityLabel(last.map { "Log \($0)" } ?? "Log \(topic.topic.name)")

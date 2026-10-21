@@ -24,7 +24,12 @@ enum WidgetBootstrap {
         // A chip, ✓ or Control logs through INTENTS' one commit into the writable active store,
         // then flushes within the extension's budget; the widgets show "queued" meanwhile.
         IntentWrites.register(
-            WidgetWrites.context(location: location, reload: { WidgetCenter.shared.reloadAllTimelines() }))
+            WidgetWrites.context(
+                location: location,
+                reload: {
+                    WidgetCenter.shared.reloadAllTimelines()
+                    ControlCenter.shared.reloadAllControls()
+                }))
     }
 
     /// The active store's widget reads, or nil before the app has a store (or while it can't be

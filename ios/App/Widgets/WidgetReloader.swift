@@ -4,20 +4,28 @@ import QuickrCore
 import QuickrData
 import WidgetKit
 
-/// Keeps the Home and Lock Screen widgets in step with the active store, within WidgetKit's reload
-/// budget: on any topic or outbox change (a log, an edit, a sync, a server switch) it reads what the
+/// Keeps the Home and Lock Screen widgets and the Controls in step with the active store, within
+/// WidgetKit's reload budget: on any topic or outbox change (a log, an edit, a sync, a server switch) it reads what the
 /// widgets show and reloads their timelines only when that changed (`WidgetFingerprint`). Changes
 /// that come in a burst (a sync applying many rows) are read once, `settle` after the last.
 @MainActor
 final class WidgetReloader {
-    private var gate = WidgetReloadGate()
-    private let reload: () -> Void
+    private var timelines = WidgetReloadGate<WidgetFingerprint>()
+    private var controls = WidgetReloadGate<ControlFingerprint>()
+    private let reloadTimelines: () -> Void
+    private let reloadControls: () -> Void
     private let settle: Duration
     private var pending: Task<Void, Never>?
 
-    init(settle: Duration = .seconds(1), reload: @escaping () -> Void = { WidgetCenter.shared.reloadAllTimelines() }) {
+    /// Timelines and Controls reload separately, each only when what it shows changed.
+    init(
+        settle: Duration = .seconds(1),
+        reloadTimelines: @escaping () -> Void = { WidgetCenter.shared.reloadAllTimelines() },
+        reloadControls: @escaping () -> Void = { ControlCenter.shared.reloadAllControls() }
+    ) {
         self.settle = settle
-        self.reload = reload
+        self.reloadTimelines = reloadTimelines
+        self.reloadControls = reloadControls
     }
 
     /// Follows `store` until it closes or the task is cancelled (the next binding follows its own).
@@ -47,9 +55,10 @@ final class WidgetReloader {
 
     private func check(_ reader: WidgetReader) async {
         do {
-            let fingerprint = WidgetFingerprint(try await reader.dueList(now: Date()))
-            guard !Task.isCancelled, gate.shouldReload(fingerprint) else { return }
-            reload()
+            let shown = try await reader.dueList(now: Date())
+            guard !Task.isCancelled else { return }
+            if timelines.shouldReload(WidgetFingerprint(shown)) { reloadTimelines() }
+            if controls.shouldReload(ControlFingerprint(shown)) { reloadControls() }
         } catch {
             WidgetReloader.log.error("widget state unreadable: \(String(describing: error), privacy: .public)")
         }

@@ -174,8 +174,69 @@ import Testing
         let mood = Self.topic("Mood")
         let first = WidgetFingerprint([WidgetTopic(topic: mood, quick: nil, lastAnswer: nil)])
         let queued = WidgetFingerprint([WidgetTopic(topic: mood, quick: nil, lastAnswer: nil, queued: 1)])
-        var gate = WidgetReloadGate()
+        var gate = WidgetReloadGate<WidgetFingerprint>()
         let answers = [first, first, queued, first].map { gate.shouldReload($0) }
         #expect(answers == [true, false, true, true], "first state, same, changed, back again")
+    }
+
+    /// A long offline backlog: counted in SQL, other topics' and other kinds' items left out.
+    @Test func aLargeBacklogIsCountedNotLoaded() async throws {
+        let mood = Self.topic("Mood")
+        let other = Self.topic("Other")
+        let store = try seeded([mood, other])
+        let good: [String: AnswerValue] = ["mood": .string("good")]
+        try store.write { db in
+            for n in 0..<2000 {
+                try OutboxStorage.append(
+                    db,
+                    NewOutboxItem(
+                        id: UUID(), payload: Make.createPayload(topic: mood, minutes: Double(n), answers: good),
+                        baseRevision: nil, origin: .app, hold: nil),
+                    now: Make.t0)
+            }
+        }
+        for n in 0..<3 {
+            let refused = try store.enqueue(Make.createPayload(topic: mood, minutes: 3000 + Double(n), answers: good))
+            try store.setState(refused, .failed, reason: .rejected)
+        }
+        try store.enqueue(Make.createPayload(topic: other, answers: good))
+        let shown = try #require(try await WidgetReader(store: store.store).topic(id: mood.id))
+        #expect(shown.queued == 2000 && shown.failed == 3)
+        #expect(shown.scope == store.store.scope)
+    }
+
+    /// ✓ shows and logs the same value: the last one while it's valid, else the start (the
+    /// question's rules changed since: 20 cups is no longer allowed, so 0).
+    @Test func checkFollowsTheCurrentRules() {
+        let cups = Question(key: "cups", label: "Cups", kind: .int(.init(min: 0, max: 10, unit: "cups")))
+        let water = Self.topic("Water", questions: [cups])
+        #expect(
+            WidgetTopic(topic: water, quick: QuickLog(questions: [cups]), lastAnswer: .int(3)).checkAnswer == .int(3))
+        #expect(
+            WidgetTopic(topic: water, quick: QuickLog(questions: [cups]), lastAnswer: .int(20)).checkAnswer == .int(0))
+        #expect(WidgetTopic(topic: water, quick: QuickLog(questions: [cups]), lastAnswer: nil).checkAnswer == .int(0))
+        #expect(WidgetTopic(topic: Self.topic("Mood"), quick: nil, lastAnswer: nil).checkAnswer == nil)
+    }
+
+    /// A Control shows the name, the last answer and its store: "queued" and the schedule aren't
+    /// Control changes.
+    @Test func theControlFingerprintIgnoresWhatControlsDontShow() {
+        let mood = Self.topic("Mood", schedule: Self.every(60))
+        let base = WidgetTopic(
+            topic: mood, quick: QuickLog(questions: mood.questions), lastAnswer: .string("good"),
+            scope: EntryScope("a/1"))
+        func changes(_ change: (inout WidgetTopic) -> Void) -> Bool {
+            var copy = base
+            change(&copy)
+            return ControlFingerprint([copy]) != ControlFingerprint([base])
+        }
+        #expect(!changes { $0.queued = 3 })
+        #expect(!changes { $0.topic.schedule = Self.every(30) })
+        #expect(changes { $0.lastAnswer = .string("meh") })
+        #expect(changes { $0.topic.currentVersion += 1 })
+        #expect(changes { $0.scope = EntryScope("b/1") })
+        var other = base
+        other.scope = EntryScope("b/1")
+        #expect(WidgetFingerprint([other]) != WidgetFingerprint([base]), "a server switch reloads timelines too")
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import QuickrCore
 
 /// The widgets' reads from a store: one topic, or the due-first list. Read-only, so it works on a
@@ -29,10 +30,20 @@ public struct WidgetReader: Sendable {
         if let quick, let latest = try await store.entries.latestEntry(topicId: topic.id) {
             lastAnswer = latest.entry.answers[quick.question.key]
         }
-        let creates = try await store.outbox.items(topicId: topic.id.wireString).filter { $0.kind == .entryCreate }
+        // Counted in SQL: a long offline backlog is many rows with payloads, and a widget's
+        // timeline has little memory and time.
+        let topicId = topic.id.wireString
+        let (queued, failed) = try await store.writer.read { db -> (Int, Int) in
+            let row = try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT COALESCE(SUM(state != 'failed'), 0) AS queued, COALESCE(SUM(state = 'failed'), 0) AS failed
+                    FROM outbox_item WHERE topic_id = ? AND kind = ?
+                    """,
+                arguments: [topicId, OutboxKind.entryCreate.rawValue])
+            return (row?["queued"] ?? 0, row?["failed"] ?? 0)
+        }
         return WidgetTopic(
-            topic: topic, quick: quick, lastAnswer: lastAnswer,
-            queued: creates.filter { $0.state != .failed }.count,
-            failed: creates.filter { $0.state == .failed }.count)
+            topic: topic, quick: quick, lastAnswer: lastAnswer, queued: queued, failed: failed, scope: store.scope)
     }
 }

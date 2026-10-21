@@ -89,20 +89,25 @@ struct TopicWidgetEntryView: View {
         .containerBackground(for: .widget) { Color.qr.paper }
     }
 
-    /// INTENTS' fully specified logs: a chip logs its option, ✓ the last number. No prompt.
+    /// A chip logs its option, ✓ its number, through `WidgetLogIntent`: pinned to the store this
+    /// snapshot came from, so a widget left over from another server refuses instead of logging
+    /// there. Without a scope (no store) the controls open the record screen.
     static func actions(_ topic: WidgetTopic) -> WidgetActions {
         let entity = TopicEntity(topic.topic)
+        let scope = topic.scope
         return WidgetActions(
             option: { option in
-                guard case .chips(let question, _) = topic.quick else { return nil }
-                return LogEntryIntent(
-                    topic: entity, option: QuestionOptionEntity(topicId: topic.id, key: question.key, option: option))
+                guard let scope, case .chips(let question, _) = topic.quick else { return nil }
+                return WidgetLogIntent(
+                    topic: entity, option: QuestionOptionEntity(topicId: topic.id, key: question.key, option: option),
+                    scope: scope)
             },
             number: { value in
+                guard let scope else { return nil }
                 switch value {
-                case .int(let n): LogEntryIntent(topic: entity, number: Double(n))
-                case .double(let x): LogEntryIntent(topic: entity, number: x)
-                default: nil
+                case .int(let n): return WidgetLogIntent(topic: entity, number: Double(n), scope: scope)
+                case .double(let x): return WidgetLogIntent(topic: entity, number: x, scope: scope)
+                default: return nil
                 }
             })
     }

@@ -18,34 +18,45 @@ import Testing
         key: "place", label: "Place",
         kind: .choice(.init(options: [.init(value: "home", label: "Home")])))
 
-    static func shown(_ questions: [Question], last: AnswerValue?, name: String = "Topic") -> WidgetTopic {
+    static let scope = EntryScope("server-a/1")
+
+    static func shown(
+        _ questions: [Question], last: AnswerValue?, name: String = "Topic", scope: EntryScope? = Self.scope
+    ) -> WidgetTopic {
         let topic = Topic(
             id: UUID(), slug: name.lowercased(), name: name, description: "", status: .active, currentVersion: 1,
             revision: 1, questionCount: questions.count, entryCount: last == nil ? 0 : 1, lastCapturedAt: nil,
             createdAt: Date(), updatedAt: Date(), archivedAt: nil, schedule: nil, scheduleUpdatedAt: nil,
             questions: questions)
-        return WidgetTopic(topic: topic, quick: QuickLog(questions: questions), lastAnswer: last)
+        return WidgetTopic(topic: topic, quick: QuickLog(questions: questions), lastAnswer: last, scope: scope)
     }
 
     // MARK: - Control
 
-    @Test func aChipTopicsControlLogsItsLastOptionAgain() {
+    @Test func aChipTopicsControlLogsItsLastOptionAgainInItsStore() {
         let value = TopicControlValue(Self.shown([Self.mood], last: .string("meh"), name: "Mood"))
         #expect(value.logs && value.detail == "Meh" && value.title == "Mood")
-        #expect(value.intent.option?.id == value.option?.id && value.intent.number == nil)
+        #expect(value.intent.option?.value == "meh" && value.intent.number == nil)
+        #expect(value.intent.scope == Self.scope.id)
     }
 
+    /// Nothing to repeat: the action carries no value, so it says so instead of prompting
+    /// (WidgetLogTests runs it).
     @Test func aChipTopicNeverLoggedDoesntGuess() {
         let value = TopicControlValue(Self.shown([Self.mood], last: nil))
         #expect(!value.logs && value.detail == "Log it in quickR first")
-        #expect(value.intent.option == nil && value.intent.number == nil, "INTENTS declines: no value")
+        #expect(value.intent.option == nil && value.intent.number == nil && value.intent.topic != nil)
     }
 
-    @Test func aNumberTopicsControlLogsTheLastValueOrTheStart() {
+    /// The label shows what it logs: the last value, or the start once the rules changed (20 cups
+    /// isn't allowed any more: 0 cups, not "20 cups" while logging 0).
+    @Test func aNumberTopicsControlShowsWhatItLogs() {
         let last = TopicControlValue(Self.shown([Self.cups], last: .int(3)))
         #expect(last.logs && last.intent.number == 3 && last.detail == "3 cups")
-        let start = TopicControlValue(Self.shown([Self.cups], last: nil))
-        #expect(start.intent.number == 0, "the stepper's start (min), like the tile's ✓")
+        let changed = TopicControlValue(Self.shown([Self.cups], last: .int(20)))
+        #expect(changed.intent.number == 0 && changed.detail == "0 cups")
+        let never = TopicControlValue(Self.shown([Self.cups], last: nil))
+        #expect(never.intent.number == 0 && never.detail == "0 cups", "the stepper's start, like the tile's ✓")
     }
 
     @Test func aTopicThatNeedsTheFormHasNoOnePressLog() {
@@ -53,17 +64,27 @@ import Testing
         #expect(!value.logs && value.detail == "Needs the form: log it in quickR")
     }
 
+    @Test func withoutAStoreTheControlIsUnconfigured() {
+        let value = TopicControlValue(Self.shown([Self.mood], last: .string("meh"), scope: nil))
+        #expect(!value.logs && value.title == "Choose a topic" && value.intent.topic == nil)
+    }
+
     // MARK: - Widget buttons
 
-    @Test func aWidgetsChipsAndCheckRunFullySpecifiedLogs() throws {
+    @Test func aWidgetsChipsAndCheckRunPinnedLogs() throws {
         let mood = Self.shown([Self.mood], last: .string("good"), name: "Mood")
         let actions = TopicWidgetEntryView.actions(mood)
-        let option = try #require(actions.option(EnumOption(value: "meh", label: "Meh")) as? LogEntryIntent)
-        #expect(option.topic.id == mood.id && option.option?.id.hasSuffix("meh") == true)
+        let option = try #require(actions.option(EnumOption(value: "meh", label: "Meh")) as? WidgetLogIntent)
+        #expect(option.topic?.id == mood.id && option.option?.value == "meh" && option.scope == Self.scope.id)
 
         let water = Self.shown([Self.cups], last: .int(3), name: "Water")
-        let check = try #require(TopicWidgetEntryView.actions(water).number(.int(3)) as? LogEntryIntent)
-        #expect(check.topic.id == water.id && check.number == 3 && check.option == nil)
+        let check = try #require(TopicWidgetEntryView.actions(water).number(.int(3)) as? WidgetLogIntent)
+        #expect(check.topic?.id == water.id && check.number == 3 && check.option == nil)
         #expect(TopicWidgetEntryView.actions(water).option(EnumOption(value: "x", label: "X")) == nil)
+
+        let sample = Self.shown([Self.mood], last: nil, scope: nil)
+        #expect(
+            TopicWidgetEntryView.actions(sample).option(EnumOption(value: "meh", label: "Meh")) == nil,
+            "no store: the record screen opens instead")
     }
 }

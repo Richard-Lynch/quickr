@@ -14,72 +14,75 @@ struct SelectTopicControlIntent: ControlConfigurationIntent {
     init() {}
 }
 
-/// What a topic's Control does now. A Control runs one fully specified intent and can't prompt:
-/// a chip topic logs its last option again, a number topic its last value (or the stepper's start,
-/// like the tile's ✓). A chip topic never logged, or one that needs the form, has no such log: its
-/// label says so, and a press runs `LogEntryIntent(topic:)`, which declines with INTENTS' message.
+/// What a topic's Control does now. A Control runs one fully specified intent (`WidgetLogIntent`,
+/// pinned to the store it was read from) and can't prompt: a chip topic logs its last option again,
+/// a number topic the value ✓ would log (its last, or its start). A chip topic never logged, or one
+/// that needs the form, logs nothing: its label says so, and a press says it in a dialog.
 struct TopicControlValue: Sendable {
-    let topic: TopicEntity?
     let title: String
     let detail: String?
-    let option: QuestionOptionEntity?
-    let number: Double?
+    let intent: WidgetLogIntent
+    let logs: Bool
 
-    static let unconfigured = TopicControlValue(topic: nil, title: "Choose a topic", detail: nil)
+    static let unconfigured = TopicControlValue(
+        title: "Choose a topic", detail: nil, intent: WidgetLogIntent(), logs: false)
 
-    init(
-        topic: TopicEntity?, title: String, detail: String?, option: QuestionOptionEntity? = nil,
-        number: Double? = nil
-    ) {
-        self.topic = topic
+    init(title: String, detail: String?, intent: WidgetLogIntent, logs: Bool) {
         self.title = title
         self.detail = detail
-        self.option = option
-        self.number = number
+        self.intent = intent
+        self.logs = logs
     }
 
     /// The rules, from the store's view of the topic.
     init(_ shown: WidgetTopic) {
+        guard let scope = shown.scope else {
+            self = .unconfigured
+            return
+        }
         let entity = TopicEntity(shown.topic)
         let name = shown.topic.name
+        let nothing = WidgetLogIntent(topic: entity, scope: scope)
         switch shown.quick {
         case .chips(let question, let options):
             guard case .string(let value)? = shown.lastAnswer, let option = options.first(where: { $0.value == value })
             else {
-                self.init(topic: entity, title: name, detail: "Log it in quickR first")
+                self.init(title: name, detail: "Log it in quickR first", intent: nothing, logs: false)
+                return
+            }
+            let chip = QuestionOptionEntity(topicId: shown.id, key: question.key, option: option)
+            self.init(
+                title: name, detail: option.label, intent: WidgetLogIntent(topic: entity, option: chip, scope: scope),
+                logs: true)
+        case .number(let question):
+            // Shows exactly what it logs (the last value, or the start once the rules changed).
+            guard let answer = shown.checkAnswer, let number = answer.number else {
+                self.init(title: name, detail: "Log it in quickR first", intent: nothing, logs: false)
                 return
             }
             self.init(
-                topic: entity, title: name, detail: option.label,
-                option: QuestionOptionEntity(topicId: shown.id, key: question.key, option: option))
-        case .number(let question):
-            let text = QuickLog.initialText(for: question, last: shown.lastAnswer)
-            guard let number = Double(text) else {
-                self.init(topic: entity, title: name, detail: "Log it in quickR first")
-                return
-            }
-            let shownValue = TopicText().answer(shown.lastAnswer ?? .double(number), for: question)
-            self.init(topic: entity, title: name, detail: shownValue ?? text, number: number)
+                title: name, detail: TopicText().answer(answer, for: question),
+                intent: WidgetLogIntent(topic: entity, number: number, scope: scope), logs: true)
         case nil:
-            self.init(topic: entity, title: name, detail: "Needs the form: log it in quickR")
+            self.init(title: name, detail: "Needs the form: log it in quickR", intent: nothing, logs: false)
         }
     }
+}
 
-    /// The Control's one action (always this type: Controls can't branch on it).
-    var intent: LogEntryIntent {
-        guard let topic else { return LogEntryIntent() }
-        if let option { return LogEntryIntent(topic: topic, option: option) }
-        if let number { return LogEntryIntent(topic: topic, number: number) }
-        return LogEntryIntent(topic: topic)
+extension AnswerValue {
+    fileprivate var number: Double? {
+        switch self {
+        case .int(let n): Double(n)
+        case .double(let x): x
+        default: nil
+        }
     }
-
-    var logs: Bool { option != nil || number != nil }
 }
 
 struct TopicControlProvider: AppIntentControlValueProvider {
     func previewValue(configuration: SelectTopicControlIntent) -> TopicControlValue {
         guard let topic = configuration.topic else { return .unconfigured }
-        return TopicControlValue(topic: topic, title: topic.name, detail: nil)
+        return TopicControlValue(title: topic.name, detail: nil, intent: WidgetLogIntent(), logs: false)
     }
 
     func currentValue(configuration: SelectTopicControlIntent) async throws -> TopicControlValue {

@@ -13,15 +13,35 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     public var queued: Int
     /// Entries the server refused (the sync sheet fixes them).
     public var failed: Int
+    /// The store this was read from: a widget's buttons log only while it is still the active one.
+    /// Nil for a sample (the app's widget gallery): its buttons open the record screen.
+    public var scope: EntryScope?
 
     public var id: UUID { topic.id }
 
-    public init(topic: Topic, quick: QuickLog?, lastAnswer: AnswerValue?, queued: Int = 0, failed: Int = 0) {
+    public init(
+        topic: Topic, quick: QuickLog?, lastAnswer: AnswerValue?, queued: Int = 0, failed: Int = 0,
+        scope: EntryScope? = nil
+    ) {
         self.topic = topic
         self.quick = quick
         self.lastAnswer = lastAnswer
         self.queued = queued
         self.failed = failed
+        self.scope = scope
+    }
+
+    /// What ✓ shows and logs for a number topic, the same value for both: the last one while the
+    /// question still accepts it, else its start (the minimum), like the tile's stepper; nil when
+    /// there's neither.
+    public var checkAnswer: AnswerValue? {
+        guard case .number(let question) = quick,
+            let number = Double(QuickLog.initialText(for: question, last: lastAnswer))
+        else { return nil }
+        if case .int = question.kind, number == number.rounded(), abs(number) < Double(Int.max) {
+            return .int(Int(number))
+        }
+        return .double(number)
     }
 
     /// The due state at `date` (timeline entries are rendered ahead of time).
