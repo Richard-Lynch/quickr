@@ -122,7 +122,12 @@ final class AppEnvironment {
     /// the registry only; the store opens on first use.
     static func bootstrap(location: StoreLocation = .shared(appGroup: AppGroup.identifier)) -> AppEnvironment {
         #if DEBUG
-        let environment = UITestLaunch.isActive ? UITestLaunch.environment() : live(location: location)
+        // A probe launch (DeviceProbeLaunch) registers none of the app's categories while it runs.
+        let environment =
+            UITestLaunch.isActive
+            ? UITestLaunch.environment()
+            : DeviceProbeLaunch.requested() != nil
+                ? live(location: location, categoryCenter: nil) : live(location: location)
         #else
         let environment = live(location: location)
         #endif

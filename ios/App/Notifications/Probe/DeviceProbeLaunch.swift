@@ -11,15 +11,21 @@ import os
 /// - `d8`: writes the request at once, then waits (up to 3 minutes) for the NSE, which a test push
 ///   starts, and drives the rounds. Keep the app in front while it runs.
 ///
+/// A probe launch registers none of the app's own categories (`AppEnvironment.bootstrap`), so
+/// nothing replaces the probe's set mid-run; the probe restores the real set when it ends.
 /// Results go to the App Group's `Library/quickr/dprobe/results.jsonl`.
 enum DeviceProbeLaunch {
     static let argument = "-QuickrDProbe"
     private static let log = Logger(subsystem: "com.bahumia.quickr", category: "dprobe")
 
+    /// The probe this launch asks for, if any.
+    static func requested(_ arguments: [String] = ProcessInfo.processInfo.arguments) -> DeviceProbe.Kind? {
+        guard let index = arguments.firstIndex(of: argument), index + 1 < arguments.count else { return nil }
+        return DeviceProbe.Kind(rawValue: arguments[index + 1])
+    }
+
     static func startIfRequested(_ arguments: [String] = ProcessInfo.processInfo.arguments) {
-        guard let index = arguments.firstIndex(of: argument), index + 1 < arguments.count,
-            let kind = DeviceProbe.Kind(rawValue: arguments[index + 1])
-        else { return }
+        guard let kind = requested(arguments) else { return }
         guard let location = try? StoreLocation.appGroup("group.com.bahumia.quickr") else {
             log.error("dprobe: no App Group container")
             return

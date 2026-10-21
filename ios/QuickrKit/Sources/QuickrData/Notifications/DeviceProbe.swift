@@ -1,46 +1,58 @@
 #if DEBUG
 import Foundation
 import QuickrCore
+import Synchronization
+import os
 
 /// Checkpoint D's category probe (docs/ios/demo/DEVICE-DAY.md D8 and D9; notifications.md §5.4
 /// and D1). DEBUG builds only: Release compiles none of it.
 ///
 /// It runs only on request. The app, launched with `-QuickrDProbe d8|d9`, writes a request into
-/// the App Group (`Files.write`), and the NSE takes it (`Files.take`) on the next `test` push
-/// ("Test this device"). Both processes then run their side:
+/// the App Group (`Files.write`); the NSE takes it (`Files.take`) on the next `test` push ("Test
+/// this device"). A request expires after 3 minutes and belongs to one run (`current-run`), so a
+/// later ordinary test push can't start a stale probe, and a runner of an older run stops.
 ///
-/// - **D8** (§5.4): `rounds` times, the NSE registers {A, B} while the app registers {A, C}; the
-///   app then reads `notificationCategories()` and checks A, B and C are there, at once or after
-///   one `reconcile()`.
-/// - **D9** (D1): each process registers 100, 1,000 and 5,000 synthetic categories and times
-///   `register` (the registry insert plus `setNotificationCategories`) and the time until
-///   `notificationCategories()` reflects it. The app runs its side first and writes the request
-///   only when it's done, so the two never overlap.
+/// - **D8** (§5.4): `rounds` times, both processes meet at an agreed instant and register at once,
+///   the NSE {A, B} and the app {A, C}, through §5.2's `register` (so the registry's lock still
+///   orders them). Each round starts from an empty probe table, so every set the system gets is
+///   that round's alone. The app then reads `notificationCategories()` and checks A, B and C are
+///   there, at once or after one `reconcile()`. Each round records whether the two attempts
+///   overlapped in time.
+/// - **D9** (D1): each process registers 100, 1,000 and 5,000 synthetic categories and records
+///   the `setNotificationCategories` call alone (`set_ms`), the whole `register` (`register_ms`:
+///   the registry insert too) and the time until `notificationCategories()` reflects it
+///   (`readback_ms`). The app runs its side first and writes the request only when it's done.
 ///
 /// The probe registers through registries of its own (`dprobe/registry-*`), never the real one,
-/// whose table is append-only. While it runs, the system's set is the probe's; each side calls
-/// `restore` when it finishes, which re-registers the real table. Every event is one JSON line
-/// appended to `dprobe/results.jsonl` (`O_APPEND`: both processes write it);
-/// `ios/scripts/dprobe-summary.py` summarises it.
+/// whose table is append-only. While it runs, the system's set is the probe's; each side
+/// re-registers the real table when it finishes (`restore`, outside any cancellation), and the
+/// app's next activation reconciles it anyway (§5.3) if a process dies first. Every event is one
+/// JSON line appended to `dprobe/results.jsonl`; `ios/scripts/dprobe-summary.py` judges a run.
 public enum DeviceProbe {
     public enum Kind: String, Codable, Sendable { case d8, d9 }
     public enum Process: String, Codable, Sendable { case app, nse }
 
+    /// How long a request waits for its test push.
+    public static let requestLifetime: TimeInterval = 180
+
     public struct Request: Codable, Sendable, Hashable {
         public var kind: Kind
-        /// Tags every record of this run.
+        /// Tags every record and file of this run.
         public var run: String
         public var rounds: Int
         public var sizes: [Int]
+        /// Unix seconds after which the NSE ignores it.
+        public var expires: Double
 
         public init(
             kind: Kind, run: String = String(UUID().uuidString.prefix(8)), rounds: Int = 100,
-            sizes: [Int] = [100, 1000, 5000]
+            sizes: [Int] = [100, 1000, 5000], expires: Date = Date().addingTimeInterval(requestLifetime)
         ) {
             self.kind = kind
             self.run = run
             self.rounds = rounds
             self.sizes = sizes
+            self.expires = expires.timeIntervalSince1970
         }
     }
 
@@ -49,10 +61,15 @@ public enum DeviceProbe {
         public var run: String
         public var process: Process
         public var probe: Kind
-        /// `ready`, `round`, `size`, `timeout`, `error` or `done`.
+        /// `start`, `ready`, `round`, `size`, `timeout`, `stopped`, `error` or `done`.
         public var event: String
         public var round: Int?
+        /// `start`: the number of rounds the run asks for.
+        public var rounds: Int?
         public var size: Int?
+        /// The `setNotificationCategories` call alone.
+        public var setMs: Double?
+        /// The whole `register`: the registry transaction, the union and the call.
         public var registerMs: Double?
         public var readbackMs: Double?
         public var ok: Bool?
@@ -60,37 +77,54 @@ public enum DeviceProbe {
         public var missing: [String]?
         /// D8: whether a reconcile ran (because something was missing).
         public var reconciled: Bool?
+        /// D8: whether the app's and the NSE's attempts overlapped in time.
+        public var overlap: Bool?
+        /// The step finished after the NSE's deadline.
+        public var overrun: Bool?
+        /// D9: how many of the size's categories the last readback held (all of them when `ok`).
+        public var seen: Int?
         public var note: String?
         public var at: Double
 
         public init(
-            run: String, process: Process, probe: Kind, event: String, round: Int? = nil, size: Int? = nil,
-            registerMs: Double? = nil, readbackMs: Double? = nil, ok: Bool? = nil, missing: [String]? = nil,
-            reconciled: Bool? = nil, note: String? = nil, at: Date = Date()
+            run: String, process: Process, probe: Kind, event: String, round: Int? = nil, rounds: Int? = nil,
+            size: Int? = nil, setMs: Double? = nil, registerMs: Double? = nil, readbackMs: Double? = nil,
+            ok: Bool? = nil, missing: [String]? = nil, reconciled: Bool? = nil, overlap: Bool? = nil,
+            overrun: Bool? = nil, seen: Int? = nil, note: String? = nil, at: Date = Date()
         ) {
             self.run = run
             self.process = process
             self.probe = probe
             self.event = event
             self.round = round
+            self.rounds = rounds
             self.size = size
+            self.setMs = setMs
             self.registerMs = registerMs
             self.readbackMs = readbackMs
             self.ok = ok
             self.missing = missing
             self.reconciled = reconciled
+            self.overlap = overlap
+            self.overrun = overrun
+            self.seen = seen
             self.note = note
             self.at = at.timeIntervalSince1970
         }
 
         enum CodingKeys: String, CodingKey {
-            case run, process, probe, event, round, size, ok, missing, reconciled, note, at
+            case run, process, probe, event, round, rounds, size, ok, missing, reconciled, overlap, overrun, seen, note,
+                at
+            case setMs = "set_ms"
             case registerMs = "register_ms"
             case readbackMs = "readback_ms"
         }
     }
 
     // MARK: - Synthetic categories
+
+    /// The server id of every probe category, so none can be mistaken for a real one.
+    public static let serverId = "dprobe"
 
     /// The probe's categories: a 4-option enum topic each (4 visible actions), like a real one.
     public static func row(topic: String) -> NotificationCategories.Row {
@@ -100,9 +134,6 @@ public enum DeviceProbe {
             serverId: serverId, topicId: topic,
             category: NotificationCategory(serverId: serverId, topicId: topic, version: 1, descriptor: descriptor))
     }
-
-    /// The server id of every probe category, so none can be mistaken for a real one.
-    public static let serverId = "dprobe"
 
     /// D9: `size` distinct categories for one process.
     public static func rows(size: Int, process: Process) -> [NotificationCategories.Row] {
@@ -124,16 +155,27 @@ public enum DeviceProbe {
         expected.subtracting(registered.map(\.id)).sorted()
     }
 
-    /// Re-registers the real registry's table (the probe replaced the system's set).
-    public static func restore(location: StoreLocation, center: any NotificationCenterProtocol) async {
-        guard let registry = try? Registry.open(at: location, notifier: nil) else { return }
-        _ = try? await NotificationCategories(registry: registry, center: center).register([])
+    /// Re-registers the real registry's table (the probe replaced the system's set). Whether it did.
+    public static func restore(location: StoreLocation, center: any NotificationCenterProtocol) async -> Bool {
+        guard let registry = try? Registry.open(at: location, notifier: nil) else { return false }
+        return (try? await NotificationCategories(registry: registry, center: center).register([])) != nil
     }
 
-    static func milliseconds(_ duration: Duration) -> Double {
-        let parts = duration.components
-        return (Double(parts.seconds) * 1000 + Double(parts.attoseconds) / 1e15).rounded(toPlaces: 3)
+    /// Whether two attempts (uptime ns) overlapped in time.
+    public static func overlapped(_ a: ClosedRange<UInt64>, _ b: ClosedRange<UInt64>) -> Bool {
+        a.lowerBound <= b.upperBound && b.lowerBound <= a.upperBound
     }
+
+    /// Nanoseconds since boot, the same in every process (rendezvous and attempt times).
+    public static func uptime() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+
+    static func milliseconds(_ nanoseconds: UInt64) -> Double { (Double(nanoseconds) / 1e3).rounded() / 1e3 }
+
+    static func nanoseconds(_ duration: Duration) -> UInt64 {
+        UInt64(duration.components.seconds) * 1_000_000_000 + UInt64(duration.components.attoseconds / 1_000_000_000)
+    }
+
+    static let log = Logger(subsystem: "com.bahumia.quickr", category: "dprobe")
 
     // MARK: - Files
 
@@ -147,43 +189,66 @@ public enum DeviceProbe {
 
         public var request: URL { root.appending(path: "request.json") }
         var taken: URL { root.appending(path: "request.taken.json") }
+        var currentRun: URL { root.appending(path: "current-run") }
         public var results: URL { root.appending(path: "results.jsonl") }
-        /// D8: the app's current round (−1 once it has finished), and the NSE's last finished one.
-        var appRound: URL { root.appending(path: "d8-app-round") }
-        var nseRound: URL { root.appending(path: "d8-nse-round") }
+        /// D8: the app's round and its rendezvous instant ("round uptime-ns"; −1 once done).
+        func appRound(_ run: String) -> URL { root.appending(path: "d8-\(run)-app") }
+        /// D8: the NSE's last finished round and its attempt ("round start-ns end-ns").
+        func nseRound(_ run: String) -> URL { root.appending(path: "d8-\(run)-nse") }
 
         func registry(_ name: String) -> StoreLocation {
             StoreLocation(root: root.appending(path: "registry-\(name)", directoryHint: .isDirectory))
         }
 
-        /// Writes `request` for the NSE, after clearing D8's round files and registry.
+        /// Makes `pending`'s run the current one and leaves it for the NSE's next test push.
         public func write(_ pending: Request) throws {
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            for url in [appRound, nseRound, taken] { try? FileManager.default.removeItem(at: url) }
-            if pending.kind == .d8 { try? FileManager.default.removeItem(at: registry("d8").root) }
+            try claim(pending.run)
+            try? FileManager.default.removeItem(at: taken)
             try JSONEncoder().encode(pending).write(to: request, options: .atomic)
         }
 
-        /// The pending request, taken (renamed) so a second push doesn't run it again; nil when
-        /// there is none.
-        public func take() -> Request? {
-            guard (try? FileManager.default.moveItem(at: request, to: taken)) != nil,
-                let data = try? Data(contentsOf: taken)
-            else { return nil }
-            return try? JSONDecoder().decode(Request.self, from: data)
+        /// Makes `run` the current one: a runner of any other run stops at its next step.
+        public func claim(_ run: String) throws {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try Data(run.utf8).write(to: currentRun, options: .atomic)
         }
 
-        /// Appends one line (`O_APPEND`: whole lines from both processes never interleave).
-        public func append(_ record: Record) {
+        /// The pending request, taken (renamed) so a second push doesn't run it again; nil when
+        /// there is none, it has expired, or a newer run has started since.
+        public func take(now: Date = Date()) -> Request? {
+            guard (try? FileManager.default.moveItem(at: request, to: taken)) != nil,
+                let data = try? Data(contentsOf: taken),
+                let pending = try? JSONDecoder().decode(Request.self, from: data),
+                pending.expires > now.timeIntervalSince1970, isCurrent(pending.run)
+            else { return nil }
+            return pending
+        }
+
+        public func isCurrent(_ run: String) -> Bool {
+            (try? String(contentsOf: currentRun, encoding: .utf8)) == run
+        }
+
+        /// Appends one line with a single `O_APPEND` write, so lines from both processes never
+        /// interleave. Whether the whole line was written; a failure is logged.
+        @discardableResult
+        public func append(_ record: Record) -> Bool {
             try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-            guard var line = try? encoder.encode(record) else { return }
+            guard var line = try? encoder.encode(record) else { return false }
             line.append(0x0A)
             let fd = Darwin.open(results.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
-            guard fd >= 0 else { return }
+            guard fd >= 0 else {
+                DeviceProbe.log.error("dprobe: can't open the results file (errno \(errno))")
+                return false
+            }
             defer { Darwin.close(fd) }
-            _ = line.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
+            let written = line.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
+            guard written == line.count else {
+                DeviceProbe.log.error("dprobe: wrote \(written) of \(line.count) bytes of a record (errno \(errno))")
+                return false
+            }
+            return true
         }
 
         public func records() -> [Record] {
@@ -193,14 +258,51 @@ public enum DeviceProbe {
             }
         }
 
-        func writeRound(_ url: URL, _ round: Int) {
-            try? Data(String(round).utf8).write(to: url, options: .atomic)
+        func write(_ numbers: [Int64], to url: URL) {
+            try? Data(numbers.map(String.init).joined(separator: " ").utf8).write(to: url, options: .atomic)
         }
 
-        func readRound(_ url: URL) -> Int? {
-            (try? String(contentsOf: url, encoding: .utf8)).flatMap { Int($0) }
+        func read(_ url: URL) -> [Int64] {
+            ((try? String(contentsOf: url, encoding: .utf8)) ?? "").split(separator: " ").compactMap { Int64($0) }
         }
     }
+}
+
+/// A center that times each `setNotificationCategories` call (D9's `set_ms`).
+final class TimingCenter: NotificationCenterProtocol {
+    let inner: any NotificationCenterProtocol
+    private let last = Mutex<UInt64?>(nil)
+
+    init(_ inner: any NotificationCenterProtocol) { self.inner = inner }
+
+    /// The last call's duration, taken (nil when there was none since).
+    func takeLastNanoseconds() -> UInt64? {
+        last.withLock { value in
+            defer { value = nil }
+            return value
+        }
+    }
+
+    func setNotificationCategories(_ categories: [NotificationCategorySpec]) {
+        let start = DeviceProbe.uptime()
+        inner.setNotificationCategories(categories)
+        let end = DeviceProbe.uptime()
+        last.withLock { $0 = end - start }
+    }
+
+    func notificationCategories() async -> [NotificationCategorySpec] { await inner.notificationCategories() }
+    func deliveredNotifications() async -> [NotificationSnapshot] { await inner.deliveredNotifications() }
+    func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {
+        inner.removeDeliveredNotifications(withIdentifiers: identifiers)
+    }
+    func pendingNotificationRequests() async -> [NotificationSnapshot] { await inner.pendingNotificationRequests() }
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+        inner.removePendingNotificationRequests(withIdentifiers: identifiers)
+    }
+    func add(_ request: LocalNotificationRequest) async throws { try await inner.add(request) }
+    func setBadgeCount(_ count: Int) async throws { try await inner.setBadgeCount(count) }
+    func authorizationStatus() async -> NotificationAuthorization { await inner.authorizationStatus() }
+    func requestAuthorization() async throws -> Bool { try await inner.requestAuthorization() }
 }
 
 /// One process's side of a probe run.
@@ -208,18 +310,20 @@ public struct DeviceProbeRunner: Sendable {
     public let files: DeviceProbe.Files
     public let process: DeviceProbe.Process
     public let center: any NotificationCenterProtocol
-    /// Re-registers the real table when the run ends (`DeviceProbe.restore`).
-    public let restore: @Sendable () async -> Void
+    /// Re-registers the real table when the run ends; whether it did (`DeviceProbe.restore`).
+    public let restore: @Sendable () async -> Bool
     var poll: Duration = .milliseconds(2)
     /// How long a readback may take to show a registration before it counts as failed.
     var readbackLimit: Duration = .seconds(10)
     /// D8: how long the app waits for the NSE to finish a round, and for its first sign of life.
     var peerLimit: Duration = .seconds(5)
     var startLimit: Duration = .seconds(180)
+    /// D8: how far ahead the app sets each round's rendezvous.
+    var rendezvousLead: Duration = .milliseconds(30)
 
     public init(
         files: DeviceProbe.Files, process: DeviceProbe.Process, center: any NotificationCenterProtocol,
-        restore: @escaping @Sendable () async -> Void
+        restore: @escaping @Sendable () async -> Bool
     ) {
         self.files = files
         self.process = process
@@ -227,9 +331,10 @@ public struct DeviceProbeRunner: Sendable {
         self.restore = restore
     }
 
-    /// Runs this process's side of `request`, stopping at `deadline` (the NSE's budget) or when
-    /// cancelled, then restores the real categories.
-    public func run(_ request: DeviceProbe.Request, until deadline: ContinuousClock.Instant? = nil) async {
+    /// Runs this process's side of `request`, stopping at `deadline` (uptime ns: the NSE's
+    /// budget) or when cancelled, then restores the real categories. The restore runs detached,
+    /// so a cancellation (the NSE's time running out) can't skip it.
+    public func run(_ request: DeviceProbe.Request, until deadline: UInt64? = nil) async {
         do {
             switch (request.kind, process) {
             case (.d9, _): try await d9(request, deadline: deadline)
@@ -239,25 +344,29 @@ public struct DeviceProbeRunner: Sendable {
         } catch {
             record(request, "error", note: String(describing: error))
         }
-        await restore()
-        record(request, "done")
+        let restore = restore
+        let restored = await Task.detached { await restore() }.value
+        record(request, "done", ok: restored, note: restored ? nil : "the real categories weren't restored")
     }
 
     private func record(
-        _ request: DeviceProbe.Request, _ event: String, round: Int? = nil, size: Int? = nil,
-        registerMs: Double? = nil, readbackMs: Double? = nil, ok: Bool? = nil, missing: [String]? = nil,
-        reconciled: Bool? = nil, note: String? = nil
+        _ request: DeviceProbe.Request, _ event: String, round: Int? = nil, rounds: Int? = nil, size: Int? = nil,
+        setMs: Double? = nil, registerMs: Double? = nil, readbackMs: Double? = nil, ok: Bool? = nil,
+        missing: [String]? = nil, reconciled: Bool? = nil, overlap: Bool? = nil, overrun: Bool? = nil,
+        seen: Int? = nil, note: String? = nil
     ) {
         files.append(
             DeviceProbe.Record(
-                run: request.run, process: process, probe: request.kind, event: event, round: round, size: size,
-                registerMs: registerMs, readbackMs: readbackMs, ok: ok, missing: missing, reconciled: reconciled,
-                note: note))
+                run: request.run, process: process, probe: request.kind, event: event, round: round, rounds: rounds,
+                size: size, setMs: setMs, registerMs: registerMs, readbackMs: readbackMs, ok: ok, missing: missing,
+                reconciled: reconciled, overlap: overlap, overrun: overrun, seen: seen, note: note))
     }
 
-    private func expired(_ deadline: ContinuousClock.Instant?) -> Bool {
-        Task.isCancelled || deadline.map { ContinuousClock.now >= $0 } == true
+    private func past(_ deadline: UInt64?, at instant: UInt64 = DeviceProbe.uptime()) -> Bool {
+        deadline.map { instant >= $0 } == true
     }
+
+    private func stopped(_ deadline: UInt64?) -> Bool { Task.isCancelled || past(deadline) }
 
     /// A registry of the probe's own, emptied first.
     private func freshRegistry(_ name: String) throws -> Registry {
@@ -266,58 +375,85 @@ public struct DeviceProbeRunner: Sendable {
         return try Registry.open(at: location, notifier: nil)
     }
 
+    private func sleep(until instant: UInt64) async {
+        let now = DeviceProbe.uptime()
+        if instant > now { try? await Task.sleep(nanoseconds: instant - now) }
+    }
+
     // MARK: D9
 
-    private func d9(_ request: DeviceProbe.Request, deadline: ContinuousClock.Instant?) async throws {
+    private func d9(_ request: DeviceProbe.Request, deadline: UInt64?) async throws {
+        if process == .app { try files.claim(request.run) }
+        // The time the last size took, scaled to the next, decides whether it can still finish.
+        var last: (size: Int, nanoseconds: UInt64)?
         for size in request.sizes {
-            guard !expired(deadline) else {
-                record(request, "timeout", size: size, note: "out of time before this size")
+            let estimate = last.map { $0.nanoseconds * UInt64(size) / UInt64(max($0.size, 1)) } ?? 0
+            guard !stopped(deadline), !past(deadline, at: DeviceProbe.uptime() + estimate) else {
+                record(request, "timeout", size: size, note: "not enough time left for this size")
                 return
             }
+            let timing = TimingCenter(center)
             let categories = NotificationCategories(
-                registry: try freshRegistry("d9-\(process.rawValue)"), center: center)
+                registry: try freshRegistry("d9-\(process.rawValue)"), center: timing)
             let rows = DeviceProbe.rows(size: size, process: process)
             let expected = Set(rows.map(\.category.id))
-            let start = ContinuousClock.now
+            let start = DeviceProbe.uptime()
             try await categories.register(rows)
-            let registered = ContinuousClock.now
-            let seen = await readback(expected, deadline: deadline)
+            let registered = DeviceProbe.uptime()
+            let (seenAt, count) = await readback(expected, deadline: deadline)
+            let end = DeviceProbe.uptime()
+            last = (size, end - start)
             record(
-                request, "size", size: size, registerMs: DeviceProbe.milliseconds(registered - start),
-                readbackMs: seen.map { DeviceProbe.milliseconds($0 - registered) }, ok: seen != nil)
+                request, "size", size: size, setMs: timing.takeLastNanoseconds().map(DeviceProbe.milliseconds),
+                registerMs: DeviceProbe.milliseconds(registered - start),
+                readbackMs: seenAt.map { DeviceProbe.milliseconds($0 - registered) },
+                ok: seenAt.map { !past(deadline, at: $0) } ?? false, overrun: past(deadline, at: end) ? true : nil,
+                seen: count)
         }
     }
 
-    /// When `notificationCategories()` first included all of `expected`; nil if it didn't within
-    /// the limit.
-    private func readback(_ expected: Set<String>, deadline: ContinuousClock.Instant?) async
-        -> ContinuousClock.Instant?
-    {
-        let limit = ContinuousClock.now + readbackLimit
-        while ContinuousClock.now < limit, !expired(deadline) {
-            if DeviceProbe.missing(expected, in: await center.notificationCategories()).isEmpty {
-                return ContinuousClock.now
-            }
+    /// When `notificationCategories()` first included all of `expected` (uptime ns; nil if it
+    /// didn't within the limit or before the deadline), and how many of them the last read held.
+    private func readback(_ expected: Set<String>, deadline: UInt64?) async -> (UInt64?, Int) {
+        let limit = DeviceProbe.uptime() + DeviceProbe.nanoseconds(readbackLimit)
+        var count = 0
+        while DeviceProbe.uptime() < limit, !stopped(deadline) {
+            let missing = DeviceProbe.missing(expected, in: await center.notificationCategories())
+            count = expected.count - missing.count
+            if missing.isEmpty { return (DeviceProbe.uptime(), count) }
             try? await Task.sleep(for: poll)
         }
-        return nil
+        return (nil, count)
     }
 
     // MARK: D8
 
     private func d8App(_ request: DeviceProbe.Request) async throws {
+        record(request, "start", rounds: request.rounds)
         guard await waitForNSE(request) else {
             record(request, "timeout", note: "the NSE never started: send a test push after launching")
             return
         }
-        let categories = NotificationCategories(
-            registry: try Registry.open(at: files.registry("d8"), notifier: nil), center: center)
+        let registry = try Registry.open(at: files.registry("d8-\(request.run)"), notifier: nil)
+        let categories = NotificationCategories(registry: registry, center: center)
+        defer { files.write([-1], to: files.appRound(request.run)) }
         for round in 1...request.rounds {
-            files.writeRound(files.appRound, round)
-            // Alternate who goes first: odd rounds give the NSE a head start.
-            if round % 2 == 1 { try? await Task.sleep(for: .milliseconds(1)) }
+            guard files.isCurrent(request.run), !Task.isCancelled else {
+                record(request, "stopped", round: round, note: "a newer run started")
+                return
+            }
+            // Each round starts from an empty table: the system only ever gets this round's set.
+            try await registry.writer.write { try $0.execute(sql: "DELETE FROM notification_category") }
+            let rendezvous = DeviceProbe.uptime() + DeviceProbe.nanoseconds(rendezvousLead)
+            files.write([Int64(round), Int64(rendezvous)], to: files.appRound(request.run))
+            await sleep(until: rendezvous)
+            let start = DeviceProbe.uptime()
             try await categories.register(DeviceProbe.d8Rows(round: round, process: .app))
-            let nseDone = await wait(for: round)
+            let end = DeviceProbe.uptime()
+            guard let nse = await nseAttempt(request, round: round) else {
+                record(request, "round", round: round, ok: false, note: "the NSE didn't finish this round")
+                return
+            }
             let expected = DeviceProbe.d8Expected(round: round)
             let missing = DeviceProbe.missing(expected, in: await center.notificationCategories())
             var reconciled = false
@@ -327,11 +463,9 @@ public struct DeviceProbeRunner: Sendable {
                 stillMissing = DeviceProbe.missing(expected, in: await center.notificationCategories())
             }
             record(
-                request, "round", round: round, ok: nseDone && stillMissing.isEmpty, missing: missing,
-                reconciled: reconciled, note: nseDone ? nil : "the NSE didn't finish this round")
-            guard nseDone else { break }
+                request, "round", round: round, ok: stillMissing.isEmpty, missing: missing, reconciled: reconciled,
+                overlap: DeviceProbe.overlapped(start...end, nse))
         }
-        files.writeRound(files.appRound, -1)
     }
 
     private func waitForNSE(_ request: DeviceProbe.Request) async -> Bool {
@@ -345,39 +479,41 @@ public struct DeviceProbeRunner: Sendable {
         return false
     }
 
-    private func wait(for round: Int) async -> Bool {
+    /// The NSE's attempt for `round` (uptime ns), once it has finished it.
+    private func nseAttempt(_ request: DeviceProbe.Request, round: Int) async -> ClosedRange<UInt64>? {
         let limit = ContinuousClock.now + peerLimit
         while ContinuousClock.now < limit, !Task.isCancelled {
-            if (files.readRound(files.nseRound) ?? 0) >= round { return true }
+            let ack = files.read(files.nseRound(request.run))
+            if ack.count == 3, ack[0] >= round, ack[1] <= ack[2] { return UInt64(ack[1])...UInt64(ack[2]) }
             try? await Task.sleep(for: poll)
         }
-        return false
+        return nil
     }
 
-    private func d8NSE(_ request: DeviceProbe.Request, deadline: ContinuousClock.Instant?) async throws {
+    private func d8NSE(_ request: DeviceProbe.Request, deadline: UInt64?) async throws {
         let categories = NotificationCategories(
-            registry: try Registry.open(at: files.registry("d8"), notifier: nil), center: center)
+            registry: try Registry.open(at: files.registry("d8-\(request.run)"), notifier: nil), center: center)
         record(request, "ready")
-        var last = 0
-        while !expired(deadline) {
-            let round = files.readRound(files.appRound) ?? 0
-            if round < 0 { break }
-            if round > last {
-                try await categories.register(DeviceProbe.d8Rows(round: round, process: .nse))
-                files.writeRound(files.nseRound, round)
-                last = round
+        var last: Int64 = 0
+        while !stopped(deadline) {
+            guard files.isCurrent(request.run) else {
+                record(request, "stopped", round: Int(last), note: "a newer run started")
+                return
+            }
+            let app = files.read(files.appRound(request.run))
+            if app.first == -1 { return }
+            if app.count == 2, app[0] > last {
+                await sleep(until: UInt64(app[1]))
+                let start = DeviceProbe.uptime()
+                try await categories.register(DeviceProbe.d8Rows(round: Int(app[0]), process: .nse))
+                let end = DeviceProbe.uptime()
+                files.write([app[0], Int64(start), Int64(end)], to: files.nseRound(request.run))
+                last = app[0]
             } else {
                 try? await Task.sleep(for: poll)
             }
         }
-        if expired(deadline) { record(request, "timeout", round: last, note: "out of time") }
-    }
-}
-
-extension Double {
-    fileprivate func rounded(toPlaces places: Int) -> Double {
-        let scale = pow(10, Double(places))
-        return (self * scale).rounded() / scale
+        record(request, "timeout", round: Int(last), note: "out of time")
     }
 }
 #endif

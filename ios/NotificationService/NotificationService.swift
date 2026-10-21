@@ -71,8 +71,9 @@ final class NotificationService: UNNotificationServiceExtension {
 
 #if DEBUG
 extension NotificationService {
-    /// The probe's NSE side, when `quickr` is a test push and the app left a request (DEBUG only;
-    /// docs/ios/demo/DEVICE-DAY.md D8, D9). It stops 5 s before the NSE's ~30 s limit.
+    /// The probe's NSE side, when `quickr` is a test push and the app left a current, unexpired
+    /// request (DEBUG only; docs/ios/demo/DEVICE-DAY.md D8, D9). It stops at 22 s, leaving the
+    /// rest of the NSE's ~30 s for restoring the real categories.
     fileprivate static func probe(_ quickr: QuickrNotificationInfo?) -> (@Sendable () async -> Void)? {
         guard quickr?.kind == "test", let location = try? StoreLocation.appGroup("group.com.bahumia.quickr")
         else { return nil }
@@ -82,7 +83,8 @@ extension NotificationService {
         let runner = DeviceProbeRunner(files: files, process: .nse, center: center) {
             await DeviceProbe.restore(location: location, center: center)
         }
-        return { await runner.run(request, until: .now + .seconds(25)) }
+        let deadline = DeviceProbe.uptime() + 22_000_000_000
+        return { await runner.run(request, until: deadline) }
     }
 }
 #endif

@@ -114,20 +114,36 @@ docs/ios/demo/m1/spike-findings.md (F1, F2, F6, F7, F8).
 **The D probe** (`DeviceProbe`, DEBUG builds only). The app starts it with a
 launch argument and writes a request into the App Group. The NSE gets no launch
 arguments, so it takes the request on the next **test push** (Settings ▸
-Reminders ▸ Test this device, or `apns_send.py`). Both sides append JSON lines to
-`Library/quickr/dprobe/results.jsonl` in the App Group. While the probe runs,
-the system's categories are the probe's, so a real reminder in that window shows
-without actions. Each side re-registers the real categories when it finishes.
+Reminders ▸ Test this device, or `apns_send.py`). A request expires after 3
+minutes and belongs to the latest run, so a later test push never starts an old
+one. Both sides append JSON lines to `Library/quickr/dprobe/results.jsonl` in the
+App Group.
+
+While the probe runs, the system's categories are the probe's:
+
+- A probe launch registers none of the app's own categories.
+- Each side re-registers the real categories when it finishes, even when the NSE
+  is out of time.
+- If a process dies first, the app's next normal launch reconciles them (§5.3).
+- Don't make topics due during a run: a real reminder in that window would show
+  without actions, and its NSE run would replace the probe's set.
 
 - **D9:** `make ios-device-run IOS_LAUNCH_ARGS="-QuickrDProbe d9"`. Wait for
   Console (category `dprobe`) to say "the app's side is done", then send a test
-  push. The NSE stops 5 s before its ~30 s limit and records any size it didn't
-  reach as `timeout`.
+  push.
+  - Each size records `set_ms` (the system call alone), `register_ms` (the
+    registry insert too), `readback_ms`, and how many categories the last read
+    showed (`seen`).
+  - The NSE stops at 22 s, keeping the rest of its ~30 s to restore, and skips a
+    size it can't finish in time (`timeout`). That is itself a D1 finding.
 - **D8:** `make ios-device-run IOS_LAUNCH_ARGS="-QuickrDProbe d8"`. Keep the app
-  in front and send a test push within 3 minutes. The app drives the 100 rounds
-  and the NSE follows. All rounds must fit in the NSE's 25 s, and a round the NSE
-  didn't finish is reported.
-- **Read the results back**, then summarise them:
+  in front and send a test push within 3 minutes.
+  - The app drives the 100 rounds. In each round, both processes meet at an
+    agreed instant and register at once, starting from an empty probe table, so
+    the system only ever gets that round's {A, B, C}.
+  - Each round records whether the two attempts overlapped.
+  - All rounds must fit in the NSE's 22 s.
+- **Read the results back**, then judge them:
 
   ```bash
   xcrun devicectl device copy from --device "<device name>" --domain-type appGroupDataContainer \
@@ -136,11 +152,15 @@ without actions. Each side re-registers the real categories when it finishes.
   python3 ios/scripts/dprobe-summary.py /tmp/dprobe-results.jsonl
   ```
 
-  The summary prints D8's rounds (complete at once, after one reconcile, or not,
-  with go or no-go) and D9's table (process × size, register and readback ms).
-  The file holds only probe timings and synthetic ids.
+  - **D8 go:** all 100 rounds, both sides done with the real categories
+    restored, and no error, timeout or stop.
+  - **No-go:** a round still missing a category after one reconcile.
+  - **Incomplete:** anything else; run it again.
+  - **D9:** prints the table, plus any size whose readback never showed every
+    category.
+  - The file holds only probe timings and synthetic ids.
 
-- **On a simulator** only D9's app side runs: the NSE never runs for
+- **On a simulator** only D9's app side runs, because the NSE never runs for
   `simctl push` (spike F1). To try it, run
   `IOS_LAUNCH_ARGS="-QuickrDProbe d9" ios/scripts/sim-run.sh <udid>`. The file is
   under `xcrun simctl get_app_container <udid> com.bahumia.quickr group.com.bahumia.quickr`.
