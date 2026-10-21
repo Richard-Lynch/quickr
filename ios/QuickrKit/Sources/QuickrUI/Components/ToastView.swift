@@ -27,6 +27,7 @@ public struct ToastView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("toast.text")
+            .modifier(magicTap)
             if let action = toast.action {
                 Button(action.label, action: onAction)
                     .font(.qr(.sansSemiBold, size: 14, relativeTo: .subheadline))
@@ -36,6 +37,7 @@ public struct ToastView: View {
                     .contentShape(Capsule())
                     .buttonStyle(QuickrPressStyle())
                     .accessibilityIdentifier("toast.action")
+                    .modifier(magicTap)
             }
             Button(action: onDismiss) {
                 QIcon.x.view(size: 16)
@@ -46,6 +48,7 @@ public struct ToastView: View {
             .opacity(0.6)
             .padding(.trailing, -8)
             .accessibilityLabel("Dismiss \(toast.title)")
+            .modifier(magicTap)
         }
         .foregroundStyle(.qr.paper)
         .padding(.leading, 16)
@@ -60,6 +63,12 @@ public struct ToastView: View {
         .qrShadow(.float)
     }
 
+    /// While VoiceOver is on one of the toast's elements, a magic tap (two-finger double-tap)
+    /// runs its action. Only an actionable toast has it, so play/pause elsewhere is untouched; the
+    /// app delegate also catches one from anywhere (audit X1). Focus never moves here by itself:
+    /// the announcement says the action is there.
+    private var magicTap: ToastMagicTap { ToastMagicTap(action: toast.action == nil ? nil : onAction) }
+
     private var toneIcon: some View {
         let (icon, color): (QIcon, Color) =
             switch toast.tone {
@@ -71,6 +80,20 @@ public struct ToastView: View {
             .foregroundStyle(.white)
             .frame(width: 20, height: 20)
             .background(color, in: Circle())
+    }
+}
+
+/// The toast's own magic tap, only when it has an action (a toast's kind never changes, so the
+/// branch never changes a live toast's identity).
+private struct ToastMagicTap: ViewModifier {
+    let action: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        if let action {
+            content.accessibilityAction(.magicTap, action)
+        } else {
+            content
+        }
     }
 }
 
