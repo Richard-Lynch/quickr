@@ -182,9 +182,11 @@ final class BuilderUITests: XCTestCase {
         let pane = element("newTopic.pane", in: app)
         scrollTo(pane, in: app, up: true)
         XCTAssertFalse(app.segmentedControls["newTopic.pane"].exists)
+        XCTAssertEqual(pane.value as? String, "Edit", "the menu reports its selection")
         pane.tap()
         app.buttons["Preview"].firstMatch.tap()
         XCTAssertTrue(element("newTopic.preview", in: app).waitForExistence(timeout: 5))
+        XCTAssertEqual(element("newTopic.pane", in: app).value as? String, "Preview")
         try assertAccessible(app)
     }
 
