@@ -92,7 +92,7 @@ public struct TopicWidgetView: View {
                     Spacer(minLength: 4)
                     if topic.queued > 0 { QueuedMark(count: topic.queued, compact: style.family == .systemSmall) }
                 }
-                DueBadge(DueView(due: topic.due(at: date), now: date))
+                DueBadge(DueView(due: topic.due(at: date), now: topic.serverTime(date)))
                     .lineLimit(1)
                     .widgetAccentable()
                 lastLine(topic)
@@ -189,9 +189,12 @@ public struct TopicWidgetView: View {
         ZStack {
             AccessoryWidgetBackground()
             VStack(spacing: 0) {
-                Image(systemName: DueView.isDueNow(topic.due(at: date), now: date) ? "bell.fill" : "checkmark")
-                    .font(.system(size: 14, weight: .semibold))
-                    .widgetAccentable()
+                Image(
+                    systemName: DueView.isDueNow(topic.due(at: date), now: topic.serverTime(date))
+                        ? "bell.fill" : "checkmark"
+                )
+                .font(.system(size: 14, weight: .semibold))
+                .widgetAccentable()
                 Text(String(topic.topic.name.prefix(5))).font(.system(size: 11, weight: .semibold)).lineLimit(1)
             }
         }
@@ -206,7 +209,7 @@ public struct TopicWidgetView: View {
     }
 
     private func dueLabel(_ topic: WidgetTopic) -> String? {
-        let view = DueView(due: topic.due(at: date), now: date)
+        let view = DueView(due: topic.due(at: date), now: topic.serverTime(date))
         return view.kind == .none ? nil : view.label()
     }
 }
@@ -226,7 +229,7 @@ public struct DueListWidgetView: View {
         self.style = style
     }
 
-    private var dueNow: [WidgetTopic] { topics.filter { DueView.isDueNow($0.due(at: date), now: date) } }
+    private var dueNow: [WidgetTopic] { topics.filter { DueView.isDueNow($0.due(at: date), now: $0.serverTime(date)) } }
 
     /// Due and scheduled topics, in the list's order; plain ones only fill a large widget.
     private var rows: [WidgetTopic] {
@@ -264,9 +267,11 @@ public struct DueListWidgetView: View {
                     .font(.headline)
                     .widgetAccentable()
                 ForEach(rows) { topic in
-                    Text("\(topic.topic.name) · \(DueView(due: topic.due(at: date), now: date).label())")
-                        .font(.caption)
-                        .lineLimit(1)
+                    Text(
+                        "\(topic.topic.name) · \(DueView(due: topic.due(at: date), now: topic.serverTime(date)).label())"
+                    )
+                    .font(.caption)
+                    .lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -310,7 +315,7 @@ public struct DueListWidgetView: View {
                             .minimumScaleFactor(0.8)
                         Spacer(minLength: 4)
                         if topic.queued > 0 { QueuedMark(count: topic.queued, compact: true) }
-                        DueBadge(DueView(due: topic.due(at: date), now: date))
+                        DueBadge(DueView(due: topic.due(at: date), now: topic.serverTime(date)))
                             .lineLimit(1)
                             .fixedSize()
                             .widgetAccentable()

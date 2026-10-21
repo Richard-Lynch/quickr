@@ -43,7 +43,7 @@ struct TopicProvider: AppIntentTimelineProvider {
     /// Entries at every due change and refresh point (`WidgetTimeline`); rebuilt after the last.
     static func timeline(for configuration: SelectTopicIntent, now: Date = .now) async -> Timeline<TopicEntry> {
         let topic = await topic(id: configuration.topic?.id)
-        let dates = WidgetTimeline.entryDates(for: topic.map { [$0.topic] } ?? [], now: now)
+        let dates = WidgetTimeline.entryDates(for: topic.map { [$0.topic] } ?? [], now: now, skew: topic?.skew ?? 0)
         return Timeline(
             entries: dates.map { TopicEntry(date: $0, topic: topic) },
             policy: .after(WidgetTimeline.reloadDate(after: dates, now: now)))

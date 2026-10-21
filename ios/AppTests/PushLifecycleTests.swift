@@ -54,9 +54,12 @@ import Testing
         let server = PushServer(serverId: "test-server", epoch: "E1")
         let suite = "reg-tests-\(UUID().uuidString)"
         // An in-memory Keychain: this is about registration, and CI's unsigned build has no Keychain.
+        // No category center (the system's is shared with SystemNotificationCenterTests'
+        // SystemCategoriesLock) and a private notification center (GRDB's suspension is
+        // process-wide on the default one).
         let environment = AppEnvironment.live(
             location: location, defaults: UserDefaults(suiteName: suite)!, keychain: InMemoryKeychain(),
-            transport: server)
+            transport: server, categoryCenter: nil, notificationCenter: NotificationCenter())
         defer { UserDefaults().removePersistentDomain(forName: suite) }
         await environment.start()
         let push = try #require(environment.push, "the live environment has push")

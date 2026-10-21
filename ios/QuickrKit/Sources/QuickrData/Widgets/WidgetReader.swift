@@ -12,19 +12,27 @@ public struct WidgetReader: Sendable {
     /// One topic (nil once it's gone: deleted, or another server's).
     public func topic(id: UUID) async throws -> WidgetTopic? {
         guard let view = try await store.topics.topic(id: id) else { return nil }
-        return try await widgetTopic(view.topic)
+        return try await widgetTopic(view.topic, skew: skew())
     }
 
-    /// Active topics, due first (the home list's order), for the due-list widget.
+    /// Active topics, due first (the home list's order at device time `now`, in server time), for
+    /// the due-list widget.
     public func dueList(now: Date) async throws -> [WidgetTopic] {
+        let skew = try await skew()
         let topics = try await store.topics.topics().map(\.topic)
-        let listed = TopicListing.list(topics, topic: { $0 }, now: now, status: .active, sort: .due, query: "")
+        let listed = TopicListing.list(
+            topics, topic: { $0 }, now: now.addingTimeInterval(skew), status: .active, sort: .due, query: "")
         var result: [WidgetTopic] = []
-        for item in listed { result.append(try await widgetTopic(item.topic)) }
+        for item in listed { result.append(try await widgetTopic(item.topic, skew: skew)) }
         return result
     }
 
-    private func widgetTopic(_ topic: Topic) async throws -> WidgetTopic {
+    /// The store's measured skew in seconds (0 before the first pull, sync-protocol.md §10).
+    private func skew() async throws -> TimeInterval {
+        (try await store.syncState.syncState()?.skewMilliseconds ?? 0) / 1000
+    }
+
+    private func widgetTopic(_ topic: Topic, skew: TimeInterval) async throws -> WidgetTopic {
         let quick = QuickLog(questions: topic.questions)
         var lastAnswer: AnswerValue?
         if let quick, let latest = try await store.entries.latestEntry(topicId: topic.id) {
@@ -44,6 +52,7 @@ public struct WidgetReader: Sendable {
             return (row?["queued"] ?? 0, row?["failed"] ?? 0)
         }
         return WidgetTopic(
-            topic: topic, quick: quick, lastAnswer: lastAnswer, queued: queued, failed: failed, scope: store.scope)
+            topic: topic, quick: quick, lastAnswer: lastAnswer, queued: queued, failed: failed, scope: store.scope,
+            skew: skew)
     }
 }
