@@ -268,10 +268,15 @@ import Testing
             #expect(Self.names(model.sections.due) == ["Meds", "Water", "Stretch"])
             #expect(model.badgeCount == 3)
         }
-        // The observation, once it delivers, agrees.
-        release.yield(try await w.store.syncState.syncState())
+        // Released, the held observation is the one in use: a state with no skew moves the list
+        // back to the device clock.
+        var noSkew = try #require(try await w.store.syncState.syncState())
+        noSkew.skewMilliseconds = 0
+        release.yield(noSkew)
         release.finish()
-        await MainActor.run { #expect(model.badgeCount == 3) }
+        try await eventually("the released state is delivered") {
+            await MainActor.run { model.clock == .device && model.badgeCount == 2 }
+        }
     }
 
     /// A pull that only moves the skew relists at once (no tick needed).
