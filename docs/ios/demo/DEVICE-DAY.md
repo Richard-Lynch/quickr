@@ -242,11 +242,20 @@ otherwise.
       connect and a failed Edit save each move VoiceOver to the error and read
       it out. To make them fail, use a value the topic refuses (Record, Edit) and
       a wrong server address (onboarding).
-- [ ] **The token sheet keeps no secret** (audit SE2). In Settings ▸
-      Cloudflare Access ▸ Add service token…, type a Client ID and any secret.
-      VoiceOver's escape (two-finger scrub) must not close the sheet while the
-      secret is typed. Close it with Cancel: no "Save Password?" prompt appears,
-      and reopening the sheet shows the secret field empty and no token saved.
+- [ ] **The token fields work with Password AutoFill** (audit SE2, AUTOFILL).
+      Needs the AASA bypass (docs/hosting/cloudflare-access.md §7), a build with
+      `webcredentials:quickr.bahumia.com`, and 1Password (or Passwords) holding
+      the service token for `quickr.bahumia.com`. VoiceOver can be on or off.
+  - Onboarding with `https://quickr.bahumia.com`, and Settings ▸ Cloudflare
+    Access ▸ Add service token…: AutoFill offers the saved entry above the
+    keyboard, and choosing it fills the Client ID (username) and the Secret
+    (password). Connect or Save works with it.
+  - Type a new token by hand and save it: iOS or 1Password offers to save it
+    for `quickr.bahumia.com`. Saving is optional, and quickR keeps its own copy
+    in the Keychain either way.
+  - Cancel, VoiceOver's escape and a swipe down all close the sheet without
+    saving anything in quickR (reopening shows no new token). An offer to save
+    what was typed may still appear, and Not Now leaves nothing saved.
 - [ ] **Charts.** Walk through each Stats chart with VoiceOver, and play it
       with Audio Graph (the chart's rotor ▸ Audio Graph).
 - [ ] **Reduce Motion** (Settings ▸ Accessibility ▸ Motion), VoiceOver off:

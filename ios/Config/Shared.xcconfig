@@ -5,9 +5,9 @@
 
 // Onboarding's prefilled server address (Info.plist `QuickrDefaultServerURL`), still editable:
 // the hosted server in Release builds (TestFlight), none in Debug, where UI tests type the fake
-// server's. `//` is escaped as `/$()/`. To override it in Local.xcconfig, set it with the same
-// condition (`QUICKR_DEFAULT_SERVER_URL[config=Release] = …`): a conditional setting wins over an
-// unconditional one, whatever the order.
+// server's. `//` is escaped as `/$()/`. Local.xcconfig, included last, overrides it: a plain
+// setting there wins in both configurations; `QUICKR_DEFAULT_SERVER_URL[config=Release] = …`
+// changes Release only (Local.xcconfig.example).
 QUICKR_DEFAULT_SERVER_URL =
 QUICKR_DEFAULT_SERVER_URL[config=Release] = https:/$()/quickr.bahumia.com
 

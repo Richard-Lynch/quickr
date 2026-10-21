@@ -6,11 +6,11 @@ PWA and MCP clients all talk to that origin. The app needs nothing the PWA
 doesn't, apart from two optional things: APNs for push, and a Cloudflare Access
 service token when the origin is behind Cloudflare Access.
 
-| Page                                         | What it covers                                                                                     |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| [backend.md](backend.md)                     | Running the stack, and the address the app connects to: on the LAN, or through a Cloudflare tunnel |
-| [apns.md](apns.md)                           | Push to the app: the `.p8` key, mounted through the gitignored compose override                    |
-| [cloudflare-access.md](cloudflare-access.md) | Access in front of quickR: the app's service token (kept in the Keychain), `/mcp`, the AASA bypass |
+| Page                                         | What it covers                                                                                                                      |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| [backend.md](backend.md)                     | Running the stack, and the address the app connects to: on the LAN, or through a Cloudflare tunnel                                  |
+| [apns.md](apns.md)                           | Push to the app: the `.p8` key, mounted through the gitignored compose override                                                     |
+| [cloudflare-access.md](cloudflare-access.md) | Access in front of quickR: the app's service token (kept in the Keychain), `/mcp`, the AASA bypass for Password AutoFill (required) |
 
 Secrets never go in the repo. Every id, key and secret in these pages is a
 placeholder, such as `ABCDE12345` or `<client-id>.access`.
@@ -64,6 +64,8 @@ can do them for you. Each one links to the page that explains it.
 - [ ] Run the manual end-to-end check through the real tunnel
       ([§6](cloudflare-access.md#6-checking-it-end-to-end)). Everything apart
       from Cloudflare itself is covered by `make ios-integration`.
-- [ ] Only if universal links are ever added: add a **Bypass** application for
-      `/.well-known/apple-app-site-association`
-      ([§7](cloudflare-access.md#7-universal-links-aasa)).
+- [ ] **Required for Password AutoFill:** add a **Bypass** application for
+      exactly `quickr.bahumia.com/.well-known/apple-app-site-association`
+      (Everyone), and check it returns 200 and `application/json` with no
+      redirect. The infrastructure-as-code setup adds it
+      ([§7](cloudflare-access.md#7-password-autofill-aasa-bypass-required)).
