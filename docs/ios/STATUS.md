@@ -306,6 +306,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 22:50 (EDT): **WIDGETS final run green** on c922320: Unit 11/0, UI 3/0. It is ready and merges after INTENTS. **PERF+UPG Codex r2 approved** (r1 fixed in 5f387ed; ios/m3 merged as d813106); its post-merge UI and Unit run is in progress. INTENTS step 2 is committed (85b5da8, Unit 908/0); step 3 (LogTopicIntent question loop, FM extraction, confirmation snippet) is written and running on simulators. New W11 packages started: UIT-6 (m2-form), HOST (m1-review, docs and the CF token e2e), TF (m6-builder; the script is dark until the Team ID and ASC key arrive). A11Y waits until no App WP is open. The iOS 26.2 runtime download ended without installing; checking.
+
 - 2026-10-20 22:35 (EDT): Codex PERF+UPG r1: no Blockers. 1 Major: the PerfSeed tests don't compile in Release (`swift test -c release`). 1 Minor: the outbox ids in the seed are random. Fixes in progress. WIDGETS merged ios/m3 (c922320); its final run is pending. INTENTS merged ios/m3 (9f4aec5); step 3 is in progress. The iOS 26.2 runtime download is still running.
 
 - 2026-10-20 22:20 (EDT): **M2 merged into feat/ios-app: PR #10, squash 21a6c2d.** CI was green on the final tip (backend, frontend, docker, swift test, build + Unit plan). Post-open fixes: an Xcode 26 compile error in a test, a CI starvation sweep plus a CI-only Swift Testing width cap of 4, and a stats tie-order backend bug. **STATUS now lives on `ios/m3`**, which has merged the final m2-ui and records the squash (ours-merge, trees equal; 3d651fa). M3 in progress: HANDLER and NSE are in; WIDGETS is approved (merges after INTENTS); INTENTS is on step 3; PERF+UPG is in Codex r1.
