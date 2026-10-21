@@ -24,14 +24,16 @@ struct ServerForm: View {
                     .foregroundStyle(.qr.ink)
                     .accessibilityHidden(true)  // the field says it
                 // Verbatim: a title string is Markdown, which would turn the example into a link.
-                // At accessibility sizes the example moves to the help text: in the one-line field
-                // it was cut off.
+                // At accessibility sizes the field wraps (up to 4 lines), so a long address stays
+                // readable while it's typed; Return still connects (`returnConnects`).
                 TextField(
-                    text: $setup.address,
-                    prompt: typeSize.isAccessibilitySize ? nil : Text(verbatim: "https://quickr.example.com")
+                    text: typeSize.isAccessibilitySize ? returnConnects : $setup.address,
+                    prompt: Text(verbatim: "https://quickr.example.com"),
+                    axis: typeSize.isAccessibilitySize ? .vertical : .horizontal
                 ) {
                     Text("Server address")
                 }
+                .lineLimit(typeSize.isAccessibilitySize ? 1...4 : 1...1)
                 .textContentType(.URL)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
@@ -42,14 +44,10 @@ struct ServerForm: View {
                 .modifier(FieldStyle(isInvalid: isFailed))
                 .accessibilityHint("The address you open quickR at in a browser.")
                 .accessibilityIdentifier("server.address")
-                Text(
-                    verbatim: typeSize.isAccessibilitySize
-                        ? "The address you open quickR at in a browser, like https://quickr.example.com."
-                        : "The address you open quickR at in a browser."
-                )
-                .font(.qr(.subheadline))
-                .foregroundStyle(.qr.muted)
-                .accessibilityHidden(true)  // the field's hint
+                Text("The address you open quickR at in a browser.")
+                    .font(.qr(.subheadline))
+                    .foregroundStyle(.qr.muted)
+                    .accessibilityHidden(true)  // the field's hint
             }
 
             DisclosureGroup(isExpanded: $setup.showsAccessToken) {
@@ -175,6 +173,21 @@ struct ServerForm: View {
     private var switchTitle: String { "Switch servers with \(changes(switchWarning?.count ?? 0)) waiting?" }
 
     private func changes(_ n: Int) -> String { n == 1 ? "1 change" : "\(n) changes" }
+
+    /// The address for a wrapping field, whose Return inserts a line break: an address has none,
+    /// so a break is the Return key, and connects.
+    private var returnConnects: Binding<String> {
+        Binding(
+            get: { setup.address },
+            set: { value in
+                guard value.contains(where: \.isNewline) else {
+                    setup.address = value
+                    return
+                }
+                setup.address = value.filter { !$0.isNewline }
+                connect()
+            })
+    }
 
     private func connect() {
         attempt += 1

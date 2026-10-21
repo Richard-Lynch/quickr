@@ -117,11 +117,12 @@ final class SettingsUITests: XCTestCase {
     @MainActor
     func testOnboardingWorksAtAnAccessibilityTextSize() throws {
         let app = launch(extra: AccessibilityLaunch.arguments())
-        let address = app.textFields["server.address"]
+        // At this size the address wraps (a text view): a long one stays readable while typed.
+        let address = app.textViews["server.address"]
         XCTAssertTrue(address.waitForExistence(timeout: 15))
         try assertAccessible(app)
         address.tap()
-        address.typeText("quickr.test\n")  // Go connects from the keyboard
+        address.typeText("quickr.test\n")  // Return still connects, from the keyboard
         finishOnboarding(app)
         XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["home.settings"].isHittable)
