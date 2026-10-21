@@ -12,16 +12,17 @@ struct ScheduleEditorRows: View {
     let preview: String
     /// Accessibility identifier prefix ("topicSettings.schedule", "newTopic.schedule").
     let id: String
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private static let kinds: [(ScheduleDraft.Kind, String)] = [
         (.none, "None"), (.daily, "Daily"), (.interval, "Every…"),
     ]
 
     var body: some View {
-        Picker("Schedule", selection: $draft.kind) {
+        // A menu at accessibility sizes (TP4, X5).
+        QuickrSegmentedPicker("Schedule", selection: $draft.kind) {
             ForEach(Self.kinds, id: \.0) { Text($0.1).tag($0.0) }
         }
-        .pickerStyle(.segmented)
         .accessibilityIdentifier("\(id).kind")
 
         switch draft.kind {
@@ -75,6 +76,9 @@ struct ScheduleEditorRows: View {
                             draft.removeTime(at: i)
                         } label: {
                             Image(systemName: "xmark.circle.fill").foregroundStyle(.qr.muted)
+                                // A 44 pt target, not the 22 pt symbol (TP3).
+                                .frame(minWidth: QuickrMetrics.tapTarget, minHeight: QuickrMetrics.tapTarget)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.borderless)
                         .accessibilityLabel("Remove time \(i + 1)")
@@ -99,7 +103,8 @@ struct ScheduleEditorRows: View {
     private var days: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("On").font(.qr(.label)).foregroundStyle(.qr.inkSoft)
-            HStack(spacing: 6) {
+            // Seven in a row; a grid at accessibility sizes, where a row of seven clips (TP1).
+            LazyVGrid(columns: dayColumns, spacing: 6) {
                 ForEach(1...7, id: \.self) { day in
                     let on = draft.days.contains(day)
                     Button {
@@ -107,6 +112,8 @@ struct ScheduleEditorRows: View {
                     } label: {
                         Text(ScheduleText.dayShort[day - 1])
                             .font(.qr(.callout))
+                            .lineLimit(1)
+                            .padding(.horizontal, 4)
                             .frame(maxWidth: .infinity, minHeight: 44)
                             .foregroundStyle(on ? Color.qr.onAccent : .qr.inkSoft)
                             .background(
@@ -125,47 +132,72 @@ struct ScheduleEditorRows: View {
                     .accessibilityIdentifier("\(id).day.\(day)")
                 }
             }
-            HStack(spacing: 6) {
-                ForEach(ScheduleDraft.dayPresets) { preset in
-                    let active = draft.isSelected(preset)
-                    Button(preset.label) { draft.days = preset.days }
-                        .font(.qr(.footnote))
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 36)
-                        .foregroundStyle(active ? Color.qr.paper : .qr.inkSoft)
-                        .background(active ? Color.qr.ink : .qr.sunken, in: Capsule())
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(active ? .isSelected : [])
-                        .accessibilityIdentifier("\(id).preset.\(preset.label)")
-                }
+            // The presets wrap onto lines of their own when they don't fit (TP2).
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) { presets }
+                VStack(alignment: .leading, spacing: 6) { presets }
             }
             TopicFieldError(errors[.days])
         }
         .padding(.vertical, 4)
     }
 
+    private var dayColumns: [GridItem] {
+        typeSize.isAccessibilitySize
+            ? [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)]
+            : Array(repeating: GridItem(.flexible(), spacing: 6), count: 7)
+    }
+
+    private var presets: some View {
+        ForEach(ScheduleDraft.dayPresets) { preset in
+            let active = draft.isSelected(preset)
+            Button(preset.label) { draft.days = preset.days }
+                .font(.qr(.footnote))
+                .padding(.horizontal, 12)
+                .frame(minHeight: QuickrMetrics.tapTarget)
+                .foregroundStyle(active ? Color.qr.paper : .qr.inkSoft)
+                .background(active ? Color.qr.ink : .qr.sunken, in: Capsule())
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(active ? .isSelected : [])
+                .accessibilityIdentifier("\(id).preset.\(preset.label)")
+        }
+    }
+
     // MARK: Interval
 
     private var interval: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
+            // Stacked at accessibility sizes, where a 90 pt field clips the number (TP5).
+            if typeSize.isAccessibilitySize {
                 Text("Every").font(.qr(.label)).foregroundStyle(.qr.inkSoft)
-                TextField("Every", text: $draft.every)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.trailing)
-                    .font(.qr(.body))
-                    .frame(maxWidth: 90)
-                    .accessibilityLabel("Every")
-                    .accessibilityIdentifier("\(id).every")
-                Picker("Unit", selection: $draft.unit) {
-                    ForEach(ScheduleDraft.Unit.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                everyField
+                unitPicker
+            } else {
+                HStack {
+                    Text("Every").font(.qr(.label)).foregroundStyle(.qr.inkSoft)
+                    everyField.multilineTextAlignment(.trailing).frame(maxWidth: 90)
+                    unitPicker
                 }
-                .labelsHidden()
-                .accessibilityIdentifier("\(id).unit")
             }
             Text(ScheduleDraft.intervalHint).font(.qr(.footnote)).foregroundStyle(.qr.muted)
             TopicFieldError(errors[.every])
         }
+    }
+
+    private var everyField: some View {
+        TextField("Every", text: $draft.every)
+            .keyboardType(.numberPad)
+            .font(.qr(.body))
+            .accessibilityLabel("Every")
+            .accessibilityIdentifier("\(id).every")
+    }
+
+    private var unitPicker: some View {
+        Picker("Unit", selection: $draft.unit) {
+            ForEach(ScheduleDraft.Unit.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+        }
+        .labelsHidden()
+        .accessibilityIdentifier("\(id).unit")
     }
 
     // MARK: Zone

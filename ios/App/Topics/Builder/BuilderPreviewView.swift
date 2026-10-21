@@ -9,6 +9,7 @@ struct BuilderPreviewSections<Model: BuilderEditing>: View {
     /// The topic's name ("Untitled topic" while it has none).
     let title: String
     let id: String
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let questions = BuilderPreview.questions(model.draft)
@@ -25,7 +26,8 @@ struct BuilderPreviewSections<Model: BuilderEditing>: View {
                     .font(.qr(.label))
                     .textCase(nil)
                     .foregroundStyle(.qr.ink)
-                    .lineLimit(1)
+                    // The whole name at accessibility sizes (BD7).
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
             }
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("\(id).preview")

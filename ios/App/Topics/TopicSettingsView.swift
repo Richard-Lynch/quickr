@@ -56,7 +56,8 @@ struct TopicSettingsView: View {
     private var detailsSection: some View {
         Section {
             if let banner = model.detailsBanner {
-                TopicBanner(text: banner).accessibilityIdentifier("topicSettings.details.banner")
+                TopicBanner(text: banner, trigger: model.detailsAttempts)
+                    .accessibilityIdentifier("topicSettings.details.banner")
             }
             TopicLabeledField("Name", error: model.detailErrors[.name]) {
                 TextField("Name", text: $model.name)
@@ -95,7 +96,8 @@ struct TopicSettingsView: View {
     private var scheduleSection: some View {
         Section {
             if let banner = model.scheduleBanner {
-                TopicBanner(text: banner).accessibilityIdentifier("topicSettings.schedule.banner")
+                TopicBanner(text: banner, trigger: model.scheduleAttempts)
+                    .accessibilityIdentifier("topicSettings.schedule.banner")
             }
             if model.isArchived {
                 Text("Archived topics are never due.").font(.qr(.subheadline)).foregroundStyle(.qr.muted)
@@ -306,6 +308,8 @@ struct TopicBanner: View {
 
     let text: String
     var tone: Tone = .danger
+    /// Changes per attempt (a save counter), so a repeated identical error is read again.
+    var trigger = 0
 
     var body: some View {
         Label {
@@ -318,5 +322,7 @@ struct TopicBanner: View {
         .listRowBackground(tone == .danger ? Color.qr.dangerSoft : .qr.warnSoft)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(text)
+        // VoiceOver goes to an error as it appears (TP6, X2); a warning is only read in turn.
+        .qrAnnouncesError(tone == .danger ? text : nil, trigger: trigger)
     }
 }

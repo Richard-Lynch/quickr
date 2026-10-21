@@ -82,6 +82,7 @@ struct EditQuestionsView: View {
     @State private var pane = BuilderPane.edit
     @State private var confirmingLeave = false
     @Environment(\.dismiss) private var dismiss
+    @QuickrReduceMotion private var reduceMotion
 
     private static let bannerId = "editQuestions.banner.section"
 
@@ -91,7 +92,7 @@ struct EditQuestionsView: View {
                 .onChange(of: model.visibleBanner) { _, banner in
                     guard banner != nil else { return }
                     pane = .edit
-                    Task { withAnimation { proxy.scrollTo(Self.bannerId, anchor: .top) } }
+                    Task { withQRAnimation(reduceMotion: reduceMotion) { proxy.scrollTo(Self.bannerId, anchor: .top) } }
                 }
         }
         .sheet(
@@ -118,7 +119,8 @@ struct EditQuestionsView: View {
                 }
                 if let banner = model.visibleBanner {
                     Section {
-                        TopicBanner(text: banner).accessibilityIdentifier("editQuestions.banner")
+                        TopicBanner(text: banner, trigger: model.attempts).accessibilityIdentifier(
+                            "editQuestions.banner")
                         ForEach(model.bannerDetails, id: \.self) { detail in
                             Text("• \(detail)").font(.qr(.footnote)).foregroundStyle(.qr.ink)
                         }

@@ -15,10 +15,10 @@ struct BuilderPanePicker: View {
 
     var body: some View {
         Section {
-            Picker("Builder view", selection: $pane) {
+            // A menu at accessibility sizes (X5).
+            QuickrSegmentedPicker("Builder view", selection: $pane) {
                 ForEach(BuilderPane.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
-            .pickerStyle(.segmented)
             .accessibilityIdentifier("\(id).pane")
         }
         .listRowBackground(Color.clear)
@@ -33,6 +33,7 @@ struct QuestionsSections<Model: BuilderEditing>: View {
     @Bindable var model: Model
     let id: String
     @State private var addingQuestion = false
+    @QuickrReduceMotion private var reduceMotion
 
     var body: some View {
         // A section per card; the first one's header is the list's ("Questions 2  Expand all").
@@ -55,7 +56,7 @@ struct QuestionsSections<Model: BuilderEditing>: View {
         }
         .confirmationDialog("Add a question", isPresented: $addingQuestion, titleVisibility: .visible) {
             ForEach(QuestionType.allCases, id: \.self) { type in
-                Button(type.builderLabel) { withAnimation { model.addQuestion(type) } }
+                Button(type.builderLabel) { withQRAnimation(reduceMotion: reduceMotion) { model.addQuestion(type) } }
                     .accessibilityIdentifier("\(id).addQuestion.\(type.rawValue)")
             }
         } message: {
@@ -71,7 +72,7 @@ struct QuestionsSections<Model: BuilderEditing>: View {
             if model.draft.questions.count > 1 {
                 let allOpen = model.expansion.allOpen(model.draft.questions)
                 Button(QuestionExpansion.toggleAllTitle(allOpen: allOpen)) {
-                    withAnimation { model.expansion.toggleAll(model.draft.questions) }
+                    withQRAnimation(reduceMotion: reduceMotion) { model.expansion.toggleAll(model.draft.questions) }
                 }
                 .font(.qr(.label))
                 .textCase(nil)
@@ -113,6 +114,10 @@ struct QuestionCard<Model: BuilderEditing>: View {
     let index: Int
     let id: DraftQuestion.ID
     let prefix: String
+    @QuickrReduceMotion private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// VoiceOver stays on the question it moved (BD1): the card keeps its identity (by id).
+    @AccessibilityFocusState private var headerFocused: Bool
 
     private var question: DraftQuestion? { model.draft[id] }
     private var tag: String { "\(prefix).q\(index)" }
@@ -138,50 +143,26 @@ struct QuestionCard<Model: BuilderEditing>: View {
         let isOpen = model.isOpen(id)
         return HStack(spacing: 10) {
             Button {
-                withAnimation { model.expansion.toggle(id) }
+                withQRAnimation(reduceMotion: reduceMotion) { model.expansion.toggle(id) }
             } label: {
-                HStack(spacing: 10) {
-                    Text("\(index + 1)").font(.qr(.monoCaption)).foregroundStyle(.qr.muted).frame(minWidth: 16)
-                    TypeChip(type: question.type)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(question.label.isEmpty ? "Untitled question" : question.label)
-                            .font(.qr(.label))
-                            .foregroundStyle(question.label.isEmpty ? Color.qr.muted : .qr.ink)
-                            .lineLimit(2)
-                        if !isOpen {
-                            Text(question.key.isEmpty ? "—" : question.key)
-                                .font(.qr(.monoCaption)).foregroundStyle(.qr.muted).lineLimit(1)
-                        }
-                    }
-                    Spacer(minLength: 4)
-                    if hasError {
-                        Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.qr.danger)
-                            .accessibilityLabel("Has errors")
-                    }
-                    QuickrBadge(question.locked ? "published" : "new", tone: question.locked ? .neutral : .accent)
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.qr.muted)
-                        .rotationEffect(.degrees(isOpen ? 180 : 0))
-                        .accessibilityHidden(true)
-                }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
+                headerLabel(question, isOpen: isOpen, hasError: hasError)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
+            .accessibilityFocused($headerFocused)
+            // Moving without the menu (BD1); focus stays on this question.
+            .accessibilityAction(named: "Move up") { move(to: index - 1) }
+            .accessibilityAction(named: "Move down") { move(to: index + 1) }
             .accessibilityIdentifier("\(tag).header")
             Menu {
-                Button("Move up", systemImage: "arrow.up") {
-                    withAnimation { model.draft.moveQuestion(id, to: index - 1) }
-                }
-                .disabled(index == 0)
-                Button("Move down", systemImage: "arrow.down") {
-                    withAnimation { model.draft.moveQuestion(id, to: index + 1) }
-                }
-                .disabled(index == model.draft.questions.count - 1)
+                Button("Move up", systemImage: "arrow.up") { move(to: index - 1) }
+                    .disabled(index == 0)
+                Button("Move down", systemImage: "arrow.down") { move(to: index + 1) }
+                    .disabled(index == model.draft.questions.count - 1)
                 Button("Remove question", systemImage: "trash", role: .destructive) {
-                    withAnimation { _ = model.draft.removeQuestion(id) }
+                    withQRAnimation(reduceMotion: reduceMotion) { _ = model.draft.removeQuestion(id) }
                 }
                 .disabled(!model.draft.canRemoveQuestion)
             } label: {
@@ -191,6 +172,61 @@ struct QuestionCard<Model: BuilderEditing>: View {
             .accessibilityIdentifier("\(tag).menu")
         }
         .listRowBackground(hasError ? Color.qr.dangerSoft : nil)
+    }
+
+    /// Number, type, label (and key while closed), the error mark, published or new, the chevron.
+    /// At accessibility sizes the label gets its own lines under the rest.
+    @ViewBuilder
+    private func headerLabel(_ question: DraftQuestion, isOpen: Bool, hasError: Bool) -> some View {
+        let number = Text("\(index + 1)").font(.qr(.monoCaption)).foregroundStyle(.qr.muted)
+        let title = VStack(alignment: .leading, spacing: 2) {
+            Text(question.label.isEmpty ? "Untitled question" : question.label)
+                .font(.qr(.label))
+                .foregroundStyle(question.label.isEmpty ? Color.qr.muted : .qr.ink)
+                .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
+            if !isOpen {
+                Text(question.key.isEmpty ? "—" : question.key)
+                    .font(.qr(.monoCaption)).foregroundStyle(.qr.muted)
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+            }
+        }
+        let marks = HStack(spacing: 8) {
+            if hasError {
+                Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.qr.danger)
+                    .accessibilityLabel("Has errors")
+            }
+            QuickrBadge(question.locked ? "published" : "new", tone: question.locked ? .neutral : .accent)
+            Image(systemName: "chevron.down")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.qr.muted)
+                .rotationEffect(.degrees(isOpen ? 180 : 0))
+                .accessibilityHidden(true)
+        }
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    number
+                    TypeChip(type: question.type)
+                    Spacer(minLength: 4)
+                    marks
+                }
+                title
+            }
+        } else {
+            HStack(spacing: 10) {
+                number.frame(minWidth: 16)
+                TypeChip(type: question.type)
+                title
+                Spacer(minLength: 4)
+                marks
+            }
+        }
+    }
+
+    private func move(to destination: Int) {
+        guard model.draft.questions.indices.contains(destination) else { return }
+        withQRAnimation(reduceMotion: reduceMotion) { model.draft.moveQuestion(id, to: destination) }
+        headerFocused = true
     }
 
     @ViewBuilder
@@ -258,11 +294,11 @@ struct QuestionCard<Model: BuilderEditing>: View {
     private func constraints(_ question: DraftQuestion) -> some View {
         switch question.type {
         case .int, .double:
-            HStack(alignment: .top) {
+            FieldRow {
                 numberField("Min", \.min, .min)
                 numberField("Max", \.max, .max)
             }
-            HStack(alignment: .top) {
+            FieldRow {
                 if question.type == .double { numberField("Decimals", \.decimals, .decimals, pad: .numberPad) }
                 TopicLabeledField("Unit", optional: true, error: error(.unit)) {
                     TextField("kg, h…", text: binding(\.unit, default: ""))
@@ -271,7 +307,7 @@ struct QuestionCard<Model: BuilderEditing>: View {
                 }
             }
         case .str:
-            HStack(alignment: .top) {
+            FieldRow {
                 numberField("Min length", \.minLength, .minLength, pad: .numberPad)
                 numberField("Max length", \.maxLength, .maxLength, pad: .numberPad)
             }
@@ -296,7 +332,7 @@ struct QuestionCard<Model: BuilderEditing>: View {
             .accessibilityIdentifier("\(tag).multiple")
             TopicFieldError(error(.multiple))
             if question.multiple {
-                HStack(alignment: .top) {
+                FieldRow {
                     numberField("Min selections", \.minSelected, .minSelected, pad: .numberPad)
                     numberField("Max selections", \.maxSelected, .maxSelected, pad: .numberPad)
                 }
@@ -326,15 +362,16 @@ struct OptionsRows<Model: BuilderEditing>: View {
     let index: Int
     let id: DraftQuestion.ID
     let tag: String
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var question: DraftQuestion? { model.draft[id] }
 
     var body: some View {
         if let question {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
+                FieldRow(alignment: .firstTextBaseline) {
                     Text("Options").font(.qr(.label)).foregroundStyle(.qr.inkSoft)
-                    Spacer()
+                    if !typeSize.isAccessibilitySize { Spacer() }
                     Text("≤ 6 show as chips (multi-select: always)").font(.qr(.caption)).foregroundStyle(.qr.muted)
                 }
                 ForEach(Array(question.options.enumerated()), id: \.element.id) { o, option in
@@ -358,44 +395,15 @@ struct OptionsRows<Model: BuilderEditing>: View {
 
     private func row(_ question: DraftQuestion, _ o: Int, _ option: DraftOption) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                TextField(
-                    "Option \(o + 1)",
-                    text: model.optionLabelBinding(id, option: option.id)
-                )
-                .strikethrough(option.archived)
-                .accessibilityLabel("Option \(o + 1) label")
-                .accessibilityIdentifier("\(tag).option\(o)")
-                if option.locked {
-                    Button(option.archived ? "Restore" : "Archive") {
-                        model.draft.setOptionArchived(id, option: option.id, !option.archived)
-                    }
-                    .font(.qr(.label))
-                    .buttonStyle(.borderless)
-                    .accessibilityIdentifier("\(tag).option\(o).archive")
-                } else {
-                    Button {
-                        _ = model.draft.removeOption(id, option: option.id)
-                    } label: {
-                        Image(systemName: "trash").foregroundStyle(.qr.danger)
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("Delete option \(o + 1)")
-                    .accessibilityIdentifier("\(tag).option\(o).delete")
+            // At accessibility sizes the buttons go under the label (BD4).
+            if typeSize.isAccessibilitySize {
+                labelField(o, option)
+                HStack(spacing: 8) { optionButtons(question, o, option) }
+            } else {
+                HStack(spacing: 8) {
+                    labelField(o, option)
+                    optionButtons(question, o, option)
                 }
-                Menu {
-                    Button("Move up", systemImage: "arrow.up") {
-                        model.draft.moveOption(id, option: option.id, to: o - 1)
-                    }
-                    .disabled(o == 0)
-                    Button("Move down", systemImage: "arrow.down") {
-                        model.draft.moveOption(id, option: option.id, to: o + 1)
-                    }
-                    .disabled(o == question.options.count - 1)
-                } label: {
-                    Image(systemName: "arrow.up.arrow.down").foregroundStyle(.qr.muted)
-                }
-                .accessibilityLabel("Move option \(o + 1)")
             }
             HStack(spacing: 6) {
                 Text("value").font(.qr(.monoCaption)).foregroundStyle(.qr.muted)
@@ -421,8 +429,70 @@ struct OptionsRows<Model: BuilderEditing>: View {
         .padding(.vertical, 2)
     }
 
+    private func labelField(_ o: Int, _ option: DraftOption) -> some View {
+        TextField("Option \(o + 1)", text: model.optionLabelBinding(id, option: option.id))
+            .strikethrough(option.archived)
+            // Not only struck through (BD3).
+            .accessibilityLabel(option.archived ? "Option \(o + 1) label, archived" : "Option \(o + 1) label")
+            .accessibilityIdentifier("\(tag).option\(o)")
+    }
+
+    /// Archive or Restore (published) or Delete (new), and the move menu, each at least 44 pt (BD2).
+    @ViewBuilder
+    private func optionButtons(_ question: DraftQuestion, _ o: Int, _ option: DraftOption) -> some View {
+        if option.locked {
+            Button(option.archived ? "Restore" : "Archive") {
+                model.draft.setOptionArchived(id, option: option.id, !option.archived)
+            }
+            .font(.qr(.label))
+            .buttonStyle(.borderless)
+            .frame(minHeight: QuickrMetrics.tapTarget)
+            .accessibilityIdentifier("\(tag).option\(o).archive")
+        } else {
+            Button {
+                _ = model.draft.removeOption(id, option: option.id)
+            } label: {
+                Image(systemName: "trash").foregroundStyle(.qr.danger)
+                    .frame(minWidth: QuickrMetrics.tapTarget, minHeight: QuickrMetrics.tapTarget)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Delete option \(o + 1)")
+            .accessibilityIdentifier("\(tag).option\(o).delete")
+        }
+        Menu {
+            Button("Move up", systemImage: "arrow.up") { model.draft.moveOption(id, option: option.id, to: o - 1) }
+                .disabled(o == 0)
+            Button("Move down", systemImage: "arrow.down") {
+                model.draft.moveOption(id, option: option.id, to: o + 1)
+            }
+            .disabled(o == question.options.count - 1)
+        } label: {
+            Image(systemName: "arrow.up.arrow.down").foregroundStyle(.qr.muted)
+                .frame(minWidth: QuickrMetrics.tapTarget, minHeight: QuickrMetrics.tapTarget)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Move option \(o + 1)")
+        .accessibilityIdentifier("\(tag).option\(o).move")
+    }
+
     /// The typed option label, kept by the model (it survives the panes and a closed card).
     private var newLabel: Binding<String> { model.newOptionBinding(id) }
 
     private func add() { model.addPendingOption(to: id) }
+}
+
+/// Fields side by side, stacked at accessibility sizes (BD4).
+struct FieldRow<Content: View>: View {
+    var alignment: VerticalAlignment = .top
+    @ViewBuilder let content: Content
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 8) { content }
+        } else {
+            HStack(alignment: alignment) { content }
+        }
+    }
 }

@@ -132,6 +132,69 @@ final class BuilderUITests: XCTestCase {
         XCTAssertTrue(element("editQuestions.q0.header", in: app).waitForExistence(timeout: 10))
     }
 
+    // MARK: Accessibility (A11Y slice C)
+
+    @MainActor
+    func testBuilderAtTheLargestTextSize() throws {
+        let app = launch(open: "quickr://t/workout/edit", extra: AccessibilityLaunch.arguments())
+        let header = element("editQuestions.q0.header", in: app)
+        XCTAssertTrue(header.waitForExistence(timeout: 15))
+        try assertAccessible(app)
+        // The choice question, open: its options, archive buttons and move menus.
+        scrollTo(header, in: app)
+        header.tap()
+        let archive = element("editQuestions.q0.option0.archive", in: app)
+        scrollTo(archive, in: app)
+        XCTAssertGreaterThanOrEqual(archive.frame.height, 44)
+        try assertAccessible(app)
+        // BD3: an archived option says so.
+        archive.tap()
+        XCTAssertTrue(app.textFields["editQuestions.q0.option0"].label.contains("archived"))
+        let move = element("editQuestions.q0.option0.move", in: app)
+        XCTAssertGreaterThanOrEqual(move.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(move.frame.height, 44)
+        let multiple = element("editQuestions.q0.multiple", in: app)
+        scrollTo(multiple, in: app)
+        try assertAccessible(app)
+    }
+
+    @MainActor
+    func testANewQuestionsFieldsAtTheLargestTextSize() throws {
+        let app = launch(open: "quickr://new", extra: AccessibilityLaunch.arguments())
+        let label = app.textFields["newTopic.q0.label"]
+        scrollTo(label, in: app)
+        XCTAssertTrue(label.waitForExistence(timeout: 15))
+        // The min and max fields stack (BD4).
+        let min = element("newTopic.q0.min", in: app)
+        let max = element("newTopic.q0.max", in: app)
+        scrollTo(max, in: app)
+        XCTAssertGreaterThan(max.frame.minY, min.frame.minY, "stacked, not side by side")
+        try assertAccessible(app)
+        // The pane switch is a menu at this size (BD5).
+        let pane = element("newTopic.pane", in: app)
+        scrollTo(pane, in: app, up: true)
+        XCTAssertFalse(app.segmentedControls["newTopic.pane"].exists)
+        pane.tap()
+        app.buttons["Preview"].firstMatch.tap()
+        XCTAssertTrue(element("newTopic.preview", in: app).waitForExistence(timeout: 5))
+        try assertAccessible(app)
+    }
+
+    @MainActor
+    func testVersionsAtTheLargestTextSize() throws {
+        // By link until the topic tabs' helper lands (slice B).
+        let app = launch(open: "quickr://t/workout/versions", extra: AccessibilityLaunch.arguments())
+        let v1 = element("versions.v1", in: app)
+        XCTAssertTrue(v1.waitForExistence(timeout: 15))
+        try assertAccessible(app)
+        let new = element("versions.new", in: app)
+        XCTAssertTrue(new.isHittable)
+        let type = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Whole number'"))
+        scrollTo(type.firstMatch, in: app)
+        XCTAssertTrue(type.firstMatch.exists, "a question's type reads as its name (BD7)")
+        try assertAccessible(app)
+    }
+
     // MARK: Helpers
 
     /// "Add question" → `type`, then types its label into the new (open) card.

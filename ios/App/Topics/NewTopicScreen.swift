@@ -44,6 +44,7 @@ struct NewTopicView: View {
     @Bindable var model: NewTopicModel
     @State private var confirmingLeave = false
     @State private var pane = BuilderPane.edit
+    @QuickrReduceMotion private var reduceMotion
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -55,7 +56,7 @@ struct NewTopicView: View {
                     // The errors are on the editor's fields: show it.
                     pane = .edit
                     // Next turn: the banner's section exists once the editor is back.
-                    Task { withAnimation { proxy.scrollTo(Self.bannerId, anchor: .top) } }
+                    Task { withQRAnimation(reduceMotion: reduceMotion) { proxy.scrollTo(Self.bannerId, anchor: .top) } }
                 }
         }
     }
@@ -68,7 +69,7 @@ struct NewTopicView: View {
             if pane == .edit {
                 if let banner = model.visibleBanner {
                     Section {
-                        TopicBanner(text: banner).accessibilityIdentifier("newTopic.banner")
+                        TopicBanner(text: banner, trigger: model.attempts).accessibilityIdentifier("newTopic.banner")
                         ForEach(model.bannerDetails, id: \.self) { detail in
                             Text("• \(detail)").font(.qr(.footnote)).foregroundStyle(.qr.ink)
                         }
