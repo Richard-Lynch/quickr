@@ -306,6 +306,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 20:45 (EDT): PR #10 CI. Backend, frontend and docker pass. `swift test` is green after two fixes: an Xcode 26 region-isolation compile error in OutboxBridgeTests (f21d99c) and widened success bounds in case42 and LeaseTests (0fb7240, 1775654). The **build + Unit plan** job fails 6 CI-only tests: a Keychain -34018 in the unsigned CI build (SettingsTests), PushLifecycleTests, and LeaseTests/LeaseTimeSamplingTests (SQLite busy and short waits under starvation). A systematic CI-starvation sweep (ios/m2-ci-flakes, test-isolation agent; reproduces with 10 background-priority copies) is fixing all of them; it merges into m2-ui and then CI reruns.
+
 - 2026-10-20 20:00 (EDT): The Intents test fix is merged (95c5db3; test-only; 2/2 ×2 on iOS 27). **The M2 PR is open: #10 (ios/m2-ui → feat/ios-app)**, with the final validation in its body. CI is running (backend, frontend, docker, swift test, build + Unit plan). The PR merges (squash) once CI is green.
 
 - 2026-10-20 19:40 (EDT): Final M2 validation on 77c6924 is complete. Unit 844/0 and UI 78/0 on both 26.0 and 27. E2E 14/0 (3 demo skips). Integration 19/19 ×2. `make check`: backend 694, frontend 856. `make vectors`: no drift. Only the iOS 27 Intents plan (0/2) failed; its test-only fix on ios/m2-intents-fix is running twice on 27. The M2 PR opens once that's merged.
