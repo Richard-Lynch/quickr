@@ -153,7 +153,8 @@ _sim_trap_ticket() {
       EXIT)
         # The handler runs at the end of an `||` list, after a command that returns the saved
         # status: `$?` is that status inside it, and errexit (if the caller set it) still applies.
-        if (( present )); then
+        # (An empty handler, `trap '' EXIT`, has nothing to run, and would leave empty bodies.)
+        if (( present )) && [[ -n "$handler" ]]; then
           trap "_sim_rc=\$?; _sim_drop_ticket; if (( _sim_rc == 0 )); then $handler
 else _sim_status \$_sim_rc || { $handler
 }; fi" EXIT

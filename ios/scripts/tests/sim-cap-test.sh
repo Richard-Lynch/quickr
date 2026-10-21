@@ -296,6 +296,25 @@ traps="$(cat "$fake/traps.out")"
   && echo "ok   once admitted, the caller's traps are as they were (no EXIT, TERM or HUP of its own)" \
   || fail "traps after admission: $traps"
 
+# A caller with an empty EXIT trap (`trap '' EXIT`): waiting and exiting still work, and the empty
+# trap is back once admitted.
+devices "a:Booted:$A" "c:Shutdown:$C"
+( sleep 2; setstate a Shutdown ) &
+IOS_SIM_CAP=1 IOS_SIM_WAIT=1 perl -e 'alarm shift; exec @ARGV' 120 \
+  bash -c 'trap "" EXIT; source "$1/../common.sh"; sim_boot c; trap -p EXIT >"$2"' _ "$here" "$fake/empty.traps" \
+  >"$fake/empty.out" 2>&1
+rc=$?
+wait
+[[ "$rc" == 0 && "$(cat "$fake/empty.traps")" == "trap -- '' EXIT" && "$(tickets)" == 0 ]] \
+  && echo "ok   an empty EXIT trap is kept and works" || fail "empty EXIT trap: rc=$rc $(cat "$fake/empty.traps") $(cat "$fake/empty.out")"
+devices "a:Booted:$A" "c:Shutdown:$C"
+IOS_SIM_CAP=1 IOS_SIM_WAIT=1 bash -c 'trap "" EXIT; source "$1/../common.sh"; sim_boot c' _ "$here" >"$fake/empty2.out" 2>&1 &
+pz=$!
+until_true "the empty-trap waiter has a ticket" tickets_are 1
+kill -TERM "$pz"; reap "$pz"
+[[ "$reaped" == 143 && "$(tickets)" == 0 ]] && echo "ok   and a waiter with one, stopped, still drops its ticket" \
+  || fail "empty EXIT trap, stopped: status $reaped, tickets $(tickets): $(cat "$fake/empty2.out")"
+
 # A waiter in a subshell (not \$\$) killed while its parent lives: its ticket is its own pid's, so
 # it is pruned and doesn't block the queue.
 devices "a:Booted:$A" "c:Shutdown:$C" "d:Shutdown:$D"
