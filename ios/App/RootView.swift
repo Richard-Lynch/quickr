@@ -28,6 +28,8 @@ struct RootView: View {
         #if DEBUG
         if let page = Self.catalogPage {
             DesignCatalogView(page: page)
+        } else if let gallery = Self.widgetGallery {
+            WidgetGalleryView(page: gallery.page, tinted: gallery.tinted)
         } else if let demo = Self.formDemo {
             FormDemoView(demo: demo)
         } else {
@@ -45,6 +47,14 @@ struct RootView: View {
         guard let i = args.firstIndex(of: "-QuickrDesignCatalog") else { return nil }
         let raw = i + 1 < args.count ? args[i + 1] : ""
         return DesignCatalogView.Page(rawValue: raw) ?? .colors
+    }
+
+    /// `-QuickrWidgetGallery <home|lock> [tinted]` shows the widget views (screenshots, UI checks).
+    private static var widgetGallery: (page: WidgetGalleryView.Page, tinted: Bool)? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-QuickrWidgetGallery") else { return nil }
+        let raw = i + 1 < args.count ? args[i + 1] : ""
+        return (WidgetGalleryView.Page(rawValue: raw) ?? .home, args.contains("tinted"))
     }
 
     /// `-QuickrFormDemo <workout|types|fix>` shows the answer form over a fixed topic (UI tests).
@@ -89,6 +99,12 @@ struct RootView: View {
         // The sync pill and sheet follow the active store (SYNC-UX).
         .task(id: environment.session?.binding) {
             if let session = environment.session { await environment.sync.observe(session) }
+        }
+        // The widgets follow the active store too.
+        .task(id: environment.session?.binding) {
+            if let session = environment.session, let store = session.store {
+                await environment.widgets.observe(store, refresh: session.refresh.stream())
+            }
         }
         #if DEBUG
         .overlay(alignment: .bottom) {

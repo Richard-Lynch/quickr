@@ -84,7 +84,7 @@ import Testing
         ])
         let registered = w.center.withState { $0.categories }
         let numberActions = try #require(registered.first { $0.id == number.id }?.actions)
-        #expect(numberActions.map(\.title) == ["✓ 3 glasses", "Other value…"])
+        #expect(numberActions.map(\.title) == ["Log 3 glasses", "Other value…"])
         #expect(numberActions.last?.kind == .input(buttonTitle: "Log", placeholder: "Value in glasses"))
         let more = try #require(registered.first { $0.id == choice.id }?.actions.last)
         #expect(more.title == "More…" && more.kind == .open && more.kind.opensApp)
@@ -197,7 +197,7 @@ import Testing
             return
         }
         #expect(choice.options.map(\.value) == ["s5", "s4", "s0"], "the 3 most used, most used first")
-        #expect(expectedWater.actions.first?.title == "✓ 5 glasses", "the latest answer")
+        #expect(expectedWater.actions.first?.title == "Log 5 glasses", "the latest answer")
 
         // Nothing changed: no new row, no registration.
         try await w.categories.refresh(from: s.store)
