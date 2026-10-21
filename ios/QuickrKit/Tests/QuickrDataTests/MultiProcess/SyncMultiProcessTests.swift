@@ -370,7 +370,8 @@ extension MultiProcessTests {
         /// lockstep (both register in every round, in whichever order the registry lock grants).
         /// Each registration (one registry `IMMEDIATE` transaction: insert, read all, register) saw
         /// exactly the union of everything committed before it; the table holds the union; and the
-        /// final registration in each process carries the whole durable table.
+        /// final registration in each process carries the whole durable table. Uncapped, as the
+        /// union is what shows the lock at work; `n4Capped` runs it with the cap.
         @Test("N4 · MP: concurrent category registration always registers the union")
         func n4() async throws {
             try await SyncWorld.run { w in
@@ -405,6 +406,45 @@ extension MultiProcessTests {
                 #expect(Set(finals.map { $0[0] }) == ["app:A", "nse:N"] && finals.allSatisfy { $0[1] == "final" })
                 for final in finals { #expect(Set(final[2].split(separator: ",").map(String.init)) == table) }
                 #expect(inserted == table)
+            }
+        }
+
+        /// N4 with the cap (§5.2): the same lockstep, each process capped at 50 of 120 rows. Every
+        /// registration is a capped subset of what was committed before it, and the final ones
+        /// carry the 50 most recently wanted rows, the same in both processes.
+        @Test("N4 · MP: capped concurrent registration selects the same rows in every process")
+        func n4Capped() async throws {
+            try await SyncWorld.run { w in
+                try await w.connect()
+                let app = try await w.world.spawn("app:A", open: nil)
+                let nse = try await w.world.spawn("nse:N", open: nil)
+                let log = w.world.root.appending(path: "registrations.log")
+                let args = ["count": "60", "log": log.path, "participants": "2", "cap": "50"]
+                let first = try app.start("registerCategories", args.merging(["prefix": "a"]) { $1 })
+                let second = try nse.start("registerCategories", args.merging(["prefix": "b"]) { $1 })
+                #expect(try await app.reply(first, timeout: .seconds(90)).ok)
+                #expect(try await nse.reply(second, timeout: .seconds(90)).ok)
+
+                let lines = try String(contentsOf: log, encoding: .utf8).split(separator: "\n").map {
+                    $0.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+                }
+                try #require(lines.count == 122 && lines.allSatisfy { $0.count == 3 })
+                var inserted: Set<String> = []
+                for (index, line) in lines.enumerated() {
+                    if line[1] != "final" { inserted.insert(line[1]) }
+                    let registered = Set(line[2].split(separator: ",").map(String.init))
+                    #expect(registered.isSubset(of: inserted), "line \(index)")
+                    #expect(registered.count == min(50, inserted.count), "line \(index)")
+                    if line[1] != "final" { #expect(registered.contains(line[1]), "the new row is in: line \(index)") }
+                }
+                // Every row is current, so none was deleted; the finals are the 50 most recent.
+                let rows = try await w.world.partitions.registry.writer.read { db in
+                    try String.fetchAll(
+                        db, sql: "SELECT id FROM notification_category ORDER BY used_at DESC, id LIMIT 50")
+                }
+                let finals = lines.suffix(2)
+                #expect(inserted.count == 120)
+                for final in finals { #expect(Set(final[2].split(separator: ",").map(String.init)) == Set(rows)) }
             }
         }
     }

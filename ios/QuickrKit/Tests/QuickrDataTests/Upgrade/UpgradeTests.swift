@@ -39,6 +39,8 @@ import Testing
     static let serverId = PerfSeed.Spec.standard.serverId
     static let otherServer = "5eed0000-0000-4000-8000-0000000000b2"
     static let spec = PerfSeed.Spec(topics: 10, entries: 2_000)
+    /// notification_category's v3 columns (the capped registration).
+    static let v3Columns = ["current", "due_at", "used_at"]
 
     // MARK: - Shipped migrations stay shipped
 
@@ -213,6 +215,7 @@ import Testing
                         table,
                         try Row.fetchAll(db, sql: "PRAGMA table_info(\(table))").map { $0["name"] as String }
                             .filter { table != "apns_state" || !$0.hasPrefix("register_") }
+                            .filter { table != "notification_category" || !Self.v3Columns.contains($0) }
                     )
                 })
         }
@@ -225,6 +228,14 @@ import Testing
             return (row?["register_attempts"], row?["register_due_boot_id"], row?["register_due_ct"])
         }
         #expect(attempts == 0 && dueBoot == nil && dueCt == nil)
+        // v3's: not current, no due time, last wanted when inserted.
+        let categories = try await registry.read { db in
+            try Row.fetchAll(db, sql: "SELECT current, due_at, used_at, created_at FROM notification_category").map {
+                ($0["current"] as Int) == 0 && ($0["due_at"] as Double?) == nil
+                    && ($0["used_at"] as Double) == ($0["created_at"] as Double)
+            }
+        }
+        #expect(categories == [true, true, true])
 
         // The same views.
         #expect(try await store.writer.read { db in try Self.views(db) } == storeViews)

@@ -467,7 +467,7 @@ public struct RegisteredServer: Sendable, Hashable, Identifiable {
     public var storeFileName: String { "stores/\(id).g\(storeGen).sqlite" }
 }
 
-/// One `notification_category` row: append-only, never pruned in v1.
+/// One `notification_category` row (notifications.md §5.1).
 public struct NotificationCategoryRecord: Sendable, Hashable, Identifiable {
     public var id: String
     public var serverId: String

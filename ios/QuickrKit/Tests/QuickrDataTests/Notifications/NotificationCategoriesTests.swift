@@ -28,11 +28,30 @@ import Testing
     struct World {
         let registry = Registry(writer: try! TestDatabase.registry())
         let center: FakeNotificationCenter
+        let clock = FakeClock()
         let categories: NotificationCategories
 
-        init(center: FakeNotificationCenter = FakeNotificationCenter()) {
+        init(
+            center: FakeNotificationCenter = FakeNotificationCenter(),
+            cap: Int? = NotificationCategories.registrationCap
+        ) {
             self.center = center
-            categories = NotificationCategories(registry: registry, center: center)
+            categories = NotificationCategories(registry: registry, center: center, wallClock: clock, cap: cap)
+        }
+
+        /// The registered ids now.
+        var registered: Set<String> { center.withState { Set($0.categories.map(\.id)) } }
+
+        /// Registers `count` rows one at a time, a minute apart (the last is the most recent).
+        func registerAging(_ count: Int) async throws -> [NotificationCategories.Row] {
+            var rows: [NotificationCategories.Row] = []
+            for _ in 0..<count {
+                let row = NotificationCategoriesTests.row()
+                try await categories.register([row])
+                rows.append(row)
+                clock.advance(by: 60)
+            }
+            return rows
         }
 
         var table: [String] {
@@ -95,11 +114,15 @@ import Testing
         let w = World()
         try await w.registry.writer.write { db in
             try db.execute(
-                sql: "INSERT INTO notification_category VALUES ('quickr.t.x.0', 's', 't', ?, 0)",
+                sql:
+                    "INSERT INTO notification_category (id, server_id, topic_id, actions_json, created_at) VALUES ('quickr.t.x.0', 's', 't', ?, 0)",
                 arguments: [
                     #"[{"kind":"log","identifier":"q1|a","title":"A"},{"kind":"future","identifier":"q1|b","title":"B"}]"#
                 ])
-            try db.execute(sql: "INSERT INTO notification_category VALUES ('quickr.t.y.0', 's', 't', 'not json', 0)")
+            try db.execute(
+                sql:
+                    "INSERT INTO notification_category (id, server_id, topic_id, actions_json, created_at) VALUES ('quickr.t.y.0', 's', 't', 'not json', 0)"
+            )
         }
         try await w.categories.register([])
         let registered = w.center.withState { $0.categories }
@@ -203,7 +226,8 @@ import Testing
         try await w.categories.refresh(from: s.store)
         #expect(w.registrations.count == 1)
 
-        // A new last value is a new category; the old one stays registered (append-only).
+        // A new last value is a new category; the old one, no longer current, stays registered while
+        // the cap has room.
         try s.write { db in
             _ = try ServerLayer.upsert(
                 db, entry: Make.entry(topicId: water.id, minutes: 9, answers: ["glasses": .int(8)]))
@@ -212,5 +236,162 @@ import Testing
         #expect(w.registrations.count == 2)
         #expect(try w.table.count == 3 && !after.contains(expectedWater.id))
         #expect(w.registrations.last?.contains(expectedWater.id) == true)
+    }
+
+    // MARK: - The cap and its priority (§5.2)
+
+    /// Over the cap, the most recently wanted rows are registered, never more than the cap; with
+    /// the system keeping at most 100, all of them stay readable.
+    @Test func registrationNeverPassesTheCap() async throws {
+        let center = FakeNotificationCenter()
+        center.withState { $0.categoryCapacity = 100 }
+        let w = World(center: center)
+        let rows = try await w.registerAging(150)
+        #expect(
+            w.center.withState {
+                $0.categoryRegistrations.allSatisfy { $0.count <= NotificationCategories.registrationCap }
+            })
+        #expect(w.registered == Set(rows.suffix(NotificationCategories.registrationCap).map(\.category.id)))
+        // Every row was current (registered by a caller), so none was deleted.
+        #expect(try w.table.count == 150)
+    }
+
+    /// Due within the window first (soonest first), then on screen, then the most recently wanted.
+    @Test func theSelectionIsDueThenOnScreenThenRecent() async throws {
+        let w = World(cap: 3)
+        let old = try await w.registerAging(4)  // old[3] is the most recent
+        // On screen: the oldest row.
+        w.center.withState { $0.delivered = [NotificationSnapshot(id: "n", categoryIdentifier: old[0].category.id)] }
+        var dueSoon = Self.row()
+        dueSoon.dueAt = w.clock.now().addingTimeInterval(86_400)
+        var dueLater = Self.row()
+        dueLater.dueAt = w.clock.now().addingTimeInterval(NotificationCategories.dueWindow + 3 * 86_400)
+        w.clock.advance(by: -3_600)  // wanted before the others: only its due time could lift it
+        try await w.categories.register([dueLater])
+        w.clock.advance(by: 7_200)
+        try await w.categories.register([dueSoon])
+        // dueSoon (due tier), old[0] (on screen), then the most recent of the rest: old[3]. dueLater
+        // is past the window and was wanted earliest, so it isn't selected.
+        #expect(w.registered == [dueSoon.category.id, old[0].category.id, old[3].category.id])
+
+        // Room for one: the due one, not the one on screen.
+        let one = NotificationCategories(registry: w.registry, center: w.center, wallClock: w.clock, cap: 1)
+        try await one.register([])
+        #expect(w.registered == [dueSoon.category.id])
+        // Room for two: due, then on screen (not the more recent old[3]).
+        let two = NotificationCategories(registry: w.registry, center: w.center, wallClock: w.clock, cap: 2)
+        try await two.register([])
+        #expect(w.registered == [dueSoon.category.id, old[0].category.id])
+    }
+
+    /// The NSE's category for the reminder it's showing (due now) goes in even when the cap is
+    /// full of recent ones: the lowest-priority row makes room, and a row neither current nor on
+    /// screen that fell out is deleted.
+    @Test func aJustDeliveredCategoryEvictsTheLowestPriority() async throws {
+        let w = World(cap: 3)
+        let s = try TestStore()
+        var topics: [Topic] = []
+        for n in 0..<3 {
+            var topic = Make.topic(name: "T\(n)")
+            topic.questions = [Self.severity(2)]
+            topics.append(topic)
+        }
+        try s.write { db in for topic in topics { _ = try ServerLayer.upsert(db, topic: topic) } }
+        let first = try await w.categories.refresh(from: s.store)
+        #expect(w.registered == Set(first))
+        // The topics change version: their old categories stop being current.
+        try s.write { db in
+            for var topic in topics {
+                topic.currentVersion = 2
+                _ = try ServerLayer.upsert(db, topic: topic)
+            }
+        }
+        w.clock.advance(by: 60)
+        let second = try await w.categories.refresh(from: s.store)
+        #expect(try w.registered == Set(second) && w.table.count == 3, "the old versions were deleted")
+
+        w.clock.advance(by: 60)
+        var nse = Self.row()
+        nse.dueAt = w.clock.now()
+        try await w.categories.register([nse])
+        #expect(w.registered.contains(nse.category.id) && w.registered.count == 3)
+        #expect(try w.table.count == 4, "the evicted row is still current: kept for the next selection")
+    }
+
+    /// A delivered notification keeps its category through every registration while it's on
+    /// screen, even outside the cap; once it's gone and the row isn't current, the row is deleted.
+    @Test func aRowOnScreenIsKeptUntilItsNotificationIsGone() async throws {
+        let w = World(cap: 1)
+        let s = try TestStore()
+        var topic = Make.topic(name: "Water")
+        topic.questions = [Self.glasses]
+        // Due: its current category takes the one place, so the one on screen is outside the cap.
+        topic.schedule = .interval(.init(everyMinutes: 60, timezone: "UTC"))
+        topic.scheduleUpdatedAt = w.clock.now().addingTimeInterval(-7_200)
+        try s.write { db in
+            _ = try ServerLayer.upsert(db, topic: topic)
+            _ = try ServerLayer.upsert(
+                db, entry: Make.entry(topicId: topic.id, minutes: 1, answers: ["glasses": .int(3)]))
+        }
+        let three = try #require(try await w.categories.refresh(from: s.store).first)
+        w.center.withState { $0.delivered = [NotificationSnapshot(id: "n", categoryIdentifier: three)] }
+        try s.write { db in
+            _ = try ServerLayer.upsert(
+                db, entry: Make.entry(topicId: topic.id, minutes: 2, answers: ["glasses": .int(4)]))
+        }
+        w.clock.advance(by: 60)
+        let four = try #require(try await w.categories.refresh(from: s.store).first)
+        #expect(w.registered == [four])
+        #expect(try w.table == [three, four].sorted(), "on screen: kept although outside the cap and not current")
+        w.center.withState { $0.delivered = [] }
+        w.clock.advance(by: 60)
+        try await w.categories.register([])
+        #expect(try w.table == [four])
+    }
+
+    /// Reconciling compares the system's set with the capped selection: nothing changed, nothing
+    /// registered, however often it runs, even with a table far over the system's limit.
+    @Test func reconcilingTheCappedSetDoesntChurn() async throws {
+        let center = FakeNotificationCenter()
+        center.withState { $0.categoryCapacity = 100 }
+        let w = World(center: center)
+        _ = try await w.registerAging(150)
+        let calls = w.registrations.count
+        for _ in 0..<5 { #expect(try await w.categories.reconcile() == false) }
+        #expect(w.registrations.count == calls)
+        // The system loses one: reconciled once, then quiet again.
+        w.center.withState { $0.categories.removeFirst() }
+        #expect(try await w.categories.reconcile())
+        #expect(try await w.categories.reconcile() == false)
+        #expect(w.registrations.count == calls + 1)
+    }
+
+    /// The uncapped union (checkpoint D9's mode) over a 100-category system never settles: every
+    /// reconcile re-registers. This is what the cap prevents.
+    @Test func theUncappedUnionOverTheSystemsLimitChurns() async throws {
+        let center = FakeNotificationCenter()
+        center.withState { $0.categoryCapacity = 100 }
+        let w = World(center: center, cap: nil)
+        _ = try await w.registerAging(150)
+        #expect(try await w.categories.reconcile())
+        #expect(try await w.categories.reconcile())
+    }
+
+    /// The app's refresh gives a scheduled topic its due time, so it ranks first.
+    @Test func refreshRanksADueTopicFirst() async throws {
+        let w = World(cap: 1)
+        let s = try TestStore()
+        var plain = Make.topic(name: "Plain")
+        plain.id = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!  // first by id
+        plain.questions = [Self.severity(2)]
+        var due = Make.topic(name: "Due")
+        due.id = UUID(uuidString: "ffffffff-0000-4000-8000-000000000001")!
+        due.questions = [Self.severity(3)]
+        due.schedule = .interval(.init(everyMinutes: 60, timezone: "UTC"))
+        due.scheduleUpdatedAt = w.clock.now().addingTimeInterval(-7_200)
+        try s.write { db in for topic in [plain, due] { _ = try ServerLayer.upsert(db, topic: topic) } }
+        let ids = try await w.categories.refresh(from: s.store)
+        let dueId = try #require(ids.first { $0.contains(due.id.wireString) })
+        #expect(w.registered == [dueId])
     }
 }

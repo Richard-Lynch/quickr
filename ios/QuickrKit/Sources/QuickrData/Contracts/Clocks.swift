@@ -45,3 +45,12 @@ public struct LeaseInstant: Sendable, Hashable {
 public protocol LeaseClock: Sendable {
     func now() -> LeaseInstant
 }
+
+/// A wall clock read from a closure (a caller's injected `now`).
+public struct ClosureWallClock: WallClock {
+    let read: @Sendable () -> Date
+
+    public init(_ read: @escaping @Sendable () -> Date) { self.read = read }
+
+    public func now() -> Date { read() }
+}

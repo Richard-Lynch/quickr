@@ -220,6 +220,21 @@ import Testing
         #expect(Set(w.fake.withState { $0.categories.map(\.id) }).isSuperset(of: [old, current.id]))
     }
 
+    /// With the cap already full of other categories (§5.2), the reminder being shown still gets
+    /// its category registered: due now, it ranks first and the least recently wanted makes room.
+    @Test func aReminderGetsItsCategoryWithTheCapFull() async throws {
+        let w = try await World()
+        let others = (0..<NotificationCategories.registrationCap).map { _ in NotificationCategoriesTests.row() }
+        // Wanted more recently than the push: only its due time can rank it above them.
+        let later = FakeClock(Self.now.addingTimeInterval(60))
+        try await NotificationCategories(registry: w.registry, center: w.center, wallClock: later).register(others)
+        let prepared = await w.prepare(Self.reminder())
+        #expect(prepared.categoryIdentifier == Self.waterCategory.id)
+        let registered = w.fake.withState { $0.categories.map(\.id) }
+        #expect(
+            registered.count == NotificationCategories.registrationCap && registered.contains(Self.waterCategory.id))
+    }
+
     @Test func aReminderFromAnUnknownServerLosesItsCategory() async throws {
         let w = try await World()
         let prepared = await w.prepare(Self.reminder(server: Self.unknown))

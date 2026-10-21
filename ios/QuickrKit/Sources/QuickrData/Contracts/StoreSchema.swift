@@ -219,7 +219,7 @@ public enum StoreSchema {
 /// (sync-protocol.md §8.1, §12; notifications.md §5.1, §9.2).
 public enum RegistrySchema {
     /// The append-only migrations, in order: `(identifier, statements)`.
-    public static let migrations: [(identifier: String, statements: [String])] = [("v1", v1), ("v2", v2)]
+    public static let migrations: [(identifier: String, statements: [String])] = [("v1", v1), ("v2", v2), ("v3", v3)]
 
     public static func migrator() -> DatabaseMigrator { DatabaseMigrator(steps: migrations) }
 
@@ -259,7 +259,7 @@ public enum RegistrySchema {
           retired_ct      INTEGER NOT NULL
         )
         """,
-        // notifications.md §5.1, verbatim. Append-only, never pruned in v1.
+        // notifications.md §5.1 (v1's columns; v3 adds the registration priority).
         """
         CREATE TABLE notification_category (
           id            TEXT PRIMARY KEY,
@@ -301,6 +301,16 @@ public enum RegistrySchema {
         "ALTER TABLE apns_state ADD COLUMN register_attempts INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE apns_state ADD COLUMN register_due_boot_id TEXT",
         "ALTER TABLE apns_state ADD COLUMN register_due_ct INTEGER",
+    ]
+
+    /// The capped category registration (notifications.md §5.1): which rows are current, when
+    /// their topic is next due, and when a process last wanted them. Existing rows start as not
+    /// current, last wanted when they were inserted.
+    static let v3: [String] = [
+        "ALTER TABLE notification_category ADD COLUMN current INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE notification_category ADD COLUMN due_at REAL",
+        "ALTER TABLE notification_category ADD COLUMN used_at REAL NOT NULL DEFAULT 0",
+        "UPDATE notification_category SET used_at = created_at",
     ]
 }
 

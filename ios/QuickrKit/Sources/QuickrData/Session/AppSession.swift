@@ -559,7 +559,7 @@ public final class AppSession {
         while let refresh = categoryRefresh { await refresh.value }
     }
 
-    /// §5.3, on activation: re-registers the union if the system lost any of it.
+    /// §5.3, on activation: re-registers the capped selection if the system lost any of it.
     private func reconcileCategories() {
         guard let categories else { return }
         Task { _ = try? await categories.reconcile() }

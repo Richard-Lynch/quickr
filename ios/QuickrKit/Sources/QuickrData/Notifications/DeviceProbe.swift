@@ -23,9 +23,10 @@ import os
 ///   the registry insert too) and the time until `notificationCategories()` reflects it
 ///   (`readback_ms`). The app runs its side first and writes the request only when it's done.
 ///
-/// The probe registers through registries of its own (`dprobe/registry-*`), never the real one,
-/// whose table is append-only. While it runs, the system's set is the probe's; each side
-/// re-registers the real table when it finishes (`restore`, outside any cancellation), and the
+/// The probe registers through registries of its own (`dprobe/registry-*`), never the real one.
+/// D9 registers uncapped (`cap: nil`): it measures the system's own limit, which §5.2's cap stays
+/// under. While it runs, the system's set is the probe's; each side re-registers the real
+/// table's selection when it finishes (`restore`, outside any cancellation), and the
 /// app's next activation reconciles it anyway (§5.3) if a process dies first. Every event is one
 /// JSON line appended to `dprobe/results.jsonl`; `ios/scripts/dprobe-summary.py` judges a run.
 public enum DeviceProbe {
@@ -71,7 +72,7 @@ public enum DeviceProbe {
         /// The center's `setNotificationCategories` alone: building the `UNNotificationCategory` set
         /// and the system call, without the registry's work.
         public var setMs: Double?
-        /// The whole `register`: the registry transaction, the union and the call.
+        /// The whole `register`: the registry transaction, the selection and the call.
         public var registerMs: Double?
         public var readbackMs: Double?
         public var ok: Bool?
@@ -526,8 +527,9 @@ public struct DeviceProbeRunner: Sendable {
                 return
             }
             let timing = TimingCenter(center)
+            // Uncapped: D9 measures the system's own limit (§5.2's cap is the app's).
             let categories = NotificationCategories(
-                registry: try freshRegistry("d9-\(request.run)-\(process.rawValue)"), center: timing)
+                registry: try freshRegistry("d9-\(request.run)-\(process.rawValue)"), center: timing, cap: nil)
             let rows = DeviceProbe.rows(size: size, process: process)
             let expected = Set(rows.map(\.category.id))
             let (start, registered) = try await registerIfCurrent(request, deadline: deadline) {

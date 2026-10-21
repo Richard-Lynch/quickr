@@ -91,7 +91,7 @@ public struct NotificationPreparation: Sendable {
 
         // Before first unlock the registry can't be opened: untouched.
         guard let registry = try? registry() else { return out }
-        let categories = NotificationCategories(registry: registry, center: center)
+        let categories = NotificationCategories(registry: registry, center: center, wallClock: ClosureWallClock(now))
         _ = try? await categories.reconcile()
         let known: RegisteredServer?
         do {
@@ -113,8 +113,9 @@ public struct NotificationPreparation: Sendable {
                 )
             }
             guard !Task.isCancelled else { return out }
+            // Due now: the reminder being shown ranks first in the capped selection (§5.2).
             _ = try? await categories.register(
-                [.init(serverId: q.serverId, topicId: topicId, category: category)])
+                [.init(serverId: q.serverId, topicId: topicId, category: category, dueAt: now())])
             out.categoryIdentifier = category.id
         }
 
