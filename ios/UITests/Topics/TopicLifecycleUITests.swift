@@ -135,17 +135,15 @@ struct TopicScreen {
         target.tap()
     }
 
-    /// Replaces a field's text: the cursor to the end, the old text deleted. Checked, with one retry
-    /// (see `type`); a number field may show a unit after the value.
+    /// Replaces a field's text: the cursor to the end, the old text deleted. Typed once and
+    /// checked: a dropped character is a failure, not something to retype (it was the Builder's
+    /// label binding losing keystrokes). A number field may show a unit after the value.
     func replace(_ field: XCUIElement, with text: String) {
         scrollTo(field)
-        for _ in 0..<2 {
-            field.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
-            let current = field.value as? String ?? ""
-            let delete = current == (field.placeholderValue ?? "") ? 0 : current.count
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: delete) + text)
-            if (field.value as? String)?.split(separator: " ").first.map(String.init) == text { return }
-        }
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        let current = field.value as? String ?? ""
+        let delete = current == (field.placeholderValue ?? "") ? 0 : current.count
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: delete) + text)
         XCTAssertEqual((field.value as? String)?.split(separator: " ").first.map(String.init), text, field.identifier)
     }
 
@@ -159,17 +157,12 @@ struct TopicScreen {
         }
     }
 
-    /// Types `text` into an empty field and checks it took: the keyboard sometimes drops a key
-    /// (seen on iOS 27), which here would name a question "Glasse". One retype, then it must match.
+    /// Types `text` into an empty field, once, and checks it arrived whole: a dropped character is
+    /// an app bug (the Builder's label binding lost keystrokes under load), so no retyping.
     func type(_ text: String, into field: XCUIElement) {
         XCTAssertTrue(field.waitForExistence(timeout: 5))
-        for _ in 0..<2 {
-            field.tap()
-            let current = field.value as? String ?? ""
-            let stale = current == field.placeholderValue ? 0 : current.count
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: stale) + text)
-            if field.value as? String == text { return }
-        }
+        field.tap()
+        field.typeText(text)
         XCTAssertEqual(field.value as? String, text, "typed into \(field.identifier)")
     }
 
