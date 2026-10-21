@@ -79,13 +79,11 @@ struct RootView: View {
             }
         } else {
             navigation
-                .onOpenURL { url in environment.router.handle(url: url, serverURL: environment.settings.serverURL) }
+                .onOpenURL { url in environment.open(url: url) }
                 #if DEBUG
             .task {
                 await UITestLaunch.prepare(environment)
-                if let url = UITestLaunch.openURL {
-                    environment.router.handle(url: url, serverURL: environment.settings.serverURL)
-                }
+                if let url = UITestLaunch.openURL { environment.open(url: url) }
                 await DemoNotify.schedule(environment)
             }
                 #endif
@@ -129,13 +127,24 @@ struct RootView: View {
         .alert(
             "Can’t open that link", isPresented: unopenedLink,
             actions: { Button("OK", role: .cancel) {} },
-            message: { Text("It isn’t a quickR page.") })
+            message: { Text("It isn’t a quickR page.") }
+        )
+        .alert(
+            "Can’t open that here", isPresented: refusedLink,
+            actions: { Button("OK", role: .cancel) {} },
+            message: { Text(environment.router.refusedLink ?? "") })
     }
 
     /// No server, once the launch's start has settled (not the `.noServer` it passes through
     /// while connecting to a configured address).
     private var needsServer: Bool {
         environment.hasStarted && environment.session?.phase == .noServer
+    }
+
+    private var refusedLink: Binding<Bool> {
+        Binding(
+            get: { environment.router.refusedLink != nil },
+            set: { if !$0 { environment.router.refusedLink = nil } })
     }
 
     private var unopenedLink: Binding<Bool> {

@@ -206,15 +206,18 @@ public enum IntentLogging {
     /// The plan for repeating `topicId`'s latest counted entry (the view's, queued logs included).
     /// Answers to questions the current version no longer has are dropped first. An archived or
     /// missing topic throws, like a log.
-    public static func repeatPlan(topicId: UUID, in context: IntentWriteContext) async throws -> (Topic, RepeatPlan) {
+    /// Also returns the store it read them from (the record screen opens only while it's active).
+    public static func repeatPlan(topicId: UUID, in context: IntentWriteContext) async throws
+        -> (Topic, RepeatPlan, EntryScope)
+    {
         let (store, topic) = try await self.topic(topicId, in: context)
         let latest = try? await store.writer.read { db in try StoreView.latestEntry(db, topicId: topicId.wireString) }
-        guard let entry = latest ?? nil else { return (topic, .openRecord(prefill: nil)) }
+        guard let entry = latest ?? nil else { return (topic, .openRecord(prefill: nil), store.scope) }
         let keys = Set(topic.questions.map(\.key))
         let carried = entry.entry.answers.filter { keys.contains($0.key) }
         switch validate(carried, questions: topic.questions) {
-        case .success(let answers): return (topic, .log(answers))
-        case .failure: return (topic, .openRecord(prefill: carried))
+        case .success(let answers): return (topic, .log(answers), store.scope)
+        case .failure: return (topic, .openRecord(prefill: carried), store.scope)
         }
     }
 

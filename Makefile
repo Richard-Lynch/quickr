@@ -165,6 +165,12 @@ ios-core-test: ## iOS: swift test for ios/QuickrKit on the Mac, strict pool; ski
 	@$(IOS_SCRIPTS)/require-xcode.sh
 	@$(IOS_SCRIPTS)/swift-test.sh
 
+.PHONY: ios-release-test-build
+ios-release-test-build: ## iOS: QuickrKit and its tests compile in Release (QUICKR_PERF/DEBUG guards, compiled-out probes)
+	@$(IOS_SCRIPTS)/require-xcode.sh
+	@# `swift test`, not `swift build --build-tests`: only it builds Release with testability, which the @testable test files need.
+	cd ios/QuickrKit && swift test -c release --list-tests > /dev/null && echo "ios-release-test-build: Release builds with its tests"
+
 .PHONY: ios-timing-test
 ios-timing-test: ## iOS: the real-time tests (TimingTests, MultiProcessTests) alone and one at a time, normal pool
 	@$(IOS_SCRIPTS)/require-xcode.sh

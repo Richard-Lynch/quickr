@@ -132,6 +132,79 @@ final class BuilderUITests: XCTestCase {
         XCTAssertTrue(element("editQuestions.q0.header", in: app).waitForExistence(timeout: 10))
     }
 
+    // MARK: Accessibility (A11Y slice C)
+
+    @MainActor
+    func testBuilderAtTheLargestTextSize() throws {
+        let app = launch(open: "quickr://t/workout/edit", extra: AccessibilityLaunch.arguments())
+        XCTAssertTrue(element("editQuestions.intro", in: app).waitForExistence(timeout: 15))
+        try assertAccessible(app)
+        // The choice question, open: its options, archive buttons and move menus.
+        let header = element("editQuestions.q0.header", in: app)
+        scrollTo(header, in: app)
+        XCTAssertTrue(header.exists)
+        header.tap()
+        let archive = element("editQuestions.q0.option0.archive", in: app)
+        scrollTo(archive, in: app)
+        XCTAssertGreaterThanOrEqual(archive.frame.height, 44)
+        try assertAccessible(app, types: .topicsMidList)
+        // BD3: an archived option says so.
+        archive.tap()
+        let archived = app.textFields["editQuestions.q0.option0"]
+        XCTAssertTrue(archived.label.contains("archived"), "\(archived.exists) \(archived.label)")
+        let move = element("editQuestions.q0.option0.move", in: app)
+        XCTAssertGreaterThanOrEqual(move.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(move.frame.height, 44)
+        let multiple = element("editQuestions.q0.multiple", in: app)
+        scrollTo(multiple, in: app)
+        try assertAccessible(app, types: .topicsMidList)
+    }
+
+    @MainActor
+    func testANewQuestionsFieldsAtTheLargestTextSize() throws {
+        let app = launch(open: "quickr://new", extra: AccessibilityLaunch.arguments())
+        let label = app.textFields["newTopic.q0.label"]
+        scrollTo(label, in: app)
+        XCTAssertTrue(label.waitForExistence(timeout: 15))
+        // The min and max fields stack (BD4).
+        let min = element("newTopic.q0.min", in: app)
+        let max = element("newTopic.q0.max", in: app)
+        scrollTo(max, in: app)
+        XCTAssertTrue(min.exists && max.exists && !min.frame.isEmpty && !max.frame.isEmpty)
+        XCTAssertGreaterThanOrEqual(max.frame.minY, min.frame.maxY, "stacked, not side by side")
+        // Both fully in view, then audited for what is tied to them (Codex r2). Only element-scoped
+        // types (`topicsMidList`): the audit's own text-size stepping re-lays the List out and
+        // flags rows under the translucent bar. Clipping is covered by the stacking assertion above
+        // and the top-of-form audit.
+        bringIntoFullView([min, max], in: app)
+        try assertAccessible(app, types: .topicsMidList, within: [min.frame, max.frame])
+        // The pane switch is a menu at this size (BD5).
+        let pane = element("newTopic.pane", in: app)
+        scrollTo(pane, in: app, up: true)
+        XCTAssertFalse(app.segmentedControls["newTopic.pane"].exists)
+        XCTAssertEqual(pane.value as? String, "Edit", "the menu reports its selection")
+        pane.tap()
+        app.buttons["Preview"].firstMatch.tap()
+        XCTAssertTrue(element("newTopic.preview", in: app).waitForExistence(timeout: 5))
+        XCTAssertEqual(element("newTopic.pane", in: app).value as? String, "Preview")
+        try assertAccessible(app)
+    }
+
+    @MainActor
+    func testVersionsAtTheLargestTextSize() throws {
+        // By link until the topic tabs' helper lands (slice B).
+        let app = launch(open: "quickr://t/workout/versions", extra: AccessibilityLaunch.arguments())
+        let v1 = element("versions.v1", in: app)
+        XCTAssertTrue(v1.waitForExistence(timeout: 15))
+        try assertAccessible(app)
+        let new = element("versions.new", in: app)
+        XCTAssertTrue(new.isHittable)
+        let type = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Whole number'"))
+        scrollTo(type.firstMatch, in: app)
+        XCTAssertTrue(type.firstMatch.exists, "a question's type reads as its name (BD7)")
+        try assertAccessible(app, types: .topicsMidList)
+    }
+
     // MARK: Helpers
 
     /// "Add question" → `type`, then types its label into the new (open) card.
@@ -154,6 +227,32 @@ final class BuilderUITests: XCTestCase {
         field.tap()
         field.typeText(label)
         dismissKeyboard(app)
+    }
+
+    /// Nudges the list (bounded) until every element sits wholly between the navigation bar and the
+    /// bottom of the window.
+    @MainActor
+    private func bringIntoFullView(_ elements: [XCUIElement], in app: XCUIApplication) {
+        let top = app.navigationBars.firstMatch.frame.maxY
+        let bottom = app.windows.firstMatch.frame.maxY
+        for _ in 0..<8 {
+            let minY = elements.map(\.frame.minY).min() ?? top
+            let maxY = elements.map(\.frame.maxY).max() ?? bottom
+            let down: CGFloat
+            if minY < top + 8 {
+                down = -(top + 8 - minY)  // drag down: content moves down
+            } else if maxY > bottom - 8 {
+                down = maxY - (bottom - 8)
+            } else {
+                break
+            }
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -down)))
+        }
+        for element in elements {
+            XCTAssertGreaterThanOrEqual(element.frame.minY, top, "\(element.identifier) under the bar")
+            XCTAssertLessThanOrEqual(element.frame.maxY, bottom, "\(element.identifier) below the window")
+        }
     }
 
     /// Picks the builder's Edit or Preview pane.

@@ -5,7 +5,8 @@ import Synchronization
 import os
 
 /// Checkpoint D's category probe (docs/ios/demo/DEVICE-DAY.md D8 and D9; notifications.md §5.4
-/// and D1). DEBUG builds only: Release compiles none of it.
+/// and D1). DEBUG builds only: Release compiles none of it (`make ios-release-test-build` builds
+/// Release with the tests).
 ///
 /// It runs only on request. The app, launched with `-QuickrDProbe d8|d9`, writes a request into
 /// the App Group (`Files.write`); the NSE takes it (`Files.take`) on the next `test` push ("Test

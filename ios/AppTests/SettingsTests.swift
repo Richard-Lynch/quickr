@@ -205,6 +205,12 @@ func systemKeychainStoresUpdatesAndDeletes() throws {
     #expect(router.unopenedLink == URL(string: "quickr://nope"))
     #expect(router.handle(url: URL(string: "quickr://")!, serverURL: server))
     #expect(router.path.isEmpty)
+
+    // A link that names its store (a widget's) isn't opened here: AppEnvironment checks it first
+    // (notifications.md §7.5).
+    let scoped = URL(string: "quickr://t/water/record?scope=0b9e0000-0000-4000-8000-0000000000aa/1")!
+    #expect(!router.handle(url: scoped, serverURL: server))
+    #expect(router.path.isEmpty)
 }
 
 @Test func resetWarningsSayWhatIsLost() {

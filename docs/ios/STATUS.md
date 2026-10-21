@@ -164,7 +164,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 - A11Y H3: home tile reading order. The open button sits behind the content with no sort priority; give it `accessibilitySortPriority` so the combined title element is read before the quick-log controls (TileView.swift).
 - A11Y T5: at AX XXXL the toast's single HStack (text, Undo, ✕) squeezes the text column; stack the actions under the text at AX sizes (ToastView.swift).
 - A11Y SE6: each licence is one huge Text element; split it into paragraphs so VoiceOver can move through it (LicencesView.swift).
-- A11Y SE2: on the device, check that VoiceOver's escape gesture does nothing on the Cloudflare token sheet while a secret is typed, and that leaving through Cancel keeps no secret (DEVICE-DAY).
+- A11Y SE2: on the device, check that VoiceOver's escape gesture does nothing on the Cloudflare token sheet while a secret is typed, and that leaving through Cancel keeps no secret (DEVICE-DAY §6, "The token sheet keeps no secret").
 - A11Y: the Home due-pulse doesn't stop if Reduce Motion is switched on mid-animation; stop or restart it when the setting changes (HomeView.swift).
 - UIT-6 stall (not reproduced): once, on iOS 27 under load from other simulators, the app never went idle on the record screen just after a topic was created. Every XCUITest action waited out the 120 s "wait for app to idle" ("App animations complete notification not received", 4×), so TopicLifecycleUITests overran its 5 min allowance; the screen looked static. Not reproduced in 6 further runs (test times 102–129 s), with the app's log stream and periodic `sample` showing nothing stuck. Ruled out: the A11Y shared code (not in that build), PerfProbe (passive), and the full keyboard on the int field (by design: no minimum means negatives are allowed). If it recurs, sample the app during the stall and check the record screen's `.task`s and any repeating animation.
 - Tooling: `make ios-uitest-e2e` doesn't pass the IOS_SIM_DEFAULTED marker, so a plain run picks the shared base device rather than the worktree clone (it still counts toward the cap). Extend simcap's per-target defaulting to it.
@@ -187,7 +187,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 - STORE test: `LeaseTimeSamplingTests` sleeps 50 ms assuming a writer is already waiting; under load it passes but proves less. Replace the sleep with a barrier (found by FLAKE).
 - **Milestone checklist item (from SKEL):** before every milestone PR that touches intents or widgets, run `ios/scripts/widget-proof.sh` on an iOS 26.0 clone first, then on 27; and run the Intents plan locally on 27 via check-ios. CI (iOS 26.x, Unit plan) only covers the `IntentMetadataTests` guard. Add the same requirement to the WIDGETS and INTENTS done-criteria.
 - App composition root (SKEL follow-up / M2 SYNC-UX): wire `Outbox(onSignal: coordinator.handle)` and `OutboxFlushBridge.bind(scheduler)` on every store open, reset and server switch (nil when there's no store), per INT.
-- S10 (APNs register vs a rotated epoch) is deferred to M3 REG; the stub carries an owner note.
+- S10 (APNs register vs a rotated epoch): done in M3, `PushIntegrationTests` (INT, real backend).
 - DS: NumberStepper's fixed 52 pt trailing unit padding lets the value touch the unit at AX XXXL ("30min"); use @ScaledMetric (found by FORM).
 - CAT: point MP's N4 test (SyncMP.n4) at the real category `register` once it exists; for now the agent runs the §5.2 procedure itself.
 - RECORD: at accessibility text sizes with the keyboard up, the sticky Save bar covers much of the form; consider hiding it while the keyboard is visible (found by FORM).
@@ -315,6 +315,30 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-21 06:00 (EDT): **ROUTE-SCOPE merged** (3a455bf; Codex r1–r4 resolved). Reminder and widget links carry the topic id plus the server or store scope. LinkScope refuses another registered server ("Can't open that here", naming it), refuses stale or unknown links and reloads the widgets, counts a reset in progress as busy, and bounds the cold-launch wait. Sims on 26: Links+WidgetViews 9/0, the Media widget test 1/0, and QuickRTests 81/0. WIDGET-SKEW: r2 resolved both Majors, with one ordering-test Minor left.
+
+- 2026-10-21 05:45 (EDT): **S10 merged** (2a73596): the real-backend APNs register across an epoch rotation (409, then rebuild, then a 201 retry), integration 22/22 ×2; the obsolete stub is removed. ROUTE-SCOPE: links carry the topic id plus the server or store scope, and LinkScope refuses another registered server (never switches) and refuses a stale or unknown one, which reloads the widgets. Spec §7.5. Codex r1's Majors are fixed; r2 and the sim runs (Unit, Links, WidgetViews, the Media widget test, plus a refusal-alert UI test) are in progress. WIDGET-SKEW: r1's 2 Majors are fixed; r2 and Unit are running. Infra traps: the run_limited process-group helper is done (Codex r2); the test.sh/perf traps and unique result dirs are next.
+
+- 2026-10-21 05:30 (EDT): The slice C picker valueLabel is merged (b6f7bac). ROUTE-SCOPE (c7db3fc), WIDGET-SKEW (c9e2565) and S10 (510132d) are in progress with commits. The sim-trap infra fixes haven't started yet (chased).
+
+- 2026-10-21 05:20 (EDT): Milestone fixes A merged (ce2f904; Codex approved with minors, both fixed). The CF manual check feeds the headers through `curl --config -` (no secret in argv); the MCP `--header` step warns where the secret lands; the a11y-audit E1 entry is resolved; DEVICE-DAY §6 has the SE2 token-sheet item.
+
+- 2026-10-21 05:10 (EDT): **The HANDLER-RESUME end-to-end test passes** (Media plan 3/0 on 26: the same app process scheduled the reminder and logged the action). RELTEST is merged (55b08df, `make ios-release-test-build`). **M3 milestone Codex review** (4 areas, on 42499bf):
+  - Notifications: REQUEST CHANGES.
+  - Intents and widgets: REQUEST CHANGES.
+  - A11Y: APPROVE WITH MINORS.
+  - Infra: REQUEST CHANGES.
+  - No Blockers. Six Majors, being fixed in parallel:
+    - **ROUTE-SCOPE** (m1-sync): notification body and More… taps, and cached widget links, lose server provenance, so a same-slug topic on another server opens or saves.
+    - **WIDGET-SKEW** (m2-form): widget due state ignores the stored clock skew.
+    - **Sim traps** (m1-testiso): test.sh and perf-cold-start boot clones with no shutdown trap.
+    - **CF docs** (m1-review): the curl check exposes the secret in `ps`.
+  - Minors: picker valueLabel in slice C (m1-skel), the PushLifecycleTests category center (m2-form), unique result bundles (m1-testiso), A11Y doc and DEVICE-DAY fixes (m1-review), and the S10 integration test (m6-builder).
+
+- 2026-10-21 04:50 (EDT): **A11Y slice C merged (360e66d). A11Y is complete:** A, B, C, Lows and widgets are all on ios/m3. C covers Topics, Schedule, Builder and Versions (TP1–6, BD1–8); full audits at each screen's top, element-scoped mid-list, with the manual XXXL check in DEVICE-DAY §6. Topic+Builder+Lifecycle 17/0 with B merged; Codex r1–r3 resolved. **The Reduce Motion lint is now strict by default** (47edc15). On the merge: lint, core, script tests and the app build are green. **The M3 milestone Codex review starts now**, in parallel with the small tails (RELTEST make target, widget-proof process-group fix, the notification E2E on ios/m3).
+
+- 2026-10-21 04:40 (EDT): RELTEST: three QuickrUI test files drop `@testable` (84d2e26, Codex approved). QuickrDataTests' 19 `@testable` files can't build with plain `swift build -c release --build-tests`, so the release check uses `swift test -c release` or `-enable-testing` through a new make target. A11Y C's final result and the notification E2E on ios/m3 are pending.
 
 - 2026-10-21 04:25 (EDT): **Merged MEDIA, CATCAP and HANDLER-RESUME into ios/m3.**
   - MEDIA: DEBUG hooks (`-QuickrDemoNotify` built from the shared apns payload vectors, `-QuickrDemoShared`, `-QuickrSnippetGallery`) and an opt-in Media plan. Demo server ids are now UUIDs.

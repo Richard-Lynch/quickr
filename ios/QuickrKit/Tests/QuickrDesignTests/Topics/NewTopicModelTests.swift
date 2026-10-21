@@ -59,6 +59,19 @@ import Testing
             ])
     }
 
+    /// TP6: the banner's VoiceOver focus re-fires per attempt (`qrAnnouncesError`'s trigger), so an
+    /// identical error on a second try is read again.
+    @Test func eachCreateIsANewAttemptEvenWithTheSameError() async {
+        #expect(model.attempts == 0)
+        await model.create()
+        let first = model.visibleBanner
+        #expect(first == NewTopicModel.clientInvalid && model.attempts == 1)
+        await model.create()
+        #expect(model.visibleBanner == first, "the same message")
+        #expect(model.attempts == 2, "but a new trigger")
+        #expect(QuickrErrorFocusRule.shouldFocus(from: (first, 1), to: (model.visibleBanner, model.attempts)))
+    }
+
     @Test func anInvalidFormIsNotSentAndRevalidatesAsItIsFixed() async {
         model.schedule.kind = .daily
         model.schedule.days = []
