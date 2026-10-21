@@ -128,6 +128,71 @@ public final class AppSession {
     /// Between `beginBackground()` and the next `didBecomeActive`.
     public var isBackgrounded: Bool { lifecycle != .foreground }
 
+    /// GRDB is suspended (or will be once the last hold ends): set by a background episode's
+    /// suspend, cleared by an activation or a refresh episode's resume.
+    @ObservationIgnored private var suspendRequested = false
+    /// Work running with the store resumed (`holdStoreResumed`): a suspend waits for them.
+    @ObservationIgnored private var storeHolds = 0
+    /// Bumped when an expiry ends the open holds: their releases then do nothing.
+    @ObservationIgnored private var holdEpoch = 0
+
+    /// Keeps GRDB resumed until the returned hold is released: for work that can arrive while the
+    /// app is suspended in the background (a notification action, an intent or widget button run
+    /// in this process), which would otherwise find its writes refused ("Database is suspended").
+    /// If the session had suspended GRDB, the first hold resumes it and the last release suspends
+    /// it again, unless an activation came in between (a newer foreground wins). A suspend asked
+    /// for while holds are open (the episode finishing meanwhile) waits for the last release,
+    /// but an expiring episode suspends at once and ends the open holds: release a hold before
+    /// ending the background task that covers its work (as `NotificationResponder.run` does).
+    /// Release it once (later releases do nothing); `withStoreResumed` does it for you.
+    public func holdStoreResumed() -> StoreHold {
+        storeHolds += 1
+        if storeHolds == 1, suspendRequested {
+            configuration.notificationCenter.post(name: Database.resumeNotification, object: nil)
+        }
+        let epoch = holdEpoch
+        return StoreHold { [weak self] in self?.endHold(epoch) }
+    }
+
+    private func endHold(_ epoch: Int) {
+        guard epoch == holdEpoch else { return }  // ended by an expiry, which suspended already
+        storeHolds -= 1
+        if storeHolds == 0, suspendRequested {
+            configuration.notificationCenter.post(name: Database.suspendNotification, object: nil)
+        }
+    }
+
+    /// Runs `work` with GRDB resumed (`holdStoreResumed`), released on every path.
+    public func withStoreResumed<T>(_ work: () async throws -> T) async rethrows -> T {
+        let hold = holdStoreResumed()
+        defer { hold.release() }
+        return try await work()
+    }
+
+    /// GRDB's suspend for this session's background state: posted now, or by the last hold's
+    /// release when work is running with the store resumed.
+    private func requestSuspend() {
+        suspendRequested = true
+        guard storeHolds == 0 else { return }
+        configuration.notificationCenter.post(name: Database.suspendNotification, object: nil)
+    }
+
+    /// The background time is up: GRDB is suspended now, whatever holds are open, and those holds
+    /// are over (their releases do nothing). A later hold, covered by its own background task,
+    /// resumes it again.
+    private func suspendEndingHolds() {
+        suspendRequested = true
+        holdEpoch += 1
+        storeHolds = 0
+        configuration.notificationCenter.post(name: Database.suspendNotification, object: nil)
+    }
+
+    /// GRDB's resume for an activation or a refresh episode: no suspend is pending any more.
+    private func postResume() {
+        suspendRequested = false
+        configuration.notificationCenter.post(name: Database.resumeNotification, object: nil)
+    }
+
     private func isCurrent(_ episode: BackgroundEpisode) -> Bool { lifecycle == .background(episode.generation) }
 
     public init(configuration: Configuration) throws {
@@ -189,7 +254,7 @@ public final class AppSession {
         lifecycleGeneration += 1
         let generation = lifecycleGeneration
         lifecycle = .foreground
-        configuration.notificationCenter.post(name: Database.resumeNotification, object: nil)
+        postResume()
         await coordinator.resume(generation: generation)
         guard started else { return }  // the launch's `start()` does the rest
         await scheduler?.resume(generation: generation)
@@ -236,7 +301,7 @@ public final class AppSession {
     @discardableResult
     public func backgroundRefresh(_ episode: BackgroundEpisode) async -> SyncResult? {
         guard started, isCurrent(episode) else { return nil }
-        configuration.notificationCenter.post(name: Database.resumeNotification, object: nil)
+        postResume()
         await coordinator.resume(generation: episode.generation)
         await scheduler?.resume(generation: episode.generation)
         guard isCurrent(episode) else {
@@ -277,14 +342,14 @@ public final class AppSession {
             await coordinator.waitUntilIdle()
         }
         guard lifecycle == .expired(episode.generation) else { return }  // the app came back meanwhile
-        configuration.notificationCenter.post(name: Database.suspendNotification, object: nil)
+        suspendEndingHolds()
     }
 
     /// Posts GRDB's suspend if `episode` is still current. Nothing can start a flush or a pull in
     /// between: both are paused for this generation, and only a newer activation resumes them.
     private func suspendIfCurrent(_ episode: BackgroundEpisode) {
         guard isCurrent(episode) else { return }
-        configuration.notificationCenter.post(name: Database.suspendNotification, object: nil)
+        requestSuspend()
     }
 
     /// Runs `work` and returns when it ends or after `timeout`, whichever is first (the work keeps
@@ -559,7 +624,7 @@ public final class AppSession {
         while let refresh = categoryRefresh { await refresh.value }
     }
 
-    /// §5.3, on activation: re-registers the union if the system lost any of it.
+    /// §5.3, on activation: re-registers the capped selection if the system lost any of it.
     private func reconcileCategories() {
         guard let categories else { return }
         Task { _ = try? await categories.reconcile() }
@@ -598,4 +663,17 @@ public struct ActiveStoreTopicRepository: TopicRepository {
     public func topic(id: UUID) async throws -> ViewTopic? { try await repository()?.topic(id: id) }
 
     public func topic(slug: String) async throws -> ViewTopic? { try await repository()?.topic(slug: slug) }
+}
+
+/// One `AppSession.holdStoreResumed()`: GRDB stays resumed until it's released (once).
+@MainActor public final class StoreHold {
+    private var end: (() -> Void)?
+
+    /// `end` runs on the first `release()`.
+    public init(end: @escaping () -> Void) { self.end = end }
+
+    public func release() {
+        end?()
+        end = nil
+    }
 }

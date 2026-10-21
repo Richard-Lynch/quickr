@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- DeviceProbeTests.aStepWaitingForTheLockGivesUpAtTheDeadline asserts a wall-clock gap under 0.5 s and failed once in the parallel core run (it passed alone and on a rerun). It is load-sensitive: give it a bounded or injected clock, or gate it with TimingTests.
 - A11Y L5 (answers): the answer values in Entries rows keep `lineLimit(2)` at AX sizes (UIT-6's Grid change left them as they were); lift it at AX sizes.
 - A11Y C1: check "Export CSV" at XXXL now that slice A's X3 lets capsule buttons wrap; close it if it's fine.
 - A11Y L2 (Low): a day rotor for the long, date-ordered Entries list.
@@ -314,6 +315,14 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-21 04:25 (EDT): **Merged MEDIA, CATCAP and HANDLER-RESUME into ios/m3.**
+  - MEDIA: DEBUG hooks (`-QuickrDemoNotify` built from the shared apns payload vectors, `-QuickrDemoShared`, `-QuickrSnippetGallery`) and an opt-in Media plan. Demo server ids are now UUIDs.
+  - CATCAP: registry v3; a capped (90), prioritised registration set (push_seq first, then due within 7 days, then delivered, then used); the app prunes and the NSE only adds and evicts; registration-generation checks in refresh and reconcile. Codex r1–r4 resolved.
+  - HANDLER-RESUME: AppSession's counted store hold (with an epoch on expiry) is used by notification responses, in-app intents and widget buttons. A real-suspension lifecycle test is added; Unit 990/0 on 26.
+  - Semantic conflict: MEDIA's DemoNotify called the pre-CATCAP `rows(in:)`, fixed in a follow-up commit.
+  - On the merge: lint, core (781+217+187+21), the lifecycle suite, the app build and build-for-testing of every target are green; MEDIA's merge also passed make check and the vectors.
+  - The notification end-to-end test (Media plan) against the fix is pending (m1-testiso).
 
 - 2026-10-21 04:10 (EDT): **CATCAP Codex r4: no Blocker or Major** (one spec wording Minor being fixed); it merges next. **HANDLER-RESUME Codex r2 clean.** A process-wide hold resumes GRDB for notification, intent and widget responses and re-suspends afterwards, with epoch and generation guards; the Unit run and the Media end-to-end proof follow. A11Y C: 17/17 on fbf37eb, rerunning on db8b014 with slice B merged.
 

@@ -185,7 +185,7 @@ actor Agent {
             return try await registerCategories(
                 prefix: try required(args["prefix"]), count: Int(args["count"] ?? "1") ?? 1,
                 log: URL(fileURLWithPath: try required(args["log"])),
-                participants: Int(args["participants"] ?? "1") ?? 1)
+                participants: Int(args["participants"] ?? "1") ?? 1, cap: args["cap"].flatMap { Int($0) })
 
         // MARK: Test of the harness
 
@@ -279,21 +279,23 @@ actor Agent {
     /// `participants × k` lines (every process finished round `k − 1`), so the processes overlap
     /// in every round. After its `count` rows, each process registers once more without inserting
     /// (when every process is done): its final registration must carry the whole table.
-    private func registerCategories(prefix: String, count: Int, log: URL, participants: Int) async throws
+    /// `cap` caps each registration (§5.2); without it every row is registered.
+    private func registerCategories(prefix: String, count: Int, log: URL, participants: Int, cap: Int?) async throws
         -> [String: String]
     {
         for index in 0..<count {
             try await waitForLines(participants * index, in: log)
-            try await register(row: Self.categoryRow(prefix: prefix, index: index), log: log)
+            try await register(row: Self.categoryRow(prefix: prefix, index: index), log: log, cap: cap)
         }
         try await waitForLines(participants * count, in: log)
-        try await register(row: nil, log: log)
+        try await register(row: nil, log: log, cap: cap)
         return ["registered": String(count + 1)]
     }
 
-    private func register(row: NotificationCategories.Row?, log: URL) async throws {
+    private func register(row: NotificationCategories.Row?, log: URL, cap: Int?) async throws {
         let center = RegistrationLog(owner: owner, label: row?.category.id ?? "final", log: log)
-        try await NotificationCategories(registry: partitions.registry, center: center).register(row.map { [$0] } ?? [])
+        try await NotificationCategories(registry: partitions.registry, center: center, cap: cap)
+            .register(row.map { [$0] } ?? [])
     }
 
     /// A real category (a two-option enum) for topic `prefix`-`index`: distinct topics, distinct ids.

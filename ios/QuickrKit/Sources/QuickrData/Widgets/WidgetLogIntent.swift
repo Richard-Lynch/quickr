@@ -73,6 +73,17 @@ enum WidgetLogging {
         context: IntentWriteContext?, reload: @Sendable () -> Void
     ) async throws -> String {
         guard let context else { throw IntentLogging.Failure.noStore }
+        // Run in the app (not the widget extension), the app may be suspended in the background.
+        return try await IntentLogging.holding(context) {
+            try await logPinned(
+                topicId: topicId, option: option, number: number, scope: scope, context: context, reload: reload)
+        }
+    }
+
+    private static func logPinned(
+        topicId: UUID, option: QuestionOptionEntity?, number: Double?, scope: EntryScope,
+        context: IntentWriteContext, reload: @Sendable () -> Void
+    ) async throws -> String {
         let store: LocalStore
         do {
             guard let opened = try await context.openActiveStore() else { throw IntentLogging.Failure.noStore }

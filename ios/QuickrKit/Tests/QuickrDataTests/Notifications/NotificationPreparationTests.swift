@@ -220,6 +220,39 @@ import Testing
         #expect(Set(w.fake.withState { $0.categories.map(\.id) }).isSuperset(of: [old, current.id]))
     }
 
+    /// With the cap already full of other categories (§5.2), the reminder being shown still gets
+    /// its category registered: due now, it ranks first and the least recently wanted makes room.
+    @Test func aReminderGetsItsCategoryWithTheCapFull() async throws {
+        let w = try await World()
+        let others = (0..<NotificationCategories.registrationCap).map { _ in NotificationCategoriesTests.row() }
+        // Wanted more recently than the push: only its due time can rank it above them.
+        let later = FakeClock(Self.now.addingTimeInterval(60))
+        try await NotificationCategories(registry: w.registry, center: w.center, wallClock: later).register(others)
+        let prepared = await w.prepare(Self.reminder())
+        #expect(prepared.categoryIdentifier == Self.waterCategory.id)
+        let registered = w.fake.withState { $0.categories.map(\.id) }
+        #expect(
+            registered.count == NotificationCategories.registrationCap && registered.contains(Self.waterCategory.id))
+    }
+
+    /// The NSE only adds and evicts (§5.2): a row the app would delete (old, not current, not on
+    /// screen, outside the selection) is still in the table after a push.
+    @Test func theNSEDeletesNoRows() async throws {
+        let w = try await World()
+        let full = (0..<NotificationCategories.registrationCap).map { _ in NotificationCategoriesTests.row() }
+        try await NotificationCategories(registry: w.registry, center: w.center, wallClock: FakeClock(Self.now))
+            .register(full)
+        try await w.registry.writer.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO notification_category (id, server_id, topic_id, actions_json, created_at, used_at)
+                    VALUES ('quickr.t.old.0', 's', 't', '[]', 0, 0)
+                    """)
+        }
+        _ = await w.prepare(Self.reminder())
+        #expect(try w.table.contains("quickr.t.old.0"))
+    }
+
     @Test func aReminderFromAnUnknownServerLosesItsCategory() async throws {
         let w = try await World()
         let prepared = await w.prepare(Self.reminder(server: Self.unknown))

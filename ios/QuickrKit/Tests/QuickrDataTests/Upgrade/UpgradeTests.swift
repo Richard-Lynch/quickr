@@ -20,10 +20,13 @@ import Testing
     struct Frozen: Decodable {
         var storeV1: [String]
         var registryV1: [String]
+        /// The registry's v2 (the APNs registration retry), as shipped before CATCAP's v3.
+        var registryV2: [String]
 
         enum CodingKeys: String, CodingKey {
             case storeV1 = "store_v1"
             case registryV1 = "registry_v1"
+            case registryV2 = "registry_v2"
         }
     }
 
@@ -39,6 +42,8 @@ import Testing
     static let serverId = PerfSeed.Spec.standard.serverId
     static let otherServer = "5eed0000-0000-4000-8000-0000000000b2"
     static let spec = PerfSeed.Spec(topics: 10, entries: 2_000)
+    /// notification_category's v3 columns (the capped registration).
+    static let v3Columns = ["current", "due_at", "used_at", "pushed_at", "push_seq"]
 
     // MARK: - Shipped migrations stay shipped
 
@@ -49,6 +54,9 @@ import Testing
         #expect(StoreSchema.migrations.first?.statements == Self.frozen.storeV1)
         #expect(RegistrySchema.migrations.first?.identifier == "v1")
         #expect(RegistrySchema.migrations.first?.statements == Self.frozen.registryV1)
+        #expect(RegistrySchema.migrations.count >= 2)
+        #expect(RegistrySchema.migrations[1].identifier == "v2")
+        #expect(RegistrySchema.migrations[1].statements == Self.frozen.registryV2)
         for migrations in [StoreSchema.migrations, RegistrySchema.migrations] {
             #expect(
                 migrations.map(\.identifier) == migrations.indices.map { "v\($0 + 1)" }, "migrations are v1, v2, …")
@@ -213,6 +221,7 @@ import Testing
                         table,
                         try Row.fetchAll(db, sql: "PRAGMA table_info(\(table))").map { $0["name"] as String }
                             .filter { table != "apns_state" || !$0.hasPrefix("register_") }
+                            .filter { table != "notification_category" || !Self.v3Columns.contains($0) }
                     )
                 })
         }
@@ -225,12 +234,87 @@ import Testing
             return (row?["register_attempts"], row?["register_due_boot_id"], row?["register_due_ct"])
         }
         #expect(attempts == 0 && dueBoot == nil && dueCt == nil)
+        // v3's: not current, no due time, last wanted when inserted.
+        let categories = try await registry.read { db in
+            try Row.fetchAll(db, sql: "SELECT current, due_at, used_at, created_at FROM notification_category").map {
+                ($0["current"] as Int) == 0 && ($0["due_at"] as Double?) == nil
+                    && ($0["used_at"] as Double) == ($0["created_at"] as Double)
+            }
+        }
+        #expect(categories == [true, true, true])
 
         // The same views.
         #expect(try await store.writer.read { db in try Self.views(db) } == storeViews)
         #expect(storeViews.topics.count == Self.spec.topics && !storeViews.outbox.isEmpty)
         let active = try await partitions.registry.repository.activeServerId()
         #expect(active == Self.serverId)
+    }
+
+    // MARK: - CATCAP: a v2 registry with a large category union
+
+    /// A registry from before CATCAP (v1 + v2, append-only) holding a year's union, 650 rows,
+    /// next to the M1 store (an outbox in every state). Today's code migrates it to v3 with every
+    /// row not current, no due time, last used when inserted and never pushed; nothing is deleted
+    /// by the migration. The app's first refresh then registers at most the cap and deletes what
+    /// can't be needed: rows outside the selection that aren't current or on screen. The store
+    /// and its outbox are untouched.
+    @Test func aV2RegistryWithALargeUnionUpgradesAndPrunes() async throws {
+        let directory = try TempDirectory()
+        defer { directory.cleanup() }
+        let location = StoreLocation(root: directory.url)
+        try await Self.buildM1Location(location)
+        let t0 = Self.spec.now.timeIntervalSince1970
+        // M2/M3: the registry at v2, with a year of number-topic categories (newest last).
+        let old = try SharedDatabase.openPool(
+            at: location.registryURL, migrations: [("v1", Self.frozen.registryV1), ("v2", Self.frozen.registryV2)],
+            notifier: nil, commitSignal: .registryChanged)
+        let union = (0..<650).map { "quickr.t.\(PerfSeed.topicId($0 % 10).wireString).old\($0)" }
+        try await old.write { db in
+            for (n, id) in union.enumerated() {
+                try db.execute(
+                    sql: "INSERT INTO notification_category VALUES (?, ?, ?, '[]', ?)",
+                    arguments: [id, Self.serverId, PerfSeed.topicId(n % 10).wireString, t0 - 86_400 * 365 + Double(n)])
+            }
+        }
+        try old.close()
+        let storeURL = location.url("stores/\(Self.serverId).g1.sqlite")
+        let outboxBefore = try await DatabaseQueue(path: storeURL.path).read { db in try OutboxStorage.items(db) }
+
+        let partitions = try StorePartitions.open(at: location, notifier: nil)
+        let registry = partitions.registry.writer
+        #expect(
+            try await registry.read { db in try Self.migrations(db) } == RegistrySchema.migrations.map(\.identifier))
+        let migrated = try await registry.read { db in
+            try Row.fetchAll(
+                db, sql: "SELECT current, due_at, used_at, created_at, pushed_at, push_seq FROM notification_category"
+            )
+            .filter {
+                ($0["current"] as Int) == 0 && ($0["due_at"] as Double?) == nil && ($0["pushed_at"] as Double?) == nil
+                    && ($0["push_seq"] as Int64?) == nil
+                    && ($0["used_at"] as Double) == ($0["created_at"] as Double)
+            }.count
+        }
+        #expect(migrated == 653, "the 650 and M1's 3, all at v3's starting values")
+        #expect(try await registry.read(NotificationCategories.generation) == 0)
+
+        // The app's first refresh, with two old notifications still on screen.
+        let opened = try #require(try await partitions.openActiveStore(role: .app))
+        let center = FakeNotificationCenter()
+        center.withState { $0.categoryCapacity = 100 }
+        let onScreen: Set<String> = [union[0], union[1]]
+        center.withState { $0.delivered = onScreen.map { NotificationSnapshot(id: $0, categoryIdentifier: $0) } }
+        let categories = NotificationCategories(
+            registry: partitions.registry, center: center, wallClock: FakeClock(Self.spec.now))
+        let current = Set(try await categories.refresh(from: opened.store))
+        let registered = center.withState { Set($0.categories.map(\.id)) }
+        let table = Set(
+            try await registry.read { db in try String.fetchAll(db, sql: "SELECT id FROM notification_category") })
+        #expect(registered.count == NotificationCategories.registrationCap)
+        #expect(current.isSubset(of: registered) && onScreen.isSubset(of: registered))
+        #expect(table == registered.union(current).union(onScreen), "everything else was deleted")
+        #expect(table.count < 653)
+        // The store and its outbox are as they were.
+        #expect(try await opened.store.writer.read { db in try OutboxStorage.items(db) } == outboxBefore)
     }
 
     /// End to end: today's session binds the upgraded store and Home lists its topics.
