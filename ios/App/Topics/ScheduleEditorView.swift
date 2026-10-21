@@ -95,7 +95,11 @@ struct ScheduleEditorRows: View {
             Button {
                 draft.addTime(limits: limits)
             } label: {
-                Label("Time", systemImage: "plus")
+                // Our text, which grows fully (a Label here was capped at accessibility sizes).
+                HStack(spacing: 8) {
+                    Image(systemName: "plus").accessibilityHidden(true)
+                    Text("Time").font(.qr(.body))
+                }
             }
             .accessibilityLabel("Add a time")
             .accessibilityIdentifier("\(id).addTime")
