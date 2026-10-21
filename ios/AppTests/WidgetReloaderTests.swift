@@ -40,7 +40,11 @@ import Testing
         let location = TestStores.emptyLocation()
         defer { TestStores.remove(location) }
         let partitions = try StorePartitions.open(at: location, notifier: nil)
-        var coffee = try #require(try await PlaceholderTopicRepository().topics().first?.topic)
+        // Its own quick-log topic (the placeholders have no questions).
+        let cups = Question(key: "cups", label: "Cups", kind: .int(.init(min: 0, max: 20, unit: "cups")))
+        var coffee = Topic(
+            id: UUID(), slug: "coffee", name: "Coffee", currentVersion: 1, revision: 1, questionCount: 1,
+            createdAt: Date(), updatedAt: Date(), questions: [cups])
         let store = try await store(partitions, "a", coffee)
         try await partitions.registry.setActive("a")
 
