@@ -47,12 +47,13 @@ final class IntentResolutionTests: XCTestCase {
     func testLogEntryIntentRunsInTheApp() async throws {
         guard #available(iOS 27.0, *) else { return }
         let definitions = IntentDefinitions(bundleIdentifier: Self.app)
-        // The topic is given, so nothing is asked (AppIntentsTesting can't answer a prompt).
+        // The topic and the number are given, so nothing is asked (AppIntentsTesting can't answer
+        // a prompt); it logs into the demo store and says what it logged.
         let topic = definitions.entities["TopicEntity"].makeReference(identifier: Self.water)
-        let intent = definitions.intents["LogEntryIntent"].makeIntent(topic: topic)
+        let intent = definitions.intents["LogEntryIntent"].makeIntent(topic: topic, number: 2.0)
         let result = try await intent.run()
-        let name: String = try result.value
-        XCTAssertEqual(name, "Water")
+        let summary: String = try result.value
+        XCTAssertEqual(summary, "Water: 2 glasses")
     }
 }
 #endif
