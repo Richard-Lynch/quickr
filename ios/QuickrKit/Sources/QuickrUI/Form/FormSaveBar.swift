@@ -68,17 +68,17 @@ struct FormSaveBar: ViewModifier {
         .environment(\.formSave, FormSave(title: title, identifier: identifier, isSaving: isSaving, action: save))
         // Editing, not the keyboard's frame: the toolbar shows while a field edits, whether the
         // keyboard is up, minimized (iOS 27) or a hardware one (then it's off screen, or never shows).
-        .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidBeginEditingNotification)) { _ in
-            editing.began()
+        .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidBeginEditingNotification)) {
+            editing.began(ObjectIdentifier($0.object as AnyObject))
         }
-        .onReceive(NotificationCenter.default.publisher(for: UITextView.textDidBeginEditingNotification)) { _ in
-            editing.began()
+        .onReceive(NotificationCenter.default.publisher(for: UITextView.textDidBeginEditingNotification)) {
+            editing.began(ObjectIdentifier($0.object as AnyObject))
         }
-        .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidEndEditingNotification)) { _ in
-            editing.ended()
+        .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidEndEditingNotification)) {
+            editing.ended(ObjectIdentifier($0.object as AnyObject))
         }
-        .onReceive(NotificationCenter.default.publisher(for: UITextView.textDidEndEditingNotification)) { _ in
-            editing.ended()
+        .onReceive(NotificationCenter.default.publisher(for: UITextView.textDidEndEditingNotification)) {
+            editing.ended(ObjectIdentifier($0.object as AnyObject))
         }
     }
 }
