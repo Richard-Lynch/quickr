@@ -53,8 +53,10 @@ import Testing
 
         let server = PushServer(serverId: "test-server", epoch: "E1")
         let suite = "reg-tests-\(UUID().uuidString)"
+        // An in-memory Keychain: this is about registration, and CI's unsigned build has no Keychain.
         let environment = AppEnvironment.live(
-            location: location, defaults: UserDefaults(suiteName: suite)!, transport: server)
+            location: location, defaults: UserDefaults(suiteName: suite)!, keychain: InMemoryKeychain(),
+            transport: server)
         defer { UserDefaults().removePersistentDomain(forName: suite) }
         await environment.start()
         let push = try #require(environment.push, "the live environment has push")
