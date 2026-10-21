@@ -65,6 +65,12 @@ export function QuestionsEditor({ defaultExpanded }: { defaultExpanded: 'all' | 
         ) : null}
       </div>
 
+      {fields.length === 0 ? (
+        <p className="text-sm text-muted" data-testid="no-questions">
+          No questions: tapping this topic logs it.
+        </p>
+      ) : null}
+
       <ol className="flex flex-col gap-2.5">
         {fields.map((f, i) => (
           <li key={f.fieldId} id={`q-${f.uid}`} className="scroll-mt-20">

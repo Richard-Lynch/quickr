@@ -717,6 +717,15 @@ class QuickLogNumber(StrictModel):
 type QuickLogDescriptor = QuickLogEnum | QuickLogNumber
 
 
+class QuickLogSingle(StrictModel):
+    """A topic with no questions (a "single" topic): its reminder logs it with one action,
+    "Log it", an entry with no answers. Web Push only: the APNs payload keeps ``quick_log``
+    null for these topics.
+    """
+
+    type: Literal["single"] = "single"
+
+
 class PushPayload(StrictModel):
     """JSON body of every Web Push message (consumed by the service worker).
 
@@ -736,7 +745,7 @@ class PushPayload(StrictModel):
     topic_id: str | None = None
     version: int | None = None
     due_since: str | None = None  # canonical: UTC, whole seconds, "Z"
-    quick_log: QuickLogEnum | QuickLogNumber | None = None
+    quick_log: QuickLogEnum | QuickLogNumber | QuickLogSingle | None = None
 
 
 ApnsToken = Annotated[

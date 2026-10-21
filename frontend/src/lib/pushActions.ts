@@ -5,6 +5,7 @@
  *
  * - An enum offers its first `Notification.maxActions` options, `{action: "log|o|" + value}`.
  * - A number with a last value offers `{action: "log|n|" + fmt(last), title: "Log …"}`.
+ * - A single topic (no questions) offers `{action: "log|s|", title: "Log it"}`: no answers.
  * - No text input, no "More…" (the body opens the record screen).
  *
  * A click is validated against the notification's own data, then enqueues an `entry.create`
@@ -51,6 +52,7 @@ export function notificationData(p: PushPayload): NotificationData {
 export function pushActions(p: PushPayload, maxActions: number): PushAction[] {
   const q = p.quickr?.quick_log;
   if (!q || maxActions <= 0) return [];
+  if (q.type === 'single') return [{ action: 'log|s|', title: 'Log it' }];
   if (q.type === 'enum') {
     return q.options
       .slice(0, maxActions)
@@ -62,15 +64,18 @@ export function pushActions(p: PushPayload, maxActions: number): PushAction[] {
   return [{ action: `log|n|${shown}`, title: q.unit ? `Log ${shown} ${q.unit}` : `Log ${shown}` }];
 }
 
-/** The answer a clicked action stands for, or null when it doesn't match the reminder. */
+/** The answer a clicked action stands for (`key` null for a single topic: no answers), or null
+ *  when it doesn't match the reminder. */
 export function resolveAction(
   action: string,
   quickr: PushQuickr | null | undefined,
-): { key: string; value: string | number } | null {
+): { key: string; value: string | number } | { key: null; value: null } | null {
   const q = quickr?.quick_log;
-  const m = /^log\|([on])\|(.*)$/s.exec(action);
+  const m = /^log\|([ons])\|(.*)$/s.exec(action);
   if (!q || !m) return null;
   const [, kind, value = ''] = m;
+  if (kind === 's') return q.type === 'single' && value === '' ? { key: null, value: null } : null;
+  if (q.type === 'single') return null;
   if (kind === 'o') {
     return q.type === 'enum' && q.options.some((o) => o.value === value)
       ? { key: q.key, value }
@@ -141,7 +146,7 @@ export async function logFromAction(opts: {
   const payload: EntryCreatePayload = {
     topic: { id: q.topic_id, slug: data.topic_slug ?? '', name: data.title ?? '' },
     body: {
-      answers: { [answer.key]: answer.value },
+      answers: answer.key === null ? {} : { [answer.key]: answer.value },
       version: q.version,
       captured_at: new Date(now()).toISOString(),
       source: PWA_NOTIFICATION_SOURCE,
@@ -223,6 +228,7 @@ export async function handleReminderAction(opts: {
   }
   if (result.status === 'invalid') return { kind: 'open' };
   if (result.status === 'duplicate') {
+    if (answer.key === null) return NONE; // a single topic's entry has nothing to differ in
     const first = result.existing.payload.body.answers[answer.key];
     return first === undefined || first === answer.value ? NONE : alreadyLogged(q, first);
   }
@@ -231,6 +237,7 @@ export async function handleReminderAction(opts: {
   switch (sent.status) {
     case 'sent': {
       // A replay of the slot's create returns the entry that was logged first (§7.4).
+      if (answer.key === null) return NONE;
       const logged = loggedAnswer(sent.data, answer.key);
       return logged === undefined || logged === answer.value ? NONE : alreadyLogged(q, logged);
     }
@@ -291,6 +298,7 @@ function alreadyLogged(q: PushQuickr, value: unknown): ActionFeedback {
 /** How an answer reads on the reminder's buttons: the option label, or the number and unit. */
 export function answerLabel(q: PushQuickr, value: unknown): string {
   const log = q.quick_log;
+  if (log.type === 'single') return 'it';
   if (log.type === 'enum') {
     return log.options.find((o) => o.value === value)?.label ?? String(value);
   }

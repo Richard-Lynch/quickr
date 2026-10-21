@@ -235,14 +235,14 @@ export function draftFromTopic(topic: {
   };
 }
 
+/** A new topic starts with no questions: as it is, logging it takes one tap. */
 export function emptyTopicDraft(): TopicDraft {
-  const first = newDraftQuestion('int');
   return {
     name: '',
     slug: '',
     slugEdited: false,
     description: '',
-    questions: [first],
+    questions: [],
     change_note: '',
     schedule: emptyScheduleDraft(),
   };
