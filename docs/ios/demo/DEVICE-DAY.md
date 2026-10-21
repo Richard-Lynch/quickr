@@ -246,6 +246,19 @@ otherwise.
       with Audio Graph (the chart's rotor ▸ Audio Graph).
 - [ ] **Reduce Motion** (Settings ▸ Accessibility ▸ Motion), VoiceOver off:
       Home, the Builder and Topics show no slide or spring animations.
+- [ ] **AX XXXL, all the way down** (Settings ▸ Accessibility ▸ Display & Text
+      Size ▸ Larger Text, the largest size), VoiceOver off. Scroll through each
+      screen to the bottom:
+  - New topic, with a choice question open and the schedule on Daily and on
+    Every…;
+  - Topic settings, with the schedule on Daily with two times, the presets,
+    and Save schedule;
+  - Edit questions, with a choice card open;
+  - Versions.
+
+  No text is cut off or stops growing partway down a list, the "+ Time" row
+  included. The UI audits check these only at the top of each screen
+  (docs/ios/reviews/a11y-audit.md, slice C, "Audit placement").
 
 ## 7. Who drives what
 
