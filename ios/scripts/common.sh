@@ -98,6 +98,8 @@ target_sim_udid() {
 SIM_CAP_LOCK="${QUICKR_SIM_CAP_LOCK:-${TMPDIR:-/tmp}/quickr-sim-cap.lockf}"
 SIM_CAP_QUEUE="${QUICKR_SIM_CAP_QUEUE:-${SIM_CAP_LOCK%.lockf}.queue}"
 _sim_ticket=""
+# The caller's handlers for EXIT and the signals, set aside while this process waits.
+_sim_saved_traps=""
 
 # A process's start time, which tells it from a later process with the same pid.
 _sim_started() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' '; }
@@ -117,15 +119,51 @@ _sim_live_tickets() {
   done | sort
 }
 
-# Under the lock: this process's ticket, taken from the counter if it has none.
+# Under the lock: this process's ticket, taken from the counter if it has none. The waiter is
+# the process running this, which in a subshell isn't `$$` (bash 3.2 has no BASHPID): a child
+# `sh` started as a plain command reports it as its parent.
 _sim_take_ticket() {
   [[ -n "$_sim_ticket" && -e "$_sim_ticket" ]] && return 0
-  local next
+  local next pid
   next="$(cat "$SIM_CAP_QUEUE/next" 2>/dev/null || echo 0)"
   [[ "$next" =~ ^[0-9]+$ ]] || next=0
   echo $((next + 1)) >"$SIM_CAP_QUEUE/next"
-  _sim_ticket="$SIM_CAP_QUEUE/$(printf '%012d' "$next").$$"
-  _sim_started $$ >"$_sim_ticket"
+  sh -c 'echo $PPID' >"$SIM_CAP_QUEUE/pid.$next"
+  read -r pid <"$SIM_CAP_QUEUE/pid.$next"
+  rm -f "$SIM_CAP_QUEUE/pid.$next"
+  _sim_ticket="$SIM_CAP_QUEUE/$(printf '%012d' "$next").$pid"
+  _sim_started "$pid" >"$_sim_ticket"
+}
+
+# While waiting: the ticket is dropped however the process ends. EXIT drops it, keeping `$?` for
+# the caller's own EXIT trap, which then runs; INT, TERM and HUP (fatal by default, and then no
+# EXIT trap would run) end the process through EXIT, unless the caller handles them itself.
+_sim_trap_ticket() {
+  local words sig handler
+  _sim_saved_traps=""
+  for sig in EXIT INT TERM HUP; do
+    eval "words=($(trap -p "$sig"))"
+    handler="${words[2]:-}"
+    _sim_saved_traps+="$(printf '%s %q\n' "$sig" "$handler")"$'\n'
+    case "$sig" in
+      # (`set +e` first: under errexit the `( exit … )` that restores `$?` would end the trap.)
+      EXIT) trap "_sim_rc=\$?; _sim_drop_ticket${handler:+; set +e; ( exit \$_sim_rc ); $handler}" EXIT ;;
+      INT) [[ -n "$handler" ]] || trap 'exit 130' INT ;;
+      TERM) [[ -n "$handler" ]] || trap 'exit 143' TERM ;;
+      HUP) [[ -n "$handler" ]] || trap 'exit 129' HUP ;;
+    esac
+  done
+}
+
+# Admitted: the caller's handlers back (or none), now that there is no ticket to drop.
+_sim_untrap_ticket() {
+  local sig handler
+  while read -r sig handler; do
+    [[ -n "$sig" ]] || continue
+    eval "handler=$handler"
+    if [[ -n "$handler" ]]; then trap "$handler" "$sig"; else trap - "$sig"; fi
+  done <<<"$_sim_saved_traps"
+  _sim_saved_traps=""
 }
 
 _sim_drop_ticket() {
@@ -135,7 +173,7 @@ _sim_drop_ticket() {
 
 sim_boot() {
   local udid="$1" cap="${IOS_SIM_CAP:-2}" booted count announced=0 lock_status tickets ahead position
-  local last_position=0 trapped=0 previous_exit="" trap_words
+  local last_position=0 trapped=0
   # CI runs one simulator per runner: no cap to enforce, and xcodebuild boots the device itself
   # (an unbounded `simctl bootstatus -b` there stalled a run until the step's time limit).
   [[ -n "${CI:-}" ]] && return 0
@@ -163,10 +201,7 @@ sim_boot() {
         die "simulator $udid did not finish booting within ${IOS_SIM_BOOT_TIMEOUT:-300} s"
       fi
       exec 8>&-
-      # Back to the caller's EXIT trap (or none), now that there is no ticket to drop.
-      if (( trapped )); then
-        if [[ -n "$previous_exit" ]]; then trap "$previous_exit" EXIT; else trap - EXIT; fi
-      fi
+      (( trapped )) && _sim_untrap_ticket
       return 0
     fi
     if [[ "${IOS_SIM_WAIT:-0}" != 1 ]]; then
@@ -178,12 +213,10 @@ sim_boot() {
 $(sed 's/^/  /' <<<"$booted")"
     fi
     if [[ -z "$_sim_ticket" ]]; then
-      _sim_take_ticket
-      # The ticket goes with this process, whatever ends it; an earlier EXIT trap still runs.
-      eval "trap_words=($(trap -p EXIT))"
-      previous_exit="${trap_words[2]:-}"
-      trap "_sim_drop_ticket${previous_exit:+; $previous_exit}" EXIT
+      # Traps first: a signal between taking the ticket and trapping would leave it behind.
+      _sim_trap_ticket
       trapped=1
+      _sim_take_ticket
     fi
     exec 8>&-
     position=$(( ahead + 1 ))

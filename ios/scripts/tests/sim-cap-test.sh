@@ -204,6 +204,12 @@ until_true() {  # until_true <what> <command...>: polls for up to 30 s
   fail "timed out waiting until $what"; return 1
 }
 started() { ps -o lstart= -p "$1" | tr -s ' '; }
+gone() { ! kill -0 "$1" 2>/dev/null; }
+# Bounded: a waiter that never returns fails the test (and is killed) instead of hanging it.
+reap() {  # reap <pid>: waits up to 30 s for it to end; sets reaped to its status
+  until_true "pid $1 ends" gone "$1" || kill -KILL "$1" 2>/dev/null
+  wait "$1"; reaped=$?
+}
 rm -rf "$QUICKR_SIM_CAP_QUEUE"
 
 # Order: with one slot (taken by a), c queues first, then d; when a's slot frees, c gets it,
@@ -218,12 +224,12 @@ until_true "d has a ticket" tickets_are 2
 until_true "d says where it is" grep -q "place 2 in the queue" "$fake/fd.out"
 grep -q "place 1 in the queue" "$fake/fc.out" && echo "ok   the first waiter is told it is first" || fail "c's place: $(cat "$fake/fc.out")"
 setstate a Shutdown
-wait "$pc"; sc=$?
+reap "$pc"; sc=$reaped
 [[ "$sc" == 0 && "$(state c)" == Booted && "$(state d)" == Shutdown ]] \
   && echo "ok   the freed slot goes to the first waiter" || fail "order: c=$sc $(state c), d=$(state d)"
 kill -0 "$pd" 2>/dev/null && echo "ok   the second keeps waiting while the slot is taken" || fail "d stopped waiting"
 setstate c Shutdown
-wait "$pd"; sd=$?
+reap "$pd"; sd=$reaped
 [[ "$sd" == 0 && "$(state d)" == Booted ]] && echo "ok   then the second gets it" || fail "d=$sd $(state d)"
 [[ "$(tickets)" == 0 ]] && echo "ok   admitted waiters leave no ticket" || fail "tickets left: $(ls "$QUICKR_SIM_CAP_QUEUE")"
 
@@ -246,13 +252,43 @@ IOS_SIM_CAP=0 boot c; expect "IOS_SIM_CAP=0 ignores the queue" 0
 IOS_SIM_CAP=3 boot d; expect "a booted device re-booting never queues" 0
 rm -f "$QUICKR_SIM_CAP_QUEUE/000000000002.$$"
 
-# The EXIT trap drops a waiter's ticket when it is stopped, and keeps the caller's own trap.
+# A waiter stopped by TERM drops its ticket at once, and the caller's EXIT trap still runs, seeing
+# the real status (143).
 devices "a:Booted:$A" "c:Shutdown:$C"
-IOS_SIM_CAP=1 IOS_SIM_WAIT=1 bash -c 'trap "echo caller-trap-ran" EXIT; source "$1/../common.sh"; sim_boot c' _ "$here" >"$fake/fe.out" 2>&1 &
+IOS_SIM_CAP=1 IOS_SIM_WAIT=1 bash -c 'trap "echo caller-trap-ran rc=\$?" EXIT; source "$1/../common.sh"; sim_boot c' _ "$here" >"$fake/fe.out" 2>&1 &
 pe=$!
 until_true "the waiter has a ticket" tickets_are 1
-kill -TERM "$pe"; wait "$pe" 2>/dev/null
-[[ "$(tickets)" == 0 ]] && echo "ok   a stopped waiter's ticket is dropped by its EXIT trap" || fail "ticket left after TERM"
-grep -q caller-trap-ran "$fake/fe.out" && echo "ok   the caller's EXIT trap still runs" || fail "caller trap lost: $(cat "$fake/fe.out")"
+kill -TERM "$pe"; reap "$pe"
+[[ "$(tickets)" == 0 ]] && echo "ok   a stopped waiter's ticket is dropped at once" || fail "ticket left after TERM"
+grep -q "caller-trap-ran rc=143" "$fake/fe.out" && echo "ok   the caller's EXIT trap still runs, with the real status" \
+  || fail "caller trap: $(cat "$fake/fe.out")"
+[[ "$reaped" == 143 ]] && echo "ok   the waiter exits 143" || fail "status $reaped"
+
+# Admitted after waiting: the caller's own traps are back, unchanged.
+devices "a:Booted:$A" "c:Shutdown:$C"
+( sleep 2; setstate a Shutdown ) &
+# (`trap -p` straight into a file: in a pipeline or `$(…)` it would run in a subshell, which has
+# no traps.)
+IOS_SIM_CAP=1 IOS_SIM_WAIT=1 bash -c 'trap "echo mine" INT; source "$1/../common.sh"; sim_boot c; trap -p >"$2"' \
+  _ "$here" "$fake/traps.out" >/dev/null 2>&1
+wait
+traps="$(cat "$fake/traps.out")"
+[[ "$traps" == "trap -- 'echo mine' SIGINT" ]] \
+  && echo "ok   once admitted, the caller's traps are as they were (no EXIT, TERM or HUP of its own)" \
+  || fail "traps after admission: $traps"
+
+# A waiter in a subshell (not \$\$) killed while its parent lives: its ticket is its own pid's, so
+# it is pruned and doesn't block the queue.
+devices "a:Booted:$A" "c:Shutdown:$C" "d:Shutdown:$D"
+IOS_SIM_CAP=1 IOS_SIM_WAIT=1 bash -c 'source "$1/../common.sh"; ( sim_boot c ) & echo $! >"$2"; sleep 60' _ "$here" "$fake/sub.pid" >/dev/null 2>&1 &
+parent=$!
+until_true "the subshell waiter has a ticket" tickets_are 1
+sub="$(cat "$fake/sub.pid")"
+ls "$QUICKR_SIM_CAP_QUEUE" | grep -q "\.$sub\$" && echo "ok   the ticket names the subshell, not the parent" \
+  || fail "ticket pid: $(ls "$QUICKR_SIM_CAP_QUEUE") (subshell $sub, parent $parent)"
+kill -KILL "$sub"
+setstate a Shutdown
+IOS_SIM_CAP=1 boot d; expect "a killed subshell's ticket doesn't block while its parent lives" 0
+kill "$parent" 2>/dev/null; wait "$parent" 2>/dev/null
 
 (( fails == 0 )) && echo "sim cap: all passed" || { echo "sim cap: $fails failed"; exit 1; }
