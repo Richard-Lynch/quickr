@@ -631,12 +631,17 @@ private struct FakeServerTransport: Transport {
                 """#
             return HTTPResponse(status: 422, headers: headers, body: Data(problem.utf8))
         }
-        // The outbox posts by topic id; a slug works too.
+        // The outbox posts by topic id; a slug works too. A topic created here (TOPIC, UIT-6) is
+        // its own; anything else falls back to the seeded two.
         let ref = request.url.pathComponents.dropLast().last ?? ""
-        let topicId = ref == "mood" || ref == FakeServer.moodId.wireString ? FakeServer.moodId : FakeServer.workoutId
+        let topicId =
+            state.topic(ref) != nil
+            ? ref
+            : (ref == "mood" || ref == FakeServer.moodId.wireString ? FakeServer.moodId : FakeServer.workoutId)
+                .wireString
         let now = ISO8601DateFormatter().string(from: Date())
         let entry: [String: Any] = [
-            "id": body["id"] as? String ?? UUID().wireString, "topic_id": topicId.wireString,
+            "id": body["id"] as? String ?? UUID().wireString, "topic_id": topicId,
             "answers": FakeServer.echo(answers), "captured_at": body["captured_at"] as? String ?? now,
             "channel": "ios", "created_at": now, "updated_at": now, "meta": [String: String](),
             "notes": body["notes"] as? String ?? "", "revision": 1, "source": body["source"] as? String ?? "ios",
