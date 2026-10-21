@@ -134,7 +134,7 @@ struct OverviewView: View {
         VStack(alignment: .leading, spacing: 8) {
             let filters = Binding(
                 get: { self.filters }, set: { environment.topicFilters[ref.rawValue] = $0 })
-            QuickrSegmentedPicker("Date range", selection: filters.range) {
+            QuickrSegmentedPicker("Date range", selection: filters.range, valueLabel: self.filters.range.label) {
                 ForEach(EntryRange.allCases, id: \.self) { Text($0.label).tag($0) }
             }
             .accessibilityIdentifier("overview.range")
@@ -166,7 +166,8 @@ struct OverviewView: View {
             QuickrSegmentedPicker(
                 "Chart bucket",
                 selection: Binding(
-                    get: { bucket }, set: { bucketChoice = BucketChoice(range: self.filters.range, bucket: $0) })
+                    get: { bucket }, set: { bucketChoice = BucketChoice(range: self.filters.range, bucket: $0) }),
+                valueLabel: bucket.rawValue.capitalized
             ) {
                 Text("Day").tag(QuestionSeries.Bucket.day)
                 Text("Week").tag(QuestionSeries.Bucket.week)
