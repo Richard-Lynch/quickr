@@ -18,9 +18,16 @@
 # refused. Nothing in the repo changes. The marketing version is MARKETING_VERSION in
 # project.yml.
 source "$(dirname "$0")/common.sh"
-# Xcode's IPA packaging shells out to `rsync`; Homebrew's rsync 3.x rejects the options it
-# passes ("syntax or usage error"), so the system tools come first.
-export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+# Xcode's IPA packaging (exportArchive) shells out to whichever `rsync` is first in PATH. A
+# Homebrew or MacPorts rsync 3.x rejects the options Xcode passes ("syntax or usage error"), so
+# the system rsync is put first, through a private bin dir that holds only that one link:
+# everything else (xcodebuild included, and the tests' fakes) resolves exactly as before.
+if [[ -x /usr/bin/rsync ]]; then
+  rsync_dir="$IOS_DIR/build/testflight/.bin"
+  mkdir -p "$rsync_dir"
+  ln -sfn /usr/bin/rsync "$rsync_dir/rsync"
+  export PATH="$rsync_dir:$PATH"
+fi
 # Never traced: `bash -x` would print the credentials as they are read.
 { set +x; } 2>/dev/null
 
