@@ -42,7 +42,8 @@ enum DemoNotify {
             let center = SystemNotificationCenter()
             // The category the session registers for the topic (NotificationCategories.rows), put
             // into the system's set now rather than whenever the session's refresh gets to it.
-            let row = try await NotificationCategories.rows(in: store, now: Date()).first { $0.topicId == topic.id.wireString }
+            let row = try await NotificationCategories.rows(in: store, now: Date())
+                .first { $0.topicId == topic.id.wireString }
             if let row {
                 try await NotificationCategories(
                     registry: session.partitions.registry, center: center, wallClock: session.configuration.wallClock
