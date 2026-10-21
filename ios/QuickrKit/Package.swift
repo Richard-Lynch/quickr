@@ -5,7 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "QuickrKit",
-    platforms: [.iOS(.v26), .macOS(.v15)],
+    platforms: [.iOS(.v26), .macOS(.v26)],
     products: [
         .library(name: "QuickrCore", targets: ["QuickrCore"]),
         .library(name: "QuickrData", targets: ["QuickrData"]),
