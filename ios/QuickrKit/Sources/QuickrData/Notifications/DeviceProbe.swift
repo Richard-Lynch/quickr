@@ -247,13 +247,18 @@ public enum DeviceProbe {
         }
 
         /// The same lock for an asynchronous holder: it waits by polling, never blocking a thread
-        /// of the cooperative pool (the other side may be in this process, as in tests).
-        func exclusively<T>(_ body: () async throws -> T) async throws -> T {
+        /// of the cooperative pool (the other side may be in this process, as in tests), and gives
+        /// up with `OutOfTime` at `deadline` (uptime ns).
+        func exclusively<T>(until deadline: UInt64? = nil, _ body: () async throws -> T) async throws -> T {
             let fd = try openLock()
             while flock(fd, LOCK_EX | LOCK_NB) != 0 {
                 guard errno == EWOULDBLOCK || errno == EINTR else {
                     Darwin.close(fd)
                     throw CocoaError(.fileLocking)
+                }
+                if let deadline, DeviceProbe.uptime() >= deadline {
+                    Darwin.close(fd)
+                    throw DeviceProbe.OutOfTime()
                 }
                 do {
                     try await Task.sleep(for: .milliseconds(1))
@@ -460,7 +465,8 @@ public struct DeviceProbeRunner: Sendable {
                     return await restore() ? .restored : .failed
                 }
             } catch {
-                return .failed
+                // Without the lock, restoring still beats leaving the real categories missing.
+                return await restore() ? .restored : .failed
             }
         }.value
         switch outcome {
@@ -549,17 +555,35 @@ public struct DeviceProbeRunner: Sendable {
     private func registerIfCurrent<T>(
         _ request: DeviceProbe.Request, deadline: UInt64? = nil, _ change: () async throws -> T
     ) async throws -> T {
-        try await files.exclusively {
+        try await files.exclusively(until: deadline) {
             guard files.isCurrent(request.run) else { throw DeviceProbe.Superseded() }
             guard !past(deadline) else { throw DeviceProbe.OutOfTime() }
             return try await change()
         }
     }
 
+    /// D8's check after each registration made outside the lock: if this run was cancelled or
+    /// superseded meanwhile, its registration may have replaced what the canceller restored, so
+    /// it restores the real table when no run is current (a newer run sets its own set at its
+    /// next step), then stops.
+    private func confirmCurrent(_ request: DeviceProbe.Request) async throws {
+        let restore = restore
+        let files = files
+        let current = try await Task.detached {
+            try await files.exclusively { () async -> Bool in
+                guard !files.isCurrent(request.run) else { return true }
+                if files.currentRunId() == nil { _ = await restore() }
+                return false
+            }
+        }.value
+        guard current else { throw DeviceProbe.Superseded() }
+    }
+
     /// D8's check before each registration: still the current run (under the lock), and in time.
     /// The registration itself runs outside the probe's lock, so the two sides enter §5.2's
-    /// `register` concurrently, as §5.4 asks; only the registry's own lock orders them. A claim
-    /// landing in between affects at most that one round of the old run, which stops next round.
+    /// `register` concurrently, as §5.4 asks; only the registry's own lock orders them.
+    /// `confirmCurrent` afterwards undoes a registration that a cancellation or a newer claim
+    /// overtook.
     private func ensureCurrent(_ request: DeviceProbe.Request, deadline: UInt64? = nil) async throws {
         try await registerIfCurrent(request, deadline: deadline) {}
     }
@@ -606,6 +630,7 @@ public struct DeviceProbeRunner: Sendable {
             let start = DeviceProbe.uptime()
             try await categories.register(DeviceProbe.d8Rows(round: round, process: .app))
             let end = DeviceProbe.uptime()
+            try await confirmCurrent(request)
             guard let nse = await nseAttempt(request, round: round) else {
                 record(request, "timeout", round: round, note: "the NSE didn't finish this round")
                 return
@@ -665,6 +690,7 @@ public struct DeviceProbeRunner: Sendable {
                 let start = DeviceProbe.uptime()
                 try await categories.register(DeviceProbe.d8Rows(round: Int(app[0]), process: .nse))
                 let end = DeviceProbe.uptime()
+                try await confirmCurrent(request)
                 files.write([app[0], Int64(start), Int64(end)], to: files.nseRound(request.run))
                 last = app[0]
             } else {

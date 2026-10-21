@@ -226,17 +226,20 @@ import Testing
         #expect(!w.files.isCurrent("r"), "and a runner still going stops")
     }
 
-    @Test func aStepThatWaitedForTheLockPastTheDeadlineTimesOut() async throws {
+    @Test func aStepWaitingForTheLockGivesUpAtTheDeadline() async throws {
         let w = try await World()
         let request = DeviceProbe.Request(kind: .d9, run: "r", sizes: [10])
         try w.files.write(request)
-        // Another holder keeps the lock past the NSE's deadline.
-        async let holder: Void? = try? w.files.exclusively { try? await Task.sleep(for: .milliseconds(300)) }
+        // Another holder keeps the lock well past the NSE's deadline.
+        async let holder: Void? = try? w.files.exclusively { try? await Task.sleep(for: .milliseconds(800)) }
         try await Task.sleep(for: .milliseconds(20))
+        let started = Date()
         await w.runner(.nse, FakeNotificationCenter()).run(request, until: Self.from(now: 0.1))
         _ = await holder
         #expect(w.records("size").isEmpty)
-        #expect(w.records("timeout").first?.note?.contains("lock") == true)
+        let timeout = try #require(w.records("timeout").first)
+        #expect(timeout.note?.contains("lock") == true)
+        #expect(timeout.at - started.timeIntervalSince1970 < 0.5, "it gave up at the deadline, not when the lock freed")
         #expect(w.records("done").first?.ok == true, "it still restores")
     }
 
@@ -359,6 +362,18 @@ import Testing
         #expect(w.records("stopped").first?.run == "old")
     }
 
+    @Test func aD8RegistrationOvertakenByACancellationIsUndone() async throws {
+        let w = try await World()
+        let request = DeviceProbe.Request(kind: .d8, run: "r", rounds: 1)
+        try w.files.write(request)
+        w.files.write([1, Int64(DeviceProbe.uptime())], to: w.files.appRound("r"))
+        // An ordinary launch cancels the probe while the NSE's registration is under way.
+        let center = HookCenter { w.files.cancelPending() }
+        await w.runner(.nse, center).run(request, until: Self.from(now: 5))
+        #expect(w.records("stopped").first?.run == "r")
+        #expect(center.ids == [w.realCategory.category.id], "the real set is back, not the probe's")
+    }
+
     @Test func d8NSEStopsAtItsDeadline() async throws {
         let w = try await World()
         let request = DeviceProbe.Request(kind: .d8, run: "r", rounds: 5)
@@ -418,6 +433,33 @@ private final class SlowCenter: NotificationCenterProtocol {
         return await inner.notificationCategories()
     }
 
+    func deliveredNotifications() async -> [NotificationSnapshot] { [] }
+    func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {}
+    func pendingNotificationRequests() async -> [NotificationSnapshot] { [] }
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {}
+    func add(_ request: LocalNotificationRequest) async throws {}
+    func setBadgeCount(_ count: Int) async throws {}
+    func authorizationStatus() async -> NotificationAuthorization { .authorized }
+    func requestAuthorization() async throws -> Bool { true }
+}
+/// A center that runs `hook` once, during its first registration (after setting it).
+private final class HookCenter: NotificationCenterProtocol {
+    private let inner = FakeNotificationCenter()
+    private let hook: Mutex<(@Sendable () -> Void)?>
+
+    init(_ hook: @escaping @Sendable () -> Void) { self.hook = Mutex(hook) }
+
+    var ids: [String] { inner.withState { $0.categories.map(\.id) } }
+
+    func setNotificationCategories(_ categories: [NotificationCategorySpec]) {
+        inner.setNotificationCategories(categories)
+        hook.withLock { hook in
+            defer { hook = nil }
+            return hook
+        }?()
+    }
+
+    func notificationCategories() async -> [NotificationCategorySpec] { await inner.notificationCategories() }
     func deliveredNotifications() async -> [NotificationSnapshot] { [] }
     func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {}
     func pendingNotificationRequests() async -> [NotificationSnapshot] { [] }
