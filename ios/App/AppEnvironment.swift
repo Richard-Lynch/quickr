@@ -128,9 +128,13 @@ final class AppEnvironment {
         categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
     ) -> AppEnvironment {
         #if DEBUG
+        // A probe launch (DeviceProbeLaunch) holds the app's category registrations back while it runs.
         let environment =
             UITestLaunch.isActive
-            ? UITestLaunch.environment() : live(location: location, categoryCenter: categoryCenter)
+            ? UITestLaunch.environment()
+            : DeviceProbeLaunch.requested() != nil
+                ? live(location: location, categoryCenter: DeviceProbeLaunch.gatedCenter())
+                : live(location: location, categoryCenter: categoryCenter)
         #else
         let environment = live(location: location, categoryCenter: categoryCenter)
         #endif

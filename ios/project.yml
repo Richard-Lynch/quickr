@@ -36,7 +36,7 @@ packages:
   QuickrKit:
     path: QuickrKit
 
-# Shared by the app and both extensions. aps-environment is added to the app in M3.
+# Shared by the app and both extensions. The app adds aps-environment.
 entitlementProperties: &sharedEntitlements
   com.apple.security.application-groups:
     - group.com.bahumia.quickr
@@ -89,7 +89,11 @@ targets:
               - quickr
     entitlements:
       path: App/QuickR.entitlements
-      properties: *sharedEntitlements
+      properties:
+        <<: *sharedEntitlements
+        # APNs. Device builds register in the sandbox; exporting for App Store Connect re-signs
+        # with the distribution profile, whose value is production (ios/README.md, TestFlight).
+        aps-environment: development
 
   QuickRWidgets:
     type: app-extension
