@@ -140,4 +140,43 @@ private let pwaPaths: [(String, [Route])] = [
         #expect(Route.record(water).topic == water)
         #expect(Route.settings.topic == nil)
     }
+
+    // MARK: - Provenance (notifications.md §7.5)
+
+    @Test func aLinkCanNameItsStore() throws {
+        let scope = EntryScope(serverId: "0b9e0000-0000-4000-8000-0000000000aa", storeGen: 3)
+        let url = DeepLink.url(for: .record(TopicLinkRef(id: topicId)), scope: scope)
+        #expect(url.absoluteString == "quickr://t/\(topicId.uuidString.lowercased())/record?scope=\(scope.id)")
+        let link = try #require(DeepLink.link(for: url))
+        #expect(link.routes == [.record(TopicLinkRef(id: topicId))])
+        #expect(link.scope == scope && link.scope?.serverId == scope.serverId && link.scope?.storeGen == 3)
+        // routes(for:) still reads it, without the scope; a fix keeps its query.
+        #expect(DeepLink.routes(for: url) == [.record(TopicLinkRef(id: topicId))])
+        let fix = DeepLink.url(for: .record(water, fix: "abc"), scope: scope)
+        #expect(DeepLink.link(for: fix) == DeepLink.Link(routes: [.record(water, fix: "abc")], scope: scope))
+    }
+
+    @Test func aLinkWithoutAScopeIsTheActiveServers() throws {
+        #expect(DeepLink.link(for: URL(string: "quickr://t/water/record")!)?.scope == nil)
+        // A server's PWA link is that server's by its address; a scope on it isn't read.
+        let server = URL(string: "https://quickr.example")!
+        let pwa = try #require(
+            DeepLink.link(for: URL(string: "https://quickr.example/t/water/record?scope=x/1")!, serverURL: server))
+        #expect(pwa.scope == nil && pwa.routes == [.record(water)])
+    }
+
+    @Test func aMalformedScopeOpensNothing() {
+        for bad in ["", "server", "server/", "/1", "server/x", "ser ver/1", "a/b/c"] {
+            var components = URLComponents(string: "quickr://t/water/record")!
+            components.queryItems = [URLQueryItem(name: "scope", value: bad)]
+            #expect(DeepLink.link(for: components.url!) == nil, "\(bad)")
+        }
+    }
+
+    @Test func aRouteCanNameItsTopicById() {
+        let id = TopicLinkRef(id: topicId)
+        #expect(Route.record(water, fix: "f").with(topic: id) == .record(id, fix: "f"))
+        #expect(Route.topic(water, .entries).with(topic: id) == .topic(id, .entries))
+        #expect(Route.settings.with(topic: id) == .settings)
+    }
 }

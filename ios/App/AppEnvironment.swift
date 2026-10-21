@@ -173,7 +173,9 @@ final class AppEnvironment {
             guard let self else { return }
             switch request {
             case .record(let topicId, let prefill):
-                if !prefill.isEmpty { recordPrefill = NotificationPrefill(topicId: topicId.wireString, texts: prefill) }
+                if !prefill.isEmpty, let serverId = session?.binding?.serverId {
+                    recordPrefill = NotificationPrefill(serverId: serverId, topicId: topicId.wireString, texts: prefill)
+                }
                 if let ref = TopicLinkRef(topicId.wireString) { router.open(.record(ref)) }
             }
         }

@@ -617,6 +617,42 @@ id   = lowercase 8-4-4-4-12 hex of h
   Siri, a widget tile, a Control, the Action button) get **random ids**, like the
   tiles: logging the same topic twice on purpose must not be deduped.
 
+### 7.5 Opening the app keeps the server (M3 milestone review, ROUTE-SCOPE)
+
+A link that comes from one server must never open another server's topic. Slugs
+are per server: `mood` on A and `mood` on B are different topics. A reminder from
+A, or a widget rendered from A's store, can be tapped after the user switched to B.
+
+- **What a link carries.**
+  - A notification outcome that opens the app (the body, "More…", a failure or
+    tap-to-fix message) is `.open(path, serverId, prefill)`. `path` is `quickr.url`
+    with its topic named **by id** (`/t/{topic_id}/record`), from the payload's
+    `topic_id`. A tap-to-fix's prefill also carries `serverId`.
+  - A widget's links (the background tap, a due-list row, the form fallback) are
+    `quickr://t/{topic_id}/record?scope={server_id}/{store_gen}`. The scope is the
+    store the snapshot was read from (`EntryScope`). A sample in the app's widget
+    gallery has no store and links by slug.
+- **What the app does** (`LinkScope.check`, before any routing):
+  - **The active server** (and, for a widget link, the active store generation):
+    open the route, by topic id.
+  - **Another registered server:** refuse with "This is from {name}, not the
+    server quickR is using now. Switch to {name} in Settings to open it." quickR
+    **never switches servers for a link**. A switch rebinds the session, the outbox
+    and the widgets, which is too much to trigger from a tap, and the user may not
+    expect it.
+  - **A server quickR no longer has, or a store since reset** (a widget link
+    whose generation isn't the active one): refuse, and reload the widgets'
+    timelines so they render from the current store.
+- **Prefill** is handed to a record screen only for its topic on the server it
+  came from, while that server is active.
+- **Links without a scope keep working for the active server:** `quickr://t/{slug}/…`
+  typed or shared, the PWA's own `https://` links to the configured server (that
+  server's by their address), and links from older widgets until they refresh.
+  `Router.handle(url:)` opens only unscoped links; a scoped link goes through the
+  check.
+- Writes were already scoped: an action logs into the reminder's server's store
+  (§7.1), and a widget's buttons (`WidgetLogIntent`) refuse another store.
+
 ## 8. Badge
 
 - The badge is set **only on the device**. The payload never carries `badge`.

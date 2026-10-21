@@ -34,8 +34,10 @@ public struct NotificationActionResponse: Sendable, Hashable {
 public enum NotificationActionOutcome: Sendable, Hashable {
     /// Nothing to do: dismissed, or not a quickR notification.
     case none
-    /// Open this PWA path (`quickr.url`) in the app, with a tap-to-fix's text for the record screen.
-    case open(path: String, prefill: NotificationPrefill?)
+    /// Open this PWA path in the app, for `serverId`'s topic: `quickr.url` with its topic named by
+    /// id when the reminder has one (§7.5). The app opens it only while that server is active; a
+    /// tap-to-fix's text goes to the record screen.
+    case open(path: String, serverId: String, prefill: NotificationPrefill?)
     /// The entry was enqueued in `serverId`'s store; `flush` is how the flush ended (nil when the
     /// store isn't the active one, which is never flushed from here).
     case logged(entryId: UUID, serverId: String, flush: OutboxFlushReport.Ending?)
@@ -49,12 +51,14 @@ public enum NotificationActionOutcome: Sendable, Hashable {
 }
 
 /// What a tap-to-fix notification brings back to the record screen (notifications.md §7.3): the
-/// raw text per question key, for its topic.
+/// raw text per question key, for its server's topic (§7.5: never another server's same topic).
 public struct NotificationPrefill: Sendable, Hashable {
+    public var serverId: String
     public var topicId: String
     public var texts: [String: String]
 
-    public init(topicId: String, texts: [String: String]) {
+    public init(serverId: String, topicId: String, texts: [String: String]) {
+        self.serverId = serverId
         self.topicId = topicId
         self.texts = texts
     }
@@ -143,6 +147,16 @@ public struct NotificationActionHandler: Sendable {
         self.gate = gate ?? RegistryActiveGate(registry: partitions.registry)
     }
 
+    /// `url` (`/t/{slug}/record`, maybe with a query) with its topic named by `topicId`: a slug
+    /// can name another topic on another server, an id can't (§7.5). As it is when there's no id
+    /// or the path isn't a topic's.
+    static func path(_ url: String, topicId: String?) -> String {
+        guard let topicId, let id = UUID(uuidString: topicId), let routes = DeepLink.routes(forPath: url),
+            routes.count == 1, routes[0].topic != nil
+        else { return url }
+        return DeepLink.path(for: routes[0].with(topic: TopicLinkRef(id: id)))
+    }
+
     public func handle(_ response: NotificationActionResponse) async -> NotificationActionOutcome {
         guard let q = response.quickr else { return .none }
         switch response.action {
@@ -151,10 +165,13 @@ public struct NotificationActionHandler: Sendable {
         case .open:
             // The body opens `url`; a tap-to-fix notification brings the text it couldn't log.
             guard let url = q.url else { return .none }
+            let path = Self.path(url, topicId: q.topicId)
             guard q.kind == "fix", let topicId = q.topicId, let texts = q.prefill else {
-                return .open(path: url, prefill: nil)
+                return .open(path: path, serverId: q.serverId, prefill: nil)
             }
-            return .open(path: url, prefill: NotificationPrefill(topicId: topicId, texts: texts))
+            return .open(
+                path: path, serverId: q.serverId,
+                prefill: NotificationPrefill(serverId: q.serverId, topicId: topicId, texts: texts))
         case .custom(let identifier):
             return await act(identifier, response, q)
         }
@@ -221,7 +238,7 @@ public struct NotificationActionHandler: Sendable {
         case (.more, _):
             // A `.foreground` action: the app opens on the record screen, nothing preselected.
             guard let url = q.url else { return .none }
-            return .open(path: url, prefill: nil)
+            return .open(path: Self.path(url, topicId: topicId), serverId: q.serverId, prefill: nil)
         case (.option, _):
             answer = .string(action.value)
         case (.number, .number(let number)):

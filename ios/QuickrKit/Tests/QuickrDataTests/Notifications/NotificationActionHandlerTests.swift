@@ -281,7 +281,8 @@ import Testing
         #expect(
             tap
                 == .open(
-                    path: "/t/sleep/record", prefill: .init(topicId: w2.sleep.id.wireString, texts: ["hours": "abc"])))
+                    path: "/t/\(w2.sleep.id.wireString)/record", serverId: Self.serverA,
+                    prefill: .init(serverId: Self.serverA, topicId: w2.sleep.id.wireString, texts: ["hours": "abc"])))
     }
 
     @Test(arguments: [
@@ -399,7 +400,7 @@ import Testing
         #expect(NotificationCategory.hash(old) != NotificationCategory.hash(r.category.actions), "the title is hashed")
         #expect(
             await w.handler.handle(.init(action: .open, quickr: r.info))
-                == .open(path: "/t/\(w.water.slug)/record", prefill: nil))
+                == .open(path: "/t/\(w.water.id.wireString)/record", serverId: Self.serverA, prefill: nil))
         let stale = "q1|\(Self.serverA)|\(w.water.id.wireString)|1|glasses|n|5"  // as sent before N1
         #expect(stale == old[0].identifier)
         let outcome = await w.handler.handle(.init(action: .custom(stale), title: "Water", quickr: r.info))
@@ -410,7 +411,9 @@ import Testing
         let w = try await World()
         let r = w.reminder(w.moodTopic)
         #expect(
-            await w.handler.handle(.init(action: .open, quickr: r.info)) == .open(path: "/t/mood/record", prefill: nil))
+            await w.handler.handle(.init(action: .open, quickr: r.info))
+                == .open(path: "/t/\(w.moodTopic.id.wireString)/record", serverId: Self.serverA, prefill: nil),
+            "by id, for its server (§7.5)")
         #expect(await w.handler.handle(.init(action: .dismiss, quickr: r.info)) == .none)
         #expect(await w.handler.handle(.init(action: .custom("q1|x"), quickr: nil)) == .none, "not quickR's")
 
@@ -420,7 +423,9 @@ import Testing
         topic.questions = [six]
         let more = w.reminder(topic)
         #expect(more.category.actions.last?.kind == "open")
-        #expect(await w.tap(more, 3) == .open(path: "/t/mood/record", prefill: nil))
+        #expect(
+            await w.tap(more, 3)
+                == .open(path: "/t/\(topic.id.wireString)/record", serverId: Self.serverA, prefill: nil))
         #expect(try await w.items().isEmpty)
     }
 
