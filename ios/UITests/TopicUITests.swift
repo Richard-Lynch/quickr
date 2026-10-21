@@ -130,7 +130,11 @@ final class TopicUITests: XCTestCase {
         XCTAssertTrue(saveDetails.isHittable)
         // The schedule kind is a menu at this size (TP4), not a segmented control.
         XCTAssertFalse(app.segmentedControls["topicSettings.schedule.kind"].exists)
+        let kind = element("topicSettings.schedule.kind", in: app)
+        scrollTo(kind, in: app)
+        XCTAssertEqual(kind.value as? String, "None", "the menu reports its selection")
         pickScheduleKind("Daily", id: "topicSettings.schedule", in: app)
+        XCTAssertEqual(element("topicSettings.schedule.kind", in: app).value as? String, "Daily")
         // TP3: a second time can be removed through a 44 pt target.
         tap("topicSettings.schedule.addTime", in: app)
         let remove = element("topicSettings.schedule.removeTime.1", in: app)
