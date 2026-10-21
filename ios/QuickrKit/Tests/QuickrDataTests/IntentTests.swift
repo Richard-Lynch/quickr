@@ -4,7 +4,7 @@ import Testing
 
 @testable import QuickrData
 
-@Suite(.timeLimit(.minutes(2))) struct TopicEntityQueryTests {
+@Suite(.timeLimit(.minutes(5))) struct TopicEntityQueryTests {
     let topics: [ViewTopic]
 
     init() async throws {
@@ -33,7 +33,7 @@ import Testing
 }
 
 /// The query through the registered repository, as the system calls it in the app or the widget.
-@Test(.timeLimit(.minutes(2))) func queryReadsTheRegisteredSource() async throws {
+@Test(.timeLimit(.minutes(5))) func queryReadsTheRegisteredSource() async throws {
     IntentTopicSource.register(PlaceholderTopicRepository())
     let query = TopicEntityQuery()
     #expect(try await query.allEntities().map(\.name) == ["Coffee", "Mood"])
@@ -42,7 +42,7 @@ import Testing
 
 /// Without a write context (no process registered one) the intent refuses, writing nothing; the
 /// logging itself is `IntentLoggingTests`, and end to end the hosted `IntentBootstrapTests`.
-@Test(.timeLimit(.minutes(2))) func logEntryNeedsAWriteContext() async throws {
+@Test(.timeLimit(.minutes(5))) func logEntryNeedsAWriteContext() async throws {
     let topic = TopicEntity(id: PlaceholderTopicRepository.coffee, name: "Coffee", slug: "coffee")
     await #expect(throws: IntentLogging.Failure.noStore) { try await LogEntryIntent(topic: topic, number: 2).perform() }
 }

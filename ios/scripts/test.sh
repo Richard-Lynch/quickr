@@ -9,6 +9,14 @@ rm -rf "$result"; mkdir -p "$BUILD_DIR/results"
 runtime="$(xcrun simctl list devices | awk -v id="$udid" '/^-- /{rt=$0} index($0, id){print rt; exit}')"
 echo "ios: $plan plan on $udid ${runtime}"
 sim_boot "$udid"  # under the simulator cap, before xcodebuild would boot it
+# CI's ~3-core runner starves a hosted run that executes every Swift Testing test of every target
+# at once (main-actor suites stalled for minutes). There, cap how many run concurrently in the
+# test process (IOS_TEST_PARALLEL_WIDTH, default 4; forwarded through TEST_RUNNER_). Local runs
+# keep the default, fully parallel.
+if [[ -n "${CI:-}" ]]; then
+  export TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH="${IOS_TEST_PARALLEL_WIDTH:-4}"
+  echo "ios: CI: at most $TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH tests at a time in the test process"
+fi
 # A hung test fails after IOS_TEST_ALLOWANCE seconds (default 300; a test may raise its own
 # executionTimeAllowance up to IOS_TEST_MAX_ALLOWANCE, default 600) instead of stalling the run.
 xcb -destination "id=$udid" -testPlan "$plan" -resultBundlePath "$result" \

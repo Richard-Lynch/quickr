@@ -9,7 +9,7 @@ import UserNotifications
 /// The minimal `UNUserNotificationCenter` adapter (notifications.md §5; spike F1): the live
 /// environment's session registers the active store's reminder categories with the real center,
 /// without asking for notification permission.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct SystemNotificationCenterTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(5))) struct SystemNotificationCenterTests {
     static let server = "test-server"
 
     /// A store whose active server has a quick-loggable chips topic and a number topic.

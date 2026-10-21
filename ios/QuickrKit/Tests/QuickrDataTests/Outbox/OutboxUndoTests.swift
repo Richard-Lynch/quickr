@@ -7,7 +7,7 @@ import Testing
 
 /// outbox.md §13 cases 11–16, 29–31, 51–54, 59–61: Undo of a log (`cancelCreate`, §9.1),
 /// delete-with-undo (§9.2), S8 and suspension mid-send.
-@Suite(.timeLimit(.minutes(2))) struct OutboxUndoTests {
+@Suite(.timeLimit(.minutes(5))) struct OutboxUndoTests {
     @Test("11 · lost response then Undo: only a standalone DELETE is sent")
     func case11() async throws {
         let h = try OutboxHarness()
@@ -145,10 +145,10 @@ import Testing
         try await outbox.updateEntry(id: id, topicId: h.topic.id, patch: h.patch(notes: "edited"), origin: .app)
         try await outbox.deleteEntry(id: id, topicId: h.topic.id, undoable: true, origin: .app)
         h.clock.advance(by: .seconds(5))
-        _ = try await outbox.flush(force: false, budget: .seconds(30))
+        _ = try await outbox.flush(force: false, budget: .seconds(120))
         #expect(try h.items.count == 2)  // still held
         h.clock.advance(by: .seconds(1))
-        _ = try await outbox.flush(force: false, budget: .seconds(30))
+        _ = try await outbox.flush(force: false, budget: .seconds(120))
         #expect(try h.items.isEmpty && h.server.requests.isEmpty)
         #expect(try await outbox.undoDelete(entryId: id) == .nothingToDo)
     }
@@ -259,7 +259,7 @@ import Testing
         let f = try await h.log(outbox, minutes: 1)
         try await outbox.deleteEntry(id: e, topicId: h.topic.id, undoable: true, origin: .app)
         h.clock.advance(by: Outbox.holdDuration)
-        _ = try await outbox.flush(force: false, budget: .seconds(30))
+        _ = try await outbox.flush(force: false, budget: .seconds(120))
         #expect(h.server.calls == ["POST /api/v1/topics/\(h.topic.id.wireString)/entries"])
         #expect(try h.server.entry(f) != nil && h.server.entry(e) == nil && h.items.isEmpty)
     }
@@ -276,7 +276,7 @@ import Testing
         try await outbox.deleteEntry(id: id, topicId: h.topic.id, undoable: true, origin: .app)
         #expect(try Array(h.items.prefix(2)) == before)
         h.clock.advance(by: Outbox.holdDuration)
-        _ = try await outbox.flush(force: true, budget: .seconds(30))
+        _ = try await outbox.flush(force: true, budget: .seconds(120))
         #expect(h.server.count(.post) == 1 && h.server.count(.delete) == 1 && h.server.count(.patch) == 0)
         #expect(try h.server.entry(id) == nil && h.items.isEmpty)
     }
@@ -290,7 +290,7 @@ extension Array {
 /// Polls `condition` until it holds. `timeout` is a liveness ceiling (so a broken test fails
 /// instead of hanging), never the timing under test: generous, because a loaded machine can delay
 /// any task. Assert a real bound separately, from the flush's own `startedAt`/`endedAt`.
-func waitUntil(timeout: Duration = .seconds(30), _ condition: @Sendable () -> Bool) async throws {
+func waitUntil(timeout: Duration = .seconds(120), _ condition: @Sendable () -> Bool) async throws {
     let deadline = ContinuousClock.now.advanced(by: timeout)
     while !condition() {
         guard ContinuousClock.now < deadline else {

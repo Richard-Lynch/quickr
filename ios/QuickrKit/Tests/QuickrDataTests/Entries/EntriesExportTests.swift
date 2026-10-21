@@ -8,7 +8,7 @@ import Testing
 
 /// CSV (the PWA's "Export CSV"): the request the list's filters make, the file's name, what an
 /// export leaves behind, and that it belongs to the store it started in.
-@MainActor @Suite(.timeLimit(.minutes(2))) struct EntriesExportTests {
+@MainActor @Suite(.timeLimit(.minutes(5))) struct EntriesExportTests {
     static let csv = "id,captured_at,mood\n1,2026-10-20T08:00:00Z,good\n"
 
     /// Berlin, 2026-10-20 00:30 local (22:30 UTC the day before).

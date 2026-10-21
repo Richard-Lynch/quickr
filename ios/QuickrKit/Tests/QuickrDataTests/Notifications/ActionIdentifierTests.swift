@@ -6,7 +6,7 @@ import Testing
 
 /// N3 (notifications.md §4.2, §7.1 step 1): action identifiers round-trip, malformed ones don't
 /// parse, and one that doesn't match its reminder (a tampered value) is rejected.
-@Suite(.timeLimit(.minutes(2))) struct ActionIdentifierTests {
+@Suite(.timeLimit(.minutes(5))) struct ActionIdentifierTests {
     static let server = "0b9e0000-0000-4000-8000-0000000000aa"
     static let topic = "6f1c0000-0000-4000-8000-000000000001"
 
