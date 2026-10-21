@@ -157,6 +157,9 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- A11Y L5 (answers): the answer values in Entries rows keep `lineLimit(2)` at AX sizes (UIT-6's Grid change left them as they were); lift it at AX sizes.
+- A11Y C1: check "Export CSV" at XXXL now that slice A's X3 lets capsule buttons wrap; close it if it's fine.
+- A11Y L2 (Low): a day rotor for the long, date-ordered Entries list.
 - A11Y H3: home tile reading order. The open button sits behind the content with no sort priority; give it `accessibilitySortPriority` so the combined title element is read before the quick-log controls (TileView.swift).
 - A11Y T5: at AX XXXL the toast's single HStack (text, Undo, ✕) squeezes the text column; stack the actions under the text at AX sizes (ToastView.swift).
 - A11Y SE6: each licence is one huge Text element; split it into paragraphs so VoiceOver can move through it (LicencesView.swift).
@@ -311,6 +314,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-21 03:40 (EDT): **A11Y slice B merged** (9af89e6). It covers topic tabs, Entries (long-press Delete fixes the XXXL flake), Edit, Export, Stats charts (AXChartDescriptor with the year in bucket names, scaled heights), the FormSaveBar below content (F8) and the picker valueLabel. Every B audit allow-list is empty. Codex r4 is clean. Stats 4/4; the full UI run gave 82/1 before the Stats-only fix. On the merge: lint, core and the app build are green, and the vectors show no drift. A11Y C is on its final run (fbf37eb); mid-list audits are element-scoped only (a full-list audit re-lays out the List), and the manual check is in DEVICE-DAY §6.
 
 - 2026-10-21 03:25 (EDT): **Real HANDLER bug found by the MEDIA proof run:** a notification action tapped while the app is alive but backgrounded fails with `refused: storeUnavailable`. `didEnterBackground` suspends the GRDB store, and the action path never resumes it; a killed app starts unsuspended, which is why spike F3/D3 and the tests missed it. This is the common case on a phone. WP **HANDLER-RESUME** (m2-form): resume for the response, re-suspend while still backgrounded, a shared helper for every in-process background entry point, and a hosted regression test. MEDIA is committed (936f334): the snippet and widget-log GIF hooks are proven; the notification capture fails on this bug by design (opt-in Media plan). CATCAP r2's Majors are fixed (push_seq ordering, must-include, a registration generation checked under the lock); r3 is running.
 
