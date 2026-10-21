@@ -181,9 +181,18 @@ final class AppEnvironment {
                 openSession()
                 registerIntentTopics()
             }
+            #if DEBUG || QUICKR_PERF
+            PerfProbe.mark("start: begins")
+            #endif
             // Before the first request, so it already carries the migrated token.
             await migrateLegacyToken()
+            #if DEBUG || QUICKR_PERF
+            PerfProbe.mark("start: token migrated")
+            #endif
             await session?.start(serverURL: settings.serverURL)
+            #if DEBUG || QUICKR_PERF
+            PerfProbe.mark("start: session started (bound)")
+            #endif
             if let session { sync.startMonitoring(session) }
             // A background refresh's time ran out mid-start (`cancelStart`): the connect may not
             // have happened, and the session won't redo it; the next activation does.

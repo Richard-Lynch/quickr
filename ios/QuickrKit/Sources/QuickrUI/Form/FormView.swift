@@ -14,7 +14,7 @@ public struct FormView<Footer: View>: View {
     let model: FormModel
     let onAutoSave: AutoSave?
     let footer: Footer
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @QuickrReduceMotion private var reduceMotion
     @Environment(\.formSave) private var formSave
 
     /// - Parameter onAutoSave: called with the entry when a pick on ``FormModel/autoSaveKey``
@@ -55,7 +55,7 @@ public struct FormView<Footer: View>: View {
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: model.scrollRequest) { _, request in
                 guard let request else { return }
-                withAnimation(QuickrMotion.animation(QuickrMotion.rise, reduceMotion: reduceMotion)) {
+                withQRAnimation(QuickrMotion.rise, reduceMotion: reduceMotion) {
                     proxy.scrollTo(request.target, anchor: .center)
                 }
             }

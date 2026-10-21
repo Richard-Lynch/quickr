@@ -119,14 +119,9 @@ struct QuestionCard<Model: BuilderEditing>: View {
 
     private func error(_ field: QuestionField) -> String? { model.draftErrors[.question(index, field)] }
 
-    /// A binding to one of the question's fields.
+    /// A binding to one of the question's fields (read live, `BuilderBindings`).
     private func binding<Value>(_ path: WritableKeyPath<DraftQuestion, Value>, default value: Value) -> Binding<Value> {
-        Binding(
-            get: { question?[keyPath: path] ?? value },
-            set: { newValue in
-                guard let i = model.draft.index(of: id) else { return }
-                model.draft.questions[i][keyPath: path] = newValue
-            })
+        model.binding(id, path, default: value)
     }
 
     var body: some View {
@@ -203,7 +198,7 @@ struct QuestionCard<Model: BuilderEditing>: View {
         TopicLabeledField("Question", error: error(.label)) {
             TextField(
                 question.type.builderPlaceholder,
-                text: Binding(get: { question.label }, set: { model.draft.setLabel(id, $0) })
+                text: model.labelBinding(id)
             )
             .accessibilityLabel("Question")
             .accessibilityIdentifier("\(tag).label")
@@ -216,7 +211,7 @@ struct QuestionCard<Model: BuilderEditing>: View {
                     .foregroundStyle(.qr.muted)
                     .accessibilityIdentifier("\(tag).key")
             } else {
-                TextField("Key", text: Binding(get: { question.key }, set: { _ = model.draft.setKey(id, $0) }))
+                TextField("Key", text: model.keyBinding(id))
                     .font(.qr(.mono))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -235,7 +230,7 @@ struct QuestionCard<Model: BuilderEditing>: View {
             VStack(alignment: .leading, spacing: 4) {
                 Picker(
                     "Type",
-                    selection: Binding(get: { question.type }, set: { _ = model.draft.setType(id, to: $0) })
+                    selection: model.typeBinding(id, default: question.type)
                 ) {
                     ForEach(QuestionType.allCases, id: \.self) { Text($0.builderLabel).tag($0) }
                 }
@@ -290,7 +285,7 @@ struct QuestionCard<Model: BuilderEditing>: View {
         case .enum:
             OptionsRows(model: model, index: index, id: id, tag: tag)
             Toggle(
-                isOn: Binding(get: { question.multiple }, set: { _ = model.draft.setMultiple(id, $0) })
+                isOn: model.multipleBinding(id)
             ) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Allow multiple selections")
@@ -366,7 +361,7 @@ struct OptionsRows<Model: BuilderEditing>: View {
             HStack(spacing: 8) {
                 TextField(
                     "Option \(o + 1)",
-                    text: Binding(get: { option.label }, set: { model.draft.setOptionLabel(id, option: option.id, $0) })
+                    text: model.optionLabelBinding(id, option: option.id)
                 )
                 .strikethrough(option.archived)
                 .accessibilityLabel("Option \(o + 1) label")
@@ -410,8 +405,7 @@ struct OptionsRows<Model: BuilderEditing>: View {
                 } else {
                     TextField(
                         "value",
-                        text: Binding(
-                            get: { option.value }, set: { _ = model.draft.setOptionValue(id, option: option.id, $0) })
+                        text: model.optionValueBinding(id, option: option.id)
                     )
                     .font(.qr(.monoCaption))
                     .textInputAutocapitalization(.never)
@@ -428,9 +422,7 @@ struct OptionsRows<Model: BuilderEditing>: View {
     }
 
     /// The typed option label, kept by the model (it survives the panes and a closed card).
-    private var newLabel: Binding<String> {
-        Binding(get: { model.newOptionLabels[id] ?? "" }, set: { model.newOptionLabels[id] = $0 })
-    }
+    private var newLabel: Binding<String> { model.newOptionBinding(id) }
 
     private func add() { model.addPendingOption(to: id) }
 }
