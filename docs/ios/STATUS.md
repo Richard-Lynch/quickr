@@ -306,6 +306,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 21:25 (EDT): PR #10: the build + Unit plan job still fails on CI starvation in hosted suites (AppSessionTests, EntriesModelTests). A second sweep (ios/m2-ci-flakes2) covers every Unit-plan target and caps CI-only test parallelism. M3: **WIDGETS approved** (Codex r2; WidgetLogIntent pinned to its EntryScope, Control reloads, a no-prompt Control fallback, SQL counts); it merges after INTENTS. INTENTS step 2 (39f8cdb: repeat-last, open record, what's due, undo, App Shortcuts) is done; step 3 (LogTopicIntent) is next. PERF: a release-build cold-start breakdown (6902593).
+
 - 2026-10-20 20:45 (EDT): PR #10 CI. Backend, frontend and docker pass. `swift test` is green after two fixes: an Xcode 26 region-isolation compile error in OutboxBridgeTests (f21d99c) and widened success bounds in case42 and LeaseTests (0fb7240, 1775654). The **build + Unit plan** job fails 6 CI-only tests: a Keychain -34018 in the unsigned CI build (SettingsTests), PushLifecycleTests, and LeaseTests/LeaseTimeSamplingTests (SQLite busy and short waits under starvation). A systematic CI-starvation sweep (ios/m2-ci-flakes, test-isolation agent; reproduces with 10 background-priority copies) is fixing all of them; it merges into m2-ui and then CI reruns.
 
 - 2026-10-20 20:00 (EDT): The Intents test fix is merged (95c5db3; test-only; 2/2 ×2 on iOS 27). **The M2 PR is open: #10 (ios/m2-ui → feat/ios-app)**, with the final validation in its body. CI is running (backend, frontend, docker, swift test, build + Unit plan). The PR merges (squash) once CI is green.
