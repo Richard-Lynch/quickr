@@ -7,12 +7,19 @@ import SwiftUI
 public struct QuickrSegmentedPicker<Selection: Hashable, Content: View>: View {
     let title: String
     @Binding var selection: Selection
+    /// The selected option's text, which a menu picker can't read from its content.
+    let valueLabel: String?
     let content: Content
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    public init(_ title: String, selection: Binding<Selection>, @ViewBuilder content: () -> Content) {
+    /// `valueLabel` comes before the content so a trailing closure still fills it.
+    public init(
+        _ title: String, selection: Binding<Selection>, valueLabel: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
         self.title = title
         self._selection = selection
+        self.valueLabel = valueLabel
         self.content = content()
     }
 
@@ -21,10 +28,16 @@ public struct QuickrSegmentedPicker<Selection: Hashable, Content: View>: View {
         case .segmented:
             Picker(title, selection: $selection) { content }.pickerStyle(.segmented)
         case .menu:
-            Picker(title, selection: $selection) { content }
+            let menu = Picker(title, selection: $selection) { content }
                 .pickerStyle(.menu)
                 .tint(.qr.ink)
                 .frame(minHeight: QuickrMetrics.tapTarget)
+            // A segmented control reports its selected segment itself; a menu's button doesn't.
+            if let valueLabel {
+                menu.accessibilityValue(valueLabel)
+            } else {
+                menu
+            }
         }
     }
 }
