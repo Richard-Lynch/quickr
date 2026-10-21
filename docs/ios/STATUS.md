@@ -317,6 +317,11 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 07:20 (EDT): **Final M3 validation on 1ee19c8 (in progress):**
+  - host: make check (backend 711, frontend 856), vectors with no drift, ios-release-test-build and ios-script-test (6 suites) all pass;
+  - B Unit (27): 1048/1/27. The one failure is a load-sensitive DeviceProbe D9 timing test (an 80 ms deadline); m6-builder is moving it and the lock-deadline test to an injected clock (DPROBE-CLOCK) before the PR;
+  - still running: A (26.2) Unit/UI/Media, B UI/Intents/E2E, and H integration ×2.
+
 - 2026-10-21 07:05 (EDT): Final M3 validation is running on 1ee19c8 (m3-final-validate.sh, three lanes: 26.2 Unit/UI/Media, 27 Unit/UI/Intents/E2E, and host check/vectors/release-test/script/integration ×2). Intents is 27+ only (AppIntentsTesting). The PR body is ready apart from Validation.
 
 - 2026-10-21 06:55 (EDT): **APP-SKEW merged:** Home and topic due state and order on server time, and the category due rank at server time mapped back to device time. Unit 1048/0 on 26; core 799/0; Codex r1–r2 resolved. **All M3 work is merged into ios/m3.** Next: the final validation matrix (m1-testiso), the PR body (m1-review), then the M3 PR.
