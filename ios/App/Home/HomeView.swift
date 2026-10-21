@@ -51,7 +51,12 @@ struct HomeView: View {
             if !typeSize.isAccessibilitySize { header }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .task(id: ObservationKey(binding: session.binding, attempt: model.attempt)) { await model.observe() }
+        .task(id: ObservationKey(binding: session.binding, attempt: model.attempt)) {
+            #if DEBUG || QUICKR_PERF
+            PerfProbe.mark("Home observes (store \(session.store == nil ? "not yet bound" : "bound"))")
+            #endif
+            await model.observe()
+        }
         .task {
             // The PWA's `useNow`: due states and labels move with the clock.
             while !Task.isCancelled {
