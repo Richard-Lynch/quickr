@@ -120,15 +120,17 @@ final class SettingsUITests: XCTestCase {
 
     /// Dismisses iOS's "Save Password?" offer (AutoFill, for the token fields) if it shows within
     /// `seconds`, in the app or above it (SpringBoard): saving it is the user's choice, and a test
-    /// declines it.
+    /// declines it. Only that offer's Not Now: the innermost element holding its title.
     @MainActor
     private func dismissSavePasswordOffer(_ app: XCUIApplication, within seconds: TimeInterval = 3) {
+        let title = NSPredicate(format: "label == 'Save Password?'")
         let places = [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")]
         let deadline = Date().addingTimeInterval(seconds)
         repeat {
-            for place in places {
-                let notNow = place.buttons["Not Now"]
-                if notNow.exists {
+            for place in places where place.staticTexts.matching(title).firstMatch.exists {
+                // Matches come outermost first: the last one holding the title is the offer itself.
+                let offer = place.descendants(matching: .any).containing(title).allElementsBoundByIndex.last
+                if let notNow = offer?.buttons["Not Now"], notNow.exists {
                     notNow.tap()
                     return
                 }

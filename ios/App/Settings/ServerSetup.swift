@@ -221,7 +221,10 @@ final class ServerSetup {
             settings.serverURL = url
             address = url.absoluteString
             // The typed token stays in the fields as the form goes, so iOS or a password manager
-            // can offer to save it (AutoFill); quickR's own copy is the Keychain's.
+            // can offer to save it (AutoFill); quickR's own copy is the Keychain's. Safe because a
+            // ServerSetup is never reused after `.connected`: one per form (onboarding's goes with
+            // its view, Settings makes one per Change server sheet and closes it on connect). A
+            // reused one would send this typed token with a later connect to another address.
             state = .connected(note: note)
         case .failed(let problem):
             fail(problem)
