@@ -41,6 +41,17 @@ import Testing
         }
     }
 
+    /// Whether `condition` came true within `seconds` (a bound on a failing test, never a pass
+    /// condition on timing).
+    static func eventually(seconds: Double, _ condition: () -> Bool) async throws -> Bool {
+        let limit = Date().addingTimeInterval(seconds)
+        while Date() < limit {
+            if condition() { return true }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        return condition()
+    }
+
     static func from(now offset: Double) -> UInt64 {
         UInt64(Int64(DeviceProbe.uptime()) + Int64(offset * 1e9))
     }
@@ -176,12 +187,19 @@ import Testing
 
     @Test func d9AReadbackAfterTheDeadlineIsNotASuccess() async throws {
         let w = try await World()
-        let center = SlowCenter(readDelay: .milliseconds(150))
+        // Time is the test's: it moves only when the readback asks the center, by 1 s, past the
+        // deadline half a second away, however loaded the machine is.
+        let clock = TestClock()
+        let center = ReadHookCenter { clock.advance(by: 1_000_000_000) }
         let request = DeviceProbe.Request(kind: .d9, run: "r", sizes: [10, 20])
         try w.files.write(request)
-        await w.runner(.nse, center).run(request, until: Self.from(now: 0.08))
+        var runner = w.runner(.nse, center)
+        runner.now = clock.now
+        runner.readbackLimit = .seconds(10)  // well past the 1 s step: only the deadline is crossed
+        await runner.run(request, until: clock.now() + 500_000_000)
         let size = try #require(w.records("size").first)
-        #expect(size.ok == false)
+        #expect(size.size == 10)
+        #expect(size.readbackMs != nil && size.ok == false, "seen within its limit, but after the deadline")
         #expect(size.overrun == true)
         #expect(w.records("timeout").first?.size == 20)
         #expect(w.records("done").first?.ok == true, "restored after the deadline")
@@ -230,16 +248,31 @@ import Testing
         let w = try await World()
         let request = DeviceProbe.Request(kind: .d9, run: "r", sizes: [10])
         try w.files.write(request)
-        // Another holder keeps the lock well past the NSE's deadline.
-        async let holder: Void? = try? w.files.exclusively { try? await Task.sleep(for: .milliseconds(800)) }
-        try await Task.sleep(for: .milliseconds(20))
-        let started = Date()
-        await w.runner(.nse, FakeNotificationCenter()).run(request, until: Self.from(now: 0.1))
-        _ = await holder
+        // Another holder keeps the lock until the test lets it go, after the runner has given up.
+        let held = Mutex(false)
+        let release = Mutex(false)
+        let holder = Task {
+            try? await w.files.exclusively {
+                held.withLock { $0 = true }
+                while !release.withLock({ $0 }) { try? await Task.sleep(for: .milliseconds(2)) }
+            }
+        }
+        while !held.withLock({ $0 }) { try await Task.sleep(for: .milliseconds(2)) }
+        // The runner's clock moves 1 ms each time it is read, so the deadline 50 ms away passes
+        // after a fixed number of reads: the few before the lock, then the lock's polls.
+        let clock = TestClock(step: 1_000_000)
+        var runner = w.runner(.nse, FakeNotificationCenter())
+        runner.now = clock.now
+        let deadline = clock.now() + 50_000_000
+        let run = Task { await runner.run(request, until: deadline) }
+        // It gives up while the lock is still held: the timeout comes before the release.
+        let gaveUp = try await Self.eventually(seconds: 20) { !w.records("timeout").isEmpty }
+        release.withLock { $0 = true }
+        await run.value
+        await holder.value
+        #expect(gaveUp, "it gave up at the deadline, while the lock was still held")
         #expect(w.records("size").isEmpty)
-        let timeout = try #require(w.records("timeout").first)
-        #expect(timeout.note?.contains("lock") == true)
-        #expect(timeout.at - started.timeIntervalSince1970 < 0.5, "it gave up at the deadline, not when the lock freed")
+        #expect(w.records("timeout").first?.note?.contains("lock") == true)
         #expect(w.records("done").first?.ok == true, "it still restores")
     }
 
@@ -460,6 +493,51 @@ private final class HookCenter: NotificationCenterProtocol {
     }
 
     func notificationCategories() async -> [NotificationCategorySpec] { await inner.notificationCategories() }
+    func deliveredNotifications() async -> [NotificationSnapshot] { [] }
+    func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {}
+    func pendingNotificationRequests() async -> [NotificationSnapshot] { [] }
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {}
+    func add(_ request: LocalNotificationRequest) async throws {}
+    func setBadgeCount(_ count: Int) async throws {}
+    func authorizationStatus() async -> NotificationAuthorization { .authorized }
+    func requestAuthorization() async throws -> Bool { true }
+}
+/// A clock the test drives (uptime ns): `advance(by:)` moves it; with a `step`, every read also
+/// moves it that far, so time passes with the runner's progress rather than with the machine.
+private final class TestClock: Sendable {
+    private let value = Mutex<UInt64>(1_000_000_000_000)
+    private let step: UInt64
+
+    init(step: UInt64 = 0) { self.step = step }
+
+    var now: @Sendable () -> UInt64 {
+        { [self] in
+            value.withLock {
+                defer { $0 += step }
+                return $0
+            }
+        }
+    }
+
+    func advance(by nanoseconds: UInt64) { value.withLock { $0 += nanoseconds } }
+}
+
+/// A center that runs `onRead` before each `notificationCategories()`.
+private final class ReadHookCenter: NotificationCenterProtocol {
+    private let inner = FakeNotificationCenter()
+    private let onRead: @Sendable () -> Void
+
+    init(_ onRead: @escaping @Sendable () -> Void) { self.onRead = onRead }
+
+    func setNotificationCategories(_ categories: [NotificationCategorySpec]) {
+        inner.setNotificationCategories(categories)
+    }
+
+    func notificationCategories() async -> [NotificationCategorySpec] {
+        onRead()
+        return await inner.notificationCategories()
+    }
+
     func deliveredNotifications() async -> [NotificationSnapshot] { [] }
     func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {}
     func pendingNotificationRequests() async -> [NotificationSnapshot] { [] }
