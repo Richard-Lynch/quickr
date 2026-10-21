@@ -330,7 +330,6 @@ struct DistributionChart: View {
             )
             .font(.qr(.caption))
             .foregroundStyle(.qr.muted)
-            .accessibilityHidden(true)
             Chart {
                 ForEach(Array(bins.enumerated()), id: \.offset) { index, bin in
                     BarMark(x: .value("Bin", String(index)), y: .value("Count", bin.count), width: .ratio(0.9))
@@ -355,11 +354,11 @@ struct DistributionChart: View {
                 }
                 .font(.qr(.caption))
                 .foregroundStyle(.qr.muted)
-                .accessibilityHidden(true)
+                // The axis ends as one element ("0, 120 min"): text on screen is never hidden.
+                .accessibilityElement(children: .combine)
             }
         }
-        // The bars are the chart's own elements now (ST4); the caption and the axis ends are
-        // what the bars' labels already say.
+        // The caption, the chart (its bars are elements, ST4) and the axis ends.
         .accessibilityElement(children: .contain)
     }
 }

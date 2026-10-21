@@ -90,7 +90,9 @@ final class StatsUITests: XCTestCase {
         // bars, then the histogram above the line.
         for prefix in ["Type: answers per", "Histogram of Duration", "Duration: average per"] {
             let chart = app.descendants(matching: .any)
-                .matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+                .matching(
+                    NSPredicate(format: "label BEGINSWITH %@ AND NOT (identifier BEGINSWITH 'overview.card')", prefix)
+                ).firstMatch
             scrollTo(chart, in: app)
             XCTAssertTrue(chart.isHittable, "\(prefix) is on screen")
             try assertAccessible(app, allowing: StatsAccessibility.known)
