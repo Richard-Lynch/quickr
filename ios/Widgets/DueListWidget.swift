@@ -33,7 +33,7 @@ struct DueListProvider: TimelineProvider {
     /// recomputed at each entry's date, so a topic moves up when it turns due.
     static func timeline(now: Date = .now) async -> Timeline<DueListEntry> {
         let topics = await topics(now: now)
-        let dates = WidgetTimeline.entryDates(for: topics.map(\.topic), now: now)
+        let dates = WidgetTimeline.entryDates(for: topics.map(\.topic), now: now, skew: topics.first?.skew ?? 0)
         let entries = dates.map { date in
             DueListEntry(date: date, topics: WidgetTopic.dueFirst(topics, at: date))
         }

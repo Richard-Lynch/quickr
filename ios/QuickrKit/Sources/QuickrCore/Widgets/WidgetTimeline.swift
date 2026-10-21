@@ -15,18 +15,23 @@ public enum WidgetTimeline {
     /// WidgetKit renders entries lazily, but a timeline still has to stay small.
     public static let maxEntries = 48
 
-    /// The entry dates for `topics` from `now`: sorted, distinct, `now` first, within `horizon`,
-    /// at most `maxEntries` (due changes are kept before refresh points).
-    public static func entryDates(for topics: [Topic], now: Date) -> [Date] {
+    /// The entry dates for `topics` from device time `now`: sorted, distinct, `now` first, within
+    /// `horizon`, at most `maxEntries` (due changes are kept before refresh points). Due changes
+    /// are the server's (at `now + skew`, sync-protocol.md §10), mapped back to device time,
+    /// which is what WidgetKit schedules by.
+    public static func entryDates(for topics: [Topic], now: Date, skew: TimeInterval) -> [Date] {
         let end = now.addingTimeInterval(horizon)
         var changes = Set<Date>()
         for topic in topics {
             guard let schedule = topic.schedule else { continue }
             let points = Due.timeline(
-                of: schedule, now: now, lastEntryAt: topic.lastCapturedAt,
+                of: schedule, now: now.addingTimeInterval(skew), lastEntryAt: topic.lastCapturedAt,
                 scheduleSince: topic.scheduleUpdatedAt ?? topic.createdAt, archived: topic.status == .archived,
                 count: 24)
-            for point in points.dropFirst() where point.date > now && point.date <= end { changes.insert(point.date) }
+            for point in points.dropFirst() {
+                let date = point.date.addingTimeInterval(-skew)
+                if date > now && date <= end { changes.insert(date) }
+            }
         }
         var refreshes: [Date] = []
         var at = now
@@ -49,8 +54,8 @@ public enum WidgetTimeline {
 
 /// What the widgets show, reduced to a value the app compares to decide whether to reload them
 /// (`WidgetCenter.reloadAllTimelines`). Covers each active topic's identity, questions, schedule,
-/// last entry and last quick answer, and its queued and failed counts; due state itself follows
-/// from these and the clock, which the timelines already handle.
+/// last entry and last quick answer, and its queued and failed counts, and the store's skew; due
+/// state itself follows from these and the clock, which the timelines already handle.
 public struct WidgetFingerprint: Sendable, Hashable {
     struct Topic: Sendable, Hashable {
         var id: UUID
@@ -69,8 +74,12 @@ public struct WidgetFingerprint: Sendable, Hashable {
     }
 
     let topics: [Topic]
+    /// The skew to the minute: the smoothed estimate moves a little with every pull, which
+    /// shouldn't spend reloads, but a clock that's off by minutes moves every due change.
+    let skewMinutes: Int
 
     public init(_ topics: [WidgetTopic]) {
+        skewMinutes = Int(((topics.first?.skew ?? 0) / 60).rounded())
         self.topics = topics.map {
             Topic(
                 id: $0.topic.id, name: $0.topic.name, slug: $0.topic.slug, status: $0.topic.status,

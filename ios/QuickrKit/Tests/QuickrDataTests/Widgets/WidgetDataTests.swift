@@ -105,7 +105,7 @@ import Testing
 
     @Test func entriesStartNowThenRefreshEvery15MinutesThenHourly() {
         let now = Make.t0
-        let dates = WidgetTimeline.entryDates(for: [Self.topic("Plain")], now: now)
+        let dates = WidgetTimeline.entryDates(for: [Self.topic("Plain")], now: now, skew: 0)
         let offsets = dates.map { Int($0.timeIntervalSince(now) / 60) }
         #expect(offsets.prefix(9) == [0, 15, 30, 45, 60, 75, 90, 105, 120])
         #expect(offsets.dropFirst(9).allSatisfy { ($0 - 120) % 60 == 0 })
@@ -116,7 +116,7 @@ import Testing
     /// A due change gets its own entry, so the widget turns due at the minute it does.
     @Test func aDueChangeIsAnEntry() {
         let now = Make.t0.addingTimeInterval(7 * 60)  // logged at t0, every 50 min: due at t0+50
-        let dates = WidgetTimeline.entryDates(for: [Self.topic("Water", schedule: Self.every(50))], now: now)
+        let dates = WidgetTimeline.entryDates(for: [Self.topic("Water", schedule: Self.every(50))], now: now, skew: 0)
         let dueAt = Make.t0.addingTimeInterval(50 * 60)
         #expect(dates.contains(dueAt))
         #expect(dates.first == now)
@@ -130,7 +130,7 @@ import Testing
         let topics = (1...80).map { n in
             Self.topic("T\(n)", schedule: Self.every(n), lastCapturedAt: now.addingTimeInterval(-Double(n) * 0.5))
         }
-        let dates = WidgetTimeline.entryDates(for: topics, now: now)
+        let dates = WidgetTimeline.entryDates(for: topics, now: now, skew: 0)
         #expect(dates.count == WidgetTimeline.maxEntries)
         let changes = Set(
             topics.flatMap { topic in
@@ -142,6 +142,66 @@ import Testing
         #expect(changes.count > WidgetTimeline.maxEntries)
         #expect(dates.dropFirst().allSatisfy { changes.contains($0) }, "no refresh point while changes are cut")
         #expect(Array(dates.dropFirst()) == Array(changes.sorted().prefix(WidgetTimeline.maxEntries - 1)))
+    }
+
+    // MARK: - Skew (sync-protocol.md §10: due state in server time)
+
+    /// Logged at t0, every 50 min: the server has it due at t0+50. A device clock 5 min behind
+    /// the server (skew +5 min) sees that at device t0+45; one 5 min ahead (−5 min), at t0+55.
+    static let water = topic("Water", schedule: every(50))
+    static let serverDue = Make.t0.addingTimeInterval(50 * 60)
+
+    @Test(arguments: [5.0 * 60, -5.0 * 60])
+    func dueStateIsTheServersAroundTheBoundary(skew: TimeInterval) {
+        let shown = WidgetTopic(topic: Self.water, quick: nil, lastAnswer: nil, skew: skew)
+        let deviceDue = Self.serverDue.addingTimeInterval(-skew)
+        #expect(shown.due(at: deviceDue.addingTimeInterval(-60))?.isDue == false)
+        #expect(shown.due(at: deviceDue.addingTimeInterval(60))?.isDue == true)
+        // Uncorrected, the device clock disagrees within the skew of the boundary.
+        let uncorrected = WidgetTopic(topic: Self.water, quick: nil, lastAnswer: nil)
+        let between = Self.serverDue.addingTimeInterval(-skew / 2)
+        #expect(shown.due(at: between)?.isDue != uncorrected.due(at: between)?.isDue)
+        // Times come back in device time, so "Due in…" against the entry date is the server's.
+        let before = shown.due(at: deviceDue.addingTimeInterval(-10 * 60))
+        #expect(before?.nextDueAt == deviceDue)
+        #expect(before?.lastEntryAt == Make.t0.addingTimeInterval(-skew))
+        #expect(shown.due(at: deviceDue.addingTimeInterval(60))?.dueSince == deviceDue)
+    }
+
+    @Test(arguments: [5.0 * 60, -5.0 * 60])
+    func theDueChangeEntryIsAtTheDeviceTimeOfTheServersBoundary(skew: TimeInterval) {
+        // 2 min before the device time of the boundary: with the clock ahead (−5 min), that's
+        // already past the server's boundary in device time, but not in server time.
+        let now = Self.serverDue.addingTimeInterval(-skew - 2 * 60)
+        let dates = WidgetTimeline.entryDates(for: [Self.water], now: now, skew: skew)
+        #expect(dates.contains(Self.serverDue.addingTimeInterval(-skew)))
+        #expect(!dates.contains(Self.serverDue))
+        #expect(dates.first == now && dates == dates.sorted())
+    }
+
+    /// The reader reads the store's measured skew into every topic it returns.
+    @Test(arguments: [5.0 * 60, -5.0 * 60])
+    func theReaderCarriesTheStoresSkew(skew: TimeInterval) async throws {
+        let tea = Self.topic("Tea", schedule: Self.every(30))
+        let deviceDue = Self.serverDue.addingTimeInterval(-skew)
+        let store = try seeded([Self.water, tea])
+        try store.write { db in
+            try db.execute(sql: "UPDATE sync_state SET skew_ms = ? WHERE id = 1", arguments: [skew * 1000])
+        }
+        let reader = WidgetReader(store: store.store)
+        let list = try await reader.dueList(now: deviceDue.addingTimeInterval(60))
+        #expect(list.map(\.skew) == [skew, skew])
+        #expect(list.allSatisfy { $0.due(at: deviceDue.addingTimeInterval(60))?.isDue == true })
+        #expect(try await reader.topic(id: Self.water.id)?.skew == skew)
+    }
+
+    @Test func aSkewOfAMinuteOrMoreReloads() {
+        func print(_ skew: TimeInterval) -> WidgetFingerprint {
+            WidgetFingerprint([WidgetTopic(topic: Self.water, quick: nil, lastAnswer: nil, skew: skew)])
+        }
+        #expect(print(0) == print(20), "the smoothed estimate's drift doesn't spend reloads")
+        #expect(print(0) != print(5 * 60))
+        #expect(print(5 * 60) != print(-5 * 60))
     }
 
     // MARK: - WidgetFingerprint

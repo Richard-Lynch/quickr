@@ -16,12 +16,15 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     /// The store this was read from: a widget's buttons log only while it is still the active one.
     /// Nil for a sample (the app's widget gallery): its buttons open the record screen.
     public var scope: EntryScope?
+    /// Server time minus device time, in seconds: the store's measured skew (sync-protocol.md
+    /// §10, `skew_ms`). Due state is the server's, at device time plus this.
+    public var skew: TimeInterval
 
     public var id: UUID { topic.id }
 
     public init(
         topic: Topic, quick: QuickLog?, lastAnswer: AnswerValue?, queued: Int = 0, failed: Int = 0,
-        scope: EntryScope? = nil
+        scope: EntryScope? = nil, skew: TimeInterval = 0
     ) {
         self.topic = topic
         self.quick = quick
@@ -29,6 +32,7 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
         self.queued = queued
         self.failed = failed
         self.scope = scope
+        self.skew = skew
     }
 
     /// What ✓ shows and logs for a number topic, the same value for both: the last one while the
@@ -44,16 +48,28 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
         return .double(number)
     }
 
-    /// The due state at `date` (timeline entries are rendered ahead of time).
-    public func due(at date: Date) -> DueStatus? { TopicListing.due(of: topic, at: date) }
+    /// The due state at device time `date` (timeline entries are rendered ahead of time): the
+    /// server's at `date + skew`, with its times mapped back to device time, so the views'
+    /// relative text ("Due in 25 min") against `date` is the server's.
+    public func due(at date: Date) -> DueStatus? {
+        TopicListing.due(of: topic, at: date.addingTimeInterval(skew)).map { status in
+            var status = status
+            status.dueSince = status.dueSince?.addingTimeInterval(-skew)
+            status.nextDueAt = status.nextDueAt?.addingTimeInterval(-skew)
+            status.lastEntryAt = status.lastEntryAt?.addingTimeInterval(-skew)
+            return status
+        }
+    }
 
     /// `quickr://t/<slug>/record`: where a tap on the widget goes.
     public var recordURL: URL { URL(string: "quickr://t/\(topic.slug)/record")! }
 }
 
 extension WidgetTopic {
-    /// `topics` in the home list's due-first order at `date` (a timeline entry's own order).
+    /// `topics` in the home list's due-first order at device time `date` (a timeline entry's own
+    /// order), in server time: they come from one store, so they share its skew.
     public static func dueFirst(_ topics: [WidgetTopic], at date: Date) -> [WidgetTopic] {
-        TopicListing.list(topics, topic: \.topic, now: date, status: .active, sort: .due, query: "").map(\.value)
+        let now = date.addingTimeInterval(topics.first?.skew ?? 0)
+        return TopicListing.list(topics, topic: \.topic, now: now, status: .active, sort: .due, query: "").map(\.value)
     }
 }
