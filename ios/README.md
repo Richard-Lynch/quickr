@@ -48,6 +48,7 @@ never on the shared base device.
 | `make ios-lint` / `ios-fmt`   | swift-format lint / format in place (config in `ios/.swift-format`). `check-ios` fails without swift-format; `ios-lint` only warns                                                            |
 | `make ios-resolve`            | Update the package pins (see below)                                                                                                                                                           |
 | `make ios-clean`              | Remove the generated project and all build output                                                                                                                                             |
+| `make ios-device-run`         | Signed Debug build, install and launch on the paired iPhone (`IOS_DEVICE`, `URL=`); see [docs/ios/demo/DEVICE-DAY.md](../docs/ios/demo/DEVICE-DAY.md)                                         |
 | `make ios-testflight`         | Archive (Release) and upload to TestFlight with the App Store Connect API key; see [TestFlight](#testflight)                                                                                  |
 | `make ios-testflight-dry-run` | The same archive unsigned, then the steps an upload would take; no credentials, nothing exported                                                                                              |
 
@@ -73,7 +74,9 @@ Simulators boot through one admission (`sim-clone.sh`, `test.sh`, `sim-run.sh`):
 it refuses while `IOS_SIM_CAP` (default 2; 0 = off) other quickR simulators
 (worktree clones and the base `quickR …` devices alike) are booted, and names them; `sim-clone.sh --wait` or `IOS_SIM_WAIT=1` waits for a
 slot instead. A machine-wide lock covers the check and the boot, so two
-worktrees can't both take the last slot. A clone that is already booted never
+worktrees can't both take the last slot. Waiters are served first come, first served: each
+takes a ticket and only the oldest live one gets a freed slot (it prints its place in the
+queue); a dead waiter's ticket is skipped. A clone that is already booted never
 counts against itself. `sim-clone.sh` boots its clone; `--no-boot` only prints
 the UDID. `make ios-script-test` tests both (no Xcode needed).
 
@@ -187,7 +190,7 @@ is the child process for the multi-process tests
   library's intents metadata into every binary that links it, so the app and
   the widget extension get them with no extra declaration.
 - **No `AppIntentsPackage`** (contrary to research/02 §1 and 04). On iOS 26.0,
-  linkd resolves an `includedPackages` entry against the binary's _imported_
+  linkd resolves an `includedPackages` entry against the binary's *imported*
   symbols. A static library's never are, so linkd logs "did not match any
   imported symbol" and drops all of the bundle's intents: no App Shortcuts, and
   widgets that can't be configured. iOS 27 accepts it, which is why this only

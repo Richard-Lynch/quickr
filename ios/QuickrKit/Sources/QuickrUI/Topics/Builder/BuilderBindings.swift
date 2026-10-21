@@ -6,6 +6,9 @@ import SwiftUI
 /// a field's binding between renders, and a captured value would hand it the text from before the
 /// latest keystrokes, which it then writes back over them ("Glasses of water" → "Glasses of w").
 /// Writes go through `TopicDraft`'s rules (a label's derived key, published keys fixed…).
+///
+/// Unlike QuickrUI's views, this file isn't `#if os(iOS)`: `Binding` exists on macOS too, so the
+/// host tests (`BuilderBindingsTests`) run it.
 extension BuilderEditing {
     /// A plain field of a question (help text, required, constraints).
     public func binding<Value>(

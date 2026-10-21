@@ -12,3 +12,4 @@ cd "$IOS_DIR"
 xcrun swift-format lint --strict --recursive --parallel \
   --configuration "$IOS_DIR/.swift-format" \
   App AppTests UITests Widgets NotificationService QuickrKit/Package.swift QuickrKit/Sources QuickrKit/Tests
+"$IOS_DIR/scripts/lint-motion.sh"

@@ -206,7 +206,7 @@ public struct NotificationCategory: Sendable, Hashable {
                 actions.append(
                     Action(
                         kind: "log", identifier: id(number.key, .number, text),
-                        title: "✓ \(text)" + (number.unit.map { " \($0)" } ?? "")))
+                        title: "Log \(text)" + (number.unit.map { " \($0)" } ?? "")))
             }
             actions.append(
                 Action(

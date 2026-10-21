@@ -38,14 +38,21 @@ import Testing
     @Test(arguments: ["app", "widgets"])
     func bundleCarriesThePackageIntentsWithoutAPackageInclude(_ name: String) throws {
         let metadata = try Metadata(bundle: name == "app" ? Self.appURL : Self.widgetsURL)
-        #expect(metadata.entities == ["TopicEntity"])
-        #expect(metadata.queries == ["TopicEntityQuery"])
-        #expect(metadata.actions.isSuperset(of: ["LogEntryIntent", "SelectTopicIntent"]))
+        #expect(metadata.entities == ["TopicEntity", "QuestionOptionEntity"])
+        #expect(metadata.queries == ["TopicEntityQuery", "QuestionOptionQuery"])
+        #expect(
+            metadata.actions.isSuperset(of: [
+                "LogEntryIntent", "SelectTopicIntent", "RepeatLastEntryIntent", "OpenRecordIntent", "WhatsDueIntent",
+            ]))
         #expect(!metadata.hasPackageData)
     }
 
     @Test func onlyTheAppHasAppShortcuts() throws {
-        #expect(try Metadata(bundle: Self.appURL).shortcuts == ["LogEntryIntent"])
+        var shortcuts = ["LogTopicIntent", "RepeatLastEntryIntent", "OpenRecordIntent", "WhatsDueIntent"]
+        #if DEBUG
+        shortcuts.append("SpikePromptIntent")  // the DEBUG-only prompt harness (research/04-siri.md)
+        #endif
+        #expect(try Metadata(bundle: Self.appURL).shortcuts == shortcuts)
         #expect(try Metadata(bundle: Self.widgetsURL).shortcuts.isEmpty)
     }
 }
