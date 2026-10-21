@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034,SC2154 # rc and start are read inside check's eval strings; g in the EXIT trap
+# shellcheck disable=SC2034 # rc and start are read inside check's eval strings
 # Tests for common.sh run_limited (limit.pl): a command within its limit keeps its status; past
 # it, or on TERM, its whole process group stops (grandchildren and a pipeline included, as
 # xcodebuild sits under test.sh's watchdog pipeline), a TERM-ignoring member is KILLed after the
@@ -15,10 +15,22 @@ failures=0
 check() { if eval "$2"; then echo "ok: $1"; else echo "FAIL: $1"; failures=$((failures + 1)); fi; }
 work="$(mktemp -d "${TMPDIR:-/tmp}/quickr-limit.XXXXXX")"
 bystander=""
-# What a failing case left behind is stopped here: the group of the case that didn't settle (a
-# settled case forgets its group, so no id that may since have been reused is signalled).
-trap 'g="$(cat "$work/group" 2>/dev/null)"; [[ -n "$g" ]] && kill -KILL -- "-$g" 2>/dev/null
-  [[ -n "$bystander" ]] && kill "$bystander" 2>/dev/null; rm -rf "$work"' EXIT
+# What failing cases left behind is stopped here: processes of the unsettled cases' groups that
+# are recognisably the fixture's (its script, its sleeps and cat), each by PID, so a group id
+# reused since by something else is never signalled. A settled case forgets its group.
+cleanup() {
+  local g pid command
+  for g in $(cat "$work/unsettled" "$work/group" 2>/dev/null); do
+    while read -r pid command; do
+      case "$command" in "$work/fixture.sh"* | *"bash $work/fixture.sh"* | "sleep 60" | cat | "bash -c sleep 60 | cat & wait")
+        kill -KILL "$pid" 2>/dev/null ;;
+      esac
+    done < <(ps -axo pid=,pgid=,command= | awk -v g="$g" '$2 == g { $2 = ""; print }')
+  done
+  [[ -n "$bystander" ]] && kill "$bystander" 2>/dev/null
+  rm -rf "$work"
+}
+trap cleanup EXIT
 
 # Members of the current fixture's group still running (zombies awaiting their reaper don't count).
 members() { ps -axo pgid=,stat= | awk -v g="$(cat "$work/group")" '$1 == g && $2 !~ /^Z/' | wc -l | tr -d ' '; }
@@ -28,6 +40,7 @@ settled() {
     if [[ "$(members)" == 0 ]]; then : >"$work/group"; return 0; fi
     sleep 0.1
   done
+  cat "$work/group" >>"$work/unsettled"  # for the EXIT cleanup
   return 1
 }
 
