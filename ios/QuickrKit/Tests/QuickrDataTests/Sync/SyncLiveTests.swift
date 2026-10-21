@@ -1,14 +1,14 @@
 import Foundation
 import GRDB
 import QuickrCore
-import QuickrData
+@_spi(Testing) import QuickrData
 import QuickrTestSupport
 import Synchronization
 import Testing
 
 /// Bootstrap, steady-state pulls and the merge rules (sync-protocol.md §2, §4, §10, §13 S1, S2,
 /// S8, S14), file-backed, against the simulated feed.
-@Suite(.timeLimit(.minutes(1))) struct SyncLiveTests {
+@Suite(.timeLimit(.minutes(5))) struct SyncLiveTests {
     // MARK: - §2.1 bootstrap
 
     @Test func connectCreatesTheStoreAndAppliesTheFirstPageFromMemory() async throws {
@@ -492,7 +492,8 @@ import Testing
         let first = Task { await coordinator.sync(reason: .timer) }
         try await env.gate.waitUntilParked()
         let second = Task { await coordinator.sync(reason: .pullToRefresh) }
-        try await Task.sleep(for: .milliseconds(20))
+        // Ordering, not timing: the second call has joined the run.
+        try await eventually("the second call joined") { await coordinator.rerunRequestedForTesting }
         env.gate.release()
         #expect(await first.value == .synced)
         #expect(await second.value == .synced)

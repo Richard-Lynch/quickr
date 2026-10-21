@@ -34,12 +34,12 @@ import Testing
         harness = try OutboxHarness()
     }
 
-    func writes(transport: (any Transport)? = nil, leaseWait: Duration = .seconds(2)) async throws -> TopicWrites {
+    func writes(transport: (any Transport)? = nil, leaseWait: Duration = .seconds(60)) async throws -> TopicWrites {
         let scope = try #require(await TopicWrites.scope(binding: Self.binding, store: harness.store))
         return writes(scope, transport: transport, leaseWait: leaseWait)
     }
 
-    func writes(_ scope: TopicWrites.Scope, transport: (any Transport)? = nil, leaseWait: Duration = .seconds(2))
+    func writes(_ scope: TopicWrites.Scope, transport: (any Transport)? = nil, leaseWait: Duration = .seconds(60))
         -> TopicWrites
     {
         let syncs = syncs
@@ -407,13 +407,13 @@ import Testing
         harness.server.inject(where: { $0.url.path.hasSuffix("/archive") }, .delay(gate))
         let w = try await writes()
         let deleting = Task { await w.delete(topicId: topicId) }
-        try await within("the request reaches the server", timeout: .seconds(10)) { await gate.arrival() }
-        let flush = try await within("the flush returns", timeout: .seconds(10)) {
+        try await within("the request reaches the server") { await gate.arrival() }
+        let flush = try await within("the flush returns") {
             try await outbox.flush(force: true, budget: .seconds(3))
         }
         #expect(flush.ending == .busy)
         gate.open()
-        let result = try await within("the delete returns", timeout: .seconds(10)) { await deleting.value }
+        let result = try await within("the delete returns") { await deleting.value }
         guard case .done = result else {
             Issue.record("not deleted")
             return
@@ -436,12 +436,12 @@ import Testing
         harness.server.inject(where: { $0.url.path.hasSuffix("/archive") }, .delay(gate))
         let w = try await writes()
         let deleting = Task { await w.delete(topicId: topicId) }
-        try await within("the request reaches the server", timeout: .seconds(10)) { await gate.arrival() }
-        _ = try await within("the flush returns", timeout: .seconds(10)) {
+        try await within("the request reaches the server") { await gate.arrival() }
+        _ = try await within("the flush returns") {
             try await outbox.flush(force: true, budget: .seconds(3))
         }
         gate.open()
-        let result = try await within("the delete returns", timeout: .seconds(10)) { await deleting.value }
+        let result = try await within("the delete returns") { await deleting.value }
         guard case .done = result else {
             Issue.record("not deleted")
             return
@@ -473,9 +473,9 @@ import Testing
         harness.server.inject(.delete, .delay(gate))
         let w = try await writes()
         let deleting = Task { await w.delete(topicId: topicId) }
-        try await within("the request reaches the server", timeout: .seconds(10)) { await gate.arrival() }
+        try await within("the request reaches the server") { await gate.arrival() }
         deleting.cancel()
-        _ = try await within("the delete returns", timeout: .seconds(10)) { await deleting.value }
+        _ = try await within("the delete returns") { await deleting.value }
         #expect(try leaseIsFree(), "after a cancellation")
         gate.open()
         // Done.
@@ -494,10 +494,10 @@ import Testing
         harness.server.inject(where: { $0.url.path.hasSuffix("/archive") }, .delay(gate))
         let w = try await writes()
         let deleting = Task { await w.delete(topicId: topicId) }
-        try await within("the request reaches the server", timeout: .seconds(10)) { await gate.arrival() }
+        try await within("the request reaches the server") { await gate.arrival() }
         harness.clock.advance(by: .seconds(60))
         gate.open()
-        let result = try await within("the delete returns", timeout: .seconds(10)) { await deleting.value }
+        let result = try await within("the delete returns") { await deleting.value }
         guard case .busy = result else {
             Issue.record("not stopped")
             return

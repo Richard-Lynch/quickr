@@ -95,6 +95,8 @@ public actor SyncCoordinator {
     private var running: Task<SyncResult, Never>?
     private var rerunRequested = false
     private var resetting = false
+    /// Tests: a call joined the running run (it will go once more), to order on it, not sleep.
+    @_spi(Testing) public var rerunRequestedForTesting: Bool { rerunRequested }
     private var operationHeld = false
     private var operationWaiters: [CheckedContinuation<Void, Never>] = []
     private var forceRebuild = false

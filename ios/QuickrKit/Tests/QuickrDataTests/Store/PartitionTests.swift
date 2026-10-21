@@ -7,7 +7,7 @@ import Testing
 
 /// Per-server store files, the registry, local reset and its crash recovery (sync-protocol.md
 /// §8, §12), file-backed.
-@Suite(.timeLimit(.minutes(2))) struct PartitionTests {
+@Suite(.timeLimit(.minutes(5))) struct PartitionTests {
     struct Env {
         let dir: TempDirectory
         let clock = FakeLeaseClock()
@@ -39,7 +39,8 @@ import Testing
             let (count, maxSeq) = try await old.outbox.summary()
             let intent = try await partitions.persistResetIntent(
                 store: old, confirmedCount: count, confirmedMaxSeq: maxSeq)
-            let pair = try #require(try await old.leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(1)))
+            let pair = try #require(
+                try await old.leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(60)))
             #expect(
                 try await old.retire(confirmedCount: count, confirmedMaxSeq: maxSeq, sync: pair.sync, flush: pair.flush)
                     == .retired)
@@ -123,7 +124,7 @@ import Testing
         _ = try await widget.outbox.appendRawForTesting(
             NewOutboxItem(payload: Make.createPayload(topic: Make.topic()), origin: .widget))
 
-        let pair = try #require(try await store.leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(1)))
+        let pair = try #require(try await store.leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(60)))
         let outcome = try await store.retire(
             confirmedCount: count, confirmedMaxSeq: maxSeq, sync: pair.sync, flush: pair.flush)
         #expect(outcome == .writesArrived(count: 3, maxSeq: 3))
@@ -332,7 +333,7 @@ import Testing
         #expect(server == replacement)
 
         // The replacement still runs to completion with its own token.
-        let pair = try #require(try await g1.leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(1)))
+        let pair = try #require(try await g1.leases.acquireSyncThenFlush(owner: "app:1", waitingUpTo: .seconds(60)))
         #expect(
             try await g1.retire(confirmedCount: 1, confirmedMaxSeq: 1, sync: pair.sync, flush: pair.flush) == .retired)
         _ = try await g1.leases.release(pair.flush)

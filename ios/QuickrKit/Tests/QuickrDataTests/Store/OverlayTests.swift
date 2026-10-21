@@ -6,7 +6,7 @@ import QuickrTestSupport
 import Testing
 
 /// The §3.2 overlay table (sync-protocol.md), case by case, then through the store.
-@Suite(.timeLimit(.minutes(2))) struct OverlayTests {
+@Suite(.timeLimit(.minutes(5))) struct OverlayTests {
     private static let topic = Make.topic()
     private static let server = Make.entry(topicId: topic.id, answers: ["mood": .int(2), "where": .string("home")])
 

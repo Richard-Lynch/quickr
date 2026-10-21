@@ -6,7 +6,10 @@ import QuickrData
 public enum TestDatabase {
     /// In memory, or at `path` when a second connection must share the file (lock contention).
     public static func store(path: String? = nil) throws -> DatabaseQueue {
-        let configuration = StoreDatabase.configuration(label: "test-store")
+        var configuration = StoreDatabase.configuration(label: "test-store")
+        // An upper bound on waiting for another connection's write lock, never the timing under
+        // test: a starved CI pool can take longer than the app's 5 s to run the holder's commit.
+        configuration.busyMode = .timeout(60)
         let queue =
             try path.map { try DatabaseQueue(path: $0, configuration: configuration) }
             ?? DatabaseQueue(configuration: configuration)

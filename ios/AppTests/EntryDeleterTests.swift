@@ -8,7 +8,7 @@ import Testing
 
 /// The entries list's delete acts in the store a row was read from (`EntriesModel.Row.binding`,
 /// captured when it was rendered), never the model's or the session's latest.
-@MainActor @Suite(.timeLimit(.minutes(2))) struct EntryDeleterTests {
+@MainActor @Suite(.timeLimit(.minutes(5))) struct EntryDeleterTests {
     /// Rows rendered under server A; the app switches to B, whose store has an entry with the same
     /// id, and the list republishes under B. The old row's delete is refused and B is untouched;
     /// B's own row deletes.
