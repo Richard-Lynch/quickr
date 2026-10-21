@@ -19,6 +19,8 @@ struct EntriesExportButton: View {
 
     var body: some View {
         Button {
+            // The button only disables while it works: say so (a11y C2).
+            QuickrAnnouncer.announce("Exporting CSV")
             running = Task { await run() }
         } label: {
             HStack(spacing: 6) {

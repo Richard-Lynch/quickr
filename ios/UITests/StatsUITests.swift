@@ -60,25 +60,46 @@ final class StatsUITests: XCTestCase {
         let app = launch(open: "quickr://t/workout")
         XCTAssertTrue(element(app, "overview.summary").waitForExistence(timeout: 20))
         app.segmentedControls["overview.range"].buttons["7 days"].tap()
-        app.segmentedControls["topic.tabs"].buttons["Entries"].tap()
+        selectTopicTab("Entries", in: app)
         let range = app.segmentedControls["entries.range"]
         XCTAssertTrue(range.waitForExistence(timeout: 10))
         XCTAssertTrue(range.buttons["7 days"].isSelected)
-        app.segmentedControls["topic.tabs"].buttons["Overview"].tap()
+        selectTopicTab("Overview", in: app)
         XCTAssertTrue(app.segmentedControls["overview.range"].buttons["7 days"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.segmentedControls["overview.range"].buttons["7 days"].isSelected)
     }
 
+    /// At the largest accessibility size: the tabs and the pickers are menus that grow with the
+    /// text (a11y B1), the tabs still switch, and the Overview, its cards and charts pass the
+    /// accessibility audit.
     @MainActor
-    func testAccessibilityXXXL() {
-        let app = launch(
-            open: "quickr://t/workout",
-            extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+    func testAccessibilityXXXL() throws {
+        let app = launch(open: "quickr://t/workout", extra: AccessibilityLaunch.arguments())
         XCTAssertTrue(element(app, "overview.summary").waitForExistence(timeout: 20))
         // Menus instead of segments, which would truncate.
         XCTAssertTrue(app.buttons["overview.range"].exists)
         XCTAssertTrue(app.buttons["overview.bucket"].exists)
+        let tabs = app.buttons["topic.tabs"]
+        XCTAssertTrue(tabs.exists, "the tabs are a menu")
+        XCTAssertGreaterThanOrEqual(tabs.frame.height, 44)
+        XCTAssertEqual(selectedTopicTab(in: app), "Overview")
         snap(app, "stats-4-ax")
+        try assertAccessible(app, allowing: StatsAccessibility.known)
+
+        // Each chart, scrolled into view in screen order (scrollTo only swipes up): Type's
+        // stacked bars, then Duration's histogram above its line.
+        for id in ["chart.stacked", "chart.histogram", "chart.line"] {
+            let chart = element(app, id)
+            scrollTo(chart, in: app)
+            XCTAssertTrue(chart.isHittable, "\(id) is on screen")
+            try assertAccessible(app, allowing: StatsAccessibility.known)
+        }
+
+        // The tabs switch from the menu.
+        selectTopicTab("Entries", in: app)
+        XCTAssertEqual(selectedTopicTab(in: app), "Entries")
+        selectTopicTab("Overview", in: app)
+        XCTAssertTrue(element(app, "overview.summary").waitForExistence(timeout: 10))
     }
 
     // MARK: - Helpers

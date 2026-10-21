@@ -22,6 +22,17 @@ struct NoAnswers: View {
     }
 }
 
+/// How much the chart's text has grown with Dynamic Type (1 at the default size). Charts grow by
+/// it, up to twice their height, so axis labels still fit (a11y audit ST5), and label buckets by
+/// it, so the larger labels keep their gap.
+struct ChartTextScale: DynamicProperty {
+    @ScaledMetric(relativeTo: .caption) private var scale: CGFloat = 1
+
+    var height: CGFloat { min(max(scale, 1), 2) }
+    /// The width to lay the model's labels out in: narrower as the text grows.
+    func labelWidth(_ width: CGFloat) -> CGFloat { width / max(scale, 1) }
+}
+
 // MARK: - Line (int, double)
 
 /// The mean per bucket as a line over a soft min–max band, with a tap-and-drag tooltip
@@ -31,16 +42,19 @@ struct MeanLineChart: View {
     let unit: String?
     let label: String
     @State private var selected: Date?
+    private let textScale = ChartTextScale()
 
     var body: some View {
         GeometryReader { proxy in
-            if let model = LineChartModel(series: series.points, width: proxy.size.width) {
+            if let model = LineChartModel(series: series.points, width: textScale.labelWidth(proxy.size.width)) {
                 chart(model)
             } else {
                 NoAnswers()
             }
         }
-        .frame(height: LineChartModel.height)
+        .frame(height: LineChartModel.height * textScale.height)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chart.line")
     }
 
     private func chart(_ model: LineChartModel) -> some View {
@@ -57,18 +71,26 @@ struct MeanLineChart: View {
                         yEnd: .value("Max", point.max ?? point.mean ?? 0)
                     )
                     .foregroundStyle(Color.qr.accent.opacity(0.15))
+                    // The band is in each point's label; one element per bucket (ST3).
+                    .accessibilityHidden(true)
                     LineMark(x: .value("Bucket", point.start), y: .value("Mean", point.mean ?? 0))
                         .foregroundStyle(Color.qr.accent)
                         .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                        .accessibilityHidden(model.points.count <= 40)
+                        .accessibilityLabel(spokenBucket(point.start, series.bucket))
+                        .accessibilityValue(pointValue(point))
                 }
                 if model.points.count <= 40 {
                     PointMark(x: .value("Bucket", point.start), y: .value("Mean", point.mean ?? 0))
                         .foregroundStyle(Color.qr.accent)
                         .symbolSize(shown?.start == point.start ? 100 : 50)
+                        .accessibilityLabel(spokenBucket(point.start, series.bucket))
+                        .accessibilityValue(pointValue(point))
                 }
             }
             if let shown {
                 RuleMark(x: .value("Bucket", shown.start)).foregroundStyle(Color.qr.ink.opacity(0.4))
+                    .accessibilityHidden(true)
             }
         }
         .chartYScale(domain: model.domain)
@@ -96,7 +118,17 @@ struct MeanLineChart: View {
             if let shown { tooltip(shown) }
         }
         .accessibilityLabel("\(label): average per \(series.bucket.rawValue)")
-        .accessibilityValue(accessibilitySummary(model))
+        .accessibilityChartDescriptor(
+            MeanLineDescriptor(
+                title: "\(label): average per \(series.bucket.rawValue)", points: model.points, bucket: series.bucket,
+                unit: unit, domain: model.domain))
+    }
+
+    private func pointValue(_ point: QuestionSeries.Point) -> String {
+        let unit = unit.map { " \($0)" } ?? ""
+        return "average \(ChartFormat.number(point.mean))\(unit), "
+            + "\(ChartFormat.number(point.min)) to \(ChartFormat.number(point.max)), "
+            + ChartFormat.plural(point.count, "answer")
     }
 
     /// One bucket is centred, as the PWA draws it.
@@ -122,13 +154,6 @@ struct MeanLineChart: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .allowsHitTesting(false)
     }
-
-    private func accessibilitySummary(_ model: LineChartModel) -> String {
-        model.points.map {
-            "\(ChartFormat.bucket($0.start, series.bucket, style: .long)): \(ChartFormat.number($0.mean))"
-        }
-        .joined(separator: ", ")
-    }
 }
 
 // MARK: - Stacked bars (enum)
@@ -139,22 +164,27 @@ struct OptionStackChart: View {
     let options: [EnumOption]
     let label: String
     @State private var selected: String?
+    private let textScale = ChartTextScale()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             GeometryReader { proxy in
-                if let model = StackedBarsModel(series: series.points, options: options, width: proxy.size.width) {
+                if let model = StackedBarsModel(
+                    series: series.points, options: options, width: textScale.labelWidth(proxy.size.width))
+                {
                     chart(model)
                 } else {
                     NoAnswers()
                 }
             }
-            .frame(height: StackedBarsModel.height)
+            .frame(height: StackedBarsModel.height * textScale.height)
             if let model = StackedBarsModel(series: series.points, options: options, width: 320), model.legend.count > 1
             {
                 legend(model)
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chart.stacked")
     }
 
     private func id(_ point: QuestionSeries.Point) -> String { point.start.ISO8601Format() }
@@ -169,6 +199,9 @@ struct OptionStackChart: View {
                     BarMark(x: .value("Bucket", id(point)), y: .value("Count", segment.count))
                         .foregroundStyle(by: .value("Option", segment.value))
                         .opacity(shown == nil || shown?.start == point.start ? 1 : 0.55)
+                        // The bucket's date and the option, not the x value's ISO string (ST2).
+                        .accessibilityLabel(spokenBucket(point.start, series.bucket))
+                        .accessibilityValue("\(legendLabel(segment.value, model)) \(segment.count)")
                 }
             }
         }
@@ -190,13 +223,9 @@ struct OptionStackChart: View {
             if let shown { tooltip(shown, model) }
         }
         .accessibilityLabel("\(label): answers per \(series.bucket.rawValue)")
-        .accessibilityValue(
-            model.points.map { point in
-                "\(ChartFormat.bucket(point.start, series.bucket, style: .long)): "
-                    + model.segments(point).map { s in "\(legendLabel(s.value, model)) \(s.count)" }.joined(
-                        separator: ", ")
-            }
-            .joined(separator: "; "))
+        .accessibilityChartDescriptor(
+            OptionStackDescriptor(
+                title: "\(label): answers per \(series.bucket.rawValue)", model: model, bucket: series.bucket))
     }
 
     private func legendLabel(_ value: String, _ model: StackedBarsModel) -> String {
@@ -286,6 +315,7 @@ struct DistributionChart: View {
     let unit: String?
     let label: String
     @State private var selected: Int?
+    private let textScale = ChartTextScale()
 
     /// Bins are categories ("0" … "9"), so each bar fills its slot.
     private var selectedBin: Binding<String?> {
@@ -295,6 +325,7 @@ struct DistributionChart: View {
     var body: some View {
         let unit = unit.map { " \($0)" } ?? ""
         let shown = selected.flatMap { bins.indices.contains($0) ? bins[$0] : nil }
+        let categories = DistributionDescriptor.categories(bins, unit: self.unit)
         VStack(alignment: .leading, spacing: 4) {
             Text(
                 shown.map {
@@ -308,12 +339,17 @@ struct DistributionChart: View {
                     BarMark(x: .value("Bin", String(index)), y: .value("Count", bin.count), width: .ratio(0.9))
                         .foregroundStyle(Color.qr.accent.opacity(selected == nil || selected == index ? 0.85 : 0.4))
                         .clipShape(UnevenRoundedRectangle(topLeadingRadius: 4, topTrailingRadius: 4))
+                        .accessibilityLabel(categories[index])
+                        .accessibilityValue(ChartFormat.plural(bin.count, "answer"))
                 }
             }
             .chartXAxis(.hidden)
             .chartYAxis(.hidden)
             .chartXSelection(value: selectedBin)
-            .frame(height: 100)
+            .frame(height: 100 * textScale.height)
+            .accessibilityLabel("Histogram of \(label)")
+            .accessibilityChartDescriptor(
+                DistributionDescriptor(title: "Histogram of \(label)", bins: bins, unit: self.unit))
             if let first = bins.first, let last = bins.last {
                 HStack {
                     Text(ChartFormat.tick(first.lower))
@@ -322,13 +358,13 @@ struct DistributionChart: View {
                 }
                 .font(.qr(.caption))
                 .foregroundStyle(.qr.muted)
+                // The axis ends as one element ("0, 120 min"): text on screen is never hidden.
+                .accessibilityElement(children: .combine)
             }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Histogram of \(label)")
-        .accessibilityValue(
-            bins.map { "\(ChartFormat.number($0.lower))–\(ChartFormat.number($0.upper)): \($0.count)" }
-                .joined(separator: ", "))
+        // The caption, the chart (its bars are elements, ST4) and the axis ends.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chart.histogram")
     }
 }
 

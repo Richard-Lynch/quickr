@@ -187,12 +187,16 @@ struct EditView: View {
                     tone: .info
                 )
                 .accessibilityIdentifier("edit.fixBanner")
+                // Why the screen opened in fix mode, read first (a11y E3).
+                .qrAnnouncesError(model.fixMessage ?? "This change was not saved")
             }
             if let message = model.errorMessage {
                 Banner(
                     title: model.isDeleted ? message : "Not saved", text: model.isDeleted ? nil : message, tone: .danger
                 )
                 .accessibilityIdentifier("edit.error")
+                // VoiceOver moves to it, so a failed save is heard at once (a11y E3, X2).
+                .qrAnnouncesError(message)
             } else if let problem = model.syncProblem {
                 Banner(title: "The last change didn’t sync", text: problem, tone: .warn)
                     .accessibilityIdentifier("edit.syncProblem")
@@ -310,6 +314,7 @@ private struct EditNotice<Action: View>: View {
     var body: some View {
         VStack(spacing: 12) {
             Text(heading).font(.qr(.title)).foregroundStyle(tone.foreground).multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
             Text(text)
                 .font(.qr(.body))
                 .foregroundStyle(.qr.muted)

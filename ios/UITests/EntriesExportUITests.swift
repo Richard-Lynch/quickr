@@ -65,11 +65,12 @@ final class EntriesExportUITests: XCTestCase {
 
     /// At the largest accessibility size the button is reachable, and its message shows.
     @MainActor
-    func testAccessibilityXXXL() {
-        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+    func testAccessibilityXXXL() throws {
+        let app = launch(AccessibilityLaunch.arguments())
         let button = app.buttons["entries.export"]
         for _ in 0..<6 where !button.isHittable { app.swipeUp() }
         XCTAssertTrue(button.isHittable)
+        try assertAccessible(app, allowing: EntriesAccessibility.export, within: [button.frame])
         attach(app, "csv-ax-xxxl")
         app.buttons["debug.offline"].tap()
         button.tap()
