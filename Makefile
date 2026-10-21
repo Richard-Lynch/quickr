@@ -61,9 +61,16 @@ client: openapi ## Regenerate spec + typed TS client/zod schemas
 	$(FRONTEND) pnpm gen:api
 
 .PHONY: vectors
-vectors: ## Regenerate shared/fixtures (due, quick-log, answer-text and notification vectors, API response fixtures)
+vectors: ## Regenerate shared/fixtures (due, quick-log, answer-text, notification, action-entry-id, home, entries, stats, builder, schedule and builder-UI vectors, API response fixtures) and the iOS casefold table
 	$(BACKEND) QUICKR_UPDATE_VECTORS=1 uv run pytest -q tests/test_due_vectors.py tests/test_quicklog_vectors.py \
-		tests/test_answer_text_vectors.py tests/test_notification_vectors.py tests/test_api_fixtures.py
+		tests/test_answer_text_vectors.py tests/test_notification_vectors.py tests/test_action_entry_id_vectors.py \
+		tests/test_home_vectors.py tests/test_entries_vectors.py tests/test_stats_vectors.py tests/test_builder_vectors.py \
+		tests/test_api_fixtures.py
+	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/lib/home.vectors.test.ts
+	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/lib/entries.vectors.test.ts
+	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/components/charts/stats.vectors.test.ts
+	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/lib/schedule.vectors.test.ts
+	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/lib/builderUi.vectors.test.ts
 
 # The database pytest and the migration check use: $QUICKR_TEST_DATABASE_URL if set, else
 # quickr_test, or quickr_test_<worktree>_<path hash> in a git worktree (backend/tools/test_database.py).
@@ -131,6 +138,15 @@ seed-docker: ## Load demo data into the docker stack
 IOS_SIM_MIN ?= quickR iOS-26-0
 IOS_SIM_CUR ?= quickR iOS27
 IOS_SIM ?= $(IOS_SIM_MIN)
+# Each target's device is "defaulted" when the variable it uses wasn't set (on the command line
+# or in the environment): ios-test and check-ios's first runtime use IOS_SIM_MIN, check-ios's
+# second IOS_SIM_CUR, ios-uitest and ios-sim-run IOS_SIM (which defaults to IOS_SIM_MIN, so
+# setting either counts). A defaulted device is, outside CI, this worktree's clone of the named
+# one (target_sim_udid in common.sh), never the shared base device; the cap counts both.
+ios_sim_set = $(filter-out undefined default file,$(origin $(1)))
+IOS_TEST_SIM_DEFAULTED := $(if $(call ios_sim_set,IOS_SIM_MIN),0,1)
+IOS_CUR_SIM_DEFAULTED := $(if $(call ios_sim_set,IOS_SIM_CUR),0,1)
+IOS_SIM_DEFAULTED := $(if $(call ios_sim_set,IOS_SIM)$(call ios_sim_set,IOS_SIM_MIN),0,1)
 # Preferred model for ios-check-ci, which requires an iOS 26.x runtime whatever the model.
 IOS_SIM_CI ?= iPhone 17
 IOS_SCRIPTS := ios/scripts
@@ -153,6 +169,11 @@ ios-timing-test: ## iOS: the real-time tests (TimingTests, MultiProcessTests) al
 	@$(IOS_SCRIPTS)/require-xcode.sh
 	@$(IOS_SCRIPTS)/timing-test.sh
 
+.PHONY: ios-lifecycle-test
+ios-lifecycle-test: ## iOS: the GRDB-suspension lifecycle tests, alone in their own swift test process (swift test skips them)
+	@$(IOS_SCRIPTS)/require-xcode.sh
+	@QUICKR_LIFECYCLE_TESTS=1 $(IOS_SCRIPTS)/swift-test.sh --filter QuickrLifecycleTests --no-parallel
+
 .PHONY: ios-mp-test
 ios-mp-test: ## iOS: the multi-process tests alone, serially, IOS_MP_RUNS times (default 1); ios-timing-test runs them too
 	@$(IOS_SCRIPTS)/require-xcode.sh
@@ -166,12 +187,12 @@ ios-resolve: ## iOS: update package pins in ios/QuickrKit/Package.resolved and c
 	@$(IOS_SCRIPTS)/resolve.sh
 
 .PHONY: ios-test
-ios-test: ios-gen ## iOS: Unit test plan on the iOS 26.0 simulator
-	@$(IOS_SCRIPTS)/test.sh Unit "$(IOS_SIM_MIN)"
+ios-test: ios-gen ## iOS: Unit test plan on the iOS 26.0 simulator (this worktree's clone unless IOS_SIM_MIN is set)
+	@IOS_SIM_DEFAULTED=$(IOS_TEST_SIM_DEFAULTED) $(IOS_SCRIPTS)/test.sh Unit "$(IOS_SIM_MIN)"
 
 .PHONY: ios-uitest
-ios-uitest: ios-gen ## iOS: UI test plan (IOS_SIM=name or UDID)
-	@$(IOS_SCRIPTS)/test.sh UI "$(IOS_SIM)"
+ios-uitest: ios-gen ## iOS: UI test plan (IOS_SIM=name or UDID; default this worktree's clone)
+	@IOS_SIM_DEFAULTED=$(IOS_SIM_DEFAULTED) $(IOS_SCRIPTS)/test.sh UI "$(IOS_SIM)"
 
 .PHONY: ios-lint
 ios-lint: ## iOS: swift-format lint (skips with a warning if swift-format is missing)
@@ -189,7 +210,7 @@ ios-script-test: ## iOS: tests for the shell tooling (xcodebuild watchdog, simul
 
 .PHONY: check-ios
 check-ios: ## iOS gate: gen, swift test, Unit + UI plans on iOS 26.0 and 27.0, lint, Xcode version
-	@$(IOS_SCRIPTS)/check-ios.sh "$(IOS_SIM_MIN)" "$(IOS_SIM_CUR)"
+	@IOS_SIM_MIN_DEFAULTED=$(IOS_TEST_SIM_DEFAULTED) IOS_SIM_CUR_DEFAULTED=$(IOS_CUR_SIM_DEFAULTED) $(IOS_SCRIPTS)/check-ios.sh "$(IOS_SIM_MIN)" "$(IOS_SIM_CUR)"
 
 .PHONY: ios-check-ci
 ios-check-ci: ## iOS: what CI runs on a ready PR (gen, build + Unit plan on iOS 26.x, no signing)
@@ -197,7 +218,7 @@ ios-check-ci: ## iOS: what CI runs on a ready PR (gen, build + Unit plan on iOS 
 
 .PHONY: ios-sim-run
 ios-sim-run: ios-gen ## iOS: build, install and launch on a simulator (IOS_SIM; URL=quickr://... opens it)
-	@$(IOS_SCRIPTS)/sim-run.sh "$(IOS_SIM)" "$(URL)"
+	@IOS_SIM_DEFAULTED=$(IOS_SIM_DEFAULTED) $(IOS_SCRIPTS)/sim-run.sh "$(IOS_SIM)" "$(URL)"
 
 IOS_SHOTS ?= docs/ios/demo/m0
 .PHONY: ios-shots
@@ -213,6 +234,10 @@ ios-demo-record: ios-gen ## iOS: record a launch on the simulator and convert to
 .PHONY: ios-integration
 ios-integration: ## iOS: integration suite vs this worktree's stacks (up, smoke, tests, down)
 	@$(IOS_SCRIPTS)/integration.sh
+
+.PHONY: ios-uitest-e2e
+ios-uitest-e2e: ios-gen ## iOS: end-to-end UI tests vs this worktree's stack (IOS_SIM; up, test, down)
+	@$(IOS_SCRIPTS)/uitest-e2e.sh "$(IOS_SIM)"
 
 .PHONY: ios-integration-up
 ios-integration-up: ## iOS: start this worktree's integration stacks (writes ios/build/integration.env)

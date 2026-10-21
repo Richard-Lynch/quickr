@@ -1,12 +1,14 @@
 import XCTest
 
 final class LaunchTests: XCTestCase {
+    /// A first launch (a clean slate: `-QuickrUITest`) opens onboarding. The topic list after it
+    /// is checked by `SettingsUITests`.
     @MainActor
-    func testRootViewShowsAppNameAndCoreVersion() {
+    func testFirstLaunchShowsOnboarding() {
         let app = XCUIApplication()
+        app.launchArguments = ["-QuickrUITest"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["root.title"].waitForExistence(timeout: 10))
-        XCTAssertEqual(app.staticTexts["root.title"].label, "quickR")
-        XCTAssertTrue(app.staticTexts["root.coreVersion"].label.hasPrefix("Core "))
+        XCTAssertTrue(app.textFields["server.address"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["server.connect"].exists)
     }
 }

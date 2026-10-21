@@ -49,6 +49,9 @@ public enum SyncResult: Sendable, Hashable {
     case superseded
     /// A local reset is running; sync resumes on the new file.
     case resetInProgress
+    /// The app is going to be suspended (`SyncCoordinator.pause(generation:)`): no run starts until
+    /// it becomes active again.
+    case paused
     case failed(SyncFailure)
 }
 

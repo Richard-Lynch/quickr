@@ -2,15 +2,8 @@ import { useState } from 'react';
 
 import type { SeriesPoint } from '../../client';
 import { formatNumber } from '../../lib/format';
-import {
-  formatBucket,
-  formatTick,
-  niceTicks,
-  pickLabels,
-  scaleLinear,
-  useWidth,
-  type Bucket,
-} from './chartUtils';
+import { LINE_LAYOUT, lineModel } from './chartModels';
+import { formatBucket, formatTick, useWidth, type Bucket } from './chartUtils';
 
 interface Props {
   points: readonly SeriesPoint[];
@@ -26,29 +19,14 @@ interface Props {
 export function LineChart({ points, bucket, unit, label }: Props) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [active, setActive] = useState<number | null>(null);
-  const data = points.filter((p) => p.mean !== null);
-  const height = 170;
-  const pad = { top: 10, right: 8, bottom: 22, left: 36 };
+  const { height, pad } = LINE_LAYOUT;
+  const model = lineModel(points, width);
 
-  if (data.length === 0) {
+  if (model === null) {
     return <p className="py-8 text-center text-sm text-muted">No answers in this range.</p>;
   }
 
-  const lows = data.map((p) => p.min ?? p.mean ?? 0);
-  const highs = data.map((p) => p.max ?? p.mean ?? 0);
-  const ticks = niceTicks(Math.min(...lows), Math.max(...highs), 4);
-  const y0 = ticks[0] ?? 0;
-  const y1 = ticks[ticks.length - 1] ?? 1;
-  const t0 = new Date(data[0]?.start ?? 0).getTime();
-  const t1 = new Date(data[data.length - 1]?.start ?? 0).getTime();
-  const x = scaleLinear(
-    t0,
-    t1 === t0 ? t0 + 1 : t1,
-    pad.left + (t1 === t0 ? (width - pad.left - pad.right) / 2 : 0),
-    width - pad.right,
-  );
-  const y = scaleLinear(y0, y1, height - pad.bottom, pad.top);
-  const xs = data.map((p) => x(new Date(p.start).getTime()));
+  const { data, ticks, y, xs, labelled } = model;
 
   const line = data
     .map((p, i) => `${i === 0 ? 'M' : 'L'}${xs[i] ?? 0},${y(p.mean ?? 0)}`)
@@ -77,7 +55,6 @@ export function LineChart({ points, bucket, unit, label }: Props) {
   const shown = active !== null ? data[active] : undefined;
   const ax = active !== null ? xs[active] : undefined;
   const u = unit ? ` ${unit}` : '';
-  const labelled = pickLabels(xs, 52);
 
   return (
     <div ref={ref} className="relative select-none">

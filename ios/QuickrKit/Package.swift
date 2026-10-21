@@ -44,6 +44,14 @@ let package = Package(
                 "QuickrData", "QuickrTestSupport", .product(name: "GRDB", package: "GRDB.swift"),
             ]
         ),
+        // GRDB's suspension is process-wide (NotificationCenter.default reaches every pool), so the
+        // tests that post it run in a process of their own: this target, one test at a time.
+        .testTarget(
+            name: "QuickrLifecycleTests",
+            dependencies: [
+                "QuickrData", "QuickrTestSupport", .product(name: "GRDB", package: "GRDB.swift"),
+            ]
+        ),
         .testTarget(
             name: "QuickrDataTests",
             dependencies: [

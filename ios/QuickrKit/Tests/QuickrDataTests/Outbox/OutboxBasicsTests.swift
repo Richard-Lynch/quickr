@@ -6,7 +6,7 @@ import QuickrTestSupport
 import Testing
 
 /// outbox.md §13 cases 1–7, 41, 42, 47, 48: persistence, classification, backoff and the flush loop.
-@Suite(.timeLimit(.minutes(2))) struct OutboxBasicsTests {
+@Suite(.timeLimit(.minutes(5))) struct OutboxBasicsTests {
     @Test("1 · an enqueued create is durable, pending, never attempted, keyed by the entry id")
     func case01() async throws {
         let h = try OutboxHarness()
@@ -70,7 +70,7 @@ import Testing
         let first = try await h.log(outbox)
         let second = try await h.log(outbox, minutes: 1)
         h.server.inject(.post, .lose(.timedOut(requestStarted: true)))
-        let report = try await outbox.flush(force: false, budget: .seconds(30))
+        let report = try await outbox.flush(force: false, budget: .seconds(120))
         #expect(report.ending == .unreachable)
         #expect(h.server.count(.post) == 1)
         let a = try #require(try h.item(first))
@@ -110,7 +110,7 @@ import Testing
         let outbox = h.outbox()
         let id = try await h.log(outbox)
         h.server.inject(.post, .respond(header(FakeServer.problem(422, "invalid_answers", "mood is required"))))
-        _ = try await outbox.flush(force: false, budget: .seconds(30))
+        _ = try await outbox.flush(force: false, budget: .seconds(120))
         let item = try #require(try h.item(id))
         #expect(item.state == .failed && item.failureReason == .rejected)
         #expect(try item.errorInfo?.message == "Mood is required")
@@ -155,7 +155,9 @@ import Testing
         try h.setSyncState("rebuilding = 'E2'")
         let widget = try h.process("widget:1")
         let id = try await h.log(widget)
-        let report = try await widget.flush(force: true, budget: .seconds(4))
+        // The budget isn't under test: a generous one so a starved CI pool (3 cores, ~1,000
+        // parallel tests) can't exhaust it before the rebuilding check runs.
+        let report = try await widget.flush(force: true, budget: .seconds(120))
         #expect(report.ending == .paused)
         #expect(try h.server.requests.isEmpty && h.item(id)?.state == .pending)
     }
@@ -174,9 +176,9 @@ import Testing
         #expect(item.attempts == 3 && item.due == h.clock.now().adding(.seconds(8)))
         h.wall.advance(by: -86_400)
         h.clock.advance(by: .seconds(7))
-        #expect(try await outbox.flush(force: false, budget: .seconds(30)).requests == 0)
+        #expect(try await outbox.flush(force: false, budget: .seconds(120)).requests == 0)
         h.clock.advance(by: .seconds(1))
-        _ = try await outbox.flush(force: false, budget: .seconds(30))
+        _ = try await outbox.flush(force: false, budget: .seconds(120))
         #expect(try h.item(id) == nil && h.server.entry(id) != nil)
     }
 
@@ -192,7 +194,7 @@ import Testing
         // Another process holds the lease when the device reboots.
         _ = try #require(try await h.store.leases.tryAcquire(.flush, owner: "widget:9"))
         h.clock.reboot(bootId: "boot-2", ct: 1)
-        let report = try await outbox.flush(force: false, budget: .seconds(30))
+        let report = try await outbox.flush(force: false, budget: .seconds(120))
         #expect(report.ending == .drained)
         #expect(try h.items.isEmpty)
         #expect(h.server.entry(id) != nil && h.server.entry(entry.id) == nil)

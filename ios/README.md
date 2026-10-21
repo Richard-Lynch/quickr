@@ -24,8 +24,12 @@ copy `Local.xcconfig.example` to `Local.xcconfig` (gitignored) and set
 
 ## Make targets
 
-Run from the repo root. `IOS_SIM` (default `quickR iOS-26-0`) takes a simulator
-name or UDID.
+Run from the repo root. The simulator variables take a name or UDID: `ios-test`
+uses `IOS_SIM_MIN` (default `quickR iOS-26-0`), `ios-uitest` and `ios-sim-run`
+use `IOS_SIM` (default `IOS_SIM_MIN`), and `check-ios` uses `IOS_SIM_MIN` and
+`IOS_SIM_CUR`. When a target's variable isn't set (and `CI` isn't), it runs on
+this worktree's own clone of that device (`sim-clone.sh`, created on first use),
+never on the shared base device.
 
 | Target                      | Does                                                                                                                                                                                          |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -33,6 +37,7 @@ name or UDID.
 | `make ios-build`            | Simulator Debug build                                                                                                                                                                         |
 | `make ios-core-test`        | `swift test` for `QuickrKit` on the Mac, strict cooperative pool (fast; Core and Data; skips the real-time tests)                                                                             |
 | `make ios-timing-test`      | The real-time tests (`TimingTests`, `MultiProcessTests`) alone, one at a time, normal pool (`QUICKR_TIMING_TESTS=1`)                                                                          |
+| `make ios-lifecycle-test`   | The GRDB-suspension lifecycle tests, alone in their own `swift test` process (`ios-core-test` skips them; `check-ios` and CI run it)                                                          |
 | `make ios-test`             | Unit test plan on the iOS 26.0 simulator                                                                                                                                                      |
 | `make ios-uitest`           | UI test plan on `IOS_SIM`                                                                                                                                                                     |
 | `make check-ios`            | The local gate: gen, swift test, Unit and UI plans on **both** simulators, Intents plan on iOS 27, lint, Xcode version                                                                        |
@@ -63,8 +68,8 @@ stream instead of arriving all at once when it exits. Test plans also run with t
 (`IOS_TEST_ALLOWANCE`, default 300 s per test).
 
 Simulators boot through one admission (`sim-clone.sh`, `test.sh`, `sim-run.sh`):
-it refuses while `IOS_SIM_CAP` (default 2; 0 = off) other worktree clones are
-booted, and names them; `sim-clone.sh --wait` or `IOS_SIM_WAIT=1` waits for a
+it refuses while `IOS_SIM_CAP` (default 2; 0 = off) other quickR simulators
+(worktree clones and the base `quickR …` devices alike) are booted, and names them; `sim-clone.sh --wait` or `IOS_SIM_WAIT=1` waits for a
 slot instead. A machine-wide lock covers the check and the boot, so two
 worktrees can't both take the last slot. A clone that is already booted never
 counts against itself. `sim-clone.sh` boots its clone; `--no-boot` only prints
@@ -268,9 +273,18 @@ exports these variables to `swift test`:
 | `QUICKR_IT_REQUIRED=1`                  | Set only by `make ios-integration`. When it is set, integration tests must **fail**, not skip, if the variables above are missing |
 
 Plain `swift test` doesn't set these variables, so the integration tests skip
-themselves there. Tests that run on a simulator through `xcodebuild` would need
-the variables passed as `TEST_RUNNER_<name>`. Host `swift test` is the intended
-runner.
+themselves there. Host `swift test` is the runner for the sync suite.
+
+**End-to-end UI tests.** `make ios-uitest-e2e IOS_SIM=<udid>` starts the same
+stacks and runs `EndToEndUITests` and `TapCountUITests` on the simulator. These
+are the app against the real backend, with the server checked: chip → Undo,
+offline → reconnect, links, same-as-last, and the design loop's tap counts. The
+script passes the stack's URLs to the test runner as `TEST_RUNNER_QUICKR_IT_*`
+(xcodebuild strips the prefix), with `QUICKR_IT_REQUIRED=1`. In the ordinary UI
+plan these classes skip. `QUICKR_UIT_DEMO=1` also runs the demo scenarios, which
+take the screenshots for `docs/ios/demo/m2`. A signal (Ctrl-C, TERM) stops the run
+and still takes the stacks down. Results and tap counts:
+[docs/ios/demo/m2/tap-counts.md](../docs/ios/demo/m2/tap-counts.md).
 
 **Fault proxy control API** (JSON, at `QUICKR_IT_PROXY_CONTROL_URL`):
 
@@ -318,7 +332,7 @@ PATCHes), filter on `upstream_status != null`.
 should use its own device:
 
 ```sh
-make ios-test IOS_SIM_MIN="$(ios/scripts/sim-clone.sh)"
+make ios-test                                    # this worktree's clone of quickR iOS-26-0
 make ios-uitest IOS_SIM="$(ios/scripts/sim-clone.sh 'quickR iOS27')"
 ios/scripts/sim-clone.sh --delete               # when the worktree is done
 ```

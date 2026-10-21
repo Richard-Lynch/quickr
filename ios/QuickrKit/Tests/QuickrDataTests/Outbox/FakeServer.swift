@@ -6,7 +6,8 @@ import Synchronization
 /// A stateful fake quickR server behind `Transport`, so outbox tests run through the real
 /// `APIClient` and `APIClassifier`. It implements what the outbox relies on: F9 headers on every
 /// response, the F10 preconditions, reserved ids (`entry_deleted`), revisions and
-/// `stale_revision`, idempotent POST replay, 404s, and archive/unarchive. Faults script the
+/// `stale_revision`, idempotent POST replay, 404s, archive/unarchive, and the online-only topic
+/// writes (create, PATCH, DELETE of an archived topic). Faults script the
 /// network: answer instead, lose the answer, garble it, or delay the request (a `Gate`).
 final class FakeServer: Transport {
     static let base = URL(string: "https://q.example")!
@@ -211,14 +212,19 @@ final class FakeServer: Transport {
 
     private static func route(_ request: HTTPRequest, _ state: inout State) -> HTTPResponse {
         let parts = request.url.path.split(separator: "/").map(String.init)  // api, v1, …
-        guard parts.count >= 4, parts[0] == "api", parts[1] == "v1" else { return problem(404, "not_found") }
-        if request.method != .get {
+        guard parts.count >= 3, parts[0] == "api", parts[1] == "v1" else { return problem(404, "not_found") }
+        // Like the backend, a version check (a dry run) has no Expect preconditions.
+        if request.method != .get, !request.url.path.hasSuffix("/versions/check") {
             if request.headers[QuickrHeader.expectServerId] != state.serverId {
                 return problem(409, "server_mismatch", "server mismatch")
             }
             if request.headers[QuickrHeader.expectEpoch] != state.epoch {
                 return problem(409, "epoch_mismatch", "epoch mismatch")
             }
+        }
+        if parts.count == 3 {
+            guard request.method == .post, parts[2] == "topics" else { return problem(404, "not_found") }
+            return createTopic(request, &state)
         }
         let id = parts[3]
         let expected = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?
@@ -236,6 +242,20 @@ final class FakeServer: Transport {
         case (.get, "topics", nil):
             guard let topic = state.topics[id] else { return problem(404, "not_found") }
             return ok(200, topic)
+        case (.patch, "topics", nil): return updateTopic(id, request, &state)
+        case (.delete, "topics", nil):
+            guard let topic = state.topics[id] else { return problem(404, "not_found") }
+            guard topic.status == .archived else {
+                return problem(409, "conflict", "archive the topic before deleting it")
+            }
+            state.topics[id] = nil
+            state.deleted.insert(id)
+            for (entryId, entry) in state.entries where entry.topicId == topic.id {
+                state.entries[entryId] = nil
+                state.deleted.insert(entryId)
+            }
+            return HTTPResponse(status: 204)
+        case (.post, "topics", "versions"): return version(id, check: parts.count > 5, request, &state)
         case (.post, "topics", let action?) where action == "archive" || action == "unarchive":
             guard var topic = state.topics[id] else { return problem(404, "not_found") }
             if let expected, expected != topic.revision { return problem(409, "stale_revision", "stale revision") }
@@ -247,6 +267,93 @@ final class FakeServer: Transport {
         default:
             return problem(404, "not_found")
         }
+    }
+
+    private static func createTopic(_ request: HTTPRequest, _ state: inout State) -> HTTPResponse {
+        guard let body = request.body, let dto = try? WireCoding.decoder().decode(TopicCreateDTO.self, from: body)
+        else { return problem(422, "invalid_request") }
+        var schedule: Schedule?
+        if let input = dto.schedule {
+            guard let parsed = try? input.toDomain() else { return problem(422, "invalid_request") }
+            schedule = parsed
+        }
+        let slug = dto.slug ?? dto.name.lowercased().replacingOccurrences(of: " ", with: "-")
+        if state.topics.values.contains(where: { $0.slug == slug }) {
+            return problem(409, "conflict", "slug '\(slug)' is already taken")
+        }
+        let topic = Topic(
+            id: UUID(), slug: slug, name: dto.name, description: dto.description ?? "", currentVersion: 1,
+            revision: 1, questionCount: dto.questions.count, createdAt: at, updatedAt: at, schedule: schedule,
+            scheduleUpdatedAt: schedule == nil ? nil : at, questions: dto.questions.map { $0.toDomain() })
+        state.topics[topic.id.wireString] = topic
+        return ok(201, topic)
+    }
+
+    private static func updateTopic(_ id: String, _ request: HTTPRequest, _ state: inout State) -> HTTPResponse {
+        guard var topic = state.topics[id] else { return problem(404, "not_found") }
+        guard let body = request.body, let dto = try? WireCoding.decoder().decode(TopicUpdateDTO.self, from: body)
+        else { return problem(422, "invalid_request") }
+        if let expected = dto.expectedRevision, expected != topic.revision {
+            return problem(409, "stale_revision", "stale revision")
+        }
+        if let slug = dto.slug, slug != topic.slug, state.topics.values.contains(where: { $0.slug == slug }) {
+            return problem(409, "conflict", "slug '\(slug)' is already taken")
+        }
+        topic.name = dto.name ?? topic.name
+        topic.slug = dto.slug ?? topic.slug
+        topic.description = dto.description ?? topic.description
+        switch dto.schedule {
+        case .absent: break
+        case .null:
+            topic.schedule = nil
+            topic.scheduleUpdatedAt = at
+        case .value(let input):
+            guard let schedule = try? input.toDomain() else { return problem(422, "invalid_request") }
+            topic.schedule = schedule
+            topic.scheduleUpdatedAt = at
+        }
+        topic.revision += 1
+        state.topics[id] = topic
+        return ok(200, topic)
+    }
+
+    /// `POST /topics/{id}/versions[/check]`, like the backend: a stale `base_version` is a 409
+    /// `conflict`; the report is the local compatibility check against the current questions.
+    private static func version(_ id: String, check: Bool, _ request: HTTPRequest, _ state: inout State)
+        -> HTTPResponse
+    {
+        guard var topic = state.topics[id] else { return problem(404, "not_found") }
+        guard let body = request.body,
+            let dto = try? WireCoding.decoder().decode(VersionDraftDTO.self, from: body)
+        else { return problem(422, "invalid_request") }
+        if let base = dto.baseVersion, base != topic.currentVersion {
+            return problem(409, "conflict", "topic is at version \(topic.currentVersion)")
+        }
+        let proposed = dto.questions.map { $0.toDomain() }
+        let report = CompatibilityCheck.report(history: [topic.questions], proposed: proposed)
+        if check {
+            let json: [String: Any] = [
+                "ok": report.ok, "next_version": report.nextVersion,
+                "issues": report.issues.map {
+                    [
+                        "level": $0.level.rawValue, "question_key": $0.questionKey.map { $0 as Any } ?? NSNull(),
+                        "message": $0.message,
+                    ]
+                },
+                "changes": report.changes.map {
+                    ["kind": $0.kind.rawValue, "question_key": $0.questionKey, "details": $0.details] as [String: Any]
+                },
+            ]
+            let data = try! JSONSerialization.data(withJSONObject: json)
+            return HTTPResponse(status: 200, headers: ["Content-Type": "application/json"], body: data)
+        }
+        guard report.ok else { return problem(422, "incompatible_version", "incompatible") }
+        topic.currentVersion += 1
+        topic.questions = proposed
+        topic.questionCount = proposed.count
+        topic.revision += 1
+        state.topics[id] = topic
+        return ok(201, topic)
     }
 
     private static func createEntry(topicId: String, _ request: HTTPRequest, _ state: inout State) -> HTTPResponse {
@@ -383,8 +490,8 @@ private struct WireTopic: Encodable {
         try c.encode(topic.createdAt, forKey: .createdAt)
         try c.encode(topic.updatedAt, forKey: .updatedAt)
         try c.encode(topic.archivedAt, forKey: .archivedAt)
-        try c.encodeNil(forKey: .schedule)
-        try c.encodeNil(forKey: .scheduleUpdatedAt)
+        try c.encode(topic.schedule.map(ScheduleDTO.init), forKey: .schedule)
+        try c.encode(topic.scheduleUpdatedAt, forKey: .scheduleUpdatedAt)
         try c.encodeNil(forKey: .due)
         try c.encode(topic.questions.map(QuestionDTO.init), forKey: .questions)
     }

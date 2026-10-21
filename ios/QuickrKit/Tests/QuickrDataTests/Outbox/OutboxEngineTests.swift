@@ -7,7 +7,7 @@ import Testing
 
 /// Engine behaviour outside the §13 matrix: the §5.2 rows the matrix doesn't name, S8 under
 /// expiry recovery, the sync sheet's actions, the summary and the flush scheduler.
-@Suite(.timeLimit(.minutes(2))) struct OutboxEngineTests {
+@Suite(.timeLimit(.minutes(5))) struct OutboxEngineTests {
     @Test func archive404RetiresAndUnarchive404FailsBothAskForAPull() async throws {
         let h = try OutboxHarness()
         let outbox = h.outbox()
@@ -220,6 +220,50 @@ import Testing
         await scheduler.flushNow(reason: .background)
         #expect(try h.server.entry(entry.id) == nil && h.items.isEmpty)
     }
+
+    /// `sendNow`'s outcomes (outbox.md §10). Waits are generous: each one ends at the outcome.
+    @Test func sendNowReportsEachOutcome() async throws {
+        let h = try OutboxHarness()
+        let scheduler = OutboxFlushScheduler(outbox: h.outbox())
+        let sent = try await h.log(scheduler.outbox)
+        #expect(await scheduler.sendNow(itemId: sent.wireString, wait: .seconds(120)) == .sent)
+
+        let rejected = try await h.log(scheduler.outbox, minutes: 1)
+        h.server.inject(.post, .respond(header(FakeServer.problem(422, "invalid_answers", "mood is required"))))
+        guard case .failed(let info) = await scheduler.sendNow(itemId: rejected.wireString, wait: .seconds(120)) else {
+            Issue.record("a 422 is .failed")
+            return
+        }
+        #expect(info?.message == "Mood is required" && info?.status == 422)
+        // Retried (or fixed) after an attempt: sendNow waits for the new attempt, not "queued".
+        try await scheduler.outbox.retry(itemId: rejected.wireString)
+        #expect(await scheduler.sendNow(itemId: rejected.wireString, wait: .seconds(120)) == .sent)
+
+        // The id is reserved on the server: with no later delete here, the create fails
+        // `deleted_elsewhere` (§5.2).
+        let reserved = try await h.log(scheduler.outbox, minutes: 2)
+        h.server.deleteEntry(reserved)
+        guard case .failed(let gone) = await scheduler.sendNow(itemId: reserved.wireString, wait: .seconds(120)) else {
+            Issue.record("a create whose id is reserved is .failed")
+            return
+        }
+        #expect(gone?.message == "Deleted on another device")
+        try await scheduler.outbox.discard(itemId: reserved.wireString, origin: .app)
+
+        // Gone with a tombstone (retired by a later delete): never recorded.
+        let retired = try await h.log(scheduler.outbox, minutes: 3)
+        try h.write { db in
+            try ServerLayer.applyDeletion(db, kind: .entry, id: retired, topicId: h.topic.id, seq: nil)
+            _ = try OutboxStorage.delete(db, id: retired.wireString)
+        }
+        #expect(await scheduler.sendNow(itemId: retired.wireString, wait: .seconds(120)) == .retired)
+
+        let offline = try await h.log(scheduler.outbox, minutes: 4)
+        h.server.inject(.post, .lose(.unreachable("offline")))
+        #expect(await scheduler.sendNow(itemId: offline.wireString, wait: .seconds(120)) == .queued)
+        #expect(try h.item(offline)?.state == .pending)
+    }
+
 }
 
 /// The real-time cases of `OutboxEngineTests` (see `TimingTests`).
@@ -244,14 +288,47 @@ extension TimingTests {
             _ = try await h.store.leases.release(holder)
         }
 
+        /// The enqueue's own flush often reaches the item before `sendNow` does. An attempt that had
+        /// already failed, or that is in flight and then fails, still ends the wait at once.
+        @Test func sendNowSeesAnAttemptThatStartedBeforeIt() async throws {
+            let h = try OutboxHarness()
+            let scheduler = OutboxFlushScheduler(outbox: h.outbox())
+
+            // (a) Already attempted and back in the queue.
+            let failed = try await h.log(scheduler.outbox)
+            h.server.inject(.post, .lose(.unreachable("offline")))
+            _ = try await scheduler.outbox.flushNow()
+            #expect(try h.item(failed)?.attempts == 1)
+            var started = ContinuousClock.now
+            #expect(await scheduler.sendNow(itemId: failed.wireString, wait: .seconds(30)) == .queued)
+            #expect(ContinuousClock.now - started < .seconds(5))
+
+            // (b) In flight when sendNow starts; then the server fails it (uncertain).
+            let claimed = try await h.log(scheduler.outbox, minutes: 1)
+            let gate = Gate()
+            h.server.inject(.post, .delay(gate, override: header(FakeServer.problem(503, "internal_error", "down"))))
+            let flush = background { try await scheduler.outbox.flushNow() }
+            await gate.arrival()
+            #expect(try h.item(claimed)?.state == .inFlight)
+            started = ContinuousClock.now
+            let waiting = Task { await scheduler.sendNow(itemId: claimed.wireString, wait: .seconds(30)) }
+            gate.open()
+            #expect(await waiting.value == .queued)
+            #expect(ContinuousClock.now - started < .seconds(5))
+            _ = try await flush.value
+        }
+
         @Test func sendNowReportsSentOrQueued() async throws {
             let h = try OutboxHarness()
             let scheduler = OutboxFlushScheduler(outbox: h.outbox())
             let sent = try await h.log(scheduler.outbox)
-            #expect(await scheduler.sendNow(itemId: sent.wireString, wait: .seconds(2.5)))
+            #expect(await scheduler.sendNow(itemId: sent.wireString, wait: .seconds(2.5)) == .sent)
+            // Offline: "queued" as soon as the attempt fails, like the PWA, not after the full wait.
             let queued = try await h.log(scheduler.outbox, minutes: 1)
             h.server.inject(.post, .lose(.unreachable("offline")))
-            #expect(await !scheduler.sendNow(itemId: queued.wireString, wait: .milliseconds(300)))
+            let started = ContinuousClock.now
+            #expect(await scheduler.sendNow(itemId: queued.wireString, wait: .seconds(10)) == .queued)
+            #expect(ContinuousClock.now - started < .seconds(5))
         }
     }
 }

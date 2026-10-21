@@ -65,11 +65,27 @@ public struct OutboxFlushPolicy: Sendable, Hashable {
 /// The app's flush coalescer: `requestFlush` starts a flush, or, while one runs, schedules exactly
 /// one follow-up with the merged policy. Extensions call `Outbox.flush` directly with
 /// `OutboxFlushPolicy.extensionFlush`.
+/// What `sendNow` saw within its wait.
+public enum OutboxSendNowResult: Sendable, Hashable {
+    /// Acked: the item left the queue (or Undo removed it meanwhile).
+    case sent
+    /// Still queued: offline, retrying after a network error or an uncertain answer, or the wait
+    /// ran out. It syncs later.
+    case queued
+    /// The server refused it; the item stays `failed` for the sync sheet.
+    case failed(OutboxErrorInfo?)
+    /// Retired by `entry_deleted`: it will never be recorded ("This entry was deleted").
+    case retired
+}
+
 public actor OutboxFlushScheduler {
     public let outbox: Outbox
     private var running: Task<OutboxFlushReport?, Never>?
     private var followUp: OutboxFlushPolicy?
     private var retired = false
+    private var paused = false
+    /// The newest scene generation a pause or resume came from: an older one is stale.
+    private var pauseGeneration = Int.min
     /// The most recent report, for the sync pill and tests.
     public private(set) var lastReport: OutboxFlushReport?
     /// The policy of every flush this scheduler started, in order.
@@ -98,22 +114,35 @@ public actor OutboxFlushScheduler {
     }
 
     /// `sendNow` (outbox.md §10): flushes, then waits up to `wait` (2.5 s for a quick-log, 8 s
-    /// for the record screen) for the item to leave the queue. True when it did; false means
-    /// "queued" (or failed: read the item).
-    public func sendNow(itemId: String, wait: Duration) async -> Bool {
+    /// for the record screen) for the item's outcome. Like the PWA's, it reports "queued" as soon
+    /// as an attempt has ended without one (a network error, an uncertain answer), not only when
+    /// the wait runs out. That attempt may be one that started before this call: the enqueue's own
+    /// flush often claims the item first. A retry-class outcome always sets the backoff deadline,
+    /// and a fix or a retry clears it, so a fixed item waits for its new attempt.
+    public func sendNow(itemId: String, wait: Duration) async -> OutboxSendNowResult {
+        let store = outbox.store
         request(OutboxFlushReason.enqueue.policy)
         let deadline = ContinuousClock.now.advanced(by: wait)
-        let repository = outbox.store.outbox
         while ContinuousClock.now < deadline {
-            guard let item = try? await repository.item(id: itemId) else { return true }
-            if item.state == .failed { return false }
+            let item: OutboxItem?
+            do { item = try await store.outbox.item(id: itemId) } catch { return .queued }
+            guard let item else {
+                // Gone: acked, or retired by `entry_deleted` (which leaves a tombstone).
+                let tombstoned = try? await store.writer.read { db in
+                    try ServerLayer.isTombstoned(db, kind: .entry, id: itemId)
+                }
+                return tombstoned == true ? .retired : .sent
+            }
+            if item.state == .failed { return .failed(item.lastError) }
+            // Attempted and back in the queue: it waits for its backoff, or for the network.
+            if item.attempts > 0, item.due != nil, item.state != .inFlight { return .queued }
             try? await Task.sleep(for: .milliseconds(50))
         }
-        return false
+        return .queued
     }
 
     private func request(_ policy: OutboxFlushPolicy) {
-        guard !retired else { return }
+        guard !retired, !paused else { return }
         guard running == nil else {
             followUp = followUp.map { $0.merged(with: policy) } ?? policy
             return
@@ -136,7 +165,7 @@ public actor OutboxFlushScheduler {
     private func finished(_ report: OutboxFlushReport?) {
         if let report { lastReport = report }
         running = nil
-        if !retired, let next = followUp {
+        if !retired, !paused, let next = followUp {
             followUp = nil
             start(next)
         }
@@ -158,4 +187,28 @@ public actor OutboxFlushScheduler {
     }
 
     public var isRetired: Bool { retired }
+
+    /// The app is going to be suspended (background episode `generation`): cancels the running flush
+    /// and starts no new one (for a pull, a signal or an enqueue) until a `resume` from a newer
+    /// generation, so no flush transaction is open while the process is suspended. A pause older
+    /// than the last resume (a stale background episode's) is ignored. The queue keeps every item.
+    public func pause(generation: Int) {
+        guard generation >= pauseGeneration else { return }
+        pauseGeneration = generation
+        paused = true
+        cancel()
+    }
+
+    /// The app became active (scene generation `generation`). A resume older than the last pause is
+    /// ignored.
+    public func resume(generation: Int) {
+        guard generation >= pauseGeneration else { return }
+        pauseGeneration = generation
+        paused = false
+    }
+
+    public var isPaused: Bool { paused }
+
+    /// A flush is running (or its follow-up is about to start).
+    public var isFlushing: Bool { running != nil }
 }

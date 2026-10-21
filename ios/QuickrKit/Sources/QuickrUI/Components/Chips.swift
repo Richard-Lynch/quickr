@@ -250,27 +250,31 @@ public struct ChipGrid: View {
     }
 }
 
-/// The tile's quick-log chips: one tap logs. While `log` runs every chip is disabled; when it
-/// succeeds, the tapped chip turns green with a ✓ for 1.6 s. The last answer carries a dot.
+/// The tile's quick-log chips: one tap logs. The caller owns the state (`QuickLogModel`): while
+/// `busy` is set every chip is disabled, and the chip `flash` confirms turns green with a ✓ for
+/// 1.6 s. The last answer carries a dot.
 public struct QuickChipGrid: View {
     let options: [ChipOption]
     let last: String?
     let label: String
-    let log: @MainActor (ChipOption) async -> Bool
-
-    @State private var busy: String?
-    @State private var flash = ConfirmFlash()
+    let busy: String?
+    let flash: ConfirmFlash
+    let onPick: (ChipOption) -> Void
 
     /// - Parameters:
     ///   - label: the group's accessible name, e.g. "Log Headache".
-    ///   - log: logs the option and returns true when it was saved or queued.
+    ///   - busy: the option being logged.
+    ///   - flash: lights the logged option.
     public init(
-        options: [ChipOption], last: String?, label: String, log: @escaping @MainActor (ChipOption) async -> Bool
+        options: [ChipOption], last: String?, label: String, busy: String?, flash: ConfirmFlash,
+        onPick: @escaping (ChipOption) -> Void
     ) {
         self.options = options
         self.last = last
         self.label = label
-        self.log = log
+        self.busy = busy
+        self.flash = flash
+        self.onPick = onPick
     }
 
     public var body: some View {
@@ -281,23 +285,36 @@ public struct QuickChipGrid: View {
                     option.label, role: .button, style: .quick, isLast: last == option.value,
                     isConfirmed: flash.value == option.value
                 ) {
-                    tap(option)
+                    onPick(option)
                 }
                 .disabled(busy != nil)
                 .accessibilityLabel("Log \(option.label)")
+                .accessibilityIdentifier("chip.\(option.value)")
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(label)
         .qrHaptic(.logged, trigger: flash.generation)
     }
+}
 
-    private func tap(_ option: ChipOption) {
-        busy = option.value
-        Task {
-            let ok = await log(option)
-            busy = nil
-            if ok { flash.confirm(option.value) }
+/// A ``QuickChipGrid`` that keeps its own state, for the catalog and previews.
+struct DemoQuickChipGrid: View {
+    let options: [ChipOption]
+    let last: String?
+    let label: String
+    let log: @MainActor (ChipOption) async -> Bool
+    @State private var busy: String?
+    @State private var flash = ConfirmFlash()
+
+    var body: some View {
+        QuickChipGrid(options: options, last: last, label: label, busy: busy, flash: flash) { option in
+            busy = option.value
+            Task {
+                let ok = await log(option)
+                busy = nil
+                if ok { flash.confirm(option.value) }
+            }
         }
     }
 }
@@ -317,7 +334,7 @@ private struct ChipsPreview: View {
         VStack(alignment: .leading, spacing: 16) {
             ChipGrid("Severity", options: severity, selection: $single, required: false)
             ChipGrid("Workout type", options: workouts, selection: $multi, min: 1, max: 2)
-            QuickChipGrid(options: severity, last: "none", label: "Log Headache") { _ in
+            DemoQuickChipGrid(options: severity, last: "none", label: "Log Headache") { _ in
                 try? await Task.sleep(for: .milliseconds(200))
                 return true
             }

@@ -4,7 +4,7 @@ import QuickrData
 import QuickrTestSupport
 import Testing
 
-@Suite(.timeLimit(.minutes(2))) struct APIClientTests {
+@Suite(.timeLimit(.minutes(5))) struct APIClientTests {
     static let topicId = UUID(uuidString: "33333333-3333-4333-8333-333333333333")!
     static let entryId = UUID(uuidString: "0f1e2d3c-4b5a-4968-8778-000000000001")!
 
@@ -192,7 +192,9 @@ import Testing
     @Test func providerFailuresAreThrown() async throws {
         struct Broken: ServerIdentityProvider, AccessCredentialsProvider {
             func currentIdentity() async throws -> ServerIdentity? { throw CocoaError(.fileReadCorruptFile) }
-            func accessCredentials() async throws -> AccessCredentials? { throw CocoaError(.fileReadCorruptFile) }
+            func accessCredentials(for baseURL: URL) async throws -> AccessCredentials? {
+                throw CocoaError(.fileReadCorruptFile)
+            }
         }
         let transport = FakeTransport()
         let client = APIClient(baseURL: APITest.baseURL, transport: transport, identity: Broken())

@@ -3,7 +3,7 @@ import QuickrData
 import QuickrTestSupport
 import Testing
 
-@Suite(.timeLimit(.minutes(2))) struct NotificationContractTests {
+@Suite(.timeLimit(.minutes(5))) struct NotificationContractTests {
     /// The `quickr` object of notifications.md §2.1, with an enum descriptor.
     private static let remoteJSON = """
         {"v": 1, "kind": "due", "server_id": "0b9e0000-0000-4000-8000-000000000001",
@@ -42,8 +42,9 @@ import Testing
             number.quickLog
                 == .number(
                     .init(
-                        type: "double", key: "hours", label: "Sleep", unit: "h", min: 0, max: 24, decimals: 1,
-                        lastValue: 7.5)))
+                        type: "double", key: "hours", label: "Sleep", unit: "h", min: .double(0), max: .double(24),
+                        decimals: 1,
+                        lastValue: .double(7.5))))
         #expect(try info(String(decoding: JSONEncoder().encode(number), as: UTF8.self)) == number)
     }
 

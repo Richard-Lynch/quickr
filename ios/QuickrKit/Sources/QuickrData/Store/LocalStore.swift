@@ -8,6 +8,8 @@ import QuickrCore
 public struct LocalStore: Sendable {
     public let serverId: String
     public let storeGen: Int
+    /// The store's identity for writes and outbox rows (`EntryScope`).
+    public var scope: EntryScope { EntryScope(serverId: serverId, storeGen: storeGen) }
     /// nil for an in-memory test store.
     public let url: URL?
     public let writer: any DatabaseWriter
@@ -91,6 +93,16 @@ public struct LocalStore: Sendable {
         let topicId = topicId.wireString
         return StoreObservation.values(in: writer, refresh: refresh) { db in
             try StoreView.entries(db, topicId: topicId, limit: limit)
+        }
+    }
+
+    /// A topic's versions, oldest first, with their counted entries (`StoreView.versions`).
+    public func observeVersions(topicId: UUID, refresh: AsyncStream<Void>? = nil)
+        -> AsyncThrowingStream<[TopicVersion], any Error>
+    {
+        let topicId = topicId.wireString
+        return StoreObservation.values(in: writer, refresh: refresh) { db in
+            try StoreView.versions(db, topicId: topicId)
         }
     }
 

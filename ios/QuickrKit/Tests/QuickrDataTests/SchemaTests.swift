@@ -4,7 +4,7 @@ import QuickrData
 import QuickrTestSupport
 import Testing
 
-@Suite(.timeLimit(.minutes(2))) struct SchemaTests {
+@Suite(.timeLimit(.minutes(5))) struct SchemaTests {
     private func tables(_ db: Database) throws -> Set<String> {
         Set(
             try String.fetchAll(

@@ -17,7 +17,7 @@ import { Segmented } from '../components/ui/Segmented';
 import { Skeleton } from '../components/ui/Spinner';
 import { useDebounced, useNow } from '../lib/hooks';
 import { plural } from '../lib/format';
-import { isDueNow } from '../lib/schedule';
+import { splitByDue } from '../lib/home';
 
 type Query = NonNullable<ListTopicsData['query']>;
 type StatusFilter = NonNullable<Query['status']>;
@@ -48,31 +48,6 @@ function asStatus(v: string | null): StatusFilter {
 }
 function asSort(v: string | null): Sort {
   return SORTS.find((s) => s.value === v)?.value ?? 'due';
-}
-
-interface Sections {
-  due: TopicSummary[];
-  upcoming: TopicSummary[];
-  other: TopicSummary[];
-}
-
-/**
- * Split a due-sorted list into "Due now", "Coming up" (scheduled) and the rest, keeping
- * the server's order within each (longest overdue first, then soonest next slot).
- */
-export function splitByDue(items: readonly TopicSummary[], now: Date): Sections {
-  const out: Sections = { due: [], upcoming: [], other: [] };
-  for (const t of items) {
-    if (t.status === 'active' && isDueNow(t.due, now)) out.due.push(t);
-    else if (t.status === 'active' && t.schedule) out.upcoming.push(t);
-    else out.other.push(t);
-  }
-  out.upcoming.sort(
-    (a, b) =>
-      Date.parse(a.due?.next_due_at ?? '9999-12-31') -
-      Date.parse(b.due?.next_due_at ?? '9999-12-31'),
-  );
-  return out;
 }
 
 export function TopicsPage() {

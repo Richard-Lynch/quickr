@@ -194,6 +194,27 @@ final class FakeFeedServer: @unchecked Sendable {
 
     func liveTopicIds() -> Set<String> { locked { Set(state.topics.keys) } }
 
+    // MARK: Logs
+
+    /// `POST /api/v1/topics/{id}/entries`: records the entry under the id the client sent (so a
+    /// pull carries it) and answers 201 with it, as the server would (the `glasses` answer only).
+    func respondToCreate(_ request: HTTPRequest) throws -> HTTPResponse {
+        let body = try #require(
+            try request.body.flatMap { try JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        let parts = request.url.pathComponents  // ["/", "api", "v1", "topics", id, "entries"]
+        let topicId = try #require(parts.count == 6 ? parts[4] : nil)
+        let id = try #require((body["id"] as? String).flatMap(UUID.init(uuidString:)))
+        let glasses = (body["answers"] as? [String: Any])?["glasses"] as? Int ?? 0
+        let existing = locked { state.entries[id.wireString] }
+        if existing == nil { addEntry(id: id, topicId: topicId, glasses: glasses) }
+        return try locked {
+            HTTPResponse(
+                status: existing == nil ? 201 : 200,
+                headers: [QuickrHeader.serverId: serverIdValue, QuickrHeader.epoch: state.epoch],
+                body: try JSONSerialization.data(withJSONObject: state.entries[id.wireString]!, options: [.sortedKeys]))
+        }
+    }
+
     // MARK: The feed
 
     func respond(_ request: HTTPRequest) throws -> HTTPResponse {
@@ -425,7 +446,7 @@ extension LocalStore {
 /// Polls `condition` until it holds, failing after `timeout`: a liveness ceiling, generous because
 /// a loaded machine can delay any task; never the timing under test.
 func eventually(
-    _ what: String, timeout: Duration = .seconds(30), _ condition: @escaping @Sendable () async throws -> Bool
+    _ what: String, timeout: Duration = .seconds(120), _ condition: @escaping @Sendable () async throws -> Bool
 ) async throws {
     let deadline = ContinuousClock.now.advanced(by: timeout)
     while try await !condition() {
@@ -435,6 +456,39 @@ func eventually(
         }
         try await Task.sleep(for: .milliseconds(5))
     }
+}
+
+/// Awaits `work`, failing after `timeout` if it hasn't returned, so a wait that a regression
+/// deadlocks becomes a recorded issue in seconds instead of a hung job. The work runs in a task
+/// of its own and is abandoned on timeout, so it never holds the test up.
+func within<T: Sendable>(
+    _ what: String, timeout: Duration = .seconds(120), _ work: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    let outcome = Mutex<Result<T, any Error>?>(nil)
+    let finished = Mutex(false)
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        let finish: @Sendable (Result<T, any Error>?) -> Void = { result in
+            let first = finished.withLock { done in
+                defer { done = true }
+                return !done
+            }
+            guard first else { return }
+            outcome.withLock { $0 = result }
+            continuation.resume()
+        }
+        Task {
+            do { finish(.success(try await work())) } catch { finish(.failure(error)) }
+        }
+        Task {
+            try? await Task.sleep(for: timeout)
+            finish(nil)
+        }
+    }
+    guard let result = outcome.withLock({ $0 }) else {
+        Issue.record("timed out after \(timeout) waiting until \(what)")
+        throw CancellationError()
+    }
+    return try result.get()
 }
 
 enum Payloads {

@@ -64,39 +64,42 @@ public struct NumberStepper: View {
 
     private var field: some View {
         let shape = RoundedRectangle(cornerRadius: QuickrMetrics.controlRadius, style: .continuous)
-        return TextField(text: $text, prompt: prompt) { Text(label) }
-            .focused(focus ?? $ownFocus)
-            .keyboardType(keyboard)
-            .multilineTextAlignment(.center)
-            .font(size == .regular ? .qr(.mono) : .qr(.monoSemiBold, size: 18, relativeTo: .title3))
-            .monospacedDigit()
-            .foregroundStyle(.qr.ink)
-            .padding(.leading, 12)
-            .padding(.trailing, unit == nil ? 12 : 52)
-            .frame(maxHeight: .infinity)
-            .background(Color.qr.surface, in: shape)
-            .overlay(alignment: .trailing) {
-                if let unit {
-                    Text(unit)
-                        .font(.qr(.sansMedium, size: 14, relativeTo: .subheadline))
-                        .foregroundStyle(.qr.muted)
-                        .padding(.trailing, 16)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
+        // The unit sits beside the digits at its own (scaled) width, so a long unit or an
+        // accessibility text size never runs the value into it ("30min").
+        return HStack(spacing: 6) {
+            TextField(text: $text, prompt: prompt) { Text(label) }
+                .focused(focus ?? $ownFocus)
+                .keyboardType(keyboard)
+                .multilineTextAlignment(.center)
+                .font(size == .regular ? .qr(.mono) : .qr(.monoSemiBold, size: 18, relativeTo: .title3))
+                .monospacedDigit()
+                .foregroundStyle(.qr.ink)
+                .accessibilityValue(
+                    unit.map { text.isEmpty ? "Empty" : "\(text) \($0)" } ?? (text.isEmpty ? "Empty" : text)
+                )
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: step(.up)
+                    case .decrement: step(.down)
+                    @unknown default: break
+                    }
                 }
+            if let unit {
+                Text(unit)
+                    .font(.qr(.sansMedium, size: 14, relativeTo: .subheadline))
+                    .foregroundStyle(.qr.muted)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .accessibilityHidden(true)
+                    .onTapGesture { (focus ?? $ownFocus).wrappedValue = true }
             }
-            .overlay(shape.strokeBorder(borderColor, lineWidth: 1))
-            .background(shape.inset(by: -3).fill(isFocused && !isInvalid ? Color.qr.accent.opacity(0.2) : .clear))
-            .accessibilityValue(
-                unit.map { text.isEmpty ? "Empty" : "\(text) \($0)" } ?? (text.isEmpty ? "Empty" : text)
-            )
-            .accessibilityAdjustableAction { direction in
-                switch direction {
-                case .increment: step(.up)
-                case .decrement: step(.down)
-                @unknown default: break
-                }
-            }
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, unit == nil ? 12 : 14)
+        .frame(maxHeight: .infinity)
+        .background(Color.qr.surface, in: shape)
+        .overlay(shape.strokeBorder(borderColor, lineWidth: 1))
+        .background(shape.inset(by: -3).fill(isFocused && !isInvalid ? Color.qr.accent.opacity(0.2) : .clear))
     }
 
     private var prompt: Text {

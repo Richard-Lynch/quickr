@@ -85,4 +85,25 @@ public enum TransportError: Error, Sendable, Hashable {
 /// throw only `TransportError`. The production one wraps a foreground `URLSession`.
 public protocol Transport: Sendable {
     func send(_ request: HTTPRequest) async throws -> HTTPResponse
+
+    /// Sends `request` like ``send(_:)``, but a 2xx response's body goes to the file
+    /// `destination` (created; the caller owns it) and the returned body is empty: an export is
+    /// never held in memory. Any other status's body (a problem) comes back as usual and nothing
+    /// is written. The default writes what ``send(_:)`` returns; the production transport
+    /// streams to disk.
+    func download(_ request: HTTPRequest, to destination: URL) async throws -> HTTPResponse
+}
+
+extension Transport {
+    public func download(_ request: HTTPRequest, to destination: URL) async throws -> HTTPResponse {
+        var response = try await send(request)
+        guard (200..<300).contains(response.status) else { return response }
+        do {
+            try response.body.write(to: destination)
+        } catch {
+            throw TransportError.failed("couldn’t write the download: \(error)", requestStarted: true)
+        }
+        response.body = Data()
+        return response
+    }
 }
