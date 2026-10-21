@@ -269,8 +269,8 @@ def test_question_set_unique_labels_case_insensitive() -> None:
 
 
 def test_question_set_bounds() -> None:
-    with pytest.raises(ValidationError):
-        QuestionSet.model_validate({"questions": []})
+    # None is a single topic; more than the limit is refused.
+    assert QuestionSet.model_validate({"questions": []}).questions == []
     many = [{"key": f"q{i}", "label": f"Q{i}", "type": "int"} for i in range(101)]
     with pytest.raises(ValidationError):
         QuestionSet.model_validate({"questions": many})

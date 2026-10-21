@@ -106,8 +106,7 @@ async def test_create_rejects_bad_question_config(client: httpx.AsyncClient) -> 
         {"loc": ["body", "questions", 0, "max"], "message": "max must be greater than or equal to min"}
     ]
 
-    r = await client.post("/topics", json={"name": "x", "questions": []})
-    assert r.status_code == 422
+    # No questions is a valid (single) topic: tests/test_single_topics.py.
 
 
 async def test_update_topic_metadata(client: httpx.AsyncClient) -> None:
@@ -303,7 +302,7 @@ async def test_slug_conflict_has_field_location(client: httpx.AsyncClient) -> No
 
 
 async def test_request_validation_uses_problem_envelope(client: httpx.AsyncClient) -> None:
-    r = await client.post("/topics", json={"name": "", "questions": []})
+    r = await client.post("/topics", json={"name": "", "questions": "none"})
     assert r.status_code == 422
     body = r.json()
     assert body["code"] == "invalid_request"

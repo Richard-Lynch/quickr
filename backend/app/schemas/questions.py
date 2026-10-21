@@ -231,7 +231,7 @@ def _check_question_list(questions: list[Any]) -> list[Any]:
 
 QuestionList = Annotated[
     list[Question],
-    Field(min_length=1, max_length=MAX_QUESTIONS),
+    Field(min_length=0, max_length=MAX_QUESTIONS),
     AfterValidator(_check_question_list),
 ]
 
