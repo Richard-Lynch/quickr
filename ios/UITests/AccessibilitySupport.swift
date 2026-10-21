@@ -64,6 +64,7 @@ extension XCTestCase {
     ) throws {
         var used = Set<Int>()
         var accepted: [String] = []
+        var unexpected: [String] = []
         try app.performAccessibilityAudit(for: types) { issue in
             guard let element = issue.element else { return false }
             let frame = element.frame
@@ -79,10 +80,17 @@ extension XCTestCase {
                     return issue.auditType == entry.type
                         && (identifier == entry.element || (!entry.element.isEmpty && label.contains(entry.element)))
                 })
-            else { return false }
+            else {
+                // Reported below with the element, which the audit's own failure leaves out.
+                unexpected.append("\(issue.compactDescription) [\(identifier) \"\(label)\" \(frame)]")
+                return true
+            }
             used.insert(index)
             accepted.append("\(known[index].finding): \(issue.compactDescription) [\(identifier) \"\(label)\"]")
             return true
+        }
+        for issue in unexpected {
+            XCTFail("Accessibility audit: \(issue)", file: file, line: line)
         }
         for (index, entry) in known.enumerated() where !used.contains(index) {
             XCTFail("Known accessibility issue no longer occurs; remove it: \(entry)", file: file, line: line)

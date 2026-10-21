@@ -64,8 +64,6 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: quickR
-        # QuickrApplication: the VoiceOver magic tap runs a toast's Undo (App/QuickrApplication.swift).
-        NSPrincipalClass: QuickrApplication
         # Export compliance, answered once for every TestFlight/App Store build: the app's only
         # encryption is the OS's own (TLS through URLSession, the Keychain), which is exempt.
         # Set it to true if the app ever ships its own cryptography (ios/README.md, TestFlight).

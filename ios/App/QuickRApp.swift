@@ -27,7 +27,8 @@ struct QuickRApp: App {
         let environment = AppEnvironment.bootstrap()
         #endif
         _environment = State(initialValue: environment)
-        QuickrApplication.current?.toasts = environment.toasts
+        // The VoiceOver magic tap runs a toast's Undo (App/QuickrApplication.swift).
+        QuickrApplication.install(toasts: environment.toasts)
         // Before the app delegate's `didFinishLaunching` makes the responder the center's delegate.
         NotificationResponder.shared.attach(environment)
         // Before launch ends, as BGTaskScheduler requires.
