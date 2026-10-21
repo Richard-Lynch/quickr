@@ -21,6 +21,8 @@ final class AppEnvironment {
     let router = Router()
     /// The sync pill and sheet's state, and the network and timer flush triggers (SYNC-UX).
     let sync: SyncController
+    /// Reloads the widgets when what they show changes (WIDGETS).
+    let widgets = WidgetReloader()
     /// Every screen's toasts, hosted once at the root so a toast outlives navigation.
     let toasts = ToastCenter()
     /// How far above the bottom toasts sit: a screen with a sticky bar (Record's Save) raises them

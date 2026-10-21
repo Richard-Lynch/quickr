@@ -54,9 +54,10 @@ import Testing
 
         let mood = try #require(try await TopicEntityQuery().entities(for: [PlaceholderTopicRepository.mood]).first)
         let configured = SelectTopicIntent(topic: mood)
-        #expect(await TopicProvider.snapshotEntry(for: configured).topic?.name == "Mood")
-        #expect(TopicProvider.timeline(for: configured).entries.map(\.topic?.name) == ["Mood"])
-        #expect(TopicProvider.timeline(for: SelectTopicIntent()).entries.map(\.topic?.name) == [nil])
+        #expect(await TopicProvider.snapshotEntry(for: configured).topic?.topic.name == "Mood")
+        let timeline = await TopicProvider.timeline(for: configured)
+        #expect(!timeline.entries.isEmpty && timeline.entries.allSatisfy { $0.topic?.topic.name == "Mood" })
+        #expect(await TopicProvider.timeline(for: SelectTopicIntent()).entries.allSatisfy { $0.topic == nil })
     }
 
     /// The app's write path: a number and an option, durably queued in the active store with
