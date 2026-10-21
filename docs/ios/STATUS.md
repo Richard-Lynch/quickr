@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- UIT-6 stall (not reproduced): once, on iOS 27 under load from other simulators, the app never went idle on the record screen just after a topic was created. Every XCUITest action waited out the 120 s "wait for app to idle" ("App animations complete notification not received", 4×), so TopicLifecycleUITests overran its 5 min allowance; the screen looked static. Not reproduced in 6 further runs (test times 102–129 s), with the app's log stream and periodic `sample` showing nothing stuck. Ruled out: the A11Y shared code (not in that build), PerfProbe (passive), and the full keyboard on the int field (by design: no minimum means negatives are allowed). If it recurs, sample the app during the stall and check the record screen's `.task`s and any repeating animation.
 - Tooling: `make ios-uitest-e2e` doesn't pass the IOS_SIM_DEFAULTED marker, so a plain run picks the shared base device rather than the worktree clone (it still counts toward the cap). Extend simcap's per-target defaulting to it.
 - LIST flake: EntriesTests.testAccessibilityXXXL. The swipe-Delete button can land under the home indicator in the full-plan layout (it passes alone 2/2; seen by TOPIC).
 - Tooling: xcodebuild sometimes hangs after the tests finish (seen by TOPIC); the watchdog kills it once the results are written. Investigate the 60 s post-final-line deadline.
