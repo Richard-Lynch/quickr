@@ -163,7 +163,10 @@ final class BuilderUITests: XCTestCase {
     func testANewQuestionsFieldsAtTheLargestTextSize() throws {
         let app = launch(open: "quickr://new", extra: AccessibilityLaunch.arguments())
         XCTAssertTrue(app.textFields["newTopic.name"].waitForExistence(timeout: 15))
-        addQuestion("int", label: nil, prefix: "newTopic", in: app)  // it starts with none; no keyboard
+        // It starts with none. Typed like a user, Return puts the keyboard away (the helper's tap on
+        // the bar doesn't).
+        addQuestion("int", label: "Steps\n", prefix: "newTopic", in: app)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
         let label = app.textFields["newTopic.q0.label"]
         scrollTo(label, in: app)
         XCTAssertTrue(label.waitForExistence(timeout: 15))
@@ -208,10 +211,10 @@ final class BuilderUITests: XCTestCase {
 
     // MARK: Helpers
 
-    /// "Add question" → `type`, then types its label into the new (open) card (nil: leaves it).
+    /// "Add question" → `type`, then types its label into the new (open) card.
     @MainActor
     private func addQuestion(
-        _ type: String, label: String?, prefix: String = "editQuestions", in app: XCUIApplication
+        _ type: String, label: String, prefix: String = "editQuestions", in app: XCUIApplication
     ) {
         let count = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier BEGINSWITH %@ AND identifier ENDSWITH '.header'", "\(prefix).q")
@@ -225,7 +228,6 @@ final class BuilderUITests: XCTestCase {
         scrollTo(field, in: app, up: true)
         scrollTo(field, in: app)
         XCTAssertTrue(field.waitForExistence(timeout: 5))
-        guard let label else { return }
         field.tap()
         field.typeText(label)
         dismissKeyboard(app)
