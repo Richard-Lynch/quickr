@@ -187,6 +187,11 @@ public enum DeviceProbe {
         public var description: String { "a newer run started" }
     }
 
+    /// The NSE's deadline passed while a step waited for the lock.
+    public struct OutOfTime: Error, CustomStringConvertible {
+        public var description: String { "out of time waiting for the probe's lock" }
+    }
+
     // MARK: - Files
 
     /// The probe's files, under `<App Group>/Library/quickr/dprobe/`.
@@ -279,8 +284,15 @@ public enum DeviceProbe {
         /// Runs `body` under the lock unless another run than `run` is current (the app's own
         /// re-registration when its hold ends, which must not overwrite a newer probe's set).
         public func unlessAnotherRun(_ run: String, _ body: () async -> Void) async {
-            try? await exclusively {
-                guard currentRunId().map({ $0 == run }) ?? true else { return }
+            do {
+                try await exclusively {
+                    guard currentRunId().map({ $0 == run }) ?? true else { return }
+                    await body()
+                }
+            } catch {
+                // Without the lock, re-registering the real table still beats leaving it missing.
+                DeviceProbe.log.error(
+                    "dprobe: no lock (\(String(describing: error), privacy: .public)); re-registering anyway")
                 await body()
             }
         }
@@ -302,8 +314,13 @@ public enum DeviceProbe {
         /// neither a later test push nor a runner still going acts on an abandoned probe.
         public func cancelPending() {
             guard FileManager.default.fileExists(atPath: root.path) else { return }
-            try? exclusivelyNow {
-                for url in [request, currentRun] { try? FileManager.default.removeItem(at: url) }
+            let remove = { for url in [request, currentRun] { try? FileManager.default.removeItem(at: url) } }
+            do {
+                try exclusivelyNow(remove)
+            } catch {
+                DeviceProbe.log.error(
+                    "dprobe: no lock (\(String(describing: error), privacy: .public)); cancelling anyway")
+                remove()
             }
         }
 
@@ -426,6 +443,8 @@ public struct DeviceProbeRunner: Sendable {
             }
         } catch is DeviceProbe.Superseded {
             record(request, "stopped", note: "a newer run started")
+        } catch let error as DeviceProbe.OutOfTime {
+            record(request, "timeout", note: error.description)
         } catch {
             record(request, "error", note: String(describing: error))
         }
@@ -505,7 +524,7 @@ public struct DeviceProbeRunner: Sendable {
                 registry: try freshRegistry("d9-\(request.run)-\(process.rawValue)"), center: timing)
             let rows = DeviceProbe.rows(size: size, process: process)
             let expected = Set(rows.map(\.category.id))
-            let (start, registered) = try await registerIfCurrent(request) {
+            let (start, registered) = try await registerIfCurrent(request, deadline: deadline) {
                 let start = DeviceProbe.uptime()
                 try await categories.register(rows)
                 return (start, DeviceProbe.uptime())
@@ -527,12 +546,22 @@ public struct DeviceProbeRunner: Sendable {
     /// Runs `change` (a registration) under the probe's lock, while this run is still the current
     /// one.
     @discardableResult
-    private func registerIfCurrent<T>(_ request: DeviceProbe.Request, _ change: () async throws -> T) async throws -> T
-    {
+    private func registerIfCurrent<T>(
+        _ request: DeviceProbe.Request, deadline: UInt64? = nil, _ change: () async throws -> T
+    ) async throws -> T {
         try await files.exclusively {
             guard files.isCurrent(request.run) else { throw DeviceProbe.Superseded() }
+            guard !past(deadline) else { throw DeviceProbe.OutOfTime() }
             return try await change()
         }
+    }
+
+    /// D8's check before each registration: still the current run (under the lock), and in time.
+    /// The registration itself runs outside the probe's lock, so the two sides enter §5.2's
+    /// `register` concurrently, as §5.4 asks; only the registry's own lock orders them. A claim
+    /// landing in between affects at most that one round of the old run, which stops next round.
+    private func ensureCurrent(_ request: DeviceProbe.Request, deadline: UInt64? = nil) async throws {
+        try await registerIfCurrent(request, deadline: deadline) {}
     }
 
     /// When `notificationCategories()` first included all of `expected` (uptime ns; nil if it
@@ -573,10 +602,9 @@ public struct DeviceProbeRunner: Sendable {
             files.write([Int64(round), Int64(rendezvous)], to: files.appRound(request.run))
             await sleep(until: rendezvous)
             guard !Task.isCancelled else { return }
+            try await ensureCurrent(request)
             let start = DeviceProbe.uptime()
-            try await registerIfCurrent(request) {
-                try await categories.register(DeviceProbe.d8Rows(round: round, process: .app))
-            }
+            try await categories.register(DeviceProbe.d8Rows(round: round, process: .app))
             let end = DeviceProbe.uptime()
             guard let nse = await nseAttempt(request, round: round) else {
                 record(request, "timeout", round: round, note: "the NSE didn't finish this round")
@@ -633,10 +661,9 @@ public struct DeviceProbeRunner: Sendable {
             if app.count == 2, app[0] > last {
                 await sleep(until: UInt64(app[1]))
                 guard !stopped(deadline) else { break }
+                try await ensureCurrent(request, deadline: deadline)
                 let start = DeviceProbe.uptime()
-                try await registerIfCurrent(request) {
-                    try await categories.register(DeviceProbe.d8Rows(round: Int(app[0]), process: .nse))
-                }
+                try await categories.register(DeviceProbe.d8Rows(round: Int(app[0]), process: .nse))
                 let end = DeviceProbe.uptime()
                 files.write([app[0], Int64(start), Int64(end)], to: files.nseRound(request.run))
                 last = app[0]

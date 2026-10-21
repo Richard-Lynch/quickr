@@ -226,6 +226,20 @@ import Testing
         #expect(!w.files.isCurrent("r"), "and a runner still going stops")
     }
 
+    @Test func aStepThatWaitedForTheLockPastTheDeadlineTimesOut() async throws {
+        let w = try await World()
+        let request = DeviceProbe.Request(kind: .d9, run: "r", sizes: [10])
+        try w.files.write(request)
+        // Another holder keeps the lock past the NSE's deadline.
+        async let holder: Void? = try? w.files.exclusively { try? await Task.sleep(for: .milliseconds(300)) }
+        try await Task.sleep(for: .milliseconds(20))
+        await w.runner(.nse, FakeNotificationCenter()).run(request, until: Self.from(now: 0.1))
+        _ = await holder
+        #expect(w.records("size").isEmpty)
+        #expect(w.records("timeout").first?.note?.contains("lock") == true)
+        #expect(w.records("done").first?.ok == true, "it still restores")
+    }
+
     @Test func d9StopsAtTheDeadline() async throws {
         let w = try await World()
         let request = DeviceProbe.Request(kind: .d9, run: "r", sizes: [10, 20])
