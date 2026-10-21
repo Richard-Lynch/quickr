@@ -7,6 +7,7 @@ import SwiftUI
 struct EntryDetailsSection<Model: EntryDetailsEditing>: View {
     @Bindable var model: Model
     let idPrefix: String
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         DisclosureGroup(isExpanded: $model.showsDetails) {
@@ -69,14 +70,26 @@ struct EntryDetailsSection<Model: EntryDetailsEditing>: View {
             }
             .padding(.top, 10)
         } label: {
-            HStack(spacing: 8) {
-                QIcon.clock.view(size: 16).foregroundStyle(.qr.muted)
-                Text("Details").font(.qr(.callout))
-                Text(summary).font(.qr(.subheadline)).foregroundStyle(.qr.muted).lineLimit(1)
+            // One line, or the summary under "Details" at accessibility sizes, where it would be
+            // cut to a few characters (a11y E1).
+            let layout =
+                typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(spacing: 8))
+            layout {
+                HStack(spacing: 8) {
+                    QIcon.clock.view(size: 16).foregroundStyle(.qr.muted)
+                    Text("Details").font(.qr(.callout))
+                }
+                Text(summary).font(.qr(.subheadline)).foregroundStyle(.qr.muted)
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                 if !model.metaErrors.isEmpty {
                     QIcon.alert.view(size: 14).foregroundStyle(.qr.danger)
                 }
             }
+            // The error is read, not only seen (E2): the icon is decorative.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                "Details, \(summary)" + (model.metaErrors.isEmpty ? "" : ", has errors"))
         }
         .tint(.qr.inkSoft)
         .padding(16)

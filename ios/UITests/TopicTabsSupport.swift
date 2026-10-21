@@ -44,8 +44,9 @@ extension XCTestCase {
             let selected = picker.buttons.matching(NSPredicate(format: "isSelected == true")).firstMatch
             return selected.exists ? selected.label : nil
         }
-        // A menu picker's value is its selected option.
-        return picker.value as? String
+        // A menu picker's value is its selected option (the app sets it); else its label shows it.
+        if let value = picker.value as? String, !value.isEmpty { return value }
+        return picker.label
     }
 
     /// The picker, as whichever it is now: the segmented control or the menu's button.

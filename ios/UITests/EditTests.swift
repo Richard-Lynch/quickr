@@ -262,15 +262,14 @@ final class EditTests: XCTestCase {
 
     /// At the largest accessibility size the form, Details and both buttons are reachable.
     @MainActor
-    func testAccessibilityXXXL() {
+    func testAccessibilityXXXL() throws {
         // By link: at this size the list's tall header and pinned rows keep the row off screen.
-        let app = launch(
-            open: "quickr://t/water/entries/\(newest)",
-            ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let app = launch(open: "quickr://t/water/entries/\(newest)", AccessibilityLaunch.arguments())
         let glasses = app.textFields["form.field.glasses"]
         XCTAssertTrue(glasses.waitForExistence(timeout: 20))
         XCTAssertTrue(glasses.isHittable)
         XCTAssertTrue(app.buttons["edit.save"].isHittable)
+        try assertAccessible(app, allowing: EntriesAccessibility.edit)
         // Delete is the form's last row: scroll to it.
         let delete = app.buttons["edit.delete"]
         for _ in 0..<6 where !delete.isHittable { app.swipeUp() }

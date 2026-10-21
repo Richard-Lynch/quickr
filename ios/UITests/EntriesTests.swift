@@ -102,42 +102,25 @@ final class EntriesTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["entries.count"].waitForExistence(timeout: 10))
     }
 
-    /// At the largest accessibility size: rows, filters (a menu) and delete still work.
+    /// At the largest accessibility size: rows, filters (a menu) and delete still work, and the
+    /// list passes the accessibility audit. Delete is a long press (a11y L1): a row is ~400 pt tall
+    /// here, and its swipe's button can land under the home indicator.
     @MainActor
-    func testAccessibilityXXXL() {
-        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+    func testAccessibilityXXXL() throws {
+        let app = launch(AccessibilityLaunch.arguments())
         XCTAssertTrue(app.buttons["entries.range"].waitForExistence(timeout: 5), "a menu at this size")
-        // A row is ~400 pt tall here: "hittable" (any part on screen) can leave its middle at the
-        // home indicator, where a swipe isn't the row's. Scroll a little at a time until its middle
-        // is well inside the screen, then swipe there.
+        try assertAccessible(app, allowing: EntriesAccessibility.list)
         let first = rows(app, "entry.").firstMatch
-        let window = app.windows.firstMatch.frame
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
-        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
-        for _ in 0..<15 where !(first.exists && first.frame.midY < window.height * 0.7) {
-            start.press(forDuration: 0.05, thenDragTo: end)
-        }
-        XCTAssertTrue(first.exists && first.frame.midY < window.height * 0.7, "the first row, in view")
+        for _ in 0..<15 where !(first.exists && first.isHittable) { app.swipeUp() }
+        XCTAssertTrue(first.isHittable, "the first row, in view")
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "entries-ax-xxxl"
         shot.lifetime = .keepAlways
         add(shot)
-        let middle = max(first.frame.minY, window.minY + 120) / 2 + min(first.frame.maxY, window.height * 0.8) / 2
-        let row = app.coordinate(withNormalizedOffset: .zero)
-        row.withOffset(CGVector(dx: window.width * 0.85, dy: middle))
-            .press(forDuration: 0.05, thenDragTo: row.withOffset(CGVector(dx: window.width * 0.15, dy: middle)))
-        let delete = app.buttons["entry.delete"].firstMatch
-        XCTAssertTrue(delete.waitForExistence(timeout: 5), "the row's Delete action")
+        first.press(forDuration: 1.2)
+        let delete = app.buttons["entry.contextDelete"].firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), "the row's Delete, from its menu")
         delete.tap()
         XCTAssertTrue(app.staticTexts["Entry deleted"].waitForExistence(timeout: 5))
-    }
-}
-
-extension XCUIElement {
-    /// Waits up to 10 s for the label to start with `prefix`.
-    func waitForLabelPrefix(_ prefix: String, timeout: TimeInterval = 10) -> Bool {
-        let predicate = NSPredicate(format: "label BEGINSWITH %@", prefix)
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: self)
-        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 }

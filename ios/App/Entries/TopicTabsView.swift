@@ -18,6 +18,8 @@ struct TopicTabsView: View {
                 ForEach(TopicTab.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            // The menu's button names the tab it is on (VoiceOver, and UI tests at AX sizes).
+            .accessibilityValue(tab.rawValue.capitalized)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .accessibilityIdentifier("topic.tabs")
