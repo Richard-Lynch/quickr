@@ -82,6 +82,26 @@ import Testing
         #expect(NotificationPreparation.isWellFormed(Self.info(.single)))
     }
 
+    /// A quick_log type this build doesn't know (a newer server's) is a plain reminder: the payload
+    /// still reads (slot, url, a well-formed reminder), with no descriptor, so no actions. Before,
+    /// the whole `quickr` object failed to decode. A known type that's malformed still fails.
+    @Test func anUnknownQuickLogTypeIsAPlainReminder() throws {
+        func payload(_ quickLog: [String: Any]) -> [AnyHashable: Any] {
+            [
+                "quickr": [
+                    "v": 1, "kind": "due", "server_id": Self.server, "topic_id": Self.topic, "version": 3,
+                    "due_since": "2026-03-04T11:00:00Z", "url": "/t/water/record", "quick_log": quickLog,
+                ] as [String: Any]
+            ]
+        }
+        let info = try #require(QuickrNotificationInfo(userInfo: payload(["type": "stars", "max": 5])))
+        #expect(info.quickLog == nil && info.slot != nil && info.url == "/t/water/record")
+        #expect(NotificationPreparation.isWellFormed(info))
+        #expect(SystemNotificationCenter.quickr(payload(["type": "stars"]))?.quickLog == nil)
+        #expect(QuickrNotificationInfo(userInfo: payload(["type": "single"]))?.quickLog == .single)
+        #expect(QuickrNotificationInfo(userInfo: payload(["type": "enum"])) == nil, "a known type, malformed")
+    }
+
     static func info(_ quickLog: QuickLogDescriptor, version: Int = 3) -> QuickrNotificationInfo {
         QuickrNotificationInfo(
             kind: "due", serverId: server, topicId: topic, version: version, quickLog: quickLog)

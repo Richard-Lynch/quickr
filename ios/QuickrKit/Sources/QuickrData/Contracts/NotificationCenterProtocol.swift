@@ -161,7 +161,12 @@ public struct QuickrNotificationInfo: Codable, Sendable, Hashable {
         version = try container.decodeIfPresent(Int.self, forKey: .version)
         dueSince = try container.decodeIfPresent(String.self, forKey: .dueSince)
         url = try container.decodeIfPresent(String.self, forKey: .url)
-        quickLog = try container.decodeIfPresent(QuickLogDescriptor.self, forKey: .quickLog)
+        // A quick_log type this build doesn't know (a newer server's) is a plain reminder: no
+        // actions, a tap opens the topic. The rest of the payload still counts (slot, badge).
+        let tagged = try container.decodeIfPresent(QuickLogDescriptor.Tag.self, forKey: .quickLog)
+        quickLog =
+            tagged.map { QuickLogDescriptor.knownTypes.contains($0.type) } == true
+            ? try container.decode(QuickLogDescriptor.self, forKey: .quickLog) : nil
         prefill = try container.decodeIfPresent([String: String].self, forKey: .prefill)
     }
 
@@ -291,6 +296,14 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
     }
 
     private enum TagKeys: String, CodingKey { case type }
+
+    /// The `type` values this build reads; any other quick_log is ignored (a plain reminder).
+    static let knownTypes: Set<String> = ["enum", "int", "double", "single"]
+
+    /// Just a quick_log's `type`, to tell a known one from a newer server's.
+    struct Tag: Decodable {
+        var type: String
+    }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: TagKeys.self)
