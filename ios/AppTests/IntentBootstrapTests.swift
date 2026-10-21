@@ -76,10 +76,15 @@ import Testing
         coffee.schedule = .interval(.init(everyMinutes: 50, timezone: "UTC"))
         coffee.createdAt = now.addingTimeInterval(-86_400)
         coffee.scheduleUpdatedAt = coffee.createdAt
-        coffee.lastCapturedAt = now.addingTimeInterval(skew - 40 * 60)
         coffee.revision += 1
+        // The store derives the last entry from its entries.
+        let logged = now.addingTimeInterval(skew - 40 * 60)
+        let entry = Entry(
+            id: UUID(), topicId: coffee.id, version: coffee.currentVersion, revision: 1, source: "test", channel: .ios,
+            capturedAt: logged, createdAt: logged, updatedAt: logged, answers: [:])
         try await store.writer.write { [coffee] db in
             _ = try ServerLayer.upsert(db, topic: coffee)
+            _ = try ServerLayer.upsert(db, entry: entry)
             try db.execute(sql: "UPDATE sync_state SET skew_ms = ? WHERE id = 1", arguments: [skew * 1000])
         }
         WidgetBootstrap.register(location: location)

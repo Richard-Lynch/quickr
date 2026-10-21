@@ -189,6 +189,30 @@ import Testing
         #expect(dates.first == now && dates == dates.sorted())
     }
 
+    /// The due-first order is the server's (Codex r2's case): Daily, due at 08:00 and 09:00 and
+    /// never logged, against Half, logged at 08:00 every 30 min (due since 08:30). At device 08:58
+    /// the device clock has Daily due longest (since 08:00); a server 5 min ahead is at 09:03,
+    /// where Daily's latest slot is 09:00, so Half is due longest; 5 min behind, it's still 08:53.
+    @Test(
+        arguments: [(5.0 * 60, ["Half", "Daily"]), (0, ["Daily", "Half"]), (-5.0 * 60, ["Daily", "Half"])]
+            as [(TimeInterval, [String])])
+    func theDueOrderIsTheServers(skew: TimeInterval, order: [String]) {
+        let midnight = Date(timeIntervalSince1970: 1_772_582_400)  // 2026-03-04T00:00:00Z
+        func at(_ hour: Double, _ minute: Double) -> Date { midnight.addingTimeInterval(hour * 3600 + minute * 60) }
+        var daily = Self.topic(
+            "Daily",
+            schedule: .daily(
+                .init(times: [TimeOfDay(hour: 8, minute: 0), TimeOfDay(hour: 9, minute: 0)], timezone: "UTC")),
+            lastCapturedAt: nil)
+        daily.createdAt = midnight.addingTimeInterval(-86_400)
+        daily.scheduleUpdatedAt = daily.createdAt
+        var half = Self.topic("Half", schedule: Self.every(30), lastCapturedAt: at(8, 0))
+        half.createdAt = daily.createdAt
+        half.scheduleUpdatedAt = daily.createdAt
+        let topics = [daily, half].map { WidgetTopic(topic: $0, quick: nil, lastAnswer: nil, skew: skew) }
+        #expect(WidgetTopic.dueFirst(topics, at: at(8, 58)).map(\.topic.name) == order)
+    }
+
     /// The reader reads the store's measured skew into every topic it returns.
     @Test(arguments: [5.0 * 60, -5.0 * 60])
     func theReaderCarriesTheStoresSkew(skew: TimeInterval) async throws {
