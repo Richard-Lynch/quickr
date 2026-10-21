@@ -291,6 +291,20 @@ _sim_live_holds() {
   done
 }
 
+# Whether simctl confirms device $1 isn't booted: a failed query (CoreSimulator down, a
+# device it doesn't list) confirms nothing.
+_sim_confirmed_down() {
+  local state
+  state="$(xcrun simctl list -j devices 2>/dev/null | python3 -c '
+import json, sys
+for devices in json.load(sys.stdin)["devices"].values():
+    for d in devices:
+        if d["udid"] == sys.argv[1]:
+            print(d["state"])
+' "$1" 2>/dev/null)" || return 1
+  [[ -n "$state" && "$state" != Booted && "$state" != Booting && "$state" != "Shutting Down" ]]
+}
+
 # The cap lock on fd 7 (sim_boot uses fd 8: never call it with this held).
 _sim_hold_lock() {
   exec 7>>"$SIM_CAP_LOCK"
@@ -342,7 +356,7 @@ sim_release() {
     echo "ios: shutting down $udid (booted for this run)" >&2
     # The mark goes only once it is down: a failed shutdown leaves it for the next hold to retry.
     if perl -e 'alarm shift; exec @ARGV' "${IOS_SIM_SHUTDOWN_TIMEOUT:-120}" xcrun simctl shutdown "$udid" \
-      >/dev/null 2>&1 || [[ "$(booted_clones "$udid")" != self ]]; then
+      >/dev/null 2>&1 || _sim_confirmed_down "$udid"; then
       rm -f "$dir/ours"
     else
       warn "could not shut down $udid; the next run that holds it will try again"

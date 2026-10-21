@@ -10,7 +10,9 @@ trap 'rm -rf "$fake"' EXIT
 cat >"$fake/xcrun" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
-"simctl list -j devices" | "simctl list -j devices available") exec cat "$FAKE_DEVICES" ;;
+"simctl list -j devices" | "simctl list -j devices available")
+  [[ "${FAKE_LIST_FAIL:-0}" == 1 ]] && exit 1
+  exec cat "$FAKE_DEVICES" ;;
 "simctl list devices" | "simctl list devices available")
   exec python3 -c '
 import json, sys
@@ -406,6 +408,17 @@ reap "$queued"
 [[ "$reaped" == 0 && "$(state h)" == Booted && "$(shutdowns h)" == 0 ]] \
   && echo "ok   a hold that found the device booted by hand at admission leaves it booted" \
   || fail "booted while queued: status $reaped, $(state h), $(shutdowns h) shutdowns; $(cat "$fake/queued.out")"
+
+# A failed shutdown whose state check fails too (CoreSimulator down) keeps the mark as well.
+devices "h:Shutdown:quickR iOS-26-0 hold-1"
+rm -f "$FAKE_DEVICES.shutdowns"
+out="$(perl -e 'alarm shift; exec @ARGV' 60 bash -c 'source "$1/../common.sh"; sim_hold h; export FAKE_SHUTDOWN_FAIL=1 FAKE_LIST_FAIL=1' _ "$here" 2>&1)"
+status=$?
+expect "a failed shutdown with simctl unable to list" 0 "will try again"
+[[ -e "$QUICKR_SIM_HOLDS/h/ours" ]] && echo "ok   keeps the mark: nothing confirmed the device is down" \
+  || fail "the mark was dropped without a confirmed shutdown"
+hold h; expect "the next run" 0
+[[ "$(state h)" == Shutdown ]] && echo "ok   shuts it down" || fail "after the unconfirmed shutdown: $(state h)"
 
 # TERM while queued: the run ends at once through its release (no wait on its own lock), its
 # ticket and hold gone, nothing shut down.
