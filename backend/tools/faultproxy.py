@@ -106,6 +106,7 @@ CHUNK_SIZE = re.compile(rb"[0-9A-Fa-f]{1,12}")
 STATUS_LINE = re.compile(r"HTTP/1\.[01] ([0-9]{3})(?: (.*))?")
 METHOD = re.compile(r"\*|[A-Za-z]+")
 HEADER_VALUE = re.compile(r"[\x20-\x7e]*")  # what a rule may put in a response header
+TOKEN_VALUE = re.compile(r"[\x21-\x7e]+")  # a service-token id or secret, as a header value
 
 Headers = list[tuple[str, str]]
 
@@ -383,8 +384,10 @@ class Rule:
             raise ValueError("times must be >= 1")
         if not 0 <= rule.delay_ms <= MAX_DELAY_MS:
             raise ValueError(f"delay_ms must be in 0..{MAX_DELAY_MS}")
-        if rule.action == "access" and not (rule.client_id and rule.client_secret):
-            raise ValueError("access needs client_id and client_secret")
+        if rule.action == "access" and not all(
+            value and TOKEN_VALUE.fullmatch(value) for value in (rule.client_id, rule.client_secret)
+        ):
+            raise ValueError("access needs client_id and client_secret (printable ASCII, no spaces)")
         if not 200 <= rule.status <= 599:
             # A synthetic 1xx would never be followed by a final response.
             raise ValueError("status must be a final HTTP status code (200..599)")
@@ -611,20 +614,22 @@ class FaultProxy:
         """Cloudflare Access with a Service Auth policy, deciding on the service-token headers.
         Returns the refusal, or None after swapping the token for a (fake) JWT in ``req``.
 
-        Like Access, a refusal is a ``302`` to the team's login page, or with ``strict`` (strict
-        service-token authentication) ``401`` without a token and ``403`` with a wrong one.
+        Like Access: a request without the headers goes to the team's login page (``302``). One
+        with a wrong token does too, unless ``strict`` (the organisation's strict service-token
+        authentication, which applies only to requests carrying the headers): then ``403``.
         """
         sent = {k.lower(): v for k, v in req.headers if k.lower() in (ACCESS_ID, ACCESS_SECRET)}
         if sent.get(ACCESS_ID) == rule.client_id and sent.get(ACCESS_SECRET) == rule.client_secret:
-            req.headers = [(k, v) for k, v in req.headers if k.lower() not in (ACCESS_ID, ACCESS_SECRET)]
+            # The origin sees only Access's assertion, never the token or a client-supplied one.
+            dropped = (ACCESS_ID, ACCESS_SECRET, ACCESS_JWT.lower())
+            req.headers = [(k, v) for k, v in req.headers if k.lower() not in dropped]
             req.headers.append((ACCESS_JWT, "faultproxy.access.jwt"))
             return None
-        if not rule.strict:
-            return simple_response(
-                302, "", "text/html", [("Location", f"{ACCESS_LOGIN}?redirect_url={req.path}")]
-            )
-        status = 403 if sent else 401
-        return simple_response(status, f"{status} Cloudflare Access (faultproxy)\n", "text/html")
+        if sent and rule.strict:
+            return simple_response(403, "403 Cloudflare Access (faultproxy)\n", "text/html")
+        return simple_response(
+            302, "", "text/html", [("Location", f"{ACCESS_LOGIN}?redirect_url={req.path}")]
+        )
 
     @staticmethod
     def _captive(rule: Rule) -> Response:

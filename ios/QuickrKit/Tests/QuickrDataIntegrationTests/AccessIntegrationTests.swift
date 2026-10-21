@@ -7,7 +7,10 @@ import Testing
 /// A Cloudflare Access service token end to end (PLAN B9, docs/hosting/cloudflare-access.md),
 /// with the fault proxy's `access` rule standing in for Access: it forwards only requests that
 /// carry the rule's `CF-Access-Client-Id` and `-Secret`, and refuses the others the way Access
-/// does (a 302 to its login page, or 401/403 in strict mode). The real tunnel is the H8 checklist.
+/// does: a 302 to its login page, or a 403 for a wrong token under strict service-token
+/// authentication (which leaves requests without the headers to the login page). The Keychain
+/// here is in memory; the real one is `SettingsTests` (app host) and the device checklist, and the
+/// real tunnel is the H8 checklist (docs/hosting/cloudflare-access.md §6).
 extension IntegrationTests {
     @Suite("Access") @MainActor struct AccessCases {
         static let token = AccessCredentials(clientId: "it.access", clientSecret: "it-secret")
@@ -36,7 +39,7 @@ extension IntegrationTests {
             try await Self.gate(it, strict: true)
             #expect(
                 await ServerProbe.serverId(at: it.config.proxyURL, transport: transport, credentials: none)
-                    == .failure(.accessDenied(status: 401)))
+                    == .failure(.notQuickr))
             #expect(
                 await ServerProbe.serverId(at: it.config.proxyURL, transport: transport, credentials: wrong)
                     == .failure(.accessDenied(status: 403)))
@@ -48,11 +51,13 @@ extension IntegrationTests {
                     == .success(it.config.serverId))
         }
 
-        @Test("A log goes through the gate; with the token revoked it waits unfailed; a new token sends it once")
-        func logThroughTheGate() async throws {
+        @Test(
+            "A log goes through the gate; with the token revoked it waits unfailed; a new token sends it once",
+            arguments: [false, true])
+        func logThroughTheGate(strict: Bool) async throws {
             let it = try await IT.start()
             let topic = try await it.a.createTopic()
-            try await Self.gate(it, strict: true)
+            try await Self.gate(it, strict: strict)
             let root = FileManager.default.temporaryDirectory.appending(path: "quickr-it-access-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: root) }
             let credentials = KeychainAccessCredentials(keychain: InMemoryKeychain())
@@ -79,12 +84,12 @@ extension IntegrationTests {
             // The token is revoked at Access (rotated there, not yet here): the next log is refused
             // at the gate. It stays queued for a retry, never failed, and never reaches quickR.
             try await it.proxy.reset()
-            try await Self.gate(it, secret: "rotated-secret", strict: true)
+            try await Self.gate(it, secret: "rotated-secret", strict: strict)
             let second = try await session.log(topic: topic, answers: ["n": .int(2)], version: 1)
             _ = await scheduler.waitUntilIdle()
             let waiting = try #require(try await store.item(second))
             #expect(waiting.state != .failed, "\(waiting)")
-            #expect(waiting.lastError?.status == 403, "\(waiting)")
+            #expect(waiting.lastError?.status == (strict ? 403 : 302), "\(waiting)")
             #expect(try await it.a.entry(second) == nil)
 
             // The user pastes the rotated secret in Settings and taps Retry: sent exactly once.
@@ -93,8 +98,9 @@ extension IntegrationTests {
             _ = await scheduler.flushNow(reason: .retry)
             try await eventually("the second log is delivered") { try await store.items.isEmpty }
             #expect(try await it.a.entry(second) != nil)
-            let posts = try await it.proxy.log().filter { $0.method == "POST" && $0.upstreamStatus == 201 }
-            #expect(posts.count == 1, "\(posts)")
+            // Since the revocation, exactly one POST got past the gate, and it created the entry.
+            let forwarded = try await it.proxy.log().filter { $0.method == "POST" && $0.upstream != nil }
+            #expect(forwarded.count == 1 && forwarded.first?.upstreamStatus == 201, "\(forwarded)")
             await session.shutdown()
         }
 

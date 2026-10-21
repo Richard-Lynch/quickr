@@ -54,8 +54,10 @@ can do them for you. Each one links to the page that explains it.
       it's shown once, then add a **Service Auth** policy that includes it
       ([§3](cloudflare-access.md#3-a-service-token-for-the-app)).
 - [ ] Create a separate Access application for `/mcp` with its own service token
-      (strict service-token authentication can be on there, but not on the main
-      application) ([§5](cloudflare-access.md#5-mcp)).
+      ([§5](cloudflare-access.md#5-mcp)).
+- [ ] Check that **strict service-token authentication** is on (Zero Trust ▸
+      Settings; it's on, and can't be turned off, for organisations created on or after
+      2026-10-05) ([§3](cloudflare-access.md#strict-mode)).
 - [ ] In the app, enter `https://<hostname>` and add the service token under
       **Cloudflare Access token**. Log an entry, then check that it shows up in
       the PWA ([§4](cloudflare-access.md#4-in-the-app)).

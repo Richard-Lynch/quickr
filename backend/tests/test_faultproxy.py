@@ -87,6 +87,7 @@ class FakeUpstream:
                     "server": self.server_id,
                     "echo": req.body.decode(),
                     "headers": {k.lower(): v for k, v in req.headers},
+                    "header_list": [[k.lower(), v] for k, v in req.headers],
                 }
             )
             writer.write(
@@ -263,12 +264,22 @@ async def test_access_forwards_with_the_token_and_swaps_it_for_a_jwt(h: Harness)
     assert (entry["access"], entry["upstream"]) == ("granted", "a")
 
 
+async def test_access_forwards_exactly_one_assertion(h: Harness) -> None:
+    await h.rule(action="access", sticky=True, client_id="app.access", client_secret="s3cret")
+    forged = [("Cf-Access-Jwt-Assertion", "forged"), ("cf-access-jwt-assertion", "forged-too")]
+    r = await h.client.get("/x", headers=[*TOKEN.items(), *forged])
+    assert r.status_code == 200
+    assertions = [v for k, v in r.json()["header_list"] if k == "cf-access-jwt-assertion"]
+    assert assertions == ["faultproxy.access.jwt"]
+
+
 @pytest.mark.parametrize(
     ("strict", "headers", "status"),
     [
         (False, {}, 302),
         (False, {**TOKEN, "CF-Access-Client-Secret": "wrong"}, 302),
-        (True, {}, 401),
+        # Strict mode applies only to requests carrying the headers: none still go to sign-in.
+        (True, {}, 302),
         (True, {"CF-Access-Client-Id": "app.access"}, 403),
         (True, {**TOKEN, "CF-Access-Client-Secret": "wrong"}, 403),
     ],
@@ -428,6 +439,9 @@ async def test_upstream_down_is_a_502_with_no_upstream_status(h: Harness) -> Non
         {"action": "access", "client_id": "x"},
         {"action": "access", "client_id": "x", "client_secret": ""},
         {"action": "access", "client_id": "x", "client_secret": "y", "strict": "yes"},
+        {"action": "access", "client_id": "x", "client_secret": "\n"},
+        {"action": "access", "client_id": "a b", "client_secret": "y"},
+        {"action": "access", "client_id": "x", "client_secret": "s\u00e9cret"},
     ],
 )
 async def test_rejects_bad_rules(h: Harness, rule: Any) -> None:

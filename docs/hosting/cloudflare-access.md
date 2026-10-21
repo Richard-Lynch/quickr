@@ -38,13 +38,18 @@ domain to `quickr.example.com` with no path. Give it two policies:
 The service token needs a policy whose action is **Service Auth**. Under an
 Allow policy, Access sends even a valid token to the login page.
 
-Leave **strict service-token authentication** off for this application. In
-strict mode, Access ignores Allow policies, so the PWA couldn't sign in. The app
-doesn't need strict mode. Without a valid token, Access answers with a `302` to
-its login page, and the app reads that as "something answered, but it isn't
-quickR" and offers to add a token. In strict mode the answer is `401` or `403`
-instead, and the app reads that as "access refused, check the token". Both cases
-are tested (section 6).
+What the app sees without a valid token depends on **strict service-token
+authentication** (section 3, "Strict mode"):
+
+| Request                           | Strict off              | Strict on               | The app says                                                                  |
+| --------------------------------- | ----------------------- | ----------------------- | ----------------------------------------------------------------------------- |
+| No token headers                  | `302` to the login page | `302` to the login page | "Something answered, but it isn't quickR", plus the token field               |
+| A wrong, revoked or expired token | `302` to the login page | `401` or `403`          | Strict off: as above. Strict on: "The server refused access", check the token |
+| A valid token                     | Forwarded to quickR     | Forwarded to quickR     | Connects                                                                      |
+
+The app follows no redirects and keeps no cookies, so either way it never
+mistakes the login page for quickR. Every case is tested: the `302` and `403` cases
+in section 6, and `401` by a unit test.
 
 ## 3. A service token for the app
 
@@ -59,8 +64,21 @@ are tested (section 6).
 
 ### Strict mode
 
-Strict mode only makes sense on an application that no browser uses, such as
-`/mcp` (section 5). For the main application, see section 2.
+Strict service-token authentication is an **organisation-wide** Zero Trust
+setting, not a per-application one. It changes only requests that carry
+service-token headers:
+
+- Only Service Auth policies can let such a request through.
+- A failure is a `401` or `403` instead of a `302`.
+- No `CF_Authorization` cookie is issued.
+
+Requests without the headers, such as your browser signing in to the PWA, still
+go through the Allow policy and the login page as before.
+
+Organisations created on or after 2026-10-05 have it **on**, and it can't be
+turned off. Cloudflare recommends that older organisations turn it on too. Do
+that: a mistyped or revoked token then shows up in the app as "access refused,
+check the token" rather than as a login page.
 
 ## 4. In the app
 
@@ -111,7 +129,6 @@ everything under `/mcp/`.
 
 1. Give it one **Service Auth** policy with its own token, `quickr-mcp`.
    - Keep it separate from the app's token, so either one can be revoked alone.
-   - Strict service-token authentication can be on here.
 2. Point the client at it with the two headers:
 
    ```bash
@@ -132,14 +149,16 @@ everything under `/mcp/`.
 In that suite, the fault proxy's `access` rule stands in for Access. It forwards
 a request only when the rule's `CF-Access-Client-Id` and `-Secret` are present,
 and swaps them for a (fake) `Cf-Access-Jwt-Assertion`. Otherwise it refuses the
-request the way Access does: with a `302` to a `cloudflareaccess.com` login
-page, or with `401` or `403` in strict mode.
+request the way Access does. A request without the headers gets a `302` to a
+`cloudflareaccess.com` login page. One with a wrong token also gets the `302`,
+or a `403` in strict mode.
 
 The suite checks that:
 
 - the server probe, through the real `URLSession` transport, doesn't follow the
   redirect, and reads it as "not quickR, add a token";
-- strict mode's `401` and `403` read as "access refused";
+- in strict mode, a wrong token's `403` reads as "access refused", while no
+  token still gets the login page;
 - with the token from the Keychain, onboarding connects and a log reaches the
   server;
 - with the token revoked at the gate, the log waits in the outbox, unfailed and
@@ -161,7 +180,7 @@ it stays out of your shell history:
 HOST=https://quickr.example.com
 read -r  CF_ID     # <client-id>.access
 read -rs CF_SECRET
-curl -si "$HOST/api/v1/changes?after=0&limit=1" | head -1                 # 302 (403 in strict mode)
+curl -si "$HOST/api/v1/changes?after=0&limit=1" | head -1                 # 302 (no token, either mode)
 curl -si "$HOST/api/v1/changes?after=0&limit=1" \
   -H "CF-Access-Client-Id: $CF_ID" -H "CF-Access-Client-Secret: $CF_SECRET" \
   | grep -i '^HTTP\|^x-quickr-server-id'                                  # 200 and the server id
