@@ -1,3 +1,5 @@
+// PerfSeed is compiled only in debug builds (and QUICKR_PERF ones).
+#if DEBUG || QUICKR_PERF
 import Foundation
 import QuickrCore
 import QuickrTestSupport
@@ -175,3 +177,4 @@ extension TimingTests {
         }
     }
 }
+#endif

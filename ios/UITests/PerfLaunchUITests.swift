@@ -2,9 +2,9 @@ import XCTest
 
 /// PERF: cold starts over a heavy user's store (`-QuickrPerfStore`: 10,000 entries in 20 topics,
 /// offline), on the debug build. Real time, so only with `QUICKR_UIT_PERF=1` (`make
-/// ios-perf-launch`); the UI plan skips them. The release build's cold start, which the < 1 s
-/// target is for, is `make ios-perf-cold-start`. The first launch seeds the store and isn't measured. Simulator numbers; device
-/// numbers come at M4-DEV.
+/// ios-perf-launch`); in the UI plan they skip themselves. The release build's cold start, which
+/// the < 1 s target is for, is `make ios-perf-cold-start`. The first launch seeds the store and
+/// isn't measured. Simulator numbers; device numbers come at M4-DEV.
 final class PerfLaunchUITests: XCTestCase {
     static let launches = 5
 

@@ -1,3 +1,5 @@
+// PerfSeed is compiled only in debug builds (and QUICKR_PERF ones).
+#if DEBUG || QUICKR_PERF
 import Foundation
 import GRDB
 import QuickrCore
@@ -45,12 +47,16 @@ import Testing
             let store = try #require(try await partitions.openActiveStoreIfExists())
             digests.append(
                 try await store.writer.read { db in
+                    // The server layer's entries and the whole outbox (ids, payloads, states, claims).
                     try Row.fetchAll(
                         db, sql: "SELECT id, topic_id, version, captured_at, answers_json, notes FROM entry ORDER BY id"
                     )
                     .map(\.description).joined(separator: "\n")
+                        + (try Row.fetchAll(db, sql: "SELECT * FROM outbox_item ORDER BY seq"))
+                        .map(\.description).joined(separator: "\n")
                 })
         }
         #expect(digests[0] == digests[1] && !digests[0].isEmpty)
     }
 }
+#endif

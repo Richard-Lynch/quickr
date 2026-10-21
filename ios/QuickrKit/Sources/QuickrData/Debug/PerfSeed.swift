@@ -213,9 +213,12 @@ public enum PerfSeed {
     {
         var states: [OutboxState: Int] = [:]
         let active = topics.filter { $0.status == .active }
-        func append(_ payload: OutboxPayload, id: UUID = UUID(), base: Int? = nil) throws -> OutboxItem {
-            try OutboxStorage.append(
-                db, NewOutboxItem(id: id, payload: payload, baseRevision: base, origin: .app), now: spec.now)
+        var items = 0
+        func append(_ payload: OutboxPayload, base: Int? = nil) throws -> OutboxItem {
+            items += 1
+            return try OutboxStorage.append(
+                db, NewOutboxItem(id: uuid(Ids.outbox + items), payload: payload, baseRevision: base, origin: .app),
+                now: spec.now)
         }
         func set(_ item: OutboxItem, _ state: OutboxState, reason: OutboxFailureReason? = nil, maybe: Bool = false)
             throws
@@ -300,6 +303,7 @@ public enum PerfSeed {
         static let topic = 0x10_0000_0000
         static let version = 0x20_0000_0000
         static let entry = 0x30_0000_0000
+        static let outbox = 0x40_0000_0000
     }
 
     /// The seed's n-th entry (from 1).
