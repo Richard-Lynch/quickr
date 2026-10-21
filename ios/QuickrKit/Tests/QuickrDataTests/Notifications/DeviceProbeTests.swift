@@ -526,9 +526,10 @@ private final class TestClock: Sendable {
 
     var now: @Sendable () -> UInt64 {
         { [self] in
-            value.withLock {
-                defer { $0 += step }
-                return $0
+            value.withLock { current in
+                // A named parameter: Xcode 26 rejects `$0` inside `defer`.
+                defer { current += step }
+                return current
             }
         }
     }

@@ -316,6 +316,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 10:05 (EDT): **The M3 PR is open: #11** (ios/m3 → feat/ios-app). Targeted rerun on e5b5775: UI 26.2 89/0/20 and Unit 27 1049/0/27. The iOS 27 UI stall is listed as a known, non-blocking issue; investigation continues. CI is running.
+
 - 2026-10-21 09:55 (EDT): iOS 27 stall bisect: pre-slice-B (af4adcb) also stalls intermittently at low load, so F8 FormSaveBar isn't the cause and stays. All stalls are keyboard or alert flows. m1-outbox is bisecting back toward the M2 final while logging memory pressure. The 26.2 UI rerun on e5b5775 is about 27 min in and progressing. **TestFlight is blocked on access:** Xcode has no Apple account added ("No Accounts"), and the Claude-in-Chrome extension isn't connected to this session (the user is fixing it via the desktop agent, then `/chrome`).
 
 - 2026-10-21 09:25 (EDT): **AppSettings fix merged** (e5b5775): AppSettings+Builder 11/0 on 26 and 27, TopicUITests 8/0 on 27, Codex r3 approved, and shared mid-list helpers. Targeted rerun on e5b5775: Unit on 27 1049/0/27 (the D9 fix is confirmed); UI on 26.2 is running. **User decisions:** open the M3 PR once 26.2 UI passes, with the iOS 27 stall as a known issue. Investigate the stall in parallel against the user's hypothesis (memory pressure plus stale simulators): m1-outbox measures `memory_pressure` during runs; m1-testiso builds SIMCLEAN (`make ios-prune`, plus memory and disk guards in sim admission). 31 stale clones are deleted (CoreSimulator 118 GB to 27 GB). **Device:** Team ID in Local.xcconfig, the APNs key at ~/.config/quickr/apns (outside the repo), Xcode signed in; Developer Mode on the phone is pending.

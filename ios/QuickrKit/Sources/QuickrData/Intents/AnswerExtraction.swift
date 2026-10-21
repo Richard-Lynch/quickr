@@ -121,8 +121,9 @@ public enum AnswerExtraction {
             }
             continuation?.resume(returning: value)
         }
-        let work = Task { finish(try? await operation()) }
-        let timer = Task {
+        // Explicit @Sendable: Xcode 26's region checker rejects the inferred closures (Xcode 27 accepts them).
+        let work = Task { @Sendable [operation] in finish(try? await operation()) }
+        let timer = Task { @Sendable in
             try? await Task.sleep(for: deadline)
             finish(nil)
         }
