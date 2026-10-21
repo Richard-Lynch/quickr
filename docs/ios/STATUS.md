@@ -316,6 +316,11 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 08:35 (EDT): **Final validation is complete on 1ee19c8.**
+  - Green: 26.2 Unit 1049/0 and Media 3/0; 27 Intents 6/0 and E2E 14/0; host check (711+856), vectors, release-test-build, script tests and integration 22/22 ×2.
+  - Failures, all owned: D9 timing (fixed, 7dab4b0); AppSettings XXXL (fix 37f4fa5 approved by Codex r3, its 26/27 runs plus TopicUITests running); the iOS 27 keyboard Save-bar stall, reproduced (testOnlyATapOnDeleteDeletes also stalls once the keyboard is up), and F8 FormSaveBar is being bisected (m1-outbox).
+  - Next: merge both, then a targeted rerun (UI on 26.2 and 27, Unit on 27), then the M3 PR.
+
 - 2026-10-21 08:20 (EDT): Final validation lane B: UI 27 86/3/20 and Intents 27 6/0/5; E2E is running. Two blockers for the PR:
   1. AppSettingsUITests XXXL (both runtimes; the mid-list audit pattern; m1-review);
   2. **EditTests keyboard-toolbar Save stalls on iOS 27** (2 tests, "wait for app to idle" never returns, with the app idle per spindump; passes on 26.2 and passed on 27 at the M2 final). The suspect is the F8 FormSaveBar change; m1-outbox is reproducing on 27 (ios/m3-savebar27). This may also explain UIT-6's earlier one-off stall on 27.
