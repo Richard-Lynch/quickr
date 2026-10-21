@@ -174,18 +174,20 @@ struct ServerForm: View {
 
     private func changes(_ n: Int) -> String { n == 1 ? "1 change" : "\(n) changes" }
 
-    /// The address for a wrapping field, whose Return inserts a line break: an address has none,
-    /// so a break is the Return key, and connects.
+    /// The address for a wrapping field, whose Return inserts a line break. Only Return itself (one
+    /// line break and nothing else added, wherever the cursor is) connects; a pasted address never
+    /// does, and any line break it carries is dropped (an address has none). The IME's Return
+    /// commits its text without one.
     private var returnConnects: Binding<String> {
         Binding(
             get: { setup.address },
             set: { value in
-                guard value.contains(where: \.isNewline) else {
-                    setup.address = value
-                    return
+                let stripped = value.filter { !$0.isNewline }
+                if stripped == setup.address, value.count == stripped.count + 1 {
+                    connect()
+                } else {
+                    setup.address = stripped
                 }
-                setup.address = value.filter { !$0.isNewline }
-                connect()
             })
     }
 

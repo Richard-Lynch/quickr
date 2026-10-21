@@ -52,10 +52,10 @@ public final class FormModel {
     public private(set) var focus: String?
     public private(set) var scrollRequest: FormScrollRequest?
     /// Where VoiceOver should go, and when (the serial): the first error after a failed save, or
-    /// with ``voiceOverStartsAtFirstQuestion`` a fresh form's first question. A one-off: it clears
-    /// itself after ``voiceOverRequestLifetime``, so a later change to that field (correcting it,
-    /// a new error on blur) never replays it.
-    public private(set) var voiceOverRequest: FormScrollRequest?
+    /// with ``voiceOverStartsAtFirstQuestion`` a fresh form's first question. Its destination is
+    /// fixed when it's made (an error, or a heading), and it's consumed by the user's next change
+    /// or after ``voiceOverRequestLifetime``, so correcting a field never replays it.
+    public private(set) var voiceOverRequest: FormVoiceOverRequest?
     /// Long enough for the views to see a request (and for the focus to settle), then it's spent.
     public static let voiceOverRequestLifetime: Duration = .seconds(1)
     /// Set on a form that replaces another on the same screen (Log another), where VoiceOver
@@ -159,6 +159,7 @@ public final class FormModel {
         guard let question = byKey[key] else { return nil }
         if key == autoSaveKey && (isAutoSaving || input == autoSaved) { return nil }
         settled = true
+        voiceOverRequest = nil  // the user is answering: a pending focus request is spent
         inputs[key] = input
         if !Self.takesTyping(question) { use(key) }
         if touched.contains(key) { validate(key) }
@@ -217,7 +218,7 @@ public final class FormModel {
         }
         // Log another: VoiceOver starts at the first question, answered (prefilled) or not.
         if voiceOverStartsAtFirstQuestion, let first = questions.first {
-            requestVoiceOver(.question(first.key))
+            requestVoiceOver(.question(first.key), toError: false)
         }
         guard isNewEntry, autoSaveKey == nil,
             let first = questions.first(where: { !input(for: $0.key).hasValue })
@@ -241,6 +242,7 @@ public final class FormModel {
 
     /// One tap fills every answer from the last entry; the next tap puts back what was there.
     public func toggleSameAsLast() {
+        voiceOverRequest = nil
         if let before = beforePrefill {
             inputs = before
             errors = [:]
@@ -336,16 +338,16 @@ public final class FormModel {
             scroll(to: .banner)
         }
         if banner != nil {
-            requestVoiceOver(.banner)
+            requestVoiceOver(.banner, toError: true)
         } else if let first = questions.first(where: { errors[$0.key] != nil }) {
-            requestVoiceOver(.question(first.key))
+            requestVoiceOver(.question(first.key), toError: true)
         }
     }
 
     /// A one-off ``voiceOverRequest`` for `target`, spent after ``voiceOverRequestLifetime``.
-    private func requestVoiceOver(_ target: FormScrollTarget) {
+    private func requestVoiceOver(_ target: FormScrollTarget, toError: Bool) {
         scrollSerial += 1
-        let request = FormScrollRequest(target: target, serial: scrollSerial)
+        let request = FormVoiceOverRequest(target: target, serial: scrollSerial, toError: toError)
         voiceOverRequest = request
         Task { [weak self] in
             try? await Task.sleep(for: Self.voiceOverRequestLifetime)

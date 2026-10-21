@@ -42,12 +42,25 @@ private let monday = Date(timeIntervalSince1970: 1_760_000_000)
         #expect(model.voiceOverRequest == nil, "a first form leaves VoiceOver where it is")
         #expect(model.submit() == nil)
         let request = try #require(model.voiceOverRequest)
-        #expect(request.target == .question("type"))
+        #expect(request.target == .question("type") && request.toError)
         // Spent after its lifetime, so correcting the field never replays it.
         try await Task.sleep(for: FormModel.voiceOverRequestLifetime + .milliseconds(200))
         #expect(model.voiceOverRequest == nil)
         #expect(model.submit() == nil)
         #expect(try #require(model.voiceOverRequest).serial > request.serial, "a new attempt, a new request")
+    }
+
+    @Test func answeringSpendsTheRequestAtOnce() throws {
+        let model = FormModel(questions: workout)
+        #expect(model.submit() == nil)
+        #expect(model.voiceOverRequest != nil)
+        // Correcting (or mis-correcting) a field before the request expires never replays it.
+        model.change("duration", to: .text("9999"))
+        #expect(model.voiceOverRequest == nil)
+        #expect(model.submit() == nil)
+        #expect(model.voiceOverRequest != nil)
+        model.toggleSameAsLast()
+        #expect(model.voiceOverRequest == nil)
     }
 
     @Test func logAnotherStartsVoiceOverAtTheFirstQuestionEvenWhenPrefilled() throws {
@@ -56,7 +69,8 @@ private let monday = Date(timeIntervalSince1970: 1_760_000_000)
         let model = FormModel(questions: [duration], mode: .create(last: last))
         model.voiceOverStartsAtFirstQuestion = true
         model.appear()
-        #expect(try #require(model.voiceOverRequest).target == .question("duration"))
+        let request = try #require(model.voiceOverRequest)
+        #expect(request.target == .question("duration") && !request.toError, "the heading, not an error")
     }
 
     // MARK: Validation on touch

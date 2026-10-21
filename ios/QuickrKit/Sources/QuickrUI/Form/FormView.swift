@@ -34,9 +34,8 @@ public struct FormView<Footer: View>: View {
                 VStack(alignment: .leading, spacing: 16) {
                     if let banner = model.banner {
                         FormBannerView(banner: banner).id(FormScrollTarget.banner)
-                            .qrAnnouncesError(
-                                model.voiceOverRequest?.target == .banner ? banner.message : nil,
-                                trigger: model.voiceOverRequest?.serial)
+                            .qrMovesVoiceOverFocus(
+                                on: model.voiceOverRequest.flatMap { $0.target == .banner ? $0.serial : nil })
                     }
                     if model.showsSameAsLast, let prefill = model.prefill {
                         SameAsLastButton(prefill: prefill, isApplied: model.isSameAsLastApplied) {
@@ -137,7 +136,7 @@ private struct FormRow: View {
 
     var body: some View {
         let key = question.key
-        let voiceOver = model.voiceOverRequest.flatMap { $0.target == .question(key) ? $0.serial : nil }
+        let voiceOver = model.voiceOverRequest.flatMap { $0.target == .question(key) ? $0 : nil }
         AnswerField(
             question: question,
             input: Binding(

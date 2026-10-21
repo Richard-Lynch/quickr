@@ -21,7 +21,7 @@ public struct AnswerField: View {
     let focus: FocusState<Bool>.Binding?
     let submitLabel: SubmitLabel
     let onSubmit: () -> Void
-    let voiceOverRequest: Int?
+    let voiceOverRequest: FormVoiceOverRequest?
 
     @FocusState private var ownFocus: Bool
 
@@ -29,12 +29,13 @@ public struct AnswerField: View {
     ///   - options: for choices, usually `question.visibleOptions(keeping:)`.
     ///   - focus: lets a form drive keyboard focus (number and text questions).
     ///   - submitLabel, onSubmit: the Return key of a single-line text or number field.
-    ///   - voiceOverRequest: each new value moves VoiceOver here: to the error when there is one
-    ///     (a failed save), else to the question's label (a fresh form).
+    ///   - voiceOverRequest: each new one moves VoiceOver here, to the error or the question's
+    ///     label as the request says (fixed when it was made, not by the live error).
     public init(
         question: Question, input: Binding<AnswerInput>, options: [EnumOption]? = nil, error: String? = nil,
         characterCount: CharacterCount? = nil, focus: FocusState<Bool>.Binding? = nil,
-        submitLabel: SubmitLabel = .next, onSubmit: @escaping () -> Void = {}, voiceOverRequest: Int? = nil
+        submitLabel: SubmitLabel = .next, onSubmit: @escaping () -> Void = {},
+        voiceOverRequest: FormVoiceOverRequest? = nil
     ) {
         self.question = question
         self._input = input
@@ -62,7 +63,7 @@ public struct AnswerField: View {
                     .font(.qr(.sansMedium, size: 14, relativeTo: .subheadline))
                     .foregroundStyle(.qr.danger)
                     .accessibilityIdentifier("form.error.\(question.key)")
-                    .qrAnnouncesError(voiceOverRequest == nil ? nil : error, trigger: voiceOverRequest)
+                    .qrMovesVoiceOverFocus(on: voiceOverRequest.flatMap { $0.toError ? $0.serial : nil })
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -89,7 +90,7 @@ public struct AnswerField: View {
     private var titleView: some View {
         title
             .accessibilityAddTraits(.isHeader)
-            .qrMovesVoiceOverFocus(on: error == nil ? voiceOverRequest : nil)
+            .qrMovesVoiceOverFocus(on: voiceOverRequest.flatMap { $0.toError ? nil : $0.serial })
     }
 
     private var title: Text {
