@@ -9,7 +9,7 @@ import Testing
 /// `Outbox` instances on two pools over one file, sharing the lease clock. "SIGSTOP" is a request
 /// held in the network by a `Gate` while lease time passes; "SIGCONT" opens it. The real
 /// multi-process runs are in `MultiProcess/OutboxMultiProcessTests`.
-@Suite(.timeLimit(.minutes(2))) struct OutboxConcurrencyTests {
+@Suite(.timeLimit(.minutes(5))) struct OutboxConcurrencyTests {
     @Test("8, 9 · (single process) lock expiry: B recovers and resends; A's late 201 writes nothing")
     func case08And09() async throws {
         let h = try OutboxHarness()

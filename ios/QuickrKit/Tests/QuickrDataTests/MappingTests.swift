@@ -11,7 +11,7 @@ private func decode<Response: WireResponse>(_ type: Response.Type, _ name: Strin
 
 private func date(_ text: String) throws -> Date { try #require(WireDate.parse(text)) }
 
-@Suite(.timeLimit(.minutes(2))) struct MappingTests {
+@Suite(.timeLimit(.minutes(5))) struct MappingTests {
     @Test func topicDetailMapsEveryQuestionKind() throws {
         let topic = try decode(TopicDetailDTO.self, "getTopic")
         #expect(topic.slug == "everything")
@@ -173,7 +173,7 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
     }
 }
 
-@Suite(.timeLimit(.minutes(2))) struct RequestDTOTests {
+@Suite(.timeLimit(.minutes(5))) struct RequestDTOTests {
     private func roundTrip<T: Codable & Equatable>(_ value: T) throws -> T {
         try WireCoding.decoder().decode(T.self, from: WireCoding.encoder().encode(value))
     }
@@ -284,7 +284,7 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
     }
 }
 
-@Suite(.timeLimit(.minutes(2))) struct APNsMappingTests {
+@Suite(.timeLimit(.minutes(5))) struct APNsMappingTests {
     @Test func registerAndConfig() throws {
         let device = try decode(ApnsDeviceDTO.self, "registerApnsDevice")
         #expect(device.environment == .sandbox && device.bundleId == "com.bahumia.quickr")

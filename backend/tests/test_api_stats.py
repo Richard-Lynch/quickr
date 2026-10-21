@@ -10,7 +10,11 @@ from typing import Any
 
 import httpx
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.schemas.api import EntryFilters
+from app.services.stats import topic_stats
 from tests.helpers import make_topic, record, sleep_questions
 
 
@@ -127,6 +131,22 @@ async def test_enum_and_str_stats(client: httpx.AsyncClient) -> None:
     assert [r["value"] for r in dream["recent"]] == ["flying", "falling", "falling"]
     assert dream["recent"][0]["entry_id"] == entries[2]["id"]
     assert dream["recent"][0]["captured_at"] == "2026-05-03T08:00:00Z"
+
+
+async def test_ties_are_ordered(client: httpx.AsyncClient, db: AsyncSession) -> None:
+    """Sources with the same count by name, recent texts at the same instant by id: never the
+    plan's order (stats-vectors.json drifted when a hash aggregate swapped two tied sources).
+    The service runs with sorting off, so the planner hashes and only the ORDER BY can order."""
+    await make_topic(client)
+    sources = ["zeta", "theta", "phone", "kappa", "delta", "alpha", "mu", "beta"]
+    for i, source in enumerate(sources):
+        answers = {"hours": 7, "wakeups": 0, "quality": "ok", "dream": f"d{i}"}
+        await record(client, "sleep-log", answers, source=source, captured_at="2026-05-01T08:00:00Z")
+    await db.execute(text("SET enable_sort = off"))
+    s = (await topic_stats(db, "sleep-log", EntryFilters())).model_dump(mode="json")
+    assert [v["value"] for v in s["sources"]] == sorted(sources)
+    recent = by_key(s)["dream"]["recent"]
+    assert [r["entry_id"] for r in recent] == sorted((r["entry_id"] for r in recent), reverse=True)
 
 
 async def test_removed_question_with_data_still_included(client: httpx.AsyncClient) -> None:

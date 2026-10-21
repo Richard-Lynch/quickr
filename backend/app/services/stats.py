@@ -122,7 +122,8 @@ async def _text(db: AsyncSession, topic_id: Any, q: Question, filters: EntryFilt
     recent_rows = (
         await db.execute(
             _answers_for(topic_id, q.key, filters, Entry.id, Answer.value_str, Entry.captured_at)
-            .order_by(Entry.captured_at.desc())
+            # Ties (the same captured_at) by id, so a response never depends on the plan.
+            .order_by(Entry.captured_at.desc(), Entry.id.desc())
             .limit(10)
         )
     ).all()
@@ -210,7 +211,8 @@ async def topic_stats(db: AsyncSession, ref: str, filters: EntryFilters) -> Topi
         await db.execute(
             apply_filters(select(Entry.source, source_n), topic.id, filters)
             .group_by(Entry.source)
-            .order_by(source_n.desc())
+            # Ties by name, as `_value_counts` does: the aggregate's order is the plan's.
+            .order_by(source_n.desc(), Entry.source)
         )
     ).all()
     return TopicStats(

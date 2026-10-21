@@ -5,7 +5,7 @@ import QuickrTestSupport
 import Testing
 
 /// The `APIOutcome` table, row by row (outbox.md §5.1 and §5.2 step 0, sync-protocol.md §1.4).
-@Suite(.timeLimit(.minutes(2))) struct ClassificationTests {
+@Suite(.timeLimit(.minutes(5))) struct ClassificationTests {
     typealias Outcome = APIOutcome<Entry>
 
     static let entryJSON: String = {

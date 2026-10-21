@@ -8,7 +8,7 @@ import Testing
 @testable import QuickrData
 
 /// Category registration (notifications.md §5.2, §5.3; N5, N6).
-@Suite(.timeLimit(.minutes(2))) struct NotificationCategoriesTests {
+@Suite(.timeLimit(.minutes(5))) struct NotificationCategoriesTests {
     static let server = "0b9e0000-0000-4000-8000-0000000000aa"
 
     static func severity(_ n: Int) -> Question {

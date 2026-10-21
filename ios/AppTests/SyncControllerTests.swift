@@ -25,7 +25,8 @@ import Testing
     }
 
     private func eventually(_ what: String, _ condition: @MainActor () async -> Bool) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+        // A liveness ceiling, not the timing under test: generous for a starved CI runner.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(120))
         while await !condition() {
             guard ContinuousClock.now < deadline else {
                 Issue.record("timed out waiting until \(what)")

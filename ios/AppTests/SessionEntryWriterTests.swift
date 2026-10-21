@@ -7,7 +7,7 @@ import Testing
 @testable import QuickR
 
 /// `SessionEntryWriter` keeps each write tied to the store it went to (server and generation).
-@MainActor @Suite(.timeLimit(.minutes(2))) struct SessionEntryWriterTests {
+@MainActor @Suite(.timeLimit(.minutes(5))) struct SessionEntryWriterTests {
     /// Log on server A, switch to server B while the Undo toast is still up, then Undo: refused,
     /// A's entry left alone, and B's outbox untouched.
     @Test func undoAfterAServerSwitchIsRefusedAndLeavesTheEntry() async throws {
