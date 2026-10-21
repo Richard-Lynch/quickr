@@ -48,6 +48,7 @@ never on the shared base device.
 | `make ios-lint` / `ios-fmt`   | swift-format lint / format in place (config in `ios/.swift-format`). `check-ios` fails without swift-format; `ios-lint` only warns                                                            |
 | `make ios-resolve`            | Update the package pins (see below)                                                                                                                                                           |
 | `make ios-clean`              | Remove the generated project and all build output                                                                                                                                             |
+| `make ios-device-run`         | Signed Debug build, install and launch on the paired iPhone (`IOS_DEVICE`, `URL=`); see [docs/ios/demo/DEVICE-DAY.md](../docs/ios/demo/DEVICE-DAY.md)                                         |
 | `make ios-testflight`         | Archive (Release) and upload to TestFlight with the App Store Connect API key; see [TestFlight](#testflight)                                                                                  |
 | `make ios-testflight-dry-run` | The same archive unsigned, then the steps an upload would take; no credentials, nothing exported                                                                                              |
 
@@ -187,7 +188,7 @@ is the child process for the multi-process tests
   library's intents metadata into every binary that links it, so the app and
   the widget extension get them with no extra declaration.
 - **No `AppIntentsPackage`** (contrary to research/02 §1 and 04). On iOS 26.0,
-  linkd resolves an `includedPackages` entry against the binary's _imported_
+  linkd resolves an `includedPackages` entry against the binary's *imported*
   symbols. A static library's never are, so linkd logs "did not match any
   imported symbol" and drops all of the bundle's intents: no App Shortcuts, and
   widgets that can't be configured. iOS 27 accepts it, which is why this only

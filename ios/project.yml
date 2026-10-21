@@ -98,7 +98,7 @@ targets:
       - Widgets
     dependencies:
       - package: QuickrKit
-        products: [QuickrCore, QuickrData]
+        products: [QuickrCore, QuickrData, QuickrUI]
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
     settings:
@@ -148,6 +148,8 @@ targets:
       # The widget's bootstrap and timeline rules, so its intent path runs in CI's Unit plan.
       - Widgets/WidgetBootstrap.swift
       - Widgets/TopicWidget.swift
+      - Widgets/DueListWidget.swift
+      - Widgets/TopicControl.swift
     dependencies:
       - target: QuickR
       - package: QuickrKit

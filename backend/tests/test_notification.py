@@ -142,7 +142,7 @@ def number(last: float | None, unit: str | None = "h") -> QuickLogNumber:
 def test_actions() -> None:
     ident = f"q1|{SERVER_ID}|{TOPIC_ID}|3"
     assert notification.actions(SERVER_ID, TOPIC_ID, 3, number(7.5)) == [
-        Action("log", f"{ident}|hours|n|7.5", "✓ 7.5 h"),
+        Action("log", f"{ident}|hours|n|7.5", "Log 7.5 h"),
         Action("input", f"{ident}|hours|i|", "Other value…", "Log", "Value in h"),
     ]
     assert notification.actions(SERVER_ID, TOPIC_ID, 3, number(None, unit=None)) == [
