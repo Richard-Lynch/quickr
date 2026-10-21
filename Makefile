@@ -240,8 +240,13 @@ ios-uitest-e2e: ios-gen ## iOS: end-to-end UI tests vs this worktree's stack (IO
 	@$(IOS_SCRIPTS)/uitest-e2e.sh "$(IOS_SIM)"
 
 .PHONY: ios-perf-launch
-ios-perf-launch: ios-gen ## iOS: cold-start timings over the 10k-entry perf store (IOS_SIM; PerfLaunchUITests)
+ios-perf-launch: ios-gen ## iOS: debug-build launch timings over the 10k-entry perf store (IOS_SIM; PerfLaunchUITests)
 	@IOS_SIM_DEFAULTED=$(IOS_SIM_DEFAULTED) $(IOS_SCRIPTS)/perf-launch.sh "$(IOS_SIM)"
+
+IOS_PERF_CONFIG ?= Release
+.PHONY: ios-perf-cold-start
+ios-perf-cold-start: ios-gen ## iOS: the < 1 s cold-start target over the perf store (IOS_SIM; IOS_PERF_CONFIG, default Release)
+	@IOS_SIM_DEFAULTED=$(IOS_SIM_DEFAULTED) IOS_PERF_CONFIG=$(IOS_PERF_CONFIG) $(IOS_SCRIPTS)/perf-cold-start.sh "$(IOS_SIM)"
 
 .PHONY: ios-integration-up
 ios-integration-up: ## iOS: start this worktree's integration stacks (writes ios/build/integration.env)

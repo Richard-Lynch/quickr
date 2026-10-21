@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || QUICKR_PERF
 import Foundation
 import GRDB
 import QuickrCore
@@ -9,7 +9,8 @@ import QuickrCore
 /// schedules on some, two archived, and an outbox with items in every state. Deterministic: the
 /// same spec gives the same rows, so timings compare across runs.
 ///
-/// Debug builds only: the app's `-QuickrPerfStore` launch and the host tests use it.
+/// Debug builds (and `QUICKR_PERF` release builds): the app's `-QuickrPerfStore` launch and the
+/// host tests use it.
 public enum PerfSeed {
     public struct Spec: Sendable, Hashable {
         public var topics: Int

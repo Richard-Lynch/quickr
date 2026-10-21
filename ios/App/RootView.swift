@@ -94,6 +94,8 @@ struct RootView: View {
         .overlay(alignment: .bottom) {
             if UITestLaunch.showsSyncControls { UITestSyncControls().padding(.bottom, 24) }
         }
+        #endif
+        #if DEBUG || QUICKR_PERF
         .overlay(alignment: .topTrailing) {
             if PerfStore.isRequested {
                 Text(verbatim: PerfProbe.shared.firstRender.map(String.init) ?? "-")

@@ -1,8 +1,9 @@
 import XCTest
 
 /// PERF: cold starts over a heavy user's store (`-QuickrPerfStore`: 10,000 entries in 20 topics,
-/// offline). Real time, so only with `QUICKR_UIT_PERF=1` (`make ios-perf-launch`); the UI plan
-/// skips them. The first launch seeds the store and isn't measured. Simulator numbers; device
+/// offline), on the debug build. Real time, so only with `QUICKR_UIT_PERF=1` (`make
+/// ios-perf-launch`); the UI plan skips them. The release build's cold start, which the < 1 s
+/// target is for, is `make ios-perf-cold-start`. The first launch seeds the store and isn't measured. Simulator numbers; device
 /// numbers come at M4-DEV.
 final class PerfLaunchUITests: XCTestCase {
     static let launches = 5
@@ -38,9 +39,9 @@ final class PerfLaunchUITests: XCTestCase {
         XCTAssertNotNil(seeded, "the seeding launch reaches Home")
     }
 
-    /// Target: under a second from process start to Home's first tile, on the simulator. The
-    /// median of five launches, so one slow launch on a loaded Mac doesn't fail it; a bound with
-    /// headroom (2 s) for the debug build, and the numbers printed for the record.
+    /// Process start to Home's first tile, the median of five launches. The < 1 s target is for
+    /// a release build, which `perf-cold-start.sh` measures (the scheme's test action needs a
+    /// debug build); a debug build (unoptimised Swift and GRDB) is bounded at 2 s here.
     @MainActor
     func testColdStartToHomesFirstTile() throws {
         try seed()

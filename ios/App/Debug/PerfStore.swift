@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || QUICKR_PERF
 import Darwin
 import Foundation
 import Observation
@@ -7,7 +7,9 @@ import QuickrData
 
 /// `-QuickrPerfStore`: launches over a heavy user's store (`PerfSeed`: 10,000 entries in 20 topics,
 /// a busy outbox), offline, and shows how long the process took to put Home's first tile on screen
-/// (`perf.firstRender`, in milliseconds). Debug builds only; `PerfLaunchUITests` reads it.
+/// (`perf.firstRender`, in milliseconds). `PerfLaunchUITests` reads it. Debug builds, and release
+/// builds made with `QUICKR_PERF` (`make ios-perf-cold-start`), which the cold
+/// start target is measured on.
 ///
 /// The store stays in the app's caches between launches: the first launch seeds it (seconds, and
 /// not a cold start worth measuring), and every later one opens it the way a real launch opens
@@ -48,6 +50,13 @@ enum PerfStore {
     }
 }
 
+/// Every request fails as if offline (the demo and perf stores).
+struct OfflineTransport: Transport {
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        throw URLError(.notConnectedToInternet)
+    }
+}
+
 /// Process start to Home's first tile on screen, for `-QuickrPerfStore` launches.
 @MainActor @Observable final class PerfProbe {
     static let shared = PerfProbe()
@@ -56,18 +65,29 @@ enum PerfStore {
     private(set) var firstRender: Int?
 
     func tileAppeared() {
-        guard firstRender == nil, PerfStore.isRequested, let start = Self.processStart() else { return }
-        firstRender = Int((Date().timeIntervalSince(start) * 1_000).rounded())
-        print("PERF first render: \(firstRender!) ms")
+        guard firstRender == nil, PerfStore.isRequested, let ms = Self.sinceStart() else { return }
+        firstRender = ms
+        Self.mark("first tile on screen")
     }
 
-    private static func processStart() -> Date? {
+    /// Prints a step of a perf launch, in milliseconds since the process started (the breakdown
+    /// that `perf.firstRender` totals).
+    nonisolated static func mark(_ step: String) {
+        guard PerfStore.isRequested, let ms = sinceStart() else { return }
+        print("PERF \(ms) ms: \(step)")
+    }
+
+    nonisolated private static func sinceStart() -> Int? {
+        processStart.map { Int((Date().timeIntervalSince($0) * 1_000).rounded()) }
+    }
+
+    nonisolated private static let processStart: Date? = {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
         guard sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0) == 0 else { return nil }
         let started = info.kp_proc.p_un.__p_starttime
         return Date(timeIntervalSince1970: Double(started.tv_sec) + Double(started.tv_usec) / 1_000_000)
-    }
+    }()
 }
 #endif
