@@ -80,8 +80,8 @@ import Testing
 
     /// HANDLER-RESUME: a notification action tapped while the app is alive but suspended in the
     /// background (its GRDB suspended, the common case on a phone) logs its entry, and the store is
-    /// suspended again afterwards. The handler runs inside `withStoreResumed`, as
-    /// `AppEnvironment.handleNotificationResponse` runs it; without that it is refused
+    /// suspended again afterwards. The handler runs with the store held resumed, as
+    /// `NotificationResponder.run` runs it; without that it is refused
     /// (`storeUnavailable`) and nothing is written.
     @Test func aNotificationActionWhileSuspendedLogsAndSuspendsAgain() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "quickr-suspension-\(UUID().uuidString)")

@@ -618,6 +618,31 @@ private let otherServerURL = URL(string: "https://other.example")!
         #expect(suspended.count == suspends + 1, "back in the foreground: not suspended again")
         await session.shutdown()
     }
+
+    /// An expiring episode doesn't wait for a hold: GRDB is suspended before its background task
+    /// ends, the hold's late release does nothing, and a later hold resumes it again (Codex r1).
+    @Test func anExpirySuspendsDespiteAnOpenHold() async throws {
+        let w = try World()
+        let resumed = w.posted(Database.resumeNotification)
+        let suspended = w.posted(Database.suspendNotification)
+        let session = try w.session()
+        await session.start(serverURL: SyncEnv.baseURL)
+
+        let episode = session.beginBackground()
+        let parked = session.holdStoreResumed()  // a response still running when the time is up
+        let suspends = suspended.count
+        await session.backgroundTimeExpiring(episode, within: .seconds(5))
+        #expect(suspended.count == suspends + 1, "suspended at expiry, the hold still open")
+        parked.release()
+        #expect(suspended.count == suspends + 1, "the ended hold's release does nothing")
+
+        let resumes = resumed.count
+        let next = session.holdStoreResumed()
+        #expect(resumed.count == resumes + 1, "a later hold resumes")
+        next.release()
+        #expect(suspended.count == suspends + 2, "and suspends again")
+        await session.shutdown()
+    }
 }
 
 /// The real-time case of `AppSessionTests` (see `TimingTests`).

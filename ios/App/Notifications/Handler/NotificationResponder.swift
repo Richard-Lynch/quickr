@@ -52,7 +52,9 @@ final class NotificationResponder: NSObject, UNUserNotificationCenterDelegate {
     /// Handles one response inside a background task (§7.1 steps 0 and 11), then calls `completion`.
     func respond(_ input: NotificationActionResponse, completion: @escaping @MainActor () -> Void) async {
         guard let environment else { return completion() }
-        await Self.run(tasks: backgroundTasks, completion: completion) {
+        // Tapped while the app is suspended in the background, its GRDB is suspended too: resumed
+        // for this response, suspended again after it unless the app came to the foreground.
+        await Self.run(tasks: backgroundTasks, hold: environment.session?.holdStoreResumed(), completion: completion) {
             await environment.handleNotificationResponse(input)
         }
     }
@@ -60,8 +62,10 @@ final class NotificationResponder: NSObject, UNUserNotificationCenterDelegate {
     /// Runs `work` inside a background task. The task ends and `completion` is called exactly once:
     /// when the work finishes, or at once when the task expires (the work is then cancelled: a
     /// flush still running releases its lease and leaves its item `uncertain` for the next one).
+    /// `hold` keeps the store resumed for the work; it's released before the task ends, so GRDB
+    /// is suspended again before the time runs out.
     static func run(
-        tasks: any BackgroundTasking, completion: @escaping @MainActor () -> Void,
+        tasks: any BackgroundTasking, hold: StoreHold? = nil, completion: @escaping @MainActor () -> Void,
         work: @escaping @MainActor @Sendable () async -> Void
     ) async {
         let finisher = ResponseFinisher(end: { tasks.end($0) }, completion: completion)
@@ -70,9 +74,11 @@ final class NotificationResponder: NSObject, UNUserNotificationCenterDelegate {
         finisher.started(
             tasks.begin(name: "quickr.notification-action") {
                 job.cancel()
+                hold?.release()
                 finisher.finish()
             })
         await job.value
+        hold?.release()
         finisher.finish()
     }
 

@@ -133,23 +133,29 @@ public final class AppSession {
     @ObservationIgnored private var suspendRequested = false
     /// Work running with the store resumed (`holdStoreResumed`): a suspend waits for them.
     @ObservationIgnored private var storeHolds = 0
+    /// Bumped when an expiry ends the open holds: their releases then do nothing.
+    @ObservationIgnored private var holdEpoch = 0
 
     /// Keeps GRDB resumed until the returned hold is released: for work that can arrive while the
     /// app is suspended in the background (a notification action, an intent or widget button run
     /// in this process), which would otherwise find its writes refused ("Database is suspended").
     /// If the session had suspended GRDB, the first hold resumes it and the last release suspends
     /// it again, unless an activation came in between (a newer foreground wins). A suspend asked
-    /// for while holds are open (the episode finishing meanwhile) waits for the last release.
+    /// for while holds are open (the episode finishing meanwhile) waits for the last release,
+    /// but an expiring episode suspends at once and ends the open holds: release a hold before
+    /// ending the background task that covers its work (as `NotificationResponder.run` does).
     /// Release it once (later releases do nothing); `withStoreResumed` does it for you.
     public func holdStoreResumed() -> StoreHold {
         storeHolds += 1
         if storeHolds == 1, suspendRequested {
             configuration.notificationCenter.post(name: Database.resumeNotification, object: nil)
         }
-        return StoreHold { [weak self] in self?.endHold() }
+        let epoch = holdEpoch
+        return StoreHold { [weak self] in self?.endHold(epoch) }
     }
 
-    private func endHold() {
+    private func endHold(_ epoch: Int) {
+        guard epoch == holdEpoch else { return }  // ended by an expiry, which suspended already
         storeHolds -= 1
         if storeHolds == 0, suspendRequested {
             configuration.notificationCenter.post(name: Database.suspendNotification, object: nil)
@@ -168,6 +174,16 @@ public final class AppSession {
     private func requestSuspend() {
         suspendRequested = true
         guard storeHolds == 0 else { return }
+        configuration.notificationCenter.post(name: Database.suspendNotification, object: nil)
+    }
+
+    /// The background time is up: GRDB is suspended now, whatever holds are open, and those holds
+    /// are over (their releases do nothing). A later hold, covered by its own background task,
+    /// resumes it again.
+    private func suspendEndingHolds() {
+        suspendRequested = true
+        holdEpoch += 1
+        storeHolds = 0
         configuration.notificationCenter.post(name: Database.suspendNotification, object: nil)
     }
 
@@ -326,7 +342,7 @@ public final class AppSession {
             await coordinator.waitUntilIdle()
         }
         guard lifecycle == .expired(episode.generation) else { return }  // the app came back meanwhile
-        requestSuspend()
+        suspendEndingHolds()
     }
 
     /// Posts GRDB's suspend if `episode` is still current. Nothing can start a flush or a pull in
@@ -653,7 +669,8 @@ public struct ActiveStoreTopicRepository: TopicRepository {
 @MainActor public final class StoreHold {
     private var end: (() -> Void)?
 
-    init(end: @escaping () -> Void) { self.end = end }
+    /// `end` runs on the first `release()`.
+    public init(end: @escaping () -> Void) { self.end = end }
 
     public func release() {
         end?()
