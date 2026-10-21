@@ -316,6 +316,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 04:40 (EDT): RELTEST: three QuickrUI test files drop `@testable` (84d2e26, Codex approved). QuickrDataTests' 19 `@testable` files can't build with plain `swift build -c release --build-tests`, so the release check uses `swift test -c release` or `-enable-testing` through a new make target. A11Y C's final result and the notification E2E on ios/m3 are pending.
+
 - 2026-10-21 04:25 (EDT): **Merged MEDIA, CATCAP and HANDLER-RESUME into ios/m3.**
   - MEDIA: DEBUG hooks (`-QuickrDemoNotify` built from the shared apns payload vectors, `-QuickrDemoShared`, `-QuickrSnippetGallery`) and an opt-in Media plan. Demo server ids are now UUIDs.
   - CATCAP: registry v3; a capped (90), prioritised registration set (push_seq first, then due within 7 days, then delivered, then used); the app prunes and the NSE only adds and evicts; registration-generation checks in refresh and reconcile. Codex r1–r4 resolved.
