@@ -391,9 +391,10 @@ Three agents work in parallel, one per slice, each on its own branch from `ios/m
    - B or C asks A for any change there, or makes it in a separate small commit that A
      reviews.
    - New shared helpers go in new files, not in existing ones.
-4. **`UITests/AccessibilitySupport.swift`:** additions only. Every slice may append a
-   `KnownAccessibilityIssue` helper or a new audit-type preset, but no slice changes
-   `assertAccessible`'s behaviour without telling the others.
+4. **`UITests/AccessibilitySupport.swift`:** frozen during the App/ phase, and owned by slice A.
+   A helper a slice needs, such as a screen's allow-list or a preset, goes in a new file of its
+   own, for example `UITests/EntriesAccessibility.swift`. A change to `assertAccessible` goes
+   through A.
 5. **Motion lint:** the slices convert their own `withAnimation` call sites (A: HomeView; C:
    Builder, NewTopic, EditQuestions). The last slice to merge sets the
    `QUICKR_MOTION_LINT` default to `strict` in `scripts/lint-motion.sh`.

@@ -133,8 +133,10 @@ public final class ToastCenter {
     @discardableResult
     public func show(_ toast: Toast) -> Int {
         let id = stack.push(toast)
-        for gone in timers.keys where !stack.items.contains(where: { $0.id == gone }) {
+        // Pushed out: drop its timer and generation (a held toast under VoiceOver has only the latter).
+        for gone in Set(timers.keys).union(generations.keys) where !stack.items.contains(where: { $0.id == gone }) {
             timers.removeValue(forKey: gone)?.cancel()
+            generations.removeValue(forKey: gone)
         }
         schedule(id, toast)
         return id

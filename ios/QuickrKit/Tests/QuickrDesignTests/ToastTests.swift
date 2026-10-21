@@ -118,17 +118,38 @@ import Testing
     }
 
     @MainActor @Test func aTimerThatFinishedAsVoiceOverTurnedOnLeavesTheToast() async {
-        let sleeper = Sleeper()
+        let sleep = MainActorSleep()
         var voiceOver = false
-        let center = ToastCenter(sleep: { try await sleeper.sleep($0) }, voiceOverRunning: { voiceOver })
+        let center = ToastCenter(sleep: { @MainActor _ in try await sleep.sleep() }, voiceOverRunning: { voiceOver })
         center.show(Toast("Logged", action: .init("Undo") {}))
-        await sleeper.waitFor(requested: 1, asleep: 1)
-        // The sleep returns normally, but the timer can't run its dismissal until the main actor
-        // is free: VoiceOver turns on first, so the toast must stay.
-        await sleeper.wakeAll()
+        await waitUntil { sleep.pending == 1 }
+        // All on the main actor with no suspension in between: the sleep returns normally, but its
+        // timer can't run the dismissal until VoiceOver has turned on and the toast is held.
+        sleep.wakeAll()
         voiceOver = true
         center.voiceOverStatusChanged()
-        for _ in 0..<50 { await Task.yield() }
+        await waitUntil { sleep.finished == 1 }  // the old timer has run past its sleep
+        await Task.yield()
         #expect(center.items.map(\.toast.title) == ["Logged"])
+    }
+}
+
+/// A sleep on the main actor that the test ends by hand, so the order of a wake and the test's
+/// next steps is fixed. `finished` counts sleeps that returned.
+@MainActor final class MainActorSleep {
+    private var continuations: [CheckedContinuation<Void, any Error>] = []
+    private(set) var finished = 0
+
+    var pending: Int { continuations.count }
+
+    func sleep() async throws {
+        try await withCheckedThrowingContinuation { continuations.append($0) }
+        finished += 1
+    }
+
+    func wakeAll() {
+        let all = continuations
+        continuations = []
+        for continuation in all { continuation.resume() }
     }
 }
