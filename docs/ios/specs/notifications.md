@@ -436,10 +436,12 @@ These run **on every app activation** and **at the start of every NSE run**:
 
 ```
 reconcile():
+  asked_gen = SELECT generation                         // first, so a later registration is noticed
   registered = await center.notificationCategories()   // outside any transaction
   delivered = await center.deliveredNotifications()     // outside any transaction
-  selected = select(now, delivered)                     // short read transaction
-  if selected.ids ⊄ registered.ids: register([])        // re-register the selection
+  selected, gen = select(now, delivered), generation    // one short read transaction
+  if gen ≠ asked_gen or selected.ids ⊄ registered.ids:
+    register([])                                        // re-register the selection
 ```
 
 Reconciliation repairs a replacement that lost a race, a crash between the

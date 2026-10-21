@@ -497,9 +497,11 @@ import Testing
         #expect(Set(rows.map(\.category.id)).contains(try #require(without.first)))
     }
 
-    /// The app asks the system for its set, then the NSE registers, then the app takes the lock:
-    /// its answer is stale, so it registers even though its selection looks installed.
-    @Test func aRefreshDoesntTrustASnapshotAnotherRegistrationOutdated() async throws {
+    /// The app asks the system for its set, then the NSE registers, then the app goes on: its
+    /// answer is stale, so it registers even though its selection looks installed. For the
+    /// refresh (under the lock) and for reconciliation (§5.3) alike.
+    @Test(arguments: [false, true])
+    func aStaleAnswerFromTheSystemIsntTrusted(reconciling: Bool) async throws {
         let center = GatedCenter(.delivered)
         let w = World(center: center.inner, cap: 2)
         let app = NotificationCategories(registry: w.registry, center: center, wallClock: w.clock, cap: 2)
@@ -511,8 +513,14 @@ import Testing
         try await w.categories.register([c])
         #expect(w.registered == [b.category.id, c.category.id])
 
-        // The app's refresh reads the generation and the system's set {B, C}, then waits.
-        let refresh = Task { try await app.refresh(from: try TestStore().store) }
+        // The app reads the generation and the system's set {B, C}, then waits.
+        let call = Task {
+            if reconciling {
+                #expect(try await app.reconcile())
+            } else {
+                try await app.refresh(from: try TestStore().store)
+            }
+        }
         await center.waitUntilHeld()
         // The NSE, with D on screen, pushes B: {B, D}.
         w.center.withState { $0.delivered = [NotificationSnapshot(id: "d", categoryIdentifier: d.category.id)] }
@@ -523,7 +531,7 @@ import Testing
         // D is dismissed; the app goes on and selects {B, C}, which its stale answer shows.
         w.center.withState { $0.delivered = [] }
         center.release()
-        _ = try await refresh.value
+        _ = try await call.value
         #expect(w.registered == [b.category.id, c.category.id])
     }
 

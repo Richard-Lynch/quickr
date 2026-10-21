@@ -91,18 +91,21 @@ public struct NotificationCategories: Sendable {
         try await update(rows, role: role, replacingCurrentOf: nil, always: true)
     }
 
-    /// §5.3: re-registers when the system is missing any category of the capped selection. Returns
-    /// whether it did. Asks the center before the (short) read, never inside a transaction.
+    /// §5.3: re-registers when the system is missing any category of the capped selection, or when
+    /// another registration happened after the system was asked. Returns whether it did. Asks the center before the (short) read, never inside a transaction.
     @discardableResult
     public func reconcile() async throws -> Bool {
+        // The generation first: if any registration happens after the system answers, its answer
+        // no longer stands and this re-registers.
+        let asked = try await registry.writer.read(Self.generation)
         let registered = Set(await center.notificationCategories().map(\.id))
         let delivered = await deliveredCategories()
         let now = wallClock.now()
         let cap = cap
-        let selection = try await registry.writer.read { db in
-            try Self.select(db, now: now, delivered: delivered, cap: cap).selected
+        let (selection, generation) = try await registry.writer.read { db in
+            (try Self.select(db, now: now, delivered: delivered, cap: cap).selected, try Self.generation(db))
         }
-        guard !Set(selection.map(\.id)).isSubset(of: registered) else { return false }
+        guard generation != asked || !Set(selection.map(\.id)).isSubset(of: registered) else { return false }
         // Cancelled while the center answered (the NSE's time ran out): no registration.
         try Task.checkCancellation()
         try await register([])
