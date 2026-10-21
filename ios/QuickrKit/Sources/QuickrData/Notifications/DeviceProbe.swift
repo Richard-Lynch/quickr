@@ -46,7 +46,7 @@ public enum DeviceProbe {
 
         public init(
             kind: Kind, run: String = String(UUID().uuidString.prefix(8)), rounds: Int = 100,
-            sizes: [Int] = [100, 1000, 5000], expires: Date = Date().addingTimeInterval(requestLifetime)
+            sizes: [Int] = [100, 150, 1000, 5000], expires: Date = Date().addingTimeInterval(requestLifetime)
         ) {
             self.kind = kind
             self.run = run
@@ -64,10 +64,12 @@ public enum DeviceProbe {
         /// `start`, `ready`, `round`, `size`, `timeout`, `stopped`, `error` or `done`.
         public var event: String
         public var round: Int?
-        /// `start`: the number of rounds the run asks for.
+        /// `start`: the number of rounds (D8) or the sizes (D9) the run asks for.
         public var rounds: Int?
+        public var sizes: [Int]?
         public var size: Int?
-        /// The `setNotificationCategories` call alone.
+        /// The center's `setNotificationCategories` alone: building the `UNNotificationCategory` set
+        /// and the system call, without the registry's work.
         public var setMs: Double?
         /// The whole `register`: the registry transaction, the union and the call.
         public var registerMs: Double?
@@ -88,7 +90,8 @@ public enum DeviceProbe {
 
         public init(
             run: String, process: Process, probe: Kind, event: String, round: Int? = nil, rounds: Int? = nil,
-            size: Int? = nil, setMs: Double? = nil, registerMs: Double? = nil, readbackMs: Double? = nil,
+            sizes: [Int]? = nil, size: Int? = nil, setMs: Double? = nil, registerMs: Double? = nil,
+            readbackMs: Double? = nil,
             ok: Bool? = nil, missing: [String]? = nil, reconciled: Bool? = nil, overlap: Bool? = nil,
             overrun: Bool? = nil, seen: Int? = nil, note: String? = nil, at: Date = Date()
         ) {
@@ -98,6 +101,7 @@ public enum DeviceProbe {
             self.event = event
             self.round = round
             self.rounds = rounds
+            self.sizes = sizes
             self.size = size
             self.setMs = setMs
             self.registerMs = registerMs
@@ -113,7 +117,8 @@ public enum DeviceProbe {
         }
 
         enum CodingKeys: String, CodingKey {
-            case run, process, probe, event, round, rounds, size, ok, missing, reconciled, overlap, overrun, seen, note,
+            case run, process, probe, event, round, rounds, sizes, size, ok, missing, reconciled, overlap, overrun,
+                seen, note,
                 at
             case setMs = "set_ms"
             case registerMs = "register_ms"
@@ -222,6 +227,13 @@ public enum DeviceProbe {
                 pending.expires > now.timeIntervalSince1970, isCurrent(pending.run)
             else { return nil }
             return pending
+        }
+
+        /// An ordinary launch: no run is current any more, and any pending request is dropped, so
+        /// neither a later test push nor a runner still going acts on an abandoned probe.
+        public func cancelPending() {
+            guard FileManager.default.fileExists(atPath: root.path) else { return }
+            for url in [request, currentRun] { try? FileManager.default.removeItem(at: url) }
         }
 
         public func isCurrent(_ run: String) -> Bool {
@@ -344,13 +356,19 @@ public struct DeviceProbeRunner: Sendable {
         } catch {
             record(request, "error", note: String(describing: error))
         }
+        // A superseded run leaves the system's set to the newer one, which restores when it ends.
+        guard files.isCurrent(request.run) else {
+            record(request, "done", ok: true, note: "superseded: the newer run restores the real categories")
+            return
+        }
         let restore = restore
         let restored = await Task.detached { await restore() }.value
         record(request, "done", ok: restored, note: restored ? nil : "the real categories weren't restored")
     }
 
     private func record(
-        _ request: DeviceProbe.Request, _ event: String, round: Int? = nil, rounds: Int? = nil, size: Int? = nil,
+        _ request: DeviceProbe.Request, _ event: String, round: Int? = nil, rounds: Int? = nil, sizes: [Int]? = nil,
+        size: Int? = nil,
         setMs: Double? = nil, registerMs: Double? = nil, readbackMs: Double? = nil, ok: Bool? = nil,
         missing: [String]? = nil, reconciled: Bool? = nil, overlap: Bool? = nil, overrun: Bool? = nil,
         seen: Int? = nil, note: String? = nil
@@ -358,7 +376,8 @@ public struct DeviceProbeRunner: Sendable {
         files.append(
             DeviceProbe.Record(
                 run: request.run, process: process, probe: request.kind, event: event, round: round, rounds: rounds,
-                size: size, setMs: setMs, registerMs: registerMs, readbackMs: readbackMs, ok: ok, missing: missing,
+                sizes: sizes, size: size, setMs: setMs, registerMs: registerMs, readbackMs: readbackMs, ok: ok,
+                missing: missing,
                 reconciled: reconciled, overlap: overlap, overrun: overrun, seen: seen, note: note))
     }
 
@@ -384,9 +403,14 @@ public struct DeviceProbeRunner: Sendable {
 
     private func d9(_ request: DeviceProbe.Request, deadline: UInt64?) async throws {
         if process == .app { try files.claim(request.run) }
+        record(request, "start", sizes: request.sizes)
         // The time the last size took, scaled to the next, decides whether it can still finish.
         var last: (size: Int, nanoseconds: UInt64)?
         for size in request.sizes {
+            guard files.isCurrent(request.run) else {
+                record(request, "stopped", size: size, note: "a newer run started")
+                return
+            }
             let estimate = last.map { $0.nanoseconds * UInt64(size) / UInt64(max($0.size, 1)) } ?? 0
             guard !stopped(deadline), !past(deadline, at: DeviceProbe.uptime() + estimate) else {
                 record(request, "timeout", size: size, note: "not enough time left for this size")
@@ -394,7 +418,7 @@ public struct DeviceProbeRunner: Sendable {
             }
             let timing = TimingCenter(center)
             let categories = NotificationCategories(
-                registry: try freshRegistry("d9-\(process.rawValue)"), center: timing)
+                registry: try freshRegistry("d9-\(request.run)-\(process.rawValue)"), center: timing)
             let rows = DeviceProbe.rows(size: size, process: process)
             let expected = Set(rows.map(\.category.id))
             let start = DeviceProbe.uptime()
@@ -420,7 +444,9 @@ public struct DeviceProbeRunner: Sendable {
         while DeviceProbe.uptime() < limit, !stopped(deadline) {
             let missing = DeviceProbe.missing(expected, in: await center.notificationCategories())
             count = expected.count - missing.count
-            if missing.isEmpty { return (DeviceProbe.uptime(), count) }
+            // A reply that arrives after the limit doesn't count as seen in time.
+            let now = DeviceProbe.uptime()
+            if missing.isEmpty { return now <= limit ? (now, count) : (nil, count) }
             try? await Task.sleep(for: poll)
         }
         return (nil, count)
@@ -447,11 +473,12 @@ public struct DeviceProbeRunner: Sendable {
             let rendezvous = DeviceProbe.uptime() + DeviceProbe.nanoseconds(rendezvousLead)
             files.write([Int64(round), Int64(rendezvous)], to: files.appRound(request.run))
             await sleep(until: rendezvous)
+            guard !Task.isCancelled else { return }
             let start = DeviceProbe.uptime()
             try await categories.register(DeviceProbe.d8Rows(round: round, process: .app))
             let end = DeviceProbe.uptime()
             guard let nse = await nseAttempt(request, round: round) else {
-                record(request, "round", round: round, ok: false, note: "the NSE didn't finish this round")
+                record(request, "timeout", round: round, note: "the NSE didn't finish this round")
                 return
             }
             let expected = DeviceProbe.d8Expected(round: round)
@@ -504,6 +531,7 @@ public struct DeviceProbeRunner: Sendable {
             if app.first == -1 { return }
             if app.count == 2, app[0] > last {
                 await sleep(until: UInt64(app[1]))
+                guard !stopped(deadline) else { break }
                 let start = DeviceProbe.uptime()
                 try await categories.register(DeviceProbe.d8Rows(round: Int(app[0]), process: .nse))
                 let end = DeviceProbe.uptime()

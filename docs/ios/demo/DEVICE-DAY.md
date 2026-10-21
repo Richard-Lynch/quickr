@@ -121,19 +121,29 @@ App Group.
 
 While the probe runs, the system's categories are the probe's:
 
-- A probe launch registers none of the app's own categories.
+- A probe launch holds back the app's own category registrations until the
+  NSE's side is done too.
+- An ordinary launch cancels a probe still pending.
 - Each side re-registers the real categories when it finishes, even when the NSE
   is out of time.
-- If a process dies first, the app's next normal launch reconciles them (§5.3).
+- If a process dies first, or the system kills the NSE mid-restore, the app's
+  next normal launch reconciles them (§5.3).
 - Don't make topics due during a run: a real reminder in that window would show
   without actions, and its NSE run would replace the probe's set.
 
 - **D9:** `make ios-device-run IOS_LAUNCH_ARGS="-QuickrDProbe d9"`. Wait for
   Console (category `dprobe`) to say "the app's side is done", then send a test
   push.
-  - Each size records `set_ms` (the system call alone), `register_ms` (the
-    registry insert too), `readback_ms`, and how many categories the last read
-    showed (`seen`).
+  - The sizes are 100, 150, 1,000 and 5,000. 150 brackets a possible
+    100-category cap.
+  - Each size records `set_ms` (the center's call: building the category set and
+    `setNotificationCategories`), `register_ms` (the registry insert too),
+    `readback_ms`, and how many of its categories the last read showed (`seen`).
+  - On the iOS 26 simulator, the readback showed only 100 of 1,000 and 100 of
+    5,000. If the device also keeps only about 100, §5's append-only, full-union
+    registration needs a bound whatever the timings (open question 5). Check the
+    retained ids, and that a reminder for a category past the first 100 still
+    shows its actions.
   - The NSE stops at 22 s, keeping the rest of its ~30 s to restore, and skips a
     size it can't finish in time (`timeout`). That is itself a D1 finding.
 - **D8:** `make ios-device-run IOS_LAUNCH_ARGS="-QuickrDProbe d8"`. Keep the app

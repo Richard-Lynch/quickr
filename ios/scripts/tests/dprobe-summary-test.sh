@@ -45,18 +45,29 @@ d8 3 3; sed -i '' '/"process":"nse".*"done"/d' "$tmp/r.jsonl"
 check "the NSE never finished: incomplete" 3 "nse never finished"
 d8 3 3; sed -i '' 's/"process":"app","probe":"d8","event":"done","ok":true/"process":"app","probe":"d8","event":"done","ok":false/' "$tmp/r.jsonl"
 check "the real categories not restored: incomplete" 3 "didn't restore"
+d8 100 100; sed -i '' 's/"overlap":true/"overlap":false/' "$tmp/r.jsonl"
+check "attempts that never overlapped: incomplete, not go" 3 "overlapped in only 0 of 100"
 
-{
+d9() {  # d9 [drop the NSE's size] : a D9 run's file
   for p in app nse; do
+    echo "{\"run\":\"q\",\"process\":\"$p\",\"probe\":\"d9\",\"event\":\"start\",\"sizes\":[100,1000,5000],\"at\":1}"
     for s in 100 1000 5000; do
-      echo "{\"run\":\"q\",\"process\":\"$p\",\"probe\":\"d9\",\"event\":\"size\",\"size\":$s,\"set_ms\":1.5,\"register_ms\":9.0,\"readback_ms\":2.0,\"ok\":true,\"at\":1}"
+      [[ $p == nse && $s == "${1:-}" ]] && continue
+      echo "{\"run\":\"q\",\"process\":\"$p\",\"probe\":\"d9\",\"event\":\"size\",\"size\":$s,\"set_ms\":1.5,\"register_ms\":9.0,\"readback_ms\":2.0,\"seen\":$s,\"ok\":true,\"at\":1}"
     done
     echo "{\"run\":\"q\",\"process\":\"$p\",\"probe\":\"d9\",\"event\":\"done\",\"ok\":true,\"at\":2}"
-  done
-} >"$tmp/r.jsonl"
-check "D9 complete: the table" 0 "nse       5000"
-echo '{"run":"q","process":"nse","probe":"d9","event":"timeout","size":5000,"note":"not enough time left for this size","at":2}' >>"$tmp/r.jsonl"
+  done >"$tmp/r.jsonl"
+}
+d9; check "D9 complete: the table" 0 "nse       5000"
+d9; echo '{"run":"q","process":"nse","probe":"d9","event":"timeout","size":5000,"note":"not enough time left for this size","at":2}' >>"$tmp/r.jsonl"
 check "D9 with a size the NSE couldn't reach: incomplete" 3 "D9 INCOMPLETE"
+d9 5000; check "D9 missing a size, with no timeout: incomplete" 3 "nse 5000: not measured"
+d9; sed -i '' '/"process":"nse".*"size":5000/s/"ok":true/"ok":false,"overrun":true/' "$tmp/r.jsonl"
+check "D9's last size past the deadline: incomplete" 3 "past the NSE's deadline"
+d9; grep -v '"event":"start"' "$tmp/r.jsonl" >"$tmp/x" && mv "$tmp/x" "$tmp/r.jsonl"
+check "D9 without start records (no sizes known): incomplete" 3 "no start record"
+d9; sed -i '' '/"process":"app".*"size":1000/s/"ok":true/"ok":false/; /"process":"app".*"size":1000/s/"seen":1000/"seen":100/' "$tmp/r.jsonl"
+check "D9 with a readback that showed only some: complete, with the finding" 0 "showed 100 of 1000"
 
 if (( failures )); then
   echo "dprobe-summary-test: $failures failed"

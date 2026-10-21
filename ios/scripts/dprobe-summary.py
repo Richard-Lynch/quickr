@@ -9,9 +9,10 @@ run (or the one given):
   and the verdict.
 - D9: set, register and readback times per process and size.
 
-Exit status: 0 for a complete run (D8: go), 1 for D8 no-go (a round failed), 3 for an incomplete
-run (rounds missing, an error, a timeout, a stop, a side not done, or the real categories not
-restored). An incomplete run decides nothing: run it again.
+Exit status: 0 for a complete run (D8: go), 1 for D8 no-go (a round still lost a category after
+one reconcile), 3 for an incomplete run: rounds or sizes missing, D8 attempts that mostly didn't
+overlap, an error, a timeout, a stop, a step past the NSE's deadline, a side not done, or the real
+categories not restored. An incomplete run decides nothing: run it again.
 """
 
 import json
@@ -66,6 +67,8 @@ def d8(mine):
     after = sum(1 for r in rounds.values() if r.get("ok") and r.get("missing"))
     failed = sorted(n for n, r in rounds.items() if not r.get("ok"))
     overlapped = sum(1 for r in rounds.values() if r.get("overlap"))
+    if rounds and overlapped < 0.9 * len(rounds):
+        found.append(f"the attempts overlapped in only {overlapped} of {len(rounds)} rounds: §5.4 needs them concurrent")
     print(
         f"D8: {len(rounds)} rounds: {at_once} complete at once, {after} after one reconcile, {len(failed)} not"
         + (f" ({failed[:10]}{'…' if len(failed) > 10 else ''})" if failed else "")
@@ -89,6 +92,17 @@ def d8(mine):
 
 def d9(mine):
     found = problems(mine, ("app", "nse"))
+    for side in ("app", "nse"):
+        start = next((r for r in mine if r["process"] == side and r["event"] == "start"), None)
+        if start is None:
+            found.append(f"{side}: no start record")
+            continue
+        measured = {r["size"]: r for r in mine if r["process"] == side and r["event"] == "size"}
+        for size in start.get("sizes") or []:
+            if size not in measured:
+                found.append(f"{side} {size}: not measured")
+            elif measured[size].get("overrun"):
+                found.append(f"{side} {size}: finished past the NSE's deadline")
     print("D9: process   size     set ms  register ms  readback ms     seen  ok")
     short = []
     for r in mine:

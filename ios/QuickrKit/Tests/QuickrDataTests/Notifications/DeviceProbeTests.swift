@@ -165,7 +165,9 @@ import Testing
 
     @Test func d9RecordsAReadbackThatNeverShows() async throws {
         let w = try await World()
-        await w.runner(.nse, LossyCenter(dropsEvery: 1)).run(DeviceProbe.Request(kind: .d9, run: "r", sizes: [10]))
+        let request = DeviceProbe.Request(kind: .d9, run: "r", sizes: [10])
+        try w.files.write(request)
+        await w.runner(.nse, LossyCenter(dropsEvery: 1)).run(request)
         let size = try #require(w.records("size").first)
         #expect(size.ok == false)
         #expect(size.readbackMs == nil)
@@ -175,8 +177,9 @@ import Testing
     @Test func d9AReadbackAfterTheDeadlineIsNotASuccess() async throws {
         let w = try await World()
         let center = SlowCenter(readDelay: .milliseconds(150))
-        await w.runner(.nse, center).run(
-            DeviceProbe.Request(kind: .d9, run: "r", sizes: [10, 20]), until: Self.from(now: 0.08))
+        let request = DeviceProbe.Request(kind: .d9, run: "r", sizes: [10, 20])
+        try w.files.write(request)
+        await w.runner(.nse, center).run(request, until: Self.from(now: 0.08))
         let size = try #require(w.records("size").first)
         #expect(size.ok == false)
         #expect(size.overrun == true)
@@ -184,10 +187,50 @@ import Testing
         #expect(w.records("done").first?.ok == true, "restored after the deadline")
     }
 
+    @Test func d9StartsByNamingItsSizes() async throws {
+        let w = try await World()
+        await w.runner(.app, FakeNotificationCenter()).run(DeviceProbe.Request(kind: .d9, run: "r", sizes: [10, 20]))
+        #expect(w.records("start").first?.sizes == [10, 20])
+        #expect(DeviceProbe.Request(kind: .d9).sizes == [100, 150, 1000, 5000], "150 brackets a 100-category cap")
+    }
+
+    @Test func aReadbackAfterItsLimitIsNotSeenInTime() async throws {
+        let w = try await World()
+        var runner = w.runner(.app, SlowCenter(readDelay: .milliseconds(300)))
+        runner.readbackLimit = .milliseconds(100)
+        await runner.run(DeviceProbe.Request(kind: .d9, run: "r", sizes: [10]))
+        let size = try #require(w.records("size").first)
+        #expect(size.ok == false)
+        #expect(size.readbackMs == nil)
+    }
+
+    @Test func aSupersededD9StopsAndLeavesTheRestoreToTheNewerRun() async throws {
+        let w = try await World()
+        let center = FakeNotificationCenter()
+        let request = DeviceProbe.Request(kind: .d9, run: "old", sizes: [10])
+        try w.files.write(request)
+        try w.files.claim("new")
+        await w.runner(.nse, center).run(request, until: Self.from(now: 5))
+        #expect(w.records("size").isEmpty)
+        #expect(w.records("stopped").first?.run == "old")
+        #expect(w.records("done").first?.note?.contains("superseded") == true)
+        #expect(center.withState { $0.categoryRegistrations }.isEmpty, "it doesn't touch the newer run's set")
+    }
+
+    @Test func anOrdinaryLaunchCancelsAPendingProbe() async throws {
+        let w = try await World()
+        let request = DeviceProbe.Request(kind: .d8, run: "r")
+        try w.files.write(request)
+        w.files.cancelPending()
+        #expect(w.files.take() == nil, "a later test push doesn't start it")
+        #expect(!w.files.isCurrent("r"), "and a runner still going stops")
+    }
+
     @Test func d9StopsAtTheDeadline() async throws {
         let w = try await World()
-        await w.runner(.nse, FakeNotificationCenter()).run(
-            DeviceProbe.Request(kind: .d9, run: "r", sizes: [10, 20]), until: DeviceProbe.uptime())
+        let request = DeviceProbe.Request(kind: .d9, run: "r", sizes: [10, 20])
+        try w.files.write(request)
+        await w.runner(.nse, FakeNotificationCenter()).run(request, until: DeviceProbe.uptime())
         #expect(w.records("size").isEmpty)
         #expect(w.records("timeout").first?.size == 10)
         #expect(w.records("done").count == 1)
