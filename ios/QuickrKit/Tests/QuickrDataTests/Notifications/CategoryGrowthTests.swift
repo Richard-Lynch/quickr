@@ -6,7 +6,9 @@ import Testing
 
 /// How many notification categories a typical user generates (notifications.md §5.1, D1): a
 /// seeded year of one person's logging over twelve topics, counting the distinct category ids
-/// the app's refresh would register after each day. The numbers are recorded in §5.1.
+/// the app's refresh computes after each day. That is the size the pre-CATCAP append-only union
+/// would reach; it doesn't exercise registration (NotificationCategoriesTests does). The numbers
+/// are recorded in §5.1.
 @Suite struct CategoryGrowthTests {
     static let server = "00000000-0000-4000-8000-0000000000a1"
 

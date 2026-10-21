@@ -71,6 +71,7 @@ import Testing
             #expect(
                 try columns(db, "notification_category") == [
                     "id", "server_id", "topic_id", "actions_json", "created_at", "current", "due_at", "used_at",
+                    "pushed_at",
                 ])
             #expect(
                 try columns(db, "server") == [

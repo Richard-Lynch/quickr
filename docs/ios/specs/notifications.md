@@ -303,14 +303,17 @@ CREATE TABLE notification_category (
   actions_json  TEXT NOT NULL,      -- the rendered action descriptor
   created_at    REAL NOT NULL,
   -- registry v3 (CATCAP):
-  current       INTEGER NOT NULL DEFAULT 0,  -- the topic's category as of the last refresh or push
+  current       INTEGER NOT NULL DEFAULT 0,  -- the topic's category as of the app's last refresh
   due_at        REAL,                        -- the topic's due time then (due since, or next due); null: no reminders
-  used_at       REAL NOT NULL DEFAULT 0      -- when a process last wanted it (v3 sets it to created_at)
+  used_at       REAL NOT NULL DEFAULT 0,     -- when a process last wanted it (v3 sets it to created_at); never moves back
+  pushed_at     REAL                         -- when the NSE last showed a push with it; never moves back
 );
 ```
 
 - **A row never changes in place.** An id's actions are fixed by its hash (§4.3).
-  Only `current`, `due_at` and `used_at` change.
+  Only `current`, `due_at`, `used_at` and `pushed_at` change. The times are read
+  under the registry lock and only ever move forward (`MAX`), so a waiter with an
+  earlier clock never stamps an earlier time.
 - **Growth, measured** (`CategoryGrowthTests`: a seeded year of one person, twelve
   topics, ten of them quick-loggable: six numbers and four enums, two version edits
   each). Distinct ids registered: **42 by day 7, 104 by day 30, 197 by day 90 and 644
@@ -326,24 +329,31 @@ CREATE TABLE notification_category (
 
 ```
 REGISTRATION_CAP = 90                               // one constant (NotificationCategories.registrationCap)
+PUSH_WINDOW = 1 day
 DUE_WINDOW = 7 days
 DELETE_GRACE = 1 day
 
-register(rows, replacingCurrentOf: server?):
+register(rows, role, replacingCurrentOf: server?, onlyIfMissing):
   delivered = await center.deliveredNotifications() // outside any transaction (category ids on screen)
+  installed = onlyIfMissing ? await center.notificationCategories() : nil   // outside, too
   TX IMMEDIATE on registry:                         // registry write lock = the cross-process mutex
+    now = wall clock                                // read under the lock
     if server: UPDATE … SET current = 0 WHERE server_id = server
-    UPSERT rows SET current = 1, due_at = row.due, used_at = now   // actions never change
-    selected = select(now, delivered)
-    DELETE rows ∉ selected AND current = 0 AND id ∉ delivered AND used_at < now − DELETE_GRACE
-    center.setNotificationCategories(selected)      // synchronous; no await inside the TX
+    role current: UPSERT rows SET current = 1, due_at = row.due, used_at = MAX(used_at, now)
+    role pushed:  UPSERT rows SET pushed_at = MAX(pushed_at, now), used_at = MAX(used_at, now)
+    selected = select(now, delivered)               // actions never change
+    if the caller prunes (the app; not the NSE):
+      DELETE rows ∉ selected AND current = 0 AND id ∉ delivered AND used_at < now − DELETE_GRACE
+    if installed == nil or selected ⊄ installed:
+      center.setNotificationCategories(selected)    // synchronous; no await inside the TX
   COMMIT
 
 select(now, delivered):                             // the same rule in every process
   rank each row:
-    1. current AND due_at ≤ now + DUE_WINDOW        // due now, overdue, or due within 7 days; soonest first
-    2. id ∈ delivered                               // still on screen; most recently wanted first
-    3. the rest                                     // most recently wanted first
+    1. pushed_at ≥ now − PUSH_WINDOW                // a push shown in the last day; newest first
+    2. current AND |due_at − now| ≤ DUE_WINDOW      // due within 7 days either way; closest first
+    3. id ∈ delivered                               // still on screen; most recently wanted first
+    4. the rest                                     // most recently wanted first
   ties by id; the first REGISTRATION_CAP
 ```
 
@@ -353,8 +363,13 @@ select(now, delivered):                             // the same rule in every pr
   category. Two processes registering at once give a set that reflects both, in
   rank order (N4).
 - **The reminder being shown comes first.** The NSE registers its push's category
-  as current and due now, so it ranks in tier 1 even when the cap is full. The
-  least recently wanted row makes room.
+  as `pushed`, so it ranks in tier 1 for a day even when the cap is full of due
+  topics. Pushing doesn't touch `current`, which is the app's view. An app refresh
+  working from an older delivered snapshot therefore can't demote or delete it.
+  The least recently wanted row makes room.
+- **Due is bounded both ways.** A topic due, or overdue, by more than 7 days ranks
+  by use. That covers an inactive server's topics, whose due times aren't
+  refreshed, so they can't hold the top of the selection forever.
 - **Old ids drop out** once they're outside the selection, not current (a newer
   last value, a new version, an archived topic), not on any delivered
   notification, and a day has passed since a process last wanted them. The grace
@@ -375,6 +390,10 @@ select(now, delivered):                             // the same rule in every pr
   held, so two processes' calls don't interleave. Apple doesn't document a
   barrier proving the system has applied one replacement before the next
   arrives. Reconciliation (§5.3) covers that gap, and checkpoint D tests it.
+- **The NSE only adds and evicts.** It never deletes rows, which keeps its work
+  small on its tight budget. Deleting is the app's job, at its next refresh. Over a
+  650-row registry, the NSE's reconcile and register take about 9 ms on the host,
+  and the app's pruning registration takes about 11 ms (`TimingTests`).
 - **The cap is one constant.** 90 leaves headroom under the simulator's 100.
   Checkpoint D9 on a device confirms the real limit (DeviceProbe registers
   uncapped to measure it), and the constant changes after D if needed.
@@ -386,8 +405,11 @@ select(now, delivered):                             // the same rule in every pr
   descriptor of every quick-loggable active topic in the active store, computed
   locally with the server's rules, with its due time, becomes that server's
   current set (`replacingCurrentOf`). It calls `setNotificationCategories` only
-  when the selection changed.
-- **The NSE**, for the incoming push (§6): one row, current, due now.
+  when the system (asked before the transaction) is missing any of the
+  selection. Time moving a row in, or a system that lost its set (after the v3
+  migration, say), is therefore repaired at the next refresh, not just at the
+  next activation.
+- **The NSE**, for the incoming push (§6): one row, `pushed`, with no deleting.
 
 Registering before notification permission has been granted is allowed.
 
@@ -437,7 +459,7 @@ didReceive(request):
   if q.quick_log != nil:
       actions = render(q); cid = categoryId(q.topic_id, actions)                // §4
       if cid != best.categoryIdentifier: log("category drift", server: …, client: cid)
-      register([row(cid, actions)])                                             // §5.2
+      register([row(cid, actions)], role: pushed)                               // §5.2: adds, evicts, never deletes
       best.categoryIdentifier = cid
   if q.server_id == registry.active.server_id and the active store opens:
       if the view shows slot (topic_id, due_since) already satisfied by a local entry:

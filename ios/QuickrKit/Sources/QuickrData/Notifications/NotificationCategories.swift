@@ -18,16 +18,19 @@ import QuickrCore
 ///   becomes the server's current set. The NSE may never run (spike F1), so these must be
 ///   registered ahead of any push.
 ///
-/// The selection (§5.2), in order: current categories of topics due now or within ``dueWindow``
-/// (soonest first); categories of delivered notifications (still on screen); then the most
-/// recently wanted. A row outside the selection that is neither current nor on screen, and wasn't
+/// The selection (§5.2), in order: categories of pushes shown in the last ``pushWindow`` (newest
+/// first); current categories of topics due within ``dueWindow`` of now, either way (closest
+/// first); categories of delivered notifications (still on screen); then the most recently
+/// wanted. A row outside the selection that is neither current nor on screen, and wasn't
 /// wanted in the last day, can't be needed again, so the same transaction deletes it.
 public struct NotificationCategories: Sendable {
     /// At most this many categories are registered (§5.2). The system keeps at most 100 (checkpoint
     /// D's probe read back 100 of 150, 1,000 and 5,000 on the iOS 26 simulator); 90 leaves room.
     /// D9 on a device confirms it; change it here only.
     public static let registrationCap = 90
-    /// A current category whose topic is due within this long (or overdue) comes first.
+    /// A push's category (the NSE's) comes first for this long after the push.
+    public static let pushWindow: TimeInterval = 86_400
+    /// Next, a current category whose topic is due, or was due, within this long of now.
     public static let dueWindow: TimeInterval = 7 * 86_400
     /// A row wanted this recently is never deleted, even outside the selection: a notification
     /// shown since the caller's snapshot of the delivered ones may still use it (the NSE's row,
@@ -40,15 +43,19 @@ public struct NotificationCategories: Sendable {
     /// At most this many registered; nil registers every row (checkpoint D9 only, which measures
     /// the system's own limit).
     let cap: Int?
+    /// Whether registering deletes rows that can't be needed. The app does; the NSE, on its tight
+    /// budget, only adds and evicts from the selection, and leaves deleting to the app.
+    let prunes: Bool
 
     public init(
         registry: Registry, center: any NotificationCenterProtocol, wallClock: any WallClock = SystemWallClock(),
-        cap: Int? = NotificationCategories.registrationCap
+        cap: Int? = NotificationCategories.registrationCap, prunes: Bool = true
     ) {
         self.registry = registry
         self.center = center
         self.wallClock = wallClock
         self.cap = cap
+        self.prunes = prunes
     }
 
     /// A row to insert: the category of one topic for one server, and when that topic is next due
@@ -67,11 +74,21 @@ public struct NotificationCategories: Sendable {
         }
     }
 
+    /// How a caller wants its rows (§5.2).
+    public enum Role: Sendable {
+        /// The topic's category now (the app's refresh; tests and tools): current, with its due
+        /// time.
+        case current
+        /// The category of a push being shown (the NSE): first in the selection for a day. Doesn't
+        /// change which row is current; that's the app's view.
+        case pushed
+    }
+
     /// §5.2: inserts `rows` (an existing id keeps its actions; never changed in place), marks them
-    /// current with their due time and registers the capped selection. Returns the registered ids.
+    /// as `role` says and registers the capped selection. Returns the registered ids.
     @discardableResult
-    public func register(_ rows: [Row]) async throws -> [String] {
-        try await update(rows, replacingCurrentOf: nil, always: true)
+    public func register(_ rows: [Row], as role: Role = .current) async throws -> [String] {
+        try await update(rows, role: role, replacingCurrentOf: nil, always: true)
     }
 
     /// §5.3: re-registers when the system is missing any category of the capped selection. Returns
@@ -93,56 +110,79 @@ public struct NotificationCategories: Sendable {
     }
 
     /// The categories of every quick-loggable active topic in `store` become its server's current
-    /// set (with their due times). Registers when the capped selection changed. Returns the
-    /// topics' category ids.
+    /// set (with their due times). Registers when the system is missing any of the resulting
+    /// selection. Returns the topics' category ids.
     @discardableResult
     public func refresh(from store: LocalStore) async throws -> [String] {
         let rows = try await Self.rows(in: store, now: wallClock.now())
-        try await update(rows, replacingCurrentOf: store.serverId, always: false)
+        try await update(rows, role: .current, replacingCurrentOf: store.serverId, always: false)
         return rows.map(\.category.id)
     }
 
     /// One registry transaction: `replacingCurrentOf`'s rows stop being current, `rows` are
-    /// inserted or touched (current, due time, last wanted now), rows that can't be needed are
-    /// deleted, and the selection is registered: always, or only when it changed.
-    private func update(_ rows: [Row], replacingCurrentOf serverId: String?, always: Bool) async throws -> [String] {
+    /// inserted or touched as `role` says, rows that can't be needed are deleted (unless this
+    /// process doesn't prune), and the selection is registered: always, or when the system (asked
+    /// before the transaction) is missing any of it.
+    private func update(_ rows: [Row], role: Role, replacingCurrentOf serverId: String?, always: Bool)
+        async throws -> [String]
+    {
         // A cancelled caller (the NSE out of time) registers nothing.
         try Task.checkCancellation()
-        // On screen now: asked outside any transaction (§5.2), before the write lock.
+        // Asked outside any transaction (§5.2), before the write lock: what's on screen and, when
+        // registering only on a change, what the system has.
         let delivered = await deliveredCategories()
+        let installed = always ? nil : Set(await center.notificationCategories().map(\.id))
         try Task.checkCancellation()
-        let now = wallClock.now()
-        let cap = cap
-        let center = center
+        let (cap, prunes, center, wallClock) = (cap, prunes, center, wallClock)
         let encoded = try rows.map { row in (row, try Self.encode(row.category.actions)) }
         return try await registry.writer.writeWithoutTransaction { db in
             var registered: [String] = []
             try db.inTransaction(.immediate) {
-                let before = try Self.select(db, now: now, delivered: delivered, cap: cap).selected.map(\.id)
+                // Read under the lock, so a later writer never stamps an earlier time.
+                let now = wallClock.now()
+                let time = now.timeIntervalSince1970
                 if let serverId {
                     try db.execute(
                         sql: "UPDATE notification_category SET current = 0 WHERE server_id = ?", arguments: [serverId])
                 }
                 for (row, actions) in encoded {
-                    try db.execute(
-                        sql: """
-                            INSERT INTO notification_category
-                              (id, server_id, topic_id, actions_json, created_at, current, due_at, used_at)
-                            VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-                            ON CONFLICT (id) DO UPDATE SET current = 1, due_at = excluded.due_at, used_at = excluded.used_at
-                            """,
-                        arguments: [
-                            row.category.id, row.serverId, row.topicId, actions, now.timeIntervalSince1970,
-                            row.dueAt?.timeIntervalSince1970, now.timeIntervalSince1970,
-                        ])
+                    // used_at and pushed_at never move back (another process's clock, a clock change).
+                    switch role {
+                    case .current:
+                        try db.execute(
+                            sql: """
+                                INSERT INTO notification_category
+                                  (id, server_id, topic_id, actions_json, created_at, current, due_at, used_at)
+                                VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                                ON CONFLICT (id) DO UPDATE SET
+                                  current = 1, due_at = excluded.due_at, used_at = MAX(used_at, excluded.used_at)
+                                """,
+                            arguments: [
+                                row.category.id, row.serverId, row.topicId, actions, time,
+                                row.dueAt?.timeIntervalSince1970, time,
+                            ])
+                    case .pushed:
+                        try db.execute(
+                            sql: """
+                                INSERT INTO notification_category
+                                  (id, server_id, topic_id, actions_json, created_at, used_at, pushed_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                ON CONFLICT (id) DO UPDATE SET
+                                  used_at = MAX(used_at, excluded.used_at),
+                                  pushed_at = MAX(COALESCE(pushed_at, 0), excluded.pushed_at)
+                                """,
+                            arguments: [row.category.id, row.serverId, row.topicId, actions, time, time, time])
+                    }
                 }
                 let after = try Self.select(db, now: now, delivered: delivered, cap: cap)
-                for id in after.unneeded {
+                for id in prunes ? after.unneeded : [] {
                     try db.execute(sql: "DELETE FROM notification_category WHERE id = ?", arguments: [id])
                 }
                 registered = after.selected.map(\.id)
                 // Synchronous, under the registry's write lock: no other process registers in between.
-                if always || Set(registered) != Set(before) { center.setNotificationCategories(after.selected) }
+                if installed.map({ !Set(registered).isSubset(of: $0) }) ?? true {
+                    center.setNotificationCategories(after.selected)
+                }
                 return .commit
             }
             return registered
@@ -188,8 +228,8 @@ public struct NotificationCategories: Sendable {
     }
 
     /// The capped selection (§5.2) and the rows that can't be needed any more: outside it, not
-    /// current and not on screen. A row this build can't read (an unknown action kind from a newer
-    /// build) keeps its readable actions.
+    /// current, not on screen and not wanted within ``deleteGrace``. A row this build can't read
+    /// (an unknown action kind from a newer build) keeps its readable actions.
     static func select(_ db: Database, now: Date, delivered: Set<String>, cap: Int?) throws
         -> (selected: [NotificationCategorySpec], unneeded: [String])
     {
@@ -199,29 +239,30 @@ public struct NotificationCategories: Sendable {
             let current: Bool
             let dueAt: Double?
             let usedAt: Double
+            let pushedAt: Double?
         }
         let candidates = try GRDB.Row.fetchAll(
-            db, sql: "SELECT id, actions_json, current, due_at, used_at FROM notification_category"
+            db, sql: "SELECT id, actions_json, current, due_at, used_at, pushed_at FROM notification_category"
         ).map {
             Candidate(
                 id: $0["id"], json: $0["actions_json"], current: $0["current"], dueAt: $0["due_at"],
-                usedAt: $0["used_at"])
+                usedAt: $0["used_at"], pushedAt: $0["pushed_at"])
         }
-        let horizon = now.timeIntervalSince1970 + dueWindow
-        // (tier, then soonest due or most recently wanted); the id breaks ties, so every process
-        // selects the same rows from the same table.
+        let time = now.timeIntervalSince1970
+        // (tier, then the order within it); the id breaks ties, so every process selects the
+        // same rows from the same table at the same time.
         func rank(_ c: Candidate) -> (Int, Double) {
-            if c.current, let due = c.dueAt, due <= horizon { return (0, due) }
-            if delivered.contains(c.id) { return (1, -c.usedAt) }
-            return (2, -c.usedAt)
+            if let pushed = c.pushedAt, pushed >= time - pushWindow { return (0, -pushed) }
+            if c.current, let due = c.dueAt, abs(due - time) <= dueWindow { return (1, abs(due - time)) }
+            if delivered.contains(c.id) { return (2, -c.usedAt) }
+            return (3, -c.usedAt)
         }
-        let ordered = candidates.sorted { a, b in
-            let (ra, rb) = (rank(a), rank(b))
-            return ra != rb ? ra < rb : a.id < b.id
-        }
+        let ordered = candidates.map { ($0, rank($0)) }.sorted { a, b in
+            a.1 != b.1 ? a.1 < b.1 : a.0.id < b.0.id
+        }.map(\.0)
         let kept = cap.map { Array(ordered.prefix($0)) } ?? ordered
         let keptIds = Set(kept.map(\.id))
-        let graceStart = now.timeIntervalSince1970 - deleteGrace
+        let graceStart = time - deleteGrace
         let unneeded = ordered.filter {
             !keptIds.contains($0.id) && !$0.current && !delivered.contains($0.id) && $0.usedAt < graceStart
         }

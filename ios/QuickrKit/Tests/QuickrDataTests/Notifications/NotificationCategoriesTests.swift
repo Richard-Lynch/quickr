@@ -399,4 +399,195 @@ import Testing
         let dueId = try #require(ids.first { $0.contains(due.id.wireString) })
         #expect(w.registered == [dueId])
     }
+
+    // MARK: - Codex r1: races, starvation, installation, clocks, boundaries
+
+    /// Registers `count` current rows due `dueIn` from now.
+    static func dueRows(_ w: World, _ count: Int, dueIn: TimeInterval) async throws -> [NotificationCategories.Row] {
+        let rows = (0..<count).map { _ in
+            var row = Self.row()
+            row.dueAt = w.clock.now().addingTimeInterval(dueIn)
+            return row
+        }
+        try await w.categories.register(rows)
+        return rows
+    }
+
+    /// The NSE pushes B while the app's refresh still works from a delivered snapshot without
+    /// it, and with rows that don't include it: B stays registered and in the table.
+    @Test func aPushSurvivesARefreshWithAStaleSnapshot() async throws {
+        let w = World()
+        _ = try await Self.dueRows(w, NotificationCategories.registrationCap, dueIn: -3_600)
+        let pushed = Self.row()
+        try await w.categories.register([pushed], as: .pushed)
+        #expect(w.registered.contains(pushed.category.id))
+        // The app's refresh (another server's store, so the due rows stay current) from a snapshot
+        // that doesn't show B yet.
+        w.clock.advance(by: 1)
+        try await w.categories.refresh(from: try TestStore().store)
+        #expect(w.registered.contains(pushed.category.id))
+        #expect(try w.table.contains(pushed.category.id))
+    }
+
+    /// A push beats a cap full of current topics that were due yesterday, and a push from a
+    /// day ago no longer does.
+    @Test func aPushIsNeverStarvedByOverdueTopics() async throws {
+        let w = World()
+        let overdue = try await Self.dueRows(w, NotificationCategories.registrationCap, dueIn: -86_400)
+        let pushed = Self.row()
+        try await w.categories.register([pushed], as: .pushed)
+        #expect(w.registered.contains(pushed.category.id))
+        #expect(w.registered.count == NotificationCategories.registrationCap)
+        w.clock.advance(by: NotificationCategories.pushWindow + 1)
+        try await w.categories.register([])
+        #expect(!w.registered.contains(pushed.category.id), "a day later it ranks by use, after the due ones")
+        #expect(Set(overdue.map(\.category.id)).isSubset(of: w.registered))
+    }
+
+    /// A row due more than the window ago (an inactive server's topic, never refreshed since)
+    /// ranks by use, not as due.
+    @Test func aLongOverdueRowLosesItsDueRank() async throws {
+        let w = World(cap: 1)
+        var stale = Self.row()
+        stale.dueAt = w.clock.now().addingTimeInterval(-NotificationCategories.dueWindow - 60)
+        try await w.categories.register([stale])
+        w.clock.advance(by: 60)
+        let recent = Self.row()
+        try await w.categories.register([recent])
+        #expect(w.registered == [recent.category.id])
+    }
+
+    /// The window is inclusive at exactly 7 days either way, and one second past it isn't.
+    @Test func theDueWindowsEdges() async throws {
+        let window = NotificationCategories.dueWindow
+        for (dueIn, ranked) in [(window, true), (-window, true), (window + 1, false), (-window - 1, false)] {
+            let w = World(cap: 1)
+            var due = Self.row()
+            due.dueAt = w.clock.now().addingTimeInterval(dueIn)
+            try await w.categories.register([due])
+            w.clock.advance(by: 0)
+            let other = Self.row()  // wanted at the same moment: only a due rank lifts `due`
+            try await w.categories.register([other])
+            let expected = ranked ? due.category.id : [due.category.id, other.category.id].min()!
+            #expect(w.registered == [expected], "due in \(dueIn) s")
+        }
+    }
+
+    /// Equal ranks are broken by id, so every process picks the same rows.
+    @Test func equalRanksAreOrderedById() async throws {
+        let w = World(cap: 2)
+        let rows = (0..<5).map { _ in Self.row() }
+        try await w.categories.register(rows)  // one transaction: one used_at
+        #expect(w.registered == Set(rows.map(\.category.id).sorted().prefix(2)))
+    }
+
+    /// A topic with reminders off (`notify: false`) gets no due rank from the refresh.
+    @Test func aTopicWithRemindersOffHasNoDueRank() async throws {
+        let w = World(cap: 1)
+        let s = try TestStore()
+        var plain = Make.topic(name: "Plain")
+        plain.id = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!  // first by id
+        plain.questions = [Self.severity(2)]
+        var quiet = Make.topic(name: "Quiet")
+        quiet.id = UUID(uuidString: "ffffffff-0000-4000-8000-000000000001")!
+        quiet.questions = [Self.severity(3)]
+        quiet.schedule = .interval(.init(everyMinutes: 60, timezone: "UTC", notify: false))
+        quiet.scheduleUpdatedAt = w.clock.now().addingTimeInterval(-7_200)
+        try s.write { db in for topic in [plain, quiet] { _ = try ServerLayer.upsert(db, topic: topic) } }
+        let ids = try await w.categories.refresh(from: s.store)
+        #expect(w.registered == [try #require(ids.first { $0.contains(plain.id.wireString) })])
+    }
+
+    /// A refresh that changes nothing in the table still registers when time moved a row into
+    /// the selection and the system doesn't have it.
+    @Test func aRefreshInstallsASelectionTimeChanged() async throws {
+        let w = World(cap: 2)
+        var later = Self.row()
+        later.dueAt = w.clock.now().addingTimeInterval(NotificationCategories.dueWindow + 4 * 86_400)
+        try await w.categories.register([later])  // wanted first: last by use
+        w.clock.advance(by: 60)
+        let others = (0..<2).map { _ in Self.row() }
+        try await w.categories.register(others)
+        #expect(!w.registered.contains(later.category.id))
+        w.clock.advance(by: 5 * 86_400)  // now due within the window
+        try await w.categories.refresh(from: try TestStore().store)
+        #expect(w.registered.contains(later.category.id))
+    }
+
+    /// After the v3 migration (or any loss) the system may have none of the selection: the
+    /// app's next refresh installs it even though the table didn't change.
+    @Test func aRefreshInstallsTheSelectionTheSystemLacks() async throws {
+        let w = World()
+        let rows = try await w.registerAging(3)
+        w.center.withState { $0.categories = [] }
+        let calls = w.registrations.count
+        try await w.categories.refresh(from: try TestStore().store)
+        #expect(w.registrations.count == calls + 1 && w.registered == Set(rows.map(\.category.id)))
+        try await w.categories.refresh(from: try TestStore().store)
+        #expect(w.registrations.count == calls + 1, "installed: no second call")
+    }
+
+    /// A process whose clock reads earlier never moves a row's last use back.
+    @Test func lastUseNeverMovesBack() async throws {
+        let w = World()
+        let row = Self.row()
+        try await w.categories.register([row])
+        let behind = FakeClock(w.clock.now().addingTimeInterval(-3_600))
+        try await NotificationCategories(registry: w.registry, center: w.center, wallClock: behind).register([row])
+        try await NotificationCategories(registry: w.registry, center: w.center, wallClock: behind)
+            .register([row], as: .pushed)
+        let (used, pushed) = try await w.registry.writer.read { db in
+            let r = try GRDB.Row.fetchOne(db, sql: "SELECT used_at, pushed_at FROM notification_category")!
+            return (r["used_at"] as Double, r["pushed_at"] as Double)
+        }
+        #expect(used == w.clock.now().timeIntervalSince1970)
+        #expect(pushed == behind.now().timeIntervalSince1970)
+    }
+
+    /// The NSE only adds and evicts: a row the app would delete stays until the app registers.
+    @Test func onlyTheAppDeletes() async throws {
+        let w = World(cap: 1)
+        let s = try TestStore()
+        var topic = Make.topic(name: "T")
+        topic.questions = [Self.severity(2)]
+        try s.write { db in _ = try ServerLayer.upsert(db, topic: topic) }
+        let first = try await w.categories.refresh(from: s.store)
+        topic.currentVersion = 2
+        try s.write { db in _ = try ServerLayer.upsert(db, topic: topic) }
+        w.clock.advance(by: 60)
+        try await w.categories.refresh(from: s.store)  // first is no longer current but in its grace...
+        w.clock.advance(by: NotificationCategories.deleteGrace + 60)  // ...until now
+        let nse = NotificationCategories(
+            registry: w.registry, center: w.center, wallClock: w.clock, cap: 1, prunes: false)
+        try await nse.register([Self.row()], as: .pushed)
+        #expect(try w.table.contains(first[0]))
+        try await w.categories.register([])
+        #expect(try !w.table.contains(first[0]))
+    }
+}
+
+extension TimingTests {
+    /// The NSE's part of a push (§5.2, §6) over a year's registry, 650 rows: reconcile, then
+    /// register its category without deleting. Well inside the 3 s target (and the 22 s budget);
+    /// the app's pruning registration over the same table is measured too.
+    @Test func registeringOverA650RowRegistryFitsTheNSEBudget() async throws {
+        let w = NotificationCategoriesTests.World()
+        let year = (0..<650).map { _ in NotificationCategoriesTests.row() }
+        try await w.categories.register(year)
+        try await w.registry.writer.write { db in
+            try db.execute(sql: "UPDATE notification_category SET current = 0, used_at = used_at - 172800")
+        }
+        let nse = NotificationCategories(registry: w.registry, center: w.center, wallClock: w.clock, prunes: false)
+        let clock = ContinuousClock()
+        let nseTime = try await clock.measure {
+            _ = try await nse.reconcile()
+            try await nse.register([NotificationCategoriesTests.row()], as: .pushed)
+        }
+        #expect(try w.table.count == 651, "the NSE deleted nothing")
+        let appTime = try await clock.measure { try await w.categories.register([]) }
+        #expect(try w.table.count == NotificationCategories.registrationCap, "the app deleted the rest")
+        print("650-row registry: NSE reconcile + register \(nseTime), app register with pruning \(appTime)")
+        #expect(nseTime < .seconds(1))
+        #expect(appTime < .seconds(2))
+    }
 }

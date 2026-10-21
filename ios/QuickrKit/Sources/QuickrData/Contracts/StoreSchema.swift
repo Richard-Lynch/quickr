@@ -304,12 +304,13 @@ public enum RegistrySchema {
     ]
 
     /// The capped category registration (notifications.md §5.1): which rows are current, when
-    /// their topic is next due, and when a process last wanted them. Existing rows start as not
+    /// their topic is due, when a process last wanted them and when a push last showed them. Existing rows start as not
     /// current, last wanted when they were inserted.
     static let v3: [String] = [
         "ALTER TABLE notification_category ADD COLUMN current INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE notification_category ADD COLUMN due_at REAL",
         "ALTER TABLE notification_category ADD COLUMN used_at REAL NOT NULL DEFAULT 0",
+        "ALTER TABLE notification_category ADD COLUMN pushed_at REAL",
         "UPDATE notification_category SET used_at = created_at",
     ]
 }

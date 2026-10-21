@@ -235,6 +235,24 @@ import Testing
             registered.count == NotificationCategories.registrationCap && registered.contains(Self.waterCategory.id))
     }
 
+    /// The NSE only adds and evicts (§5.2): a row the app would delete (old, not current, not on
+    /// screen, outside the selection) is still in the table after a push.
+    @Test func theNSEDeletesNoRows() async throws {
+        let w = try await World()
+        let full = (0..<NotificationCategories.registrationCap).map { _ in NotificationCategoriesTests.row() }
+        try await NotificationCategories(registry: w.registry, center: w.center, wallClock: FakeClock(Self.now))
+            .register(full)
+        try await w.registry.writer.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO notification_category (id, server_id, topic_id, actions_json, created_at, used_at)
+                    VALUES ('quickr.t.old.0', 's', 't', '[]', 0, 0)
+                    """)
+        }
+        _ = await w.prepare(Self.reminder())
+        #expect(try w.table.contains("quickr.t.old.0"))
+    }
+
     @Test func aReminderFromAnUnknownServerLosesItsCategory() async throws {
         let w = try await World()
         let prepared = await w.prepare(Self.reminder(server: Self.unknown))
