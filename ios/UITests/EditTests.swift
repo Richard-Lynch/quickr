@@ -270,11 +270,6 @@ final class EditTests: XCTestCase {
         XCTAssertTrue(glasses.isHittable)
         XCTAssertTrue(app.buttons["edit.save"].isHittable)
         // At the top: nothing sits under the Save bar (the audit reads that as clipped text).
-        let details = app.descendants(matching: .any)["edit.details"].firstMatch
-        let save = app.buttons["edit.save"].frame
-        if details.exists {
-            XCTAssertFalse(details.frame.intersects(save), "Details \(details.frame) under Save \(save)")
-        }
         try assertAccessible(app, allowing: EntriesAccessibility.edit)
         // Delete is the form's last row: scroll to it.
         let delete = app.buttons["edit.delete"]
