@@ -147,8 +147,9 @@ final class IntentSpikeTests: XCTestCase {
         let quickr = shortcuts.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'quickR'")).firstMatch
         guard quickr.waitForExistence(timeout: 10) else { return note("log topic: no quickR in the library") }
         quickr.tap()
-        let tile = shortcuts.descendants(matching: .any).matching(NSPredicate(format: "label == 'Log Entry'")).firstMatch
-        guard tile.waitForExistence(timeout: 10) else { return note("log topic: no Log Entry tile") }
+        // Shortcuts expands "Log <topic>" into one tile per topic; the Log group comes first.
+        let tile = shortcuts.descendants(matching: .any).matching(NSPredicate(format: "label == 'Workout'")).firstMatch
+        guard tile.waitForExistence(timeout: 10) else { return note("log topic: no Workout tile") }
         tile.tap()
         let started = Date()
         func element(_ label: String) -> XCUIElement? {
@@ -170,12 +171,15 @@ final class IntentSpikeTests: XCTestCase {
             }
             return nil
         }
-        // The topic.
-        guard let workout = element("Workout") else {
-            attachTree(springboard, "log-topic-topic-missing")
-            return note("log topic: no topic list after \(Date().timeIntervalSince(started)) s")
+        // What follows the tap, quickly: a prompt, a sheet, or an error banner that goes away.
+        for (index, pause) in [500_000, 1_000_000, 1_500_000].enumerated() {
+            usleep(UInt32(pause))
+            let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            shot.name = "log-topic-after-tap-\(index)"
+            shot.lifetime = .keepAlways
+            add(shot)
         }
-        workout.tap()
+        attachTree(springboard, "log-topic-first-prompt")
         // Minutes.
         guard let minutes = field() else {
             attachTree(springboard, "log-topic-minutes-missing")

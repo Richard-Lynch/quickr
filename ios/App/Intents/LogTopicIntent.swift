@@ -56,21 +56,37 @@ struct LogTopicIntent: AppIntent, UndoableIntent {
             } else {
                 said = try await $utterance.requestValue("What's your \(current.name) entry?")
             }
-            for (key, value) in await extractor.extract(said, topic: current) ?? [:] { draft.answer(key, value) }
+            // At most `AnswerExtraction.deadline`; only this intent's own cancellation throws.
+            for (key, value) in try await extractor.extract(said, topic: current) ?? [:] { draft.answer(key, value) }
         }
         draft = try await ask(draft)
 
         IntentDrafts.put(draft)
         defer { IntentDrafts.remove(draft.id) }
-        try await requestConfirmation(
-            actionName: .log, dialog: "Log \(IntentText.summary(draft.answers, topic: current))?",
-            snippetIntent: EntryDraftSnippetIntent(draftID: draft.id.uuidString))
-        let confirmed = IntentDrafts.get(draft.id) ?? draft
-        let answers = try confirmed.validated.get()
+        let answers = try await confirm(draft)
         let logged = try await IntentLogging.log(topicId: current.id, answers: answers, in: context)
         let summary = IntentText.summary(logged.answers, topic: logged.topic)
-        await IntentUndo.register(undoManager, entryId: logged.entryId, summary: summary, context: context)
+        await IntentUndo.register(undoManager, logged: logged, context: context)
         return .result(value: summary, dialog: "Logged \(summary).")
+    }
+
+    /// Step 3: the snippet until the user confirms a valid draft. The system's Log button can't be
+    /// disabled, so a draft the snippet's edits left invalid (a multi-select short of its minimum,
+    /// a required one emptied) is shown again with the problem said, a few times at most.
+    private func confirm(_ draft: IntentDraft) async throws -> [String: AnswerValue] {
+        var dialog: IntentDialog = "Log \(IntentText.summary(draft.answers, topic: draft.topic))?"
+        for round in 1...Self.attempts {
+            try await requestConfirmation(
+                actionName: .log, dialog: dialog, snippetIntent: EntryDraftSnippetIntent(draftID: draft.id.uuidString))
+            let confirmed = IntentDrafts.get(draft.id) ?? draft
+            switch confirmed.validated {
+            case .success(let answers): return answers
+            case .failure(let failure):
+                guard round < Self.attempts else { throw failure }
+                dialog = "\(failure.description) Fix it, then log."
+            }
+        }
+        throw IntentLogging.Failure.invalid("Couldn't log \(draft.topic.name).")
     }
 
     /// Step 2: asks until every required question has a valid answer.
@@ -276,6 +292,9 @@ struct EntryDraftSnippet: View {
             case .string:
                 Text(draft.answers[question.key].map { IntentText.text($0, for: question) } ?? "Say it to Siri")
                     .foregroundStyle(.secondary)
+            }
+            if let problem = draft.problem(for: question) {
+                Text(problem).font(.footnote).foregroundStyle(.red)
             }
         }
     }

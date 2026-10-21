@@ -72,12 +72,18 @@ public enum IntentLogging {
     }
 
     /// What a commit did.
-    public struct Logged: Sendable, Hashable {
+    public struct Logged: Sendable {
         public var entryId: UUID
         public var topic: Topic
         public var answers: [String: AnswerValue]
         /// False when a slot-bound log found the slot already logged (nothing was written).
         public var created: Bool
+        /// The store the entry was committed to: undo goes there, whichever store is active by
+        /// then (its fences refuse a store reset or retired since).
+        public var store: LocalStore
+
+        /// Which server and generation it went to.
+        public var scope: EntryScope { store.scope }
     }
 
     /// The reminder slot a log is bound to: it uses the shared action entry id.
@@ -133,15 +139,17 @@ public enum IntentLogging {
         }
         let created = if case .created = result { true } else { false }
         if !Task.isCancelled { await context.afterCommit(store) }
-        return Logged(entryId: entryId, topic: topic, answers: validated, created: created)
+        return Logged(entryId: entryId, topic: topic, answers: validated, created: created, store: store)
     }
 
-    /// Undo of an intent's log (`UndoableIntent`): `cancelCreate` (outbox.md §9.1) in the active
-    /// store. A create not sent yet is removed; one that may have been sent becomes a queued
-    /// delete, which reserves the id.
+    /// Undo of an intent's log (`UndoableIntent`): `cancelCreate` (outbox.md §9.1) in the store the
+    /// entry was committed to, never whichever store is active now (the user may have switched
+    /// servers since). A create not sent yet is removed; one that may have been sent becomes a
+    /// queued delete, which reserves the id. A store retired since (a reset) throws
+    /// `storeUnavailable`: its file is gone, and the entry with it.
     @discardableResult
-    public static func undo(entryId: UUID, in context: IntentWriteContext) async throws -> OutboxUndoLogResult {
-        guard let store = try? await context.openActiveStore() else { throw Failure.noStore }
+    public static func undo(_ logged: Logged, in context: IntentWriteContext) async throws -> OutboxUndoLogResult {
+        let (store, entryId) = (logged.store, logged.entryId)
         let (clock, wall, origin) = (store.leaseClock, store.wallClock, context.origin)
         let result: OutboxUndoLogResult
         do {

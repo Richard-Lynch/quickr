@@ -87,6 +87,33 @@ import Testing
         #expect(draft.answers["quality"] == .string("ok"), "toggle is for multi-selects only")
     }
 
+    /// A multi-select's in-between states are kept and reported; removing the last option of a
+    /// required one doesn't get past validation.
+    @Test func multiSelectEditsKeepInBetweenStatesAndReportThem() {
+        let options = Question.ChoiceRules(
+            options: [.init(value: "a", label: "A"), .init(value: "b", label: "B"), .init(value: "c", label: "C")],
+            multiple: true, minSelected: 2)
+        let optional = Question(key: "pairs", label: "Pairs", required: false, kind: .choice(options))
+        let required = Question(
+            key: "tags", label: "Tags", kind: .choice(.init(options: options.options, multiple: true)))
+        var topic = Make.topic(name: "Pick")
+        topic.questions = [optional, required]
+        var draft = IntentDraft(topic: topic, answers: ["tags": .strings(["a"])])
+
+        draft.toggle("pairs", option: "b")
+        #expect(draft.answers["pairs"] == .strings(["b"]), "one of two: kept")
+        #expect(draft.problem(for: optional) != nil)
+        if case .success = draft.validated { Issue.record("not valid yet") }
+        draft.toggle("pairs", option: "a")
+        #expect(draft.problem(for: optional) == nil && draft.answers["pairs"] == .strings(["a", "b"]))
+        #expect((try? draft.validated.get()) == ["pairs": .strings(["a", "b"]), "tags": .strings(["a"])])
+
+        draft.toggle("tags", option: "a")
+        #expect(draft.answers["tags"] == nil && draft.problem(for: required) == "Tags is required.")
+        if case .success = draft.validated { Issue.record("a required multi-select emptied") }
+        #expect(draft.firstProblem == "Tags is required.")
+    }
+
     @Test func draftsAreHeldByIdAndBounded() {
         let draft = IntentDraft(topic: Self.sleep)
         IntentDrafts.put(draft)
@@ -126,6 +153,43 @@ import Testing
                 ])
         #expect(AnswerExtraction.answers(fromJSON: #"{"quality": "Great"}"#, questions: Self.sleep.questions).isEmpty)
         #expect(AnswerExtraction.answers(fromJSON: "not json", questions: Self.sleep.questions).isEmpty)
+        #expect(
+            AnswerExtraction.answers(fromJSON: #"{"hours": true, "woke": false}"#, questions: Self.sleep.questions)
+                .isEmpty,
+            "a boolean isn't a number")
+    }
+
+    // MARK: - The model's deadline
+
+    @Test func aFastAnswerComesBackAndAFailureIsNoAnswer() async throws {
+        #expect(try await AnswerExtraction.withDeadline(.seconds(5)) { 42 } == 42)
+        struct Boom: Error {}
+        #expect(try await AnswerExtraction.withDeadline(.seconds(5)) { () async throws -> Int in throw Boom() } == nil)
+    }
+
+    /// A model call that ignores cancellation is abandoned at the deadline, not waited for.
+    @Test func aStuckModelIsAbandonedAtTheDeadline() async throws {
+        let (stream, release) = AsyncStream.makeStream(of: Void.self)
+        let started = ContinuousClock.now
+        let value = try await AnswerExtraction.withDeadline(.milliseconds(100)) { () async -> Int in
+            for await _ in stream {}  // ignores cancellation until released
+            return 1
+        }
+        #expect(value == nil)
+        #expect(ContinuousClock.now - started < .seconds(20))
+        release.finish()
+    }
+
+    /// The intent's own cancellation (the system's 30 s) propagates instead of reading as no answers.
+    @Test func theCallersCancellationIsThrown() async {
+        let task = Task {
+            try await AnswerExtraction.withDeadline(.seconds(60)) { () async throws -> Int in
+                try await Task.sleep(for: .seconds(60))
+                return 1
+            }
+        }
+        task.cancel()
+        await #expect(throws: CancellationError.self) { try await task.value }
     }
 
     #if canImport(FoundationModels)

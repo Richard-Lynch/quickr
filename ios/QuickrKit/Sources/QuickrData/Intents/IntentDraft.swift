@@ -88,8 +88,9 @@ public struct IntentDraft: Sendable, Hashable, Identifiable {
         answer(key, .string(value))
     }
 
-    /// A toggle: adds or removes one option of a multi-select (kept in option order; a change
-    /// that breaks the question's limits is refused).
+    /// A toggle: adds or removes one option of a multi-select, kept in option order. Every
+    /// in-between state is kept (two taps may be needed to reach a minimum of two); `problem(for:)`
+    /// says what is wrong meanwhile, and the commit validates the whole draft.
     public mutating func toggle(_ key: String, option value: String) {
         guard let question = topic.questions.first(where: { $0.key == key }),
             case .choice(let rules) = question.kind, rules.multiple
@@ -98,12 +99,20 @@ public struct IntentDraft: Sendable, Hashable, Identifiable {
         if case .strings(let values) = answers[key] { picked = Set(values) } else { picked = [] }
         if picked.contains(value) { picked.remove(value) } else { picked.insert(value) }
         let ordered = rules.options.map(\.value).filter(picked.contains)
-        if ordered.isEmpty {
-            answers[key] = nil
-        } else {
-            answer(key, .strings(ordered))
-        }
+        answers[key] = ordered.isEmpty ? nil : .strings(ordered)
     }
+
+    /// What's wrong with `question`'s answer now, for the snippet to show: its validation
+    /// message, or "required" when a required question has none; nil when it's fine.
+    public func problem(for question: Question) -> String? {
+        guard let value = answers[question.key] else {
+            return question.required ? "\(question.label) is required." : nil
+        }
+        return Self.check(value, for: question)
+    }
+
+    /// The first problem in question order, if any.
+    public var firstProblem: String? { topic.questions.lazy.compactMap(problem(for:)).first }
 
     /// ±: moves a number by one step (1, or 10^-decimals), starting from the answer, else the
     /// minimum, else 0, and staying within the bounds.
