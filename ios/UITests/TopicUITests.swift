@@ -271,8 +271,8 @@ final class TopicUITests: XCTestCase {
         let choice = app.buttons["newTopic.addQuestion.int"].firstMatch
         XCTAssertTrue(choice.waitForExistence(timeout: 5))
         choice.tap()
-        let label = app.textFields["newTopic.q0.label"]
-        XCTAssertTrue(label.waitForExistence(timeout: 5))
+        // A text view at accessibility sizes (it wraps), a text field otherwise.
+        XCTAssertTrue(element("newTopic.q0.label", in: app).waitForExistence(timeout: 5))
     }
 
     @MainActor

@@ -88,7 +88,8 @@ final class BuilderUITests: XCTestCase {
     func testPreviewAndCollapse() {
         let app = launch(open: "quickr://new")
         XCTAssertTrue(app.textFields["newTopic.name"].waitForExistence(timeout: 15))
-        addQuestion("int", label: "Glasses of water", prefix: "newTopic", in: app)  // it starts with none
+        // It starts with none. Return puts the keyboard away.
+        addQuestion("int", label: "Glasses of water\n", prefix: "newTopic", in: app)
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
         snap(app, "builder-edit")
 
@@ -162,7 +163,7 @@ final class BuilderUITests: XCTestCase {
     func testANewQuestionsFieldsAtTheLargestTextSize() throws {
         let app = launch(open: "quickr://new", extra: AccessibilityLaunch.arguments())
         XCTAssertTrue(app.textFields["newTopic.name"].waitForExistence(timeout: 15))
-        addQuestion("int", label: "Steps", prefix: "newTopic", in: app)  // it starts with none
+        addQuestion("int", label: nil, prefix: "newTopic", in: app)  // it starts with none; no keyboard
         let label = app.textFields["newTopic.q0.label"]
         scrollTo(label, in: app)
         XCTAssertTrue(label.waitForExistence(timeout: 15))
@@ -207,10 +208,10 @@ final class BuilderUITests: XCTestCase {
 
     // MARK: Helpers
 
-    /// "Add question" → `type`, then types its label into the new (open) card.
+    /// "Add question" → `type`, then types its label into the new (open) card (nil: leaves it).
     @MainActor
     private func addQuestion(
-        _ type: String, label: String, prefix: String = "editQuestions", in app: XCUIApplication
+        _ type: String, label: String?, prefix: String = "editQuestions", in app: XCUIApplication
     ) {
         let count = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier BEGINSWITH %@ AND identifier ENDSWITH '.header'", "\(prefix).q")
@@ -224,6 +225,7 @@ final class BuilderUITests: XCTestCase {
         scrollTo(field, in: app, up: true)
         scrollTo(field, in: app)
         XCTAssertTrue(field.waitForExistence(timeout: 5))
+        guard let label else { return }
         field.tap()
         field.typeText(label)
         dismissKeyboard(app)
