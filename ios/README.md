@@ -36,6 +36,7 @@ never on the shared base device.
 | `make ios-gen`                | Generate `ios/quickR.xcodeproj`, the Info.plists and entitlements from `project.yml`                                                                                                          |
 | `make ios-build`              | Simulator Debug build                                                                                                                                                                         |
 | `make ios-core-test`          | `swift test` for `QuickrKit` on the Mac, strict cooperative pool (fast; Core and Data; skips the real-time tests)                                                                             |
+| `make ios-release-test-build` | QuickrKit and its tests compile in Release (`swift test -c release --list-tests`; `swift build --build-tests` can't: Release has no testability for the `@testable` test files)               |
 | `make ios-timing-test`        | The real-time tests (`TimingTests`, `MultiProcessTests`) alone, one at a time, normal pool (`QUICKR_TIMING_TESTS=1`)                                                                          |
 | `make ios-lifecycle-test`     | The GRDB-suspension lifecycle tests, alone in their own `swift test` process (`ios-core-test` skips them; `check-ios` and CI run it)                                                          |
 | `make ios-test`               | Unit test plan on the iOS 26.0 simulator                                                                                                                                                      |
@@ -191,7 +192,7 @@ is the child process for the multi-process tests
   library's intents metadata into every binary that links it, so the app and
   the widget extension get them with no extra declaration.
 - **No `AppIntentsPackage`** (contrary to research/02 §1 and 04). On iOS 26.0,
-  linkd resolves an `includedPackages` entry against the binary's *imported*
+  linkd resolves an `includedPackages` entry against the binary's _imported_
   symbols. A static library's never are, so linkd logs "did not match any
   imported symbol" and drops all of the bundle's intents: no App Shortcuts, and
   widgets that can't be configured. iOS 27 accepts it, which is why this only

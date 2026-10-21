@@ -1,4 +1,5 @@
-// PerfSeed is compiled only in debug builds (and QUICKR_PERF ones).
+// PerfSeed is compiled only in debug builds (and QUICKR_PERF ones); `make ios-release-test-build`
+// checks the Release build compiles without it.
 #if DEBUG || QUICKR_PERF
 import Foundation
 import GRDB
