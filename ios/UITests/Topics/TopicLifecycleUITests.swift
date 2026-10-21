@@ -2,8 +2,9 @@ import XCTest
 
 /// UIT-6: a topic's life through the app, against the fake server (`-QuickrUITest`,
 /// https://quickr.test): create it, log an entry, publish v2 with a new question, and log again on
-/// v2. The record screen follows the new version, and the entries list shows both entries, the
-/// first marked as the older version.
+/// v2. The record screen follows the new version; the entries list reads both rows' answers and
+/// marks only the first as older; and each entry, opened, is exactly its version (the edit screen's
+/// "v1"/"v2", the older-version banner) with its own answers (Glasses 3; Glasses 4 and Energy 7).
 final class TopicLifecycleUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -69,7 +70,8 @@ final class TopicLifecycleUITests: XCTestCase {
         XCTAssertTrue(screen.toast("Logged Water").waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 10))
 
-        // 5. Both entries, the v1 one marked as the older version, the v2 one not.
+        // 5. Both entries: the rows read their answers, only the v1 one is marked older, and each
+        //    entry, opened, is exactly its version with its own answers.
         screen.openTopic("water")
         let tabs = app.segmentedControls["topic.tabs"]
         XCTAssertTrue(tabs.waitForExistence(timeout: 10))
@@ -78,11 +80,26 @@ final class TopicLifecycleUITests: XCTestCase {
             NSPredicate(format: "identifier BEGINSWITH 'entry.' AND identifier != 'entry.delete'"))
         XCTAssertTrue(screen.waits(for: { rows.count == 2 }), "two entries, synced (\(rows.count))")
         let older = rows.matching(NSPredicate(format: "label CONTAINS 'Version 1'"))
-        XCTAssertEqual(older.count, 1, "only the first entry is from v1")
-        XCTAssertTrue(older.firstMatch.label.contains("3"), older.firstMatch.label)
-        let current = rows.matching(NSPredicate(format: "NOT (label CONTAINS 'Version 1')")).firstMatch
-        XCTAssertTrue(current.label.contains("7"), "the v2 entry has its Energy: \(current.label)")
+        XCTAssertEqual(older.count, 1, "exactly one row is marked as an older version")
+        XCTAssertTrue(older.firstMatch.label.contains("Glasses, 3"), older.firstMatch.label)
+        let current = rows.matching(NSPredicate(format: "NOT (label CONTAINS 'Version ')")).firstMatch
+        XCTAssertTrue(current.exists, "the other row has no version badge")
+        XCTAssertTrue(current.label.contains("Glasses, 4"), current.label)
+        XCTAssertTrue(current.label.contains("Energy, 7"), current.label)
         snap(app, "uit6-4-entries")
+
+        screen.openEntry(older.firstMatch)
+        XCTAssertTrue(screen.entryLine.label.hasPrefix("v1,"), screen.entryLine.label)
+        XCTAssertTrue(screen.element("edit.outdated").exists, "logged against version 1")
+        XCTAssertEqual(screen.number("form.field.glasses"), "3")
+        XCTAssertFalse(screen.field("form.field.energy").exists, "v1 has no Energy")
+        screen.back()
+
+        screen.openEntry(current)
+        XCTAssertTrue(screen.entryLine.label.hasPrefix("v2,"), screen.entryLine.label)
+        XCTAssertFalse(screen.element("edit.outdated").exists)
+        XCTAssertEqual(screen.number("form.field.glasses"), "4")
+        XCTAssertEqual(screen.number("form.field.energy"), "7")
     }
 
     @MainActor
@@ -181,6 +198,30 @@ struct TopicScreen {
             _ = home.waitForExistence(timeout: 2)
         }
         XCTAssertTrue(home.exists, "home")
+    }
+
+    /// The edit screen's line about the entry ("v2, iOS, logged …").
+    var entryLine: XCUIElement { element("edit.entryLine") }
+
+    /// Opens an entry from the list (the edit screen), once its line shows.
+    func openEntry(_ row: XCUIElement) {
+        scrollTo(row)
+        row.tap()
+        XCTAssertTrue(entryLine.waitForExistence(timeout: 10), "the entry's screen")
+    }
+
+    /// Back one screen (no changes made, so no question).
+    func back() {
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+    }
+
+    /// A number field's value, without a unit or placeholder ("3", not "3 glasses").
+    func number(_ id: String) -> String? {
+        let field = self.field(id)
+        guard field.waitForExistence(timeout: 5), let value = field.value as? String,
+            value != field.placeholderValue
+        else { return nil }
+        return value.split(separator: " ").first.map(String.init)
     }
 
     /// Polls `condition` every 0.2 s for up to `seconds`.
