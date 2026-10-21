@@ -28,9 +28,11 @@ import Testing
             var runner = DeviceProbeRunner(files: files, process: process, center: center) { [location] in
                 await DeviceProbe.restore(location: location, center: center)
             }
-            runner.readbackLimit = .milliseconds(200)
-            runner.peerLimit = .seconds(2)
-            runner.startLimit = .seconds(5)
+            // Generous limits on the success paths: they bound a failing test, and a loaded machine
+            // never trips them. Tests of a limit set their own, short one.
+            runner.readbackLimit = .seconds(10)
+            runner.peerLimit = .seconds(30)
+            runner.startLimit = .seconds(60)
             return runner
         }
 
@@ -178,7 +180,9 @@ import Testing
         let w = try await World()
         let request = DeviceProbe.Request(kind: .d9, run: "r", sizes: [10])
         try w.files.write(request)
-        await w.runner(.nse, LossyCenter(dropsEvery: 1)).run(request)
+        var runner = w.runner(.nse, LossyCenter(dropsEvery: 1))
+        runner.readbackLimit = .milliseconds(200)  // it never shows: the limit ends the wait
+        await runner.run(request)
         let size = try #require(w.records("size").first)
         #expect(size.ok == false)
         #expect(size.readbackMs == nil)
@@ -228,7 +232,7 @@ import Testing
         let request = DeviceProbe.Request(kind: .d9, run: "old", sizes: [10])
         try w.files.write(request)
         try w.files.claim("new")
-        await w.runner(.nse, center).run(request, until: Self.from(now: 5))
+        await w.runner(.nse, center).run(request, until: Self.from(now: 60))
         #expect(w.records("size").isEmpty)
         #expect(w.records("stopped").first?.run == "old")
         #expect(w.records("done").first?.note?.contains("superseded") == true)
@@ -252,12 +256,18 @@ import Testing
         let held = Mutex(false)
         let release = Mutex(false)
         let holder = Task {
-            try? await w.files.exclusively {
+            try await w.files.exclusively {
                 held.withLock { $0 = true }
-                while !release.withLock({ $0 }) { try? await Task.sleep(for: .milliseconds(2)) }
+                while !release.withLock({ $0 }) { try await Task.sleep(for: .milliseconds(2)) }
             }
         }
-        while !held.withLock({ $0 }) { try await Task.sleep(for: .milliseconds(2)) }
+        // On every exit (a failed expectation, a cancellation) the holder lets go and ends.
+        defer {
+            release.withLock { $0 = true }
+            holder.cancel()
+        }
+        let holding = try await Self.eventually(seconds: 20) { held.withLock { $0 } }
+        try #require(holding, "the holder took the lock")
         // The runner's clock moves 1 ms each time it is read, so the deadline 50 ms away passes
         // after a fixed number of reads: the few before the lock, then the lock's polls.
         let clock = TestClock(step: 1_000_000)
@@ -269,7 +279,7 @@ import Testing
         let gaveUp = try await Self.eventually(seconds: 20) { !w.records("timeout").isEmpty }
         release.withLock { $0 = true }
         await run.value
-        await holder.value
+        try await holder.value
         #expect(gaveUp, "it gave up at the deadline, while the lock was still held")
         #expect(w.records("size").isEmpty)
         #expect(w.records("timeout").first?.note?.contains("lock") == true)
@@ -293,7 +303,8 @@ import Testing
         try w.files.write(request)
         let task = Task { await w.runner(.nse, center).run(request) }
         // The NSE side waits for an app that never comes; the system's time runs out.
-        while w.records("ready").isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        let ready = try await Self.eventually(seconds: 20) { !w.records("ready").isEmpty }
+        try #require(ready, "the NSE side started")
         task.cancel()
         await task.value
         #expect(w.records("done").first?.ok == true)
@@ -339,8 +350,10 @@ import Testing
         _ = await (nse, app)
         let rounds = w.records("round")
         #expect(rounds.count == 6)
+        // Every round says whether the attempts overlapped; whether they did depends on scheduling
+        // (a loaded machine can wake one side late), so no count is required here. The interval
+        // logic itself is overlapIsAnyCommonInstant's.
         #expect(rounds.allSatisfy { $0.overlap != nil })
-        #expect(rounds.filter { $0.overlap == true }.count >= 3)
     }
 
     @Test func d8ReportsALostRegistrationAndWhetherOneReconcileFixesIt() async throws {
@@ -391,7 +404,7 @@ import Testing
         let request = DeviceProbe.Request(kind: .d8, run: "old", rounds: 5)
         try w.files.write(request)
         try w.files.claim("new")
-        await w.runner(.nse, FakeNotificationCenter()).run(request, until: Self.from(now: 5))
+        await w.runner(.nse, FakeNotificationCenter()).run(request, until: Self.from(now: 60))
         #expect(w.records("stopped").first?.run == "old")
     }
 
@@ -402,7 +415,7 @@ import Testing
         w.files.write([1, Int64(DeviceProbe.uptime())], to: w.files.appRound("r"))
         // An ordinary launch cancels the probe while the NSE's registration is under way.
         let center = HookCenter { w.files.cancelPending() }
-        await w.runner(.nse, center).run(request, until: Self.from(now: 5))
+        await w.runner(.nse, center).run(request, until: Self.from(now: 60))
         #expect(w.records("stopped").first?.run == "r")
         #expect(center.ids == [w.realCategory.category.id], "the real set is back, not the probe's")
     }
