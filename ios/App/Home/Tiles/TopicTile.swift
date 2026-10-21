@@ -52,8 +52,13 @@ struct TopicTile: View {
     /// the usual Undo toast (offline too, through the outbox); any other opens the record screen.
     private func logAction(_ model: QuickLogModel?) -> (() -> Void)? {
         guard topic.topic.status != .archived else { return nil }
-        if let model, case .single = model.topic.quick {
-            return { Task { await model.logSingle() } }
+        // Decided by the topic's current questions, not the cached model (updated later, by
+        // `follow()`): one that just gained questions opens the form, one that just lost them logs.
+        if let model, let quickTopic, case .single = quickTopic.quick {
+            return {
+                if model.topic != quickTopic { model.topic = quickTopic }
+                Task { await model.logSingle() }
+            }
         }
         return onRecord
     }
