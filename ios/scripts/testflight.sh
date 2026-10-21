@@ -140,9 +140,11 @@ out="$BUILD_DIR/testflight/$marketing-$build"
 archive="$out/QuickR.xcarchive"
 options="$out/ExportOptions.plist"
 # A build number is used once: App Store Connect refuses it again for the same version, and
-# its directory holds that build's archive.
-[[ ! -e "$out" ]] || die "build $marketing ($build) was already archived here (${out#"$IOS_DIR/"}); set another TESTFLIGHT_BUILD_NUMBER"
-mkdir -p "$out"
+# its directory holds that build's archive. mkdir reserves it atomically, so two runs at
+# once can't both take it.
+mkdir -p "$(dirname "$out")"
+mkdir "$out" 2>/dev/null \
+  || die "build $marketing ($build) was already archived here (${out#"$IOS_DIR/"}); set another TESTFLIGHT_BUILD_NUMBER"
 
 echo "ios: TestFlight $( (( dry_run )) && echo "dry run" || echo upload ): version $marketing ($build)"
 for name in DEVELOPMENT_TEAM ASC_KEY_ID ASC_ISSUER_ID; do
@@ -187,7 +189,9 @@ fi
 
 echo "ios: 1/3 archive (Release, generic/platform=iOS) -> ${archive#"$IOS_DIR/"}"
 # Every xcodebuild runs as this script called back, which filters the IDs from its output.
-export QUICKR_TF_SCRUB=1
+# The callbacks get the credentials resolved here, so a file changing meanwhile can't change
+# what they filter (the environment wins over the files).
+export QUICKR_TF_SCRUB=1 DEVELOPMENT_TEAM ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH
 XCODEBUILD="$IOS_DIR/scripts/testflight.sh"
 if (( dry_run )); then
   xcb -configuration Release -destination "generic/platform=iOS" -archivePath "$archive" \

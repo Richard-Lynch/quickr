@@ -35,6 +35,7 @@ for arg in "$@"; do
   prev="$arg"
 done
 if [[ " $* " == *" archive "* ]]; then
+  [[ -n "${FAKE_REMOVE:-}" ]] && rm -f "$FAKE_REMOVE"  # the env file goes during the archive
   app="$archive/Products/Applications/QuickR.app"
   mkdir -p "$app/PlugIns/QuickRWidgets.appex" "$app/Frameworks/X.framework"
   plist() { plutil -create xml1 "$1" && plutil -insert CFBundleVersion -string "$2" "$1"; }
@@ -134,7 +135,14 @@ run TESTFLIGHT_BUILD_NUMBER=7 "$tf"
 run ASC_KEY_ID=OTHERKEY99 TESTFLIGHT_BUILD_NUMBER=71 "$tf"
 grep -q -- "-authenticationKeyID OTHERKEY99" "$tmp/log" && ok "the environment wins over the file" \
   || fail "environment over file: $(cat "$tmp/log")"
-rm "$repo/ios/testflight.env"
+# The env file going away during the archive changes nothing: the export still gets, and
+# filters, the IDs read at the start.
+run FAKE_REMOVE="$repo/ios/testflight.env" TESTFLIGHT_BUILD_NUMBER=72 "$tf"
+if (( status == 0 )) && ! leaks && grep -- "-exportArchive" "$tmp/log" | grep -q -- "-authenticationKeyID $key"; then
+  ok "the file changing mid-run changes nothing"
+else
+  fail "env file removed mid-run (status $status): $(grep -E "$team|$key|$issuer" "$tmp/out")"
+fi
 
 # 5. Malformed values are named.
 run DEVELOPMENT_TEAM=abc ASC_KEY_ID=short ASC_ISSUER_ID=nope ASC_KEY_PATH="$tmp/missing.p8" "$tf"
