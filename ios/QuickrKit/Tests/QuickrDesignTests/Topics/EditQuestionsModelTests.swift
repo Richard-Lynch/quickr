@@ -1,8 +1,7 @@
 import Foundation
 import QuickrCore
+import QuickrUI
 import Testing
-
-@testable import QuickrUI
 
 /// Holds a call until opened, so a test can act while it is out (an answer arriving late).
 @MainActor
