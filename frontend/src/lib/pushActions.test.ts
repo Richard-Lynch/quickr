@@ -510,3 +510,46 @@ describe('handleReminderAction', () => {
     expect(answerLabel(reminder(enumLog).quickr ?? q, 'ok')).toBe('OK');
   });
 });
+
+describe('a single topic (no questions)', () => {
+  const singleLog = { type: 'single' };
+  const now = () => Date.parse('2026-10-17T08:05:00Z');
+
+  it('offers one "Log it" action, and only where actions are supported', () => {
+    expect(pushActions(reminder(singleLog), 2)).toEqual([{ action: 'log|s|', title: 'Log it' }]);
+    expect(pushActions(reminder(singleLog), 0)).toEqual([]);
+  });
+
+  it('accepts only its own action', () => {
+    const q = reminder(singleLog).quickr;
+    expect(resolveAction('log|s|', q)).toEqual({ key: null, value: null });
+    expect(resolveAction('log|s|x', q)).toBeNull();
+    expect(resolveAction('log|o|good', q)).toBeNull();
+    expect(resolveAction('log|s|', reminder(enumLog).quickr)).toBeNull();
+  });
+
+  it('logs an entry with no answers, once per reminder', async () => {
+    const { outbox } = setup();
+    const data = notificationData(reminder(singleLog));
+    const result = await logFromAction({ outbox, action: 'log|s|', data, now });
+    expect(result).toEqual({ status: 'enqueued', id: await actionEntryId(SERVER, TOPIC, SLOT) });
+    const again = await logFromAction({ outbox, action: 'log|s|', data, now });
+    expect(again.status).toBe('duplicate');
+    const items = await outbox.list();
+    expect(items).toHaveLength(1);
+    expect((items[0]?.payload as EntryCreatePayload).body.answers).toEqual({});
+  });
+
+  it('a second click on the same reminder says nothing more', async () => {
+    const { outbox } = setup();
+    const data = notificationData(reminder(singleLog));
+    await logFromAction({ outbox, action: 'log|s|', data, now });
+    const feedback = await handleReminderAction({
+      outbox: { ...outbox, sendNow: () => Promise.reject(new Error('not sent')) },
+      action: 'log|s|',
+      data,
+      now,
+    });
+    expect(feedback).toEqual({ kind: 'none' });
+  });
+});

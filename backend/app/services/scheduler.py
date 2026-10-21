@@ -134,6 +134,7 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
                 version=version,
                 due_since=due_since,
                 quick_log=quick_logs.get(topic_id),
+                single=questions.get(topic_id) == [],
             )
             due_topics.append((due_since, topic_id, slug, notification))
         targets = await push_svc.targets(db)
