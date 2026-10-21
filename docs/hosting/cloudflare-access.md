@@ -137,10 +137,11 @@ everything under `/mcp/`.
      --header "CF-Access-Client-Secret: <client-secret>"
    ```
 
-   The command stores the secret in the client's own config file, so treat that
-   file as a secret. While it runs, the secret is also in its arguments, which
-   other users of the same machine can see with `ps`; on a shared machine, add
-   the two headers to the client's config file in an editor instead.
+   The command puts the secret in your shell history and, while it runs, in its
+   arguments (visible to other users with `ps`), and the client stores it in its
+   own config file, so treat that file as a secret. Prefer adding the two headers
+   to the client's config file in an editor; if you use the command, delete it
+   from your history afterwards.
 
 ## 6. Checking it end to end
 
@@ -192,8 +193,8 @@ printf 'header = "CF-Access-Client-Id: %s"\nheader = "CF-Access-Client-Secret: %
 unset CF_SECRET
 ```
 
-(Cloudflare's IDs and secrets are hex, so they need no quoting inside curl's
-config syntax.)
+(Cloudflare's client IDs and secrets contain no quotes or backslashes, so they
+need no escaping inside curl's config syntax.)
 
 Then finish the check in the app, on the phone:
 
