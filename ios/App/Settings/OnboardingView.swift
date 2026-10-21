@@ -68,6 +68,8 @@ struct OnboardingView: View {
                 .font(.qr(.largeTitle))
                 .foregroundStyle(.qr.ink)
                 .accessibilityAddTraits(.isHeader)
+                // The server step is gone: VoiceOver starts the new one at its heading (audit O4).
+                .qrMovesVoiceOverFocus(on: 1)
             if case .connected(let note?) = setup.state {
                 Text(note)
                     .font(.qr(.subheadline))

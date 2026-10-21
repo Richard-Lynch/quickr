@@ -25,6 +25,7 @@ public struct NumberStepper: View {
     @ScaledMetric(relativeTo: .title3) private var compactSide = QuickrMetrics.tapTarget
     @FocusState private var ownFocus: Bool
     @State private var haptic: (QuickrHaptic, Int) = (.increase, 0)
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     /// - Parameters:
     ///   - label: the accessible name ("Glasses"); the visible label is the caller's.
@@ -43,12 +44,20 @@ public struct NumberStepper: View {
     }
 
     public var body: some View {
-        HStack(spacing: size == .regular ? 8 : 6) {
+        let spacing: CGFloat = size == .regular ? 8 : 6
+        // At accessibility sizes the field takes the full width, with − and + under it: between
+        // them it was too narrow for its digits or range hint (audit F9). One layout swap, so the
+        // field (and its focus) survives a text-size change.
+        let layout =
+            typeSize.isAccessibilitySize
+            ? AnyLayout(FieldOverButtonsLayout(spacing: spacing, rowHeight: side))
+            : AnyLayout(HStackLayout(spacing: spacing))
+        layout {
             stepButton(.down)
             field
             stepButton(.up)
         }
-        .frame(height: side)
+        .frame(height: typeSize.isAccessibilitySize ? nil : side)
         .sensoryFeedback(trigger: haptic.1) { _, _ in haptic.0.feedback }
     }
 
@@ -128,7 +137,8 @@ public struct NumberStepper: View {
             Text(direction == .up ? "+" : "−")
                 .font(.qr(.sansSemiBold, size: 24, relativeTo: .title2))
                 .foregroundStyle(.qr.inkSoft)
-                .frame(width: buttonWidth, height: side)
+                .frame(width: typeSize.isAccessibilitySize ? nil : buttonWidth, height: side)
+                .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil)
                 .background(Color.qr.surface, in: shape)
                 .overlay(shape.strokeBorder(Color.qr.lineStrong, lineWidth: 1))
                 .contentShape(shape)
@@ -143,6 +153,30 @@ public struct NumberStepper: View {
         guard rule.canBump(text, direction) else { return }
         text = rule.bumped(text, direction)
         haptic = (direction == .up ? .increase : .decrease, haptic.1 + 1)
+    }
+}
+
+/// The stepper at accessibility sizes: its subviews are [−, field, +]; the field takes the first
+/// row, full width, and − and + share the second.
+private struct FieldOverButtonsLayout: Layout {
+    let spacing: CGFloat
+    let rowHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        CGSize(width: proposal.width ?? 320, height: rowHeight * 2 + spacing)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 3 else { return }
+        let half = (bounds.width - spacing) / 2
+        subviews[1].place(
+            at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: rowHeight))
+        let second = bounds.minY + rowHeight + spacing
+        subviews[0].place(
+            at: CGPoint(x: bounds.minX, y: second), proposal: ProposedViewSize(width: half, height: rowHeight))
+        subviews[2].place(
+            at: CGPoint(x: bounds.minX + half + spacing, y: second),
+            proposal: ProposedViewSize(width: half, height: rowHeight))
     }
 }
 

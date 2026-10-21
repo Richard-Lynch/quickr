@@ -87,6 +87,14 @@ public struct FormScrollRequest: Sendable, Hashable {
     public var serial: Int
 }
 
+/// Where VoiceOver goes, fixed when the request is made: the target's error (`toError`, after a
+/// failed save) or the question's heading (a fresh form).
+public struct FormVoiceOverRequest: Sendable, Hashable {
+    public var target: FormScrollTarget
+    public var serial: Int
+    public var toError: Bool
+}
+
 public enum FormScrollTarget: Sendable, Hashable {
     case banner
     case question(String)

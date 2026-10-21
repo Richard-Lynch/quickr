@@ -62,14 +62,22 @@ final class SyncUITests: XCTestCase {
 
     /// At the largest accessibility size, a failed item's actions are all reachable.
     @MainActor
-    func testSheetAtAccessibilityXXXL() {
-        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+    func testSheetAtAccessibilityXXXL() throws {
+        let app = launch(extra: AccessibilityLaunch.arguments())
         app.buttons["debug.reject"].tap()
         app.buttons["debug.log"].tap()
         let pill = app.buttons["sync.pill"]
         XCTAssertTrue(pill.waitForExistence(timeout: 15))
         pill.tap()
         XCTAssertTrue(app.staticTexts["sync.row.0.status"].waitForExistence(timeout: 5))
+        try assertAccessible(
+            app,
+            allowing: [
+                KnownAccessibilityIssue(
+                    "sync.done", .dynamicType, element: "sync.done",
+                    reason: "the system navigation bar's Done: bar items stop growing at a cap, and the Large "
+                        + "Content Viewer (press and hold) shows it larger")
+            ])
         for id in ["sync.row.0.retry", "sync.row.0.fix", "sync.row.0.discard"] {
             let button = app.buttons[id]
             for _ in 0..<6 where !button.isHittable { app.swipeUp() }

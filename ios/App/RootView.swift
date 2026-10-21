@@ -160,6 +160,7 @@ struct RootView: View {
             VStack(spacing: 8) {
                 Text("quickR")
                     .font(.qr(.largeTitle))
+                    .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("root.title")
                 Text("Store failed: \(environment.sessionError ?? "unknown error")")
                     .font(.qr(.footnote))

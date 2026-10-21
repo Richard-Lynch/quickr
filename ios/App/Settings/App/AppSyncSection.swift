@@ -31,6 +31,7 @@ struct AppSyncSection: View {
                 Text(problem)
                     .foregroundStyle(QuickrTone.danger.foreground)
                     .accessibilityIdentifier("settings.sync.problem")
+                    .qrAnnouncesError(problem)
             }
             Button {
                 Task {
@@ -39,6 +40,7 @@ struct AppSyncSection: View {
                     // with nothing to send.
                     await environment.sync.refresh()
                     syncing = false
+                    QuickrAnnouncer.announce("Sync finished")
                 }
             } label: {
                 HStack {
@@ -56,20 +58,31 @@ struct AppSyncSection: View {
                     .accessibilityIdentifier("settings.sync.review")
             }
         } header: {
-            HStack {
-                Text("Offline & sync")
-                Spacer()
-                QuickrBadge(
-                    summary.connection == .online ? "Online" : "Offline",
-                    tone: summary.connection == .online ? .ok : .warn
-                )
-                .accessibilityIdentifier("settings.sync.connection")
+            // Stacks at accessibility sizes rather than squeezing the title (audit SE4).
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    Text("Offline & sync")
+                    Spacer()
+                    connectionBadge
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Offline & sync")
+                    connectionBadge
+                }
             }
         } footer: {
             Text(
                 "Your topics and entries are kept on this iPhone. Changes made offline wait here and are sent automatically."
             )
         }
+    }
+
+    private var connectionBadge: some View {
+        QuickrBadge(
+            summary.connection == .online ? "Online" : "Offline",
+            tone: summary.connection == .online ? .ok : .warn
+        )
+        .accessibilityIdentifier("settings.sync.connection")
     }
 
     /// "5 minutes ago".
