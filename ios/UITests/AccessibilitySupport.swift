@@ -50,6 +50,12 @@ extension XCUIAccessibilityAuditType {
     static let quickrDefault: XCUIAccessibilityAuditType = [
         .dynamicType, .textClipped, .hitRegion, .elementDetection, .sufficientElementDescription, .trait,
     ]
+
+    /// Mid-list in a `List`: only the element-scoped types. The text-size and clipping audits
+    /// re-lay out the list and flag whatever row then sits under the translucent navigation bar, so
+    /// they run at the top of the screen, and mid-list a test asserts its rows' geometry instead
+    /// (a11y-audit.md, slice C, "Audit placement").
+    static let midList: XCUIAccessibilityAuditType = [.hitRegion, .sufficientElementDescription, .trait]
 }
 
 extension XCTestCase {
