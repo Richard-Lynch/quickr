@@ -157,6 +157,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
+- HomeModelTests.theFirstListIsAlreadyOnTheServersClock depends on scheduling: the sync-state observation always delivers before the topics, so removing the clock pre-read in HomeModel.observe() is not caught. Add a `@_spi(Testing)` sync-state stream factory, hold the stream, let the topics load, assert the badge on server time, then release it.
 - DeviceProbeTests.aStepWaitingForTheLockGivesUpAtTheDeadline asserts a wall-clock gap under 0.5 s and failed once in the parallel core run (it passed alone and on a rerun). It is load-sensitive: give it a bounded or injected clock, or gate it with TimingTests.
 - A11Y L5 (answers): the answer values in Entries rows keep `lineLimit(2)` at AX sizes (UIT-6's Grid change left them as they were); lift it at AX sizes.
 - A11Y C1: check "Export CSV" at XXXL now that slice A's X3 lets capsule buttons wrap; close it if it's fine.
@@ -315,6 +316,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-21 06:55 (EDT): **APP-SKEW merged:** Home and topic due state and order on server time, and the category due rank at server time mapped back to device time. Unit 1048/0 on 26; core 799/0; Codex r1–r2 resolved. **All M3 work is merged into ios/m3.** Next: the final validation matrix (m1-testiso), the PR body (m1-review), then the M3 PR.
 
 - 2026-10-21 06:45 (EDT): **SIMINFRA merged** (e3e774b): every automated simulator run holds its device and shuts down only a clone it booted (on exit, error or signal; `IOS_SIM_KEEP=1` keeps it), with per-run result dirs and `IOS_RESULT_BUNDLE`. Codex r3 clean. APP-SKEW (b5fffbb): Home and topic due state on server time, and the category due rank on server time mapped back to device time. Codex r2 clean; awaiting its Unit result. Next: merge APP-SKEW, then the final validation matrix (m1-testiso) and the PR body (m1-review), then the M3 PR into feat/ios-app.
 
