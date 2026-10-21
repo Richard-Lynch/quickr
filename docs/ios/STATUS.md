@@ -316,6 +316,13 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 10:40 (EDT): PR #11 CI fixes:
+  - Xcode 26-only compile errors fixed (f0683c1, 4f567c8: explicit @Sendable Task closures, no `$0` in `defer`, no Mutex captured into a task group);
+  - **SettingsTests time bomb** (a fake feed with a fixed server_time of 2026-10-20T12:00Z; after 24 h the entry fails as future_time; 4b7a6f0);
+  - OutboxEngineTiming's two cases shared a store (it reproduced 11/30 under load, then 40/40 once split; 84d8c64).
+  
+  **SIMCLEAN merged:** `make ios-prune` (finished worktrees' clones and build output, owner records, idle 3 h), plus memory and disk guards on simulator boot. The iOS 27 stall is narrowed to the first unsaved change (the system back button swapping for the guarded one), with an app-side fix next (m1-outbox).
+
 - 2026-10-21 10:05 (EDT): **The M3 PR is open: #11** (ios/m3 → feat/ios-app). Targeted rerun on e5b5775: UI 26.2 89/0/20 and Unit 27 1049/0/27. The iOS 27 UI stall is listed as a known, non-blocking issue; investigation continues. CI is running.
 
 - 2026-10-21 09:55 (EDT): iOS 27 stall bisect: pre-slice-B (af4adcb) also stalls intermittently at low load, so F8 FormSaveBar isn't the cause and stays. All stalls are keyboard or alert flows. m1-outbox is bisecting back toward the M2 final while logging memory pressure. The 26.2 UI rerun on e5b5775 is about 27 min in and progressing. **TestFlight is blocked on access:** Xcode has no Apple account added ("No Accounts"), and the Claude-in-Chrome extension isn't connected to this session (the user is fixing it via the desktop agent, then `/chrome`).
