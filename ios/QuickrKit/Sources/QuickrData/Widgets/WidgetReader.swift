@@ -21,7 +21,7 @@ public struct WidgetReader: Sendable {
         let skew = try await skew()
         let topics = try await store.topics.topics().map(\.topic)
         let listed = TopicListing.list(
-            topics, topic: { $0 }, now: now.addingTimeInterval(skew), status: .active, sort: .due, query: "")
+            topics, topic: { $0 }, now: ServerClock(skew: skew).now(at: now), status: .active, sort: .due, query: "")
         var result: [WidgetTopic] = []
         for item in listed { result.append(try await widgetTopic(item.topic, skew: skew)) }
         return result
@@ -29,7 +29,7 @@ public struct WidgetReader: Sendable {
 
     /// The store's measured skew in seconds (0 before the first pull, sync-protocol.md §10).
     private func skew() async throws -> TimeInterval {
-        (try await store.syncState.syncState()?.skewMilliseconds ?? 0) / 1000
+        (try await store.syncState.syncState()?.serverClock ?? .device).skew
     }
 
     private func widgetTopic(_ topic: Topic, skew: TimeInterval) async throws -> WidgetTopic {

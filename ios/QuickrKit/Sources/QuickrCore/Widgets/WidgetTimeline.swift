@@ -25,7 +25,7 @@ public enum WidgetTimeline {
         for topic in topics {
             guard let schedule = topic.schedule else { continue }
             let points = Due.timeline(
-                of: schedule, now: now.addingTimeInterval(skew), lastEntryAt: topic.lastCapturedAt,
+                of: schedule, now: ServerClock(skew: skew).now(at: now), lastEntryAt: topic.lastCapturedAt,
                 scheduleSince: topic.scheduleUpdatedAt ?? topic.createdAt, archived: topic.status == .archived,
                 count: 24)
             for point in points.dropFirst() {

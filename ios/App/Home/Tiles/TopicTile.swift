@@ -12,8 +12,11 @@ import SwiftUI
 /// `quick.number` and `quick.check`.
 struct TopicTile: View {
     let topic: ViewTopic
-    /// HOME's ticking clock, shared by every tile so the list agrees on what is due.
+    /// HOME's ticking device clock, for "Last … ago".
     let now: Date
+    /// `now` on the server's clock (sync-protocol.md §10), shared by every tile so the list
+    /// agrees on what is due.
+    let serverNow: Date
     /// Taps outside the controls: the topic screen.
     let onOpen: () -> Void
     /// The Log block: the record screen.
@@ -30,7 +33,7 @@ struct TopicTile: View {
         let topic = topic.topic
         // Recomputed from the schedule and the last entry (queued ones too), so a log clears
         // "Due now" at once, even offline, like the PWA's `dueAfterLogging`.
-        let due = DueView(due: TopicListing.due(of: topic, at: now) ?? topic.due, now: now)
+        let due = DueView(due: TopicListing.due(of: topic, at: serverNow) ?? topic.due, now: serverNow)
         TileView(
             title: topic.name, isDue: due.tone == .due || due.tone == .overdue, onOpen: onOpen,
             onLog: topic.status == .archived ? nil : onRecord

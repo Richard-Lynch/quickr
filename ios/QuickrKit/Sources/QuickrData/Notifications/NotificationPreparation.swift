@@ -143,8 +143,8 @@ public struct NotificationPreparation: Sendable {
     /// both alone.
     private func prepareFromActiveStore(_ store: LocalStore, q: QuickrNotificationInfo, out: inout Prepared) async {
         guard let topics = try? await store.writer.read({ db in try StoreView.dueTopics(db) }) else { return }
-        let skew = (try? await store.syncState.syncState())?.skewMilliseconds ?? 0
-        let now = now().addingTimeInterval(skew / 1000)
+        let clock = (try? await store.syncState.syncState())?.serverClock ?? .device
+        let now = clock.now(at: now())
         if let topicId = q.topicId, let dueSince = q.dueSince.flatMap(Self.date),
             (try? await store.writer.read({ db in
                 try StoreView.hasPendingEntry(db, topicId: topicId, capturedSince: dueSince)

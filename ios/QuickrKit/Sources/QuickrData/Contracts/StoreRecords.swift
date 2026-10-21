@@ -27,6 +27,8 @@ public struct SyncState: Sendable, Hashable {
     /// `server_time − device_time`, smoothed (§10).
     public var skewMilliseconds: Double
     public var skewMeasuredAt: Date?
+    /// The server's clock by this store's skew.
+    public var serverClock: ServerClock { ServerClock(skewMilliseconds: skewMilliseconds) }
     public var bootstrapComplete: Bool
 
     public init(

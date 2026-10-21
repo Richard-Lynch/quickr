@@ -89,7 +89,7 @@ enum OutboxFlush {
             let epoch = state.epoch
         else { return .paused }
         try OutboxSyncEffects.removeCancelledCreates(db)
-        let serverNow = wall.addingTimeInterval(state.skewMilliseconds / 1000)
+        let serverNow = state.serverClock.now(at: wall)
         let items = try OutboxStorage.items(db)
         // An entity whose delete is held waits for the hold: its release may drop or cancel
         // everything queued before it (§8.3, §9.2), and Undo restores it unchanged.

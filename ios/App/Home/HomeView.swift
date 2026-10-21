@@ -191,7 +191,7 @@ struct HomeView: View {
     private func tileRows(_ rows: [HomeModel.Row]) -> some View {
         ForEach(rows, id: \.value.id) { row in
             TopicTile(
-                topic: row.value, now: model.now, onOpen: { actions.open(row.value) },
+                topic: row.value, now: model.now, serverNow: model.serverNow, onOpen: { actions.open(row.value) },
                 onRecord: { actions.record(row.value) }
             )
             #if DEBUG || QUICKR_PERF

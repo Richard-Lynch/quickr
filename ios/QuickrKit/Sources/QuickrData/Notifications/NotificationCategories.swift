@@ -218,11 +218,17 @@ public struct NotificationCategories: Sendable {
     }
 
     /// One row per quick-loggable active topic of the store (its current version), with the
-    /// option counts and last value read from the store's view (queued entries included).
+    /// option counts and last value read from the store's view (queued entries included). Due
+    /// state is the server's, at device time `now` on the store's clock (sync-protocol.md §10);
+    /// `dueAt` is mapped back to device time, which the ranking compares across stores.
     public static func rows(in store: LocalStore, now: Date) async throws -> [Row] {
         let serverId = store.serverId
         return try await store.writer.read { db in
-            try StoreView.topics(db).compactMap { view -> Row? in
+            let clock =
+                try GRDB.Row.fetchOne(db, sql: "SELECT * FROM sync_state WHERE id = 1").map(SyncState.init(row:))?
+                .serverClock ?? .device
+            let serverNow = clock.now(at: now)
+            return try StoreView.topics(db).compactMap { view -> Row? in
                 let topic = view.topic
                 guard topic.status == .active, let quick = QuickLog(questions: topic.questions) else { return nil }
                 let key = quick.question.key
@@ -242,10 +248,11 @@ public struct NotificationCategories: Sendable {
                 else { return nil }
                 // When it's due: since when, if it is; otherwise next. Nil when it sends no
                 // reminders (unscheduled, or `notify` off), so it has no due rank.
-                let due = topic.schedule?.notify == true ? TopicListing.due(of: topic, at: now) : nil
+                let due = topic.schedule?.notify == true ? TopicListing.due(of: topic, at: serverNow) : nil
+                let dueAt = due.flatMap { $0.isDue ? $0.dueSince ?? serverNow : $0.nextDueAt }
                 return Row(
                     serverId: serverId, topicId: topic.id.wireString, category: category,
-                    dueAt: due.flatMap { $0.isDue ? $0.dueSince ?? now : $0.nextDueAt })
+                    dueAt: dueAt.map { $0.addingTimeInterval(-clock.skew) })
             }
         }
     }
