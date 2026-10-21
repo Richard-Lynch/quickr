@@ -20,8 +20,8 @@ import QuickrCore
 ///
 /// The selection (§5.2), in order: current categories of topics due now or within ``dueWindow``
 /// (soonest first); categories of delivered notifications (still on screen); then the most
-/// recently wanted. A row outside the selection that is neither current nor on screen can't be
-/// needed again, so the same transaction deletes it.
+/// recently wanted. A row outside the selection that is neither current nor on screen, and wasn't
+/// wanted in the last day, can't be needed again, so the same transaction deletes it.
 public struct NotificationCategories: Sendable {
     /// At most this many categories are registered (§5.2). The system keeps at most 100 (checkpoint
     /// D's probe read back 100 of 150, 1,000 and 5,000 on the iOS 26 simulator); 90 leaves room.
@@ -29,6 +29,10 @@ public struct NotificationCategories: Sendable {
     public static let registrationCap = 90
     /// A current category whose topic is due within this long (or overdue) comes first.
     public static let dueWindow: TimeInterval = 7 * 86_400
+    /// A row wanted this recently is never deleted, even outside the selection: a notification
+    /// shown since the caller's snapshot of the delivered ones may still use it (the NSE's row,
+    /// which the app's refresh can make not current before it's on any snapshot).
+    public static let deleteGrace: TimeInterval = 86_400
 
     public let registry: Registry
     public let center: any NotificationCenterProtocol
@@ -217,7 +221,10 @@ public struct NotificationCategories: Sendable {
         }
         let kept = cap.map { Array(ordered.prefix($0)) } ?? ordered
         let keptIds = Set(kept.map(\.id))
-        let unneeded = ordered.filter { !keptIds.contains($0.id) && !$0.current && !delivered.contains($0.id) }
+        let graceStart = now.timeIntervalSince1970 - deleteGrace
+        let unneeded = ordered.filter {
+            !keptIds.contains($0.id) && !$0.current && !delivered.contains($0.id) && $0.usedAt < graceStart
+        }
         let selected = kept.map { c in
             NotificationCategorySpec(id: c.id, actions: ((try? decode(c.json)) ?? []).compactMap(\.spec))
         }

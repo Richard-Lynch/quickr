@@ -306,8 +306,13 @@ import Testing
                 _ = try ServerLayer.upsert(db, topic: topic)
             }
         }
+        // Within a day of being wanted, a row that fell out is kept (the grace)...
         w.clock.advance(by: 60)
         let second = try await w.categories.refresh(from: s.store)
+        #expect(try w.registered == Set(second) && w.table.count == 6, "the old versions are still in their grace")
+        // ...and after it, deleted.
+        w.clock.advance(by: NotificationCategories.deleteGrace)
+        try await w.categories.refresh(from: s.store)
         #expect(try w.registered == Set(second) && w.table.count == 3, "the old versions were deleted")
 
         w.clock.advance(by: 60)
@@ -339,7 +344,7 @@ import Testing
             _ = try ServerLayer.upsert(
                 db, entry: Make.entry(topicId: topic.id, minutes: 2, answers: ["glasses": .int(4)]))
         }
-        w.clock.advance(by: 60)
+        w.clock.advance(by: NotificationCategories.deleteGrace + 60)  // past three's grace
         let four = try #require(try await w.categories.refresh(from: s.store).first)
         #expect(w.registered == [four])
         #expect(try w.table == [three, four].sorted(), "on screen: kept although outside the cap and not current")

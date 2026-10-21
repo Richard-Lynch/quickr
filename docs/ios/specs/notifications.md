@@ -318,7 +318,7 @@ CREATE TABLE notification_category (
   The current set is only **10**. N1 ("Log 72 kg") adds one new row per number topic
   on upgrade, on top of the user's history.
 - **Rows are deleted** once nothing can need them (§5.2): outside the capped
-  selection, not current and not on screen.
+  selection, not current, not on screen, and not wanted in the last day.
 - The table lives in the registry because `setNotificationCategories` replaces
   the **whole app's** set, for all servers.
 
@@ -327,6 +327,7 @@ CREATE TABLE notification_category (
 ```
 REGISTRATION_CAP = 90                               // one constant (NotificationCategories.registrationCap)
 DUE_WINDOW = 7 days
+DELETE_GRACE = 1 day
 
 register(rows, replacingCurrentOf: server?):
   delivered = await center.deliveredNotifications() // outside any transaction (category ids on screen)
@@ -334,7 +335,7 @@ register(rows, replacingCurrentOf: server?):
     if server: UPDATE … SET current = 0 WHERE server_id = server
     UPSERT rows SET current = 1, due_at = row.due, used_at = now   // actions never change
     selected = select(now, delivered)
-    DELETE rows ∉ selected AND current = 0 AND id ∉ delivered
+    DELETE rows ∉ selected AND current = 0 AND id ∉ delivered AND used_at < now − DELETE_GRACE
     center.setNotificationCategories(selected)      // synchronous; no await inside the TX
   COMMIT
 
@@ -355,8 +356,11 @@ select(now, delivered):                             // the same rule in every pr
   as current and due now, so it ranks in tier 1 even when the cap is full. The
   least recently wanted row makes room.
 - **Old ids drop out** once they're outside the selection, not current (a newer
-  last value, a new version, an archived topic) and not on any delivered
-  notification. A notification still on screen keeps its category registered when
+  last value, a new version, an archived topic), not on any delivered
+  notification, and a day has passed since a process last wanted them. The grace
+  covers a notification shown after the caller's delivered snapshot. For example,
+  the app's refresh can make the NSE's row not current before that notification
+  is on any snapshot. A notification still on screen keeps its category registered when
   it's in the selection. When it isn't (more than the cap of higher-ranked rows),
   its row is still kept, so it can come back. An action from a category that is
   no longer registered can't be tapped. If one arrives anyway, the handler checks
