@@ -315,6 +315,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 13:20 (EDT): **Host-wide iOS 27 keyboard minimization** since this afternoon. Every 27 clone (including the morning one that passed) sets `AutomaticMinimizationEnabled` during XCUITest typing, and Record and Edit then show **two Saves** (FormSaveBar keys off the keyboard frame). That's a real app bug for hardware or minimized keyboards: **SAVE-KBD** (m2-form, 3cb3323) decides from editing begin/end. It blocks the e43a533 stall A/B, which m1-testiso reruns after SAVE-KBD. **Apple setup:** the App Group and 3 App IDs are registered with App Groups and Push. Paused at the App Store Connect Terms of Service, which need the user's acceptance.
+
 - 2026-10-21 12:30 (EDT): **m1-outbox hit its weekly usage limit** (it resets Oct 26), so its back-swap fix (e43a533, Codex clean) awaits a valid measurement. Its base-vs-fix runs are invalid: both sides showed the pre-M3 double-Save failures, which points to a stale M2-final build. m1-testiso is re-measuring with clean builds. The fix's swipe-back tests on 26 passed 6/6.
 
 - 2026-10-21 11:30 (EDT): The HomeModel first-list seam is merged (`@_spi(Testing)` syncStatesForTesting). The test holds the sync-state stream, and the mutant without the clock pre-read now fails 3/3. The backlog item is closed.
