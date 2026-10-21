@@ -134,10 +134,15 @@ struct OverviewView: View {
         VStack(alignment: .leading, spacing: 8) {
             let filters = Binding(
                 get: { self.filters }, set: { environment.topicFilters[ref.rawValue] = $0 })
-            segmentedOrMenu("Date range", selection: filters.range, id: "overview.range") {
+            QuickrSegmentedPicker("Date range", selection: filters.range, valueLabel: self.filters.range.label) {
                 ForEach(EntryRange.allCases, id: \.self) { Text($0.label).tag($0) }
             }
-            HStack(spacing: 8) {
+            .accessibilityIdentifier("overview.range")
+            // Side by side, or stacked at accessibility sizes, where two menus don't fit a line.
+            let menus =
+                typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(spacing: 8))
+            menus {
                 if versionChoices.count > 0 {
                     Picker("Version", selection: filters.version) {
                         Text("All versions").tag(Int?.none)
@@ -158,28 +163,17 @@ struct OverviewView: View {
                 }
                 Spacer(minLength: 0)
             }
-            segmentedOrMenu(
+            QuickrSegmentedPicker(
                 "Chart bucket",
                 selection: Binding(
                     get: { bucket }, set: { bucketChoice = BucketChoice(range: self.filters.range, bucket: $0) }),
-                id: "overview.bucket"
+                valueLabel: bucket.rawValue.capitalized
             ) {
                 Text("Day").tag(QuestionSeries.Bucket.day)
                 Text("Week").tag(QuestionSeries.Bucket.week)
                 Text("Month").tag(QuestionSeries.Bucket.month)
             }
-        }
-    }
-
-    /// Segmented, or a menu at accessibility sizes (segments would truncate).
-    @ViewBuilder private func segmentedOrMenu<Value: Hashable, Options: View>(
-        _ title: String, selection: Binding<Value>, id: String, @ViewBuilder options: () -> Options
-    ) -> some View {
-        if typeSize.isAccessibilitySize {
-            Picker(title, selection: selection, content: options).pickerStyle(.menu).tint(.qr.ink)
-                .accessibilityIdentifier(id)
-        } else {
-            Picker(title, selection: selection, content: options).pickerStyle(.segmented).accessibilityIdentifier(id)
+            .accessibilityIdentifier("overview.bucket")
         }
     }
 
