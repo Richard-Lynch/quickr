@@ -1,6 +1,6 @@
 {
   "eligibility": [
-    {"expected":null,"name":"empty","questions":[]},
+    {"expected":{"kind":"single"},"name":"empty","questions":[]},
     {"expected":{"key":"mood","kind":"chips","options":[{"label":"Option 0","value":"o0"}]},"name":"enum-1","questions":[{"help_text":null,"key":"mood","label":"Mood","max_selected":null,"min_selected":null,"multiple":false,"options":[{"archived":false,"label":"Option 0","value":"o0"}],"required":true,"type":"enum"}]},
     {"expected":{"key":"mood","kind":"chips","options":[{"label":"Option 0","value":"o0"},{"label":"Option 1","value":"o1"},{"label":"Option 2","value":"o2"},{"label":"Option 3","value":"o3"}]},"name":"enum-4","questions":[{"help_text":null,"key":"mood","label":"Mood","max_selected":null,"min_selected":null,"multiple":false,"options":[{"archived":false,"label":"Option 0","value":"o0"},{"archived":false,"label":"Option 1","value":"o1"},{"archived":false,"label":"Option 2","value":"o2"},{"archived":false,"label":"Option 3","value":"o3"}],"required":true,"type":"enum"}]},
     {"expected":{"key":"mood","kind":"chips","options":[{"label":"Option 0","value":"o0"},{"label":"Option 1","value":"o1"},{"label":"Option 2","value":"o2"},{"label":"Option 3","value":"o3"},{"label":"Option 4","value":"o4"},{"label":"Option 5","value":"o5"}]},"name":"enum-6","questions":[{"help_text":null,"key":"mood","label":"Mood","max_selected":null,"min_selected":null,"multiple":false,"options":[{"archived":false,"label":"Option 0","value":"o0"},{"archived":false,"label":"Option 1","value":"o1"},{"archived":false,"label":"Option 2","value":"o2"},{"archived":false,"label":"Option 3","value":"o3"},{"archived":false,"label":"Option 4","value":"o4"},{"archived":false,"label":"Option 5","value":"o5"}],"required":true,"type":"enum"}]},
@@ -385,10 +385,10 @@
   ],
   "meta": {
     "generator": "backend/tests/test_quicklog_vectors.py",
-    "generator_version": 1,
+    "generator_version": 2,
     "quick_chip_limit": 6,
     "semantics": [
-      "eligibility: quickLogFor(questions) -> null | {kind: 'chips', key, options: active options in order} | {kind: 'number', key}.",
+      "eligibility: quickLogFor(questions) -> null | {kind: 'chips', key, options: active options in order} | {kind: 'number', key} | {kind: 'single'} (no questions at all).",
       "initial: initialNumber(question, last) -> the text a number quick-log starts with: String(last) (JS Number::toString) when last is a number the question still accepts, else String(min) when min >= 0, else ''. Non-numbers (strings, booleans, lists, null) count as no last value."
     ]
   }

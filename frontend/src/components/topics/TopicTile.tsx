@@ -65,7 +65,9 @@ export function TopicTile({ topic: t, now }: { topic: TopicSummary; now: Date })
   // Only trust details that match the list's version (a publish elsewhere = refetch).
   const questions =
     detail.data?.current_version === t.current_version ? detail.data.questions : null;
-  const quick = !archived && questions ? quickLogFor(questions) : null;
+  const found = !archived && questions ? quickLogFor(questions) : null;
+  // A single topic logs from the tile itself (`single` above); chips and numbers answer a question.
+  const quick = found && found.kind !== 'single' ? found : null;
   // Quick tiles show (and number tiles start from) the last answer.
   const last = useQuery({
     ...lastEntryOptions(t.slug),
@@ -180,7 +182,7 @@ function QuickArea({
   last,
 }: {
   topic: TopicSummary;
-  quick: QuickLog;
+  quick: Exclude<QuickLog, { kind: 'single' }>;
   last: unknown;
 }) {
   return quick.kind === 'chips' ? (

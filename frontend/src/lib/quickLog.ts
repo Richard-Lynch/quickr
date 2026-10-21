@@ -2,7 +2,8 @@
  * Inline quick-log on topic tiles: which topics can be logged without opening the
  * record screen, and what the tile offers for them.
  *
- * Rule: the current version has exactly one *required* question, and it is
+ * Rule: a version with no questions at all is a "single" topic, one tap logs it with no
+ * answers. Otherwise the current version has exactly one *required* question, and it is
  *  - a single-select enum with 1–6 active options → its options as chips (1 tap logs), or
  *  - an int/double → a stepper prefilled with the last value + a log button (≤ 2 taps).
  * Any optional questions are left unanswered by a quick-log (the record screen is one
@@ -22,9 +23,12 @@ export const QUICK_CHIP_LIMIT = 6;
 
 export type QuickLog =
   | { kind: 'chips'; question: EnumQuestionOutput; options: EnumQuestionOutput['options'] }
-  | { kind: 'number'; question: NumericQuestion };
+  | { kind: 'number'; question: NumericQuestion }
+  /** No questions at all (a "single" topic): one tap logs an entry with no answers. */
+  | { kind: 'single' };
 
 export function quickLogFor(questions: readonly Question[]): QuickLog | null {
+  if (questions.length === 0) return { kind: 'single' };
   const required = questions.filter((q) => q.required);
   const [q] = required;
   if (required.length !== 1 || !q) return null;

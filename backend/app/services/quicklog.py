@@ -5,7 +5,8 @@ kept in lockstep with it by ``shared/fixtures/quicklog-vectors.json``: the vecto
 are generated from this module and the frontend test suite asserts the TS
 implementation agrees on every one.
 
-Rule: the version has exactly one *required* question, and it is
+Rule: a version with no questions at all is a "single" topic, logged with one tap and no
+answers. Otherwise the version has exactly one *required* question, and it is
  - a single-select enum with 1-6 active options -> its active options as chips, or
  - an int/double -> a number stepper prefilled by :func:`initial_number`.
 Optional questions are ignored (a quick-log leaves them unanswered). Anything
@@ -50,10 +51,19 @@ class QuickLogNumber:
     kind: Literal["number"] = "number"
 
 
-QuickLog = QuickLogChips | QuickLogNumber
+@dataclass(frozen=True, slots=True)
+class QuickLogSingle:
+    """A version with no questions: one tap logs an entry with no answers."""
+
+    kind: Literal["single"] = "single"
+
+
+QuickLog = QuickLogChips | QuickLogNumber | QuickLogSingle
 
 
 def quick_log_for(questions: Sequence[AnyQuestion]) -> QuickLog | None:
+    if not questions:
+        return QuickLogSingle()
     required = [q for q in questions if q.required]
     if len(required) != 1:
         return None

@@ -73,7 +73,10 @@ describe('quick-log eligibility', () => {
     expect(quickLogFor([{ ...intQ, required: false }])).toBeNull(); // only optional
     expect(quickLogFor([enumQ(3, { multiple: true })])).toBeNull(); // multi-select
     expect(quickLogFor([{ ...noteQ, required: true }])).toBeNull(); // text
-    expect(quickLogFor([])).toBeNull();
+  });
+
+  it('logs a topic with no questions with one tap (a single topic)', () => {
+    expect(quickLogFor([])).toEqual({ kind: 'single' });
   });
 
   it('prefills numbers with the last valid value, else min ≥ 0', () => {

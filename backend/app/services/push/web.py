@@ -35,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models import AppSetting, PushSubscription
 from app.push_guard import PushEndpointRejected, check_endpoint, ensure_public
-from app.schemas.api import PushPayload, PushSubscriptionIn, PushSubscriptionOut, QuickLogSingle
+from app.schemas.api import PushPayload, PushSubscriptionIn, PushSubscriptionOut
 from app.services.feed import writer
 from app.services.notification import canonical_instant
 from app.services.push.base import Notification, PushFailed, PushGone
@@ -240,7 +240,7 @@ def render(n: Notification) -> PushPayload:
         topic_id=str(n.topic_id) if n.topic_id else None,
         version=n.version,
         due_since=canonical_instant(n.due_since) if n.due_since else None,
-        quick_log=QuickLogSingle() if n.single else n.quick_log,
+        quick_log=n.quick_log,
     )
 
 

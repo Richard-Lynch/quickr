@@ -32,8 +32,7 @@ class Notification:
     newer one with the same tag replaces the older on the device (the Web Push tag, the
     APNs collapse id). A due notification also carries what an action needs to log it:
     the server, the topic and its version, the slot (``due_since``) and the ``quick_log``
-    descriptor (None when the topic can't be logged from a notification). ``single`` marks a
-    topic with no questions, which a Web Push reminder logs with one action. A test
+    descriptor (None when the topic can't be logged from a notification). A test
     notification leaves them None. ``web.render`` and ``apns.render`` lay them out.
     """
 
@@ -48,7 +47,6 @@ class Notification:
     version: int | None = None
     due_since: datetime | None = None
     quick_log: QuickLogDescriptor | None = None
-    single: bool = False
 
 
 class PushTarget(Protocol):
