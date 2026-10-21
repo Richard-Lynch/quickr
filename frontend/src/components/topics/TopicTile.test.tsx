@@ -55,16 +55,20 @@ afterEach(async () => {
 });
 
 describe('a single topic tile', () => {
-  it.each([['Log Vitamins'], ['Log Vitamins now']])(
-    'logs it with one tap on "%s": an entry with no answers, the Undo toast, no form',
-    async (name) => {
+  it.each([['the tile'], ['its Log button']])(
+    'logs it with one tap on %s: an entry with no answers, the Undo toast, no form',
+    async (where) => {
       // Offline: the entry waits in the outbox (what was logged is what matters here).
       vi.stubGlobal(
         'fetch',
         vi.fn(() => Promise.reject(new TypeError('offline'))),
       );
       renderTile(vitamins);
-      await userEvent.click(screen.getByRole('button', { name }));
+      await userEvent.click(
+        where === 'the tile'
+          ? screen.getByTestId('tile-log')
+          : screen.getByRole('button', { name: 'Log Vitamins now' }),
+      );
       await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Logged Vitamins'));
       expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
       expect(screen.queryByText('Topic page')).toBeNull();
@@ -73,6 +77,15 @@ describe('a single topic tile', () => {
       expect((items[0]?.payload as EntryCreatePayload).body.answers).toEqual({});
     },
   );
+
+  it('offers screen readers one Log control, not two', () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('offline'))),
+    );
+    renderTile(vitamins);
+    expect(screen.getAllByRole('button', { name: /^Log Vitamins/ })).toHaveLength(1);
+  });
 
   it('still opens the topic from its name', async () => {
     vi.stubGlobal(

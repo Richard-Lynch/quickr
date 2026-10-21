@@ -96,10 +96,13 @@ export function TopicTile({ topic: t, now }: { topic: TopicSummary; now: Date })
           <h2 className="font-display text-[1.2rem] leading-tight font-semibold tracking-tight">
             {single ? (
               <>
-                {/* The whole tile logs it; its name still opens the topic, above the overlay. */}
+                {/* The whole tile logs it; its name still opens the topic, above the overlay.
+                    Hidden from screen readers and the tab order: "Log {name} now" is that control. */}
                 <button
                   type="button"
-                  aria-label={`Log ${t.name}`}
+                  aria-hidden
+                  tabIndex={-1}
+                  data-testid="tile-log"
                   disabled={logSingle.busy}
                   onClick={logSingle.log}
                   className="absolute inset-0 rounded-card disabled:cursor-wait"
