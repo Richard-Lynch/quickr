@@ -424,30 +424,41 @@ private struct AnswerGrid: View {
         }
     }
 
+    /// The cells, two to a row (one at accessibility sizes).
+    private func rows(_ cells: [Cell]) -> [[Cell]] {
+        let width = oneColumn ? 1 : 2
+        return stride(from: 0, to: cells.count, by: width).map { Array(cells[$0..<min($0 + width, cells.count)]) }
+    }
+
+    // A `Grid`, not a `LazyVGrid`: the row reads as one VoiceOver element (`.combine`), and a lazy
+    // grid's cells were left out of it, so the answers went unread.
     var body: some View {
         let cells = cells
         if !cells.isEmpty {
-            LazyVGrid(
-                columns: oneColumn ? [GridItem(.flexible())] : [GridItem(.flexible()), GridItem(.flexible())],
-                alignment: .leading, spacing: 8
-            ) {
-                ForEach(cells) { cell in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(cell.label).font(.qr(.caption)).foregroundStyle(.qr.muted)
-                        if let chips = cell.chips {
-                            FlowChips(labels: chips)
-                        } else {
-                            Text(cell.value)
-                                .font(cell.style)
-                                .foregroundStyle(.qr.ink)
-                                .lineLimit(cell.wide ? 2 : nil)
-                        }
+            Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 8) {
+                ForEach(rows(cells), id: \.first?.id) { row in
+                    GridRow {
+                        ForEach(row) { cell in cellView(cell) }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityElement(children: .combine)
                 }
             }
         }
+    }
+
+    private func cellView(_ cell: Cell) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(cell.label).font(.qr(.caption)).foregroundStyle(.qr.muted)
+            if let chips = cell.chips {
+                FlowChips(labels: chips)
+            } else {
+                Text(cell.value)
+                    .font(cell.style)
+                    .foregroundStyle(.qr.ink)
+                    .lineLimit(cell.wide ? 2 : nil)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 }
 

@@ -86,6 +86,12 @@ extension View {
         modifier(ErrorFocus(message: message, trigger: trigger))
     }
 
+    /// Moves VoiceOver to this view each time `request` changes to a new non-nil value (a fresh
+    /// form's first question). Does nothing without VoiceOver.
+    public func qrMovesVoiceOverFocus<Request: Equatable>(on request: Request?) -> some View {
+        modifier(ErrorFocus(message: request == nil ? nil : "focus", trigger: request))
+    }
+
     /// ``qrAnnouncesError(_:trigger:)`` for an error that is read again only when its text changes.
     public func qrAnnouncesError(_ message: String?) -> some View {
         modifier(ErrorFocus(message: message, trigger: 0))
