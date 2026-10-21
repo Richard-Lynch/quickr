@@ -231,11 +231,11 @@ These are worth fixing once, in the shared code, rather than screen by screen.
 
 ### Notifications and widgets (manual only)
 
-| #   | Finding                                                                                                                                                                                                                                                                                                | Cat | Sev | Verify by |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --- | --- | --------- |
+| #   | Finding                                                                                                                                                                                                                                                                                                                                                             | Cat | Sev | Verify by |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | --- | --------- |
 | N1  | The number action title `"✓ <value> <unit>"` (`QuickrKit/Sources/QuickrData/Notifications/NotificationCategory.swift:209`) reads "check mark 72 kg", and Voice Control has to match the glyph. **Fix:** "Log 72 kg". This needs a backend change too, because the title comes from the shared vectors. **Fixed** (ios/m3-a11y-lows: backend, vectors, PWA and iOS). | 1   | Low | Manual    |
-| N2  | Option labels are cut to 64 scalars plus "…" (`NotificationCategory.swift:63, 177-183`). This is acceptable; just confirm it on a device.                                                                                                                                                              | 1   | Low | Manual    |
-| W1  | The widget's "quickR" caption and topic name (`Widgets/TopicWidget.swift:44-48`) are two VoiceOver elements. **Fix:** combine them. The name has no line limit or scale factor (`TopicWidget.swift:47`), so it clips in `.systemSmall` at AX sizes. Re-check after WIDGETS merges.                     | 2,3 | Low | Manual    |
+| N2  | Option labels are cut to 64 scalars plus "…" (`NotificationCategory.swift:63, 177-183`). This is acceptable; just confirm it on a device.                                                                                                                                                                                                                           | 1   | Low | Manual    |
+| W1  | The widget's "quickR" caption and topic name (`Widgets/TopicWidget.swift:44-48`) are two VoiceOver elements. **Fix:** combine them. The name has no line limit or scale factor (`TopicWidget.swift:47`), so it clips in `.systemSmall` at AX sizes. Re-check after WIDGETS merges.                                                                                  | 2,3 | Low | Manual    |
 
 ## Test plan
 
@@ -345,6 +345,59 @@ Three agents work in parallel, one per slice, each on its own branch from `ios/m
 - **Simulator check:** confirm on the simulator that the magic tap reaches the delegate from a
   focused element inside the SwiftUI hierarchy, and that the system's own magic tap still works
   when no toast is up.
+
+#### Slice A status (branch `ios/m3-a11y-a`)
+
+**Fixed:**
+
+- **X1:** the magic tap.
+  - The `AppDelegate`, now a `UIResponder`, overrides `accessibilityPerformMagicTap()` and
+    declines when no toast has an action.
+  - An actionable toast's own elements carry `.accessibilityAction(.magicTap)`.
+  - Focus is never moved to a toast; its announcement says "Undo available".
+- **X2 call sites:** Form, ServerForm, the token sheet, the Settings token row, the reset
+  outcome, the push test result, the sync problem, Home's banner and the quick-log number error.
+- **X3 and X6:** in shared code.
+- **X4:** HomeView.
+- **R2.**
+- **O1–O6.**
+- **H1, H2, H4–H9.**
+- **F1–F7:**
+  - F8 was already done: Save moves into the keyboard toolbar.
+  - F9 is now fixed for real: the stepper puts the field over − and + at AX sizes.
+- **T1–T4:** in shared code.
+- **S1–S3.**
+- **SE1, SE3–SE5, SE7, SE8.**
+
+**Tests:**
+
+- `assertAccessible` at XXXL in `HomeTests`, `TileUITests`, `RecordUITests`, `FormUITests`,
+  `SyncUITests`, `SettingsUITests` and `AppSettingsUITests`.
+- `HomeTests.testReduceMotionKeepsEverythingWorking`.
+- `MagicTapTests`.
+- `FormModelTests` for the VoiceOver request rules.
+
+**Allow-listed, with reasons:**
+
+- The system navigation bar's Done on the sync sheet (`.dynamicType`). Bar items stop growing
+  at a cap, and the Large Content Viewer covers them.
+- E1 in `RecordUITests`, until slice B's fix merges.
+
+**Accepted:** at AX sizes the server address field wraps (vertical axis), and a line break
+added with nothing else is Return, which connects. Pasting a lone line break, or the identical
+address plus one, therefore connects that same address, exactly as Go would. Only a UIKit text
+view could tell a paste from Return (Codex r3; documented in `ServerForm.swift`).
+
+**To the STATUS backlog (Low):**
+
+- H3: the tile's sort priority.
+- T5: the toast's single row at XXXL.
+- SE6: a licence read as one element.
+- SE2: a manual check that the token sheet's VoiceOver escape keeps no secret.
+- The Home section's pulse dot doesn't stop if Reduce Motion is switched on while it runs.
+
+**Device D:** check both magic-tap paths, and where error focus lands
+(`docs/ios/DEVICE-DAY.md`, through m6-builder).
 
 ### Slice B: Entries, Edit, Export, Stats and the topic tabs
 
