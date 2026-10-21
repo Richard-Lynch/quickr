@@ -204,10 +204,11 @@ ios-fmt: ## iOS: swift-format in place
 	cd ios && xcrun swift-format format --in-place --recursive --parallel App AppTests UITests Widgets NotificationService QuickrKit
 
 .PHONY: ios-script-test
-ios-script-test: ## iOS: tests for the shell tooling (xcodebuild watchdog, simulator cap, TestFlight); no Xcode needed
+ios-script-test: ## iOS: tests for the shell tooling (xcodebuild watchdog, simulator cap, TestFlight, device run); no Xcode needed
 	@$(IOS_SCRIPTS)/tests/watchdog-test.sh
 	@$(IOS_SCRIPTS)/tests/sim-cap-test.sh
 	@$(IOS_SCRIPTS)/tests/testflight-test.sh
+	@$(IOS_SCRIPTS)/tests/device-run-test.sh
 
 .PHONY: check-ios
 check-ios: ## iOS gate: gen, swift test, Unit + UI plans on iOS 26.0 and 27.0, lint, Xcode version
@@ -239,6 +240,10 @@ ios-integration: ## iOS: integration suite vs this worktree's stacks (up, smoke,
 .PHONY: ios-uitest-e2e
 ios-uitest-e2e: ios-gen ## iOS: end-to-end UI tests vs this worktree's stack (IOS_SIM; up, test, down)
 	@$(IOS_SCRIPTS)/uitest-e2e.sh "$(IOS_SIM)"
+
+.PHONY: ios-device-run
+ios-device-run: ios-gen ## iOS: signed Debug build, install and launch on the paired iPhone (IOS_DEVICE; URL=quickr://...)
+	@$(IOS_SCRIPTS)/device-run.sh "$(IOS_DEVICE)" "$(URL)"
 
 .PHONY: ios-testflight
 ios-testflight: ios-gen ## iOS: archive and upload to TestFlight (ASC API key; see ios/README.md, TestFlight)
