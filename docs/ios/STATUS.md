@@ -315,6 +315,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 14:30 (EDT): **SAVE-KBD merged** (c277b93): one Save with a minimized or hardware keyboard; Record+Edit+Form 26/0 on 27 and on 26. The stall A/B for e43a533 is now running (m1-testiso). TF hardening is in progress (m6-builder). **Deployment:** sub-agent iaac-quickr is planning and implementing quickR in ~/code/IaaC (Cloudflare hostname plus Access: browser Allow + Service Auth token for iOS; /mcp separate; APNs and DB secrets). Branch or PR only; applying needs user approval.
+
 - 2026-10-21 14:10 (EDT): **First TestFlight build is live.**
   - App Store Connect API access was approved, and the Admin team key "quickR TestFlight" was created. The key is at ~/.config/quickr (mode 600), its details are in the gitignored ios/testflight.env, and the issuer is recorded there only.
   - Upload: `make ios-testflight` uploaded 0.1.0 (20261021.175156). Apple created the distribution certificate and profiles through the key. It's processed and "Ready to Submit".
