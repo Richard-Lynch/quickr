@@ -48,7 +48,7 @@ import Testing
     }
 
     @Test func onlyTheAppHasAppShortcuts() throws {
-        var shortcuts = ["LogEntryIntent", "RepeatLastEntryIntent", "OpenRecordIntent", "WhatsDueIntent"]
+        var shortcuts = ["LogTopicIntent", "RepeatLastEntryIntent", "OpenRecordIntent", "WhatsDueIntent"]
         #if DEBUG
         shortcuts.append("SpikePromptIntent")  // the DEBUG-only prompt harness (research/04-siri.md)
         #endif

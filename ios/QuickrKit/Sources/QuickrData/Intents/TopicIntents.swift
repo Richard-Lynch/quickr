@@ -111,13 +111,15 @@ public enum IntentDue {
 }
 
 /// The undo an intent registers after it logged (`UndoableIntent`): cancels that create.
-enum IntentUndo {
+public enum IntentUndo {
     final class Target: Sendable {
         static let shared = Target()
     }
 
     @MainActor
-    static func register(_ undoManager: UndoManager?, entryId: UUID, summary: String, context: IntentWriteContext) {
+    public static func register(
+        _ undoManager: UndoManager?, entryId: UUID, summary: String, context: IntentWriteContext
+    ) {
         undoManager?.registerUndo(withTarget: Target.shared) { _ in
             Task { try? await IntentLogging.undo(entryId: entryId, in: context) }
         }

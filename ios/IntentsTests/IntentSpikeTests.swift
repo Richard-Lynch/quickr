@@ -130,6 +130,82 @@ final class IntentSpikeTests: XCTestCase {
         attachTree(shortcuts, "after")
     }
 
+    /// LogTopicIntent end to end in the Shortcuts app over the demo store: Workout's two questions
+    /// asked (minutes, then kind), then the confirmation snippet, confirmed. Records what each step
+    /// showed (screenshots and notes): the snippet check research §Spike left open.
+    @MainActor
+    func testLogTopicInShortcuts() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-QuickrDemoStore"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 30))
+        let shortcuts = XCUIApplication(bundleIdentifier: "com.apple.shortcuts")
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        shortcuts.launch()
+        sleep(3)
+        if shortcuts.buttons["BackButton"].exists { shortcuts.buttons["BackButton"].tap() }
+        let quickr = shortcuts.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'quickR'")).firstMatch
+        guard quickr.waitForExistence(timeout: 10) else { return note("log topic: no quickR in the library") }
+        quickr.tap()
+        let tile = shortcuts.descendants(matching: .any).matching(NSPredicate(format: "label == 'Log Entry'")).firstMatch
+        guard tile.waitForExistence(timeout: 10) else { return note("log topic: no Log Entry tile") }
+        tile.tap()
+        let started = Date()
+        func element(_ label: String) -> XCUIElement? {
+            let deadline = Date().addingTimeInterval(20)
+            while Date() < deadline {
+                for host in [springboard, shortcuts] {
+                    let match = host.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+                    if match.exists { return match }
+                }
+                usleep(250_000)
+            }
+            return nil
+        }
+        func field() -> XCUIElement? {
+            let deadline = Date().addingTimeInterval(20)
+            while Date() < deadline {
+                for host in [springboard, shortcuts] where host.textFields.firstMatch.exists { return host.textFields.firstMatch }
+                usleep(250_000)
+            }
+            return nil
+        }
+        // The topic.
+        guard let workout = element("Workout") else {
+            attachTree(springboard, "log-topic-topic-missing")
+            return note("log topic: no topic list after \(Date().timeIntervalSince(started)) s")
+        }
+        workout.tap()
+        // Minutes.
+        guard let minutes = field() else {
+            attachTree(springboard, "log-topic-minutes-missing")
+            return note("log topic: no minutes prompt")
+        }
+        minutes.tap()
+        minutes.typeText("30")
+        if let done = element("Done") { done.tap() }
+        note("log topic: minutes answered at \(Date().timeIntervalSince(started)) s")
+        // Kind.
+        guard let run = element("Run") else {
+            attachTree(springboard, "log-topic-kind-missing")
+            return note("log topic: no kind choice")
+        }
+        run.tap()
+        note("log topic: kind answered at \(Date().timeIntervalSince(started)) s")
+        // The confirmation snippet.
+        sleep(3)
+        attachTree(springboard, "log-topic-confirmation")
+        attachTree(shortcuts, "log-topic-confirmation-app")
+        guard let log = element("Log") else { return note("log topic: no Log confirmation button") }
+        log.tap()
+        sleep(4)
+        attachTree(springboard, "log-topic-after")
+        let logged = [springboard, shortcuts].lazy.map {
+            $0.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Logged Workout'")).firstMatch
+        }.first { $0.exists }
+        note("log topic: \(logged.map { "said \"\($0.label)\"" } ?? "no Logged dialog seen") at \(Date().timeIntervalSince(started)) s")
+    }
+
     /// Exploration: the Shortcuts app's UI, to find quickR's App Shortcuts.
     @MainActor
     func testShortcutsAppExploration() throws {

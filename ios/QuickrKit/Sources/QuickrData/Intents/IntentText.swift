@@ -38,7 +38,7 @@ public enum IntentText {
         }
     }
 
-    static func text(_ answer: AnswerValue, for question: Question) -> String {
+    public static func text(_ answer: AnswerValue, for question: Question) -> String {
         let unit = question.numericRules?.unit.flatMap { $0.isEmpty ? nil : " \($0)" } ?? ""
         switch answer {
         case .int(let n): return "\(n)\(unit)"

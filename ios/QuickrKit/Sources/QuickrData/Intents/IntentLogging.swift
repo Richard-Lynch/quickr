@@ -36,7 +36,7 @@ public enum IntentWrites {
         current.withLock { $0 = context }
     }
 
-    static func context() -> IntentWriteContext? { current.withLock { $0 } }
+    public static func context() -> IntentWriteContext? { current.withLock { $0 } }
 }
 
 /// The one commit every logging intent goes through (`LogEntryIntent`, `LogTopicIntent`,
