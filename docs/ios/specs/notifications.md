@@ -512,6 +512,12 @@ id   = lowercase 8-4-4-4-12 hex of h
   can still edit the entry, or log another from the app.
 - Entries logged from the app's own screens keep random ids: only reminder actions
   share this rule.
+- **App Intents and widgets [decided: INTENTS, 2026-10-20]:** an intent uses this id
+  only when it is **bound to a reminder slot**, that is, it carries the slot's
+  `(server_id, topic_id, due_since)`: a `WhatsDueIntent` snippet button, or any
+  intent or widget button built for one due slot. Plain logs ("Log coffee" from
+  Siri, a widget tile, a Control, the Action button) get **random ids**, like the
+  tiles: logging the same topic twice on purpose must not be deduped.
 
 ## 8. Badge
 

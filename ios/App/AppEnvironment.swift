@@ -119,12 +119,18 @@ final class AppEnvironment {
     /// The app's launch path: builds the live environment and registers the active store's topics
     /// for App Intents. Siri, Shortcuts and widget buttons can launch the app for an intent without
     /// a scene, so this runs in `QuickRApp.init`, before anything can query an entity. It opens
-    /// the registry only; the store opens on first use.
-    static func bootstrap(location: StoreLocation = .shared(appGroup: AppGroup.identifier)) -> AppEnvironment {
+    /// the registry only; the store opens on first use. `categoryCenter` as in `live` (app tests
+    /// pass nil unless they hold `SystemCategoriesLock`).
+    static func bootstrap(
+        location: StoreLocation = .shared(appGroup: AppGroup.identifier),
+        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
+    ) -> AppEnvironment {
         #if DEBUG
-        let environment = UITestLaunch.isActive ? UITestLaunch.environment() : live(location: location)
+        let environment =
+            UITestLaunch.isActive
+            ? UITestLaunch.environment() : live(location: location, categoryCenter: categoryCenter)
         #else
-        let environment = live(location: location)
+        let environment = live(location: location, categoryCenter: categoryCenter)
         #endif
         environment.registerIntentTopics()
         return environment
@@ -135,6 +141,27 @@ final class AppEnvironment {
 
     func registerIntentTopics() {
         IntentTopicSource.register(topics)
+        // Writes from Siri, Shortcuts and the Action button (origin `.siri`). An intent can launch
+        // the app with no scene, before `start()` binds the session, so the active store is opened
+        // through the partitions (with its recovery); the flush is asked of the bound scheduler,
+        // when there is one (otherwise the entry goes at the next sync).
+        // The session is read when an intent runs (a demo store opens it in `start()`).
+        let current: @Sendable () async -> AppSession? = { [weak self] in await MainActor.run { self?.session } }
+        IntentWrites.register(
+            IntentWriteContext(
+                origin: .siri,
+                openActiveStore: { try await current()?.partitions.openActiveStore(role: .app)?.store },
+                afterCommit: { _ in await current()?.scheduler?.requestFlush(reason: .enqueue) }))
+        // OpenRecordIntent, and repeat-last falling back to the record screen: the same hand-off as
+        // a tap-to-fix notification's prefill.
+        IntentNavigation.register { [weak self] request in
+            guard let self else { return }
+            switch request {
+            case .record(let topicId, let prefill):
+                if !prefill.isEmpty { recordPrefill = NotificationPrefill(topicId: topicId.wireString, texts: prefill) }
+                if let ref = TopicLinkRef(topicId.wireString) { router.open(.record(ref)) }
+            }
+        }
     }
 
     /// From the root view's `.task`: starts the session (finishing a bootstrap, or connecting to
