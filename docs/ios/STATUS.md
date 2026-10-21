@@ -315,6 +315,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 12:30 (EDT): **m1-outbox hit its weekly usage limit** (it resets Oct 26), so its back-swap fix (e43a533, Codex clean) awaits a valid measurement. Its base-vs-fix runs are invalid: both sides showed the pre-M3 double-Save failures, which points to a stale M2-final build. m1-testiso is re-measuring with clean builds. The fix's swipe-back tests on 26 passed 6/6.
+
 - 2026-10-21 11:30 (EDT): The HomeModel first-list seam is merged (`@_spi(Testing)` syncStatesForTesting). The test holds the sync-state stream, and the mutant without the clock pre-read now fails 3/3. The backlog item is closed.
 
 - 2026-10-21 11:15 (EDT): **M3 merged into feat/ios-app: PR #11, squash e73e01f.** CI green: backend, frontend, docker, swift test, and build + Unit plan on iOS 26.2. ios/m3 records the squash (ours-merge, trees equal) and stays the collection branch for the follow-ups:
