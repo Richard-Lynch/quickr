@@ -54,7 +54,7 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     public func due(at date: Date) -> DueStatus? { TopicListing.due(of: topic, at: serverTime(date)) }
 
     /// Device time `date` on the server's clock (`date + skew`), the "now" of due state.
-    public func serverTime(_ date: Date) -> Date { date.addingTimeInterval(skew) }
+    public func serverTime(_ date: Date) -> Date { ServerClock(skew: skew).now(at: date) }
 
     /// Where a tap on the widget goes: the topic's record screen by id, naming the store it was
     /// read from (`quickr://t/{topic_id}/record?scope=…`), so a widget left over from another
@@ -72,7 +72,7 @@ extension WidgetTopic {
     /// `topics` in the home list's due-first order at device time `date` (a timeline entry's own
     /// order), in server time: they come from one store, so they share its skew.
     public static func dueFirst(_ topics: [WidgetTopic], at date: Date) -> [WidgetTopic] {
-        let now = date.addingTimeInterval(topics.first?.skew ?? 0)
+        let now = ServerClock(skew: topics.first?.skew ?? 0).now(at: date)
         return TopicListing.list(topics, topic: \.topic, now: now, status: .active, sort: .due, query: "").map(\.value)
     }
 }

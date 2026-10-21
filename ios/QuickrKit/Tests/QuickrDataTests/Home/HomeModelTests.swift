@@ -190,6 +190,77 @@ import Testing
         #expect(model.badgeCount == 3)
     }
 
+    // MARK: - The server's clock (sync-protocol.md §10, APP-SKEW)
+
+    func setSkew(_ store: LocalStore, _ seconds: TimeInterval) async throws {
+        try await store.writer.write { db in
+            try db.execute(sql: "UPDATE sync_state SET skew_ms = ? WHERE id = 1", arguments: [seconds * 1000])
+        }
+    }
+
+    /// Stretch turns due at now + 30 min on the server's clock. A device clock 5 min behind
+    /// (skew +5 min) reaches that at device now + 25, one 5 min ahead at now + 35: the sections and
+    /// the badge follow the server's clock, 1 min either side of its boundary.
+    @Test(arguments: [5.0 * 60, -5.0 * 60])
+    func dueStateFollowsTheServersClock(skew: TimeInterval) async throws {
+        let w = try await World(topics: Self.mixed)
+        defer { w.cleanup() }
+        let (model, observing) = try await w.model()
+        defer { observing.cancel() }
+        try await setSkew(w.store, skew)
+        try await eventually("the clock is read") { await MainActor.run { model.clock.skew == skew } }
+
+        let boundary = Self.now.addingTimeInterval(30 * 60 - skew)  // device time
+        model.tick(boundary.addingTimeInterval(-60))
+        #expect(model.serverNow == Self.now.addingTimeInterval(29 * 60))
+        #expect(Self.names(model.sections.upcoming) == ["Stretch"])
+        #expect(model.badgeCount == 2)
+        model.tick(boundary.addingTimeInterval(60))
+        #expect(Self.names(model.sections.due) == ["Meds", "Water", "Stretch"])
+        #expect(model.badgeCount == 3)
+        // Read by the device clock, it would be the other way round at one of the two.
+        #expect(model.now != model.serverNow)
+    }
+
+    /// The order is the server's too: Daily (due at 08:00 and 09:00, never logged) against Half
+    /// (logged at 08:00, every 30 min, so due since 08:30). At device 08:58, a server 5 min ahead
+    /// is at 09:03, where Daily is due only since 09:00: Half has been due longest.
+    @Test(
+        arguments: [(5.0 * 60, ["Half", "Daily"]), (0, ["Daily", "Half"]), (-5.0 * 60, ["Daily", "Half"])]
+            as [(TimeInterval, [String])])
+    func theDueOrderFollowsTheServersClock(skew: TimeInterval, order: [String]) async throws {
+        let midnight = Date(timeIntervalSince1970: (Self.now.timeIntervalSince1970 / 86_400).rounded(.down) * 86_400)
+        func at(_ hour: Double, _ minute: Double) -> Date { midnight.addingTimeInterval(hour * 3600 + minute * 60) }
+        var daily = Self.topic(7, "Daily")
+        daily.schedule = .daily(
+            .init(times: [TimeOfDay(hour: 8, minute: 0), TimeOfDay(hour: 9, minute: 0)], timezone: "UTC"))
+        var half = Self.topic(8, "Half", everyMinutes: 30)
+        half.lastCapturedAt = at(8, 0)
+        half.entryCount = 1
+        let w = try await World(topics: [daily, half])
+        defer { w.cleanup() }
+        let (model, observing) = try await w.model()
+        defer { observing.cancel() }
+        try await setSkew(w.store, skew)
+        try await eventually("the clock is read") { await MainActor.run { model.clock.skew == skew } }
+        model.tick(at(8, 58))
+        #expect(Self.names(model.sections.due) == order)
+    }
+
+    /// A pull that only moves the skew relists at once (no tick needed).
+    @Test func aNewSkewRelists() async throws {
+        let w = try await World(topics: Self.mixed)
+        defer { w.cleanup() }
+        let (model, observing) = try await w.model()
+        defer { observing.cancel() }
+        #expect(model.badgeCount == 2)
+        try await setSkew(w.store, 31 * 60)  // the server is 31 min ahead: Stretch is due there
+        try await eventually("Stretch is due on the server's clock") {
+            await MainActor.run { Self.names(model.sections.due) == ["Meds", "Water", "Stretch"] }
+        }
+        #expect(model.badgeCount == 3)
+    }
+
     @Test func withoutAServerItAsksForOnboarding() async throws {
         let w = try await World(topics: Self.mixed, active: false)
         defer { w.cleanup() }

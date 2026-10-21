@@ -92,7 +92,7 @@ public enum IntentDue {
         let wall = context.wallClock.now()
         return try await store.writer.read { db in
             let state = try Row.fetchOne(db, sql: "SELECT * FROM sync_state WHERE id = 1").map(SyncState.init(row:))
-            let now = wall.addingTimeInterval((state?.skewMilliseconds ?? 0) / 1000)
+            let now = (state?.serverClock ?? .device).now(at: wall)
             return dueNow(try StoreView.dueTopics(db).map(\.topic), now: now)
         }
     }

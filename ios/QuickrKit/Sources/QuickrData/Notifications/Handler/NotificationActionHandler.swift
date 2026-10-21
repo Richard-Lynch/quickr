@@ -367,7 +367,7 @@ public struct NotificationActionHandler: Sendable {
         let wall = wallClock.now()
         return try? await store.writer.read { db -> Int in
             let state = try Row.fetchOne(db, sql: "SELECT * FROM sync_state WHERE id = 1").map(SyncState.init(row:))
-            let now = wall.addingTimeInterval((state?.skewMilliseconds ?? 0) / 1000)
+            let now = (state?.serverClock ?? .device).now(at: wall)
             return TopicListing.badgeCount(try StoreView.topics(db).map(\.topic), now: now)
         }
     }
