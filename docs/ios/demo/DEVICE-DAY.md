@@ -122,7 +122,10 @@ App Group.
 While the probe runs, the system's categories are the probe's:
 
 - A probe launch holds back the app's own category registrations until the
-  NSE's side is done too.
+  NSE's side is done too, then registers its whole table, including anything it
+  held back.
+- One lock orders every run's checks and changes, so an older run never touches
+  a newer run's set.
 - An ordinary launch cancels a probe still pending.
 - Each side re-registers the real categories when it finishes, even when the NSE
   is out of time.

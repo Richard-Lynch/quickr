@@ -50,7 +50,16 @@ enum DeviceProbeLaunch {
         }
         log.notice("dprobe \(kind.rawValue, privacy: .public) run \(request.run, privacy: .public) starting")
         Task.detached {
-            defer { holding.withLock { $0 = false } }
+            defer {
+                Task.detached {
+                    holding.withLock { $0 = false }
+                    // The app's own registrations held back meanwhile are in its registry: register
+                    // the whole table now, unless a newer probe has the set.
+                    await files.unlessAnotherRun(request.run) {
+                        _ = await DeviceProbe.restore(location: location, center: center)
+                    }
+                }
+            }
             do {
                 if kind == .d8 { try files.write(request) }
                 await runner.run(request)

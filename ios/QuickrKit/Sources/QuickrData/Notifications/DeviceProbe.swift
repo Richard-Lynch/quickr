@@ -182,6 +182,11 @@ public enum DeviceProbe {
 
     static let log = Logger(subsystem: "com.bahumia.quickr", category: "dprobe")
 
+    /// A newer run claimed the probe: this run stops without touching the system's set again.
+    public struct Superseded: Error, CustomStringConvertible {
+        public var description: String { "a newer run started" }
+    }
+
     // MARK: - Files
 
     /// The probe's files, under `<App Group>/Library/quickr/dprobe/`.
@@ -214,26 +219,92 @@ public enum DeviceProbe {
 
         /// Makes `run` the current one: a runner of any other run stops at its next step.
         public func claim(_ run: String) throws {
+            try exclusivelyNow { try Data(run.utf8).write(to: currentRun, options: .atomic) }
+        }
+
+        var lock: URL { root.appending(path: "run.lock") }
+
+        /// Runs `body` holding the probe's cross-process lock (`flock` on `run.lock`). Claims,
+        /// cancellations, takes and every change a run makes to the system's set take it, so a
+        /// newer claim can't land between a run's ownership check and its change. This variant
+        /// waits by blocking, for the synchronous callers (a claim, a take, a cancellation), which
+        /// never run while an asynchronous holder in the same process does.
+        func exclusivelyNow<T>(_ body: () throws -> T) throws -> T {
+            let fd = try openLock()
+            while flock(fd, LOCK_EX) != 0 {
+                guard errno == EINTR else {
+                    Darwin.close(fd)
+                    throw CocoaError(.fileLocking)
+                }
+            }
+            defer { unlock(fd) }
+            return try body()
+        }
+
+        /// The same lock for an asynchronous holder: it waits by polling, never blocking a thread
+        /// of the cooperative pool (the other side may be in this process, as in tests).
+        func exclusively<T>(_ body: () async throws -> T) async throws -> T {
+            let fd = try openLock()
+            while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+                guard errno == EWOULDBLOCK || errno == EINTR else {
+                    Darwin.close(fd)
+                    throw CocoaError(.fileLocking)
+                }
+                do {
+                    try await Task.sleep(for: .milliseconds(1))
+                } catch {
+                    Darwin.close(fd)
+                    throw error
+                }
+            }
+            defer { unlock(fd) }
+            return try await body()
+        }
+
+        private func openLock() throws -> Int32 {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            try Data(run.utf8).write(to: currentRun, options: .atomic)
+            let fd = Darwin.open(lock.path, O_RDWR | O_CREAT, 0o644)
+            guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
+            return fd
+        }
+
+        private func unlock(_ fd: Int32) {
+            flock(fd, LOCK_UN)
+            Darwin.close(fd)
+        }
+
+        /// The current run, if any.
+        func currentRunId() -> String? { try? String(contentsOf: currentRun, encoding: .utf8) }
+
+        /// Runs `body` under the lock unless another run than `run` is current (the app's own
+        /// re-registration when its hold ends, which must not overwrite a newer probe's set).
+        public func unlessAnotherRun(_ run: String, _ body: () async -> Void) async {
+            try? await exclusively {
+                guard currentRunId().map({ $0 == run }) ?? true else { return }
+                await body()
+            }
         }
 
         /// The pending request, taken (renamed) so a second push doesn't run it again; nil when
         /// there is none, it has expired, or a newer run has started since.
         public func take(now: Date = Date()) -> Request? {
-            guard (try? FileManager.default.moveItem(at: request, to: taken)) != nil,
-                let data = try? Data(contentsOf: taken),
-                let pending = try? JSONDecoder().decode(Request.self, from: data),
-                pending.expires > now.timeIntervalSince1970, isCurrent(pending.run)
-            else { return nil }
-            return pending
+            try? exclusivelyNow {
+                guard (try? FileManager.default.moveItem(at: request, to: taken)) != nil,
+                    let data = try? Data(contentsOf: taken),
+                    let pending = try? JSONDecoder().decode(Request.self, from: data),
+                    pending.expires > now.timeIntervalSince1970, isCurrent(pending.run)
+                else { return nil }
+                return pending
+            } ?? nil
         }
 
         /// An ordinary launch: no run is current any more, and any pending request is dropped, so
         /// neither a later test push nor a runner still going acts on an abandoned probe.
         public func cancelPending() {
             guard FileManager.default.fileExists(atPath: root.path) else { return }
-            for url in [request, currentRun] { try? FileManager.default.removeItem(at: url) }
+            try? exclusivelyNow {
+                for url in [request, currentRun] { try? FileManager.default.removeItem(at: url) }
+            }
         }
 
         public func isCurrent(_ run: String) -> Bool {
@@ -353,18 +424,35 @@ public struct DeviceProbeRunner: Sendable {
             case (.d8, .app): try await d8App(request)
             case (.d8, .nse): try await d8NSE(request, deadline: deadline)
             }
+        } catch is DeviceProbe.Superseded {
+            record(request, "stopped", note: "a newer run started")
         } catch {
             record(request, "error", note: String(describing: error))
         }
-        // A superseded run leaves the system's set to the newer one, which restores when it ends.
-        guard files.isCurrent(request.run) else {
-            record(request, "done", ok: true, note: "superseded: the newer run restores the real categories")
-            return
-        }
+        // Under the lock: a superseded run leaves the system's set to the newer one, which
+        // restores when it ends. Detached as a whole, so a cancelled run (the NSE out of time)
+        // still takes the lock and restores.
         let restore = restore
-        let restored = await Task.detached { await restore() }.value
-        record(request, "done", ok: restored, note: restored ? nil : "the real categories weren't restored")
+        let files = files
+        let outcome = await Task.detached { () -> RestoreOutcome in
+            do {
+                return try await files.exclusively {
+                    guard files.isCurrent(request.run) else { return .superseded }
+                    return await restore() ? .restored : .failed
+                }
+            } catch {
+                return .failed
+            }
+        }.value
+        switch outcome {
+        case .restored: record(request, "done", ok: true)
+        case .superseded:
+            record(request, "done", ok: true, note: "superseded: the newer run restores the real categories")
+        case .failed: record(request, "done", ok: false, note: "the real categories weren't restored")
+        }
     }
+
+    private enum RestoreOutcome: Sendable { case restored, superseded, failed }
 
     private func record(
         _ request: DeviceProbe.Request, _ event: String, round: Int? = nil, rounds: Int? = nil, sizes: [Int]? = nil,
@@ -407,10 +495,6 @@ public struct DeviceProbeRunner: Sendable {
         // The time the last size took, scaled to the next, decides whether it can still finish.
         var last: (size: Int, nanoseconds: UInt64)?
         for size in request.sizes {
-            guard files.isCurrent(request.run) else {
-                record(request, "stopped", size: size, note: "a newer run started")
-                return
-            }
             let estimate = last.map { $0.nanoseconds * UInt64(size) / UInt64(max($0.size, 1)) } ?? 0
             guard !stopped(deadline), !past(deadline, at: DeviceProbe.uptime() + estimate) else {
                 record(request, "timeout", size: size, note: "not enough time left for this size")
@@ -421,11 +505,15 @@ public struct DeviceProbeRunner: Sendable {
                 registry: try freshRegistry("d9-\(request.run)-\(process.rawValue)"), center: timing)
             let rows = DeviceProbe.rows(size: size, process: process)
             let expected = Set(rows.map(\.category.id))
-            let start = DeviceProbe.uptime()
-            try await categories.register(rows)
-            let registered = DeviceProbe.uptime()
+            let (start, registered) = try await registerIfCurrent(request) {
+                let start = DeviceProbe.uptime()
+                try await categories.register(rows)
+                return (start, DeviceProbe.uptime())
+            }
             let (seenAt, count) = await readback(expected, deadline: deadline)
             let end = DeviceProbe.uptime()
+            // A newer run may have changed the set meanwhile: this measurement no longer stands.
+            guard files.isCurrent(request.run) else { throw DeviceProbe.Superseded() }
             last = (size, end - start)
             record(
                 request, "size", size: size, setMs: timing.takeLastNanoseconds().map(DeviceProbe.milliseconds),
@@ -433,6 +521,17 @@ public struct DeviceProbeRunner: Sendable {
                 readbackMs: seenAt.map { DeviceProbe.milliseconds($0 - registered) },
                 ok: seenAt.map { !past(deadline, at: $0) } ?? false, overrun: past(deadline, at: end) ? true : nil,
                 seen: count)
+        }
+    }
+
+    /// Runs `change` (a registration) under the probe's lock, while this run is still the current
+    /// one.
+    @discardableResult
+    private func registerIfCurrent<T>(_ request: DeviceProbe.Request, _ change: () async throws -> T) async throws -> T
+    {
+        try await files.exclusively {
+            guard files.isCurrent(request.run) else { throw DeviceProbe.Superseded() }
+            return try await change()
         }
     }
 
@@ -475,7 +574,9 @@ public struct DeviceProbeRunner: Sendable {
             await sleep(until: rendezvous)
             guard !Task.isCancelled else { return }
             let start = DeviceProbe.uptime()
-            try await categories.register(DeviceProbe.d8Rows(round: round, process: .app))
+            try await registerIfCurrent(request) {
+                try await categories.register(DeviceProbe.d8Rows(round: round, process: .app))
+            }
             let end = DeviceProbe.uptime()
             guard let nse = await nseAttempt(request, round: round) else {
                 record(request, "timeout", round: round, note: "the NSE didn't finish this round")
@@ -486,7 +587,7 @@ public struct DeviceProbeRunner: Sendable {
             var reconciled = false
             var stillMissing = missing
             if !missing.isEmpty {
-                reconciled = try await categories.reconcile()
+                reconciled = try await registerIfCurrent(request) { try await categories.reconcile() }
                 stillMissing = DeviceProbe.missing(expected, in: await center.notificationCategories())
             }
             record(
@@ -533,7 +634,9 @@ public struct DeviceProbeRunner: Sendable {
                 await sleep(until: UInt64(app[1]))
                 guard !stopped(deadline) else { break }
                 let start = DeviceProbe.uptime()
-                try await categories.register(DeviceProbe.d8Rows(round: Int(app[0]), process: .nse))
+                try await registerIfCurrent(request) {
+                    try await categories.register(DeviceProbe.d8Rows(round: Int(app[0]), process: .nse))
+                }
                 let end = DeviceProbe.uptime()
                 files.write([app[0], Int64(start), Int64(end)], to: files.nseRound(request.run))
                 last = app[0]
