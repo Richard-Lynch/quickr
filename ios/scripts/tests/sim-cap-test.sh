@@ -497,6 +497,25 @@ expect "memory frees while it waits: it boots" 0 "waiting for memory"
 (( SECONDS - start >= 2 )) && echo "ok   only once memory freed" || fail "it booted before memory freed"
 wait
 
+# Checked again at admission: memory drops while it waits for a slot, so when the slot frees it
+# waits for memory first, without holding the lock.
+devices "a:Booted:$A" "g:Shutdown:quickR iOS-26-0 guard-1"
+echo 60 >"$FAKE_FREE_PCT_FILE"
+env IOS_SIM_RESOURCE_GUARD=1 IOS_SIM_MEM_POLL=1 IOS_SIM_MEM_WAIT=60 IOS_SIM_CAP=1 IOS_SIM_WAIT=1 \
+  bash -c 'source "$1/../common.sh"; sim_boot g' _ "$here" >"$fake/adm.out" 2>&1 &
+adm=$!
+until_true "the boot queues for a slot" grep -q "waiting for a simulator slot" "$fake/adm.out"
+echo 10 >"$FAKE_FREE_PCT_FILE"
+setstate a Shutdown
+until_true "it waits for memory at admission" grep -q "waiting for memory" "$fake/adm.out"
+[[ "$(state g)" == Shutdown ]] && echo "ok   a slot alone doesn't boot it under memory pressure" || fail "booted under pressure at admission"
+# Another boot gets an answer at once (the lock is free): it queues behind the one waiting for
+# memory, which keeps its place.
+boot a; expect "the cap lock isn't held meanwhile; the memory waiter keeps its place" 1 "1 waiting ahead"
+echo 50 >"$FAKE_FREE_PCT_FILE"
+reap "$adm"
+[[ "$reaped" == 0 && "$(state g)" == Booted ]] && echo "ok   it boots once memory frees" || fail "after memory freed: $reaped $(state g); $(cat "$fake/adm.out")"
+
 echo 10 >"$FAKE_FREE_PCT_FILE"
 guarded g FAKE_FREE_KB=$((1 * 1048576)) IOS_SIM_MEM_WAIT=3
 expect "a device already booted is reused whatever the disk and memory" 0

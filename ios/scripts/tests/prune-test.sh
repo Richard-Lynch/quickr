@@ -46,6 +46,8 @@ gone="$(mk gone wp/gone)"
 squashed="$(mk squashed wp/squashed)"; commit "$squashed" three; build "$squashed"; old "$squashed"
 squash_oid="$(git -C "$squashed" rev-parse HEAD)"
 current="$(mk current wp/current)"; build "$current"; old "$current"
+# Finished when classified, but a build starts in it before its output goes.
+late="$(mk late wp/late)"; build "$late"; old "$late"
 hash() { printf '%s' "$(cd "$1" && pwd -P)" | shasum | cut -c1-6; }
 gone_hash="$(hash "$gone")"
 g worktree remove --force "$gone"
@@ -54,9 +56,9 @@ g worktree remove --force "$gone"
 bin="$fake/bin"; mkdir -p "$bin"
 devices_json="$fake/devices.json"
 data="$fake/CoreSimulator/Devices"
-dev() {  # dev <udid> <state> <name>: a device and some data
+dev() {  # dev <udid> <state> <name> [available, default 1]: a device and some data
   mkdir -p "$data/$1"; head -c 200000 /dev/zero >"$data/$1/data"
-  echo "$1|$2|$3" >>"$fake/devices.txt"
+  echo "$1|$2|$3|${4:-1}" >>"$fake/devices.txt"
 }
 dev c-fin Shutdown "quickR iOS-26-0 finished-$(hash "$finished")"
 dev c-fin27 Shutdown "quickR iOS27 finished-$(hash "$finished")"
@@ -71,61 +73,87 @@ dev c-squash Shutdown "quickR iOS-26-0 squashed-$(hash "$squashed")"
 dev c-cur Shutdown "quickR iOS-26-0 current-$(hash "$current")"
 dev base Shutdown "quickR iOS-26-0"
 dev phone Shutdown "iPhone 17"
+dev old-phone Shutdown "iPhone 15" 0                         # unavailable, not ours: goes
+dev old-base Shutdown "quickR iOS-18-0" 0                    # unavailable, but quickR's: stays
+# Another checkout's clone: no record, no worktree of this repo, but its directory exists here.
+mkdir -p "$fake/elsewhere-dir"
+dev c-other Shutdown "quickR iOS-26-0 elsewhere-dir-abcdef"
+# A recorded owner that is gone, and one that is no worktree of this repo.
+dev c-rec-gone Shutdown "quickR iOS27 vanished-123456"
+dev c-rec-foreign Shutdown "quickR iOS27 foreign-654321"
+mkdir -p "$fake/owners" "$fake/foreign"
+echo "$fake/vanished" >"$fake/owners/c-rec-gone"
+echo "$fake/foreign" >"$fake/owners/c-rec-foreign"
 python3 - "$fake/devices.txt" "$devices_json" <<'PY'
 import json, sys
-devs = [dict(zip(("udid", "state", "name"), l.strip().split("|"))) for l in open(sys.argv[1])]
+devs = []
+for l in open(sys.argv[1]):
+    udid, state, name, avail = l.rstrip("\n").split("|")
+    devs.append({"udid": udid, "state": state, "name": name, "isAvailable": avail == "1"})
 json.dump({"devices": {"com.apple.CoreSimulator.SimRuntime.iOS-26-0": devs}}, open(sys.argv[2], "w"))
 PY
 cat >"$bin/xcrun" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
 "simctl list -j devices") exec cat "$FAKE_DEVICES" ;;
-"simctl list devices unavailable") echo "-- Unavailable: com.apple.CoreSimulator.SimRuntime.iOS-18-0 --"
-  echo "    iPhone 15 (OLD-1) (Shutdown) (unavailable, runtime profile not found)" ;;
-"simctl delete unavailable") echo unavailable >>"$FAKE_DELETED" ;;
+"simctl delete unavailable") echo BULK >>"$FAKE_DELETED" ;;
 "simctl delete "*) echo "$3" >>"$FAKE_DELETED" ;;
 *) exit 1 ;;
 esac
 SH
-# lsof: the in-use worktree is some process's working directory.
-printf '#!/bin/sh\necho p123\necho n%s/ios\n' "$inuse" >"$bin/lsof"
+# lsof: the in-use worktree is some process's working directory; from the second call on (after
+# prune classified the worktrees), so is the late one.
+cat >"$bin/lsof" <<SH
+#!/bin/sh
+n=\$(cat "$fake/lsof.calls" 2>/dev/null || echo 0); echo \$((n + 1)) >"$fake/lsof.calls"
+echo p123; echo n$inuse/ios
+[ "\$n" -ge 1 ] && { echo p456; echo n$late; }
+exit 0
+SH
 printf '#!/bin/sh\n[ "$1" = -version ] && echo "Xcode 27.1"\n' >"$bin/xcodebuild"
 printf '#!/bin/sh\necho %s\n' "$squash_oid" >"$bin/gh"
 chmod +x "$bin"/*
 export PATH="$bin:$PATH" FAKE_DEVICES="$devices_json" FAKE_DELETED="$fake/deleted"
 export IOS_PRUNE_REPO="$current" IOS_SIM_DATA_DIR="$fake/CoreSimulator"
-export QUICKR_SIM_CAP_LOCK="$fake/cap.lockf" QUICKR_SIM_HOLDS="$fake/holds"
+export QUICKR_SIM_CAP_LOCK="$fake/cap.lockf" QUICKR_SIM_HOLDS="$fake/holds" QUICKR_SIM_OWNERS="$fake/owners"
+export QUICKR_SIM_CLONE_LOCK="$fake/clone.lockf"
 unset IOS_PRUNE_DRY_RUN IOS_PRUNE_BASE IOS_PRUNE_IDLE_HOURS IOS_PRUNE_MERGED_PRS
 # The held clone: a live hold (this test's own shell, with its start time).
 mkdir -p "$fake/holds/c-held"; ps -o lstart= -p $$ | tr -s ' ' >"$fake/holds/c-held/$$"
 
-prune() { out="$(perl -e 'alarm shift; exec @ARGV' 120 "$here/../prune.sh" "$@" 2>&1)"; status=$?; }
+prune() { rm -f "$fake/lsof.calls"; out="$(perl -e 'alarm shift; exec @ARGV' 120 "$here/../prune.sh" "$@" 2>&1)"; status=$?; }
 deleted() { grep -qx "$1" "$fake/deleted" 2>/dev/null; }
 
 # --- a dry run removes nothing ---------------------------------------------------------------------
 prune --dry-run
 (( status == 0 )) && ok "a dry run succeeds" || fail "dry run: status $status: $out"
-[[ ! -e "$fake/deleted" && -d "$finished/ios/build" ]] && ok "and removes nothing" || fail "the dry run removed: $(cat "$fake/deleted" 2>/dev/null)"
+kept_all=1
+for w in "$finished" "$unmerged" "$recent" "$dirty" "$inuse" "$held" "$squashed" "$current"; do
+  [[ -d "$w/ios/build" && -d "$w/ios/QuickrKit/.build" ]] || kept_all=0
+done
+[[ ! -e "$fake/deleted" ]] && (( kept_all )) && ok "and removes nothing (no simulator, no build tree)" \
+  || fail "the dry run removed: $(cat "$fake/deleted" 2>/dev/null)"
 [[ "$out" == *"would remove simulator quickR iOS-26-0 finished-"* && "$out" == *"in all (dry run"* ]] \
   && ok "it says what it would remove, and how much" || fail "dry-run output: $out"
 
 # --- the real run -------------------------------------------------------------------------------
 prune
 (( status == 0 )) && ok "a run succeeds" || fail "run: status $status: $out"
-for d in c-fin c-fin27 c-gone c-squash; do
+for d in c-fin c-fin27 c-gone c-squash c-rec-gone old-phone; do
   deleted "$d" && ok "deletes $d" || fail "kept $d: $out"
 done
-for d in c-unm c-rec c-dirty c-inuse c-held c-gone-booted c-cur base phone; do
+for d in c-unm c-rec c-dirty c-inuse c-held c-gone-booted c-cur base phone old-base c-other c-rec-foreign BULK; do
   deleted "$d" && fail "deleted $d" || ok "keeps $d"
 done
-deleted unavailable && ok "deletes unavailable simulators" || fail "unavailable not deleted"
 [[ ! -d "$finished/ios/build" && ! -d "$finished/ios/QuickrKit/.build" ]] && ok "removes a finished worktree's build output" \
   || fail "finished build output kept"
 [[ ! -d "$squashed/ios/build" ]] && ok "and a squash-merged PR worktree's" || fail "squashed build output kept"
-for w in "$unmerged" "$recent" "$dirty" "$inuse" "$held" "$current"; do
+for w in "$unmerged" "$recent" "$dirty" "$inuse" "$held" "$current" "$late"; do
   [[ -d "$w/ios/build" ]] || fail "removed $(basename "$w")'s build output"
 done
 ok "keeps the build output of unmerged, recent, dirty, in-use, held and current worktrees"
+[[ "$out" == *"keeping $late: in use now"* ]] && ok "and of one that came into use after it was classified" \
+  || fail "late worktree: $out"
 [[ "$out" == *"removed "*" in all"* ]] && ok "it prints what it freed" || fail "no total: $out"
 
 # Without gh (or with IOS_PRUNE_MERGED_PRS=0), a squash-merged branch isn't finished.

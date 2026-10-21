@@ -193,6 +193,8 @@ _sim_drop_ticket() {
 # - memory: while `memory_pressure` reports under IOS_SIM_MIN_FREE_PCT (default 20) % of memory
 #   free, waits (polling every IOS_SIM_MEM_POLL s, default 15) up to IOS_SIM_MEM_WAIT s
 #   (default 600), saying why, then refuses: another simulator under pressure stalls them all.
+# Both are checked before admission and again when the boot is admitted (a wait for a slot can
+# be long), without holding the cap lock while waiting.
 # An unreadable figure doesn't block. IOS_SIM_RESOURCE_GUARD=0 turns both off.
 _sim_free_gb() {
   local dir="${IOS_SIM_DATA_DIR:-$HOME/Library/Developer/CoreSimulator}"
@@ -202,16 +204,29 @@ _sim_free_gb() {
 _sim_free_mem_pct() {
   memory_pressure -Q 2>/dev/null | sed -nE 's/.*memory free percentage: *([0-9]+)%.*/\1/p' | head -1
 }
+# Non-blocking: 0 when both are fine, 1 for the disk, 2 for memory.
+_sim_resources_now() {
+  [[ "${IOS_SIM_RESOURCE_GUARD:-1}" == 0 ]] && return 0
+  local gb pct
+  gb="$(_sim_free_gb)"
+  [[ -n "$gb" ]] && (( gb < ${IOS_SIM_MIN_FREE_GB:-15} )) && return 1
+  pct="$(_sim_free_mem_pct)"
+  [[ -n "$pct" ]] && (( pct < ${IOS_SIM_MIN_FREE_PCT:-20} )) && return 2
+  return 0
+}
+# The memory wait's start, so waits before and during admission share one bound.
+_sim_mem_wait_start=""
 _sim_resources_ok() {
   [[ "${IOS_SIM_RESOURCE_GUARD:-1}" == 0 ]] && return 0
   local min_gb="${IOS_SIM_MIN_FREE_GB:-15}" min_pct="${IOS_SIM_MIN_FREE_PCT:-20}"
-  local limit="${IOS_SIM_MEM_WAIT:-600}" poll="${IOS_SIM_MEM_POLL:-15}" gb pct start=$SECONDS said=0
+  local limit="${IOS_SIM_MEM_WAIT:-600}" poll="${IOS_SIM_MEM_POLL:-15}" gb pct said=0
   gb="$(_sim_free_gb)"
   if [[ -n "$gb" ]] && (( gb < min_gb )); then
     die "only ${gb} GB free on the simulators' disk (under IOS_SIM_MIN_FREE_GB=$min_gb): not booting another simulator. Free space first: make ios-prune (IOS_PRUNE_DRY_RUN=1 to see what it would remove)"
   fi
   while pct="$(_sim_free_mem_pct)"; [[ -n "$pct" ]] && (( pct < min_pct )); do
-    if (( SECONDS - start >= limit )); then
+    [[ -n "$_sim_mem_wait_start" ]] || _sim_mem_wait_start=$SECONDS
+    if (( SECONDS - _sim_mem_wait_start >= limit )); then
       die "memory still under pressure after ${limit}s (${pct}% free, under IOS_SIM_MIN_FREE_PCT=$min_pct): not booting another simulator. Shut one down, or quit something big"
     fi
     if (( !said )); then
@@ -246,6 +261,13 @@ sim_boot() {
       ahead="$(grep -c . <<<"$tickets" || true)"
     fi
     if [[ "$booted" == self || "$cap" == 0 ]] || { (( count < cap )) && (( ahead == 0 )); }; then
+      # The disk and memory again, now that it is its turn (a wait for a slot can be long). Under
+      # pressure: let go of the lock, wait (the same bound), and take its turn again.
+      if [[ "$booted" != self ]] && ! _sim_resources_now; then
+        exec 8>&-
+        _sim_resources_ok
+        continue
+      fi
       _sim_drop_ticket
       # A held device this admission boots is marked as booted by a hold, under the same lock
       # as the decision, so the run's release shuts it down (and only then: one it found booted
@@ -312,6 +334,8 @@ $(sed 's/^/  /' <<<"$booted")"
 # a device while it is being shut down. Callers set their own EXIT trap before sim_hold (it
 # runs theirs after releasing), or call sim_release in it.
 SIM_HOLDS="${QUICKR_SIM_HOLDS:-${SIM_CAP_LOCK%.lockf}.holds}"
+# <SIM_OWNERS>/<udid>: the worktree a clone belongs to, written by sim-clone.sh (prune.sh).
+SIM_OWNERS="${QUICKR_SIM_OWNERS:-${SIM_CAP_LOCK%.lockf}.owners}"
 _sim_held=""
 _sim_holder=""
 
