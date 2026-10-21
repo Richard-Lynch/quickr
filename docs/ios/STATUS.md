@@ -316,6 +316,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 08:05 (EDT): Final validation (1ee19c8): lane A is done. Unit 26.2 1049/0, UI 26.2 88/1/20, Media 3/0, and Intents is n/a on 26. The UI failure, also seen on 27, is AppSettingsUITests XXXL: an element-less "Text clipped" from a mid-list audit with a row under the translucent bar, the same pattern as slice C. It's being fixed (m1-review, a57c9a0+). Lane B: UI 27 is finishing, then Intents and E2E. H is all green.
+
 - 2026-10-21 07:35 (EDT): Final validation (1ee19c8) so far: H all green (check 711+856, vectors, release-test-build, script tests, integration 22/22 ×2); A Unit 26.2 1049/0/27; B Unit 27 1048/1 (the DeviceProbe timing test, since fixed by DPROBE-CLOCK at 7dab4b0). UI, Media, Intents and E2E are still running.
 
 - 2026-10-21 07:30 (EDT): **DPROBE-CLOCK merged:** DeviceProbeRunner and the lock poll take an injectable clock (defaulting to uptime, so production is unchanged). The D9 readback and lock-deadline tests drive time themselves (no wall-clock thresholds), and the other probe tests' success limits are widened. DeviceProbeTests passed 5/5 under 10 background spinners; Codex r1–r2 resolved. The lock-deadline backlog item is removed.
