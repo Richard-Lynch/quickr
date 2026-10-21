@@ -19,21 +19,31 @@ extension AppEnvironment {
         Task { await openScoped(link.routes, serverId: scope.serverId, storeGen: scope.storeGen) }
     }
 
-    /// Shows `routes` when `serverId` (and `storeGen`, when the link names one) is the active
-    /// store's; otherwise says why not, and has the widgets refresh when the link's store is gone.
-    /// Returns whether it opened.
+    /// Shows `routes` (and hands `prefill` to their record screen) when `serverId` (and
+    /// `storeGen`, when the link names one) is the active store's; otherwise says why not, and has
+    /// the widgets refresh when the link's store is gone. Returns whether it opened.
     @discardableResult
-    func openScoped(_ routes: [Route], serverId: String, storeGen: Int?) async -> Bool {
+    func openScoped(
+        _ routes: [Route], serverId: String, storeGen: Int?, prefill: NotificationPrefill? = nil
+    ) async -> Bool {
+        // Checked against the bound store, not one a starting session hasn't bound yet (a cold
+        // launch from a widget or a notification).
+        await startSettled()
         guard let session else { return false }
-        let check = await LinkScope.check(
-            serverId: serverId, storeGen: storeGen, active: session.binding?.scope,
-            registry: session.partitions.registry)
-        guard check == .open else {
-            router.refusedLink = LinkScope.message(check)
-            if check == .stale { WidgetCenter.shared.reloadAllTimelines() }
-            return false
+        // A switch or a reset during the check is checked again; the route is set with no
+        // suspension after the binding was last confirmed.
+        let bound: @MainActor () -> EntryScope? = { [weak self] in
+            self?.session === session ? session.binding?.scope : nil
         }
-        router.path = routes
-        return true
+        let check = await LinkScope.open(
+            serverId: serverId, storeGen: storeGen, binding: bound, registry: session.partitions.registry
+        ) {
+            recordPrefill = prefill
+            router.path = routes
+        }
+        guard check != .open else { return true }
+        router.refusedLink = LinkScope.message(check)
+        if check == .stale { WidgetCenter.shared.reloadAllTimelines() }
+        return false
     }
 }

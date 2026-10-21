@@ -30,7 +30,7 @@ extension AppEnvironment {
         // §7.5: the reminder's server's topic, by id, and only while that server is active.
         guard case .open(let path, let serverId, let prefill) = outcome, let routes = DeepLink.routes(forPath: path)
         else { return }
-        if await openScoped(routes, serverId: serverId, storeGen: nil) { recordPrefill = prefill }
+        await openScoped(routes, serverId: serverId, storeGen: nil, prefill: prefill)
     }
 
     /// §7.2: whether a notification arriving in the foreground is shown.

@@ -171,6 +171,13 @@ private let pwaPaths: [(String, [Route])] = [
             components.queryItems = [URLQueryItem(name: "scope", value: bad)]
             #expect(DeepLink.link(for: components.url!) == nil, "\(bad)")
         }
+        // No value, or more than one: not read as a link without a scope.
+        for raw in [
+            "quickr://t/water/record?scope", "quickr://t/water/record?scope&scope=a/1",
+            "quickr://t/water/record?scope=a/1&scope=b/2", "quickr://t/water/record?scope=a/1&scope=a/1",
+        ] {
+            #expect(DeepLink.link(for: URL(string: raw)!) == nil, "\(raw)")
+        }
     }
 
     @Test func aRouteCanNameItsTopicById() {

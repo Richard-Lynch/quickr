@@ -49,13 +49,14 @@ public enum DeepLink {
     }
 
     /// `routes(for:serverURL:)` with the link's `scope` (a `quickr://` link's only: a server's
-    /// PWA link is that server's by its address). A malformed scope makes the link nil.
+    /// PWA link is that server's by its address). A `scope` parameter that is malformed, has no
+    /// value or appears more than once makes the link nil: never read as a link without one.
     public static func link(for url: URL, serverURL: URL? = nil) -> Link? {
         guard let routes = parse(url, serverURL: serverURL) else { return nil }
-        guard url.scheme?.lowercased() == scheme,
-            let raw = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
-                .first(where: { $0.name == "scope" })?.value
-        else { return Link(routes: routes, scope: nil) }
+        let scopes = (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+            .filter { $0.name == "scope" }
+        guard url.scheme?.lowercased() == scheme, !scopes.isEmpty else { return Link(routes: routes, scope: nil) }
+        guard scopes.count == 1, let raw = scopes[0].value else { return nil }
         let scope = EntryScope(raw)
         guard !scope.serverId.isEmpty, scope.storeGen != nil, isScopeServer(scope.serverId) else { return nil }
         return Link(routes: routes, scope: scope)

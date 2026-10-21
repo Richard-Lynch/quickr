@@ -631,8 +631,13 @@ A, or a widget rendered from A's store, can be tapped after the user switched to
   - A widget's links (the background tap, a due-list row, the form fallback) are
     `quickr://t/{topic_id}/record?scope={server_id}/{store_gen}`. The scope is the
     store the snapshot was read from (`EntryScope`). A sample in the app's widget
-    gallery has no store and links by slug.
-- **What the app does** (`LinkScope.check`, before any routing):
+    gallery has no store and links by slug. A `scope` with no value, a malformed
+    one, or more than one makes the link invalid; it is never read as unscoped.
+  - An intent that opens the record screen (OpenRecordIntent, repeat-last's
+    fallback) carries the store it read the topic and the prefill from.
+- **What the app does** (`LinkScope.open`, before any routing). It first waits,
+  for up to 10 s, for the launch's start. A widget or a notification can cold-launch
+  the app before the session has bound its store. Then it checks:
   - **The active server** (and, for a widget link, the active store generation):
     open the route, by topic id.
   - **Another registered server:** refuse with "This is from {name}, not the
@@ -643,6 +648,11 @@ A, or a widget rendered from A's store, can be tapped after the user switched to
   - **A server quickR no longer has, or a store since reset** (a widget link
     whose generation isn't the active one): refuse, and reload the widgets'
     timelines so they render from the current store.
+  - **A switch in progress** (the registry's active server isn't the bound
+    store's), **or a binding that changed during the check:** check again, up to
+    20 times 100 ms apart. If it never settles, refuse with "quickR is changing
+    servers. Try again in a moment." The route (and the prefill) is set with no
+    suspension after the binding was last confirmed.
 - **Prefill** is handed to a record screen only for its topic on the server it
   came from, while that server is active.
 - **Links without a scope keep working for the active server:** `quickr://t/{slug}/…`

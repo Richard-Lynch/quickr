@@ -71,8 +71,14 @@ import Testing
 
         func scope(_ serverId: String) -> EntryScope { stores[serverId]!.scope }
 
-        func check(_ serverId: String, storeGen: Int? = nil, active: EntryScope?) async -> LinkScope.Check {
-            await LinkScope.check(serverId: serverId, storeGen: storeGen, active: active, registry: partitions.registry)
+        /// The check with `active` bound, the registry agreeing (unless `registry` says otherwise).
+        func check(
+            _ serverId: String, storeGen: Int? = nil, active: EntryScope?, registry: String?? = .none
+        ) async throws -> LinkScope.Check {
+            let registryActive = registry ?? active?.serverId
+            if let registryActive { try await partitions.registry.setActive(registryActive) }
+            return await LinkScope.check(
+                serverId: serverId, storeGen: storeGen, active: active, registry: partitions.registry)
         }
     }
 
@@ -93,9 +99,9 @@ import Testing
         #expect(serverId == Self.serverA)
         #expect(route == .record(TopicLinkRef(id: w.moodA.id)), "A's topic by id, not `mood`")
         #expect(route.topic?.id != w.moodB.id)
-        #expect(await w.check(serverId, active: w.scope(Self.serverB)) == .otherServer(name: "aa.example"))
+        #expect(try await w.check(serverId, active: w.scope(Self.serverB)) == .otherServer(name: "aa.example"))
         // With A active it opens A's topic.
-        #expect(await w.check(serverId, active: w.scope(Self.serverA)) == .open)
+        #expect(try await w.check(serverId, active: w.scope(Self.serverA)) == .open)
     }
 
     @Test func moreFromAnotherServerIsRefusedToo() async throws {
@@ -107,7 +113,7 @@ import Testing
         let (route, serverId) = try Self.route(outcome)
         #expect(route == .record(TopicLinkRef(id: w.moodA.id)))
         #expect(serverId == Self.serverA)
-        #expect(await w.check(serverId, active: w.scope(Self.serverB)) == .otherServer(name: "aa.example"))
+        #expect(try await w.check(serverId, active: w.scope(Self.serverB)) == .otherServer(name: "aa.example"))
     }
 
     /// A tap-to-fix's text carries its server, so the app hands it only to that server's topic.
@@ -136,23 +142,87 @@ import Testing
         #expect(scope == w.scope(Self.serverA))
         // B active: refused.
         #expect(
-            await w.check(scope.serverId, storeGen: scope.storeGen, active: w.scope(Self.serverB))
+            try await w.check(scope.serverId, storeGen: scope.storeGen, active: w.scope(Self.serverB))
                 == .otherServer(name: "aa.example"))
         // A active again: opens.
-        #expect(await w.check(scope.serverId, storeGen: scope.storeGen, active: w.scope(Self.serverA)) == .open)
+        #expect(try await w.check(scope.serverId, storeGen: scope.storeGen, active: w.scope(Self.serverA)) == .open)
         // A reset since (a new store generation): stale, the widget refreshes.
         #expect(
-            await w.check(
+            try await w.check(
                 scope.serverId, storeGen: scope.storeGen, active: EntryScope(serverId: Self.serverA, storeGen: 2))
                 == .stale)
         // A server quickR doesn't have any more: stale.
         #expect(
-            await w.check("0b9e0000-0000-4000-8000-0000000000cc", storeGen: 1, active: w.scope(Self.serverB)) == .stale)
+            try await w.check("0b9e0000-0000-4000-8000-0000000000cc", storeGen: 1, active: w.scope(Self.serverB))
+                == .stale)
     }
 
     @Test func refusalsSayWhy() {
         #expect(LinkScope.message(.open) == nil)
         #expect(LinkScope.message(.otherServer(name: "aa.example"))?.contains("aa.example") == true)
         #expect(LinkScope.message(.stale) != nil)
+    }
+
+    /// Mid-switch the registry already names one server while the bound store is still the
+    /// other's: the app asks again rather than trust either.
+    @Test func aSwitchInProgressIsBusy() async throws {
+        let w = try await World()
+        #expect(
+            try await w.check(Self.serverA, active: w.scope(Self.serverB), registry: .some(Self.serverA)) == .busy)
+        #expect(try await w.check(Self.serverA, active: nil, registry: .some(Self.serverB)) == .busy)
+        #expect(LinkScope.message(.busy) != nil)
+    }
+
+    // MARK: - Opening against the binding as it is when the route is set
+
+    /// The bound store the closure reports, call by call (the last repeats).
+    @MainActor final class Bindings {
+        var sequence: [EntryScope?]
+        var calls = 0
+        init(_ sequence: [EntryScope?]) { self.sequence = sequence }
+        func next() -> EntryScope? {
+            defer { calls += 1 }
+            return sequence[min(calls, sequence.count - 1)]
+        }
+    }
+
+    /// A switch to A finishing during the first check: asked again, then opened once.
+    @MainActor @Test func aSwitchFinishingDuringTheCheckIsCheckedAgainThenOpens() async throws {
+        let w = try await World()
+        try await w.partitions.registry.setActive(Self.serverA)  // the registry has switched...
+        let bindings = Bindings([w.scope(Self.serverB), w.scope(Self.serverA)])  // ...the binding follows
+        var opened = 0
+        let result = await LinkScope.open(
+            serverId: Self.serverA, storeGen: nil, binding: bindings.next, registry: w.partitions.registry,
+            attempts: 5, pause: .zero
+        ) { opened += 1 }
+        #expect(result == .open && opened == 1)
+    }
+
+    /// The binding changes between the check and the route (a switch to B): not opened on B.
+    @MainActor @Test func aBindingThatChangesAfterTheCheckIsNotRoutedTo() async throws {
+        let w = try await World()
+        try await w.partitions.registry.setActive(Self.serverA)
+        // Checked with A bound (open), but B is bound by the time the route would be set.
+        let bindings = Bindings([w.scope(Self.serverA), w.scope(Self.serverB)])
+        var opened = 0
+        let result = await LinkScope.open(
+            serverId: Self.serverA, storeGen: nil, binding: bindings.next, registry: w.partitions.registry,
+            attempts: 3, pause: .zero
+        ) { opened += 1 }
+        #expect(opened == 0)
+        #expect(result == .busy, "the registry (A) and the binding (B) never agree again")
+    }
+
+    /// A switch that never settles gives up as busy, without opening.
+    @MainActor @Test func aSwitchThatNeverSettlesIsBusy() async throws {
+        let w = try await World()  // the registry says B
+        var opened = 0
+        let alwaysA: @MainActor () -> EntryScope? = { [w] in w.scope(Self.serverA) }
+        let result = await LinkScope.open(
+            serverId: Self.serverB, storeGen: nil, binding: alwaysA, registry: w.partitions.registry, attempts: 3,
+            pause: .zero
+        ) { opened += 1 }
+        #expect(result == .busy && opened == 0)
     }
 }

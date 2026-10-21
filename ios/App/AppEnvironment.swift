@@ -172,11 +172,16 @@ final class AppEnvironment {
         IntentNavigation.register { [weak self] request in
             guard let self else { return }
             switch request {
-            case .record(let topicId, let prefill):
-                if !prefill.isEmpty, let serverId = session?.binding?.serverId {
-                    recordPrefill = NotificationPrefill(serverId: serverId, topicId: topicId.wireString, texts: prefill)
+            case .record(let topicId, let prefill, let scope):
+                // The store the intent read the topic from (§7.5): opened only while it's active.
+                let texts = prefill.isEmpty ? nil : prefill
+                Task {
+                    await self.openScoped(
+                        [.record(TopicLinkRef(id: topicId))], serverId: scope.serverId, storeGen: scope.storeGen,
+                        prefill: texts.map {
+                            NotificationPrefill(serverId: scope.serverId, topicId: topicId.wireString, texts: $0)
+                        })
                 }
-                if let ref = TopicLinkRef(topicId.wireString) { router.open(.record(ref)) }
             }
         }
     }
@@ -225,6 +230,22 @@ final class AppEnvironment {
         starting = attempt
         await attempt.value
         starting = nil
+    }
+
+    /// Waits for the launch's start to finish (bounded, 10 s): a link or a notification tap can
+    /// arrive before the session has bound its store (a cold launch from a widget).
+    func startSettled() async {
+        if let starting {
+            await starting.value
+            return
+        }
+        for _ in 0..<100 where !hasStarted {
+            if let starting {
+                await starting.value
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
     }
 
     /// The `scenePhase` hooks (outbox.md §10, sync-protocol.md §9): on `.active`, resume, rebind,

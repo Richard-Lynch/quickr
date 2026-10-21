@@ -9,8 +9,10 @@ public enum IntentNavigation {
     /// What to open.
     public enum Request: Sendable, Hashable {
         /// A topic's record screen, prefilled with each question's text (numbers and single
-        /// options; a multi-select isn't prefilled).
-        case record(topicId: UUID, prefill: [String: String])
+        /// options; a multi-select isn't prefilled). `scope` is the store the topic and the
+        /// prefill were read from: the app opens it only while that store is active
+        /// (notifications.md §7.5).
+        case record(topicId: UUID, prefill: [String: String], scope: EntryScope)
     }
 
     private static let handler = Mutex<(@MainActor @Sendable (Request) -> Void)?>(nil)
