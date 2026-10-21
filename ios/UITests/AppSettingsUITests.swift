@@ -56,13 +56,36 @@ final class AppSettingsUITests: XCTestCase {
         }
     }
 
-    /// At XXXL the section's actions are reachable and a licence opens.
+    /// At XXXL the screen passes the full audit at its top; mid-list, the sync section's rows sit
+    /// wholly below the navigation bar and pass the element-scoped audit; its actions are reachable
+    /// and a licence opens.
+    ///
+    /// Mid-list, the full audit re-lays out the List as it varies the text size and then flags
+    /// whatever row ends under the translucent bar ("Text clipped", element-less): the slice C
+    /// pattern (a11y-audit.md, "Audit placement"). So text size and clipping are audited at the
+    /// top, and mid-list the clipping is asserted geometrically instead.
     @MainActor
     func testAccessibilityXXXL() throws {
         let app = launch(extra: AccessibilityLaunch.arguments())
-        XCTAssertTrue(reveal(element(app, "settings.sync.headline"), in: app))
+        XCTAssertTrue(element(app, "settings.serverURL").waitForExistence(timeout: 15), "Settings, at its top")
         try assertAccessible(app)
-        XCTAssertTrue(reveal(element(app, "settings.syncNow"), in: app), "Sync now is reachable")
+
+        let headline = element(app, "settings.sync.headline")
+        let syncNow = element(app, "settings.syncNow")
+        XCTAssertTrue(reveal(headline, in: app))
+        XCTAssertTrue(reveal(syncNow, in: app), "Sync now is reachable")
+        bringIntoFullView([headline, syncNow], in: app)
+        // What's cheap and deterministic mid-list (the rest is DEVICE-DAY §6's manual XXXL pass):
+        // both rows wholly between the bar and the bottom (asserted by bringIntoFullView), the
+        // width of the list, and hittable; Status, a label over its value here, takes more than
+        // one line.
+        let window = app.windows.firstMatch.frame
+        for (name, row) in [("Status", headline), ("Sync now", syncNow)] {
+            XCTAssertGreaterThanOrEqual(row.frame.width, window.width * 0.8, "\(name) spans the list")
+            XCTAssertTrue(row.isHittable, "\(name) is hittable")
+        }
+        XCTAssertGreaterThan(headline.frame.height, syncNow.frame.height * 1.5, "Status wraps: label over value")
+        try assertAccessible(app, types: .midList, within: [headline.frame, syncNow.frame])
         snap(app, "appset-4-ax")
         element(app, "settings.syncNow").tap()
         openLicences(app)

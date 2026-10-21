@@ -50,6 +50,15 @@ extension XCUIAccessibilityAuditType {
     static let quickrDefault: XCUIAccessibilityAuditType = [
         .dynamicType, .textClipped, .hitRegion, .elementDetection, .sufficientElementDescription, .trait,
     ]
+
+    /// What a screen audits partway down a `List` (A11Y slice C). The audit's Dynamic Type check
+    /// steps the text size itself, which re-lays the List out mid-audit: rows land under the
+    /// translucent bar (flagged as clipped text) or the List blanks (flagged as unsupported Dynamic
+    /// Type), with no element to scope, differently each run. So mid-list audits check only what is
+    /// tied to an element; text size and clipping are audited at the top of each screen, asserted
+    /// geometrically (full width, wrapping, 44 pt, hittable) mid-list, and checked by hand at XXXL
+    /// (docs/ios/reviews/a11y-audit.md, slice C; DEVICE-DAY §6).
+    static let midList: XCUIAccessibilityAuditType = [.hitRegion, .sufficientElementDescription, .trait]
 }
 
 extension XCTestCase {
@@ -100,6 +109,39 @@ extension XCTestCase {
             attachment.name = "accepted accessibility issues"
             attachment.lifetime = .keepAlways
             add(attachment)
+        }
+    }
+}
+
+extension XCTestCase {
+    /// Nudges the list (bounded) until every element sits wholly between the navigation bar and the
+    /// bottom of the window, with `margin` to spare (a drag can land a few points short), then
+    /// asserts that they do.
+    @MainActor
+    func bringIntoFullView(
+        _ elements: [XCUIElement], in app: XCUIApplication, margin: CGFloat = 24,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let top = app.navigationBars.firstMatch.frame.maxY
+        let bottom = app.windows.firstMatch.frame.maxY
+        for _ in 0..<8 {
+            let minY = elements.map(\.frame.minY).min() ?? top
+            let maxY = elements.map(\.frame.maxY).max() ?? bottom
+            let down: CGFloat
+            if minY < top + margin / 2 {
+                down = -(top + margin - minY)  // drag down: content moves down
+            } else if maxY > bottom - margin / 2 {
+                down = maxY - (bottom - margin)
+            } else {
+                break
+            }
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -down)))
+        }
+        for element in elements {
+            let name = element.identifier
+            XCTAssertGreaterThanOrEqual(element.frame.minY, top, "\(name) under the bar", file: file, line: line)
+            XCTAssertLessThanOrEqual(element.frame.maxY, bottom, "\(name) below the window", file: file, line: line)
         }
     }
 }

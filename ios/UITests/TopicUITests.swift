@@ -141,28 +141,28 @@ final class TopicUITests: XCTestCase {
         scrollTo(remove, in: app)
         XCTAssertGreaterThanOrEqual(remove.frame.width, 44)
         XCTAssertGreaterThanOrEqual(remove.frame.height, 44)
-        try assertAccessible(app, types: .topicsMidList)
+        try assertAccessible(app, types: .midList)
         // TP1: every weekday is reachable at 44 pt; each group is audited as it shows.
         for day in 1...7 {
             let button = element("topicSettings.schedule.day.\(day)", in: app)
             scrollTo(button, in: app)
             XCTAssertTrue(button.isHittable, "day \(day)")
             XCTAssertGreaterThanOrEqual(button.frame.height, 44, "day \(day)")
-            if day == 4 { try assertAccessible(app, types: .topicsMidList) }
+            if day == 4 { try assertAccessible(app, types: .midList) }
         }
-        try assertAccessible(app, types: .topicsMidList)
+        try assertAccessible(app, types: .midList)
         // TP2: the presets are 44 pt.
         for preset in ["Every day", "Weekdays", "Weekends"] {
             let button = element("topicSettings.schedule.preset.\(preset)", in: app)
             scrollTo(button, in: app)
             XCTAssertGreaterThanOrEqual(button.frame.height, 44, preset)
         }
-        try assertAccessible(app, types: .topicsMidList)
+        try assertAccessible(app, types: .midList)
         for id in ["topicSettings.saveSchedule", "topicSettings.archive"] {
             scrollTo(element(id, in: app), in: app)
             XCTAssertTrue(element(id, in: app).isHittable, id)
         }
-        try assertAccessible(app, types: .topicsMidList)
+        try assertAccessible(app, types: .midList)
         snap(app, "topic-settings-xxxl")
     }
 
@@ -173,12 +173,12 @@ final class TopicUITests: XCTestCase {
         try assertAccessible(app)
         let required = element("newTopic.q0.required", in: app)
         scrollTo(required, in: app)
-        try assertAccessible(app, types: .topicsMidList)
+        try assertAccessible(app, types: .midList)
         pickScheduleKind("Every…", id: "newTopic.schedule", in: app)
         let every = element("newTopic.schedule.every", in: app)
         scrollTo(every, in: app)
         XCTAssertTrue(every.isHittable)
-        try assertAccessible(app, types: .topicsMidList)
+        try assertAccessible(app, types: .midList)
         // TP6: a failed create shows the banner. Its VoiceOver focus and announcement are checked by
         // hand (DEVICE-DAY §6); the per-attempt trigger is host-tested (NewTopicModelTests).
         tap("newTopic.create", in: app)
