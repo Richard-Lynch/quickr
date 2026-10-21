@@ -405,12 +405,11 @@ it runs they are visible to `ps` on this Mac, though the key itself is not.
    once only. Keep it outside the repo, for example in
    `~/.appstoreconnect/private_keys/` with `chmod 600`, and don't send it
    anywhere. Revoke it in the same screen if it leaks.
-5. **Export compliance**: App Store Connect asks for each build whether the app
-   uses non-exempt encryption, and testers get the build only once that is
-   answered. quickR uses only the system's HTTPS. To answer it once for all
-   builds, add `ITSAppUsesNonExemptEncryption: false` to the app's `info`
-   properties in `project.yml`. That is your declaration to make, so it isn't
-   set.
+5. **Export compliance**: nothing to do. The app's `info` in `project.yml` sets
+   `ITSAppUsesNonExemptEncryption: false`, because its only encryption is the
+   OS's own (TLS through URLSession, the Keychain), which is exempt. App Store
+   Connect then doesn't ask about it for each build. If the app ever adds its
+   own cryptography, change it to `true` and answer the questions there.
 6. **Testers**: TestFlight ▸ Internal Testing ▸ + adds a group. Add yourself, then
    install the TestFlight app on the phone.
 

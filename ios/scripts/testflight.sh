@@ -225,4 +225,4 @@ echo "ios: 2/3 export and 3/3 upload to App Store Connect"
 watchdog "$XCODEBUILD" -exportArchive -archivePath "$archive" -exportOptionsPlist "$options" \
   -exportPath "$out/export" "${auth[@]}"
 echo "ios: uploaded $marketing ($build). It shows in App Store Connect > TestFlight once processed (minutes);"
-echo "  testers get it after the export-compliance question is answered there (ios/README.md, TestFlight)."
+echo "  add testers under TestFlight > Internal Testing (ios/README.md, TestFlight)."

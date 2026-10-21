@@ -185,6 +185,15 @@ run FAKE_STALE_APPEX=1 TESTFLIGHT_BUILD_NUMBER=9 "$tf" --dry-run
 (( status != 0 )) && grep -q "QuickRWidgets.appex/Info.plist has CFBundleVersion '1', not 9" "$tmp/out" \
   && ok "a bundle without the build number fails the archive check" || fail "stale appex (status $status): $(cat "$tmp/out")"
 
+# The real app declares export compliance (no non-exempt encryption), so App Store Connect
+# doesn't hold every build for the question.
+if awk '/^  QuickR:/{app=1} /^  [A-Za-z]+:$/ && !/QuickR:/{app=0} app' "$here/../../project.yml" \
+  | grep -q "ITSAppUsesNonExemptEncryption: false"; then
+  ok "the app declares ITSAppUsesNonExemptEncryption false"
+else
+  fail "the QuickR target's info has no ITSAppUsesNonExemptEncryption: false"
+fi
+
 # No unfiltered ID ever reached the watchdog's files.
 if [[ -s "$tmp/leaks" ]]; then fail "IDs in the watchdog's files: $(sort -u "$tmp/leaks")"; else ok "the watchdog's files never held an ID"; fi
 
