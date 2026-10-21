@@ -306,6 +306,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-20 22:35 (EDT): Codex PERF+UPG r1: no Blockers. 1 Major: the PerfSeed tests don't compile in Release (`swift test -c release`). 1 Minor: the outbox ids in the seed are random. Fixes in progress. WIDGETS merged ios/m3 (c922320); its final run is pending. INTENTS merged ios/m3 (9f4aec5); step 3 is in progress. The iOS 26.2 runtime download is still running.
+
 - 2026-10-20 22:20 (EDT): **M2 merged into feat/ios-app: PR #10, squash 21a6c2d.** CI was green on the final tip (backend, frontend, docker, swift test, build + Unit plan). Post-open fixes: an Xcode 26 compile error in a test, a CI starvation sweep plus a CI-only Swift Testing width cap of 4, and a stats tie-order backend bug. **STATUS now lives on `ios/m3`**, which has merged the final m2-ui and records the squash (ours-merge, trees equal; 3d651fa). M3 in progress: HANDLER and NSE are in; WIDGETS is approved (merges after INTENTS); INTENTS is on step 3; PERF+UPG is in Codex r1.
 
 - 2026-10-20 21:25 (EDT): PR #10: the build + Unit plan job still fails on CI starvation in hosted suites (AppSessionTests, EntriesModelTests). A second sweep (ios/m2-ci-flakes2) covers every Unit-plan target and caps CI-only test parallelism. M3: **WIDGETS approved** (Codex r2; WidgetLogIntent pinned to its EntryScope, Control reloads, a no-prompt Control fallback, SQL counts); it merges after INTENTS. INTENTS step 2 (39f8cdb: repeat-last, open record, what's due, undo, App Shortcuts) is done; step 3 (LogTopicIntent) is next. PERF: a release-build cold-start breakdown (6902593).
