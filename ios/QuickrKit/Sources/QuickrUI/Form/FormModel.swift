@@ -52,8 +52,12 @@ public final class FormModel {
     public private(set) var focus: String?
     public private(set) var scrollRequest: FormScrollRequest?
     /// Where VoiceOver should go, and when (the serial): the first error after a failed save, or
-    /// with ``voiceOverStartsAtFirstQuestion`` a fresh form's first question.
+    /// with ``voiceOverStartsAtFirstQuestion`` a fresh form's first question. A one-off: it clears
+    /// itself after ``voiceOverRequestLifetime``, so a later change to that field (correcting it,
+    /// a new error on blur) never replays it.
     public private(set) var voiceOverRequest: FormScrollRequest?
+    /// Long enough for the views to see a request (and for the focus to settle), then it's spent.
+    public static let voiceOverRequestLifetime: Duration = .seconds(1)
     /// Set on a form that replaces another on the same screen (Log another), where VoiceOver
     /// would otherwise lose its place: it moves to the first question when the form appears.
     public var voiceOverStartsAtFirstQuestion = false
@@ -211,6 +215,10 @@ public final class FormModel {
             revealFirstError()
             return
         }
+        // Log another: VoiceOver starts at the first question, answered (prefilled) or not.
+        if voiceOverStartsAtFirstQuestion, let first = questions.first {
+            requestVoiceOver(.question(first.key))
+        }
         guard isNewEntry, autoSaveKey == nil,
             let first = questions.first(where: { !input(for: $0.key).hasValue })
         else { return }
@@ -218,7 +226,6 @@ public final class FormModel {
             focus = first.key
         }
         scroll(to: .question(first.key))
-        if voiceOverStartsAtFirstQuestion { voiceOverRequest = scrollRequest }
     }
 
     // MARK: - Same as last time
@@ -328,8 +335,22 @@ public final class FormModel {
         } else if banner != nil {
             scroll(to: .banner)
         }
-        guard let request = scrollRequest else { return }
-        voiceOverRequest = banner != nil ? FormScrollRequest(target: .banner, serial: request.serial) : request
+        if banner != nil {
+            requestVoiceOver(.banner)
+        } else if let first = questions.first(where: { errors[$0.key] != nil }) {
+            requestVoiceOver(.question(first.key))
+        }
+    }
+
+    /// A one-off ``voiceOverRequest`` for `target`, spent after ``voiceOverRequestLifetime``.
+    private func requestVoiceOver(_ target: FormScrollTarget) {
+        scrollSerial += 1
+        let request = FormScrollRequest(target: target, serial: scrollSerial)
+        voiceOverRequest = request
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.voiceOverRequestLifetime)
+            if self?.voiceOverRequest == request { self?.voiceOverRequest = nil }
+        }
     }
 
     private func scroll(to target: FormScrollTarget) {

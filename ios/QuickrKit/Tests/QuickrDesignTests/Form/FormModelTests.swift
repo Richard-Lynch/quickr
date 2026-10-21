@@ -34,6 +34,31 @@ private let severity = Question(
 private let monday = Date(timeIntervalSince1970: 1_760_000_000)
 
 @MainActor @Suite struct FormModelTests {
+    // MARK: VoiceOver requests (audit F1, F3)
+
+    @Test func aFailedSaveSendsVoiceOverToTheFirstErrorOnce() async throws {
+        let model = FormModel(questions: workout)
+        model.appear()
+        #expect(model.voiceOverRequest == nil, "a first form leaves VoiceOver where it is")
+        #expect(model.submit() == nil)
+        let request = try #require(model.voiceOverRequest)
+        #expect(request.target == .question("type"))
+        // Spent after its lifetime, so correcting the field never replays it.
+        try await Task.sleep(for: FormModel.voiceOverRequestLifetime + .milliseconds(200))
+        #expect(model.voiceOverRequest == nil)
+        #expect(model.submit() == nil)
+        #expect(try #require(model.voiceOverRequest).serial > request.serial, "a new attempt, a new request")
+    }
+
+    @Test func logAnotherStartsVoiceOverAtTheFirstQuestionEvenWhenPrefilled() throws {
+        let duration = workout[1]
+        let last = LastEntry(answers: ["duration": .int(30)], capturedAt: monday)
+        let model = FormModel(questions: [duration], mode: .create(last: last))
+        model.voiceOverStartsAtFirstQuestion = true
+        model.appear()
+        #expect(try #require(model.voiceOverRequest).target == .question("duration"))
+    }
+
     // MARK: Validation on touch
 
     @Test func errorsWaitUntilAFieldIsLeftThenFollowEveryChange() {

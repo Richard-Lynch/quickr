@@ -66,7 +66,6 @@ struct NotificationExplainer: View {
                     .font(.qr(.callout))
                     .foregroundStyle(QuickrTone.ok.foreground)
                     .accessibilityIdentifier("notifications.allowed")
-                    .onAppear { QuickrAnnouncer.announce("Reminders are on") }
             case .denied:
                 Text("Reminders are off for quickR. Turn them on in Settings ▸ Notifications ▸ quickR.")
                     .font(.qr(.subheadline))
@@ -82,6 +81,8 @@ struct NotificationExplainer: View {
                 Button("Allow reminders") {
                     Task {
                         await permission.request()
+                        // Said once, as the answer to Allow (not on every visit).
+                        if permission.status == .allowed { QuickrAnnouncer.announce("Reminders are on") }
                         // Granted: register this device for push now (notifications.md §9.2).
                         if permission.status == .allowed { await environment.push?.permissionGranted() }
                     }

@@ -53,10 +53,10 @@ struct PushDeviceRow: View {
     }
 
     private func test() async {
-        tests += 1
+        result = nil  // never the last test's outcome while this one runs
         testing = true
         defer { testing = false }
-        result =
+        let outcome =
             switch await push.testThisDevice() {
             case .sent: "Sent. It should arrive in a few seconds."
             case .notRegistered: "This device isn't registered for reminders yet. Try again in a moment."
@@ -64,5 +64,8 @@ struct PushDeviceRow: View {
             case .offline: "You're offline. Try again when you're connected."
             case .failed(let message): message
             }
+        // The outcome and its focus request together, so each test's own result is read.
+        result = outcome
+        tests += 1
     }
 }
