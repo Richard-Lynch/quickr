@@ -10,7 +10,9 @@ trap 'rm -rf "$fake"' EXIT
 cat >"$fake/xcrun" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
-"simctl list -j devices" | "simctl list -j devices available") exec cat "$FAKE_DEVICES" ;;
+"simctl list -j devices" | "simctl list -j devices available")
+  [[ "${FAKE_LIST_FAIL:-0}" == 1 ]] && exit 1
+  exec cat "$FAKE_DEVICES" ;;
 "simctl list devices" | "simctl list devices available")
   exec python3 -c '
 import json, sys
@@ -31,6 +33,22 @@ for devices in data["devices"].values():
             print(new["udid"])
 json.dump(data, open(path + ".tmp", "w"))
 os.replace(path + ".tmp", path)
+PY
+  ;;
+"simctl shutdown "*)
+  echo "$3" >>"$FAKE_DEVICES.shutdowns"
+  [[ "${FAKE_SHUTDOWN_FAIL:-0}" == 1 ]] && exit 1
+  exec python3 - "$FAKE_DEVICES" "$3" <<'PY'
+import json, os, sys
+path, udid = sys.argv[1], sys.argv[2]
+data = json.load(open(path))
+for devices in data["devices"].values():
+    for d in devices:
+        if d["udid"] == udid:
+            d["state"] = "Shutdown"
+tmp = path + ".tmp"
+json.dump(data, open(tmp, "w"))
+os.replace(tmp, path)
 PY
   ;;
 "simctl bootstatus "*" -b")
@@ -71,10 +89,10 @@ for ds in json.load(open(sys.argv[1]))["devices"].values():
 }
 export FAKE_DEVICES="$fake/devices.json" PATH="$fake:$PATH" IOS_SIM_WAIT_POLL=1
 export QUICKR_SIM_CAP_LOCK="$fake/cap.lockf" QUICKR_SIM_CLONE_LOCK="$fake/clone.lockf"
-export QUICKR_SIM_CAP_QUEUE="$fake/queue"
+export QUICKR_SIM_CAP_QUEUE="$fake/queue" QUICKR_SIM_HOLDS="$fake/holds"
 # The caller's settings must not leak in: an inherited IOS_SIM_WAIT=1 (check-ios run with it)
 # turns the "refused" cases into waits that never end.
-unset IOS_SIM_WAIT IOS_SIM_CAP CI IOS_SIM_DEFAULTED IOS_SIM IOS_SIM_MIN  # CI skips the cap in sim_boot
+unset IOS_SIM_WAIT IOS_SIM_CAP CI IOS_SIM_DEFAULTED IOS_SIM IOS_SIM_MIN IOS_SIM_KEEP  # CI skips the cap in sim_boot
 fails=0
 fail() { echo "FAIL $*"; fails=$((fails + 1)); }
 boot() {  # boot <udid>: sim_boot in a subshell; sets status and out
@@ -328,5 +346,108 @@ kill -KILL "$sub"
 setstate a Shutdown
 IOS_SIM_CAP=1 boot d; expect "a killed subshell's ticket doesn't block while its parent lives" 0
 kill "$parent" 2>/dev/null; wait "$parent" 2>/dev/null
+
+# Holds (sim_hold / sim_release): a run shuts down what it booted, and nothing else.
+shutdowns() { cat "$FAKE_DEVICES.shutdowns" 2>/dev/null | grep -c "^$1\$"; }
+hold() {  # hold <udid> [script after the hold]: a run holding the device, bounded
+  out="$(perl -e 'alarm shift; exec @ARGV' 60 bash -c 'source "$1/../common.sh"; sim_hold "$2"; eval "${3:-true}"' _ "$here" "$@" 2>&1)"
+  status=$?
+}
+rm -f "$FAKE_DEVICES.shutdowns"
+devices "h:Shutdown:quickR iOS-26-0 hold-1"
+hold h '[[ "$(xcrun simctl list devices | grep -c "(h) (Booted)")" == 1 ]]'
+expect "a hold boots the device" 0
+[[ "$(state h)" == Shutdown && "$(shutdowns h)" == 1 ]] && echo "ok   and shuts it down when the run ends" \
+  || fail "after the run: $(state h), $(shutdowns h) shutdowns"
+
+devices "h:Booted:quickR iOS-26-0 hold-1"
+rm -f "$FAKE_DEVICES.shutdowns"
+hold h; expect "a hold on a device someone booted (no hold on it)" 0
+[[ "$(state h)" == Booted && "$(shutdowns h)" == 0 ]] && echo "ok   leaves it booted" || fail "it shut down $(shutdowns h)x"
+
+devices "h:Shutdown:quickR iOS-26-0 hold-1"
+IOS_SIM_KEEP=1 hold h; expect "IOS_SIM_KEEP=1" 0 "keeping h booted"
+[[ "$(state h)" == Booted ]] && echo "ok   keeps the device it booted" || fail "kept: $(state h)"
+hold h; expect "a later hold of the kept device" 0
+[[ "$(state h)" == Booted ]] && echo "ok   doesn't shut it down either" || fail "later hold: $(state h)"
+
+devices "h:Shutdown:quickR iOS-26-0 hold-1"
+rm -f "$FAKE_DEVICES.shutdowns"
+# (Holders wait on a background sleep, so a signal is handled at once rather than after it.)
+bash -c 'source "$1/../common.sh"; sim_hold h; touch "$2"; sleep 30 & wait $!' _ "$here" "$fake/first.up" >/dev/null 2>&1 &
+first=$!
+until_true "the first run holds h" test -e "$fake/first.up"
+hold h; expect "a second run on the same device" 0
+[[ "$(state h)" == Booted && "$(shutdowns h)" == 0 ]] && echo "ok   ends without shutting down what the first still uses" \
+  || fail "second release: $(state h), $(shutdowns h) shutdowns"
+kill -TERM "$first"; reap "$first"
+[[ "$(state h)" == Shutdown && "$(shutdowns h)" == 1 ]] && echo "ok   TERM ends the first through its release, which shuts it down" \
+  || fail "first, TERMed: $(state h), $(shutdowns h) shutdowns"
+
+devices "h:Shutdown:quickR iOS-26-0 hold-1"
+rm -f "$FAKE_DEVICES.shutdowns"
+bash -c 'source "$1/../common.sh"; sim_hold h; touch "$2"; sleep 30 & wait $!' _ "$here" "$fake/dead.up" >/dev/null 2>&1 &
+dead=$!
+until_true "the run that will die holds h" test -e "$fake/dead.up"
+kill -KILL "$dead"; reap "$dead"
+[[ "$(state h)" == Booted ]] || fail "a KILLed holder can't release: h should still be booted"
+hold h; expect "a run after a holder died without releasing" 0
+[[ "$(state h)" == Shutdown && "$(shutdowns h)" == 1 ]] && echo "ok   prunes the dead hold and shuts down what a hold booted" \
+  || fail "after a dead holder: $(state h), $(shutdowns h) shutdowns"
+
+# A run queued for a slot while someone boots its device by hand: it never booted it, so it
+# leaves it booted.
+devices "a:Booted:$A" "h:Shutdown:quickR iOS-26-0 hold-1"
+rm -f "$FAKE_DEVICES.shutdowns"
+IOS_SIM_CAP=1 IOS_SIM_WAIT=1 bash -c 'source "$1/../common.sh"; sim_hold h' _ "$here" >"$fake/queued.out" 2>&1 &
+queued=$!
+until_true "the hold queues" grep -q "waiting for a simulator slot" "$fake/queued.out"
+setstate h Booted
+setstate a Shutdown
+reap "$queued"
+[[ "$reaped" == 0 && "$(state h)" == Booted && "$(shutdowns h)" == 0 ]] \
+  && echo "ok   a hold that found the device booted by hand at admission leaves it booted" \
+  || fail "booted while queued: status $reaped, $(state h), $(shutdowns h) shutdowns; $(cat "$fake/queued.out")"
+
+# A failed shutdown whose state check fails too (CoreSimulator down) keeps the mark as well.
+devices "h:Shutdown:quickR iOS-26-0 hold-1"
+rm -f "$FAKE_DEVICES.shutdowns"
+out="$(perl -e 'alarm shift; exec @ARGV' 60 bash -c 'source "$1/../common.sh"; sim_hold h; export FAKE_SHUTDOWN_FAIL=1 FAKE_LIST_FAIL=1' _ "$here" 2>&1)"
+status=$?
+expect "a failed shutdown with simctl unable to list" 0 "will try again"
+[[ -e "$QUICKR_SIM_HOLDS/h/ours" ]] && echo "ok   keeps the mark: nothing confirmed the device is down" \
+  || fail "the mark was dropped without a confirmed shutdown"
+hold h; expect "the next run" 0
+[[ "$(state h)" == Shutdown ]] && echo "ok   shuts it down" || fail "after the unconfirmed shutdown: $(state h)"
+
+# TERM while queued: the run ends at once through its release (no wait on its own lock), its
+# ticket and hold gone, nothing shut down.
+devices "a:Booted:$A" "h:Shutdown:quickR iOS-26-0 hold-1"
+rm -f "$FAKE_DEVICES.shutdowns"
+IOS_SIM_CAP=1 IOS_SIM_WAIT=1 bash -c 'source "$1/../common.sh"; sim_hold h' _ "$here" >"$fake/term.out" 2>&1 &
+queued=$!
+until_true "the hold queues" grep -q "waiting for a simulator slot" "$fake/term.out"
+start=$SECONDS
+kill -TERM "$queued"; reap "$queued"
+[[ "$reaped" == 143 ]] && (( SECONDS - start < 20 )) && echo "ok   TERM while queued ends the run promptly (143)" \
+  || fail "TERM while queued: status $reaped after $((SECONDS - start)) s; $(cat "$fake/term.out")"
+[[ -z "$(ls "$QUICKR_SIM_HOLDS/h" 2>/dev/null | grep -v '^ours$')" && "$(tickets)" == 0 && "$(shutdowns h)" == 0 ]] \
+  && echo "ok   and leaves no hold, no ticket, no shutdown" \
+  || fail "after TERM: holds $(ls "$QUICKR_SIM_HOLDS/h"), tickets $(tickets), $(shutdowns h) shutdowns"
+
+# A shutdown that fails keeps the mark, and the next run's release tries again.
+devices "h:Shutdown:quickR iOS-26-0 hold-1"
+rm -f "$FAKE_DEVICES.shutdowns"
+FAKE_SHUTDOWN_FAIL=1 hold h; expect "a run whose shutdown fails" 0 "will try again"
+[[ "$(state h)" == Booted ]] || fail "the failed shutdown left h $(state h)"
+hold h; expect "the next run" 0
+[[ "$(state h)" == Shutdown && "$(shutdowns h)" == 2 ]] && echo "ok   retries the shutdown and succeeds" \
+  || fail "retry: $(state h), $(shutdowns h) shutdowns"
+
+devices "h:Shutdown:quickR iOS-26-0 hold-1"
+out="$(perl -e 'alarm shift; exec @ARGV' 60 bash -c 'source "$1/../common.sh"; trap "echo caller-exit \$?" EXIT; sim_hold h; exit 7' _ "$here" 2>&1)"
+status=$?
+expect "the caller's EXIT handler still runs after the release, with the run's status" 7 "caller-exit 7"
+[[ "$(state h)" == Shutdown ]] && echo "ok   and the device is shut down" || fail "with a caller trap: $(state h)"
 
 (( fails == 0 )) && echo "sim cap: all passed" || { echo "sim cap: $fails failed"; exit 1; }

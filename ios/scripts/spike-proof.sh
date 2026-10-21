@@ -8,24 +8,21 @@
 # On demand, not in check-ios: SpringBoard automation can stall.
 #
 # Usage: spike-proof.sh [simulator name or UDID, default: this worktree's clone] [limit s, default 900]
-# Leaves the stack up with SPIKE_KEEP_STACK=1. Shuts the simulator down afterwards (this
-# worktree's clone always; another only if it booted it), unless SPIKE_KEEP_SIM=1.
+# Leaves the stack up with SPIKE_KEEP_STACK=1. Shuts the simulator down afterwards if this run
+# booted it (common.sh sim_hold), unless SPIKE_KEEP_SIM=1 (or IOS_SIM_KEEP=1).
 source "$(dirname "$0")/integration-common.sh"
 require_xcode
 require_docker
 here="$(dirname "$0")"
-udid="$(sim_udid "${1:-$("$here/sim-clone.sh")}")"
+udid="$(sim_udid "${1:-$("$here/sim-clone.sh" --no-boot)}")"
 limit="${2:-900}"
 work="$BUILD_DIR/spike"
 rm -rf "$work"; mkdir -p "$work"
 
-# Shut the simulator down afterwards if this run booted it, and always when it is this
-# worktree's own clone (sim-clone.sh may boot it while finding it). SPIKE_KEEP_SIM=1 keeps it.
-booted_here=0
-xcrun simctl list devices booted | grep -q "$udid" || booted_here=1
-[[ -z "${1:-}" ]] && booted_here=1
-[[ "${SPIKE_KEEP_SIM:-0}" == 1 ]] && booted_here=0
-sim_boot "$udid"  # under the fleet's simulator cap (IOS_SIM_WAIT=1 queues for a slot)
+[[ "${SPIKE_KEEP_SIM:-0}" == 1 ]] && export IOS_SIM_KEEP=1
+# Held for the run, under the fleet's simulator cap (IOS_SIM_WAIT=1 queues for a slot); cleanup
+# releases it last.
+sim_hold "$udid"
 
 cleanup() {
   set +e
@@ -35,15 +32,8 @@ cleanup() {
   local group
   group="$(xcrun simctl get_app_container "$udid" com.bahumia.quickr group.com.bahumia.quickr 2>/dev/null)"
   if [[ -n "$group" ]]; then rm -f "$group/Library/quickr/spike-enabled"; fi
-  if (( booted_here )); then
-    for _ in 1 2 3; do
-      xcrun simctl shutdown "$udid" 2>/dev/null
-      xcrun simctl list devices booted | grep -q "$udid" || break
-      sleep 5
-    done
-    if xcrun simctl list devices booted | grep -q "$udid"; then warn "couldn't shut down $udid"; fi
-  fi
   if [[ "${SPIKE_KEEP_STACK:-0}" != 1 ]]; then "$here/integration-down.sh" >/dev/null 2>&1; fi
+  sim_release
 }
 trap cleanup EXIT
 
@@ -110,12 +100,12 @@ recorder=$!
 export TEST_RUNNER_SPIKE_COORDINATOR="http://127.0.0.1:$(cat "$work/port")"
 "$here/gen.sh"  # a clean checkout has no quickR.xcodeproj
 status=0
-run_limited "$limit" "$here/test.sh" Spike "$udid" || status=$?
+result="$work/Spike.xcresult"
+IOS_RESULT_BUNDLE="$result" run_limited "$limit" "$here/test.sh" Spike "$udid" || status=$?
 
 kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null; recorder=""
 group="$(xcrun simctl get_app_container "$udid" com.bahumia.quickr group.com.bahumia.quickr 2>/dev/null || true)"
 [[ -n "$group" && -f "$group/Library/quickr/spike-log.jsonl" ]] && cp "$group/Library/quickr/spike-log.jsonl" "$work/"
-result="$BUILD_DIR/results/Spike-$udid.xcresult"
 [[ -d "$result" ]] && xcrun xcresulttool export attachments --path "$result" --output-path "$work/attachments" >/dev/null 2>&1
 for case in app-registered error default nse-only; do
   echo "--- $case: $(cat "$work/result-$case.json" 2>/dev/null || echo 'no result')"
