@@ -158,7 +158,6 @@ These are the server details the specs assume. Each one must be confirmed in the
 ### Backlog from M0 reviews (non-blocking)
 
 - HomeModelTests.theFirstListIsAlreadyOnTheServersClock depends on scheduling: the sync-state observation always delivers before the topics, so removing the clock pre-read in HomeModel.observe() is not caught. Add a `@_spi(Testing)` sync-state stream factory, hold the stream, let the topics load, assert the badge on server time, then release it.
-- DeviceProbeTests.aStepWaitingForTheLockGivesUpAtTheDeadline asserts a wall-clock gap under 0.5 s and failed once in the parallel core run (it passed alone and on a rerun). It is load-sensitive: give it a bounded or injected clock, or gate it with TimingTests.
 - A11Y L5 (answers): the answer values in Entries rows keep `lineLimit(2)` at AX sizes (UIT-6's Grid change left them as they were); lift it at AX sizes.
 - A11Y C1: check "Export CSV" at XXXL now that slice A's X3 lets capsule buttons wrap; close it if it's fine.
 - A11Y L2 (Low): a day rotor for the long, date-ordered Entries list.
@@ -316,6 +315,8 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-21 07:30 (EDT): **DPROBE-CLOCK merged:** DeviceProbeRunner and the lock poll take an injectable clock (defaulting to uptime, so production is unchanged). The D9 readback and lock-deadline tests drive time themselves (no wall-clock thresholds), and the other probe tests' success limits are widened. DeviceProbeTests passed 5/5 under 10 background spinners; Codex r1–r2 resolved. The lock-deadline backlog item is removed.
 
 - 2026-10-21 07:20 (EDT): **Final M3 validation on 1ee19c8 (in progress):**
   - host: make check (backend 711, frontend 856), vectors with no drift, ios-release-test-build and ios-script-test (6 suites) all pass;
