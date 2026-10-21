@@ -302,6 +302,7 @@ import Testing
         let request = DeviceProbe.Request(kind: .d8, run: "r")
         try w.files.write(request)
         let task = Task { await w.runner(.nse, center).run(request) }
+        defer { task.cancel() }  // on every exit: the NSE side has no deadline of its own here
         // The NSE side waits for an app that never comes; the system's time runs out.
         let ready = try await Self.eventually(seconds: 20) { !w.records("ready").isEmpty }
         try #require(ready, "the NSE side started")
