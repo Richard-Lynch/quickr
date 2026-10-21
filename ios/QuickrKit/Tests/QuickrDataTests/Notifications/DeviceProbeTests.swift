@@ -120,19 +120,23 @@ import Testing
 
     @Test func recordsAppendedFromManyWritersAllReadBack() async throws {
         let w = try await World()
-        let written = Mutex(0)
-        await withTaskGroup(of: Void.self) { group in
+        // Each task returns whether its append succeeded (no shared counter): Xcode 26 rejects
+        // sending a closure that captures a Mutex into the group.
+        let files = w.files
+        let written = await withTaskGroup(of: Bool.self) { group in
             for i in 0..<200 {
-                group.addTask {
-                    let ok = w.files.append(
+                group.addTask { @Sendable [files] in
+                    files.append(
                         DeviceProbe.Record(
                             run: "r", process: i % 2 == 0 ? .app : .nse, probe: .d8, event: "round", round: i,
                             missing: ["quickr.t.x.y"], note: String(repeating: "n", count: 300)))
-                    if ok { written.withLock { $0 += 1 } }
                 }
             }
+            var count = 0
+            for await ok in group where ok { count += 1 }
+            return count
         }
-        #expect(written.withLock { $0 } == 200)
+        #expect(written == 200)
         let records = w.files.records()
         #expect(records.count == 200)
         #expect(Set(records.compactMap(\.round)) == Set(0..<200))
