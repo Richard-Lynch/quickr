@@ -20,11 +20,17 @@ git -C "$repo" -c user.name=t -c user.email=t@t commit -qm init
 # The fake xcodebuild: logs its arguments, prints them (as xcodebuild's own log could), then
 # looks for an ID in the watchdog's files under TMPDIR (FAKE_LEAKS), and for `archive` builds
 # an archive whose bundles carry CURRENT_PROJECT_VERSION (FAKE_STALE_APPEX=1: the widget
-# keeps 1).
+# keeps 1). The app is portrait only with UIRequiresFullScreen, like quickR (FAKE_FULLSCREEN=0
+# drops it; FAKE_ORIENTATIONS=all supports all four). An export logs the rsync it would use
+# (RSYNC <path> -> <target>), as Xcode's IPA packaging would pick it.
 cat >"$tmp/bin/xcodebuild" <<'SH'
 #!/usr/bin/env bash
 [[ "$1" == -version ]] && { echo "Xcode 27.0"; exit 0; }
 printf '%s\n' "$*" >>"$FAKE_LOG"
+if [[ " $* " == *" -exportArchive "* ]]; then
+  r="$(command -v rsync)"
+  echo "RSYNC $r -> $(readlink "$r" || echo "$r")" >>"$FAKE_LOG"
+fi
 echo "fake xcodebuild $*"
 sleep 0.5  # the watchdog copies the output to its log
 grep -rlE "$FAKE_IDS" "$TMPDIR" >>"$FAKE_LEAKS" 2>/dev/null
@@ -40,11 +46,26 @@ if [[ " $* " == *" archive "* ]]; then
   mkdir -p "$app/PlugIns/QuickRWidgets.appex" "$app/Frameworks/X.framework"
   plist() { plutil -create xml1 "$1" && plutil -insert CFBundleVersion -string "$2" "$1"; }
   plist "$app/Info.plist" "$version"
+  plutil -insert UISupportedInterfaceOrientations -array "$app/Info.plist"
+  orientations=(Portrait)
+  [[ "${FAKE_ORIENTATIONS:-}" == all ]] && orientations=(Portrait PortraitUpsideDown LandscapeLeft LandscapeRight)
+  for o in "${orientations[@]}"; do
+    plutil -insert UISupportedInterfaceOrientations -string "UIInterfaceOrientation$o" -append "$app/Info.plist"
+  done
+  [[ "${FAKE_FULLSCREEN:-1}" == 1 ]] && plutil -insert UIRequiresFullScreen -bool true "$app/Info.plist"
   plist "$app/PlugIns/QuickRWidgets.appex/Info.plist" "$([[ "${FAKE_STALE_APPEX:-0}" == 1 ]] && echo 1 || echo "$version")"
   plist "$app/Frameworks/X.framework/Info.plist" 9
 fi
 SH
 chmod +x "$tmp/bin/xcodebuild"
+
+# Homebrew's rsync 3.x, earlier in PATH than /usr/bin: Xcode's packaging fails with it.
+cat >"$tmp/bin/rsync" <<'SH'
+#!/usr/bin/env bash
+echo "rsync: syntax or usage error (code 1)" >&2
+exit 1
+SH
+chmod +x "$tmp/bin/rsync"
 
 team=TEAM123456 key=KEYID12345 issuer=69a6de7a-1111-2222-3333-444455556666
 mkdir -p "$tmp/wd"
@@ -192,6 +213,33 @@ if awk '/^  QuickR:/{app=1} /^  [A-Za-z]+:$/ && !/QuickR:/{app=0} app' "$here/..
   ok "the app declares ITSAppUsesNonExemptEncryption false"
 else
   fail "the QuickR target's info has no ITSAppUsesNonExemptEncryption: false"
+fi
+
+# The export packages with the system rsync, even with an incompatible one earlier in PATH,
+# through build/testflight/.bin (a name no build number's directory can have).
+run "${creds[@]}" TESTFLIGHT_BUILD_NUMBER=60 "$tf"
+if (( status == 0 )) && grep -q "^RSYNC .*/build/testflight/.bin/rsync -> /usr/bin/rsync$" "$tmp/log"; then
+  ok "the export uses /usr/bin/rsync, not the incompatible one earlier in PATH"
+else
+  fail "rsync for the export (status $status): $(grep RSYNC "$tmp/log")"
+fi
+[[ -L "$repo/ios/build/testflight/.bin/rsync" && ! -e "$repo/ios/build/testflight/.bin/QuickR.xcarchive" ]] \
+  && ok "the rsync link dir stays apart from the build directories" || fail "the .bin dir: $(ls -la "$repo/ios/build/testflight")"
+
+# Portrait only needs UIRequiresFullScreen, or App Store validation refuses the upload: the
+# archive check stops a dry run already.
+run FAKE_FULLSCREEN=0 TESTFLIGHT_BUILD_NUMBER=61 "$tf" --dry-run
+(( status != 0 )) && grep -q "UIRequiresFullScreen" "$tmp/out" && ok "portrait only without UIRequiresFullScreen is refused" \
+  || fail "missing UIRequiresFullScreen (status $status): $(cat "$tmp/out")"
+run FAKE_FULLSCREEN=0 FAKE_ORIENTATIONS=all TESTFLIGHT_BUILD_NUMBER=62 "$tf" --dry-run
+(( status == 0 )) && ok "all four orientations need no UIRequiresFullScreen" || fail "all orientations (status $status): $(cat "$tmp/out")"
+# And the real app declares it: its only orientation is portrait.
+app_info="$(awk '/^  QuickR:/{app=1} /^  [A-Za-z]+:$/ && !/QuickR:/{app=0} app' "$here/../../project.yml")"
+if grep -q "UIRequiresFullScreen: true" <<<"$app_info" \
+  && [[ "$(grep -c "UIInterfaceOrientation" <<<"$app_info")" == 1 ]] && grep -q "UIInterfaceOrientationPortrait$" <<<"$app_info"; then
+  ok "the app is portrait only and declares UIRequiresFullScreen"
+else
+  fail "the QuickR target's orientations and UIRequiresFullScreen: $(grep -E "Orientation|FullScreen" <<<"$app_info")"
 fi
 
 # No unfiltered ID ever reached the watchdog's files.
