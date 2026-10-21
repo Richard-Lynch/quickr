@@ -220,7 +220,7 @@ import Testing
     @Test func n14LogsAgainstThePayloadsVersionAfterANewerOneWasPublished() async throws {
         let w = try await World(waterVersion: 4)
         let r = w.reminder(w.water, version: 3, last: .int(5))
-        #expect(r.category.actions.map(\.title) == ["✓ 5 glasses", "Other value…"])
+        #expect(r.category.actions.map(\.title) == ["Log 5 glasses", "Other value…"])
         guard case .logged = await w.tap(r, 0) else { throw Failure("logs") }
         let sent = try #require(w.server.entry(w.entryId(w.water)))
         #expect(sent.version == 3 && sent.answers == ["glasses": .int(5)])
@@ -337,7 +337,7 @@ import Testing
             let outcome = await w.handler.handle(.init(action: .custom(action), title: "Mood", quickr: r.info))
             #expect(outcome == .refused(.invalid), "\(action)")
         }
-        // A "✓ last" whose value isn't the payload's last value.
+        // A "Log <last>" whose value isn't the payload's last value.
         let water = w.reminder(w.water, last: .int(5))
         let wrong = ActionIdentifier(
             serverId: Self.serverA, topicId: w.water.id.wireString, version: 1, key: "glasses", kind: .number,

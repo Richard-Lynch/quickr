@@ -143,7 +143,7 @@ describe('pushActions', () => {
     ]);
     expect(pushActions(p, 0)).toEqual([]);
     expect(pushActions(reminder(numberLog), 2)).toEqual([
-      { action: 'log|n|7.5', title: '✓ 7.5 h' },
+      { action: 'log|n|7.5', title: 'Log 7.5 h' },
     ]);
     expect(pushActions(reminder({ ...numberLog, last_value: null }), 2)).toEqual([]);
   });

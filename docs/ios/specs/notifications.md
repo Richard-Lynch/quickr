@@ -191,7 +191,7 @@ due list and the badge are the safety net.
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `enum` with _n_ options (1 ≤ _n_ ≤ 4) | One action per option. The title is the label.                                                                         |
 | `enum` with 5–6 options (Q4)          | The 3 most-used options, then **"More…"**: an `open` action (`.foreground`) that opens `url` with nothing preselected. |
-| `int`/`double`, `last_value ≠ null`   | 1. "✓ {fmt(last)}", which logs `last_value`. 2. "Other value…", a text input.                                          |
+| `int`/`double`, `last_value ≠ null`   | 1. "Log {fmt(last)}", which logs `last_value`. 2. "Other value…", a text input.                                        |
 | `int`/`double`, `last_value = null`   | 1. "Other value…", a text input.                                                                                       |
 | `null`                                | No category. Tapping opens `url`.                                                                                      |
 
@@ -267,7 +267,8 @@ H = "quickr-cat-v1"
 
 - An enum title is the payload label, exactly as given.
 - The number action title is
-  `"✓ " + fmt(last_value) + (unit ? " " + unit : "")`.
+  `"Log " + fmt(last_value) + (unit ? " " + unit : "")`. Words, not a "✓"
+  glyph, so VoiceOver and Voice Control read and match it (a11y audit N1).
 - `fmt(x)` (decided 2026-10-17 after the B7 review; **no rounding anywhere**):
   - for `int`: base 10, with no grouping;
   - for `double`: the **shortest round-trip decimal** of the binary64 value (the
@@ -275,7 +276,7 @@ H = "quickr-cat-v1"
     **without an exponent**, with no trailing zeros and no trailing dot, and never
     `-0`. `decimals` is a display hint only and is **not** used here.
 - The decimal separator is always `.`. The `n` identifier value uses the same
-  `fmt`, so "✓ {fmt}" logs exactly `last_value`.
+  `fmt`, so "Log {fmt}" logs exactly `last_value`.
 - `last_value` is kept whenever the server would accept it as an answer to the
   current question (finite, in bounds, integral for `int`); extra fraction digits
   beyond `decimals` do not drop it.
@@ -591,7 +592,7 @@ All registration runs in the **app process only**. Every call is a mutation and
   - An enum shows the first `Notification.maxActions` options, as
     `{action: "log|o|" + value, title: label}`.
   - A number with `last_value` shows
-    `{action: "log|n|" + fmt(last), title: "✓ …"}`. **Exception:** an `int`
+    `{action: "log|n|" + fmt(last), title: "Log …"}`. **Exception:** an `int`
     whose `last_value` is beyond 2^53 shows no action, because JS numbers can't
     hold its digits exactly (the descriptor still carries it; iOS is unaffected).
   - There is no text input and no "More…": the notification body opens `url`.
