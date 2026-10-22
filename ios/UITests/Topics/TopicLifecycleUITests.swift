@@ -166,9 +166,12 @@ struct TopicScreen {
         XCTAssertEqual(field.value as? String, text, "typed into \(field.identifier)")
     }
 
+    /// Return in the focused field, as a user ends typing (a tap on the navigation bar leaves the
+    /// keyboard up on iOS 26, over "Review changes").
     func dismissKeyboard() {
         guard app.keyboards.firstMatch.exists else { return }
-        app.navigationBars.firstMatch.tap()
+        app.typeText("\n")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "the keyboard went")
     }
 
     /// "Add question" → `type`, then types its label into the new (open) card.

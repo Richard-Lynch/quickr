@@ -271,8 +271,11 @@ final class TopicUITests: XCTestCase {
         let choice = app.buttons["newTopic.addQuestion.int"].firstMatch
         XCTAssertTrue(choice.waitForExistence(timeout: 5))
         choice.tap()
-        // A text view at accessibility sizes (it wraps), a text field otherwise.
-        XCTAssertTrue(element("newTopic.q0.label", in: app).waitForExistence(timeout: 5))
+        // The new card opens with its header in view; at accessibility sizes its label is below the
+        // screen until scrolled to.
+        let label = element("newTopic.q0.label", in: app)
+        scrollTo(label, in: app)
+        XCTAssertTrue(label.waitForExistence(timeout: 5))
     }
 
     @MainActor

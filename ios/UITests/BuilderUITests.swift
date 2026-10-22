@@ -168,7 +168,7 @@ final class BuilderUITests: XCTestCase {
         addQuestion("int", label: "Steps\n", prefix: "newTopic", in: app)
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
         let label = app.textFields["newTopic.q0.label"]
-        scrollTo(label, in: app)
+        scrollTo(label, in: app, up: true)  // its card starts above the Add button
         XCTAssertTrue(label.waitForExistence(timeout: 15))
         // The min and max fields stack (BD4).
         let min = element("newTopic.q0.min", in: app)
