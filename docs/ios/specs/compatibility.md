@@ -113,9 +113,9 @@ so a pushed commit gets both gates. A `v*` tag deploys only from a commit whose
 gates passed. On a push the path check diffs against the branch's previous
 head, and skips the gated jobs only if that commit's own gate succeeded;
 otherwise everything runs, so a skip never carries a red gate forward. On a
-push to `main`, `ios gate` covers the same jobs as on a PR (`swift test` and
-`build + Unit plan`). A push of several commits gates only its head, so tag
-that commit, not an intermediate one (which has no gate and doesn't deploy).
+push, `ios gate` covers `swift test` only (the app build and Unit plan run on
+PRs). A push of several commits gates only its head, so tag that commit, not an
+intermediate one (which has no gate and doesn't deploy).
 
 ## 5. Adding and pruning builds
 
