@@ -477,15 +477,14 @@ Nothing on the machine changes.
 ### Uploading from CI
 
 `.github/workflows/testflight.yml` runs `make ios-testflight` when a `v*` tag
-is pushed, or from Actions ▸ TestFlight ▸ Run workflow. It runs on GitHub's
-`xcode-27` image (public preview) with Xcode 27.1, the same build (27A9275)
-the local uploads used. The `macos-26` image has only Xcode 26.x; the comment
-in the workflow says how to switch back. The build number is the UTC time, as
-for a local run.
+is pushed. It runs on GitHub's `xcode-27` image (public preview) with Xcode
+27.1, the same build (27A9275) the local uploads used, and stops if the image
+has changed it. The `macos-26` image has only Xcode 26.x; the comment in the
+workflow says how to switch back. The build number is the UTC time, as for a
+local run.
 
-The credentials live in a GitHub environment named `testflight`. Only the
-upload job enters it, and, once the environment is restricted as below, only
-for a `v*` tag:
+The credentials live in a GitHub environment named `testflight`, which only the
+upload job enters:
 
 | Name               | Kind     | Value                                       |
 | ------------------ | -------- | ------------------------------------------- |
@@ -500,21 +499,21 @@ never runs on pull requests, so a fork's code never sees the key. One run goes
 at a time, and a run in progress is never cancelled (a newer queued run
 replaces an older queued one).
 
-**Restricting who reaches the key.** The upload runs the Makefile and
-`testflight.sh` of the ref it was started on, so anyone who can push a branch
-or a tag and start the workflow could make that code read the key. The
-workflow can't prevent it, since a branch can edit the workflow too. The
-settings that do:
+**Who reaches the key.** The upload runs the Makefile and `testflight.sh` of
+the ref it starts on, and a branch can edit the workflow too, so the workflow
+alone can't keep the key from code someone pushed. Two settings do:
 
 1. Settings ▸ Environments ▸ `testflight` ▸ Deployment branches and tags:
-   **Selected branches and tags**, with the tag pattern `v*` only. A dispatch
-   on a branch then can't enter the environment (dry runs still work). Add
-   `main` too only if uploads from a dispatch on `main` are wanted.
-2. The same page: **Required reviewers** (yourself), so every upload waits for
-   an approval in the run.
-3. Settings ▸ Rules ▸ Rulesets ▸ a tag ruleset for `v*` that restricts
-   creation, update and deletion to maintainers (bypass list), so only they
-   can push a release tag.
+   **Selected branches and tags**, with the tag pattern `v*` only. The job runs
+   only for a `v*` tag; started anywhere else, it fails before its first step.
+2. Settings ▸ Rules ▸ Rulesets: a tag ruleset for `v*` that lets only admins
+   create, update or delete those tags.
+
+So only an admin's `v*` tag reaches the key. There is no required reviewer on
+the environment: in a single-owner repo it would only add a manual approval to
+every release, and the tag ruleset already limits uploads to the owner.
+Run workflow (dispatch) without `dry_run` uploads only when run on a `v*` tag,
+for example to retry a release; on a branch it fails at the environment.
 
 **Dry run.** Run workflow with `dry_run` ticked archives unsigned
 (`make ios-testflight-dry-run`). It runs in a separate job outside the
@@ -532,7 +531,7 @@ is the only job that can write to the repo. Two repository settings are needed:
   branch.
 
 GitHub starts no workflows for a PR opened with the workflow's own token, so
-close and reopen the PR to run its required checks.
+the PR opens as a draft: marking it ready for review runs its required checks.
 
 ## CI
 

@@ -4,7 +4,8 @@ name: TestFlight
 # opens a PR that lists the new build in compat/supported-clients.json.
 # - push of a v* tag, or manual dispatch: upload, in the `testflight` environment, which holds
 #   the App Store Connect key (secrets ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8; variable
-#   DEVELOPMENT_TEAM).
+#   DEVELOPMENT_TEAM). The environment deploys only from v* tags, so a dispatch uploads only
+#   when run on a v* tag (to retry a release); on a branch the job fails before any step.
 # - manual dispatch with dry_run: the archive unsigned (make ios-testflight-dry-run), in a job
 #   outside the environment, so it needs no secrets.
 # Never on pull_request(_target): the repo is public, and nothing here may run a fork's code
@@ -48,24 +49,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install xcodegen ${{ env.XCODEGEN_VERSION }}
-        run: |
-          set -euo pipefail
-          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" \
-            "https://github.com/yonaskolb/XcodeGen/releases/download/$XCODEGEN_VERSION/xcodegen.zip"
-          echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
-          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
-      # The preview image can update 27.1 in place: stop unless it is still the build the local
-      # uploads used.
-      - run: |
-          xcodebuild -version && xcodegen --version
-          xcodebuild -version | grep -q "Build version $XCODE_BUILD" \
-            || { echo "::error::Xcode is not build $XCODE_BUILD; check the image and update XCODE_BUILD"; exit 1; }
-        timeout-minutes: 2
-      # The UTC time, as testflight.sh would pick, but known here for the record job.
       - id: build
-        run: echo "build=$(date -u +%Y%m%d.%H%M%S)" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/testflight-setup
+        timeout-minutes: 5
       - name: Archive unsigned
         timeout-minutes: 40
         env:
@@ -84,24 +70,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install xcodegen ${{ env.XCODEGEN_VERSION }}
-        run: |
-          set -euo pipefail
-          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" \
-            "https://github.com/yonaskolb/XcodeGen/releases/download/$XCODEGEN_VERSION/xcodegen.zip"
-          echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
-          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
-      # The preview image can update 27.1 in place: stop unless it is still the build the local
-      # uploads used.
-      - run: |
-          xcodebuild -version && xcodegen --version
-          xcodebuild -version | grep -q "Build version $XCODE_BUILD" \
-            || { echo "::error::Xcode is not build $XCODE_BUILD; check the image and update XCODE_BUILD"; exit 1; }
-        timeout-minutes: 2
-      # The UTC time, as testflight.sh would pick, but known here for the record job.
       - id: build
-        run: echo "build=$(date -u +%Y%m%d.%H%M%S)" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/testflight-setup
+        timeout-minutes: 5
       # The key goes to a private file for this job only, written from the environment (never a
       # command line or the log), and the always() step below removes it.
       - name: Write the App Store Connect key
@@ -165,7 +136,7 @@ jobs:
           git switch -c "$branch"
           git commit -qam "Compat: list TestFlight build $BUILD (${SHA:0:7})"
           git push origin "$branch"
-          # Not a draft: ci.yml doesn't run on ready_for_review, so reopening is the one trigger.
-          gh pr create --base "$RECORD_BASE" --head "$branch" \
+          # A draft: a PR opened with this token starts no workflows, and marking it ready does.
+          gh pr create --draft --base "$RECORD_BASE" --head "$branch" \
             --title "Compat: list TestFlight build $BUILD" \
-            --body "TestFlight $version ($BUILD) was uploaded from \`$REF\` (${SHA}). This lists it in compat/supported-clients.json, so the compat gate keeps checking the server against it (docs/ios/specs/compatibility.md §5). A PR opened by GITHUB_TOKEN starts no workflows: close and reopen it to run the required checks."
+            --body "TestFlight $version ($BUILD) was uploaded from \`$REF\` (${SHA}). This lists it in compat/supported-clients.json, so the compat gate keeps checking the server against it (docs/ios/specs/compatibility.md §5). A PR opened by GITHUB_TOKEN starts no workflows, so this is a draft: mark it ready for review to run the required checks."
