@@ -150,11 +150,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # A run whose event says draft skips the slow jobs, so it certifies nothing: fail it rather
+      # than pass on skips. (A draft-time run can land after `ready_for_review` and cancel it.)
       - env:
           NEEDS: ${{ toJSON(needs) }}
+          DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
         run: |
           python3 - <<'PY'
           import json, os, sys
+          if os.environ["DRAFT"] == "true":
+              print(f"::error title=ios::draft PR: nothing certified; re-run once it is ready for review")
+              sys.exit(1)
           results = {job: v["result"] for job, v in json.loads(os.environ["NEEDS"]).items()}
           print(results)
           bad = {j: r for j, r in results.items() if r != "success" and not (r == "skipped" and j != "changes")}
