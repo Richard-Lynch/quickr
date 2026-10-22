@@ -316,6 +316,15 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 22:05 (EDT): **#13 phase 1 merged** (PR #14, squash 7031cc9). The PR-time compatibility gate is live:
+  - `compat/supported-clients.json` lists daa2160 and 8aaa7cf, and the rule is in `docs/ios/specs/compatibility.md`;
+  - **checks:** oasdiff against each client's openapi.json and the newest tag; replays of old clients' request goldens; old clients' QuickrKit wire suites against the PR's fixtures, with declared fallbacks;
+  - **gate jobs:** `ios gate` and `compat gate`;
+  - all 12 checks were green on GitHub, including old clients on Xcode 26.6.
+  - **Required checks** on main and feat/ios-app: backend, frontend, docker, ios gate and compat gate.
+
+  **The repo is now PUBLIC** after an audit (SAFE AFTER FIXES: no secrets in any history; issue #12 moved to IaaC #186; artifacts deleted; wiki off; fork PRs need approval; GHCR packages stay private). IaaC #184 is merged (db4df8d).
+
 - 2026-10-21 20:55 (EDT): **SINGLE shipped.**
   - **Merged into ios/m3 daa2160:**
     - SINGLE-WEB e50a617 (backend + PWA; m1-review clean);
