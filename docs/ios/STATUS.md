@@ -316,6 +316,15 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 22:45 (EDT): **#13 phase 2 merged** (PR #15, squash d77035a; 12/12 green).
+  - **testflight.yml:**
+    - `upload` runs on a `v*` tag in the `testflight` environment (deploys only from `v*` tags; the `release-tags` ruleset makes `v*` admin-only; secrets ASC_KEY_ID, ASC_ISSUER_ID and ASC_KEY_P8, plus variable DEVELOPMENT_TEAM);
+    - it runs on the xcode-27 image and asserts Xcode 27A9275;
+    - `record` opens a PR adding the build to compat/supported-clients.json (repo variable TESTFLIGHT_RECORD_BASE=ios/m3; close and reopen the PR once to run its checks).
+  - **Gates on push:** ios.yml and compat.yml now run every gated job on each push to main (and ios.yml on feat/ios-app), so tagged main commits carry `ios gate` and `compat gate` for the autodeploy.
+  - **The dry run can't start until testflight.yml is on main:** workflow_dispatch needs the workflow on the default branch. It comes with the final feat/ios-app → main PR.
+  - **Phase 3** (IaaC #187, autodeploy on an IaaC-only homelab runner, polling quickr `v*` tags) is built and validated. It is waiting on the owner's 1Password step (the quickr-deploy vault, the homelab-deploy service account, then sync_deploy_vault).
+
 - 2026-10-21 22:05 (EDT): **#13 phase 1 merged** (PR #14, squash 7031cc9). The PR-time compatibility gate is live:
   - `compat/supported-clients.json` lists daa2160 and 8aaa7cf, and the rule is in `docs/ios/specs/compatibility.md`;
   - **checks:** oasdiff against each client's openapi.json and the newest tag; replays of old clients' request goldens; old clients' QuickrKit wire suites against the PR's fixtures, with declared fallbacks;
