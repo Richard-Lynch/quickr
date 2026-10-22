@@ -1,17 +1,17 @@
 name: iOS
 
-# macOS minutes count 10x on this private repo (PLAN §8), so this stays small:
-# - push, a non-draft PR (into any branch), or manual dispatch: `swift test` for ios/QuickrKit on
-#   the host (the cheap gate).
-# - non-draft PR (opened, ready for review, new commits) or manual dispatch: `make ios-check-ci`
-#   (xcodegen, then build + the Unit plan on an iOS 26.x simulator, no signing).
-# Each runs only when the PR or push touches the iOS paths (the `ios changes` job decides), and
-# are skipped otherwise. `ios gate` is the one check to require: it fails unless the path check
-# succeeded and both jobs passed or were skipped by it (a workflow-level path filter would leave
-# a required check pending, and a skipped required job would count as passing on its own).
-# The Makefile is in the paths because it is the build interface CI calls. The gate reports on
-# every push to main too (a v* tag deploys only from a commit whose gates passed); there it
-# covers `swift test` only, since the app build runs on PRs.
+# - `swift test` for ios/QuickrKit on the host: a push (main, feat/ios-app), a non-draft PR (into
+#   any branch) or a manual dispatch.
+# - `make ios-check-ci` (xcodegen, then build + the Unit plan on an iOS 26.x simulator, no
+#   signing): a push to main, a non-draft PR (opened, ready for review, new commits) or a manual
+#   dispatch. So on main the gate covers the same jobs as on a PR.
+# Both run only when the PR or push touches the iOS paths (the `ios changes` job decides), and are
+# skipped otherwise, except that a push runs them anyway unless the previous commit's `ios gate`
+# succeeded (see the changes job). The Makefile is in the paths because it is the build interface CI calls.
+# `ios gate` is the one check to require: it fails unless the path check succeeded and both jobs
+# passed or were skipped by it (a workflow-level path filter would leave a required check
+# pending, and a skipped required job would count as passing on its own). It reports on every
+# push to main too: a v* tag deploys only from a commit whose gates passed.
 on:
   # No path filter: every commit on these branches gets an `ios gate` (the changes job decides
   # what runs), which a v* tag's deploy requires.
@@ -133,6 +133,7 @@ jobs:
     if: >-
       needs.changes.outputs.ios == 'true' &&
       (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
        (github.event_name == 'pull_request' && !github.event.pull_request.draft))
     runs-on: macos-26
     timeout-minutes: 30
