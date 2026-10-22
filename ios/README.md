@@ -474,6 +474,48 @@ Xcode's options with "syntax or usage error (code 1)". So the script links
 as usual. Without a `/usr/bin/rsync` the script warns and leaves `PATH` alone.
 Nothing on the machine changes.
 
+### Uploading from CI
+
+`.github/workflows/testflight.yml` runs `make ios-testflight` when a `v*` tag
+is pushed, or from Actions ▸ TestFlight ▸ Run workflow. It runs on GitHub's
+`xcode-27` image (public preview) with Xcode 27.1, the same build (27A9275)
+the local uploads used. The `macos-26` image has only Xcode 26.x; the comment
+in the workflow says how to switch back. The build number is the UTC time, as
+for a local run.
+
+The credentials live in a GitHub environment named `testflight`, so only the
+upload job can read them:
+
+| Name               | Kind     | Value                                       |
+| ------------------ | -------- | ------------------------------------------- |
+| `ASC_KEY_ID`       | secret   | The API key's Key ID                        |
+| `ASC_ISSUER_ID`    | secret   | The Issuer ID                               |
+| `ASC_KEY_P8`       | secret   | The whole contents of `AuthKey_<Key ID>.p8` |
+| `DEVELOPMENT_TEAM` | variable | The Team ID                                 |
+
+The job writes `ASC_KEY_P8` to a mode-600 file under `$RUNNER_TEMP` (that is
+`ASC_KEY_PATH`) and deletes it at the end, even after a failure. The workflow
+never runs on pull requests, so a fork's code never sees the key. Runs queue
+one at a time and are never cancelled midway.
+
+**Dry run.** Run workflow with `dry_run` ticked archives unsigned
+(`make ios-testflight-dry-run`). It runs in a separate job outside the
+environment, so it needs no secrets.
+
+**Recording the build.** After an upload, a second job opens a PR that adds the
+build (number and commit) to `compat/supported-clients.json`, so the compat gate
+keeps checking the server against it (docs/ios/specs/compatibility.md §5). It
+is the only job that can write to the repo. Two repository settings are needed:
+
+- Settings ▸ Actions ▸ General ▸ "Allow GitHub Actions to create and approve
+  pull requests".
+- The variable `TESTFLIGHT_RECORD_BASE`: the branch the PR targets, whose
+  `compat/supported-clients.json` lists the builds. Unset, it is the default
+  branch.
+
+GitHub starts no workflows for a PR opened with the workflow's own token, so
+close and reopen the PR to run its required checks.
+
 ## CI
 
 `.github/workflows/ios.yml` runs on `macos-26` with Xcode 26.6 pinned through

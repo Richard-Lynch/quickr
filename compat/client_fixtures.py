@@ -17,6 +17,9 @@ can't go stale. Usage::
     python3 compat/client_fixtures.py suites
     python3 compat/client_fixtures.py skip
     python3 compat/client_fixtures.py fixtures <sha> <out>
+    python3 compat/client_fixtures.py add <build> <sha> <source>
+
+``add`` lists a new build, newest first, with no fallbacks (testflight.yml, after an upload).
 """
 
 from __future__ import annotations
@@ -105,6 +108,29 @@ def write_fixtures(sha: str, out: Path) -> None:
     print(f"{entry['build']} ({sha[:7]}): {len(fallbacks)} case(s) checked as fallbacks")
 
 
+def add(build: str, sha: str, source: str) -> None:
+    """Lists a newly uploaded build first, as testflight.yml does after an upload."""
+    if len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha):
+        sys.exit(f"{sha!r} isn't a full commit sha")
+    data = policy()
+    if any(c["build"] == build for c in data["clients"]):
+        sys.exit(f"{POLICY.name}: build {build} is already listed")
+    if any(c["sha"] == sha for c in data["clients"]):
+        # Another build of the same commit is the same client: nothing to add.
+        print(f"{POLICY.name}: {sha[:7]} is already listed; not adding {build}")
+        return
+    # Inserted as text, so the rest of the file keeps its formatting.
+    fields = [f'"{k}": {json.dumps(v)}' for k, v in (("build", build), ("sha", sha), ("source", source))]
+    entry = "    {\n" + "".join(f"      {f},\n" for f in fields) + '      "fallbacks": {}\n    },\n'
+    text = POLICY.read_text()
+    anchor = '"clients": [\n'
+    if text.count(anchor) != 1:
+        sys.exit(f"{POLICY.name}: can't find the clients list")
+    text = text.replace(anchor, anchor + entry)
+    json.loads(text)  # still valid
+    POLICY.write_text(text)
+
+
 def main(argv: list[str]) -> None:
     match argv:
         case ["shas"]:
@@ -115,6 +141,8 @@ def main(argv: list[str]) -> None:
             print("\n".join(policy()["skip"]))
         case ["fixtures", sha, out]:
             write_fixtures(sha, Path(out))
+        case ["add", build, sha, source]:
+            add(build, sha, source)
         case _:
             sys.exit(__doc__)
 

@@ -1,0 +1,158 @@
+name: TestFlight
+
+# Archives the app and uploads it to TestFlight (ios/README.md, "TestFlight" and "CI"), then
+# opens a PR that lists the new build in compat/supported-clients.json.
+# - push of a v* tag, or manual dispatch: upload, in the `testflight` environment, which holds
+#   the App Store Connect key (secrets ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8; variable
+#   DEVELOPMENT_TEAM).
+# - manual dispatch with dry_run: the archive unsigned (make ios-testflight-dry-run), in a job
+#   outside the environment, so it needs no secrets.
+# Never on pull_request(_target): the repo is public, and nothing here may run a fork's code
+# with the key.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Archive unsigned only (no secrets, no upload)
+        type: boolean
+        default: false
+
+# One at a time, never cancelled: an upload cut off midway leaves App Store Connect unsure.
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # The uploads so far were built with Xcode 27.1 (27A9275, the iOS 27 SDK). The macos-26 image
+  # has Xcode 26.x only, so both jobs run on the xcode-27 image (public preview), whose 27.1 is
+  # that same build. To go back to macos-26, set both runs-on to macos-26 and this to
+  # /Applications/Xcode_26.6.app/Contents/Developer (iOS 26.5 SDK).
+  DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+  XCODEGEN_VERSION: 2.46.0
+  XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
+
+jobs:
+  dry-run:
+    name: archive (dry run)
+    if: inputs.dry_run
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xcodegen ${{ env.XCODEGEN_VERSION }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/$XCODEGEN_VERSION/xcodegen.zip"
+          echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+      - run: xcodebuild -version && xcodegen --version
+        timeout-minutes: 2
+      # The UTC time, as testflight.sh would pick, but known here for the record job.
+      - id: build
+        run: echo "build=$(date -u +%Y%m%d.%H%M%S)" >> "$GITHUB_OUTPUT"
+      - name: Archive unsigned
+        timeout-minutes: 40
+        env:
+          TESTFLIGHT_BUILD_NUMBER: ${{ steps.build.outputs.build }}
+        run: make ios-testflight-dry-run
+
+  upload:
+    name: archive + upload
+    if: ${{ !inputs.dry_run }}
+    runs-on: xcode-27
+    timeout-minutes: 60
+    environment: testflight
+    outputs:
+      build: ${{ steps.build.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xcodegen ${{ env.XCODEGEN_VERSION }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/$XCODEGEN_VERSION/xcodegen.zip"
+          echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+      - run: xcodebuild -version && xcodegen --version
+        timeout-minutes: 2
+      # The UTC time, as testflight.sh would pick, but known here for the record job.
+      - id: build
+        run: echo "build=$(date -u +%Y%m%d.%H%M%S)" >> "$GITHUB_OUTPUT"
+      # The key goes to a private file for this job only, written from the environment (never a
+      # command line or the log), and the always() step below removes it.
+      - name: Write the App Store Connect key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          set +x
+          set -euo pipefail
+          [[ -n "$ASC_KEY_P8" ]] || { echo "::error::the testflight environment has no ASC_KEY_P8 secret"; exit 1; }
+          umask 077
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey.p8"
+          chmod 600 "$RUNNER_TEMP/asc/AuthKey.p8"
+      - name: Archive and upload
+        timeout-minutes: 50
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
+          DEVELOPMENT_TEAM: ${{ vars.DEVELOPMENT_TEAM }}
+          TESTFLIGHT_BUILD_NUMBER: ${{ steps.build.outputs.build }}
+        run: make ios-testflight
+      - name: Remove the key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/asc"
+
+  # After an upload: a PR listing the build, so the compat gate keeps serving it. The only job
+  # that can write, and it runs no code from the build.
+  record:
+    name: record the build
+    needs: upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      # The branch whose compat/supported-clients.json lists the builds: the repository
+      # variable TESTFLIGHT_RECORD_BASE, else the default branch.
+      RECORD_BASE: ${{ vars.TESTFLIGHT_RECORD_BASE || github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RECORD_BASE }}
+      - name: Open the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ needs.upload.outputs.build }}
+          SHA: ${{ github.sha }}
+          REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ -f compat/supported-clients.json ]] \
+            || { echo "::error::$RECORD_BASE has no compat/supported-clients.json; set the TESTFLIGHT_RECORD_BASE variable"; exit 1; }
+          version="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*"?([0-9.]+)"?.*/\1/p' ios/project.yml | head -1)"
+          python3 compat/client_fixtures.py add "$BUILD" "$SHA" "TestFlight $version ($BUILD), uploaded by CI from $REF ${SHA:0:7}"
+          if git diff --quiet; then echo "nothing to record"; exit 0; fi
+          branch="compat/testflight-$BUILD"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -qam "Compat: list TestFlight build $BUILD (${SHA:0:7})"
+          git push origin "$branch"
+          gh pr create --base "$RECORD_BASE" --head "$branch" \
+            --title "Compat: list TestFlight build $BUILD" \
+            --body "TestFlight $version ($BUILD) was uploaded from \`$REF\` (${SHA}). This lists it in compat/supported-clients.json, so the compat gate keeps checking the server against it (docs/ios/specs/compatibility.md §5). A PR opened by GITHUB_TOKEN starts no workflows: close and reopen it (or push to it) to run the required checks."
