@@ -483,8 +483,9 @@ the local uploads used. The `macos-26` image has only Xcode 26.x; the comment
 in the workflow says how to switch back. The build number is the UTC time, as
 for a local run.
 
-The credentials live in a GitHub environment named `testflight`, so only the
-upload job can read them:
+The credentials live in a GitHub environment named `testflight`. Only the
+upload job enters it, and, once the environment is restricted as below, only
+for a `v*` tag:
 
 | Name               | Kind     | Value                                       |
 | ------------------ | -------- | ------------------------------------------- |
@@ -495,8 +496,25 @@ upload job can read them:
 
 The job writes `ASC_KEY_P8` to a mode-600 file under `$RUNNER_TEMP` (that is
 `ASC_KEY_PATH`) and deletes it at the end, even after a failure. The workflow
-never runs on pull requests, so a fork's code never sees the key. Runs queue
-one at a time and are never cancelled midway.
+never runs on pull requests, so a fork's code never sees the key. One run goes
+at a time, and a run in progress is never cancelled (a newer queued run
+replaces an older queued one).
+
+**Restricting who reaches the key.** The upload runs the Makefile and
+`testflight.sh` of the ref it was started on, so anyone who can push a branch
+or a tag and start the workflow could make that code read the key. The
+workflow can't prevent it, since a branch can edit the workflow too. The
+settings that do:
+
+1. Settings ▸ Environments ▸ `testflight` ▸ Deployment branches and tags:
+   **Selected branches and tags**, with the tag pattern `v*` only. A dispatch
+   on a branch then can't enter the environment (dry runs still work). Add
+   `main` too only if uploads from a dispatch on `main` are wanted.
+2. The same page: **Required reviewers** (yourself), so every upload waits for
+   an approval in the run.
+3. Settings ▸ Rules ▸ Rulesets ▸ a tag ruleset for `v*` that restricts
+   creation, update and deletion to maintainers (bypass list), so only they
+   can push a release tag.
 
 **Dry run.** Run workflow with `dry_run` ticked archives unsigned
 (`make ios-testflight-dry-run`). It runs in a separate job outside the

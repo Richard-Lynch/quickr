@@ -19,7 +19,8 @@ on:
         type: boolean
         default: false
 
-# One at a time, never cancelled: an upload cut off midway leaves App Store Connect unsure.
+# One at a time, and a run in progress is never cancelled (an upload cut off midway leaves App
+# Store Connect unsure); a newer queued run replaces an older queued one.
 concurrency:
   group: testflight
   cancel-in-progress: false
@@ -33,6 +34,7 @@ env:
   # that same build. To go back to macos-26, set both runs-on to macos-26 and this to
   # /Applications/Xcode_26.6.app/Contents/Developer (iOS 26.5 SDK).
   DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+  XCODE_BUILD: 27A9275
   XCODEGEN_VERSION: 2.46.0
   XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
 
@@ -54,7 +56,12 @@ jobs:
           echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
           unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
-      - run: xcodebuild -version && xcodegen --version
+      # The preview image can update 27.1 in place: stop unless it is still the build the local
+      # uploads used.
+      - run: |
+          xcodebuild -version && xcodegen --version
+          xcodebuild -version | grep -q "Build version $XCODE_BUILD" \
+            || { echo "::error::Xcode is not build $XCODE_BUILD; check the image and update XCODE_BUILD"; exit 1; }
         timeout-minutes: 2
       # The UTC time, as testflight.sh would pick, but known here for the record job.
       - id: build
@@ -85,7 +92,12 @@ jobs:
           echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
           unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
-      - run: xcodebuild -version && xcodegen --version
+      # The preview image can update 27.1 in place: stop unless it is still the build the local
+      # uploads used.
+      - run: |
+          xcodebuild -version && xcodegen --version
+          xcodebuild -version | grep -q "Build version $XCODE_BUILD" \
+            || { echo "::error::Xcode is not build $XCODE_BUILD; check the image and update XCODE_BUILD"; exit 1; }
         timeout-minutes: 2
       # The UTC time, as testflight.sh would pick, but known here for the record job.
       - id: build
@@ -153,6 +165,7 @@ jobs:
           git switch -c "$branch"
           git commit -qam "Compat: list TestFlight build $BUILD (${SHA:0:7})"
           git push origin "$branch"
+          # Not a draft: ci.yml doesn't run on ready_for_review, so reopening is the one trigger.
           gh pr create --base "$RECORD_BASE" --head "$branch" \
             --title "Compat: list TestFlight build $BUILD" \
-            --body "TestFlight $version ($BUILD) was uploaded from \`$REF\` (${SHA}). This lists it in compat/supported-clients.json, so the compat gate keeps checking the server against it (docs/ios/specs/compatibility.md §5). A PR opened by GITHUB_TOKEN starts no workflows: close and reopen it (or push to it) to run the required checks."
+            --body "TestFlight $version ($BUILD) was uploaded from \`$REF\` (${SHA}). This lists it in compat/supported-clients.json, so the compat gate keeps checking the server against it (docs/ios/specs/compatibility.md §5). A PR opened by GITHUB_TOKEN starts no workflows: close and reopen it to run the required checks."
