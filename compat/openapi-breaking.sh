@@ -8,6 +8,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root" # repo-relative paths, for the annotations
 oasdiff="${OASDIFF:-oasdiff}"
 base="${1:-$(git -C "$root" tag --list 'v*' --sort=-creatordate | head -n 1)}"
 [[ -n "$base" ]] || { echo "compat: no v* tag to compare openapi.json with" >&2; exit 1; }
@@ -17,7 +18,7 @@ trap 'rm -f "$old"' EXIT
 git -C "$root" show "$base:openapi.json" > "$old"
 
 echo "compat: openapi.json against $base ($(git -C "$root" rev-parse --short "$base^{commit}")), oasdiff $("$oasdiff" --version | awk '{print $NF}')"
-args=(breaking "$old" "$root/openapi.json" --fail-on ERR --err-ignore "$root/compat/openapi-break-approvals.txt")
+args=(breaking "$old" openapi.json --fail-on ERR --err-ignore compat/openapi-break-approvals.txt)
 # Warnings (an enum value added to a response, say) print but don't fail: clients fall back on
 # unknown values (§1). In CI, errors also become annotations on the PR.
 if [[ -n "${GITHUB_ACTIONS:-}" ]]; then "$oasdiff" "${args[@]}" --format githubactions || true; fi
