@@ -122,7 +122,15 @@ deploy).
 opens a PR that lists the new build first, with no fallbacks. A newer build
 needs none for cases it already knows. Merge it like any other PR. A local
 upload (`make ios-testflight`) is added by hand:
-`python3 compat/client_fixtures.py add <build> <sha> "<source>"`.
+`python3 compat/client_fixtures.py add <build> <sha> "<source>"`, and its
+commit tagged `clients/ios/<build>` and pushed. A listed sha must stay
+reachable from a tag (`old requests` checks): a squash merge deletes its branch,
+and an unreachable sha can't be fetched or tested. CI uploads build from a `v*`
+tag, which already covers them.
+
+**Drafts.** A gate whose run started while the PR was a draft fails: its slow
+jobs skipped, so it certifies nothing. Such a run can land after
+`ready_for_review` and cancel the ready run; re-run it once the PR is ready.
 
 **Pruning.** A build may come off the list once no tester can still run it.
 TestFlight expires a build 90 days after upload, and an expired build can't be
