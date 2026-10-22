@@ -320,29 +320,78 @@ import Testing
     /// calls it: on a queue of the scheduler's own, off the main thread. TestFlight 0.1.0
     /// (20261021.194105) trapped there on every background refresh: the handler was isolated to the
     /// main actor, which Swift 6 checks at its entry (without the fix, this test process crashes).
+    /// The expiration handler is in place before the handler returns; the refresh then sends the
+    /// entry the background flush couldn't, and completes.
     @Test func theRegisteredLaunchHandlerRunsOffTheMainThread() async throws {
+        let (environment, session, observing) = try await started()
+        defer { observing.cancel() }
+        UITestLaunch.server.offline = true
+        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .string("ok")], version: 1)
+        try await eventually("queued") { environment.sync.summary?.queued == 1 }
+        environment.scenePhaseChanged(.background)
+        try await eventually("backgrounded and paused") { await session.scheduler?.isPaused == true }
+        UITestLaunch.server.offline = false
+
+        let registered = try register(environment)
+        let task = RecordingBGTask.make()
+        let sentBefore = UITestLaunch.server.sentRequests.count
+        let (onMain, handlerInPlace) = await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                registered.handler(task)
+                continuation.resume(returning: (Thread.isMainThread, task.hasExpirationHandler))
+            }
+        }
+        #expect(!onMain && handlerInPlace)
+        try await eventually("completed") { !task.completions.isEmpty }
+        #expect(task.completions == [true])
+        #expect(try await session.outbox?.summary().queued == 0, "the refresh sent the entry")
+        let sent = UITestLaunch.server.sentRequests.dropFirst(sentBefore)
+        #expect(sent.contains { $0.hasPrefix("POST /api/v1/topics/") && $0.hasSuffix("/entries") }, "\(sent)")
+        #expect(sent.contains("GET /api/v1/changes"), "\(sent)")
+        await session.shutdown()
+    }
+
+    /// The time runs out before the refresh reaches the main actor (held here): the task completes
+    /// unsuccessfully at once, on the scheduler's queue, and only once.
+    @Test func expiryBeforeTheMainActorCompletesTheTaskAtOnce() async throws {
         let (environment, session, observing) = try await started()
         defer { observing.cancel() }
         environment.scenePhaseChanged(.background)
         try await eventually("backgrounded and paused") { await session.scheduler?.isPaused == true }
 
+        let registered = try register(environment)
+        let task = RecordingBGTask.make()
+        let atExpiry = Self.launchAndExpireHoldingTheMainActor(registered, task)
+        #expect(atExpiry == [false])
+        // The refresh reaches the main actor afterwards: its own expiry work, no second completion.
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(task.completions == [false])
+        await session.shutdown()
+    }
+
+    private func register(_ environment: AppEnvironment) throws -> KeepingScheduler.Registration {
+        KeepingScheduler.registered.withLock { $0 = nil }
         BackgroundRefresh.register(environment, scheduler: KeepingScheduler.make())
         let registered = try #require(KeepingScheduler.registered.withLock { $0 })
         #expect(registered.identifier == BackgroundRefresh.identifier)
-        let task = RecordingBGTask.make()
-        let requests = UITestLaunch.server.requestCount
-        let onMain = await withCheckedContinuation { continuation in
-            DispatchQueue.global().async {
-                registered.handler(task)
-                continuation.resume(returning: Thread.isMainThread)
-            }
+        return registered
+    }
+
+    /// Synchronous, so the main actor waits (nothing it was asked to run can start meanwhile):
+    /// launches, expires at once, and returns the completions as they were right then.
+    private nonisolated static func launchAndExpireHoldingTheMainActor(
+        _ registered: KeepingScheduler.Registration, _ task: RecordingBGTask
+    ) -> [Bool] {
+        let done = DispatchSemaphore(value: 0)
+        let result = Mutex<[Bool]>([])
+        DispatchQueue.global().async {
+            registered.handler(task)
+            task.expire()
+            result.withLock { $0 = task.completions }
+            done.signal()
         }
-        #expect(!onMain)
-        try await eventually("completed") { !RecordingBGTask.completions.withLock { $0 }.isEmpty }
-        #expect(RecordingBGTask.completions.withLock { $0 } == [true])
-        #expect(RecordingBGTask.hasExpirationHandler.withLock { $0 })
-        #expect(UITestLaunch.server.requestCount > requests, "the refresh reached the server")
-        await session.shutdown()
+        done.wait()
+        return result.withLock { $0 }
     }
 
     // MARK: - Push (REG) around startup
@@ -457,8 +506,9 @@ final class RecordingRefreshTask: BackgroundRefreshTask {
 }
 
 /// A `BGTaskScheduler` that keeps the launch handler instead of registering it. The real one has
-/// no public initializer, so it is made without one: it has no stored properties to set up.
-private final class KeepingScheduler: BGTaskScheduler, @unchecked Sendable {
+/// no public initializer, so it is made without one (it has no stored properties to set up), and
+/// kept for the process: its own `-dealloc` never runs on an instance its `-init` never set up.
+final class KeepingScheduler: BGTaskScheduler, @unchecked Sendable {
     struct Registration: @unchecked Sendable {
         let identifier: String
         let handler: (BGTask) -> Void
@@ -467,7 +517,9 @@ private final class KeepingScheduler: BGTaskScheduler, @unchecked Sendable {
     static let registered = Mutex<Registration?>(nil)
 
     static func make() -> KeepingScheduler {
-        class_createInstance(KeepingScheduler.self, 0) as! KeepingScheduler
+        let scheduler = class_createInstance(KeepingScheduler.self, 0) as! KeepingScheduler
+        Immortal.keep(scheduler)
+        return scheduler
     }
 
     override func register(
@@ -479,24 +531,45 @@ private final class KeepingScheduler: BGTaskScheduler, @unchecked Sendable {
     }
 }
 
-/// A `BGAppRefreshTask` that records its expiration handler and how it completed. Made without
-/// an initializer, like `KeepingScheduler`: its records are static.
-private final class RecordingBGTask: BGAppRefreshTask, @unchecked Sendable {
-    static let completions = Mutex<[Bool]>([])
-    static let hasExpirationHandler = Mutex(false)
+/// A `BGAppRefreshTask` that keeps its expiration handler and records how it completed. Made
+/// without an initializer and kept for the process, like `KeepingScheduler`; its records live in
+/// a static table keyed by the instance, since it has no stored properties.
+final class RecordingBGTask: BGAppRefreshTask, @unchecked Sendable {
+    private struct Record {
+        var completions: [Bool] = []
+        var expirationHandler: (() -> Void)?
+    }
+
+    private nonisolated(unsafe) static var records: [ObjectIdentifier: Record] = [:]
+    private static let lock = NSLock()
 
     static func make() -> RecordingBGTask {
-        completions.withLock { $0 = [] }
-        hasExpirationHandler.withLock { $0 = false }
-        return class_createInstance(RecordingBGTask.self, 0) as! RecordingBGTask
+        let task = class_createInstance(RecordingBGTask.self, 0) as! RecordingBGTask
+        Immortal.keep(task)
+        return task
     }
+
+    private func record<T>(_ body: (inout Record) -> T) -> T {
+        Self.lock.withLock { body(&Self.records[ObjectIdentifier(self), default: Record()]) }
+    }
+
+    var completions: [Bool] { record { $0.completions } }
+    var hasExpirationHandler: Bool { record { $0.expirationHandler != nil } }
+
+    /// What the system does when the time is up.
+    func expire() { record { $0.expirationHandler }?() }
 
     override var expirationHandler: (() -> Void)? {
-        get { nil }
-        set { Self.hasExpirationHandler.withLock { $0 = newValue != nil } }
+        get { record { $0.expirationHandler } }
+        set { record { $0.expirationHandler = newValue } }
     }
 
-    override func setTaskCompleted(success: Bool) {
-        Self.completions.withLock { $0.append(success) }
-    }
+    override func setTaskCompleted(success: Bool) { record { $0.completions.append(success) } }
+}
+
+/// Objects kept until the process ends.
+enum Immortal {
+    private nonisolated(unsafe) static var objects: [AnyObject] = []
+    private static let lock = NSLock()
+    static func keep(_ object: AnyObject) { lock.withLock { objects.append(object) } }
 }

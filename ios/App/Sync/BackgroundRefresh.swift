@@ -43,20 +43,48 @@ protocol BackgroundRefreshTask: AnyObject, Sendable {
     func complete(success: Bool)
 }
 
-/// A `BGTask`, completed at most once.
+/// A `BGTask`, completed at most once. Its expiration handler is installed at once, in the
+/// launch handler on the scheduler's queue: the time can run out before the refresh reaches a
+/// busy main actor (a background launch still starting), and a task that expires with no handler
+/// gets the app killed. Expired before `onExpiration`, it completes unsuccessfully right there
+/// (nothing has started), and the handler given later runs as soon as it is given.
 final class SystemRefreshTask: BackgroundRefreshTask, @unchecked Sendable {
+    private struct State {
+        var completed = false
+        var expired = false
+        var handler: (@Sendable () -> Void)?
+    }
+
     private let task: BGTask
-    private let completed = Mutex(false)
+    private let state = Mutex(State())
 
-    init(_ task: BGTask) { self.task = task }
+    init(_ task: BGTask) {
+        self.task = task
+        // Weak: the task holds its handler; by the time this is gone, the task has completed.
+        task.expirationHandler = { [weak self] in self?.expire() }
+    }
 
-    func onExpiration(_ handler: @escaping @Sendable () -> Void) { task.expirationHandler = handler }
+    func onExpiration(_ handler: @escaping @Sendable () -> Void) {
+        let expired = state.withLock { state in
+            state.handler = handler
+            return state.expired
+        }
+        if expired { handler() }
+    }
 
     func complete(success: Bool) {
-        let first = completed.withLock { done in
-            defer { done = true }
-            return !done
+        let first = state.withLock { state in
+            defer { state.completed = true }
+            return !state.completed
         }
         if first { task.setTaskCompleted(success: success) }
+    }
+
+    private func expire() {
+        let handler = state.withLock { state in
+            state.expired = true
+            return state.handler
+        }
+        if let handler { handler() } else { complete(success: false) }
     }
 }
