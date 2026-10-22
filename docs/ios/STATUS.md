@@ -316,6 +316,17 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## Log
 
+- 2026-10-21 20:55 (EDT): **SINGLE shipped.**
+  - **Merged into ios/m3 daa2160:**
+    - SINGLE-WEB e50a617 (backend + PWA; m1-review clean);
+    - SINGLE-IOS a3d0cd0 (m1-review signed off; UI 18/0 on 27 and 26.0);
+    - **BGTASK** f1f5202: the TestFlight background crash, where the BGAppRefreshTask launch handler was @MainActor-inferred and trapped on the scheduler queue. It is now an `@Sendable` closure, and its expiry handler is set before the hop.
+  - **Gate on the merge:** ios-core-test exit 0, ios-build OK.
+  - **Deployed:** e50a617 is in production (IaaC cde3e8cb). Verify 9/9 and a smoke test (zero-question topic, answerless entry, cleanup) passed.
+  - **TestFlight:** 0.1.0 (20261022.005113) uploaded.
+  - **Issues:** quickr#13 (full CI/CD and a cross-version compatibility gate).
+  - **Internal DNS:** the split-horizon CNAME to traefik is confirmed live. On the LAN the API answers without the Access token.
+
 - 2026-10-21 18:50 (EDT): **Phone feedback:** push works on the device (TestFlight, production APNs). Two changes are in progress. **SINGLE-WEB** (m6-builder): backend bac3463 and PWA 0f9b6b8. **SINGLE-IOS** (m2-form): 2c92185. The changes: the builder starts empty, and a topic with zero questions ("single") logs in one tap everywhere. It is quick_log `{"type":"single"}`, with entries carrying `answers: {}`. Next: review, merge, deploy, TestFlight.
 
 - 2026-10-21 18:10 (EDT): **Deployed 8aaa7cf** (v0.2.1-ios.1; images built on the guest; IaaC c693205e) and **applied the AASA Access bypass** (user-approved). verify_quickr_published passes all 9 legs: no token gets the login, the iOS token gets 200 plus the server id, /mcp is refused for none and for iOS, the MCP token is refused on the API, and the AASA serves 200 application/json without credentials while its neighbours stay behind Access. IaaC #184 is mergeable (CLEAN), but the merge is waiting on the user (the classifier blocks it). Next: device day.
