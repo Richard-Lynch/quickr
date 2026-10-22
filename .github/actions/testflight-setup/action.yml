@@ -21,11 +21,11 @@ runs:
         echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
     # The preview image can update 27.1 in place: stop unless it is still the build the local
     # uploads used.
-    - name: Check Xcode
+    - name: Check Xcode (and log xcodegen)
       shell: bash
       run: |
         set -euo pipefail
-        xcodebuild -version
+        xcodebuild -version && xcodegen --version
         xcodebuild -version | grep -q "Build version $XCODE_BUILD" \
           || { echo "::error::Xcode is not build $XCODE_BUILD; check the image and update XCODE_BUILD"; exit 1; }
     # The UTC time, as testflight.sh would pick, but known here for the record job.
