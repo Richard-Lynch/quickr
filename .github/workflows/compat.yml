@@ -39,6 +39,10 @@ jobs:
     name: compat changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # checks: read to see whether the previous commit's gate passed (below).
+    permissions:
+      contents: read
+      checks: read
     outputs:
       server: ${{ steps.diff.outputs.server }}
     steps:
@@ -47,10 +51,13 @@ jobs:
           fetch-depth: 2
       # A PR checks out its merge commit, so HEAD^1 is the base it merges into. A push diffs
       # against the branch's previous head (event.before); a new branch, or a before that can't be
-      # fetched, runs everything. A dispatch runs everything.
+      # fetched, runs everything. A dispatch runs everything. A push that changes nothing here
+      # skips only if before's own `compat gate` succeeded: otherwise (failed, running, missing) the
+      # skip would certify a broken state on this commit, so everything runs.
       - id: diff
         env:
           BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           case "$GITHUB_EVENT_NAME" in
@@ -64,6 +71,13 @@ jobs:
           esac
           changed="$(git diff --name-only "$base" HEAD)"
           echo "$changed"
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            before_gate="$(gh api -X GET "repos/$GITHUB_REPOSITORY/commits/$BEFORE/check-runs" -f check_name="compat gate" \
+              --jq '[.check_runs[].conclusion] | if length == 0 then "missing" else (map(. // "running") | if all(. == "success") then "success" else join(",") end) end' \
+              2>/dev/null || echo "unknown")"
+            echo "compat gate on ${BEFORE:0:7}: $before_gate"
+            if [[ "$before_gate" != success ]]; then echo "server=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          fi
           if grep -qE '^(backend/|shared/fixtures/|openapi\.json$|compat/|\.github/workflows/compat\.yml$)' <<< "$changed"; then
             echo "server=true" >> "$GITHUB_OUTPUT"
           else

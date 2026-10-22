@@ -109,8 +109,13 @@ cancelled path check through. The full list for `main` and `feat/ios-app`:
 `backend`, `frontend`, `docker` (ci.yml, not gated), `ios gate`, `compat gate`.
 
 Both workflows also run on every push to `main` (ios.yml on `feat/ios-app` too),
-with the path check diffing against the branch's previous head, so each commit
-there gets both gates. A `v*` tag deploys only from a commit whose gates passed.
+so a pushed commit gets both gates. A `v*` tag deploys only from a commit whose
+gates passed. On a push the path check diffs against the branch's previous
+head, and skips the gated jobs only if that commit's own gate succeeded;
+otherwise everything runs, so a skip never carries a red gate forward. On a
+push, `ios gate` covers `swift test` only (the app build and Unit plan run on
+PRs). A push of several commits gates only its head, so tag that commit, not an
+intermediate one (which has no gate and doesn't deploy).
 
 ## 5. Adding and pruning builds
 
