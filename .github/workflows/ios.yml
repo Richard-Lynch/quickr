@@ -1,26 +1,28 @@
 name: iOS
 
-# macOS minutes count 10x on this private repo (PLAN §8), so this stays small:
-# - push, a non-draft PR (into any branch), or manual dispatch: `swift test` for ios/QuickrKit on
-#   the host (the cheap gate).
-# - non-draft PR (opened, ready for review, new commits) or manual dispatch: `make ios-check-ci`
-#   (xcodegen, then build + the Unit plan on an iOS 26.x simulator, no signing).
-# On a PR both run only when it touches the iOS paths below (the `ios changes` job decides), and
-# are skipped otherwise. `ios gate` is the one check to require: it fails unless the path check
-# succeeded and both jobs passed or were skipped by it (a workflow-level path filter would leave
-# a required check pending, and a skipped required job would count as passing on its own).
-# The Makefile is in the paths because it is the build interface CI calls.
+# - `swift test` for ios/QuickrKit on the host, and `make ios-check-ci` (xcodegen, then build +
+#   the Unit plan on an iOS 26.x simulator, no signing).
+# - A push (main, feat/ios-app) or a manual dispatch runs both, always: a push's `ios gate`
+#   certifies its commit for a v* tag's deploy, so it never skips on a diff.
+# - A non-draft PR (opened, ready for review, new commits) runs them only when it touches the
+#   iOS paths (the `ios changes` job decides); the Makefile is in the paths because it is the
+#   build interface CI calls.
+# `ios gate` is the one check to require: it fails unless the path check succeeded and both
+# jobs passed or were skipped by it (a workflow-level path filter would leave a required check
+# pending, and a skipped required job would count as passing on its own).
 on:
+  # No path filter: every commit on these branches gets an `ios gate`.
   push:
     branches: [main, feat/ios-app]
-    paths: ["ios/**", "shared/fixtures/**", "Makefile", ".github/workflows/ios.yml"]
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize]
   workflow_dispatch:
 
+# A push to main is never cancelled: each of its commits needs its own `ios gate` (a v* tag
+# deploys only from a commit whose gates passed).
 concurrency:
-  group: ios-${{ github.ref }}
-  cancel-in-progress: true
+  group: ios-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || 'latest' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -44,8 +46,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
-      # A PR checks out its merge commit, so HEAD^1 is the base it merges into. A push already
-      # passed the path filter above.
+      # A PR checks out its merge commit, so HEAD^1 is the base it merges into. A push or a
+      # dispatch runs everything: a push's gate certifies its commit for a v* tag's deploy, so it
+      # never skips on a diff (a skip would carry a red gate on the previous commit forward).
       - id: diff
         run: |
           set -euo pipefail
@@ -102,8 +105,7 @@ jobs:
     needs: changes
     if: >-
       needs.changes.outputs.ios == 'true' &&
-      (github.event_name == 'workflow_dispatch' ||
-       (github.event_name == 'pull_request' && !github.event.pull_request.draft))
+      (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: macos-26
     timeout-minutes: 30
     steps:

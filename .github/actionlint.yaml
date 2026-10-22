@@ -1,0 +1,4 @@
+# actionlint: runner labels it doesn't know yet. xcode-27 is GitHub's hosted Xcode 27 image
+# (public preview), used by testflight.yml.
+self-hosted-runner:
+  labels: [xcode-27]

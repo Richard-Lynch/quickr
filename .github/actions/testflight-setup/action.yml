@@ -1,0 +1,34 @@
+name: TestFlight setup
+description: >-
+  For testflight.yml's jobs: installs the pinned xcodegen, checks Xcode is the expected build
+  and picks the build number. Reads XCODEGEN_VERSION, XCODEGEN_SHA256 and XCODE_BUILD from the
+  workflow's env.
+outputs:
+  build:
+    description: The build number (CFBundleVersion), the UTC time as YYYYMMDD.HHMMSS
+    value: ${{ steps.build.outputs.build }}
+runs:
+  using: composite
+  steps:
+    - name: Install xcodegen ${{ env.XCODEGEN_VERSION }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" \
+          "https://github.com/yonaskolb/XcodeGen/releases/download/$XCODEGEN_VERSION/xcodegen.zip"
+        echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+        unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+        echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+    # The preview image can update 27.1 in place: stop unless it is still the build the local
+    # uploads used.
+    - name: Check Xcode (and log xcodegen)
+      shell: bash
+      run: |
+        set -euo pipefail
+        xcodebuild -version && xcodegen --version
+        xcodebuild -version | grep -q "Build version $XCODE_BUILD" \
+          || { echo "::error::Xcode is not build $XCODE_BUILD; check the image and update XCODE_BUILD"; exit 1; }
+    # The UTC time, as testflight.sh would pick, but known here for the record job.
+    - id: build
+      shell: bash
+      run: echo "build=$(date -u +%Y%m%d.%H%M%S)" >> "$GITHUB_OUTPUT"

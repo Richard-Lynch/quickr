@@ -107,3 +107,26 @@ check succeeded and every other job passed or was skipped by it. A skipped job
 reports as passing, so requiring the jobs themselves would let a broken or
 cancelled path check through. The full list for `main` and `feat/ios-app`:
 `backend`, `frontend`, `docker` (ci.yml, not gated), `ios gate`, `compat gate`.
+
+Both workflows also run on every push to `main` (ios.yml on `feat/ios-app` too),
+so a pushed commit gets both gates. A `v*` tag deploys only from a commit whose
+gates passed. On a push every gated job runs, `build + Unit plan` included: the
+path check skips only on PRs, so a push's gate never inherits a skip (or a red
+gate) from the commit before it. A push of several commits gates only its head,
+so tag the head commit, not an intermediate one (which has no gate and doesn't
+deploy).
+
+## 5. Adding and pruning builds
+
+**Adding.** A TestFlight upload from CI (`.github/workflows/testflight.yml`)
+opens a PR that lists the new build first, with no fallbacks. A newer build
+needs none for cases it already knows. Merge it like any other PR. A local
+upload (`make ios-testflight`) is added by hand:
+`python3 compat/client_fixtures.py add <build> <sha> "<source>"`.
+
+**Pruning.** A build may come off the list once no tester can still run it.
+TestFlight expires a build 90 days after upload, and an expired build can't be
+opened; expiring it early in App Store Connect (TestFlight ▸ the build ▸ Expire
+Build) counts too. Remove its entry, fallbacks included, in a PR of its own.
+Lines in `compat/openapi-break-approvals.txt` that only it needed can go in the
+same PR (§2).

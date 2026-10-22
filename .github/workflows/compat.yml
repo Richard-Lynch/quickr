@@ -9,17 +9,23 @@ name: Compat
 # - old clients (macos-26, non-draft PRs that touch the server side): each listed build's own
 #   wire suites against this PR's shared/fixtures. macOS because those suites are in QuickrData,
 #   which imports Apple-only modules (Security, AppIntents, Network, ...), so Linux Swift can't
-#   build it at any listed sha. macOS minutes count 10x, hence the path check.
+#   build it at any listed sha. On a PR it runs only when the server side changed.
 # `compat gate` is the one check to require: it fails unless the path check succeeded and every
 # job passed or was skipped by it (a skipped required job would count as passing on its own).
+# Also on a push to main, so every commit there gets a `compat gate` (a v* tag deploys only from a
+# commit whose gates passed). A push runs every job, always; only PRs skip by path.
 on:
+  push:
+    branches: [main]
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize]
   workflow_dispatch:
 
+# A push to main is never cancelled: each of its commits needs its own `compat gate` (a v* tag
+# deploys only from a commit whose gates passed).
 concurrency:
-  group: compat-${{ github.ref }}
-  cancel-in-progress: true
+  group: compat-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || 'latest' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -39,7 +45,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
-      # A PR checks out its merge commit, so HEAD^1 is the base it merges into.
+      # A PR checks out its merge commit, so HEAD^1 is the base it merges into. A push or a
+      # dispatch runs everything: a push's gate certifies its commit for a v* tag's deploy, so it
+      # never skips on a diff (a skip would carry a red gate on the previous commit forward).
       - id: diff
         run: |
           set -euo pipefail
