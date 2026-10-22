@@ -1,0 +1,159 @@
+name: Compat
+
+# The PR-time compatibility gate (docs/ios/specs/compatibility.md): this server must keep serving
+# every iOS build in compat/supported-clients.json.
+# - openapi breaking (ubuntu, every PR): openapi.json against the latest v* tag, with oasdiff,
+#   and against each listed client's own openapi.json.
+# - old requests (ubuntu, PRs that touch the server side): each listed build's request goldens
+#   replayed through this PR's backend.
+# - old clients (macos-26, non-draft PRs that touch the server side): each listed build's own
+#   wire suites against this PR's shared/fixtures. macOS because those suites are in QuickrData,
+#   which imports Apple-only modules (Security, AppIntents, Network, ...), so Linux Swift can't
+#   build it at any listed sha. macOS minutes count 10x, hence the path check.
+# `compat gate` is the one check to require: it fails unless the path check succeeded and every
+# job passed or was skipped by it (a skipped required job would count as passing on its own).
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  workflow_dispatch:
+
+concurrency:
+  group: compat-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  OASDIFF_VERSION: 1.34.1
+  OASDIFF_SHA256: 75775f65b0adebd26a8e013af51a799342dfdc6262d89efa9e3b7bdf89657d90
+
+jobs:
+  changes:
+    name: compat changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      server: ${{ steps.diff.outputs.server }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      # A PR checks out its merge commit, so HEAD^1 is the base it merges into.
+      - id: diff
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" != pull_request ]]; then echo "server=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          changed="$(git diff --name-only HEAD^1 HEAD)"
+          echo "$changed"
+          if grep -qE '^(backend/|shared/fixtures/|openapi\.json$|compat/|\.github/workflows/compat\.yml$)' <<< "$changed"; then
+            echo "server=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "server=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  openapi:
+    name: openapi breaking
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the v* tags
+      - name: Install oasdiff ${{ env.OASDIFF_VERSION }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/oasdiff.tar.gz" \
+            "https://github.com/oasdiff/oasdiff/releases/download/v$OASDIFF_VERSION/oasdiff_${OASDIFF_VERSION}_linux_amd64.tar.gz"
+          echo "$OASDIFF_SHA256  $RUNNER_TEMP/oasdiff.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/oasdiff.tar.gz" -C "$RUNNER_TEMP" oasdiff
+          echo "OASDIFF=$RUNNER_TEMP/oasdiff" >> "$GITHUB_ENV"
+      - run: compat/openapi-breaking.sh
+
+  old-requests:
+    name: old requests
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: quickr
+          POSTGRES_PASSWORD: quickr
+          POSTGRES_DB: quickr_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U quickr" --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      QUICKR_TEST_DATABASE_URL: postgresql+asyncpg://quickr:quickr@localhost:5432/quickr_test
+      QUICKR_DATABASE_URL: postgresql+asyncpg://quickr:quickr@localhost:5432/quickr_test
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the listed clients' commits
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+        working-directory: backend
+      - run: compat/old-requests.sh
+
+  old-clients:
+    name: old clients
+    needs: changes
+    if: >-
+      needs.changes.outputs.server == 'true' &&
+      (github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft)
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      # The toolchain ios.yml builds with (and the listed builds were tested with).
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the listed clients' commits
+      - name: Toolchain identity
+        id: toolchain
+        timeout-minutes: 2
+        run: |
+          xcodebuild -version && swift --version
+          echo "hash=$( (xcodebuild -version; swift --version 2>&1) | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      # Each client's .build, under ios/build/compat/<sha>. The key changes with the client list.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ios/build/compat/*/src/ios/QuickrKit/.build
+          key: compat-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.hash }}-${{ hashFiles('compat/supported-clients.json') }}
+          restore-keys: compat-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.hash }}-
+      # Every client runs, even after one fails, so the log names all the broken ones.
+      - name: Old clients vs this PR's fixtures
+        timeout-minutes: 25
+        run: |
+          status=0
+          for sha in $(python3 compat/client_fixtures.py shas); do
+            compat/old-client.sh "$sha" || status=1
+          done
+          exit "$status"
+
+  compat:
+    name: compat gate
+    if: always()
+    needs: [changes, openapi, old-requests, old-clients]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          results = {job: v["result"] for job, v in json.loads(os.environ["NEEDS"]).items()}
+          print(results)
+          bad = {j: r for j, r in results.items() if r != "success" and not (r == "skipped" and j != "changes")}
+          if bad:
+              print(f"::error title=compat::not passed: {bad}")
+              sys.exit(1)
+          PY

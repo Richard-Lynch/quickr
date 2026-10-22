@@ -17,13 +17,18 @@ Here each golden is checked against the server:
 
 ``test_every_mutation_has_a_golden`` is G1 for requests: every non-GET operation in the
 app has at least one golden.
+
+``QUICKR_REQUEST_GOLDENS_DIR`` points the contract and replay tests at another set: an old
+client's goldens, for compat/old-requests.sh (docs/ios/specs/compatibility.md §3).
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -45,7 +50,7 @@ from app.schemas.api import (
 from tests.fake_apns import FakeApns
 from tests.vectors import FIXTURES_DIR, dump_json
 
-REQUESTS_DIR = FIXTURES_DIR / "requests"
+REQUESTS_DIR = Path(os.environ.get("QUICKR_REQUEST_GOLDENS_DIR") or FIXTURES_DIR / "requests")
 PREFIX = "/api/v1"
 
 # The placeholders RequestGoldenTests uses.
