@@ -110,12 +110,11 @@ cancelled path check through. The full list for `main` and `feat/ios-app`:
 
 Both workflows also run on every push to `main` (ios.yml on `feat/ios-app` too),
 so a pushed commit gets both gates. A `v*` tag deploys only from a commit whose
-gates passed. On a push the path check diffs against the branch's previous
-head, and skips the gated jobs only if that commit's own gate succeeded;
-otherwise everything runs, so a skip never carries a red gate forward. On a
-push, `ios gate` covers `swift test` only (the app build and Unit plan run on
-PRs). A push of several commits gates only its head, so tag that commit, not an
-intermediate one (which has no gate and doesn't deploy).
+gates passed. On a push every gated job runs, `build + Unit plan` included: the
+path check skips only on PRs, so a push's gate never inherits a skip (or a red
+gate) from the commit before it. A push of several commits gates only its head,
+so tag the head commit, not an intermediate one (which has no gate and doesn't
+deploy).
 
 ## 5. Adding and pruning builds
 
