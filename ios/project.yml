@@ -1,0 +1,233 @@
+# XcodeGen spec for the quickR iOS app. `make ios-gen` turns it into quickR.xcodeproj
+# (gitignored), along with the Info.plist and .entitlements files below (also gitignored).
+# Edit this file, never the generated project. See docs/ios/PLAN.md §2–3 and ios/README.md.
+name: quickR
+
+options:
+  bundleIdPrefix: com.bahumia
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+configFiles:
+  Debug: Config/Shared.xcconfig
+  Release: Config/Shared.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    SUPPORTS_MACCATALYST: NO
+    SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+    SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # Xcode 27 links __preview.dylib and <target>.debug.dylib with the same -dependency_info file.
+    # When the preview link finishes last, appintentsmetadataprocessor finds no AppIntents.framework
+    # and silently skips Metadata.appintents, so intents vanish from the app or widget at random.
+    ENABLE_DEBUG_DYLIB: NO
+    # DEVELOPMENT_TEAM comes from ios/Local.xcconfig (via Config/Shared.xcconfig).
+
+packages:
+  QuickrKit:
+    path: QuickrKit
+
+# Shared by the app and both extensions. The app adds aps-environment.
+entitlementProperties: &sharedEntitlements
+  com.apple.security.application-groups:
+    - group.com.bahumia.quickr
+  keychain-access-groups:
+    - $(AppIdentifierPrefix)com.bahumia.quickr.shared
+
+targets:
+  QuickR:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - Resources
+    dependencies:
+      - package: QuickrKit
+        products: [QuickrCore, QuickrData, QuickrUI]
+      - target: QuickRWidgets
+      - target: QuickRNotificationService
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr
+        PRODUCT_NAME: QuickR
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: quickR
+        # Export compliance, answered once for every TestFlight/App Store build: the app's only
+        # encryption is the OS's own (TLS through URLSession, the Keychain), which is exempt.
+        # Set it to true if the app ever ships its own cryptography (ios/README.md, TestFlight).
+        ITSAppUsesNonExemptEncryption: false
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        # Portrait only by design. App Store validation (iOS 27 SDK) rejects a portrait-only
+        # bundle unless it opts out of multitasking resizing.
+        UIRequiresFullScreen: true
+        UIBackgroundModes:
+          - fetch
+          - remote-notification
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.bahumia.quickr.refresh
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: quickR connects to your quickR server on the local network.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.bahumia.quickr
+            CFBundleURLSchemes:
+              - quickr
+        # Onboarding's prefilled server address (Config/Shared.xcconfig): the hosted server in
+        # Release, empty in Debug (UI tests type the fake server's).
+        QuickrDefaultServerURL: $(QUICKR_DEFAULT_SERVER_URL)
+    entitlements:
+      path: App/QuickR.entitlements
+      properties:
+        <<: *sharedEntitlements
+        # Password AutoFill for the Cloudflare Access token fields: the server's web origin lists
+        # this app in /.well-known/apple-app-site-association (frontend/public). No app links.
+        com.apple.developer.associated-domains:
+          - webcredentials:quickr.bahumia.com
+        # APNs. Device builds register in the sandbox; exporting for App Store Connect re-signs
+        # with the distribution profile, whose value is production (ios/README.md, TestFlight).
+        aps-environment: development
+
+  QuickRWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Widgets
+    dependencies:
+      - package: QuickrKit
+        products: [QuickrCore, QuickrData, QuickrUI]
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr.widgets
+    info:
+      path: Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: quickR
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Widgets/QuickRWidgets.entitlements
+      properties: *sharedEntitlements
+
+  QuickRNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - NotificationService
+    dependencies:
+      - package: QuickrKit
+        products: [QuickrCore, QuickrData]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr.notification-service
+    info:
+      path: NotificationService/Info.plist
+      properties:
+        CFBundleDisplayName: quickR Notification Service
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    entitlements:
+      path: NotificationService/QuickRNotificationService.entitlements
+      properties: *sharedEntitlements
+
+  QuickRTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - AppTests
+      # The widget's bootstrap and timeline rules, so its intent path runs in CI's Unit plan.
+      - Widgets/WidgetBootstrap.swift
+      - Widgets/TopicWidget.swift
+      - Widgets/DueListWidget.swift
+      - Widgets/TopicControl.swift
+    dependencies:
+      - target: QuickR
+      - package: QuickrKit
+        products: [QuickrCore]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+  QuickRUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+    dependencies:
+      - target: QuickR
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: QuickR
+    info:
+      path: UITests/Info.plist
+      properties:
+        # SpikeNotificationTests talks to the host's integration stack and spike coordinator over
+        # plain HTTP on 127.0.0.1.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+
+  # AppIntentsTesting UI tests, apart from QuickRUITests: AppIntentsTesting.framework needs the
+  # iOS 27 runtime's AppIntentsTypeSupport, so on iOS 26 the bundle fails to load and takes the
+  # runner down. check-ios runs this plan only on iOS 27+ simulators.
+  QuickRIntentsTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - IntentsTests
+    dependencies:
+      - target: QuickR
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bahumia.quickr.intentstests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: QuickR
+
+schemes:
+  QuickR:
+    build:
+      targets:
+        QuickR: all
+        QuickRTests: [test]
+        QuickRUITests: [test]
+        QuickRIntentsTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      testPlans:
+        - path: TestPlans/Unit.xctestplan
+          defaultPlan: true
+        - path: TestPlans/UI.xctestplan
+        - path: TestPlans/Intents.xctestplan
+        - path: TestPlans/Widgets.xctestplan
+        - path: TestPlans/Spike.xctestplan
+        - path: TestPlans/Media.xctestplan
+    archive:
+      config: Release

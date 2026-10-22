@@ -1,0 +1,61 @@
+# make check-ios on the M1 final tip
+# command: make check-ios IOS_SIM_MIN=4EF41F2B-4FD3-410C-99D7-9F4A1727509F IOS_SIM_CUR=64299A9D-CAC2-48AB-A7B0-C8DF7263C5CC
+#   MIN = quickR iOS-26-0 ios-m1-evidence-1a0aeb (iOS 26.0), CUR = quickR iOS27 ios-m1-evidence-1a0aeb (iOS 27.0)
+# commit: bd58657 (code = ios/m1-data 01cba48, the M1 final tip with M1-FIXES)
+# host: macOS 27.0.1, Xcode 27.1 Build version 27A9275 
+# finished: 2026-10-18T04:47:26Z, exit 0 (the third attempt):
+#   1st: hung in tests/sim-cap-test.sh, which inherited IOS_SIM_WAIT=1 from the caller (its 'refused'
+#        case then waits for a slot forever); reported to the lead. Rerun without IOS_SIM_WAIT.
+#   2nd: 2 OutboxUndoTests wall-clock bounds (16d, 16f) failed at load ~100 while other agents
+#        ran; everything else passed. 3rd: all green (below).
+
+## gate output (ANSI stripped; build lines and per-suite/per-test pass lines omitted)
+ios: Xcode 27.1
+ok   passes output and status through
+ok   keeps a last line without a newline
+ok   kills after silence with 124
+ok   partial-line progress counts as activity
+ok   a partial line, then silence, is killed (and the partial line shown)
+ok   kills a hang after a SUCCEEDED final line, status 0
+ok   kills a hang after a FAILED final line, status 65
+ok   a final line split across three polls is found
+ok   output after the final line doesn't extend its deadline
+ok   a clean exit returns at once despite a leftover helper
+ok   kills after silence with a TERM-ignoring grandchild
+ok   TERM gives 143
+ok   IOS_WATCHDOG=0 runs it plainly
+ok   exits normally right after its final line
+watchdog: all passed
+ok   one clone booted: a slot is free (non-clones don't count), and it boots
+ok   two clones booted: refused, naming them
+ok   your own booted clone doesn't count against you
+ok   IOS_SIM_CAP raises the cap
+ok   IOS_SIM_CAP=0 turns it off
+ok   IOS_SIM_WAIT waits until a slot frees
+ok   two concurrent admissions for the last slot: one boots, one is refused
+sim cap: all passed
+✔ Test run with 29 tests in 7 suites passed after 0.005 seconds.
+✔ Test run with 375 tests in 45 suites passed after 5.138 seconds.
+✔ Test run with 15 tests in 4 suites passed after 0.001 seconds.
+✔ Test run with 83 tests in 14 suites passed after 0.149 seconds.
+ios: Unit plan on 4EF41F2B-4FD3-410C-99D7-9F4A1727509F -- iOS 26.0 --
+Test Succeeded
+ios: UI plan on 4EF41F2B-4FD3-410C-99D7-9F4A1727509F -- iOS 26.0 --
+Test Succeeded
+ios: Intents plan skipped on 4EF41F2B-4FD3-410C-99D7-9F4A1727509F (iOS 26; AppIntentsTesting needs 27+)
+ios: Unit plan on 64299A9D-CAC2-48AB-A7B0-C8DF7263C5CC -- iOS 27.0 --
+Test Succeeded
+ios: UI plan on 64299A9D-CAC2-48AB-A7B0-C8DF7263C5CC -- iOS 27.0 --
+Test Succeeded
+ios: Intents plan on 64299A9D-CAC2-48AB-A7B0-C8DF7263C5CC -- iOS 27.0 --
+Test Succeeded
+ios: package pins match ios/QuickrKit/Package.resolved
+ios: check-ios passed
+exit=0
+
+## simulator plans (xcresulttool summaries; the Unit plan's tests are Swift Testing, so XCTest prints 0)
+Unit on iOS Simulator 26.0: Passed, 446 passed, 0 failed, 1 skipped
+Unit on iOS Simulator 27.0: Passed, 446 passed, 0 failed, 1 skipped
+UI on iOS Simulator 26.0: Passed, 1 passed, 0 failed, 0 skipped
+UI on iOS Simulator 27.0: Passed, 1 passed, 0 failed, 0 skipped
+Intents on iOS Simulator 27.0: Passed, 2 passed, 0 failed, 0 skipped

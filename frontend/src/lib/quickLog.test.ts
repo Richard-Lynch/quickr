@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { dueCount } from '../api/dueBadge';
 import type { TopicSummary } from '../client';
-import { splitByDue } from '../pages/TopicsPage';
+import { splitByDue } from './home';
 import type { IntQuestionOutput, Question } from './questions';
 import { initialNumber, parseQuickNumber, quickLogFor } from './quickLog';
 import { describeSchedule, dueAfterLogging, dueView, formatWhen, isDueNow } from './schedule';
@@ -73,7 +73,10 @@ describe('quick-log eligibility', () => {
     expect(quickLogFor([{ ...intQ, required: false }])).toBeNull(); // only optional
     expect(quickLogFor([enumQ(3, { multiple: true })])).toBeNull(); // multi-select
     expect(quickLogFor([{ ...noteQ, required: true }])).toBeNull(); // text
-    expect(quickLogFor([])).toBeNull();
+  });
+
+  it('logs a topic with no questions with one tap (a single topic)', () => {
+    expect(quickLogFor([])).toEqual({ kind: 'single' });
   });
 
   it('prefills numbers with the last valid value, else min ≥ 0', () => {
@@ -174,6 +177,7 @@ describe('due list + badge', () => {
     description: '',
     status: 'active',
     current_version: 1,
+    revision: 1,
     question_count: 1,
     entry_count: 0,
     last_captured_at: null,

@@ -3,6 +3,42 @@
 import * as z from 'zod';
 
 /**
+ * ApnsDeviceIn
+ *
+ * An iOS app install's APNs registration, upserted by token (sent on every launch).
+ */
+export const zApnsDeviceIn = z.object({
+    token: z.string().regex(/^[0-9a-fA-F]{64,200}$/),
+    environment: z.enum(['sandbox', 'production']),
+    bundle_id: z.string().regex(/^[A-Za-z0-9.-]{1,155}$/).nullish(),
+    app_version: z.string().max(64).nullish(),
+    device_name: z.string().max(200).nullish()
+});
+
+/**
+ * ApnsDeviceOut
+ */
+export const zApnsDeviceOut = z.object({
+    id: z.uuid(),
+    token: z.string(),
+    environment: z.enum(['sandbox', 'production']),
+    bundle_id: z.string().nullable(),
+    app_version: z.string().nullable(),
+    device_name: z.string().nullable(),
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true })
+});
+
+/**
+ * ApnsDeviceRef
+ *
+ * One device, by token (unregister, test).
+ */
+export const zApnsDeviceRef = z.object({
+    token: z.string().regex(/^[0-9a-fA-F]{64,200}$/)
+});
+
+/**
  * Channel
  *
  * How an entry reached the system. Set server-side.
@@ -10,7 +46,8 @@ import * as z from 'zod';
 export const zChannel = z.enum([
     'ui',
     'api',
-    'mcp'
+    'mcp',
+    'ios'
 ]);
 
 /**
@@ -136,7 +173,11 @@ export const zDueStatus = z.object({
  */
 export const zEntryCreate = z.object({
     id: z.uuid().nullish(),
-    answers: z.record(z.string(), z.unknown()),
+    answers: z.record(z.string(), z.union([
+        z.number(),
+        z.string(),
+        z.array(z.string())
+    ]).nullable()),
     source: z.string().min(1).max(100).nullish(),
     captured_at: z.iso.datetime({ offset: true }).nullish(),
     notes: z.string().max(5000).optional().default(''),
@@ -150,11 +191,16 @@ export const zEntryCreate = z.object({
  * Partial update. ``answers`` merges into existing answers; a null value clears an answer.
  */
 export const zEntryUpdate = z.object({
-    answers: z.record(z.string(), z.unknown()).nullish(),
+    answers: z.record(z.string(), z.union([
+        z.number(),
+        z.string(),
+        z.array(z.string())
+    ]).nullable()).nullish(),
     source: z.string().min(1).max(100).nullish(),
     captured_at: z.iso.datetime({ offset: true }).nullish(),
     notes: z.string().max(5000).nullish(),
-    meta: z.record(z.string(), z.string().max(500)).nullish()
+    meta: z.record(z.string(), z.string().max(500)).nullish(),
+    expected_revision: z.int().gte(1).nullish()
 });
 
 /**
@@ -249,6 +295,23 @@ export const zEnumStats = z.object({
     count: z.int(),
     missing: z.int(),
     options: z.array(zEnumOptionCount)
+});
+
+/**
+ * FeedDeletion
+ *
+ * A permanently deleted id. A topic deletion also deletes all of its versions and entries.
+ */
+export const zFeedDeletion = z.object({
+    kind: z.enum([
+        'entry',
+        'topic',
+        'version'
+    ]),
+    seq: z.int(),
+    id: z.uuid(),
+    topic_id: z.uuid(),
+    deleted_at: z.iso.datetime({ offset: true })
 });
 
 /**
@@ -393,7 +456,8 @@ export const zProblem = z.object({
  * PushConfig
  */
 export const zPushConfig = z.object({
-    public_key: z.string()
+    public_key: z.string(),
+    apns_enabled: z.boolean()
 });
 
 /**
@@ -534,6 +598,7 @@ export const zEntryOut = z.object({
     id: z.uuid(),
     topic_id: z.uuid(),
     version: z.int(),
+    revision: z.int(),
     source: z.string(),
     channel: zChannel,
     captured_at: z.iso.datetime({ offset: true }),
@@ -558,6 +623,15 @@ export const zEntryPage = z.object({
     total: z.int(),
     limit: z.int(),
     offset: z.int()
+});
+
+/**
+ * FeedEntry
+ */
+export const zFeedEntry = z.object({
+    kind: z.literal('entry').default('entry'),
+    seq: z.int(),
+    entry: zEntryOut
 });
 
 /**
@@ -600,7 +674,7 @@ export const zTopicCreate = z.object({
         zDoubleQuestionInput,
         zStrQuestionInput,
         zEnumQuestionInput
-    ])).min(1).max(100),
+    ])).min(0).max(100),
     schedule: z.discriminatedUnion('kind', [
         zDailyScheduleInput,
         zIntervalScheduleInput
@@ -622,6 +696,7 @@ export const zTopicDetail = z.object({
     description: z.string(),
     status: zTopicStatus,
     current_version: z.int(),
+    revision: z.int(),
     question_count: z.int(),
     entry_count: z.int(),
     last_captured_at: z.iso.datetime({ offset: true }).nullable(),
@@ -643,6 +718,18 @@ export const zTopicDetail = z.object({
 });
 
 /**
+ * FeedTopic
+ *
+ * A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,
+ * ``due``) are not re-sent when entries change: clients recompute them from entries.
+ */
+export const zFeedTopic = z.object({
+    kind: z.literal('topic').default('topic'),
+    seq: z.int(),
+    topic: zTopicDetail
+});
+
+/**
  * TopicSummary
  */
 export const zTopicSummary = z.object({
@@ -652,6 +739,7 @@ export const zTopicSummary = z.object({
     description: z.string(),
     status: zTopicStatus,
     current_version: z.int(),
+    revision: z.int(),
     question_count: z.int(),
     entry_count: z.int(),
     last_captured_at: z.iso.datetime({ offset: true }).nullable(),
@@ -690,7 +778,8 @@ export const zTopicUpdate = z.object({
     schedule: z.discriminatedUnion('kind', [
         zDailyScheduleInput,
         zIntervalScheduleInput
-    ]).nullish()
+    ]).nullish(),
+    expected_revision: z.int().gte(1).nullish()
 });
 
 /**
@@ -707,6 +796,43 @@ export const zTopicVersionOut = z.object({
     change_note: z.string(),
     created_at: z.iso.datetime({ offset: true }),
     entry_count: z.int()
+});
+
+/**
+ * FeedVersion
+ *
+ * A published question version (immutable; ``version.entry_count`` is as of this page).
+ */
+export const zFeedVersion = z.object({
+    kind: z.literal('version').default('version'),
+    seq: z.int(),
+    id: z.uuid(),
+    topic_id: z.uuid(),
+    version: zTopicVersionOut
+});
+
+/**
+ * ChangesPage
+ *
+ * One page of the change feed, read from a single consistent snapshot.
+ *
+ * Each changed entity appears once, in its latest state (``items``) or as a deletion
+ * (``deleted``). Apply ``items`` in order (topics, then versions, then entries), then
+ * ``deleted`` (entries, then versions, then topics), then store ``next`` as the cursor.
+ */
+export const zChangesPage = z.object({
+    items: z.array(z.union([
+        zFeedEntry,
+        zFeedTopic,
+        zFeedVersion
+    ])),
+    deleted: z.array(zFeedDeletion),
+    next: z.int(),
+    has_more: z.boolean(),
+    head: z.int(),
+    epoch: z.string(),
+    server_id: z.string(),
+    server_time: z.iso.datetime({ offset: true })
 });
 
 /**
@@ -756,7 +882,7 @@ export const zVersionCreate = z.object({
         zDoubleQuestionInput,
         zStrQuestionInput,
         zEnumQuestionInput
-    ])).min(1).max(100),
+    ])).min(0).max(100),
     base_version: z.int().gte(1),
     change_note: z.string().max(2000).optional().default('')
 });
@@ -770,7 +896,7 @@ export const zVersionDraft = z.object({
         zDoubleQuestionInput,
         zStrQuestionInput,
         zEnumQuestionInput
-    ])).min(1).max(100),
+    ])).min(0).max(100),
     base_version: z.int().gte(1).nullish()
 });
 
@@ -823,10 +949,20 @@ export const zListTopicsResponse = zTopicPage;
 
 export const zCreateTopicBody = zTopicCreate;
 
+export const zCreateTopicHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
 /**
  * Successful Response
  */
 export const zCreateTopicResponse = zTopicDetail;
+
+export const zDeleteTopicHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
 
 export const zDeleteTopicPath = z.object({
     ref: z.string()
@@ -848,6 +984,11 @@ export const zGetTopicResponse = zTopicDetail;
 
 export const zUpdateTopicBody = zTopicUpdate;
 
+export const zUpdateTopicHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
 export const zUpdateTopicPath = z.object({
     ref: z.string()
 });
@@ -857,8 +998,17 @@ export const zUpdateTopicPath = z.object({
  */
 export const zUpdateTopicResponse = zTopicDetail;
 
+export const zArchiveTopicHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
 export const zArchiveTopicPath = z.object({
     ref: z.string()
+});
+
+export const zArchiveTopicQuery = z.object({
+    expected_revision: z.int().gte(1).nullish()
 });
 
 /**
@@ -866,8 +1016,17 @@ export const zArchiveTopicPath = z.object({
  */
 export const zArchiveTopicResponse = zTopicDetail;
 
+export const zUnarchiveTopicHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
 export const zUnarchiveTopicPath = z.object({
     ref: z.string()
+});
+
+export const zUnarchiveTopicQuery = z.object({
+    expected_revision: z.int().gte(1).nullish()
 });
 
 /**
@@ -887,6 +1046,11 @@ export const zListTopicVersionsPath = z.object({
 export const zListTopicVersionsResponse = z.array(zTopicVersionOut);
 
 export const zPublishTopicVersionBody = zVersionCreate;
+
+export const zPublishTopicVersionHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
 
 export const zPublishTopicVersionPath = z.object({
     ref: z.string()
@@ -936,7 +1100,9 @@ export const zListEntriesResponse = zEntryPage;
 export const zCreateEntryBody = zEntryCreate;
 
 export const zCreateEntryHeaders = z.object({
-    'X-QuickR-Channel': zChannel.nullish()
+    'X-QuickR-Channel': zChannel.nullish(),
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
 });
 
 export const zCreateEntryPath = z.object({
@@ -965,6 +1131,11 @@ export const zExportEntriesCsvQuery = z.object({
  */
 export const zExportEntriesCsvResponse = z.string();
 
+export const zDeleteEntryHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
 export const zDeleteEntryPath = z.object({
     entry_id: z.uuid()
 });
@@ -985,6 +1156,11 @@ export const zGetEntryResponse = zEntryOut;
 
 export const zUpdateEntryBody = zEntryUpdate;
 
+export const zUpdateEntryHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
 export const zUpdateEntryPath = z.object({
     entry_id: z.uuid()
 });
@@ -993,6 +1169,16 @@ export const zUpdateEntryPath = z.object({
  * Successful Response
  */
 export const zUpdateEntryResponse = zEntryOut;
+
+export const zListChangesQuery = z.object({
+    after: z.int().gte(0).optional().default(0),
+    limit: z.int().gte(1).lte(500).optional().default(500)
+});
+
+/**
+ * Successful Response
+ */
+export const zListChangesResponse = zChangesPage;
 
 export const zGetTopicStatsPath = z.object({
     ref: z.string()
@@ -1042,6 +1228,11 @@ export const zGetPushConfigResponse = zPushConfig;
 
 export const zCreatePushSubscriptionBody = zPushSubscriptionIn;
 
+export const zCreatePushSubscriptionHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
 /**
  * Successful Response
  */
@@ -1049,12 +1240,58 @@ export const zCreatePushSubscriptionResponse = zPushSubscriptionOut;
 
 export const zDeletePushSubscriptionBody = zPushSubscriptionDelete;
 
+export const zDeletePushSubscriptionHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
 /**
  * Successful Response
  */
 export const zDeletePushSubscriptionResponse = z.void();
 
+export const zSendTestPushHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
 /**
  * Successful Response
  */
 export const zSendTestPushResponse = zPushTestResult;
+
+export const zRegisterApnsDeviceBody = zApnsDeviceIn;
+
+export const zRegisterApnsDeviceHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
+/**
+ * Successful Response
+ */
+export const zRegisterApnsDeviceResponse = zApnsDeviceOut;
+
+export const zDeleteApnsDeviceBody = zApnsDeviceRef;
+
+export const zDeleteApnsDeviceHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
+/**
+ * Successful Response
+ */
+export const zDeleteApnsDeviceResponse = z.void();
+
+export const zSendApnsTestPushBody = zApnsDeviceRef;
+
+export const zSendApnsTestPushHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
+/**
+ * Successful Response
+ */
+export const zSendApnsTestPushResponse = zPushTestResult;

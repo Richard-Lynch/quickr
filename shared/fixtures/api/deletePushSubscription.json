@@ -1,0 +1,12 @@
+{
+  "body": null,
+  "operation_id": "deletePushSubscription",
+  "request": {
+    "body": {
+      "endpoint": "https://web.push.apple.com/QGuQyavXutnMlB5k"
+    },
+    "method": "POST",
+    "path": "/api/v1/push/subscriptions/delete"
+  },
+  "status": 204
+}

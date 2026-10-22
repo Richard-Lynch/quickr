@@ -10,6 +10,7 @@ import { z } from 'zod';
 
 import type { EntryOut } from '../client';
 import { activeOptions, isMultiEnum, type EnumQuestionOutput, type Question } from './questions';
+import { charCount, hasInvalidCharacter, INVALID_CHARACTER_MESSAGE, serverStrip } from './text';
 
 export type AnswerValue = number | string | string[] | null;
 /** Raw input for one question. */
@@ -81,7 +82,7 @@ function parseMulti(
   allowed: readonly string[],
   ctx: Ctx,
 ): AnswerValue {
-  const picked = (Array.isArray(raw) ? raw : raw ? [raw] : []).map((v) => v.trim()).filter(Boolean);
+  const picked = (Array.isArray(raw) ? raw : raw ? [raw] : []).map(serverStrip).filter(Boolean);
   const unique = [...new Set(picked)];
   if (unique.length === 0) {
     if (q.required) return issue(ctx, 'Pick at least one');
@@ -111,7 +112,9 @@ export function answerFieldSchema(
     .optional()
     .transform((raw, ctx): AnswerValue => {
       if (q.type === 'enum' && q.multiple) return parseMulti(q, raw, allowed, ctx);
-      const value = (Array.isArray(raw) ? (raw[0] ?? '') : (raw ?? '')).trim();
+      const text = Array.isArray(raw) ? (raw[0] ?? '') : (raw ?? '');
+      // Numbers trim like the input; text and choices strip like the server stores them.
+      const value = q.type === 'int' || q.type === 'double' ? text.trim() : serverStrip(text);
       if (value === '') {
         if (q.required) return issue(ctx, 'Required');
         return null;
@@ -129,10 +132,13 @@ export function answerFieldSchema(
           return checkRange(ctx, n, q.min, q.max, q.unit);
         }
         case 'str': {
-          if (value.length < q.min_length)
-            return issue(ctx, `At least ${q.min_length} characters (${value.length} so far)`);
-          if (value.length > q.max_length)
-            return issue(ctx, `At most ${q.max_length} characters (${value.length} entered)`);
+          if (hasInvalidCharacter(value)) return issue(ctx, INVALID_CHARACTER_MESSAGE);
+          // Code points, like the server (and iOS): an emoji is one character.
+          const count = charCount(value);
+          if (count < q.min_length)
+            return issue(ctx, `At least ${q.min_length} characters (${count} so far)`);
+          if (count > q.max_length)
+            return issue(ctx, `At most ${q.max_length} characters (${count} entered)`);
           return value;
         }
         case 'enum': {

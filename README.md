@@ -51,7 +51,7 @@ make db migrate    # Postgres in docker on :5433, apply migrations
 make api           # FastAPI on :8100 (reload)
 make web           # Vite on :5180 (proxies /api and /mcp to :8100; QUICKR_API_TARGET overrides)
 make seed          # optional demo data (scheduled topics, a multi-select question)
-make check         # everything CI runs
+make check         # everything CI runs except the docker smoke test (needs Postgres)
 make notebook      # Jupyter tour of the REST API + MCP (backend/notebooks/explore_api.ipynb)
 ```
 
@@ -69,8 +69,13 @@ Configuration is via `QUICKR_*` environment variables (or `backend/.env`):
 | `QUICKR_PUSH_ALLOWED_HOSTS`         | `[]`: extra push-service hosts (JSON list), see below      |
 
 Tests use `QUICKR_TEST_DATABASE_URL` (default
-`postgresql+asyncpg://quickr:quickr@localhost:5433/quickr_test`). The database
-is created and migrated automatically.
+`postgresql+asyncpg://quickr:quickr@localhost:5433/quickr_test`, or
+`quickr_test_<worktree directory>_<path hash>` in a git worktree, so parallel
+worktrees don't share tables). The database is created and migrated automatically.
+`make test-db-reset` drops it, e.g. after a migration was edited in place, and `make
+test-db-prune` drops this checkout's peer databases (`*_peer_*`) that a killed test
+run left behind, once they're an hour old (`make test-db-prune all=1`: every
+checkout's).
 
 ## Entries
 
@@ -84,7 +89,8 @@ is created and migrated automatically.
 - `id` (optional UUID) makes the request idempotent. If an entry with that id
   already exists for the topic, it is returned (`201`, no duplicate), even if
   the topic has been archived since. The same id under another topic is a `409`.
-  Offline clients should always send one.
+  Offline clients should always send one. A deleted id can never be used again:
+  creating it returns `409 entry_deleted` (see [Change feed](#change-feed)).
 - `captured_at` is the client's own clock. It may be arbitrarily late (offline
   queues), but not before 2000-01-01 or more than 24 hours in the future.
 
@@ -140,12 +146,47 @@ worker receives this JSON:
   "body": "Time to log",
   "url": "/t/sleep-log/record",
   "tag": "due-<topic id>",
-  "topic_slug": "sleep-log"
+  "topic_slug": "sleep-log",
+  "v": 1,
+  "kind": "due",
+  "server_id": "<server id>",
+  "topic_id": "<topic id>",
+  "version": 3,
+  "due_since": "2026-10-17T08:00:00Z",
+  "quick_log": { "type": "enum", "key": "quality", "label": "Quality", "options": […], "total_options": 3 }
 }
 ```
 
 The body is "Time to log" for a fresh slot, or e.g. "Overdue since 08:00" when
-the notification goes out late.
+the notification goes out late. `quick_log` is null unless the topic can be
+logged in one tap (docs/ios/specs/notifications.md §2.3); a test push has only
+the first five fields and `kind: "test"`.
+
+**Actions (Chrome, Edge, Android).** A reminder for a one-tap topic shows
+buttons: the first options of a single-select question (up to the browser's
+`Notification.maxActions`, usually 2), or "Log 7.5 h" to log a number question's
+last value again. Clicking one logs the entry from the service worker, even with
+the app closed: it goes into the same offline outbox as the app (source
+`pwa.notification`) and is sent at once, or later by Background Sync or the
+app's next start. Each reminder logs at most once, however often its buttons are
+clicked, even when it is also actioned in the iOS app: both derive the entry id
+from the reminder (docs/ios/specs/notifications.md §7.4). The first choice wins:
+clicking a different button later shows "Already logged as …". The request
+carries the reminder's server id (`X-QuickR-Expect-Server-Id`), so a reminder
+from a server this address no longer serves logs nothing. When a click can't be
+logged (another server, an archived or deleted topic), a follow-up notification
+says why; it never just disappears. Safari and iOS web push show no buttons;
+tapping the notification opens the record screen as before.
+
+*Manual test (Chrome desktop):* subscribe in Settings, make a topic whose only
+required question is a single-select with 2–4 options and give it a schedule
+that is due now, then wait for the scheduler's next tick
+(`QUICKR_SCHEDULER_INTERVAL_SECONDS`). On the notification, click an option: the
+entry appears with source `pwa.notification`. Click the same reminder's other
+button (if it is still shown, e.g. from the notification centre): no second
+entry, and an "Already logged" notification. Archive the topic and click a fresh
+reminder: a "Couldn't log" notification. Repeat with the network offline in
+DevTools: the entry is queued and sent when you go back online.
 
 Setup:
 
@@ -178,9 +219,80 @@ Screen (iOS/iPadOS 16.4 or later), and permission must be requested from inside
 the installed app. Safari can do this via Share → Add to Home Screen. Chrome on
 iOS can too, via its share menu → Add to Home Screen.
 
-Endpoints: `GET /push/config` (VAPID public key for `PushManager.subscribe`),
-`POST /push/subscriptions` (upsert `subscription.toJSON()`),
-`POST /push/subscriptions/delete` (`{endpoint}`) and `POST /push/test`.
+Endpoints: `GET /push/config` (VAPID public key for `PushManager.subscribe`,
+and `apns_enabled`), `POST /push/subscriptions` (upsert
+`subscription.toJSON()`), `POST /push/subscriptions/delete` (`{endpoint}`) and
+`POST /push/test` (every browser and every iOS device).
+
+### APNs (the iOS app)
+
+The native iOS app gets the same notifications through Apple Push Notification
+service. APNs is **off** unless it is configured, and `GET /push/config` says
+`apns_enabled: false`. Devices can still register while it is off; nothing is
+sent to them.
+
+1. In the Apple Developer portal, under Certificates, Identifiers & Profiles ▸
+   Keys, create a key with **Apple Push Notifications service (APNs)**, enabled
+   for Sandbox & Production. Download the `.p8` file (it can only be downloaded
+   once) and note its **Key ID** and your **Team ID**. Keep the file out of the
+   repo.
+2. Set:
+
+   | Variable                                                       | Value                                                                                                                          |
+   | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+   | `QUICKR_APNS_TEAM_ID`                                          | Your Team ID                                                                                                                   |
+   | `QUICKR_APNS_KEY_ID`                                           | The key's Key ID                                                                                                               |
+   | `QUICKR_APNS_PRIVATE_KEY_FILE`                                 | Path to the `.p8` file, **or**                                                                                                 |
+   | `QUICKR_APNS_PRIVATE_KEY`                                      | the `.p8` contents (PEM; literal `\n` escapes are fine)                                                                        |
+   | `QUICKR_APNS_TOPIC`                                            | The app's bundle id. Default `com.bahumia.quickr`                                                                              |
+   | `QUICKR_APNS_SANDBOX_KEY_ID`, `..._SANDBOX_PRIVATE_KEY[_FILE]` | Optional: a separate key for the sandbox host, if your production key is limited to production. Otherwise one key serves both. |
+
+   With Docker, mount the key read-only: copy
+   `docker-compose.override.yml.example` to `docker-compose.override.yml` and
+   fill it in. The container runs as uid 10001, so the file must be readable
+   by it (for example `chmod 644`).
+
+3. Restart the API. A key that is set but can't be loaded is logged as an error
+   the first time APNs is used, and APNs stays off (`apns_enabled: false`).
+
+Each app install registers its device token on every launch with
+`POST /push/apns/devices` (`{token, environment, bundle_id?, app_version?, device_name?}`;
+an upsert by token that resets its failure count). `environment` is `sandbox`
+for debug builds and `production` for TestFlight and App Store builds, and
+picks `api.sandbox.push.apple.com` or `api.push.apple.com`.
+`POST /push/apns/devices/delete` (`{token}`) unregisters, and
+`POST /push/apns/devices/test` (`{token}`) sends a test to that one device
+("Test this device"; `409 apns_disabled` when APNs is off).
+
+Requests use HTTP/2 with an ES256 provider token that is cached and re-signed
+every 50 minutes. Responses `410` and `400 BadDeviceToken` delete the device
+(the app registers again on its next launch). `400 DeviceTokenNotForTopic`
+means `QUICKR_APNS_TOPIC` doesn't match the app's bundle id; it and any other
+`400` are logged as errors.
+
+To debug without the scheduler, send straight to a token:
+
+```sh
+cd backend && uv run python scripts/apns_send.py --token <hex token> --env sandbox
+```
+
+It prints Apple's `apns-id`, or the status and reason.
+
+### Delivery semantics
+
+Delivery is **best-effort per device, at least once per slot overall**. Each
+scheduler tick sends a due slot to every browser and device (eight at a time),
+then marks the slot as notified in the same transaction. A target that fails is
+not retried for that slot. If the tick fails before it commits, nothing is
+marked and the next tick sends the slot again; the duplicate replaces the first
+notification on the device, because both carry the same tag (`due-<topic id>`,
+the APNs collapse id). Delivery stops 30 seconds into a tick, even in the middle of a topic. That topic's slot is not marked; the targets it already reached are recorded (`push_slot_deliveries`), and the next tick continues with the others, so every target gets the slot once even when a fan-out takes several ticks. Due topics go oldest slot first, so the topics after it follow. A target is deleted when
+its push service says it is gone, or after 20 failures in a row with no success
+for 30 days.
+
+Device tokens and subscription endpoints never appear in the logs: request
+lines from httpx (APNs) and urllib3 (Web Push) are redacted, and delivery
+errors give only the host, the status and the error type.
 
 ## Versioning rules
 
@@ -213,11 +325,13 @@ the topic's current version (optimistic concurrency, `409` otherwise).
 | `GET /api/v1/topics/{ref}/versions` · `POST .../versions/check` · `POST .../versions`         | version history, dry-run, publish                     |
 | `GET/POST /api/v1/topics/{ref}/entries` · `GET .../entries.csv`                               | list/record/export entries                            |
 | `GET/PATCH/DELETE /api/v1/entries/{id}`                                                       | view/correct/delete an entry                          |
+| `GET /api/v1/changes?after=&limit=`                                                           | change feed (sync)                                    |
 | `GET /api/v1/topics/{ref}/stats` · `GET .../questions/{key}/series`                           | aggregation and time series                           |
 | `GET /api/v1/push/config` · `POST /api/v1/push/subscriptions[/delete]` · `POST .../push/test` | Web Push                                              |
+| `POST /api/v1/push/apns/devices[/delete]` · `POST .../push/apns/devices/test`                 | APNs device tokens (the iOS app)                      |
 | `GET /api/v1/question-types` · `GET /api/v1/limits`                                           | question JSON schemas · validation limits             |
 
-Send `X-QuickR-Channel: ui|api|mcp` to tag the channel (defaults to `api`).
+Send `X-QuickR-Channel: ui|api|mcp|ios` to tag the channel (defaults to `api`).
 
 Every 4xx uses one envelope: `{code, detail, errors: [{loc, message}]}`. Each
 error points at the most specific field. For example, `min > max` on the first
@@ -226,6 +340,37 @@ and a duplicate option label at
 `["body", "questions", 2, "options", 1, "label"]`. `GET /limits` returns the
 numeric ceilings (max questions, options, lengths, schedule bounds, …) so
 clients can mirror server-side validation.
+
+## Change feed
+
+`GET /api/v1/changes?after=<seq>&limit=<≤500>` lets a client keep a full offline
+copy in step. Every change to a topic, version or entry, made over REST or MCP,
+appends a row to `change_log` in the same transaction. Each page returns the
+**current** state of every entity changed after the cursor (`items`), the
+deletions (`deleted`), and `{next, has_more, head, epoch, server_id, server_time}`.
+Start from `after=0` and follow `next` while `has_more`.
+
+- **Ordering.** Every write takes one advisory lock as its first statement, so
+  `seq` order is commit order: a page never skips a change that commits later.
+  Deadlocks and serialization failures are retried up to 3 times.
+- **Tombstones.** Deleted ids are kept forever in `deleted_ids`.
+  `DELETE /entries/{id}` is idempotent: it returns `204` even for an id the
+  server has never seen, and reserves it, so a create that arrives after its own
+  undo gets `409 entry_deleted` and never brings the entry back. A topic
+  deletion also deletes all its versions and entries.
+- **Derived fields.** Entry changes don't re-send their topic, so clients
+  recompute `entry_count`, `last_captured_at` and due status from entries.
+- **Revisions.** Topics and entries carry a `revision` that every update bumps.
+  `PATCH` (body) and archive/unarchive (query) accept an optional
+  `expected_revision`; a mismatch is `409 stale_revision`.
+- **Restores.** `epoch` changes when the database is restored or reset; a client
+  that sees a new epoch, or a cursor above `head`, rebuilds from `after=0`.
+  After restoring a backup, run `make rotate-epoch` (or `make rotate-epoch-docker`).
+  The `server_id` never changes, restores included.
+- **Identity headers.** Every `/api/v1` response, errors included, carries
+  `X-QuickR-Server-Id` and `X-QuickR-Epoch`. Mutations accept
+  `X-QuickR-Expect-Server-Id` / `X-QuickR-Expect-Epoch`; a mismatch is rejected
+  with `409 server_mismatch` / `409 epoch_mismatch` before anything is written.
 
 ## MCP
 

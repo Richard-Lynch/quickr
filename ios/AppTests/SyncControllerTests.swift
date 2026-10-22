@@ -1,0 +1,575 @@
+import BackgroundTasks
+import Foundation
+import ObjectiveC
+import QuickrCore
+import QuickrData
+import Synchronization
+import Testing
+
+@testable import QuickR
+
+/// SYNC-UX's app side over the UI-test fake server (`UITestLaunch`): the pill follows the outbox,
+/// a regained network sends and pulls, and the background refresh pulls, sends and completes its
+/// task. Serialized: the fake server's switches and the network path are shared statics.
+@MainActor
+@Suite(.serialized) struct SyncControllerTests {
+    /// A started environment on the fake server, online, with the controller observing its store.
+    private func started() async throws -> (AppEnvironment, AppSession, Task<Void, Never>) {
+        UITestLaunch.server.offline = false
+        UITestLaunch.network.set(online: true)
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
+        environment.settings.serverURL = UITestLaunch.fakeServer
+        await environment.start()
+        let session = try #require(environment.session)
+        #expect(session.phase == .ready)
+        let observing = Task { await environment.sync.observe(session) }
+        return (environment, session, observing)
+    }
+
+    private func eventually(_ what: String, _ condition: @MainActor () async -> Bool) async throws {
+        // A liveness ceiling, not the timing under test: generous for a starved CI runner.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(120))
+        while await !condition() {
+            guard ContinuousClock.now < deadline else {
+                Issue.record("timed out waiting until \(what)")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    @Test func thePillFollowsTheOutboxAndTheNetwork() async throws {
+        let (environment, session, observing) = try await started()
+        defer { observing.cancel() }
+        #expect(environment.sync.pill(status: session.syncStatus) == .hidden)
+
+        UITestLaunch.server.offline = true
+        UITestLaunch.network.set(online: false)
+        try await eventually("offline") { environment.sync.pill(status: session.syncStatus) == .offline(waiting: 0) }
+        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .string("good")], version: 1)
+        try await eventually("one waiting") {
+            environment.sync.pill(status: session.syncStatus) == .offline(waiting: 1)
+        }
+        let sheet = environment.sync.sheet(lastSyncAt: nil)
+        #expect(sheet.rows.map(\.title) == ["Entry · Mood"] && !sheet.online)
+
+        // Back online: the regained path asks for a forced flush, and the entry goes.
+        let scheduler = try #require(session.scheduler)
+        let flushes = await scheduler.started.count
+        UITestLaunch.server.offline = false
+        UITestLaunch.network.set(online: true)
+        try await eventually("a network flush") {
+            await scheduler.started.dropFirst(flushes).contains(OutboxFlushReason.networkAvailable.policy)
+        }
+        try await eventually("sent") { environment.sync.pill(status: session.syncStatus) == .hidden }
+        #expect(environment.sync.items.isEmpty)
+        await session.shutdown()
+    }
+
+    @Test func retryAndDiscardFromTheSheet() async throws {
+        let (environment, session, observing) = try await started()
+        defer { observing.cancel() }
+        UITestLaunch.server.rejectNextCreate()
+        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .string("good")], version: 1)
+        try await eventually("failed") { environment.sync.pill(status: session.syncStatus) == .failed(count: 1) }
+        let row = try #require(environment.sync.sheet(lastSyncAt: nil).rows.first)
+        #expect(row.status == "Failed — Mood is required" && row.fix != nil)
+
+        try await environment.sync.retry(row)
+        try await eventually("retried and sent") { environment.sync.items.isEmpty }
+
+        UITestLaunch.server.rejectNextCreate()
+        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .string("ok")], version: 1)
+        try await eventually("failed again") { environment.sync.summary?.failed == 1 }
+        let failed = try #require(environment.sync.sheet(lastSyncAt: nil).rows.first)
+        try await environment.sync.discard(failed)
+        try await eventually("discarded") { environment.sync.items.isEmpty }
+        await session.shutdown()
+    }
+
+    /// A row from another store (the sheet was showing a store that has since been replaced) is
+    /// refused, and nothing in the active store changes.
+    @Test func actionsFromAnotherStoreAreRefused() async throws {
+        let (environment, session, observing) = try await started()
+        defer { observing.cancel() }
+        UITestLaunch.server.rejectNextCreate()
+        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .string("good")], version: 1)
+        try await eventually("failed") { environment.sync.summary?.failed == 1 }
+        var stale = try #require(environment.sync.sheet(lastSyncAt: nil).rows.first)
+        #expect(stale.scope == EntryScope(serverId: UITestLaunch.fakeServerId, storeGen: 1))
+        stale.scope = EntryScope(serverId: UITestLaunch.fakeServerId, storeGen: 0)  // the store before a reset
+        await #expect(throws: SyncActionError.self) { try await environment.sync.retry(stale) }
+        await #expect(throws: SyncActionError.self) { try await environment.sync.discard(stale) }
+        await #expect(throws: SyncActionError.self) { try await environment.sync.dismiss(stale) }
+        #expect(throws: SyncActionError.self) { try environment.sync.fixRoute(stale) }
+        #expect(environment.sync.summary?.failed == 1 && environment.sync.items.count == 1)
+        await session.shutdown()
+    }
+
+    /// The system's time runs out while the session is still starting: the task completes once,
+    /// unsuccessfully, and no background episode begins.
+    @Test func expiryDuringStartupStopsBeforeAnyEpisode() async throws {
+        UITestLaunch.server.offline = false
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
+        environment.settings.serverURL = UITestLaunch.fakeServer
+        environment.scenePhaseChanged(.background)
+        // GRDB's resume: a refresh episode posts it when it starts.
+        let resumes = Counter()
+        let observer = notifications.addObserver(
+            forName: Notification.Name("GRDB.Database.Resume"), object: nil, queue: nil
+        ) { _ in resumes.increment() }
+        defer { notifications.removeObserver(observer) }
+        let task = RecordingRefreshTask()
+        let refresh = Task { await environment.backgroundRefresh(task) }
+        await Task.yield()
+        task.expire()
+        await refresh.value
+        try await eventually("completed") { task.completions == [false] }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(task.completions == [false])  // once
+        #expect(resumes.count == 0, "an episode began after the expiry")
+        await environment.session?.shutdown()
+    }
+
+    /// The time runs out while startup is connecting (its feed request held): the start itself
+    /// stops. The request is cancelled, nothing more is sent, the connect never completes, the
+    /// database is suspended; opening the app later finishes the connect.
+    @Test func expiryDuringStartupStopsTheStartItself() async throws {
+        UITestLaunch.server.offline = false
+        UITestLaunch.server.holdFeed()
+        defer { UITestLaunch.server.releaseFeed() }
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
+        environment.settings.serverURL = UITestLaunch.fakeServer
+        environment.scenePhaseChanged(.background)
+        let suspends = Counter()
+        let observer = notifications.addObserver(
+            forName: Notification.Name("GRDB.Database.Suspend"), object: nil, queue: nil
+        ) { _ in suspends.increment() }
+        defer { notifications.removeObserver(observer) }
+        let task = RecordingRefreshTask()
+        let refresh = Task { await environment.backgroundRefresh(task) }
+        try await eventually("startup is fetching") { UITestLaunch.server.heldCount == 1 }
+        let suspendsBefore = suspends.count
+
+        task.expire()
+        try await eventually("completed") { task.completions == [false] }
+        try await eventually("the held request is cancelled") { UITestLaunch.server.heldCount == 0 }
+        let requests = UITestLaunch.server.requestCount
+        // Released before awaiting the refresh, so a start that kept going fails here, not hangs.
+        UITestLaunch.server.releaseFeed()
+        await refresh.value
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(UITestLaunch.server.requestCount == requests, "startup went on after the expiry")
+        #expect(environment.session?.phase != .ready)
+        #expect(suspends.count > suspendsBefore)
+
+        // Opened later: the interrupted connect finishes.
+        environment.scenePhaseChanged(.active)
+        try await eventually("connected") { environment.session?.phase == .ready }
+        await environment.session?.shutdown()
+    }
+
+    /// The app is opened while a refresh is starting the session: the refresh does nothing, and
+    /// the app stays in the foreground (nothing paused or suspended).
+    @Test func activationDuringStartupWins() async throws {
+        UITestLaunch.server.offline = false
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
+        environment.settings.serverURL = UITestLaunch.fakeServer
+        environment.scenePhaseChanged(.background)
+        let task = RecordingRefreshTask()
+        let refresh = Task { await environment.backgroundRefresh(task) }
+        await Task.yield()
+        environment.scenePhaseChanged(.active)
+        await refresh.value
+        #expect(task.completions == [true])
+        let session = try #require(environment.session)
+        try await eventually("foreground") { !session.isBackgrounded }
+        try await eventually("bound") { session.scheduler != nil }
+        #expect(await session.scheduler?.isPaused == false)
+        await session.shutdown()
+    }
+
+    /// Opened while startup's connect is held, then the refresh's time runs out: the foreground
+    /// owns the start by then, so the expiry leaves it running (the request isn't cancelled) and
+    /// the open app ends up connected, with no second activation.
+    @Test func expiryAfterActivationDuringStartupKeepsTheConnect() async throws {
+        UITestLaunch.server.offline = false
+        UITestLaunch.server.holdFeed()
+        defer { UITestLaunch.server.releaseFeed() }
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
+        environment.settings.serverURL = UITestLaunch.fakeServer
+        environment.scenePhaseChanged(.background)
+        let task = RecordingRefreshTask()
+        let refresh = Task { await environment.backgroundRefresh(task) }
+        try await eventually("startup is fetching") { UITestLaunch.server.heldCount == 1 }
+
+        environment.scenePhaseChanged(.active)
+        let session = try #require(environment.session)
+        try await eventually("activated") { !session.isBackgrounded }
+        let cancelled = UITestLaunch.server.cancelledCount
+        task.expire()
+        try await eventually("completed") { task.completions == [false] }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(UITestLaunch.server.cancelledCount == cancelled, "the expiry cancelled the foreground's connect")
+
+        UITestLaunch.server.releaseFeed()
+        await refresh.value
+        try await eventually("connected") { session.phase == .ready }
+        #expect(!session.isBackgrounded)
+        await session.shutdown()
+    }
+
+    /// The other order: the refresh's time runs out first (the start is cancelled), and the app
+    /// is opened while that start is still unwinding. The activation waits for it to end, sees it
+    /// was interrupted, and connects.
+    @Test func activationWhileAnExpiredStartUnwindsConnects() async throws {
+        UITestLaunch.server.offline = false
+        UITestLaunch.server.holdFeed()
+        UITestLaunch.server.holdCancellations()
+        defer { UITestLaunch.server.releaseFeed() }
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
+        environment.settings.serverURL = UITestLaunch.fakeServer
+        environment.scenePhaseChanged(.background)
+        let task = RecordingRefreshTask()
+        let refresh = Task { await environment.backgroundRefresh(task) }
+        try await eventually("startup is fetching") { UITestLaunch.server.heldCount == 1 }
+        let cancelled = UITestLaunch.server.cancelledCount
+
+        task.expire()
+        try await eventually("the start is cancelled") { UITestLaunch.server.cancelledCount == cancelled + 1 }
+        try await eventually("completed") { task.completions == [false] }
+        environment.scenePhaseChanged(.active)  // the cancelled start hasn't ended yet
+        let session = try #require(environment.session)
+        try await eventually("activated") { !session.isBackgrounded }
+
+        UITestLaunch.server.releaseFeed()  // the start ends, interrupted
+        await refresh.value
+        try await eventually("connected") { session.phase == .ready }
+        await session.shutdown()
+    }
+
+    /// Settings' "Sync now" (`refresh`): with nothing to send it still pulls, so the last sync
+    /// moves; after failing pulls, a successful one clears the failure.
+    @Test func syncNowPullsEvenWithNothingToSend() async throws {
+        let (environment, session, observing) = try await started()
+        defer { observing.cancel() }
+        try await eventually("first pull") { session.syncStatus.lastSyncAt != nil }
+        let first = try #require(session.syncStatus.lastSyncAt)
+        #expect(environment.sync.summary.map { $0.queued + $0.failed } ?? 0 == 0)
+
+        UITestLaunch.server.offline = true
+        await environment.sync.refresh()
+        try await eventually("the pull failed") { session.syncStatus.lastFailure != nil }
+        #expect(session.syncStatus.lastSyncAt == first)
+
+        UITestLaunch.server.offline = false
+        let requests = UITestLaunch.server.requestCount
+        await environment.sync.refresh()
+        try await eventually("pulled again") {
+            (session.syncStatus.lastSyncAt ?? first) > first && session.syncStatus.lastFailure == nil
+        }
+        #expect(UITestLaunch.server.requestCount > requests, "it asked the server")
+        await session.shutdown()
+    }
+
+    @Test func backgroundRefreshPullsSendsAndCompletes() async throws {
+        let (environment, session, observing) = try await started()
+        defer { observing.cancel() }
+
+        // In the foreground there is nothing to do.
+        environment.scenePhaseChanged(.active)
+        let foreground = RecordingRefreshTask()
+        await environment.backgroundRefresh(foreground)
+        #expect(foreground.completions == [true] && foreground.hasExpirationHandler)  // installed first
+
+        // In the background: pull, send, complete; the expiration handler is in place.
+        UITestLaunch.server.offline = true
+        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .string("bad")], version: 1)
+        try await eventually("queued") { environment.sync.summary?.queued == 1 }
+        // The background flush can't send it (still unreachable); then the refresh can.
+        environment.scenePhaseChanged(.background)
+        try await eventually("backgrounded and paused") { await session.scheduler?.isPaused == true }
+        #expect(try await session.outbox?.summary().queued == 1)
+        UITestLaunch.server.offline = false
+        let task = RecordingRefreshTask()
+        await environment.backgroundRefresh(task)
+        #expect(task.completions == [true] && task.hasExpirationHandler)
+        #expect(try await session.outbox?.summary().queued == 0)
+        await session.shutdown()
+    }
+
+    /// The launch handler `BackgroundRefresh.register` gives the scheduler, called as the system
+    /// calls it: on a queue of the scheduler's own, off the main thread. TestFlight 0.1.0
+    /// (20261021.194105) trapped there on every background refresh: the handler was isolated to the
+    /// main actor, which Swift 6 checks at its entry (without the fix, this test process crashes).
+    /// The expiration handler is in place before the handler returns; the refresh then sends the
+    /// entry the background flush couldn't, and completes.
+    @Test func theRegisteredLaunchHandlerRunsOffTheMainThread() async throws {
+        let (environment, session, observing) = try await started()
+        defer { observing.cancel() }
+        UITestLaunch.server.offline = true
+        _ = try await session.log(topic: UITestSyncControls.topic, answers: ["mood": .string("ok")], version: 1)
+        try await eventually("queued") { environment.sync.summary?.queued == 1 }
+        environment.scenePhaseChanged(.background)
+        try await eventually("backgrounded and paused") { await session.scheduler?.isPaused == true }
+        UITestLaunch.server.offline = false
+
+        let registered = try register(environment)
+        let task = RecordingBGTask.make()
+        let sentBefore = UITestLaunch.server.sentRequests.count
+        let (onMain, handlerInPlace) = await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                registered.handler(task)
+                continuation.resume(returning: (Thread.isMainThread, task.hasExpirationHandler))
+            }
+        }
+        #expect(!onMain && handlerInPlace)
+        try await eventually("completed") { !task.completions.isEmpty }
+        #expect(task.completions == [true])
+        #expect(try await session.outbox?.summary().queued == 0, "the refresh sent the entry")
+        let sent = UITestLaunch.server.sentRequests.dropFirst(sentBefore)
+        #expect(sent.contains { $0.hasPrefix("POST /api/v1/topics/") && $0.hasSuffix("/entries") }, "\(sent)")
+        #expect(sent.contains("GET /api/v1/changes"), "\(sent)")
+        await session.shutdown()
+    }
+
+    /// The time runs out before the refresh reaches the main actor (held here): the task completes
+    /// unsuccessfully at once, on the scheduler's queue, and only once.
+    @Test func expiryBeforeTheMainActorCompletesTheTaskAtOnce() async throws {
+        let (environment, session, observing) = try await started()
+        defer { observing.cancel() }
+        environment.scenePhaseChanged(.background)
+        try await eventually("backgrounded and paused") { await session.scheduler?.isPaused == true }
+
+        let registered = try register(environment)
+        let task = RecordingBGTask.make()
+        let atExpiry = Self.launchAndExpireHoldingTheMainActor(registered, task)
+        #expect(atExpiry == [false])
+        // The refresh reaches the main actor afterwards: its own expiry work, no second completion.
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(task.completions == [false])
+        await session.shutdown()
+    }
+
+    private func register(_ environment: AppEnvironment) throws -> KeepingScheduler.Registration {
+        KeepingScheduler.registered.withLock { $0 = nil }
+        BackgroundRefresh.register(environment, scheduler: KeepingScheduler.make())
+        let registered = try #require(KeepingScheduler.registered.withLock { $0 })
+        #expect(registered.identifier == BackgroundRefresh.identifier)
+        return registered
+    }
+
+    /// Synchronous, so the main actor waits (nothing it was asked to run can start meanwhile):
+    /// launches, expires at once, and returns the completions as they were right then.
+    private nonisolated static func launchAndExpireHoldingTheMainActor(
+        _ registered: KeepingScheduler.Registration, _ task: RecordingBGTask
+    ) -> [Bool] {
+        let done = DispatchSemaphore(value: 0)
+        let result = Mutex<[Bool]>([])
+        DispatchQueue.global().async {
+            registered.handler(task)
+            task.expire()
+            result.withLock { $0 = task.completions }
+            done.signal()
+        }
+        done.wait()
+        return result.withLock { $0 }
+    }
+
+    // MARK: - Push (REG) around startup
+
+    /// The time runs out mid-start: no push work after it (none is even created). Opening the app
+    /// later creates push and activates it once, cold.
+    @Test func expiryDuringStartupLeavesPushToTheNextActivation() async throws {
+        UITestLaunch.server.offline = false
+        UITestLaunch.server.holdFeed()
+        defer { UITestLaunch.server.releaseFeed() }
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
+        environment.settings.serverURL = UITestLaunch.fakeServer
+        environment.scenePhaseChanged(.background)
+        let task = RecordingRefreshTask()
+        let refresh = Task { await environment.backgroundRefresh(task) }
+        try await eventually("startup is fetching") { UITestLaunch.server.heldCount == 1 }
+        task.expire()
+        try await eventually("completed") { task.completions == [false] }
+        UITestLaunch.server.releaseFeed()
+        await refresh.value
+        #expect(environment.push == nil, "push work after the expiry")
+
+        environment.scenePhaseChanged(.active)
+        try await eventually("push activated") { environment.push?.activations.isEmpty == false }
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(environment.push?.activations == [true])
+        #expect(environment.session?.phase == .ready)
+        await environment.session?.shutdown()
+    }
+
+    /// The app is opened while startup is connecting, then backgrounded before it finishes, and the
+    /// background time runs out: the start stops, and the `.active` waiting for it does no push
+    /// work either.
+    @Test func backgroundedBeforeStartupFinishesThenExpiredActivatesNoPush() async throws {
+        UITestLaunch.server.offline = false
+        UITestLaunch.server.holdFeed()
+        defer { UITestLaunch.server.releaseFeed() }
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
+        environment.settings.serverURL = UITestLaunch.fakeServer
+        let starting = Task { await environment.start() }
+        try await eventually("startup is fetching") { UITestLaunch.server.heldCount == 1 }
+        environment.scenePhaseChanged(.active)
+        environment.scenePhaseChanged(.inactive)
+        environment.scenePhaseChanged(.background)
+        let task = RecordingRefreshTask()
+        let refresh = Task { await environment.backgroundRefresh(task) }
+        try await eventually("the refresh is waiting for the start") { task.hasExpirationHandler }
+        task.expire()
+        try await eventually("completed") { task.completions == [false] }
+        UITestLaunch.server.releaseFeed()
+        await refresh.value
+        await starting.value
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(environment.push == nil, "push work after the expiry")
+        await environment.session?.shutdown()
+    }
+
+    /// Launch: the start and the first `.active` both reach push, in either order; it is activated
+    /// once. A return from the background activates it again, warm.
+    @Test(arguments: [false, true])
+    func launchActivatesPushOncePerTripToTheForeground(activeFirst: Bool) async throws {
+        UITestLaunch.server.offline = false
+        // Its own center for GRDB's suspend and resume: on `.default` a background here would
+        // suspend every other suite's database in this process (QuickrLifecycleTests covers the real one).
+        let notifications = NotificationCenter()
+        let environment = UITestLaunch.environment(categoryCenter: nil, notificationCenter: notifications)
+        environment.settings.serverURL = UITestLaunch.fakeServer
+        if activeFirst { environment.scenePhaseChanged(.active) }
+        await environment.start()
+        if !activeFirst { environment.scenePhaseChanged(.active) }
+        let push = try #require(environment.push)
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(push.activations == [true], "launch")
+
+        // A real return passes through .inactive.
+        environment.scenePhaseChanged(.inactive)
+        environment.scenePhaseChanged(.background)
+        environment.scenePhaseChanged(.inactive)
+        environment.scenePhaseChanged(.active)
+        try await eventually("activated again") { push.activations.count == 2 }
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(push.activations == [true, false], "back from the background")
+        await environment.session?.shutdown()
+    }
+}
+
+final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func increment() { lock.withLock { value += 1 } }
+    var count: Int { lock.withLock { value } }
+}
+
+/// A stand-in `BGAppRefreshTask`; `expire()` runs the expiration handler as the system would.
+final class RecordingRefreshTask: BackgroundRefreshTask {
+    func expire() { state.withLock { $0.handler }?() }
+
+    private let state = Mutex<(completions: [Bool], handler: (@Sendable () -> Void)?)>(([], nil))
+
+    var completions: [Bool] { state.withLock { $0.completions } }
+    var hasExpirationHandler: Bool { state.withLock { $0.handler != nil } }
+
+    func onExpiration(_ handler: @escaping @Sendable () -> Void) { state.withLock { $0.handler = handler } }
+
+    func complete(success: Bool) { state.withLock { $0.completions.append(success) } }
+}
+
+/// A `BGTaskScheduler` that keeps the launch handler instead of registering it. The real one has
+/// no public initializer, so it is made without one (it has no stored properties to set up), and
+/// kept for the process: its own `-dealloc` never runs on an instance its `-init` never set up.
+final class KeepingScheduler: BGTaskScheduler, @unchecked Sendable {
+    struct Registration: @unchecked Sendable {
+        let identifier: String
+        let handler: (BGTask) -> Void
+    }
+
+    static let registered = Mutex<Registration?>(nil)
+
+    static func make() -> KeepingScheduler {
+        let scheduler = class_createInstance(KeepingScheduler.self, 0) as! KeepingScheduler
+        Immortal.keep(scheduler)
+        return scheduler
+    }
+
+    override func register(
+        forTaskWithIdentifier identifier: String, using queue: DispatchQueue?,
+        launchHandler: @escaping (BGTask) -> Void
+    ) -> Bool {
+        Self.registered.withLock { $0 = Registration(identifier: identifier, handler: launchHandler) }
+        return true
+    }
+}
+
+/// A `BGAppRefreshTask` that keeps its expiration handler and records how it completed. Made
+/// without an initializer and kept for the process, like `KeepingScheduler`; its records live in
+/// a static table keyed by the instance, since it has no stored properties.
+final class RecordingBGTask: BGAppRefreshTask, @unchecked Sendable {
+    private struct Record {
+        var completions: [Bool] = []
+        var expirationHandler: (() -> Void)?
+    }
+
+    private nonisolated(unsafe) static var records: [ObjectIdentifier: Record] = [:]
+    private static let lock = NSLock()
+
+    static func make() -> RecordingBGTask {
+        let task = class_createInstance(RecordingBGTask.self, 0) as! RecordingBGTask
+        Immortal.keep(task)
+        return task
+    }
+
+    private func record<T>(_ body: (inout Record) -> T) -> T {
+        Self.lock.withLock { body(&Self.records[ObjectIdentifier(self), default: Record()]) }
+    }
+
+    var completions: [Bool] { record { $0.completions } }
+    var hasExpirationHandler: Bool { record { $0.expirationHandler != nil } }
+
+    /// What the system does when the time is up.
+    func expire() { record { $0.expirationHandler }?() }
+
+    override var expirationHandler: (() -> Void)? {
+        get { record { $0.expirationHandler } }
+        set { record { $0.expirationHandler = newValue } }
+    }
+
+    override func setTaskCompleted(success: Bool) { record { $0.completions.append(success) } }
+}
+
+/// Objects kept until the process ends.
+enum Immortal {
+    private nonisolated(unsafe) static var objects: [AnyObject] = []
+    private static let lock = NSLock()
+    static func keep(_ object: AnyObject) { lock.withLock { objects.append(object) } }
+}

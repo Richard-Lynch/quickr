@@ -9,6 +9,7 @@ import {
   listTopicVersionsOptions,
 } from '../../client/@tanstack/react-query.gen';
 import type { EntryOut, TopicDetail, TopicVersionOut } from '../../client';
+import { ChannelBadge } from '../../components/ChannelBadge';
 import { FilterBar } from '../../components/FilterBar';
 import { Button, buttonClass, ButtonLink } from '../../components/ui/Button';
 import { Badge, Banner, Card, EmptyState, VersionTag } from '../../components/ui/Card';
@@ -59,13 +60,14 @@ function pendingAsEntry(item: OutboxItem<EntryCreatePayload>, topic: TopicDetail
   const types = new Map(topic.questions.map((q) => [q.key, q.type]));
   const answers = Object.entries(b.answers).flatMap(([key, value]) => {
     const type = types.get(key);
-    if (!type || value === null || value === undefined) return [];
+    if (!type || value === null) return [];
     return [{ key, type: type === 'enum' && Array.isArray(value) ? 'enum_list' : type, value }];
   }) as EntryOut['answers'];
   return {
     id: item.id,
     topic_id: topic.id,
     version: b.version ?? topic.current_version,
+    revision: 0, // not on the server yet
     source: b.source ?? 'ui',
     channel: 'ui',
     captured_at: b.captured_at ?? item.created_at,
@@ -284,6 +286,7 @@ export function EntriesPage() {
                   ) : null}
                   <div className="mt-3 flex items-center gap-2 text-xs text-muted">
                     <Badge>{s.source}</Badge>
+                    <ChannelBadge channel={s.channel} showUi={false} />
                     <span>{formatRelative(s.captured_at)}</span>
                   </div>
                 </Card>
@@ -346,7 +349,12 @@ export function EntriesPage() {
                         </td>
                       );
                     })}
-                    <td className="px-3 py-3 text-muted">{s.source}</td>
+                    <td className="px-3 py-3 text-muted">
+                      <span className="inline-flex items-center gap-1.5">
+                        {s.source}
+                        <ChannelBadge channel={s.channel} showUi={false} />
+                      </span>
+                    </td>
                     <td className="px-3 py-3 font-mono text-muted">{s.version}</td>
                     <td className="pr-3">
                       <Link

@@ -250,3 +250,21 @@ async def test_validation_errors_inside_tools_are_described(mcp_client: Client[A
         )
     with pytest.raises(ToolError, match="invalid arguments: name: "):
         await mcp_client.call_tool("update_topic", {"ref": "sleep-log", "name": ""})
+
+
+async def test_single_topics_through_mcp(mcp_client: Client[Any]) -> None:
+    # A single topic (no questions): created, logged with no answers, and its stats.
+    topic = await call(mcp_client, "create_topic", name="Took vitamins", questions=[])
+    assert topic["questions"] == []
+    entry = await call(mcp_client, "record_entry", ref="took-vitamins", answers={})
+    assert entry["answers"] == []
+    stats = await call(mcp_client, "topic_stats", ref="took-vitamins")
+    assert stats["entry_count"] == 1
+    assert stats["questions"] == []
+    # Unchanged (still none) is "no changes"; adding a question is a normal new version.
+    same = await call(mcp_client, "check_topic_version", ref="took-vitamins", questions=[])
+    assert same["ok"] is False
+    dose = [{"key": "dose", "label": "Dose", "type": "int", "required": False}]
+    report = await call(mcp_client, "check_topic_version", ref="took-vitamins", questions=dose)
+    assert report["ok"] is True
+    assert report["changes"] == [{"kind": "added", "question_key": "dose", "details": []}]

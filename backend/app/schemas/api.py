@@ -15,6 +15,7 @@ from pydantic import (
     Field,
     StrictBool,
     StrictInt,
+    WithJsonSchema,
     field_validator,
     model_validator,
 )
@@ -24,13 +25,17 @@ from app.models import Channel, TopicStatus
 from app.push_guard import PushEndpointRejected, check_endpoint
 from app.schemas.base import FieldIssue, Problem, StrictModel, field_error
 from app.schemas.limits import (
+    APNS_TOKEN_PATTERN,
+    BUNDLE_ID_PATTERN,
     CAPTURED_AT_MAX_FUTURE_HOURS,
     CAPTURED_AT_MIN,
     INTERVAL_MAX_MINUTES,
     INTERVAL_MIN_MINUTES,
+    MAX_APP_VERSION_LENGTH,
     MAX_CHANGE_NOTE_LENGTH,
     MAX_DECIMALS,
     MAX_DESCRIPTION_LENGTH,
+    MAX_DEVICE_NAME_LENGTH,
     MAX_ENUM_OPTIONS,
     MAX_HELP_TEXT_LENGTH,
     MAX_LABEL_LENGTH,
@@ -179,6 +184,16 @@ class DueStatus(StrictModel):
     last_entry_at: datetime | None
 
 
+ExpectedRevision = Annotated[
+    StrictInt | None,
+    Field(
+        ge=1,
+        description="Optional optimistic-concurrency guard: the revision this change was based on. "
+        "When it no longer matches, the change is rejected with 409 stale_revision.",
+    ),
+]
+
+
 # ---------------------------------------------------------------------------
 # Topics
 # ---------------------------------------------------------------------------
@@ -202,6 +217,7 @@ class TopicUpdate(StrictModel):
     slug: Slug | None = None
     description: Description | None = None
     schedule: Schedule | None = None
+    expected_revision: ExpectedRevision = None
 
 
 class TopicSummary(StrictModel):
@@ -211,6 +227,7 @@ class TopicSummary(StrictModel):
     description: str
     status: TopicStatus
     current_version: int
+    revision: int = Field(description="Bumped on every change to the topic's own fields.")
     question_count: int
     entry_count: int
     last_captured_at: datetime | None
@@ -347,13 +364,28 @@ AnswerOut = Annotated[
     IntAnswer | DoubleAnswer | StrAnswer | EnumAnswer | EnumListAnswer, Field(discriminator="type")
 ]
 
+# The schema is spelled out: pydantic would emit ``patternProperties`` (from the key
+# pattern), which code generators such as swift-openapi-generator drop. Validation is
+# unchanged; ``number`` covers integers, so there is no separate integer branch.
 AnswerMap = Annotated[
     dict[QuestionKey, AnswerValue | None],
-    Field(
-        description="Map of question key -> value. int questions take integers, double questions "
-        "numbers, str questions strings, enum questions an option value, multi-select enum questions "
-        "a list of option values. null/absent/empty list = unanswered.",
-        examples=[{"hours_slept": 7.5, "quality": "good", "factors": ["caffeine", "screen"]}],
+    WithJsonSchema(
+        {
+            "type": "object",
+            "propertyNames": {"pattern": KEY_PATTERN},
+            "additionalProperties": {
+                "anyOf": [
+                    {"type": "number"},
+                    {"type": "string"},
+                    {"type": "array", "items": {"type": "string"}},
+                    {"type": "null"},
+                ]
+            },
+            "description": "Map of question key -> value. int questions take integers, double "
+            "questions numbers, str questions strings, enum questions an option value, multi-select "
+            "enum questions a list of option values. null/absent/empty list = unanswered.",
+            "examples": [{"hours_slept": 7.5, "quality": "good", "factors": ["caffeine", "screen"]}],
+        }
     ),
 ]
 
@@ -408,12 +440,14 @@ class EntryUpdate(StrictModel):
     captured_at: CapturedAt = None
     notes: Notes | None = None
     meta: Meta | None = None
+    expected_revision: ExpectedRevision = None
 
 
 class EntryOut(StrictModel):
     id: UUID
     topic_id: UUID
     version: int
+    revision: int = Field(description="Bumped on every update.")
     source: str
     channel: Channel
     captured_at: datetime
@@ -608,6 +642,10 @@ class PushConfig(StrictModel):
         description="VAPID public key (base64url, uncompressed P-256 point): the applicationServerKey "
         "for PushManager.subscribe()."
     )
+    apns_enabled: bool = Field(
+        description="Whether this server can send APNs notifications (to the iOS app). When false, "
+        "devices can still register, but nothing is sent to them."
+    )
 
 
 class PushKeys(StrictModel):
@@ -643,11 +681,176 @@ class PushTestResult(StrictModel):
     failed: int
 
 
+class QuickLogOption(StrictModel):
+    value: str
+    label: str
+
+
+class QuickLogEnum(StrictModel):
+    """A single-select enum a notification can log: the options it offers as actions.
+
+    With 1-4 active options, all of them, in question order. With 5-6, the 3 most-used
+    (most-used first, ties in question order), and a "More…" action opens the record
+    screen (docs/ios/specs/notifications.md §2.3).
+    """
+
+    type: Literal["enum"] = "enum"
+    key: str
+    label: str
+    options: list[QuickLogOption]
+    total_options: int  # the number of active options
+
+
+class QuickLogNumber(StrictModel):
+    """An int or double question a notification can log, with its latest valid value."""
+
+    type: Literal["int", "double"]
+    key: str
+    label: str
+    unit: str | None
+    min: int | float | None
+    max: int | float | None
+    decimals: int | None
+    last_value: int | float | None
+
+
+class QuickLogSingle(StrictModel):
+    """A topic with no questions (a "single" topic): its reminder logs it with one action,
+    "Log it", an entry with no answers (docs/ios/specs/notifications.md §4.1).
+    """
+
+    type: Literal["single"] = "single"
+
+
+type QuickLogDescriptor = QuickLogEnum | QuickLogNumber | QuickLogSingle
+
+
 class PushPayload(StrictModel):
-    """JSON body of every push message (consumed by the service worker)."""
+    """JSON body of every Web Push message (consumed by the service worker).
+
+    The first five fields are the original contract. The rest carry the actionable
+    fields, with the same shapes as the APNs payload's ``quickr`` dict (null on a test
+    push); older service workers ignore them.
+    """
 
     title: str
     body: str
     url: str
     tag: str
     topic_slug: str | None = None
+    v: int = 1
+    kind: Literal["due", "test"] = "due"
+    server_id: str | None = None
+    topic_id: str | None = None
+    version: int | None = None
+    due_since: str | None = None  # canonical: UTC, whole seconds, "Z"
+    quick_log: QuickLogEnum | QuickLogNumber | QuickLogSingle | None = None
+
+
+ApnsToken = Annotated[
+    str,
+    Field(pattern=APNS_TOKEN_PATTERN, description="The APNs device token, hex (stored lower-case)."),
+    AfterValidator(str.lower),
+]
+ApnsEnvironment = Literal["sandbox", "production"]
+
+
+class ApnsDeviceIn(StrictModel):
+    """An iOS app install's APNs registration, upserted by token (sent on every launch)."""
+
+    token: ApnsToken
+    environment: ApnsEnvironment = Field(
+        description="The APNs host the token belongs to: sandbox for debug builds, production for "
+        "TestFlight and App Store builds."
+    )
+    bundle_id: Annotated[str | None, Field(pattern=BUNDLE_ID_PATTERN)] = None
+    app_version: Annotated[str | None, Field(max_length=MAX_APP_VERSION_LENGTH)] = None
+    device_name: Annotated[str | None, Field(max_length=MAX_DEVICE_NAME_LENGTH)] = None
+
+    @field_validator("app_version", "device_name")
+    @classmethod
+    def _blank_is_none(cls, v: str | None) -> str | None:
+        return v or None
+
+
+class ApnsDeviceOut(StrictModel):
+    id: UUID
+    token: str
+    environment: ApnsEnvironment
+    bundle_id: str | None
+    app_version: str | None
+    device_name: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ApnsDeviceRef(StrictModel):
+    """One device, by token (unregister, test)."""
+
+    token: ApnsToken
+
+
+# ---------------------------------------------------------------------------
+# Change feed
+# ---------------------------------------------------------------------------
+
+
+class FeedEntry(StrictModel):
+    kind: Literal["entry"] = "entry"
+    seq: int
+    entry: EntryOut
+
+
+class FeedTopic(StrictModel):
+    """A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,
+    ``due``) are not re-sent when entries change: clients recompute them from entries."""
+
+    kind: Literal["topic"] = "topic"
+    seq: int
+    topic: TopicDetail
+
+
+class FeedVersion(StrictModel):
+    """A published question version (immutable; ``version.entry_count`` is as of this page)."""
+
+    kind: Literal["version"] = "version"
+    seq: int
+    id: UUID
+    topic_id: UUID
+    version: TopicVersionOut
+
+
+FeedItem = Annotated[FeedEntry | FeedTopic | FeedVersion, Field(discriminator="kind")]
+
+
+class FeedDeletion(StrictModel):
+    """A permanently deleted id. A topic deletion also deletes all of its versions and entries."""
+
+    kind: Literal["entry", "topic", "version"]
+    seq: int
+    id: UUID
+    topic_id: UUID
+    deleted_at: datetime
+
+
+class ChangesPage(StrictModel):
+    """One page of the change feed, read from a single consistent snapshot.
+
+    Each changed entity appears once, in its latest state (``items``) or as a deletion
+    (``deleted``). Apply ``items`` in order (topics, then versions, then entries), then
+    ``deleted`` (entries, then versions, then topics), then store ``next`` as the cursor.
+    """
+
+    items: list[FeedItem]
+    deleted: list[FeedDeletion]
+    next: int = Field(description="Cursor for the next page: the highest seq in this page.")
+    has_more: bool
+    head: int = Field(
+        description="The server's highest seq. A client cursor above it means the database was "
+        "restored or reset: treat it like an epoch change."
+    )
+    epoch: str = Field(
+        description="Changes when the database is restored or reset. On a mismatch, rebuild from after=0."
+    )
+    server_id: str = Field(description="Stable random id of this server (one local store per server).")
+    server_time: datetime

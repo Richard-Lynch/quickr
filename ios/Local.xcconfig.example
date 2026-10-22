@@ -1,0 +1,12 @@
+// Copy to ios/Local.xcconfig (gitignored) and fill in. Not needed for simulator builds.
+// Your Apple Developer Team ID (Membership details on developer.apple.com).
+DEVELOPMENT_TEAM =
+// Optional: the paired iPhone's identifier, for device installs (`xcrun devicectl list devices`).
+QUICKR_DEVICE =
+// Optional: the dev server the app talks to by default (escape `//` as `/$()/` in xcconfig).
+QUICKR_DEV_SERVER_URL = http:/$()/localhost:8100
+// Optional: onboarding's prefilled server address (Config/Shared.xcconfig sets
+// https://quickr.bahumia.com for Release, nothing for Debug). A plain setting here overrides
+// both configurations (checked with `xcodebuild -showBuildSettings`), so keep Debug empty for
+// the UI tests, which type their own address, by overriding Release only:
+// QUICKR_DEFAULT_SERVER_URL[config=Release] = https:/$()/quickr.example.com

@@ -1,0 +1,20 @@
+{
+  "body": {
+    "code": "entry_deleted",
+    "detail": "entry '0f1e2d3c-4b5a-4968-8778-000000000005' was deleted and can't be recreated",
+    "errors": []
+  },
+  "operation_id": "createEntry",
+  "request": {
+    "body": {
+      "answers": {
+        "glasses": 1
+      },
+      "captured_at": "2026-03-04T07:00:00Z",
+      "id": "0f1e2d3c-4b5a-4968-8778-000000000005"
+    },
+    "method": "POST",
+    "path": "/api/v1/topics/water/entries"
+  },
+  "status": 409
+}

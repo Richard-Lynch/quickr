@@ -1,0 +1,13 @@
+{
+  "body": {
+    "apns_enabled": true,
+    "public_key": "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "operation_id": "getPushConfig",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/push/config"
+  },
+  "status": 200
+}

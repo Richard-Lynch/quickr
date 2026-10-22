@@ -1,0 +1,32 @@
+{
+  "configurations" : [
+    {
+      "id" : "7A4B2C9E-5D1F-4E3A-8B6C-2D9F0E1A3B4C",
+      "name" : "Default",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : false,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:quickR.xcodeproj",
+      "identifier" : "FBF13E34ED2D154BC1EAF4DE",
+      "name" : "QuickR"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:quickR.xcodeproj",
+        "identifier" : "A932D006A482F51C1112AC08",
+        "name" : "QuickRUITests"
+      },
+      "selectedTests" : [
+        "WidgetGalleryTests"
+      ]
+    }
+  ],
+  "version" : 1
+}

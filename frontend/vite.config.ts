@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig, searchForWorkspaceRoot } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // Where the dev/preview server proxies /api and /mcp (`QUICKR_API_TARGET=http://localhost:8200`).
@@ -102,6 +102,8 @@ export default defineConfig({
     port: Number(process.env.PORT ?? 5180),
     strictPort: true,
     proxy,
+    // Tests read the cross-platform vectors in ../shared/fixtures (quickLog.vectors.test.ts).
+    fs: { allow: [searchForWorkspaceRoot(process.cwd()), '../shared/fixtures'] },
   },
   preview: { port: Number(process.env.PREVIEW_PORT ?? 5180), proxy },
   test: {

@@ -40,10 +40,16 @@ export interface OutboxRequest {
   url: string;
   /** JSON-serialisable body. */
   body?: unknown;
+  /** Extra request headers for this item (e.g. an identity precondition). */
+  headers?: Readonly<Record<string, string>>;
 }
 
-/** What to do with an item after an attempt. */
-export type Outcome = 'ok' | 'retry' | 'terminal';
+/**
+ * What to do with an item after an attempt. `retired`: the server says the operation can
+ * never happen and needn't (e.g. creating an entry whose id was deleted): the item is
+ * removed without counting as a failure, and effects roll back its optimistic patch.
+ */
+export type Outcome = 'ok' | 'retry' | 'terminal' | 'retired';
 
 export interface OutboxKind<P = unknown> {
   /**
@@ -51,8 +57,11 @@ export interface OutboxKind<P = unknown> {
    * starting to send the client id — apply to items already waiting in the queue.
    */
   toRequest(item: OutboxItem<P>): OutboxRequest;
-  /** Override the default status classification (e.g. treat 404 on DELETE as done). */
-  classify?(status: number): Outcome | undefined;
+  /**
+   * Override the default status classification (e.g. treat 404 on DELETE as done).
+   * `body` is the parsed JSON response, when there is one (usually a `Problem`).
+   */
+  classify?(status: number, body: unknown): Outcome | undefined;
 }
 
 export type OutboxEvent =
@@ -62,12 +71,14 @@ export type OutboxEvent =
   | { type: 'retrying'; item: OutboxItem }
   | { type: 'failed'; item: OutboxItem }
   | { type: 'discarded'; item: OutboxItem }
+  | { type: 'retired'; item: OutboxItem; error: OutboxError }
   | { type: 'cleared' };
 
 export interface FlushResult {
   sent: number;
   failed: number;
   retrying: number;
+  retired: number;
   /** Items still in the outbox (pending + failed) after the flush. */
   remaining: number;
 }
@@ -76,4 +87,6 @@ export type SendNowResult =
   | { status: 'sent'; data: unknown }
   | { status: 'failed'; item: OutboxItem }
   | { status: 'queued'; item: OutboxItem | undefined }
+  /** The server said it can never happen (e.g. the entry was deleted); the item is gone. */
+  | { status: 'retired'; item: OutboxItem; error: OutboxError }
   | { status: 'discarded' };

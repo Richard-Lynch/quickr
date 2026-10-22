@@ -1,0 +1,94 @@
+{
+  "body": {
+    "code": "conflict",
+    "detail": "topic is at version 2, but this edit was based on version 1; reload and re-apply your changes",
+    "errors": [
+      {
+        "loc": [
+          "base_version"
+        ],
+        "message": "current version is 2"
+      }
+    ]
+  },
+  "operation_id": "publishTopicVersion",
+  "request": {
+    "body": {
+      "base_version": 1,
+      "questions": [
+        {
+          "key": "glasses",
+          "label": "Glasses of water",
+          "max": 30,
+          "min": 0,
+          "type": "int",
+          "unit": "glasses"
+        },
+        {
+          "decimals": 1,
+          "help_text": "Time actually asleep.",
+          "key": "hours",
+          "label": "Hours slept",
+          "max": 24,
+          "min": 0,
+          "type": "double",
+          "unit": "h"
+        },
+        {
+          "key": "mood",
+          "label": "Mood",
+          "options": [
+            {
+              "label": "Great",
+              "value": "great"
+            },
+            {
+              "label": "OK",
+              "value": "ok"
+            },
+            {
+              "archived": true,
+              "label": "Poor",
+              "value": "poor"
+            }
+          ],
+          "type": "enum"
+        },
+        {
+          "key": "factors",
+          "label": "Factors",
+          "max_selected": 2,
+          "min_selected": 1,
+          "multiple": true,
+          "options": [
+            {
+              "label": "Caffeine",
+              "value": "caffeine"
+            },
+            {
+              "label": "Screens",
+              "value": "screens"
+            },
+            {
+              "label": "Exercise",
+              "value": "exercise"
+            }
+          ],
+          "required": false,
+          "type": "enum"
+        },
+        {
+          "key": "note",
+          "label": "Note",
+          "max_length": 280,
+          "multiline": true,
+          "required": false,
+          "type": "str"
+        }
+      ]
+    },
+    "method": "POST",
+    "path": "/api/v1/topics/everything/versions"
+  },
+  "status": 409
+}

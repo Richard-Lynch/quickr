@@ -42,3 +42,28 @@ def test_committed_spec_matches() -> None:
     assert committed == json.loads(json.dumps(spec())), (
         "openapi.json is stale; run `PYTHONPATH=. uv run python scripts/export_openapi.py`"
     )
+
+
+def _answers_map(schema: dict[str, Any]) -> dict[str, Any]:
+    if "anyOf" in schema:  # optional on update: anyOf [map, null]
+        (schema,) = (s for s in schema["anyOf"] if s.get("type") == "object")
+    return schema
+
+
+def test_answers_map_uses_additional_properties() -> None:
+    """Swift's generator drops patternProperties, so the answers map is spelled out explicitly."""
+    schemas = spec()["components"]["schemas"]
+    for model in ("EntryCreate", "EntryUpdate"):
+        answers = _answers_map(schemas[model]["properties"]["answers"])
+        assert answers["type"] == "object"
+        assert "patternProperties" not in answers
+        assert answers["propertyNames"] == {"pattern": "^[a-z][a-z0-9_]{0,62}$"}
+        assert answers["additionalProperties"] == {
+            "anyOf": [
+                {"type": "number"},
+                {"type": "string"},
+                {"type": "array", "items": {"type": "string"}},
+                {"type": "null"},
+            ]
+        }
+        assert answers["description"].startswith("Map of question key")

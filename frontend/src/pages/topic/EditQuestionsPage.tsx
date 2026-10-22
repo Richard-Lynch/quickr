@@ -30,6 +30,7 @@ import {
   type TopicDraft,
   type VersionDraftOutput,
 } from '../../lib/builder';
+import { inputMaxLength } from '../../lib/text';
 import { useUnsavedChangesGuard } from '../../lib/unsavedChanges';
 import { useTopic } from './TopicLayout';
 
@@ -258,7 +259,7 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
                     id={id}
                     aria-describedby={describedBy}
                     rows={2}
-                    maxLength={2000}
+                    maxLength={inputMaxLength(limits.max_change_note_length)}
                     placeholder="What changed and why?"
                     {...form.register('change_note')}
                   />

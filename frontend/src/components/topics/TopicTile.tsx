@@ -54,6 +54,9 @@ export function DueBadge({ view, className }: { view: DueView; className?: strin
 
 export function TopicTile({ topic: t, now }: { topic: TopicSummary; now: Date }) {
   const archived = t.status === 'archived';
+  // A topic with no questions logs with one tap: the tile and its Log button log it at once.
+  const single = !archived && t.question_count === 0;
+  const logSingle = useSingleLog(t);
   const detail = useQuery({
     ...getTopicOptions({ path: { ref: t.slug } }),
     staleTime: DETAIL_STALE_MS,
@@ -62,7 +65,9 @@ export function TopicTile({ topic: t, now }: { topic: TopicSummary; now: Date })
   // Only trust details that match the list's version (a publish elsewhere = refetch).
   const questions =
     detail.data?.current_version === t.current_version ? detail.data.questions : null;
-  const quick = !archived && questions ? quickLogFor(questions) : null;
+  const found = !archived && questions ? quickLogFor(questions) : null;
+  // A single topic logs from the tile itself (`single` above); chips and numbers answer a question.
+  const quick = found && found.kind !== 'single' ? found : null;
   // Quick tiles show (and number tiles start from) the last answer.
   const last = useQuery({
     ...lastEntryOptions(t.slug),
@@ -89,10 +94,29 @@ export function TopicTile({ topic: t, now }: { topic: TopicSummary; now: Date })
       <div className="flex min-w-0 flex-1 flex-col gap-2.5 py-3.5 pr-3 pl-4">
         <div className="flex min-w-0 flex-col gap-1">
           <h2 className="font-display text-[1.2rem] leading-tight font-semibold tracking-tight">
-            {/* The whole tile opens the topic; controls sit above this overlay. */}
-            <Link to={base} className="after:absolute after:inset-0 after:rounded-card">
-              {t.name}
-            </Link>
+            {single ? (
+              <>
+                {/* The whole tile logs it; its name still opens the topic, above the overlay.
+                    Hidden from screen readers and the tab order: "Log {name} now" is that control. */}
+                <button
+                  type="button"
+                  aria-hidden
+                  tabIndex={-1}
+                  data-testid="tile-log"
+                  disabled={logSingle.busy}
+                  onClick={logSingle.log}
+                  className="absolute inset-0 rounded-card disabled:cursor-wait"
+                />
+                <Link to={base} className="relative z-10">
+                  {t.name}
+                </Link>
+              </>
+            ) : (
+              /* The whole tile opens the topic; controls sit above this overlay. */
+              <Link to={base} className="after:absolute after:inset-0 after:rounded-card">
+                {t.name}
+              </Link>
+            )}
           </h2>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8rem] text-muted">
             <DueBadge view={due} />
@@ -117,7 +141,25 @@ export function TopicTile({ topic: t, now }: { topic: TopicSummary; now: Date })
         </div>
         {quick ? <QuickArea topic={t} quick={quick} last={lastAnswer?.value} /> : null}
       </div>
-      {!archived ? (
+      {single ? (
+        <button
+          type="button"
+          aria-label={`Log ${t.name} now`}
+          disabled={logSingle.busy}
+          onClick={logSingle.log}
+          className={cn(
+            'relative z-10 flex w-[5.25rem] shrink-0 flex-col items-center justify-center gap-1 border-l text-[0.95rem] font-semibold transition-[background-color,transform] select-none active:scale-[0.97] disabled:cursor-wait',
+            logSingle.logged
+              ? 'border-ok bg-ok text-white'
+              : isDue
+                ? 'border-accent-strong/30 bg-accent text-on-accent hover:bg-accent-strong'
+                : 'border-line bg-accent-soft text-accent-strong hover:brightness-[0.97]',
+          )}
+        >
+          <Icon name={logSingle.logged ? 'check' : 'plus'} className="size-6" strokeWidth={2.6} />
+          Log
+        </button>
+      ) : !archived ? (
         <Link
           to={`${base}/record`}
           aria-label={`Log ${t.name}`}
@@ -143,7 +185,7 @@ function QuickArea({
   last,
 }: {
   topic: TopicSummary;
-  quick: QuickLog;
+  quick: Exclude<QuickLog, { kind: 'single' }>;
   last: unknown;
 }) {
   return quick.kind === 'chips' ? (
@@ -155,6 +197,27 @@ function QuickArea({
 
 /** How long a tapped chip stays lit as confirmation (the Undo toast has the details). */
 const CONFIRM_MS = 1_600;
+
+/** Logging a single topic (no questions): an entry with no answers, with the Undo toast. */
+function useSingleLog(topic: TopicSummary) {
+  const log = useQuickLog();
+  const [busy, setBusy] = useState(false);
+  const [logged, setLogged] = useState(false);
+  return {
+    busy,
+    logged,
+    log: () => {
+      setBusy(true);
+      void log(topic, {}, { label: topic.name })
+        .then((r) => {
+          if (r.status === 'failed' || r.status === 'retired') return;
+          setLogged(true);
+          window.setTimeout(() => setLogged(false), CONFIRM_MS);
+        })
+        .finally(() => setBusy(false));
+    },
+  };
+}
 
 function QuickChips({
   topic,
@@ -191,7 +254,7 @@ function QuickChips({
               setBusy(o.value);
               void log(topic, { [quick.question.key]: o.value }, { label: o.label })
                 .then((r) => {
-                  if (r.status === 'failed') return;
+                  if (r.status === 'failed' || r.status === 'retired') return;
                   setLogged(o.value);
                   window.setTimeout(() => setLogged(null), CONFIRM_MS);
                 })
@@ -252,7 +315,7 @@ function QuickNumber({
     const label = `${value}${unit ? ` ${unit}` : ''}`;
     void log(topic, { [q.key]: parsed.value }, { label })
       .then((r) => {
-        if (r.status !== 'failed') {
+        if (r.status === 'sent' || r.status === 'queued') {
           numberDrafts.delete(topic.id);
           setTyped(null);
         }

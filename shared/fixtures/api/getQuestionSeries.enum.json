@@ -1,0 +1,37 @@
+{
+  "body": {
+    "bucket": "week",
+    "key": "mood",
+    "points": [
+      {
+        "count": 1,
+        "max": null,
+        "mean": null,
+        "min": null,
+        "option_counts": {
+          "great": 1
+        },
+        "start": "2026-02-23T00:00:00Z"
+      },
+      {
+        "count": 2,
+        "max": null,
+        "mean": null,
+        "min": null,
+        "option_counts": {
+          "ok": 1,
+          "poor": 1
+        },
+        "start": "2026-03-02T00:00:00Z"
+      }
+    ],
+    "type": "enum"
+  },
+  "operation_id": "getQuestionSeries",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/topics/everything/questions/mood/series?bucket=week&tz=Europe%2FLondon"
+  },
+  "status": 200
+}

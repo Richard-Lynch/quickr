@@ -3,16 +3,19 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from fastmcp.utilities.lifespan import combine_lifespans
 
+from app.api.identity import EPOCH_HEADER, SERVER_ID_HEADER, IdentityHeadersMiddleware
 from app.api.routes import router
 from app.config import get_settings
 from app.errors import DomainError
 from app.mcp_server import mcp
 from app.schemas.base import FieldIssue, Problem, error_loc, error_message
 from app.services import scheduler
+from app.services.push import apns
 
 
 def _operation_id(route: APIRoute) -> str:
@@ -25,14 +28,21 @@ def create_app() -> FastAPI:
         title="quickR API",
         version="1.0.0",
         description="Config-driven topics, questions and answer entries.",
-        lifespan=combine_lifespans(scheduler.lifespan, mcp_app.lifespan),
+        # Entered in order, exited in reverse: the scheduler stops before APNs closes.
+        lifespan=combine_lifespans(apns.lifespan, scheduler.lifespan, mcp_app.lifespan),
         generate_unique_id_function=_operation_id,
     )
+    # Innermost first. Feed pages and entry lists are large, repetitive JSON (~10x smaller
+    # compressed). The identity middleware answers unhandled errors itself, so they carry
+    # its headers; CORS wraps it, so those answers get CORS headers too.
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
+    app.add_middleware(IdentityHeadersMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=get_settings().cors_origins,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=[SERVER_ID_HEADER, EPOCH_HEADER],
     )
 
     @app.exception_handler(RequestValidationError)

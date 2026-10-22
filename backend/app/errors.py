@@ -41,3 +41,33 @@ class IncompatibleVersion(DomainError):
 class TopicArchived(DomainError):
     status_code = 409
     code = "topic_archived"
+
+
+class EntryDeleted(Conflict):
+    """The entry id was deleted (or reserved by a delete) and can never be recreated."""
+
+    code = "entry_deleted"
+
+
+class StaleRevision(Conflict):
+    """``expected_revision`` no longer matches: someone else changed the row first."""
+
+    code = "stale_revision"
+
+
+class ServerMismatch(Conflict):
+    """``X-QuickR-Expect-Server-Id`` names another server: nothing was changed."""
+
+    code = "server_mismatch"
+
+
+class EpochMismatch(Conflict):
+    """``X-QuickR-Expect-Epoch`` names an older feed epoch (restore/reset): nothing was changed."""
+
+    code = "epoch_mismatch"
+
+
+class ApnsDisabled(Conflict):
+    """APNs is not configured on this server (``GET /push/config`` says ``apns_enabled: false``)."""
+
+    code = "apns_disabled"

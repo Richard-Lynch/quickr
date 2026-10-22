@@ -45,7 +45,7 @@ jobs:
       - name: Ruff format
         run: uv run ruff format --check .
       - name: Mypy (strict)
-        run: uv run mypy app scripts tests
+        run: uv run mypy app scripts tools tests
       - name: OpenAPI spec is up to date
         run: |
           uv run python scripts/export_openapi.py /tmp/openapi.json
@@ -99,6 +99,11 @@ jobs:
           set -euo pipefail
           curl -fsS http://localhost:8080/ | grep -qi '<div id="root"'
           curl -fsS http://localhost:8080/api/v1/health
+          # The iOS app's associated-domains file: 200 (no redirect), JSON, exactly this body.
+          aasa=$(curl -sS -o /tmp/aasa.json -w '%{http_code} %{content_type}' \
+            http://localhost:8080/.well-known/apple-app-site-association)
+          test "$aasa" = "200 application/json" || { echo "AASA: $aasa"; exit 1; }
+          test "$(cat /tmp/aasa.json)" = '{"webcredentials":{"apps":["J26MC29Z55.com.bahumia.quickr"]}}'
           curl -fsS -X POST http://localhost:8080/api/v1/topics -H 'content-type: application/json' \
             -d '{"name":"Smoke","questions":[{"type":"int","key":"n","label":"N","min":0,"max":10}]}'
           curl -fsS -X POST http://localhost:8080/api/v1/topics/smoke/entries -H 'content-type: application/json' \

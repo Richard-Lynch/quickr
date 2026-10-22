@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import httpx
 import pytest
@@ -25,8 +26,10 @@ from app import push_guard
 from app.config import Settings
 from app.db import get_engine, get_sessionmaker
 from app.models import PushSubscription, Topic
+from app.services import notification, scheduler
 from app.services import push as push_svc
-from app.services import scheduler
+from app.services.push import apns, base
+from app.services.push import web as web_push
 from tests.helpers import backdate_schedule, make_topic, record
 
 QUESTIONS = [{"key": "n", "label": "N", "type": "int"}]
@@ -68,7 +71,7 @@ def outbox(monkeypatch: pytest.MonkeyPatch) -> list[Sent]:
             raise push_svc.PushFailed("500")
         sent.append(Sent(endpoint, json.loads(data), private_key, claims, ttl))
 
-    monkeypatch.setattr(push_svc, "deliver", fake_deliver)
+    monkeypatch.setattr(web_push, "deliver", fake_deliver)
     return sent
 
 
@@ -95,18 +98,18 @@ async def test_push_config_generates_and_persists_keys(client: httpx.AsyncClient
         {"sub": "mailto:admin@localhost", "aud": "https://push.example.com"}
     )
     assert "authorization" in {k.lower() for k in headers}
-    assert push_svc._public_from_private(keys.private_key) == first
+    assert web_push._public_from_private(keys.private_key) == first
 
 
 async def test_vapid_keys_from_env(clean_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
     keys = push_svc.generate_vapid_keys()
-    monkeypatch.setattr(push_svc, "get_settings", lambda: Settings(vapid_private_key=keys.private_key))
+    monkeypatch.setattr(web_push, "get_settings", lambda: Settings(vapid_private_key=keys.private_key))
     async with get_sessionmaker()() as db:
         assert await push_svc.get_vapid_keys(db) == keys  # public key derived
         stored = (await db.execute(text("SELECT count(*) FROM app_settings"))).scalar_one()
     assert stored == 0
     monkeypatch.setattr(
-        push_svc,
+        web_push,
         "get_settings",
         lambda: Settings(vapid_private_key=keys.private_key, vapid_public_key="explicit"),
     )
@@ -168,6 +171,13 @@ async def test_send_test_push(client: httpx.AsyncClient, outbox: list[Sent]) -> 
         "url": "/",
         "tag": "test",
         "topic_slug": None,
+        "v": 1,
+        "kind": "test",
+        "server_id": None,
+        "topic_id": None,
+        "version": None,
+        "due_since": None,
+        "quick_log": None,
     }
     assert outbox[0].claims == {"sub": "https://github.com/Richard-Lynch/quickr"}
     public = (await client.get("/push/config")).json()["public_key"]
@@ -207,15 +217,15 @@ def test_deliver_maps_push_service_errors(
         calls.append(kwargs)
         raise WebPushException("failed", response=_Response(status))
 
-    monkeypatch.setattr(push_svc, "webpush", fake_webpush)
-    monkeypatch.setattr(push_svc, "ensure_public", lambda host: None)
+    monkeypatch.setattr(web_push, "webpush", fake_webpush)
+    monkeypatch.setattr(web_push, "ensure_public", lambda host: None)
     claims: dict[str, str | int] = {"sub": "mailto:a@b"}
     with pytest.raises(error):
-        push_svc.deliver({"endpoint": "https://fcm.googleapis.com/x"}, "{}", "key", claims, 60)
+        web_push.deliver({"endpoint": "https://fcm.googleapis.com/x"}, "{}", "key", claims, 60)
     assert calls[0]["ttl"] == 60
     assert calls[0]["vapid_claims"] == claims
     assert calls[0]["vapid_claims"] is not claims  # pywebpush mutates claims; never share them
-    assert isinstance(calls[0]["requests_session"], push_svc._NoRedirectSession)
+    assert isinstance(calls[0]["requests_session"], web_push._NoRedirectSession)
 
 
 # --- scheduler -----------------------------------------------------------------------
@@ -243,13 +253,30 @@ async def test_tick_notifies_once_per_due_slot(client: httpx.AsyncClient, outbox
 
     due_at = last + timedelta(minutes=60)
     assert await _tick(due_at + timedelta(minutes=1)) == 1
-    assert [s.endpoint for s in outbox] == [sub(1)["endpoint"], sub(2)["endpoint"]]
+    assert sorted(s.endpoint for s in outbox) == [sub(1)["endpoint"], sub(2)["endpoint"]]
+    server_id = (await client.get("/changes")).headers["x-quickr-server-id"]
     assert outbox[0].payload == {
         "title": "Water",
         "body": "Time to log",
         "url": "/t/water/record",
         "tag": f"due-{t['id']}",
         "topic_slug": "water",
+        "v": 1,
+        "kind": "due",
+        "server_id": server_id,
+        "topic_id": t["id"],
+        "version": 1,
+        "due_since": due_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "quick_log": {
+            "type": "int",
+            "key": "n",
+            "label": "N",
+            "unit": None,
+            "min": None,
+            "max": None,
+            "decimals": None,
+            "last_value": 1,
+        },
     }
     assert outbox[0].ttl == push_svc.DEFAULT_TTL_SECONDS
 
@@ -499,18 +526,18 @@ def test_ensure_public_accepts_global_and_handles_dns_failure(monkeypatch: pytes
 
 def test_deliver_refuses_private_ip_without_sending(monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[Any] = []
-    monkeypatch.setattr(push_svc, "webpush", lambda **kw: sent.append(kw))
+    monkeypatch.setattr(web_push, "webpush", lambda **kw: sent.append(kw))
     _resolve_to(monkeypatch, "10.0.0.5")
     with pytest.raises(push_svc.PushFailed, match="non-public"):
-        push_svc.deliver({"endpoint": "https://fcm.googleapis.com/x"}, "{}", "key", {"sub": "mailto:a@b"}, 60)
+        web_push.deliver({"endpoint": "https://fcm.googleapis.com/x"}, "{}", "key", {"sub": "mailto:a@b"}, 60)
     assert sent == []
 
 
 def test_deliver_drops_endpoints_no_longer_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[Any] = []
-    monkeypatch.setattr(push_svc, "webpush", lambda **kw: sent.append(kw))
+    monkeypatch.setattr(web_push, "webpush", lambda **kw: sent.append(kw))
     with pytest.raises(push_svc.PushGone, match="no longer allowed"):
-        push_svc.deliver({"endpoint": "https://internal.local/x"}, "{}", "key", {"sub": "mailto:a@b"}, 60)
+        web_push.deliver({"endpoint": "https://internal.local/x"}, "{}", "key", {"sub": "mailto:a@b"}, 60)
     assert sent == []
 
 
@@ -522,7 +549,43 @@ def test_no_redirect_session(monkeypatch: pytest.MonkeyPatch) -> None:
         return "response"
 
     monkeypatch.setattr(requests.Session, "request", fake_request)
-    session = push_svc._NoRedirectSession()
+    session = web_push._NoRedirectSession()
     result: Any = session.post("https://fcm.googleapis.com/x", data=b"", allow_redirects=True)
     assert result == "response"
     assert seen[0]["allow_redirects"] is False
+
+
+async def test_a_single_topics_reminder_offers_log_it(client: httpx.AsyncClient, outbox: list[Sent]) -> None:
+    # A topic with no questions: its reminder carries quick_log {"type": "single"} on the web
+    # and in APNs, where its one "Log it" action makes the category.
+    await client.post("/push/subscriptions", json=sub(1))
+    r = await client.post(
+        "/topics",
+        json={
+            "name": "Vitamins",
+            "questions": [],
+            "schedule": {"kind": "interval", "every_minutes": 60, "timezone": "UTC"},
+        },
+    )
+    assert r.status_code == 201, r.text
+    await backdate_schedule("vitamins", datetime.now(UTC) - timedelta(days=1))
+    assert await _tick(datetime.now(UTC)) == 1
+    assert outbox[0].payload["quick_log"] == {"type": "single"}
+    assert outbox[0].payload["url"] == "/t/vitamins/record"
+
+    single = notification.descriptor([], counts={}, last=None)
+    n = base.Notification(
+        kind="due",
+        title="Vitamins",
+        body="Time to log",
+        url="/",
+        tag="t",
+        server_id="s",
+        topic_id=UUID(r.json()["id"]),
+        version=1,
+        quick_log=single,
+    )
+    payload = apns.render(n)
+    assert payload["quickr"]["quick_log"] == {"type": "single"}
+    rendered = notification.actions("s", r.json()["id"], 1, single) if single else []
+    assert payload["aps"]["category"] == notification.category_id(r.json()["id"], rendered)

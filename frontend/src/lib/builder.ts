@@ -26,6 +26,7 @@ import {
   type ScheduleDraft,
   type ScheduleInput,
 } from './schedule';
+import { charCount } from './text';
 
 export interface DraftOption {
   uid: string;
@@ -234,14 +235,14 @@ export function draftFromTopic(topic: {
   };
 }
 
+/** A new topic starts with no questions: as it is, logging it takes one tap. */
 export function emptyTopicDraft(): TopicDraft {
-  const first = newDraftQuestion('int');
   return {
     name: '',
     slug: '',
     slugEdited: false,
     description: '',
-    questions: [first],
+    questions: [],
     change_note: '',
     schedule: emptyScheduleDraft(),
   };
@@ -314,10 +315,11 @@ function parseConstraint(
 }
 
 function maxLength(issues: Issue[], path: Path, value: string, max: number): void {
-  if (value.length > max)
+  const count = charCount(value);
+  if (count > max)
     issues.push({
       path,
-      message: `At most ${String(max)} characters (${String(value.length)} now)`,
+      message: `At most ${String(max)} characters (${String(count)} now)`,
     });
 }
 
@@ -569,13 +571,13 @@ export function makeDraftQuestionSchema(limits: Limits = FALLBACK_LIMITS) {
   });
 }
 
-/** Cross-question rules: unique keys, case-insensitive unique labels, count. */
+/** Cross-question rules: unique keys, case-insensitive unique labels, at most the limit. No
+ *  questions is fine: that topic logs with one tap (a "single" topic). */
 export function questionListIssues(
   questions: readonly Pick<DraftQuestion, 'key' | 'label'>[],
   limits: Limits = FALLBACK_LIMITS,
 ): Issue[] {
   const issues: Issue[] = [];
-  if (questions.length === 0) issues.push({ path: [], message: 'Add at least one question' });
   if (questions.length > limits.max_questions)
     issues.push({ path: [], message: `At most ${String(limits.max_questions)} questions` });
   for (const i of duplicates(questions.map((q) => q.key.trim())))
@@ -608,8 +610,8 @@ function nameSchema(limits: Limits) {
     .string()
     .trim()
     .min(1, 'Give the topic a name')
-    .max(
-      limits.max_topic_name_length,
+    .refine(
+      (v) => charCount(v) <= limits.max_topic_name_length,
       `At most ${String(limits.max_topic_name_length)} characters`,
     );
 }
@@ -618,8 +620,8 @@ function descriptionSchema(limits: Limits) {
   return z
     .string()
     .trim()
-    .max(
-      limits.max_description_length,
+    .refine(
+      (v) => charCount(v) <= limits.max_description_length,
       `At most ${String(limits.max_description_length)} characters`,
     );
 }
@@ -675,8 +677,8 @@ export function makeVersionDraftSchema(limits: Limits = FALLBACK_LIMITS) {
       change_note: z
         .string()
         .trim()
-        .max(
-          limits.max_change_note_length,
+        .refine(
+          (v) => charCount(v) <= limits.max_change_note_length,
           `At most ${String(limits.max_change_note_length)} characters`,
         ),
       // Not part of a version (edited in topic settings); shape-checked only.

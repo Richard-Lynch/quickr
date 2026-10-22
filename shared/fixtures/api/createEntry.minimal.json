@@ -1,0 +1,47 @@
+{
+  "body": {
+    "answers": [
+      {
+        "key": "glasses",
+        "type": "int",
+        "value": 3
+      },
+      {
+        "key": "hours",
+        "type": "double",
+        "value": 6.0
+      },
+      {
+        "key": "mood",
+        "type": "enum",
+        "value": "poor"
+      }
+    ],
+    "captured_at": "2026-03-02T07:55:00Z",
+    "channel": "api",
+    "created_at": "2026-06-01T12:00:00.123456Z",
+    "id": "0f1e2d3c-4b5a-4968-8778-000000000002",
+    "meta": {},
+    "notes": "",
+    "revision": 1,
+    "source": "api",
+    "topic_id": "00000000-0000-4000-8000-000000000001",
+    "updated_at": "2026-06-01T12:00:00.123456Z",
+    "version": 1
+  },
+  "operation_id": "createEntry",
+  "request": {
+    "body": {
+      "answers": {
+        "glasses": 3,
+        "hours": 6,
+        "mood": "poor"
+      },
+      "captured_at": "2026-03-02T07:55:00Z",
+      "id": "0f1e2d3c-4b5a-4968-8778-000000000002"
+    },
+    "method": "POST",
+    "path": "/api/v1/topics/everything/entries"
+  },
+  "status": 201
+}

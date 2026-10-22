@@ -15,7 +15,7 @@ import { ENTRY_CREATE, type EntryCreatePayload } from '../lib/outbox/kinds';
 import type { Outbox } from '../lib/outbox/outbox';
 import { dueAfterLogging } from '../lib/schedule';
 import type { OutboxEvent, OutboxItem } from '../lib/outbox/types';
-import { patchTopics, prependEntry, topicIs } from './cache';
+import { patchEntries, patchTopics, prependEntry, topicIs } from './cache';
 import { invalidateOperations, invalidateEntryData } from './queryClient';
 
 export interface KindEffects<P> {
@@ -27,6 +27,8 @@ export interface KindEffects<P> {
   onFailed?(qc: QueryClient, item: OutboxItem<P>): void;
   /** Removed without being sent. `item.status` is its status before removal. */
   onDiscard?(qc: QueryClient, item: OutboxItem<P>): void;
+  /** The server says it can never happen (e.g. `entry_deleted`): undo the optimistic patch. */
+  onRetired?(qc: QueryClient, item: OutboxItem<P>): void;
 }
 
 function laterIso(a: string | null, b: string | null | undefined): string | null {
@@ -80,6 +82,13 @@ const entryCreate: KindEffects<EntryCreatePayload> = {
     if (item.status === 'pending') bumpTopic(qc, item, -1);
     void invalidateOperations(qc, ['listTopics', 'getTopic']);
   },
+  onRetired(qc, item) {
+    // Deleted on the server: never let it materialise, even from a stale cache.
+    bumpTopic(qc, item, -1);
+    patchEntries(qc, (e) => (e.id === item.id ? null : e));
+    qc.removeQueries({ queryKey: getEntryQueryKey({ path: { entry_id: item.id } }) });
+    void invalidateEntryData(qc);
+  },
 };
 
 // Each kind's effects are typed against its own payload; the dispatcher only routes.
@@ -101,6 +110,7 @@ export function connectOutboxEffects(qc: QueryClient, outbox: Outbox): () => voi
       else if (e.type === 'sent') fx.onSent?.(qc, e.item, e.data);
       else if (e.type === 'failed') fx.onFailed?.(qc, e.item);
       else if (e.type === 'discarded') fx.onDiscard?.(qc, e.item);
+      else if (e.type === 'retired') fx.onRetired?.(qc, e.item);
     } catch (err) {
       console.error('[outbox] cache effect failed', err);
     }

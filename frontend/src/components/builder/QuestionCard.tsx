@@ -124,7 +124,6 @@ export function QuestionCard({ index, count, expanded, onToggle, onMove, onRemov
           label="Remove question"
           size="sm"
           onClick={onRemove}
-          disabled={count === 1}
           className="hover:bg-danger-soft hover:text-danger"
         >
           <Icon name="trash" className="size-4.5" />

@@ -45,6 +45,7 @@ class Channel(enum.StrEnum):
     ui = "ui"
     api = "api"
     mcp = "mcp"
+    ios = "ios"
 
 
 class Topic(Base):
@@ -58,6 +59,8 @@ class Topic(Base):
         Enum(TopicStatus, name="topic_status", native_enum=True), default=TopicStatus.active
     )
     current_version: Mapped[int] = mapped_column(Integer, default=1)
+    # Bumped on every change to the topic's own fields (optimistic concurrency, see feed).
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -107,6 +110,8 @@ class Entry(Base):
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str] = mapped_column(Text, default="")
     meta: Mapped[dict[str, str]] = mapped_column(JSONB, default=dict)
+    # Bumped on every update (optimistic concurrency, see feed).
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -176,6 +181,52 @@ class PushSubscription(Base):
     failure_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
+class ApnsDevice(Base):
+    """An iOS app install's APNs device token. Upserted by token on every launch."""
+
+    __tablename__ = "apns_devices"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    token: Mapped[str] = mapped_column(Text, unique=True)  # lower-case hex
+    # Which APNs host the token belongs to (a plain CHECK, not another PG enum).
+    environment: Mapped[str] = mapped_column(String(16))
+    bundle_id: Mapped[str | None] = mapped_column(String(155), default=None)
+    app_version: Mapped[str | None] = mapped_column(String(64), default=None)
+    device_name: Mapped[str | None] = mapped_column(String(200), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    __table_args__ = (
+        CheckConstraint("environment IN ('sandbox', 'production')", name="ck_apns_devices_environment"),
+    )
+
+
+class PushSlotDelivery(Base):
+    """Progress of one due slot's fan-out: this target's send finished (sent or failed).
+
+    Written by a scheduler tick whose budget ran out mid-topic, so the next tick resumes
+    with the targets not yet reached instead of starting over. Rows go when the slot is
+    marked notified, or after a couple of days. ``target_id`` is an ``apns_devices`` or
+    ``push_subscriptions`` id (no foreign key: two tables, and a gone target is harmless).
+    """
+
+    __tablename__ = "push_slot_deliveries"
+
+    topic_id: Mapped[UUID] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True)
+    due_since: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    target_kind: Mapped[str] = mapped_column(String(8), primary_key=True)
+    target_id: Mapped[UUID] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("target_kind IN ('web', 'apns')", name="ck_push_slot_deliveries_target_kind"),
+    )
+
+
 class AppSetting(Base):
     """Small key/value store for server state that must survive restarts (e.g. generated VAPID keys)."""
 
@@ -183,3 +234,50 @@ class AppSetting(Base):
 
     key: Mapped[str] = mapped_column(Text, primary_key=True)
     value: Mapped[str] = mapped_column(Text)
+
+
+class FeedKind(enum.StrEnum):
+    """What a change-feed row refers to."""
+
+    entry = "entry"
+    topic = "topic"
+    version = "version"
+
+
+class FeedOp(enum.StrEnum):
+    upsert = "upsert"
+    delete = "delete"
+
+
+class ChangeLog(Base):
+    """The change feed: one row per mutation, written in the mutation's transaction.
+
+    ``seq`` is allocated while holding the feed advisory lock (``app.services.feed``), so
+    seq order is commit order and a reader never sees seq N+1 without seq N.
+    """
+
+    __tablename__ = "change_log"
+
+    seq: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    kind: Mapped[FeedKind] = mapped_column(Enum(FeedKind, name="feed_kind", native_enum=True))
+    op: Mapped[FeedOp] = mapped_column(Enum(FeedOp, name="feed_op", native_enum=True))
+    entity_id: Mapped[UUID] = mapped_column()
+    topic_id: Mapped[UUID] = mapped_column()
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DeletedId(Base):
+    """Permanent tombstone: a deleted id is never reused (a replayed create gets 409).
+
+    Keyed by ``(kind, id)``: ids are only unique per table (entry ids are client-chosen).
+    """
+
+    __tablename__ = "deleted_ids"
+
+    kind: Mapped[FeedKind] = mapped_column(
+        Enum(FeedKind, name="feed_kind", native_enum=True), primary_key=True
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    # Null when an entry id was reserved before the server ever saw the entry.
+    topic_id: Mapped[UUID | None] = mapped_column(default=None)
+    deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -2,17 +2,15 @@ from __future__ import annotations
 
 import csv
 import io
-from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from collections.abc import AsyncGenerator
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from sqlalchemy import Select, func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import Select, delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.errors import Conflict, NotFound, TopicArchived
-from app.models import Answer, Channel, Entry, Topic, TopicStatus
+from app.errors import Conflict, EntryDeleted, NotFound, StaleRevision, TopicArchived
+from app.models import Answer, Channel, Entry, FeedKind, FeedOp, Topic, TopicStatus
 from app.schemas.api import (
     AnswerOut,
     DoubleAnswer,
@@ -29,6 +27,15 @@ from app.schemas.api import (
     StrAnswer,
 )
 from app.services.answers import TypedAnswer, validate_answers
+from app.services.feed import (
+    FeedIdentity,
+    ensure_identity,
+    is_deleted,
+    log_change,
+    read_identity,
+    tombstone,
+    writer,
+)
 from app.services.topics import (
     all_questions_by_key,
     get_version,
@@ -60,6 +67,7 @@ def entry_out(s: Entry) -> EntryOut:
         id=s.id,
         topic_id=s.topic_id,
         version=s.version,
+        revision=s.revision,
         source=s.source,
         channel=s.channel,
         captured_at=s.captured_at,
@@ -111,38 +119,39 @@ async def _existing(db: AsyncSession, entry_id: UUID, topic_id: UUID) -> EntryOu
     return await get_entry(db, entry_id)
 
 
+@writer
 async def create_entry(db: AsyncSession, ref: str, body: EntryCreate, channel: Channel) -> EntryOut:
-    """Record an entry. With a client ``id`` this is idempotent (see ``EntryCreate.id``)."""
+    """Record an entry. With a client ``id`` this is idempotent (see ``EntryCreate.id``).
+
+    Runs under the feed lock, so a concurrent submit of the same id waits and then
+    replays, and an id reserved by a delete can never be created (409 ``entry_deleted``).
+    """
+    # Before resolving the topic: a replayed create whose topic was deleted with it is
+    # still "entry_deleted" (retire it), not a 404.
+    if body.id is not None and await is_deleted(db, FeedKind.entry, body.id):
+        raise EntryDeleted(f"entry '{body.id}' was deleted and can't be recreated")
     topic = await resolve_topic(db, ref)
-    topic_id = topic.id  # survives a rollback (which expires ORM objects)
-    if body.id is not None and (existing := await _existing(db, body.id, topic_id)) is not None:
+    if body.id is not None and (existing := await _existing(db, body.id, topic.id)) is not None:
         return existing  # logged before (possibly before the topic was archived)
     if topic.status == TopicStatus.archived:
         raise TopicArchived(f"topic '{topic.slug}' is archived; unarchive it to record entries")
     version = await get_version(db, topic, body.version)
     typed = validate_answers(parse_questions(version.questions), body.answers)
     entry = Entry(
+        id=body.id or uuid4(),
         topic_id=topic.id,
         topic_version_id=version.id,
         version=version.version,
         source=body.source or channel.value,
         channel=channel,
-        captured_at=body.captured_at or datetime.now(UTC),
+        captured_at=body.captured_at or func.now(),
         notes=body.notes,
         meta=body.meta,
         answers=_to_rows(topic.id, typed),
     )
-    if body.id is not None:
-        entry.id = body.id
     db.add(entry)
-    try:
-        await db.commit()
-    except IntegrityError:
-        # A concurrent submit of the same id won the race: replay it.
-        await db.rollback()
-        if body.id is None or (existing := await _existing(db, body.id, topic_id)) is None:
-            raise
-        return existing
+    await db.flush()
+    await log_change(db, FeedKind.entry, FeedOp.upsert, entry.id, topic.id)
     return await get_entry(db, entry.id)
 
 
@@ -162,8 +171,15 @@ async def get_entry(db: AsyncSession, entry_id: UUID) -> EntryOut:
     return entry_out(s)
 
 
+@writer
 async def update_entry(db: AsyncSession, entry_id: UUID, body: EntryUpdate) -> EntryOut:
     s = await _load(db, entry_id)
+    if body.expected_revision is not None and body.expected_revision != s.revision:
+        raise StaleRevision(
+            f"entry is at revision {s.revision}, but this change was based on revision "
+            f"{body.expected_revision}",
+            [FieldIssue(loc=["expected_revision"], message=f"current revision is {s.revision}")],
+        )
     topic = (await db.execute(select(Topic).where(Topic.id == s.topic_id))).scalar_one()
     if body.answers is not None:
         version = await get_version(db, topic, s.version)
@@ -184,8 +200,10 @@ async def update_entry(db: AsyncSession, entry_id: UUID, body: EntryUpdate) -> E
         s.notes = body.notes
     if body.meta is not None:
         s.meta = body.meta
-    s.updated_at = datetime.now(UTC)
-    await db.commit()
+    s.revision += 1
+    s.updated_at = func.now()
+    await log_change(db, FeedKind.entry, FeedOp.upsert, s.id, s.topic_id)
+    await db.flush()
     return await get_entry(db, s.id)
 
 
@@ -199,10 +217,15 @@ def _csv_value(v: int | float | str | list[str]) -> int | float | str:
     return ";".join(v) if isinstance(v, list) else v
 
 
+@writer
 async def delete_entry(db: AsyncSession, entry_id: UUID) -> None:
-    s = await _load(db, entry_id)
-    await db.delete(s)
-    await db.commit()
+    """Delete an entry and reserve its id forever. Idempotent: an unknown id is reserved too,
+    so a create that arrives after its own undo (a delayed POST) can never materialise."""
+    topic_id = await db.scalar(select(Entry.topic_id).where(Entry.id == entry_id))
+    await tombstone(db, FeedKind.entry, entry_id, topic_id)
+    if topic_id is not None:
+        await db.execute(delete(Entry).where(Entry.id == entry_id))
+        await log_change(db, FeedKind.entry, FeedOp.delete, entry_id, topic_id)
 
 
 def apply_filters[*Ts](stmt: Select[*Ts], topic_id: UUID, f: EntryFilters) -> Select[*Ts]:
@@ -239,7 +262,26 @@ async def list_entries(
     return EntryPage(items=[entry_out(s) for s in rows], total=total, limit=limit, offset=offset)
 
 
-async def export_csv(db: AsyncSession, ref: str, filters: EntryFilters) -> AsyncIterator[str]:
+async def export_csv(
+    db: AsyncSession, ref: str, filters: EntryFilters
+) -> tuple[FeedIdentity, AsyncGenerator[str]]:
+    """A CSV export read from one REPEATABLE READ snapshot, and that snapshot's identity.
+
+    The snapshot stays open while the rows stream (label the response with the returned
+    identity, not one read later). The generator ends the transaction when it finishes
+    or is closed; if it never runs, closing the session does.
+    """
+    await ensure_identity(db)  # its own short transaction; commits
+    await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+    try:
+        identity = await read_identity(db)
+        return identity, await _export(db, ref, filters)
+    except Exception:
+        await db.rollback()
+        raise
+
+
+async def _export(db: AsyncSession, ref: str, filters: EntryFilters) -> AsyncGenerator[str]:
     topic = await resolve_topic(db, ref)
     questions = list((await all_questions_by_key(db, topic)).values())
     current_keys = [q.key for q in parse_questions((await get_version(db, topic)).questions)]
@@ -273,18 +315,21 @@ async def export_csv(db: AsyncSession, ref: str, filters: EntryFilters) -> Async
             ]
         )
 
-    async def gen() -> AsyncIterator[str]:
-        yield line(list(header))
-        stmt = apply_filters(select(Entry), topic.id, filters).order_by(Entry.captured_at, Entry.id)
-        offset = 0
-        while True:
-            # Paged rather than streamed: answers are selectin-loaded per page
-            # on the same connection, which a live server-side cursor forbids.
-            page = (await db.execute(stmt.limit(500).offset(offset))).scalars().all()
-            if not page:
-                break
-            offset += len(page)
-            for s in page:
-                yield row(s)
+    async def gen() -> AsyncGenerator[str]:
+        try:
+            yield line(list(header))
+            stmt = apply_filters(select(Entry), topic.id, filters).order_by(Entry.captured_at, Entry.id)
+            offset = 0
+            while True:
+                # Paged rather than streamed: answers are selectin-loaded per page
+                # on the same connection, which a live server-side cursor forbids.
+                page = (await db.execute(stmt.limit(500).offset(offset))).scalars().all()
+                if not page:
+                    break
+                offset += len(page)
+                for s in page:
+                    yield row(s)
+        finally:
+            await db.rollback()  # ends the snapshot (also on client disconnect)
 
     return gen()

@@ -1,0 +1,14 @@
+{
+  "body": {
+    "code": "conflict",
+    "detail": "archive the topic before deleting it",
+    "errors": []
+  },
+  "operation_id": "deleteTopic",
+  "request": {
+    "body": null,
+    "method": "DELETE",
+    "path": "/api/v1/topics/water"
+  },
+  "status": 409
+}
