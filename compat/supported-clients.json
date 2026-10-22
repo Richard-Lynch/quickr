@@ -1,0 +1,32 @@
+{
+  "_doc": "The iOS builds the server must keep serving. Rule and format: docs/ios/specs/compatibility.md.",
+  "suites": [
+    "FixtureCoverageTests",
+    "WireDateTests",
+    "APIClientTests",
+    "ClassificationTests",
+    "MappingTests",
+    "DueReminderVectorTests",
+    "NotificationVectorTests"
+  ],
+  "skip": {
+    "endpointTableMatchesOpenAPI": "Pins the client's endpoint table to the CURRENT openapi.json, so any new operation fails it. A removed or changed operation is the OpenAPI breaking-change check's job."
+  },
+  "clients": [
+    {
+      "build": "20261022.005113",
+      "sha": "daa21600f0bacad2af30c836b4c190d0e281107e",
+      "source": "TestFlight 0.1.0 (20261022.005113), archived from ios/m3 daa2160",
+      "fallbacks": {}
+    },
+    {
+      "build": "20261021.194105",
+      "sha": "8aaa7cfb6a3fcac433af35169650c977b2cc1fdc",
+      "source": "TestFlight 0.1.0 (20261021.194105), archived from ios/m3 8aaa7cf",
+      "fallbacks": {
+        "apns-payload-vectors.json": { "single": "unread" },
+        "notification-vectors.json": { "single": "no-category" }
+      }
+    }
+  ]
+}
