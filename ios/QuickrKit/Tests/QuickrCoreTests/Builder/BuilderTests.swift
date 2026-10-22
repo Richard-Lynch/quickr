@@ -149,7 +149,7 @@ func paths<T>(_ result: Result<T, DraftIssues<DraftField>>) -> [String] {
         #expect(body.questions.first?.type == .int)
     }
 
-    @Test func reportsDuplicateKeysBadSlugsAndEmptyQuestionListsAtFieldPaths() {
+    @Test func reportsDuplicateKeysAndBadSlugsAtFieldPaths() {
         let dup = TopicDraft(
             name: "x", slug: "Bad Slug", slugEdited: true,
             questions: [draft(.int) { $0.key = "a" }, draft(.str) { $0.key = "a" }])
@@ -157,8 +157,9 @@ func paths<T>(_ result: Result<T, DraftIssues<DraftField>>) -> [String] {
         #expect(dupPaths.contains("slug"))
         #expect(dupPaths.contains("questions.1.key"))
 
+        // No questions is fine (a single topic): only the missing name.
         let none = TopicDraft(questions: [])
-        #expect(paths(none.validatedForCreation()) == ["name", "questions"])
+        #expect(paths(none.validatedForCreation()) == ["name"])
     }
 
     @Test func versionDraftValidatesQuestionsAndNote() throws {

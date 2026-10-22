@@ -9,7 +9,11 @@ import Testing
 /// time handed back the text from before the latest keystrokes ("Glasses of water" typed, "Glasses
 /// of w" kept; m1-outbox's d813106 run).
 @MainActor @Suite struct BuilderBindingsTests {
-    let model = NewTopicModel(writer: FakeTopicWriter(server: TopicSettingsModelTests.topic), toasts: ToastCenter())
+    let model: NewTopicModel = {
+        let model = NewTopicModel(writer: FakeTopicWriter(server: TopicSettingsModelTests.topic), toasts: ToastCenter())
+        model.addQuestion(.int)  // a new topic starts empty: one question to bind to
+        return model
+    }()
 
     /// A binding made at "render", then keystrokes reaching the draft before the next render.
     @Test func theLabelReadsLaterKeystrokes() {

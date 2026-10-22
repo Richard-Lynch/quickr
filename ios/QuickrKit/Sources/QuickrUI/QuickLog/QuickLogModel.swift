@@ -54,6 +54,7 @@ public final class QuickLogDrafts {
 ///   lights for 1.6 s (``flash``) and the Undo toast follows.
 /// - Number: the field starts from the draft, else the last value (``QuickLog/initialText``). ✓
 ///   logs it; a logged value clears the draft, a refused one keeps it.
+/// - Single (no questions): the tile's Log logs it at once, with no answers (``logSingle()``).
 @MainActor @Observable
 public final class QuickLogModel {
     /// How long a quick-log waits for the server before saying "will sync" (outbox.md §10).
@@ -65,6 +66,7 @@ public final class QuickLogModel {
     /// The chip being logged; every chip is disabled while it is set.
     public private(set) var busyOption: String?
     public private(set) var isLoggingNumber = false
+    public private(set) var isLoggingSingle = false
     public private(set) var numberError: String?
     /// The tapped chip's confirmation.
     public let flash: ConfirmFlash
@@ -95,7 +97,10 @@ public final class QuickLogModel {
 
     /// The number field's text: the draft, else the last value or the minimum.
     public var numberText: String {
-        get { drafts[scope, topic.id] ?? QuickLog.initialText(for: topic.quick.question, last: last) }
+        get {
+            guard let question = topic.quick.question else { return "" }
+            return drafts[scope, topic.id] ?? QuickLog.initialText(for: question, last: last)
+        }
         set {
             // A text field can hand back the text it was given (as it is rebuilt while a list
             // scrolls); writing it anyway redraws the field, which hands it back again.
@@ -107,7 +112,7 @@ public final class QuickLogModel {
 
     /// The number field's label (the PWA's): the question, plus its unit when that adds something.
     public var numberLabel: String {
-        let question = topic.quick.question
+        guard let question = topic.quick.question else { return "" }
         guard let unit = question.numericRules?.unit, !unit.isEmpty,
             unit.lowercased() != question.label.lowercased()
         else { return question.label }
@@ -116,30 +121,39 @@ public final class QuickLogModel {
 
     /// Logs a chip. Ignored while another chip of this tile is being logged.
     public func pick(_ option: EnumOption) async {
-        guard busyOption == nil else { return }
+        guard busyOption == nil, case .chips(let question, _) = topic.quick else { return }
         busyOption = option.value
         defer { busyOption = nil }
-        let answers = QuickLog.answers(picking: option, for: topic.quick.question)
+        let answers = QuickLog.answers(picking: option, for: question)
         if await log(answers, label: option.label) { flash.confirm(option.value) }
     }
 
     /// Logs the number field: shows the validation message instead when it doesn't parse.
     public func logNumber() async {
-        guard !isLoggingNumber else { return }
+        guard !isLoggingNumber, case .number(let question) = topic.quick else { return }
         let text = numberText
-        switch QuickLog.parseNumber(text, for: topic.quick.question) {
+        switch QuickLog.parseNumber(text, for: question) {
         case .failure(let message):
             numberError = message.message
         case .success(let answers):
             isLoggingNumber = true
             defer { isLoggingNumber = false }
-            let unit = topic.quick.question.numericRules?.unit.flatMap { $0.isEmpty ? nil : $0 }
+            let unit = question.numericRules?.unit.flatMap { $0.isEmpty ? nil : $0 }
             if await log(answers, label: unit.map { "\(text) \($0)" } ?? text) { drafts[scope, topic.id] = nil }
         }
     }
 
-    /// True when the entry was sent or queued; every outcome gets its toast.
-    private func log(_ answers: [String: AnswerValue], label: String) async -> Bool {
+    /// Logs a single topic (no questions): an entry with no answers. Ignored while one is being logged.
+    public func logSingle() async {
+        guard !isLoggingSingle, case .single = topic.quick else { return }
+        isLoggingSingle = true
+        defer { isLoggingSingle = false }
+        _ = await log([:], label: nil)
+    }
+
+    /// True when the entry was sent or queued; every outcome gets its toast. `label` is what was
+    /// logged ("Good", "45 min"); nil for a single topic, whose toast says the topic, like a save.
+    private func log(_ answers: [String: AnswerValue], label: String?) async -> Bool {
         let entry: LoggedEntry
         do {
             entry = try await writer.log(topic, answers: answers)
@@ -147,12 +161,15 @@ public final class QuickLogModel {
             toasts.logFailed(topicName: topic.name, writer.failure(error))
             return false
         }
-        switch await writer.sendNow(entry, wait: Self.sendWait) {
-        case .sent:
-            toasts.logged(entry, label: label, topicName: topic.name, sent: true)
-            return true
-        case .queued:
-            toasts.logged(entry, label: label, topicName: topic.name, sent: false)
+        let outcome = await writer.sendNow(entry, wait: Self.sendWait)
+        switch outcome {
+        case .sent, .queued:
+            let sent = if case .sent = outcome { true } else { false }
+            if let label {
+                toasts.logged(entry, label: label, topicName: topic.name, sent: sent)
+            } else {
+                toasts.recorded(entry, topicName: topic.name, sent: sent)
+            }
             return true
         case .failed(let message, _):
             toasts.logFailed(topicName: topic.name, .message(message))

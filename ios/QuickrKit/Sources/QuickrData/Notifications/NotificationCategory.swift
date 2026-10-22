@@ -135,6 +135,8 @@ public struct NotificationCategory: Sendable, Hashable {
             case .string, .choice:
                 return nil
             }
+        case .single:
+            return .single
         }
     }
 
@@ -213,6 +215,9 @@ public struct NotificationCategory: Sendable, Hashable {
                     kind: "input", identifier: id(number.key, .input), title: "Other value…",
                     textInputButtonTitle: "Log", textInputPlaceholder: number.unit.map { "Value in \($0)" } ?? "Value"))
             return actions
+        case .single:
+            // No question: one action, logging the entry with no answers.
+            return [Action(kind: "log", identifier: id("", .single), title: "Log it")]
         }
     }
 
@@ -244,6 +249,8 @@ public struct ActionIdentifier: Sendable, Hashable, CustomStringConvertible {
         case number = "n"
         case input = "i"
         case more = "m"
+        /// A single topic's "Log it": no question, so an empty key and value.
+        case single = "s"
     }
 
     public var serverId: String
@@ -251,7 +258,7 @@ public struct ActionIdentifier: Sendable, Hashable, CustomStringConvertible {
     public var version: Int
     public var key: String
     public var kind: Kind
-    /// `o`: the option value; `n`: `fmt(last_value)`; `i`, `m`: empty.
+    /// `o`: the option value; `n`: `fmt(last_value)`; `i`, `m`, `s`: empty. The key is empty for `s`.
     public var value: String
 
     public init(serverId: String, topicId: String, version: Int, key: String, kind: Kind, value: String = "") {
@@ -273,13 +280,15 @@ public struct ActionIdentifier: Sendable, Hashable, CustomStringConvertible {
     public init?(_ text: String) {
         let parts = text.split(separator: "|", maxSplits: 6, omittingEmptySubsequences: false).map(String.init)
         guard parts.count == 7, parts[0] == "q1", Self.isCanonicalUUID(parts[1]), Self.isCanonicalUUID(parts[2]),
-            let version = Self.decimal(parts[3]), Self.isKey(parts[4]), let kind = Kind(rawValue: parts[5])
+            let version = Self.decimal(parts[3]), let kind = Kind(rawValue: parts[5])
         else { return nil }
+        // A question's key, except a single topic's (it has none).
+        guard kind == .single ? parts[4].isEmpty : Self.isKey(parts[4]) else { return nil }
         let value = parts[6]
         switch kind {
         case .option: guard !value.isEmpty else { return nil }
         case .number: guard NumberFormat.isCanonical(value) else { return nil }
-        case .input, .more: guard value.isEmpty else { return nil }
+        case .input, .more, .single: guard value.isEmpty else { return nil }
         }
         self.init(serverId: parts[1], topicId: parts[2], version: version, key: parts[4], kind: kind, value: value)
     }
@@ -294,7 +303,7 @@ public struct ActionIdentifier: Sendable, Hashable, CustomStringConvertible {
         case (.option, .choice(let choice)): return choice.options.contains { $0.value == value }
         case (.more, .choice(let choice)): return choice.totalOptions > choice.options.count
         case (.number, .number(let number)): return number.lastValue.map(NumberFormat.fmt) == value
-        case (.input, .number): return true
+        case (.input, .number), (.single, .single): return true
         default: return false
         }
     }

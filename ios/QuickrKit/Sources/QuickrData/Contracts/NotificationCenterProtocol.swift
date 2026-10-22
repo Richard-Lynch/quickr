@@ -161,7 +161,12 @@ public struct QuickrNotificationInfo: Codable, Sendable, Hashable {
         version = try container.decodeIfPresent(Int.self, forKey: .version)
         dueSince = try container.decodeIfPresent(String.self, forKey: .dueSince)
         url = try container.decodeIfPresent(String.self, forKey: .url)
-        quickLog = try container.decodeIfPresent(QuickLogDescriptor.self, forKey: .quickLog)
+        // A quick_log type this build doesn't know (a newer server's) is a plain reminder: no
+        // actions, a tap opens the topic. The rest of the payload still counts (slot, badge).
+        let tagged = try container.decodeIfPresent(QuickLogDescriptor.Tag.self, forKey: .quickLog)
+        quickLog =
+            tagged.map { QuickLogDescriptor.knownTypes.contains($0.type) } == true
+            ? try container.decode(QuickLogDescriptor.self, forKey: .quickLog) : nil
         prefill = try container.decodeIfPresent([String: String].self, forKey: .prefill)
     }
 
@@ -179,11 +184,15 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
     case choice(Choice)
     /// An int or double question, with the latest valid value.
     case number(Number)
+    /// No questions (`{"type": "single"}`): one "Log it", an entry with no answers.
+    case single
 
+    /// The quick question's key; empty for `single`, as in its action identifier.
     public var key: String {
         switch self {
         case .choice(let choice): choice.key
         case .number(let number): number.key
+        case .single: ""
         }
     }
 
@@ -288,11 +297,20 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
 
     private enum TagKeys: String, CodingKey { case type }
 
+    /// The `type` values this build reads; any other quick_log is ignored (a plain reminder).
+    static let knownTypes: Set<String> = ["enum", "int", "double", "single"]
+
+    /// Just a quick_log's `type`, to tell a known one from a newer server's.
+    struct Tag: Decodable {
+        var type: String
+    }
+
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: TagKeys.self)
         switch try container.decode(String.self, forKey: .type) {
         case "enum": self = .choice(try Choice(from: decoder))
         case "int", "double": self = .number(try Number(from: decoder))
+        case "single": self = .single
         case let tag:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: container, debugDescription: "unknown quick_log type \(tag)")
@@ -307,6 +325,9 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
             try choice.encode(to: encoder)
         case .number(let number):
             try number.encode(to: encoder)
+        case .single:
+            var tag = encoder.container(keyedBy: TagKeys.self)
+            try tag.encode("single", forKey: .type)
         }
     }
 }

@@ -59,6 +59,19 @@ import Testing
         #expect(never.intent.number == 0 && never.detail == "0 cups", "the stepper's start, like the tile's ✓")
     }
 
+    /// SINGLE: a topic with no questions always logs in one press (an entry with no answers), from
+    /// its Control and its widget's "Log it" chip, pinned to the widget's store.
+    @Test func aSingleTopicLogsFromItsControlAndItsWidget() throws {
+        let shown = Self.shown([], last: nil, name: "Walk")
+        let value = TopicControlValue(shown)
+        #expect(value.logs && value.detail == "Log it" && value.title == "Walk")
+        #expect(value.intent.option == nil && value.intent.number == nil && value.intent.topic != nil)
+        #expect(value.intent.scope == Self.scope.id)
+        let chip = try #require(TopicWidgetEntryView.actions(shown).single() as? WidgetLogIntent)
+        #expect(chip.option == nil && chip.number == nil && chip.scope == Self.scope.id)
+        #expect(TopicWidgetEntryView.actions(Self.shown([Self.mood], last: nil)).single() == nil, "not single")
+    }
+
     @Test func aTopicThatNeedsTheFormHasNoOnePressLog() {
         let value = TopicControlValue(Self.shown([Self.place, Self.notes, Self.cups], last: nil))
         #expect(!value.logs && value.detail == "Needs the form: log it in quickR")

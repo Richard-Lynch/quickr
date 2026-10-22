@@ -187,13 +187,14 @@ due list and the badge are the safety net.
 
 ### 4.1 Actions per descriptor
 
-| Descriptor                            | Actions, in order                                                                                                      |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `enum` with _n_ options (1 ≤ _n_ ≤ 4) | One action per option. The title is the label.                                                                         |
-| `enum` with 5–6 options (Q4)          | The 3 most-used options, then **"More…"**: an `open` action (`.foreground`) that opens `url` with nothing preselected. |
-| `int`/`double`, `last_value ≠ null`   | 1. "Log {fmt(last)}", which logs `last_value`. 2. "Other value…", a text input.                                        |
-| `int`/`double`, `last_value = null`   | 1. "Other value…", a text input.                                                                                       |
-| `null`                                | No category. Tapping opens `url`.                                                                                      |
+| Descriptor                              | Actions, in order                                                                                                                 |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `enum` with _n_ options (1 ≤ _n_ ≤ 4)   | One action per option. The title is the label.                                                                                    |
+| `enum` with 5–6 options (Q4)            | The 3 most-used options, then **"More…"**: an `open` action (`.foreground`) that opens `url` with nothing preselected.            |
+| `int`/`double`, `last_value ≠ null`     | 1. "Log {fmt(last)}", which logs `last_value`. 2. "Other value…", a text input.                                                   |
+| `int`/`double`, `last_value = null`     | 1. "Other value…", a text input.                                                                                                  |
+| `single` (the version has no questions) | One action, "Log it": a `log` action `q1\|{server_id}\|{topic_id}\|{version}\|\|s\|` (empty key and value) logging `answers: {}`. |
+| `null`                                  | No category. Tapping opens `url`.                                                                                                 |
 
 All actions have these properties:
 

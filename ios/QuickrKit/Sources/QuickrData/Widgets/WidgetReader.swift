@@ -35,8 +35,8 @@ public struct WidgetReader: Sendable {
     private func widgetTopic(_ topic: Topic, skew: TimeInterval) async throws -> WidgetTopic {
         let quick = QuickLog(questions: topic.questions)
         var lastAnswer: AnswerValue?
-        if let quick, let latest = try await store.entries.latestEntry(topicId: topic.id) {
-            lastAnswer = latest.entry.answers[quick.question.key]
+        if let question = quick?.question, let latest = try await store.entries.latestEntry(topicId: topic.id) {
+            lastAnswer = latest.entry.answers[question.key]
         }
         // Counted in SQL: a long offline backlog is many rows with payloads, and a widget's
         // timeline has little memory and time.

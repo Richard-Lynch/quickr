@@ -19,6 +19,7 @@ from app.schemas.questions import DoubleQuestion, EnumQuestion, IntQuestion, Que
 from app.services.quicklog import (
     QUICK_CHIP_LIMIT,
     QuickLogChips,
+    QuickLogSingle,
     initial_number,
     js_number_string,
     quick_log_for,
@@ -26,7 +27,7 @@ from app.services.quicklog import (
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
 
 PATH = FIXTURES_DIR / "quicklog-vectors.json"
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
 
 question_adapter: TypeAdapter[IntQuestion | DoubleQuestion | StrQuestion | EnumQuestion] = TypeAdapter(
     Question
@@ -129,6 +130,8 @@ def descriptor(questions: list[dict[str, Any]]) -> dict[str, Any] | None:
     r = quick_log_for([question(q) for q in questions])
     if r is None:
         return None
+    if isinstance(r, QuickLogSingle):
+        return {"kind": "single"}
     if isinstance(r, QuickLogChips):
         return {
             "kind": r.kind,
@@ -168,7 +171,7 @@ def build() -> dict[str, Any]:
             "quick_chip_limit": QUICK_CHIP_LIMIT,
             "semantics": [
                 "eligibility: quickLogFor(questions) -> null | {kind: 'chips', key, options: active "
-                "options in order} | {kind: 'number', key}.",
+                "options in order} | {kind: 'number', key} | {kind: 'single'} (no questions at all).",
                 "initial: initialNumber(question, last) -> the text a number quick-log starts with: "
                 "String(last) (JS Number::toString) when last is a number the question still accepts, "
                 "else String(min) when min >= 0, else ''. Non-numbers (strings, booleans, lists, "

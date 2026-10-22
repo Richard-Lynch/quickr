@@ -6204,7 +6204,7 @@
             },
             "type": "array",
             "maxItems": 100,
-            "minItems": 1,
+            "minItems": 0,
             "title": "Questions"
           },
           "schedule": {
@@ -6879,7 +6879,7 @@
             },
             "type": "array",
             "maxItems": 100,
-            "minItems": 1,
+            "minItems": 0,
             "title": "Questions"
           },
           "base_version": {
@@ -6933,7 +6933,7 @@
             },
             "type": "array",
             "maxItems": 100,
-            "minItems": 1,
+            "minItems": 0,
             "title": "Questions"
           },
           "base_version": {

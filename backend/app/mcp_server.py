@@ -148,7 +148,8 @@ async def create_topic(
     description: str = "",
     schedule: Annotated[Schedule | None, Field(description="Optional daily or interval schedule.")] = None,
 ) -> TopicDetail:
-    """Create a topic with an initial (version 1) question list."""
+    """Create a topic with an initial (version 1) question list. An empty list makes a single
+    topic: logging it records an entry with no answers (record_entry with answers {})."""
     async with _db() as db:
         return await topic_svc.create_topic(
             db,

@@ -2,7 +2,8 @@
 /// record screen, and what they offer. A port of `frontend/src/lib/quickLog.ts`, kept in lockstep
 /// with it and `backend/app/services/quicklog.py` by `shared/fixtures/quicklog-vectors.json`.
 ///
-/// Rule: the current version has exactly one *required* question, and it is
+/// Rule: the current version has no questions at all → `single`: one tap logs it, with no answers;
+/// or exactly one *required* question, and it is
 /// - a single-select with 1–6 active options → those options as chips (one tap logs), or
 /// - an int or double → a stepper pre-filled by `initialText(last:)`, plus a log button.
 ///
@@ -11,12 +12,18 @@
 public enum QuickLog: Sendable, Hashable {
     case chips(question: Question, options: [EnumOption])
     case number(question: Question)
+    /// No questions: a "single" topic. Logging it is an entry with no answers.
+    case single
 
     /// Most options shown as chips (more need the record screen's picker).
     public static let chipLimit = 6
 
     /// Nil when the topic logs through the record screen (`quickLogFor`).
     public init?(questions: [Question]) {
+        if questions.isEmpty {
+            self = .single
+            return
+        }
         let required = questions.filter(\.required)
         guard required.count == 1, let question = required.first else { return nil }
         switch question.kind {
@@ -32,9 +39,11 @@ public enum QuickLog: Sendable, Hashable {
         }
     }
 
-    public var question: Question {
+    /// The quick question; nil for a single topic, which has none.
+    public var question: Question? {
         switch self {
         case .chips(let question, _), .number(let question): question
+        case .single: nil
         }
     }
 

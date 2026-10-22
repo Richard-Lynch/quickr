@@ -714,7 +714,15 @@ class QuickLogNumber(StrictModel):
     last_value: int | float | None
 
 
-type QuickLogDescriptor = QuickLogEnum | QuickLogNumber
+class QuickLogSingle(StrictModel):
+    """A topic with no questions (a "single" topic): its reminder logs it with one action,
+    "Log it", an entry with no answers (docs/ios/specs/notifications.md §4.1).
+    """
+
+    type: Literal["single"] = "single"
+
+
+type QuickLogDescriptor = QuickLogEnum | QuickLogNumber | QuickLogSingle
 
 
 class PushPayload(StrictModel):
@@ -736,7 +744,7 @@ class PushPayload(StrictModel):
     topic_id: str | None = None
     version: int | None = None
     due_since: str | None = None  # canonical: UTC, whole seconds, "Z"
-    quick_log: QuickLogEnum | QuickLogNumber | None = None
+    quick_log: QuickLogEnum | QuickLogNumber | QuickLogSingle | None = None
 
 
 ApnsToken = Annotated[

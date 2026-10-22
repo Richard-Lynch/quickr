@@ -109,6 +109,10 @@ struct TopicWidgetEntryView: View {
                 case .double(let x): return WidgetLogIntent(topic: entity, number: x, scope: scope)
                 default: return nil
                 }
+            },
+            single: {
+                guard let scope, case .single = topic.quick else { return nil }
+                return WidgetLogIntent(topic: entity, scope: scope)
             })
     }
 }

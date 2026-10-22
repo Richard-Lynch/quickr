@@ -11,7 +11,8 @@ import { initialNumber, quickLogFor } from './quickLog';
 
 type Descriptor =
   | { kind: 'chips'; key: string; options: { value: string; label: string }[] }
-  | { kind: 'number'; key: string };
+  | { kind: 'number'; key: string }
+  | { kind: 'single' };
 
 interface Vectors {
   eligibility: { name: string; questions: Question[]; expected: Descriptor | null }[];
@@ -23,6 +24,7 @@ const vectors = JSON.parse(raw) as Vectors;
 function describeQuickLog(questions: Question[]): Descriptor | null {
   const r = quickLogFor(questions);
   if (!r) return null;
+  if (r.kind === 'single') return { kind: 'single' };
   if (r.kind === 'chips')
     return {
       kind: 'chips',

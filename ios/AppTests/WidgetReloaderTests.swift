@@ -84,7 +84,7 @@ import Testing
         let entry = Entry(
             id: UUID(), topicId: coffee.id, version: 1, revision: 1, source: "test", channel: .ios,
             capturedAt: now.addingTimeInterval(60), createdAt: now, updatedAt: now,
-            answers: [quick.question.key: .int(2)])
+            answers: [quick.question!.key: .int(2)])
         try await store.writer.write { db in _ = try ServerLayer.upsert(db, entry: entry) }
         #expect(await eventually { counter.timelines == 3 && counter.controls == 2 }, "a new last answer")
 

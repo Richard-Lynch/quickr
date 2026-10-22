@@ -51,6 +51,7 @@ import Testing
 
     @Test func addingAQuestionOpensItUpToTheLimit() {
         let model = NewTopicModel(writer: FakeTopicWriter(server: TopicSettingsModelTests.topic), toasts: ToastCenter())
+        model.addQuestion(.int)
         model.expansion.toggleAll(model.draft.questions)
         #expect(model.expansion.open.isEmpty)
         model.addQuestion(.enum)
@@ -65,6 +66,7 @@ import Testing
 
     @Test func aRemovedQuestionsOptionTextIsNotAChange() {
         let model = NewTopicModel(writer: FakeTopicWriter(server: TopicSettingsModelTests.topic), toasts: ToastCenter())
+        model.addQuestion(.int)
         model.addQuestion(.enum)
         let choice = model.draft.questions[1].id
         model.newOptionLabels[choice] = "Maybe"

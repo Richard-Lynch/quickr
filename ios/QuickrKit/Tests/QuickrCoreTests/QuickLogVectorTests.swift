@@ -96,7 +96,8 @@ struct QuickLogVectors: Decodable {
     /// `{kind: "chips", key, options: [{value, label}]}` or `{kind: "number", key}`.
     struct Descriptor: Decodable, Hashable, Sendable {
         var kind: String
-        var key: String
+        /// None for `single` (no question).
+        var key: String?
         var options: [Option]?
 
         struct Option: Decodable, Hashable, Sendable {
@@ -113,6 +114,10 @@ struct QuickLogVectors: Decodable {
             case .number(let question):
                 kind = "number"
                 key = question.key
+                options = nil
+            case .single:
+                kind = "single"
+                key = nil
                 options = nil
             case nil:
                 return nil
