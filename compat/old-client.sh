@@ -10,6 +10,8 @@
 set -euo pipefail
 
 sha="${1:?usage: compat/old-client.sh <sha>}"
+# The sha names a directory this script empties, so it must be a full sha.
+[[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "compat: $sha isn't a full commit sha" >&2; exit 1; }
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="${COMPAT_WORK:-$root/ios/build/compat}/$sha"
 build="$(python3 -c 'import json,sys; print(next(c["build"] for c in json.load(open(sys.argv[1]))["clients"] if c["sha"]==sys.argv[2]))' \
@@ -17,7 +19,8 @@ build="$(python3 -c 'import json,sys; print(next(c["build"] for c in json.load(o
 
 fail() {
   local message="build $build (${sha:0:7}): $1"
-  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then echo "::error title=old client $build::$message"; fi
+  # An annotation is one line: %0A breaks it.
+  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then echo "::error title=old client $build::${message//$'\n'/%0A}"; fi
   echo "compat: $message" >&2
   exit 1
 }

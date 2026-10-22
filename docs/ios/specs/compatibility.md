@@ -29,7 +29,8 @@ RFC 2119.
 ## 2. OpenAPI breaking changes (`openapi breaking`, ubuntu)
 
 `compat/openapi-breaking.sh` compares `openapi.json` with the one at the newest
-`v*` tag. It uses oasdiff, pinned by version and checksum in the workflow. It
+`v*` tag and with each listed client's own `openapi.json` (at its sha), so a
+break is caught whichever build relies on what changed. It uses oasdiff, pinned by version and checksum in the workflow. It
 fails on any breaking change at the ERR level, such as a removed operation or
 response field, a new required request field, or a narrower type. Warnings are
 printed but don't fail the check; a response enum value added is one (§1 rule
@@ -40,9 +41,16 @@ printed but don't fail the check; a response enum value added is one (§1 rule
 file: one `METHOD /path message` line per break, as oasdiff prints it. Each line
 has a comment above it that names the PR and explains why no listed client is
 affected. The approval is part of the PR's diff, so review sees it. Remove the
-lines once a `v*` tag includes the change.
+lines once no compared spec (the tag or a listed client) has what they break.
 
-## 3. Old clients against this server (`old clients`, macos-26)
+## 3. Old clients against this server (`old clients`, macos-26; `old requests`, ubuntu)
+
+Schema checks can't see rules that live in code. `old requests` (ubuntu,
+`compat/old-requests.sh`) replays each listed client's request goldens
+(`shared/fixtures/requests` at its sha) through this PR's backend: the contract
+and replay tests of `backend/tests/test_request_goldens.py`, pointed at them by
+`QUICKR_REQUEST_GOLDENS_DIR`. Each must still validate and get its expected
+status (`EXPECTED` in that test).
 
 For each listed client, `compat/old-client.sh <sha>` does three things:
 
@@ -72,11 +80,11 @@ in the policy names the case (`file` → `name`) and the result it must give
 instead. `CompatFallbackTests` checks each one through the client's production
 code:
 
-| Expected      | Meaning                                                                                                                                                 |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `unread`      | `userInfo.quickr` doesn't decode. iOS shows the server's alert as it is, with no actions and no quickR handling. This is what builds before f4ed020 do. |
-| `plain`       | It decodes with no quick_log, so it's a plain reminder. This is the f4ed020 fallback.                                                                   |
-| `no-category` | The client builds no category, so iOS shows the alert without actions.                                                                                  |
+| Expected      | Meaning                                                                                                                                                                                                                                                                                                     |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unread`      | `userInfo.quickr` doesn't decode. iOS shows the server's alert as it is, with no actions and no quickR handling. This is what builds before f4ed020 do. Checked at `QuickrNotificationInfo(userInfo:)` only: the notification service extension of those builds delivers a payload it can't read untouched. |
+| `plain`       | It decodes with no quick_log, so it's a plain reminder. This is the f4ed020 fallback.                                                                                                                                                                                                                       |
+| `no-category` | The client builds no category, so iOS shows the alert without actions.                                                                                                                                                                                                                                      |
 
 The cases aren't skipped. Each one moves from the exact-match suites to its
 declared fallback. A declared case missing from the fixtures is an error, so the
@@ -89,4 +97,11 @@ unconditionally: `Security` (Keychain), `AppIntents`, `Network`, `notify`,
 `os`/`OSLog`, `CryptoKit` and `Darwin`. The wire suites live in QuickrData, and
 a listed client's code can't be changed after it ships. The job runs only on
 non-draft PRs that touch `backend/`, `shared/fixtures/`, `openapi.json` or
-`compat/`. Otherwise it reports as skipped, so it can still be a required check.
+`compat/` (as does `old requests`, on any PR).
+
+## 4. Required checks
+
+Each workflow ends in one job that is the check to require: `compat`, and `ios`
+in ios.yml. It fails unless its path check succeeded and every other job
+passed or was skipped by it. A skipped job reports as passing, so requiring the
+jobs themselves would let a broken or cancelled path check through.

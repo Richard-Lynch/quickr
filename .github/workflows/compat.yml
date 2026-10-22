@@ -2,12 +2,16 @@ name: Compat
 
 # The PR-time compatibility gate (docs/ios/specs/compatibility.md): this server must keep serving
 # every iOS build in compat/supported-clients.json.
-# - openapi breaking (ubuntu, every PR): openapi.json against the latest v* tag, with oasdiff.
-# - old clients (macos-26, non-draft PRs that touch what the server sends): each listed build's
-#   own wire suites against this PR's shared/fixtures. macOS because those suites are in
-#   QuickrData, which imports Apple-only modules (Security, AppIntents, Network, ...), so Linux
-#   Swift can't build it at any listed sha. macOS minutes count 10x, hence the path check.
-# Both jobs always report, so they can be required checks (a skipped job counts as passing).
+# - openapi breaking (ubuntu, every PR): openapi.json against the latest v* tag, with oasdiff,
+#   and against each listed client's own openapi.json.
+# - old requests (ubuntu, PRs that touch the server side): each listed build's request goldens
+#   replayed through this PR's backend.
+# - old clients (macos-26, non-draft PRs that touch the server side): each listed build's own
+#   wire suites against this PR's shared/fixtures. macOS because those suites are in QuickrData,
+#   which imports Apple-only modules (Security, AppIntents, Network, ...), so Linux Swift can't
+#   build it at any listed sha. macOS minutes count 10x, hence the path check.
+# `compat` is the one check to require: it fails unless the path check succeeded and every job
+# passed or was skipped by it (a skipped required job would count as passing on its own).
 on:
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize]
@@ -66,6 +70,37 @@ jobs:
           echo "OASDIFF=$RUNNER_TEMP/oasdiff" >> "$GITHUB_ENV"
       - run: compat/openapi-breaking.sh
 
+  old-requests:
+    name: old requests
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: quickr
+          POSTGRES_PASSWORD: quickr
+          POSTGRES_DB: quickr_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U quickr" --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      QUICKR_TEST_DATABASE_URL: postgresql+asyncpg://quickr:quickr@localhost:5432/quickr_test
+      QUICKR_DATABASE_URL: postgresql+asyncpg://quickr:quickr@localhost:5432/quickr_test
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the listed clients' commits
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+        working-directory: backend
+      - run: compat/old-requests.sh
+
   old-clients:
     name: old clients
     needs: changes
@@ -102,3 +137,23 @@ jobs:
             compat/old-client.sh "$sha" || status=1
           done
           exit "$status"
+
+  compat:
+    name: compat
+    if: always()
+    needs: [changes, openapi, old-requests, old-clients]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          results = {job: v["result"] for job, v in json.loads(os.environ["NEEDS"]).items()}
+          print(results)
+          bad = {j: r for j, r in results.items() if r != "success" and not (r == "skipped" and j != "changes")}
+          if bad:
+              print(f"::error title=compat::not passed: {bad}")
+              sys.exit(1)
+          PY

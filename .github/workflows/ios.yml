@@ -6,8 +6,10 @@ name: iOS
 # - non-draft PR (opened, ready for review, new commits) or manual dispatch: `make ios-check-ci`
 #   (xcodegen, then build + the Unit plan on an iOS 26.x simulator, no signing).
 # On a PR both run only when it touches the iOS paths below (the `ios changes` job decides), and
-# report as skipped otherwise, so they can be required checks: a workflow-level path filter would
-# leave them pending. The Makefile is in the paths because it is the build interface CI calls.
+# are skipped otherwise. `ios` is the one check to require: it fails unless the path check
+# succeeded and both jobs passed or were skipped by it (a workflow-level path filter would leave
+# a required check pending, and a skipped required job would count as passing on its own).
+# The Makefile is in the paths because it is the build interface CI calls.
 on:
   push:
     branches: [main, feat/ios-app]
@@ -138,3 +140,23 @@ jobs:
           name: ios-xcresult
           path: ios/build/results
           retention-days: 7
+
+  ios:
+    name: ios
+    if: always()
+    needs: [changes, package, app]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          results = {job: v["result"] for job, v in json.loads(os.environ["NEEDS"]).items()}
+          print(results)
+          bad = {j: r for j, r in results.items() if r != "success" and not (r == "skipped" and j != "changes")}
+          if bad:
+              print(f"::error title=ios::not passed: {bad}")
+              sys.exit(1)
+          PY
