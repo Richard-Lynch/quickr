@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- build ------------------------------------------------------------------
-FROM node:24-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /app
 # Same pnpm as package.json#packageManager.
 RUN npm install -g pnpm@10.28.0
