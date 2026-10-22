@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import httpx
 import pytest
@@ -25,8 +26,9 @@ from app import push_guard
 from app.config import Settings
 from app.db import get_engine, get_sessionmaker
 from app.models import PushSubscription, Topic
+from app.services import notification, scheduler
 from app.services import push as push_svc
-from app.services import scheduler
+from app.services.push import apns, base
 from app.services.push import web as web_push
 from tests.helpers import backdate_schedule, make_topic, record
 
@@ -551,3 +553,39 @@ def test_no_redirect_session(monkeypatch: pytest.MonkeyPatch) -> None:
     result: Any = session.post("https://fcm.googleapis.com/x", data=b"", allow_redirects=True)
     assert result == "response"
     assert seen[0]["allow_redirects"] is False
+
+
+async def test_a_single_topics_reminder_offers_log_it(client: httpx.AsyncClient, outbox: list[Sent]) -> None:
+    # A topic with no questions: its reminder carries quick_log {"type": "single"} on the web
+    # and in APNs, where its one "Log it" action makes the category.
+    await client.post("/push/subscriptions", json=sub(1))
+    r = await client.post(
+        "/topics",
+        json={
+            "name": "Vitamins",
+            "questions": [],
+            "schedule": {"kind": "interval", "every_minutes": 60, "timezone": "UTC"},
+        },
+    )
+    assert r.status_code == 201, r.text
+    await backdate_schedule("vitamins", datetime.now(UTC) - timedelta(days=1))
+    assert await _tick(datetime.now(UTC)) == 1
+    assert outbox[0].payload["quick_log"] == {"type": "single"}
+    assert outbox[0].payload["url"] == "/t/vitamins/record"
+
+    single = notification.descriptor([], counts={}, last=None)
+    n = base.Notification(
+        kind="due",
+        title="Vitamins",
+        body="Time to log",
+        url="/",
+        tag="t",
+        server_id="s",
+        topic_id=UUID(r.json()["id"]),
+        version=1,
+        quick_log=single,
+    )
+    payload = apns.render(n)
+    assert payload["quickr"]["quick_log"] == {"type": "single"}
+    rendered = notification.actions("s", r.json()["id"], 1, single) if single else []
+    assert payload["aps"]["category"] == notification.category_id(r.json()["id"], rendered)

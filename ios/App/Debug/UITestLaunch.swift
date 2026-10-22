@@ -113,6 +113,8 @@ final class FakeServerState: Sendable {
         var rejectNext = false
         var holdFeed = false
         var requests = 0
+        /// "METHOD /path" of each request, in order.
+        var sent: [String] = []
         var cancelled = 0
         var holdCancellations = false
         var unwinding: [CheckedContinuation<Void, any Error>] = []
@@ -135,6 +137,9 @@ final class FakeServerState: Sendable {
 
     /// Requests that reached the server (any host path), held ones included.
     var requestCount: Int { state.withLock { $0.requests } }
+
+    /// "METHOD /path" of each request that reached the server, in order (as `requestCount`).
+    var sentRequests: [String] { state.withLock { $0.sent } }
 
     /// Feed requests waiting while `holdFeed` is on.
     var heldCount: Int { state.withLock { $0.held.count } }
@@ -173,7 +178,12 @@ final class FakeServerState: Sendable {
         for waiter in cancelled { waiter.resume(throwing: TransportError.cancelled(requestStarted: true)) }
     }
 
-    fileprivate func counted() { state.withLock { $0.requests += 1 } }
+    fileprivate func counted(_ request: HTTPRequest) {
+        state.withLock { state in
+            state.requests += 1
+            state.sent.append("\(request.method.rawValue) \(request.url.path())")
+        }
+    }
 
     fileprivate func topic(_ id: String) -> [String: Any]? {
         state.withLock { $0.topics[id] }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -453,7 +463,7 @@ private struct FakeServerTransport: Transport {
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         guard request.url.host() == UITestLaunch.fakeServer.host() else { return try await fallback.send(request) }
-        state.counted()
+        state.counted(request)
         if state.offline { throw TransportError.unreachable("offline (UI test)") }
         let headers: HTTPHeaders = [
             QuickrHeader.serverId: UITestLaunch.fakeServerId, QuickrHeader.epoch: FakeServer.epoch,

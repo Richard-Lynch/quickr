@@ -85,15 +85,28 @@ final class ServerSetup {
     /// The typed token for the confirmed switch, held only in memory until the connect.
     @ObservationIgnored private var pendingToken: AccessCredentials?
 
-    init(switcher: any ServerSwitcher, settings: AppSettings, credentials: KeychainAccessCredentials?) {
+    /// - Parameter defaultAddress: the address to offer before any is configured (onboarding):
+    ///   the build's `QuickrDefaultServerURL`.
+    init(
+        switcher: any ServerSwitcher, settings: AppSettings, credentials: KeychainAccessCredentials?,
+        defaultAddress: String = ServerSetup.defaultAddress()
+    ) {
         self.switcher = switcher
         self.settings = settings
         self.credentials = credentials
-        address = settings.serverURL?.absoluteString ?? ""
+        address = settings.serverURL?.absoluteString ?? defaultAddress
     }
 
     convenience init(session: AppSession, settings: AppSettings, credentials: KeychainAccessCredentials?) {
         self.init(switcher: session, settings: settings, credentials: credentials)
+    }
+
+    /// The build's default server address (Info.plist `QuickrDefaultServerURL`, from the
+    /// `QUICKR_DEFAULT_SERVER_URL` build setting): the hosted server in Release, empty in Debug.
+    /// Empty when it's missing, blank, or an unexpanded `$(…)`.
+    nonisolated static func defaultAddress(info: [String: Any]? = Bundle.main.infoDictionary) -> String {
+        let value = (info?["QuickrDefaultServerURL"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
+        return value.contains("$(") ? "" : value
     }
 
     var isWorking: Bool {
@@ -207,7 +220,11 @@ final class ServerSetup {
             }
             settings.serverURL = url
             address = url.absoluteString
-            clientSecret = ""
+            // The typed token stays in the fields as the form goes, so iOS or a password manager
+            // can offer to save it (AutoFill); quickR's own copy is the Keychain's. Safe because a
+            // ServerSetup is never reused after `.connected`: one per form (onboarding's goes with
+            // its view, Settings makes one per Change server sheet and closes it on connect). A
+            // reused one would send this typed token with a later connect to another address.
             state = .connected(note: note)
         case .failed(let problem):
             fail(problem)

@@ -57,7 +57,7 @@ import Testing
     @Test func createCarriesTheDraftAndTheSchedule() throws {
         var draft = TopicDraft.empty()
         draft.setName("Water")
-        let id = draft.questions[0].id
+        let id = draft.addQuestion(.int)
         draft.setLabel(id, "Glasses")
         let creation = try draft.validatedForCreation().get()
         let interval = Schedule.interval(.init(everyMinutes: 120, timezone: "Europe/London"))

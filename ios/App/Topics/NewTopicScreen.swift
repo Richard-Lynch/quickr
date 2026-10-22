@@ -27,7 +27,13 @@ struct NewTopicScreen: View {
             model = NewTopicModel(
                 writer: SessionTopicWriter(session: session, binding: binding), toasts: environment.toasts,
                 onCreated: { topic in
-                    router.replaceTop(with: .record(TopicLinkRef(topic: topic)))
+                    // A single topic (no questions) has no form: back to the list, where its tile's
+                    // Log logs it in one tap.
+                    if topic.questions.isEmpty, !router.path.isEmpty {
+                        router.path.removeLast()
+                    } else {
+                        router.replaceTop(with: .record(TopicLinkRef(topic: topic)))
+                    }
                 })
         }
     }

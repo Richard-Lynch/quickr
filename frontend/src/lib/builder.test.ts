@@ -141,7 +141,7 @@ describe('topicDraftSchema', () => {
     expect(r.data?.questions[0]).toMatchObject({ key: 'hours', type: 'int' });
   });
 
-  it('reports duplicate keys, bad slugs and empty question lists at field paths', () => {
+  it('reports duplicate keys and bad slugs at field paths, and allows no questions', () => {
     const dup = topicDraftSchema.safeParse({
       name: 'x',
       slug: 'Bad Slug',
@@ -165,7 +165,8 @@ describe('topicDraftSchema', () => {
       schedule,
       questions: [],
     });
-    expect(none.error?.issues.map((i) => i.path.join('.'))).toEqual(['name', 'questions']);
+    // No questions is allowed (a single topic, logged with one tap): only the name is missing.
+    expect(none.error?.issues.map((i) => i.path.join('.'))).toEqual(['name']);
   });
 
   it('versionDraftSchema validates questions + note', () => {

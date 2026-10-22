@@ -10,12 +10,16 @@ import WidgetKit
 public struct WidgetActions {
     public var option: (EnumOption) -> (any AppIntent)?
     public var number: (AnswerValue) -> (any AppIntent)?
+    /// A single topic's "Log it" (no questions).
+    public var single: () -> (any AppIntent)?
 
     public init(
-        option: @escaping (EnumOption) -> (any AppIntent)?, number: @escaping (AnswerValue) -> (any AppIntent)?
+        option: @escaping (EnumOption) -> (any AppIntent)?, number: @escaping (AnswerValue) -> (any AppIntent)?,
+        single: @escaping () -> (any AppIntent)? = { nil }
     ) {
         self.option = option
         self.number = number
+        self.single = single
     }
 }
 
@@ -136,6 +140,12 @@ public struct TopicWidgetView: View {
                 WidgetChip(label: "✓ " + (last ?? "Log"), isLast: false, isAccented: style.isAccented, isPrimary: true)
             }
             .accessibilityLabel(last.map { "Log \($0)" } ?? "Log \(topic.topic.name)")
+        case .single:
+            // No questions: one tap logs it.
+            control(actions?.single(), topic) {
+                WidgetChip(label: "Log it", isLast: false, isAccented: style.isAccented, isPrimary: true)
+            }
+            .accessibilityLabel("Log \(topic.topic.name)")
         case nil:
             Link(destination: topic.recordURL) {
                 WidgetChip(label: "Log", isLast: false, isAccented: style.isAccented, isPrimary: true)
@@ -163,7 +173,9 @@ public struct TopicWidgetView: View {
     private func lastLine(_ topic: WidgetTopic) -> Text {
         guard topic.topic.entryCount > 0 || topic.queued > 0 else { return Text("No entries yet") }
         let when = text.relative(topic.topic.lastCapturedAt, now: date)
-        if let quick = topic.quick, let last = topic.lastAnswer, let answer = text.answer(last, for: quick.question) {
+        if let question = topic.quick?.question, let last = topic.lastAnswer,
+            let answer = text.answer(last, for: question)
+        {
             return Text("Last \(Text(answer).fontWeight(.semibold).foregroundStyle(.qr.inkSoft)) · \(when)")
         }
         return Text("\(text.count(topic.topic.entryCount, "entry", "entries")) · \(when)")

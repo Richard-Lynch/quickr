@@ -75,6 +75,9 @@ targets:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # Portrait only by design. App Store validation (iOS 27 SDK) rejects a portrait-only
+        # bundle unless it opts out of multitasking resizing.
+        UIRequiresFullScreen: true
         UIBackgroundModes:
           - fetch
           - remote-notification
@@ -87,10 +90,17 @@ targets:
           - CFBundleURLName: com.bahumia.quickr
             CFBundleURLSchemes:
               - quickr
+        # Onboarding's prefilled server address (Config/Shared.xcconfig): the hosted server in
+        # Release, empty in Debug (UI tests type the fake server's).
+        QuickrDefaultServerURL: $(QUICKR_DEFAULT_SERVER_URL)
     entitlements:
       path: App/QuickR.entitlements
       properties:
         <<: *sharedEntitlements
+        # Password AutoFill for the Cloudflare Access token fields: the server's web origin lists
+        # this app in /.well-known/apple-app-site-association (frontend/public). No app links.
+        com.apple.developer.associated-domains:
+          - webcredentials:quickr.bahumia.com
         # APNs. Device builds register in the sandbox; exporting for App Store Connect re-signs
         # with the distribution profile, whose value is production (ios/README.md, TestFlight).
         aps-environment: development

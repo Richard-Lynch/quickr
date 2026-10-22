@@ -157,14 +157,14 @@ These are the server details the specs assume. Each one must be confirmed in the
 
 ### Backlog from M0 reviews (non-blocking)
 
-- HomeModelTests.theFirstListIsAlreadyOnTheServersClock depends on scheduling: the sync-state observation always delivers before the topics, so removing the clock pre-read in HomeModel.observe() is not caught. Add a `@_spi(Testing)` sync-state stream factory, hold the stream, let the topics load, assert the badge on server time, then release it.
 - A11Y L5 (answers): the answer values in Entries rows keep `lineLimit(2)` at AX sizes (UIT-6's Grid change left them as they were); lift it at AX sizes.
 - A11Y C1: check "Export CSV" at XXXL now that slice A's X3 lets capsule buttons wrap; close it if it's fine.
 - A11Y L2 (Low): a day rotor for the long, date-ordered Entries list.
 - A11Y H3: home tile reading order. The open button sits behind the content with no sort priority; give it `accessibilitySortPriority` so the combined title element is read before the quick-log controls (TileView.swift).
 - A11Y T5: at AX XXXL the toast's single HStack (text, Undo, ✕) squeezes the text column; stack the actions under the text at AX sizes (ToastView.swift).
 - A11Y SE6: each licence is one huge Text element; split it into paragraphs so VoiceOver can move through it (LicencesView.swift).
-- A11Y SE2: on the device, check that VoiceOver's escape gesture does nothing on the Cloudflare token sheet while a secret is typed, and that leaving through Cancel keeps no secret (DEVICE-DAY §6, "The token sheet keeps no secret").
+- A11Y SE2 → superseded by AUTOFILL: on the device, the token fields fill from 1Password for quickr.bahumia.com and a hand-typed token is offered for saving; closing the sheet saves nothing in quickR (DEVICE-DAY §6, "The token fields work with Password AutoFill"). Needs the AASA Access bypass (H8, cloudflare-access.md §7).
+- H8: Cloudflare Bypass app for quickr.bahumia.com/.well-known/apple-app-site-association (IaaC); required for AutoFill.
 - A11Y: the Home due-pulse doesn't stop if Reduce Motion is switched on mid-animation; stop or restart it when the setting changes (HomeView.swift).
 - UIT-6 stall (not reproduced): once, on iOS 27 under load from other simulators, the app never went idle on the record screen just after a topic was created. Every XCUITest action waited out the 120 s "wait for app to idle" ("App animations complete notification not received", 4×), so TopicLifecycleUITests overran its 5 min allowance; the screen looked static. Not reproduced in 6 further runs (test times 102–129 s), with the app's log stream and periodic `sample` showing nothing stuck. Ruled out: the A11Y shared code (not in that build), PerfProbe (passive), and the full keyboard on the int field (by design: no minimum means negatives are allowed). If it recurs, sample the app during the stall and check the record screen's `.task`s and any repeating animation.
 - Tooling: `make ios-uitest-e2e` doesn't pass the IOS_SIM_DEFAULTED marker, so a plain run picks the shared base device rather than the worktree clone (it still counts toward the cap). Extend simcap's per-target defaulting to it.
@@ -315,6 +315,74 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 - [ ] Final PR `feat/ios-app` → `main` (squash)
 
 ## Log
+
+- 2026-10-21 22:45 (EDT): **#13 phase 2 merged** (PR #15, squash d77035a; 12/12 green).
+  - **testflight.yml:**
+    - `upload` runs on a `v*` tag in the `testflight` environment (deploys only from `v*` tags; the `release-tags` ruleset makes `v*` admin-only; secrets ASC_KEY_ID, ASC_ISSUER_ID and ASC_KEY_P8, plus variable DEVELOPMENT_TEAM);
+    - it runs on the xcode-27 image and asserts Xcode 27A9275;
+    - `record` opens a PR adding the build to compat/supported-clients.json (repo variable TESTFLIGHT_RECORD_BASE=ios/m3; close and reopen the PR once to run its checks).
+  - **Gates on push:** ios.yml and compat.yml now run every gated job on each push to main (and ios.yml on feat/ios-app), so tagged main commits carry `ios gate` and `compat gate` for the autodeploy.
+  - **The dry run can't start until testflight.yml is on main:** workflow_dispatch needs the workflow on the default branch. It comes with the final feat/ios-app → main PR.
+  - **Phase 3** (IaaC #187, autodeploy on an IaaC-only homelab runner, polling quickr `v*` tags) is built and validated. It is waiting on the owner's 1Password step (the quickr-deploy vault, the homelab-deploy service account, then sync_deploy_vault).
+
+- 2026-10-21 22:05 (EDT): **#13 phase 1 merged** (PR #14, squash 7031cc9). The PR-time compatibility gate is live:
+  - `compat/supported-clients.json` lists daa2160 and 8aaa7cf, and the rule is in `docs/ios/specs/compatibility.md`;
+  - **checks:** oasdiff against each client's openapi.json and the newest tag; replays of old clients' request goldens; old clients' QuickrKit wire suites against the PR's fixtures, with declared fallbacks;
+  - **gate jobs:** `ios gate` and `compat gate`;
+  - all 12 checks were green on GitHub, including old clients on Xcode 26.6.
+  - **Required checks** on main and feat/ios-app: backend, frontend, docker, ios gate and compat gate.
+
+  **The repo is now PUBLIC** after an audit (SAFE AFTER FIXES: no secrets in any history; issue #12 moved to IaaC #186; artifacts deleted; wiki off; fork PRs need approval; GHCR packages stay private). IaaC #184 is merged (db4df8d).
+
+- 2026-10-21 20:55 (EDT): **SINGLE shipped.**
+  - **Merged into ios/m3 daa2160:**
+    - SINGLE-WEB e50a617 (backend + PWA; m1-review clean);
+    - SINGLE-IOS a3d0cd0 (m1-review signed off; UI 18/0 on 27 and 26.0);
+    - **BGTASK** f1f5202: the TestFlight background crash, where the BGAppRefreshTask launch handler was @MainActor-inferred and trapped on the scheduler queue. It is now an `@Sendable` closure, and its expiry handler is set before the hop.
+  - **Gate on the merge:** ios-core-test exit 0, ios-build OK.
+  - **Deployed:** e50a617 is in production (IaaC cde3e8cb). Verify 9/9 and a smoke test (zero-question topic, answerless entry, cleanup) passed.
+  - **TestFlight:** 0.1.0 (20261022.005113) uploaded.
+  - **Issues:** quickr#13 (full CI/CD and a cross-version compatibility gate).
+  - **Internal DNS:** the split-horizon CNAME to traefik is confirmed live. On the LAN the API answers without the Access token.
+
+- 2026-10-21 18:50 (EDT): **Phone feedback:** push works on the device (TestFlight, production APNs). Two changes are in progress. **SINGLE-WEB** (m6-builder): backend bac3463 and PWA 0f9b6b8. **SINGLE-IOS** (m2-form): 2c92185. The changes: the builder starts empty, and a topic with zero questions ("single") logs in one tap everywhere. It is quick_log `{"type":"single"}`, with entries carrying `answers: {}`. Next: review, merge, deploy, TestFlight.
+
+- 2026-10-21 18:10 (EDT): **Deployed 8aaa7cf** (v0.2.1-ios.1; images built on the guest; IaaC c693205e) and **applied the AASA Access bypass** (user-approved). verify_quickr_published passes all 9 legs: no token gets the login, the iOS token gets 200 plus the server id, /mcp is refused for none and for iOS, the MCP token is refused on the API, and the AASA serves 200 application/json without credentials while its neighbours stay behind Access. IaaC #184 is mergeable (CLEAN), but the merge is waiting on the user (the classifier blocks it). Next: device day.
+
+- 2026-10-21 16:30 (EDT): **Stall A/B done (m1-testiso):** on c277b93, base and fix e43a533 had 0 stalls each in 3 alternating Edit+Record runs on iOS 27 (fix 72/72; one base flake, testFixModeFromALink). The swipe tests pass on 26 and 27; the one 27 swipe failure is a flake seen on both sides. The stall no longer reproduces after SAVE-KBD and the cleanup, so **e43a533 is held, not merged**: it would turn off animations across the whole screen on the first change to fix a stall we can no longer see. The branch ios/m3-backswap27 stays for a rerun if the stall comes back. **quickR is live** at https://quickr.bahumia.com (iOS token 200). The 8aaa7cf deploy, the AASA bypass and the IaaC #184 merge are waiting on the user. ios-prune freed 39.6 GB.
+
+- 2026-10-21 15:45 (EDT): **AUTOFILL merged** (617d904, 092b681, 3523de1; Claude review in place of Codex, whose doc Majors and Minors are fixed). It adds a webcredentials associated domain (enabled on the App ID in the portal), the AASA file from the web origin, Client ID/Secret labelled username/password with the save offer allowed, and a release default server of https://quickr.bahumia.com via QUICKR_DEFAULT_SERVER_URL. Docker Desktop on the Mac was hung for about 4 days and has been restarted (processes stopped by PID).
+
+- 2026-10-21 15:30 (EDT): **Codex is down** (even trivial pings time out), so reviews are Claude-side for now (m1-review). TF-hardening is merged (d21c26f; Claude review approved with minors). AUTOFILL (617d904): Claude review requested doc changes only (the AASA bypass is now required; the DEVICE-DAY SE2 rewrite); fixes are in progress. **Deployment (IaaC #184):** the LXC, DNS, traefik route, Access apps and tokens (1Password: service/quickr/cf-access-client-{id,secret}), APNs key and monitoring are applied. Off-network checks: no token → login, iOS token blocked from /mcp, MCP token blocked from the API. The stack itself is pending image access (existing credential or a local build).
+
+- 2026-10-21 15:05 (EDT): The server images for the iOS app are published (tag v0.2.0-ios.1 on feat/ios-app e73e01f; ghcr quickr-{backend,frontend}:e73e01f…). IaaC PR #184 (quickR LXC, quickr.bahumia.com, Access apps and tokens in 1Password) is open; IaaC CI is disabled, so the plan is validate locally → deploy (user-approved) → verify → merge. **AUTOFILL** (m2-form, user-approved): webcredentials associated domain, the AASA file from the web origin (plus an Access bypass for that path in IaaC), Client ID/Secret fields labelled username/password with the save prompt allowed, and a release default server of https://quickr.bahumia.com via a build setting. No embedded credentials. TF-hardening (ee6783b) is in Codex review. The e43a533 stall A/B is running.
+
+- 2026-10-21 14:30 (EDT): **SAVE-KBD merged** (c277b93): one Save with a minimized or hardware keyboard; Record+Edit+Form 26/0 on 27 and on 26. The stall A/B for e43a533 is now running (m1-testiso). TF hardening is in progress (m6-builder). **Deployment:** sub-agent iaac-quickr is planning and implementing quickR in ~/code/IaaC (Cloudflare hostname plus Access: browser Allow + Service Auth token for iOS; /mcp separate; APNs and DB secrets). Branch or PR only; applying needs user approval.
+
+- 2026-10-21 14:10 (EDT): **First TestFlight build is live.**
+  - App Store Connect API access was approved, and the Admin team key "quickR TestFlight" was created. The key is at ~/.config/quickr (mode 600), its details are in the gitignored ios/testflight.env, and the issuer is recorded there only.
+  - Upload: `make ios-testflight` uploaded 0.1.0 (20261021.175156). Apple created the distribution certificate and profiles through the key. It's processed and "Ready to Submit".
+  - Two fixes were needed:
+    - `UIRequiresFullScreen: true`: iOS 27 SDK validation rejects a portrait-only bundle otherwise;
+    - testflight.sh links /usr/bin/rsync first in PATH, because Homebrew's rsync broke IPA packaging (d42cf28, 5d667bc).
+  - m6-builder is hardening and testing both.
+  - TestFlight: internal group "Me" with the account holder invited (automatic distribution). The app record is "quickR Log".
+  - Xcode's command line never saw the UI-added Apple account ("No Accounts"); the API key sidesteps that.
+  - Device use needs a reachable server (LAN `make up` or the CF tunnel); there's no server-free release mode.
+
+- 2026-10-21 13:45 (EDT): **App Store Connect:** the Terms of Service were accepted (the user approved it). The app record **"quickR Log"** (app ID 6825448752; the name "quickR" is taken) is created with bundle com.bahumia.quickr and SKU quickr-ios. **Next step blocked on the user:** the one-off "Request Access to the App Store Connect API" agreement (needed for the TestFlight upload key), or Xcode → Settings → Accounts as the no-API-key alternative. SAVE-KBD (3cb3323) has its 27/26 runs and Codex r1 in progress.
+
+- 2026-10-21 13:20 (EDT): **Host-wide iOS 27 keyboard minimization** since this afternoon. Every 27 clone (including the morning one that passed) sets `AutomaticMinimizationEnabled` during XCUITest typing, and Record and Edit then show **two Saves** (FormSaveBar keys off the keyboard frame). That's a real app bug for hardware or minimized keyboards: **SAVE-KBD** (m2-form, 3cb3323) decides from editing begin/end. It blocks the e43a533 stall A/B, which m1-testiso reruns after SAVE-KBD. **Apple setup:** the App Group and 3 App IDs are registered with App Groups and Push. Paused at the App Store Connect Terms of Service, which need the user's acceptance.
+
+- 2026-10-21 12:30 (EDT): **m1-outbox hit its weekly usage limit** (it resets Oct 26), so its back-swap fix (e43a533, Codex clean) awaits a valid measurement. Its base-vs-fix runs are invalid: both sides showed the pre-M3 double-Save failures, which points to a stale M2-final build. m1-testiso is re-measuring with clean builds. The fix's swipe-back tests on 26 passed 6/6.
+
+- 2026-10-21 11:30 (EDT): The HomeModel first-list seam is merged (`@_spi(Testing)` syncStatesForTesting). The test holds the sync-state stream, and the mutant without the clock pre-read now fails 3/3. The backlog item is closed.
+
+- 2026-10-21 11:15 (EDT): **M3 merged into feat/ios-app: PR #11, squash e73e01f.** CI green: backend, frontend, docker, swift test, and build + Unit plan on iOS 26.2. ios/m3 records the squash (ours-merge, trees equal) and stays the collection branch for the follow-ups:
+  - the iOS 27 back-button swap stall fix (m1-outbox, e43a533, being measured);
+  - the HomeModel first-list test seam (m2-form);
+  - device day and TestFlight, blocked on Chrome access to developer.apple.com and App Store Connect;
+  - then the final feat/ios-app → main PR.
 
 - 2026-10-21 10:40 (EDT): PR #11 CI fixes:
   - Xcode 26-only compile errors fixed (f0683c1, 4f567c8: explicit @Sendable Task closures, no `$0` in `defer`, no Mutex captured into a task group);

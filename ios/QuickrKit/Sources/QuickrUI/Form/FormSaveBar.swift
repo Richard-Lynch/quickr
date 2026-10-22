@@ -3,9 +3,10 @@ import SwiftUI
 import UIKit
 
 extension View {
-    /// A form screen's Save: a sticky bar at the bottom while the keyboard is down, and the last item
-    /// in the keyboard's toolbar (after Next/Done) while it is up. Apply it to the `FormView`. Exactly one Save exists at
-    /// a time, under `identifier`, and it stays one tap.
+    /// A form screen's Save: a sticky bar at the bottom while no field is being edited, and the last
+    /// item in the keyboard's toolbar (after Next/Done) while one is, whether the software keyboard
+    /// is up, minimized or replaced by a hardware keyboard (`FormEditing`). Apply it to the
+    /// `FormView`. Exactly one Save exists at a time, under `identifier`, and it stays one tap.
     ///
     /// A bar of its own above the keyboard isn't used: SwiftUI's keyboard safe area dropped the
     /// keyboard's toolbar whenever the form changed (the first keystroke), and the bar slid under
@@ -44,7 +45,7 @@ struct FormSaveBar: ViewModifier {
     let isSaving: Bool
     let onBarHeight: ((CGFloat) -> Void)?
     let save: () -> Void
-    @State private var keyboardUp = false
+    @State private var editing = FormEditing()
 
     func body(content: Content) -> some View {
         // Below the form, not over it: in a safe-area inset the form's scroll view ran on under the
@@ -53,7 +54,7 @@ struct FormSaveBar: ViewModifier {
         // bar begins, and the bar is opaque.
         VStack(spacing: 0) {
             content
-            if !keyboardUp {
+            if !editing.isEditing {
                 PrimaryButton(title, icon: .check, isLoading: isSaving, action: save)
                     .accessibilityIdentifier(identifier)
                     .padding(.horizontal, 16)
@@ -65,11 +66,19 @@ struct FormSaveBar: ViewModifier {
         }
         // FormView puts it in the keyboard's toolbar, after its Next/Done: one toolbar, in order.
         .environment(\.formSave, FormSave(title: title, identifier: identifier, isSaving: isSaving, action: save))
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            keyboardUp = true
+        // Editing, not the keyboard's frame: the toolbar shows while a field edits, whether the
+        // keyboard is up, minimized (iOS 27) or a hardware one (then it's off screen, or never shows).
+        .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidBeginEditingNotification)) {
+            editing.began(ObjectIdentifier($0.object as AnyObject))
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            keyboardUp = false
+        .onReceive(NotificationCenter.default.publisher(for: UITextView.textDidBeginEditingNotification)) {
+            editing.began(ObjectIdentifier($0.object as AnyObject))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidEndEditingNotification)) {
+            editing.ended(ObjectIdentifier($0.object as AnyObject))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UITextView.textDidEndEditingNotification)) {
+            editing.ended(ObjectIdentifier($0.object as AnyObject))
         }
     }
 }

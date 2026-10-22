@@ -21,7 +21,7 @@ from app.services import notification
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
 
 PATH = FIXTURES_DIR / "notification-vectors.json"
-GENERATOR_VERSION = 3
+GENERATOR_VERSION = 4
 
 SERVER_ID = "0b9e0000-0000-4000-8000-0000000000aa"
 TOPIC_ID = "6f1c0000-0000-4000-8000-000000000001"
@@ -49,6 +49,7 @@ NOTE = {"key": "note", "label": "Note", "type": "str", "required": False}
 
 # name -> (questions, counts per option value, last answer, version)
 CASES: dict[str, tuple[list[dict[str, Any]], dict[str, int], Any, int]] = {
+    "single": ([], {}, None, 1),
     "ineligible-str": ([{**NOTE, "required": True}], {}, None, 1),
     "ineligible-two-required": ([enum(numbered(2)), num("int")], {}, None, 1),
     "ineligible-enum-7": ([enum(numbered(7))], {}, None, 1),
@@ -254,7 +255,12 @@ def test_vectors_cover_the_spec() -> None:
     value, null unit and decimals, non-ASCII labels, truncation."""
     cases = {c["name"]: c["expected"] for c in build()["cases"]}
     kinds = {(q["quick_log"] or {}).get("type") for q in cases.values()}
-    assert kinds == {None, "enum", "int", "double"}
+    assert kinds == {None, "enum", "int", "double", "single"}
+    assert cases["single"]["quick_log"] == {"type": "single"}
+    assert cases["single"]["actions"] == [
+        {"kind": "log", "identifier": f"q1|{SERVER_ID}|{TOPIC_ID}|1||s|", "title": "Log it"}
+    ]
+    assert cases["single"]["category_id"].startswith("quickr.t.")
     assert len(cases["enum-1"]["actions"]) == 1
     assert len(cases["enum-4"]["actions"]) == 4
     assert [a["kind"] for a in cases["enum-6-most-used"]["actions"]] == ["log", "log", "log", "open"]

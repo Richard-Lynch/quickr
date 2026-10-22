@@ -211,6 +211,8 @@ public enum IntentLogging {
         -> (Topic, RepeatPlan, EntryScope)
     {
         let (store, topic) = try await self.topic(topicId, in: context)
+        // A single topic (no questions) logs the same empty entry every time, logged before or not.
+        if topic.questions.isEmpty { return (topic, .log([:]), store.scope) }
         let latest = try? await store.writer.read { db in try StoreView.latestEntry(db, topicId: topicId.wireString) }
         guard let entry = latest ?? nil else { return (topic, .openRecord(prefill: nil), store.scope) }
         let keys = Set(topic.questions.map(\.key))

@@ -57,7 +57,10 @@ struct ServerForm: View {
                     )
                     .font(.qr(.subheadline))
                     .foregroundStyle(.qr.muted)
+                    // Labelled for Password AutoFill (webcredentials: the server's domain): the
+                    // Client ID as the username, the Secret as the password.
                     TextField("Client ID (….access)", text: $setup.clientId)
+                        .textContentType(.username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .focused($focus, equals: .clientId)
@@ -66,6 +69,7 @@ struct ServerForm: View {
                         .accessibilityInputLabels(["Client ID"])
                         .accessibilityIdentifier("server.clientId")
                     SecureField("Client Secret", text: $setup.clientSecret)
+                        .textContentType(.password)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .focused($focus, equals: .clientSecret)

@@ -63,6 +63,9 @@ struct TopicControlValue: Sendable {
             self.init(
                 title: name, detail: TopicText().answer(answer, for: question),
                 intent: WidgetLogIntent(topic: entity, number: number, scope: scope), logs: true)
+        case .single:
+            // No questions: its entry has no answers, so it always logs.
+            self.init(title: name, detail: "Log it", intent: nothing, logs: true)
         case nil:
             self.init(title: name, detail: "Needs the form: log it in quickR", intent: nothing, logs: false)
         }

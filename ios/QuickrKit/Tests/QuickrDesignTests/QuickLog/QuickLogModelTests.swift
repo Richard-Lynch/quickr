@@ -407,3 +407,49 @@ enum Topics {
         #expect(models.model(for: Topics.headache) !== headache)
     }
 }
+
+/// SINGLE: a topic with no questions logs at once from its tile's Log, with no answers.
+@MainActor @Suite(.timeLimit(.minutes(2))) struct QuickLogSingleTests {
+    static let coffee = QuickLogTopic(
+        id: UUID(), slug: "coffee", name: "Coffee", version: 1, quick: QuickLog(questions: [])!)
+
+    @Test func itLogsNoAnswersWithAnUndoToast() async throws {
+        let w = QuickLogWorld()
+        let model = w.model(Self.coffee)
+        await model.logSingle()
+        #expect(w.writer.logged == [.init(topic: Self.coffee.id, answers: [:])])
+        #expect(w.writer.sendWaits == [.milliseconds(2500)])
+        let toast = try #require(w.lastToast)
+        #expect(toast.title == "Logged Coffee" && toast.tone == .ok)
+        #expect(toast.action?.label == "Undo")
+        toast.action?.perform()
+        await waitUntil { !w.writer.undoneLogs.isEmpty }
+        #expect(w.writer.undoneLogs == [w.writer.ids[0]])
+    }
+
+    @Test func offlineItIsSavedOnThisDevice() async throws {
+        let w = QuickLogWorld()
+        w.writer.delivery = .queued
+        await w.model(Self.coffee).logSingle()
+        #expect(w.writer.logged.count == 1)
+        let toast = try #require(w.lastToast)
+        #expect(toast.title == "Saved on this device" && toast.tone == .info && toast.action?.label == "Undo")
+    }
+
+    @Test func aSecondTapWhileLoggingIsIgnoredAndOtherKindsDontLogEmpty() async {
+        let w = QuickLogWorld()
+        w.writer.holdLog = true
+        let model = w.model(Self.coffee)
+        let first = Task { await model.logSingle() }
+        await waitUntil { w.writer.isHolding }
+        #expect(model.isLoggingSingle)
+        let second = Task { await model.logSingle() }
+        w.writer.release()
+        await first.value
+        await second.value
+        #expect(w.writer.logged.count == 1 && !model.isLoggingSingle)
+        // A chip topic never logs an empty entry from here.
+        await w.model(Topics.headache).logSingle()
+        #expect(w.writer.logged.count == 1)
+    }
+}

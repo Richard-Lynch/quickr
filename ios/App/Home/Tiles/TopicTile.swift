@@ -36,7 +36,7 @@ struct TopicTile: View {
         let due = DueView(due: TopicListing.due(of: topic, at: serverNow) ?? topic.due, now: serverNow)
         TileView(
             title: topic.name, isDue: due.tone == .due || due.tone == .overdue, onOpen: onOpen,
-            onLog: topic.status == .archived ? nil : onRecord
+            onLog: logAction(model)
         ) {
             meta(due, last: model?.last)
         } quick: {
@@ -46,6 +46,21 @@ struct TopicTile: View {
         .task(id: observationKey) {
             await follow()
         }
+    }
+
+    /// The Log block: none for an archived topic; a single topic (no questions) logs at once, with
+    /// the usual Undo toast (offline too, through the outbox); any other opens the record screen.
+    private func logAction(_ model: QuickLogModel?) -> (() -> Void)? {
+        guard topic.topic.status != .archived else { return nil }
+        // Decided by the topic's current questions, not the cached model (updated later, by
+        // `follow()`): one that just gained questions opens the form, one that just lost them logs.
+        if let model, let quickTopic, case .single = quickTopic.quick {
+            return {
+                if model.topic != quickTopic { model.topic = quickTopic }
+                Task { await model.logSingle() }
+            }
+        }
+        return onRecord
     }
 
     private var quickTopic: QuickLogTopic? {
@@ -79,7 +94,7 @@ struct TopicTile: View {
         let topic = topic.topic
         guard topic.entryCount > 0 else { return Text("No entries yet") }
         let when = text.relative(topic.lastCapturedAt, now: now)
-        if let quick = quickTopic?.quick, let last, let answer = text.answer(last, for: quick.question) {
+        if let question = quickTopic?.quick.question, let last, let answer = text.answer(last, for: question) {
             return Text("Last \(Text(answer).fontWeight(.semibold).foregroundStyle(.qr.inkSoft)) · \(when)")
         }
         return Text("\(text.count(topic.entryCount, "entry", "entries")) · \(when)")
@@ -91,7 +106,10 @@ struct TopicTile: View {
         let models = environment.quickLogModels
         // The store this observation reads; updates are dropped once another is active.
         let scope = environment.entryWriter.scope
-        guard let session = environment.session, let store = session.store, topic.topic.entryCount > 0 else {
+        // A single topic has no question, so no last answer to follow.
+        guard let key = quickTopic.quick.question?.key, let session = environment.session,
+            let store = session.store, topic.topic.entryCount > 0
+        else {
             models.update(quickTopic, last: nil, from: scope)
             return
         }
@@ -100,7 +118,7 @@ struct TopicTile: View {
                 topicId: quickTopic.id, limit: 1, refresh: session.refresh.stream())
             {
                 models.update(
-                    quickTopic, last: entries.first?.entry.answers[quickTopic.quick.question.key], from: scope)
+                    quickTopic, last: entries.first?.entry.answers[key], from: scope)
             }
         } catch {
             // The observation ends with its store (a reset or a switch); the next binding restarts it.
@@ -143,6 +161,8 @@ private struct QuickLogArea: View {
             ) {
                 Task { await model.logNumber() }
             }
+        case .single:
+            EmptyView()  // the Log block logs it
         }
     }
 }

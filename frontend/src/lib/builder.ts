@@ -235,14 +235,14 @@ export function draftFromTopic(topic: {
   };
 }
 
+/** A new topic starts with no questions: as it is, logging it takes one tap. */
 export function emptyTopicDraft(): TopicDraft {
-  const first = newDraftQuestion('int');
   return {
     name: '',
     slug: '',
     slugEdited: false,
     description: '',
-    questions: [first],
+    questions: [],
     change_note: '',
     schedule: emptyScheduleDraft(),
   };
@@ -571,13 +571,13 @@ export function makeDraftQuestionSchema(limits: Limits = FALLBACK_LIMITS) {
   });
 }
 
-/** Cross-question rules: unique keys, case-insensitive unique labels, count. */
+/** Cross-question rules: unique keys, case-insensitive unique labels, at most the limit. No
+ *  questions is fine: that topic logs with one tap (a "single" topic). */
 export function questionListIssues(
   questions: readonly Pick<DraftQuestion, 'key' | 'label'>[],
   limits: Limits = FALLBACK_LIMITS,
 ): Issue[] {
   const issues: Issue[] = [];
-  if (questions.length === 0) issues.push({ path: [], message: 'Add at least one question' });
   if (questions.length > limits.max_questions)
     issues.push({ path: [], message: `At most ${String(limits.max_questions)} questions` });
   for (const i of duplicates(questions.map((q) => q.key.trim())))

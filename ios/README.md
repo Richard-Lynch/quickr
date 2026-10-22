@@ -22,6 +22,13 @@ No Apple Developer team is needed for simulator work. For device builds later,
 copy `Local.xcconfig.example` to `Local.xcconfig` (gitignored) and set
 `DEVELOPMENT_TEAM`.
 
+Onboarding prefills the server address from `QUICKR_DEFAULT_SERVER_URL`
+(`Config/Shared.xcconfig`): `https://quickr.bahumia.com` in Release (TestFlight)
+and nothing in Debug. The field stays editable. To use another server in your own
+Release builds, set `QUICKR_DEFAULT_SERVER_URL[config=Release] = https:/$()/…` in
+`Local.xcconfig`. A plain setting there would also prefill Debug, where the UI
+tests type their own address.
+
 ## Make targets
 
 Run from the repo root. The simulator variables take a name or UDID: `ios-test`
@@ -450,9 +457,81 @@ export options with `destination` set to `export` and run `xcodebuild -exportArc
 with them. Then unzip the `.ipa` and run
 `codesign -d --entitlements - Payload/QuickR.app`.
 
-The archive warns "All interface orientations must be supported unless the app
-requires full screen". That is expected: the app is iPhone-only and portrait by
-design, and `UIRequiresFullScreen` is deprecated on iOS 26.
+**Portrait only needs `UIRequiresFullScreen`.** The app is iPhone-only and
+portrait by design. App Store validation with the iOS 27 SDK refuses a bundle that
+doesn't support all four orientations unless it opts out of multitasking resizing
+("include all orientations to support iPad multitasking"). So the app's `info` in
+`project.yml` sets `UIRequiresFullScreen: true`, even though iOS 26 deprecates the
+key. The script checks the archive for this, so a dry run fails before an upload
+would, and `tests/testflight-test.sh` checks `project.yml`. To support more
+orientations, list all four and drop the key.
+
+**The system rsync for packaging.** Xcode's IPA packaging (in the export) runs
+whichever `rsync` comes first in `PATH`. Homebrew's or MacPorts' rsync 3.x rejects
+Xcode's options with "syntax or usage error (code 1)". So the script links
+`/usr/bin/rsync` into `ios/build/testflight/.bin` and puts that directory first in
+`PATH` for its own run. It holds only that one link, so every other tool resolves
+as usual. Without a `/usr/bin/rsync` the script warns and leaves `PATH` alone.
+Nothing on the machine changes.
+
+### Uploading from CI
+
+`.github/workflows/testflight.yml` runs `make ios-testflight` when a `v*` tag
+is pushed. It runs on GitHub's `xcode-27` image (public preview) with Xcode
+27.1, the same build (27A9275) the local uploads used, and stops if the image
+has changed it. The `macos-26` image has only Xcode 26.x; the comment in the
+workflow says how to switch back. The build number is the UTC time, as for a
+local run.
+
+The credentials live in a GitHub environment named `testflight`, which only the
+upload job enters:
+
+| Name               | Kind     | Value                                       |
+| ------------------ | -------- | ------------------------------------------- |
+| `ASC_KEY_ID`       | secret   | The API key's Key ID                        |
+| `ASC_ISSUER_ID`    | secret   | The Issuer ID                               |
+| `ASC_KEY_P8`       | secret   | The whole contents of `AuthKey_<Key ID>.p8` |
+| `DEVELOPMENT_TEAM` | variable | The Team ID                                 |
+
+The job writes `ASC_KEY_P8` to a mode-600 file under `$RUNNER_TEMP` (that is
+`ASC_KEY_PATH`) and deletes it at the end, even after a failure. The workflow
+never runs on pull requests, so a fork's code never sees the key. One run goes
+at a time, and a run in progress is never cancelled (a newer queued run
+replaces an older queued one).
+
+**Who reaches the key.** The upload runs the Makefile and `testflight.sh` of
+the ref it starts on, and a branch can edit the workflow too, so the workflow
+alone can't keep the key from code someone pushed. Two settings do:
+
+1. Settings ▸ Environments ▸ `testflight` ▸ Deployment branches and tags:
+   **Selected branches and tags**, with the tag pattern `v*` only. The job runs
+   only for a `v*` tag; started anywhere else, it fails before its first step.
+2. Settings ▸ Rules ▸ Rulesets: a tag ruleset for `v*` that lets only admins
+   create, update or delete those tags.
+
+So only an admin's `v*` tag reaches the key. There is no required reviewer on
+the environment: in a single-owner repo it would only add a manual approval to
+every release, and the tag ruleset already limits uploads to the owner.
+Run workflow (dispatch) without `dry_run` uploads only when run on a `v*` tag,
+for example to retry a release; on a branch it fails at the environment.
+
+**Dry run.** Run workflow with `dry_run` ticked archives unsigned
+(`make ios-testflight-dry-run`). It runs in a separate job outside the
+environment, so it needs no secrets.
+
+**Recording the build.** After an upload, a second job opens a PR that adds the
+build (number and commit) to `compat/supported-clients.json`, so the compat gate
+keeps checking the server against it (docs/ios/specs/compatibility.md §5). It
+is the only job that can write to the repo. Two repository settings are needed:
+
+- Settings ▸ Actions ▸ General ▸ "Allow GitHub Actions to create and approve
+  pull requests".
+- The variable `TESTFLIGHT_RECORD_BASE`: the branch the PR targets, whose
+  `compat/supported-clients.json` lists the builds. Unset, it is the default
+  branch.
+
+GitHub starts no workflows for a PR opened with the workflow's own token, so
+close and reopen the PR to run its required checks.
 
 ## CI
 

@@ -29,6 +29,8 @@ import Testing
     static let coffee = topic("Coffee", [size, note])
     static let water = topic("Water", [cups])
     static let old = topic("Old", [size], status: .archived)
+    /// SINGLE: no questions.
+    static let walk = topic("Walk", [])
 
     final class Count: Sendable {
         private let value = Mutex(0)
@@ -45,7 +47,10 @@ import Testing
         init() throws {
             s = try TestStore()
             try s.write { db in
-                for topic in [IntentLoggingTests.coffee, IntentLoggingTests.water, IntentLoggingTests.old] {
+                for topic in [
+                    IntentLoggingTests.coffee, IntentLoggingTests.water, IntentLoggingTests.old,
+                    IntentLoggingTests.walk,
+                ] {
                     _ = try ServerLayer.upsert(db, topic: topic)
                 }
             }
@@ -62,6 +67,20 @@ import Testing
     }
 
     // MARK: - Writes
+
+    /// SINGLE: a topic with no questions logs an entry with no answers, and Repeat-last logs it
+    /// the same way, its first time too (there's nothing to repeat but nothing to ask either).
+    @Test func aSingleTopicLogsWithNoAnswersAndRepeatsBeforeItsFirstEntry() async throws {
+        let w = try World()
+        #expect(try await IntentLogging.repeatPlan(topicId: Self.walk.id, in: w.context).1 == .log([:]))
+        let logged = try await IntentLogging.log(topicId: Self.walk.id, answers: [:], in: w.context)
+        #expect(logged.answers.isEmpty)
+        #expect(try w.items.count == 1)
+        #expect(try await IntentLogging.repeatPlan(topicId: Self.walk.id, in: w.context).1 == .log([:]))
+        await #expect(throws: IntentLogging.Failure.self) {
+            try await IntentLogging.log(topicId: Self.walk.id, answers: ["x": .int(1)], in: w.context)
+        }
+    }
 
     @Test func aLogIsOneDurableCreateWithARandomIdAndTheIntentsSource() async throws {
         let w = try World()

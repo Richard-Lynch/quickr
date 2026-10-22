@@ -178,6 +178,25 @@ import Testing
         #expect(w.center.withState { $0.added }.isEmpty, "no failure notification")
     }
 
+    /// SINGLE: a topic with no questions has one action, "Log it", which logs an entry with no
+    /// answers in the background (no app), under the shared action entry id.
+    @Test func aSingleTopicsLogItLogsAnEntryWithNoAnswers() async throws {
+        let w = try await World()
+        var coffee = Make.topic(name: "Coffee")
+        coffee.questions = []
+        try await w.stores[Self.serverA]!.writer.write { [coffee] db in _ = try ServerLayer.upsert(db, topic: coffee) }
+        w.server.put(coffee)
+        let r = w.reminder(coffee)
+        #expect(r.info.quickLog == .single)
+        #expect(r.category.actions.map(\.title) == ["Log it"])
+        let outcome = await w.tap(r, 0)
+        let id = w.entryId(coffee)
+        #expect(outcome == .logged(entryId: id, serverId: Self.serverA, flush: .drained))
+        let sent = try #require(w.server.entry(id), "flushed within the budget")
+        #expect(sent.answers.isEmpty && sent.source == "ios.notification")
+        #expect(w.center.withState { $0.added }.isEmpty, "no failure notification")
+    }
+
     @Test func theFirstAnswerWinsWhileQueuedOnTheServerAndAfterADelete() async throws {
         let w = try await World()
         w.server.inject(nil, .respond(FakeServer.problem(503, "unavailable")))  // the first stays queued

@@ -48,6 +48,13 @@ struct QuestionsSections<Model: BuilderEditing>: View {
             }
         }
         Section {
+            // None at all is fine: a "single" topic, logged in one tap with no answers.
+            if model.draft.questions.isEmpty {
+                Text(Self.noQuestions)
+                    .font(.qr(.subheadline))
+                    .foregroundStyle(.qr.muted)
+                    .accessibilityIdentifier("\(id).noQuestions")
+            }
             Button {
                 addingQuestion = true
             } label: {
@@ -56,6 +63,8 @@ struct QuestionsSections<Model: BuilderEditing>: View {
             .disabled(!model.draft.canAddQuestion(limits: model.limits))
             .accessibilityIdentifier("\(id).addQuestion")
             TopicFieldError(model.draftErrors[.questions])
+        } header: {
+            if model.draft.questions.isEmpty { listHeader }
         }
         .confirmationDialog("Add a question", isPresented: $addingQuestion, titleVisibility: .visible) {
             ForEach(QuestionType.allCases, id: \.self) { type in
@@ -66,6 +75,8 @@ struct QuestionsSections<Model: BuilderEditing>: View {
             Text("Pick what kind of answer it takes.")
         }
     }
+
+    static var noQuestions: String { "No questions: tapping this topic logs it." }
 
     private var listHeader: some View {
         HStack(alignment: .firstTextBaseline) {

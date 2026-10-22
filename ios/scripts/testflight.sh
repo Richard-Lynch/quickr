@@ -18,6 +18,20 @@
 # refused. Nothing in the repo changes. The marketing version is MARKETING_VERSION in
 # project.yml.
 source "$(dirname "$0")/common.sh"
+# Xcode's IPA packaging (exportArchive) shells out to whichever `rsync` is first in PATH. A
+# Homebrew or MacPorts rsync 3.x rejects the options Xcode passes ("syntax or usage error"), so
+# the system rsync is put first, through a private bin dir that holds only that one link:
+# everything else (xcodebuild included, and the tests' fakes) resolves exactly as before. The
+# dir is `.bin` under build/testflight, beside the `<version>-<build>` dirs, which always start
+# with a digit, so it can't be taken for one. Exported, so the xcodebuild callbacks inherit it.
+if [[ -x /usr/bin/rsync ]]; then
+  rsync_dir="$IOS_DIR/build/testflight/.bin"
+  mkdir -p "$rsync_dir"
+  ln -sfn /usr/bin/rsync "$rsync_dir/rsync"
+  [[ ":$PATH:" == *":$rsync_dir:"* ]] || export PATH="$rsync_dir:$PATH"
+elif [[ -n "$(command -v rsync)" ]]; then
+  echo "ios: warning: no /usr/bin/rsync; the export will use $(command -v rsync), which may fail" >&2
+fi
 # Never traced: `bash -x` would print the credentials as they are read.
 { set +x; } 2>/dev/null
 
@@ -208,6 +222,19 @@ while IFS= read -r plist; do
   got="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$plist" 2>/dev/null || true)"
   [[ "$got" == "$build" ]] || die "${plist#"$archive/"} has CFBundleVersion '$got', not $build"
 done < <(find "$app" -name Info.plist -path "*.app/Info.plist" -o -name Info.plist -path "*.appex/Info.plist")
+# App Store validation (iOS 27 SDK) rejects an app that doesn't support all four orientations
+# unless it opts out of multitasking resizing (UIRequiresFullScreen); quickR is portrait only.
+# Checked on the archive, so a dry run catches it before an upload would.
+info="$app/Info.plist"
+if orientations="$(/usr/libexec/PlistBuddy -c "Print :UISupportedInterfaceOrientations" "$info" 2>/dev/null)"; then
+  all=1
+  for o in Portrait PortraitUpsideDown LandscapeLeft LandscapeRight; do
+    grep -qx "[[:space:]]*UIInterfaceOrientation$o" <<<"$orientations" || all=0
+  done
+  full="$(/usr/libexec/PlistBuddy -c "Print :UIRequiresFullScreen" "$info" 2>/dev/null || true)"
+  (( all )) || [[ "$full" == true ]] \
+    || die "the app supports only some orientations without UIRequiresFullScreen: App Store validation refuses it (ios/README.md, TestFlight)"
+fi
 echo "ios: archive ok: every bundle is $marketing ($build)"
 
 if (( dry_run )); then

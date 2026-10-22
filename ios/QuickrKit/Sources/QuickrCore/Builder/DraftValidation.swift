@@ -269,13 +269,12 @@ extension TopicDraft {
         return issues.isEmpty ? .success(questions) : .failure(DraftIssues(issues))
     }
 
-    /// Cross-question rules (`questionListIssues`): at least one, at most `max_questions`,
-    /// unique keys, and labels unique ignoring case. Flagged on the later question.
+    /// Cross-question rules (`questionListIssues`): at most `max_questions` (none is fine: a
+    /// "single" topic), unique keys, and labels unique ignoring case. Flagged on the later question.
     public static func questionListIssues(
         _ questions: [(key: String, label: String)], limits: Limits = .serverDefaults
     ) -> [DraftIssue<DraftField>] {
         var issues: [DraftIssue<DraftField>] = []
-        if questions.isEmpty { issues.append(.init(field: .questions, message: "Add at least one question")) }
         if questions.count > limits.maxQuestions {
             issues.append(.init(field: .questions, message: "At most \(limits.maxQuestions) questions"))
         }

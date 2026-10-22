@@ -87,10 +87,9 @@ final class BuilderUITests: XCTestCase {
     @MainActor
     func testPreviewAndCollapse() {
         let app = launch(open: "quickr://new")
-        let label = app.textFields["newTopic.q0.label"]
-        XCTAssertTrue(label.waitForExistence(timeout: 15))
-        label.tap()
-        label.typeText("Glasses of water\n")  // Return puts the keyboard away
+        XCTAssertTrue(app.textFields["newTopic.name"].waitForExistence(timeout: 15))
+        // It starts with none. Return puts the keyboard away.
+        addQuestion("int", label: "Glasses of water\n", prefix: "newTopic", in: app)
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
         snap(app, "builder-edit")
 
@@ -163,8 +162,13 @@ final class BuilderUITests: XCTestCase {
     @MainActor
     func testANewQuestionsFieldsAtTheLargestTextSize() throws {
         let app = launch(open: "quickr://new", extra: AccessibilityLaunch.arguments())
+        XCTAssertTrue(app.textFields["newTopic.name"].waitForExistence(timeout: 15))
+        // It starts with none. Typed like a user, Return puts the keyboard away (the helper's tap on
+        // the bar doesn't).
+        addQuestion("int", label: "Steps\n", prefix: "newTopic", in: app)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
         let label = app.textFields["newTopic.q0.label"]
-        scrollTo(label, in: app)
+        scrollTo(label, in: app, up: true)  // its card starts above the Add button
         XCTAssertTrue(label.waitForExistence(timeout: 15))
         // The min and max fields stack (BD4).
         let min = element("newTopic.q0.min", in: app)

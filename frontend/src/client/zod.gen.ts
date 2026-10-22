@@ -674,7 +674,7 @@ export const zTopicCreate = z.object({
         zDoubleQuestionInput,
         zStrQuestionInput,
         zEnumQuestionInput
-    ])).min(1).max(100),
+    ])).min(0).max(100),
     schedule: z.discriminatedUnion('kind', [
         zDailyScheduleInput,
         zIntervalScheduleInput
@@ -882,7 +882,7 @@ export const zVersionCreate = z.object({
         zDoubleQuestionInput,
         zStrQuestionInput,
         zEnumQuestionInput
-    ])).min(1).max(100),
+    ])).min(0).max(100),
     base_version: z.int().gte(1),
     change_note: z.string().max(2000).optional().default('')
 });
@@ -896,7 +896,7 @@ export const zVersionDraft = z.object({
         zDoubleQuestionInput,
         zStrQuestionInput,
         zEnumQuestionInput
-    ])).min(1).max(100),
+    ])).min(0).max(100),
     base_version: z.int().gte(1).nullish()
 });
 

@@ -182,13 +182,17 @@ private struct AccessTokenEditor: View {
         NavigationStack {
             Form {
                 Section {
+                    // Labelled for Password AutoFill (webcredentials: the server's domain), which may
+                    // offer to save them too; the app's own copy is only ever the Keychain's.
                     TextField("Client ID (….access)", text: $clientId)
+                        .textContentType(.username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .accessibilityLabel("Client ID")
                         .accessibilityInputLabels(["Client ID"])
                         .accessibilityIdentifier("token.clientId")
                     SecureField("Client Secret", text: $clientSecret)
+                        .textContentType(.password)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .accessibilityIdentifier("token.clientSecret")
@@ -206,27 +210,13 @@ private struct AccessTokenEditor: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { Task { await close() } }.accessibilityIdentifier("token.cancel")
+                    Button("Cancel") { dismiss() }.accessibilityIdentifier("token.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { Task { await save() } }.accessibilityIdentifier("token.save")
                 }
             }
         }
-        // With a secret typed, the sheet closes only through Save or Cancel (`close()` empties the
-        // field first); a swipe down would leave with it full, and iOS 27 would offer it to Passwords.
-        .interactiveDismissDisabled(!clientSecret.isEmpty)
-    }
-
-    /// Closes the sheet with the secret field emptied first. The secret is a Cloudflare service
-    /// token, kept in quickR's own Keychain, not a login: iOS 27 offers to save whatever a secure
-    /// field holds when it goes ("Save Password?", for the Passwords app), whatever its content
-    /// type, so it holds nothing by then. Save calls it only after the Keychain write has finished
-    /// (awaited); a failed save keeps the sheet, and the secret, with the error.
-    private func close() async {
-        clientSecret = ""
-        try? await Task.sleep(for: .milliseconds(100))  // a render pass: the field shows it empty
-        dismiss()
     }
 
     private func save() async {
@@ -238,8 +228,11 @@ private struct AccessTokenEditor: View {
                 return
             }
             do {
+                // Closes once the Keychain write has finished; a failed save keeps the sheet, and the
+                // secret, with the error. iOS or a password manager may offer to save the token as
+                // the sheet goes ("Save Password?"): the user's choice.
                 try await target.save(token, to: credentials)
-                await close()
+                dismiss()
             } catch {
                 self.error = "Couldn’t save the token: \(error)"
             }

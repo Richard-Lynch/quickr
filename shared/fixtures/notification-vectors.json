@@ -1,5 +1,6 @@
 {
   "cases": [
+    {"counts":{},"expected":{"actions":[{"identifier":"q1|0b9e0000-0000-4000-8000-0000000000aa|6f1c0000-0000-4000-8000-000000000001|1||s|","kind":"log","title":"Log it"}],"body_suffix":"","category_id":"quickr.t.6f1c0000-0000-4000-8000-000000000001.1b2e0cfb1fa865ff","hash_input":"quickr-cat-v1\u001elog\u001fq1|0b9e0000-0000-4000-8000-0000000000aa|6f1c0000-0000-4000-8000-000000000001|1||s|\u001fLog it","quick_log":{"type":"single"}},"last":null,"name":"single","questions":[],"server_id":"0b9e0000-0000-4000-8000-0000000000aa","topic_id":"6f1c0000-0000-4000-8000-000000000001","version":1},
     {"counts":{},"expected":{"actions":[],"body_suffix":"","category_id":null,"hash_input":null,"quick_log":null},"last":null,"name":"ineligible-str","questions":[{"help_text":null,"key":"note","label":"Note","max_length":500,"min_length":0,"multiline":false,"required":true,"type":"str"}],"server_id":"0b9e0000-0000-4000-8000-0000000000aa","topic_id":"6f1c0000-0000-4000-8000-000000000001","version":1},
     {"counts":{},"expected":{"actions":[],"body_suffix":"","category_id":null,"hash_input":null,"quick_log":null},"last":null,"name":"ineligible-two-required","questions":[{"help_text":null,"key":"mood","label":"Mood","max_selected":null,"min_selected":null,"multiple":false,"options":[{"archived":false,"label":"Option 0","value":"o0"},{"archived":false,"label":"Option 1","value":"o1"}],"required":true,"type":"enum"},{"help_text":null,"key":"n","label":"N","max":null,"min":null,"required":true,"type":"int","unit":null}],"server_id":"0b9e0000-0000-4000-8000-0000000000aa","topic_id":"6f1c0000-0000-4000-8000-000000000001","version":1},
     {"counts":{},"expected":{"actions":[],"body_suffix":"","category_id":null,"hash_input":null,"quick_log":null},"last":null,"name":"ineligible-enum-7","questions":[{"help_text":null,"key":"mood","label":"Mood","max_selected":null,"min_selected":null,"multiple":false,"options":[{"archived":false,"label":"Option 0","value":"o0"},{"archived":false,"label":"Option 1","value":"o1"},{"archived":false,"label":"Option 2","value":"o2"},{"archived":false,"label":"Option 3","value":"o3"},{"archived":false,"label":"Option 4","value":"o4"},{"archived":false,"label":"Option 5","value":"o5"},{"archived":false,"label":"Option 6","value":"o6"}],"required":true,"type":"enum"}],"server_id":"0b9e0000-0000-4000-8000-0000000000aa","topic_id":"6f1c0000-0000-4000-8000-000000000001","version":1},
@@ -82,7 +83,7 @@
   ],
   "meta": {
     "generator": "backend/tests/test_notification_vectors.py",
-    "generator_version": 3,
+    "generator_version": 4,
     "max_label_length": 64,
     "semantics": [
       "descriptor: quickLogFor(questions) decides eligibility (quicklog-vectors.json). Enum: {type: 'enum', key, label, options: [{value, label}], total_options}; with <= 4 active options all of them in question order, with 5-6 the 3 with the highest counts[value] (missing = 0), ties in question order. Number: {type: 'int'|'double', key, label, unit, min, max, decimals (null for int), last_value}.",

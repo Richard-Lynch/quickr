@@ -5,15 +5,28 @@ import Testing
 /// The editing behaviour the PWA keeps in its builder components (QuestionsEditor, QuestionCard,
 /// OptionsEditor, TopicMetaFields), plus what iOS adds (duplicate, change type).
 @Suite struct TopicDraftEditingTests {
+    /// A draft with one number question, as a new topic used to start (most editing tests).
+    static func oneNumber() -> TopicDraft { TopicDraft(questions: [DraftQuestion(type: .int)]) }
+
     static let published = Question(
         key: "mood", label: "Mood",
         kind: .choice(
             .init(options: [EnumOption(value: "good", label: "Good"), EnumOption(value: "bad", label: "Bad")])))
 
-    @Test func emptyTopicHasOneNumberQuestion() {
-        let t = TopicDraft.empty()
-        #expect(t.questions.map(\.type) == [.int])
+    /// SINGLE: a new topic starts with no questions (it would log in one tap), and every question
+    /// can be removed, the last one too.
+    @Test func aNewTopicStartsWithNoQuestionsAndTheLastCanBeRemoved() throws {
+        var t = TopicDraft.empty()
+        #expect(t.questions.isEmpty)
         #expect(!t.canRemoveQuestion)
+        #expect(try t.validatedQuestions().get().isEmpty)
+        let q = t.addQuestion(.int)
+        #expect(t.canRemoveQuestion)
+        let removed = t.removeQuestion(q)
+        #expect(removed)
+        #expect(t.questions.isEmpty)
+        let again = t.removeQuestion(q)
+        #expect(!again, "already gone")
     }
 
     @Test func newQuestionDefaults() {
@@ -26,7 +39,7 @@ import Testing
     }
 
     @Test func slugFollowsTheNameUntilEdited() {
-        var t = TopicDraft.empty()
+        var t = Self.oneNumber()
         t.setName("Sleep Log")
         #expect(t.slug == "sleep-log")
         t.setSlug("zzz")
@@ -36,7 +49,7 @@ import Testing
     }
 
     @Test func labelsDeriveUniqueKeysUntilEditedOrPublished() {
-        var t = TopicDraft.empty()
+        var t = Self.oneNumber()
         let first = t.questions[0].id
         t.setLabel(first, "Mood")
         let second = t.addQuestion(.str)
@@ -59,7 +72,7 @@ import Testing
     }
 
     @Test func addRemoveAndMoveQuestions() {
-        var t = TopicDraft.empty()
+        var t = Self.oneNumber()
         let a = t.questions[0].id
         let b = t.addQuestion(.str)
         let c = t.addQuestion(.enum)
@@ -74,14 +87,14 @@ import Testing
         let r4 = t.removeQuestion(b)
         #expect(r4)
         let r5 = t.removeQuestion(c)
-        #expect(!r5, "the last question stays")
-        #expect(t.questions.map(\.id) == [c])
+        #expect(r5, "the last question goes too (a single topic)")
+        #expect(t.questions.isEmpty)
     }
 
     @Test func canAddQuestionUpToTheLimit() {
         var limits = Limits.serverDefaults
         limits.maxQuestions = 2
-        var t = TopicDraft.empty()
+        var t = Self.oneNumber()
         #expect(t.canAddQuestion(limits: limits))
         t.addQuestion(.int)
         #expect(!t.canAddQuestion(limits: limits))
@@ -134,7 +147,7 @@ import Testing
 
     /// A fractional bound survives the switch to whole numbers and is flagged, never truncated.
     @Test func fractionalDoubleBecomingIntIsFlagged() throws {
-        var t = TopicDraft.empty()
+        var t = Self.oneNumber()
         t.setLabel(t.questions[0].id, "Mood")
         let n = t.addQuestion(.double)
         t.setLabel(n, "Hours")
@@ -154,7 +167,7 @@ import Testing
     }
 
     @Test func optionsAddRenameAndDeriveValues() throws {
-        var t = TopicDraft.empty()
+        var t = Self.oneNumber()
         let q = t.addQuestion(.enum)
         let r9 = t.addOption(to: q, label: "   ")
         #expect(r9 == nil)
@@ -239,7 +252,7 @@ import Testing
     }
 
     @Test func serverErrorsLandOnFieldsOrTheBanner() {
-        var t = TopicDraft.empty()
+        var t = Self.oneNumber()
         t.addQuestion(.enum)
         let problem = Problem(
             code: .invalidRequest, detail: "request validation failed",

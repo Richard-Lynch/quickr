@@ -21,7 +21,7 @@ struct WidgetGalleryView: View {
             let quick = QuickLog(questions: topic.questions)
             return WidgetTopic(
                 topic: topic, quick: quick,
-                lastAnswer: quick.flatMap { DemoStore.answers[topic.slug]?[$0.question.key] },
+                lastAnswer: quick?.question.flatMap { DemoStore.answers[topic.slug]?[$0.key] },
                 queued: topic.slug == "water" ? 1 : 0)
         }
     }
