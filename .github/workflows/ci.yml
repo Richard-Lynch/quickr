@@ -1,10 +1,7 @@
 name: CI
 
 on:
-  # ready_for_review too: testflight.yml's record PR opens as a draft (a PR its token opens
-  # starts no workflows), and marking it ready is what runs these.
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:

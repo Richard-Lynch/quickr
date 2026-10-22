@@ -136,7 +136,7 @@ jobs:
           git switch -c "$branch"
           git commit -qam "Compat: list TestFlight build $BUILD (${SHA:0:7})"
           git push origin "$branch"
-          # A draft: a PR opened with this token starts no workflows, and marking it ready does.
-          gh pr create --draft --base "$RECORD_BASE" --head "$branch" \
+          # Not a draft: ci.yml doesn't run on ready_for_review, so reopening is the one trigger.
+          gh pr create --base "$RECORD_BASE" --head "$branch" \
             --title "Compat: list TestFlight build $BUILD" \
-            --body "TestFlight $version ($BUILD) was uploaded from \`$REF\` (${SHA}). This lists it in compat/supported-clients.json, so the compat gate keeps checking the server against it (docs/ios/specs/compatibility.md §5). A PR opened by GITHUB_TOKEN starts no workflows, so this is a draft: mark it ready for review to run the required checks."
+            --body "TestFlight $version ($BUILD) was uploaded from \`$REF\` (${SHA}). This lists it in compat/supported-clients.json, so the compat gate keeps checking the server against it (docs/ios/specs/compatibility.md §5). A PR opened by GITHUB_TOKEN starts no workflows: close and reopen it to run the required checks."

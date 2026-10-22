@@ -531,7 +531,7 @@ is the only job that can write to the repo. Two repository settings are needed:
   branch.
 
 GitHub starts no workflows for a PR opened with the workflow's own token, so
-the PR opens as a draft: marking it ready for review runs its required checks.
+close and reopen the PR to run its required checks.
 
 ## CI
 
