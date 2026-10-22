@@ -5,15 +5,15 @@ requires-python = ">=3.14,<3.15"
 dependencies = [
     "alembic>=1.20.0",
     "asyncpg>=0.32.0",
-    "fastapi[standard]>=0.143.2",
-    "fastmcp>=4.1.0",
+    "fastapi[standard]>=0.148.0",
+    "fastmcp>=4.1.1",
     "httpx[http2]>=0.28.1",
     "py-vapid>=1.9",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.0",
     "pyjwt[crypto]>=2.15.1",
     "pywebpush>=2.5",
-    "sqlalchemy[asyncio]>=2.1.4",
+    "sqlalchemy[asyncio]>=2.1.5",
     "uvicorn>=0.54.0",
 ]
 
