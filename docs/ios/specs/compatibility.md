@@ -108,6 +108,10 @@ reports as passing, so requiring the jobs themselves would let a broken or
 cancelled path check through. The full list for `main` and `feat/ios-app`:
 `backend`, `frontend`, `docker` (ci.yml, not gated), `ios gate`, `compat gate`.
 
+Both workflows also run on every push to `main` (ios.yml on `feat/ios-app` too),
+with the path check diffing against the branch's previous head, so each commit
+there gets both gates. A `v*` tag deploys only from a commit whose gates passed.
+
 ## 5. Adding and pruning builds
 
 **Adding.** A TestFlight upload from CI (`.github/workflows/testflight.yml`)

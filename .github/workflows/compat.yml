@@ -12,14 +12,20 @@ name: Compat
 #   build it at any listed sha. macOS minutes count 10x, hence the path check.
 # `compat gate` is the one check to require: it fails unless the path check succeeded and every
 # job passed or was skipped by it (a skipped required job would count as passing on its own).
+# Also on a push to main, so every commit there gets a `compat gate`: a v* tag deploys only from a
+# commit whose gates passed. The changes job diffs a push against main's previous head.
 on:
+  push:
+    branches: [main]
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize]
   workflow_dispatch:
 
+# A push to main is never cancelled: each of its commits needs its own `compat gate` (a v* tag
+# deploys only from a commit whose gates passed).
 concurrency:
-  group: compat-${{ github.ref }}
-  cancel-in-progress: true
+  group: compat-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || 'latest' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -39,12 +45,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
-      # A PR checks out its merge commit, so HEAD^1 is the base it merges into.
+      # A PR checks out its merge commit, so HEAD^1 is the base it merges into. A push diffs
+      # against the branch's previous head (event.before); a new branch, or a before that can't be
+      # fetched, runs everything. A dispatch runs everything.
       - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" != pull_request ]]; then echo "server=true" >> "$GITHUB_OUTPUT"; exit 0; fi
-          changed="$(git diff --name-only HEAD^1 HEAD)"
+          case "$GITHUB_EVENT_NAME" in
+          pull_request) base=HEAD^1 ;;
+          push)
+            if [[ "$BEFORE" =~ ^0+$ ]] || ! git fetch -q --depth=1 origin "$BEFORE"; then
+              echo "server=true" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+            base="$BEFORE" ;;
+          *) echo "server=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          changed="$(git diff --name-only "$base" HEAD)"
           echo "$changed"
           if grep -qE '^(backend/|shared/fixtures/|openapi\.json$|compat/|\.github/workflows/compat\.yml$)' <<< "$changed"; then
             echo "server=true" >> "$GITHUB_OUTPUT"
