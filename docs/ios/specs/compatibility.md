@@ -101,7 +101,9 @@ non-draft PRs that touch `backend/`, `shared/fixtures/`, `openapi.json` or
 
 ## 4. Required checks
 
-Each workflow ends in one job that is the check to require: `compat`, and `ios`
-in ios.yml. It fails unless its path check succeeded and every other job
-passed or was skipped by it. A skipped job reports as passing, so requiring the
-jobs themselves would let a broken or cancelled path check through.
+Each gated workflow ends in one always-run job that is the check to require:
+`compat gate` (compat.yml) and `ios gate` (ios.yml). It fails unless its path
+check succeeded and every other job passed or was skipped by it. A skipped job
+reports as passing, so requiring the jobs themselves would let a broken or
+cancelled path check through. The full list for `main` and `feat/ios-app`:
+`backend`, `frontend`, `docker` (ci.yml, not gated), `ios gate`, `compat gate`.

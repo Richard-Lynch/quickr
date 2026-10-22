@@ -10,8 +10,8 @@ name: Compat
 #   wire suites against this PR's shared/fixtures. macOS because those suites are in QuickrData,
 #   which imports Apple-only modules (Security, AppIntents, Network, ...), so Linux Swift can't
 #   build it at any listed sha. macOS minutes count 10x, hence the path check.
-# `compat` is the one check to require: it fails unless the path check succeeded and every job
-# passed or was skipped by it (a skipped required job would count as passing on its own).
+# `compat gate` is the one check to require: it fails unless the path check succeeded and every
+# job passed or was skipped by it (a skipped required job would count as passing on its own).
 on:
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize]
@@ -139,7 +139,7 @@ jobs:
           exit "$status"
 
   compat:
-    name: compat
+    name: compat gate
     if: always()
     needs: [changes, openapi, old-requests, old-clients]
     runs-on: ubuntu-latest
