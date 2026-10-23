@@ -119,7 +119,10 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
 
   /** The base version's timer: publishing requires one, and this editor keeps it as it is. */
   const baseTimer = async () => {
-    const versions = await qc.query(listTopicVersionsOptions({ path: { ref: base.slug } }));
+    const versions = await qc.query({
+      ...listTopicVersionsOptions({ path: { ref: base.slug } }),
+      staleTime: 0,
+    });
     const version = versions.find((v) => v.version === base.current_version);
     if (!version) throw new Error(`Version ${String(base.current_version)} wasn’t found`);
     return version.timer;

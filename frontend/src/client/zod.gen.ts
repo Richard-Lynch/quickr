@@ -906,8 +906,8 @@ export const zVersionCreate = z.object({
         zEnumQuestionInput
     ])).min(0).max(100),
     base_version: z.int().gte(1),
-    change_note: z.string().max(2000).optional().default(''),
-    timer: zTimer.nullable()
+    timer: zTimer.nullable(),
+    change_note: z.string().max(2000).optional().default('')
 });
 
 /**
@@ -920,7 +920,8 @@ export const zVersionDraft = z.object({
         zStrQuestionInput,
         zEnumQuestionInput
     ])).min(0).max(100),
-    base_version: z.int().gte(1).nullish()
+    base_version: z.int().gte(1).nullish(),
+    timer: zTimer.nullish()
 });
 
 /**

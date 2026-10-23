@@ -30,7 +30,7 @@ from app.schemas.api import (
 )
 from app.schemas.base import issues_from
 from app.schemas.questions import Question, QuestionSet, Timer
-from app.services.compat import NO_CHANGES, check_compatibility
+from app.services.compat import check_compatibility
 from app.services.feed import log_change, tombstone, writer
 from app.services.schedule import compute_due, dump_schedule, parse_schedule
 
@@ -416,13 +416,34 @@ def _stale(topic: Topic, base_version: int) -> Conflict:
     )
 
 
-async def check_version(
-    db: AsyncSession, ref: str, questions: list[Question], base_version: int | None = None
+async def _report(
+    db: AsyncSession, topic: Topic, questions: list[Question], timer: dict[str, Any] | None, with_timer: bool
 ) -> CompatibilityReport:
+    """``check_compatibility`` compares questions only. With the draft's timer, a timer change
+    with no question changes is still a change, so the report's "no changes" error goes."""
+    report = check_compatibility(await _history(db, topic), questions)
+    if not with_timer or report.changes or timer == (await get_version(db, topic)).timer:
+        return report
+    # With no question changes, "no changes to publish" is the report's only issue without a
+    # question; an error on a question (a type change of a historic key, say) still blocks.
+    issues = [i for i in report.issues if i.question_key is not None]
+    return report.model_copy(update={"issues": issues, "ok": not any(i.level == "error" for i in issues)})
+
+
+async def check_version(
+    db: AsyncSession,
+    ref: str,
+    questions: list[Question],
+    base_version: int | None = None,
+    *,
+    timer: Timer | None = None,
+    with_timer: bool = False,
+) -> CompatibilityReport:
+    """``with_timer``: the draft has a timer (``timer``, None for untimed) to compare too."""
     topic = await resolve_topic(db, ref)
     if base_version is not None and base_version != topic.current_version:
         raise _stale(topic, base_version)
-    return check_compatibility(await _history(db, topic), _validated_set(questions))
+    return await _report(db, topic, _validated_set(questions), dump_timer(timer), with_timer)
 
 
 @writer
@@ -432,15 +453,9 @@ async def publish_version(db: AsyncSession, ref: str, body: VersionCreate) -> To
     if body.base_version != topic.current_version:
         raise _stale(topic, body.base_version)
     questions = _validated_set(body.questions)
-    report = check_compatibility(await _history(db, topic), questions)
     timer = dump_timer(body.timer)
-    # The report ignores the timer (timers.md §2.1), so a timer change alone is a change.
-    timer_changed = timer != (await get_version(db, topic)).timer
-    errors = [
-        i
-        for i in report.issues
-        if i.level == "error" and not (timer_changed and i.question_key is None and i.message == NO_CHANGES)
-    ]
+    report = await _report(db, topic, questions, timer, with_timer=True)
+    errors = [i for i in report.issues if i.level == "error"]
     if errors:
         raise IncompatibleVersion(
             "; ".join(

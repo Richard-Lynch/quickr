@@ -6957,12 +6957,6 @@
             "title": "Base Version",
             "description": "The version this edit was based on. Must equal the topic's current version (optimistic concurrency); otherwise 409."
           },
-          "change_note": {
-            "type": "string",
-            "maxLength": 2000,
-            "title": "Change Note",
-            "default": ""
-          },
           "timer": {
             "anyOf": [
               {
@@ -6973,6 +6967,12 @@
               }
             ],
             "description": "The new version's timer, or null for an untimed topic. Required, so leaving it out can't switch timing off: send the current version's timer to keep it."
+          },
+          "change_note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Change Note",
+            "default": ""
           }
         },
         "additionalProperties": false,
@@ -7029,6 +7029,17 @@
             ],
             "title": "Base Version",
             "description": "Optional: the version this draft was based on. When given and stale, the dry run fails with 409 just as publishing would."
+          },
+          "timer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional: the draft's timer (null for untimed). When given, a timer change with no question changes is a change, as publishing treats it; the report itself covers questions only."
           }
         },
         "additionalProperties": false,

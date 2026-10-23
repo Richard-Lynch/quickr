@@ -268,3 +268,31 @@ async def test_step_validation_names_the_field(client: httpx.AsyncClient) -> Non
     r = await client.post("/topics/sleep-log/versions", json={**base, "timer": timer})
     assert r.status_code == 201, r.text
     assert await _timers(client) == [None, timer]
+
+
+async def test_check_with_a_timer_counts_a_timer_change(client: httpx.AsyncClient) -> None:
+    """checkTopicVersion's optional timer: a timer change alone passes, as publishing it does;
+    without a timer the check compares questions only."""
+    await make_topic(client)
+    same = {"questions": sleep_questions(), "base_version": 1}
+    check = "/topics/sleep-log/versions/check"
+    r = await client.post(check, json=same)
+    assert r.json()["ok"] is False
+    r = await client.post(check, json={**same, "timer": None})
+    assert (r.json()["ok"], r.json()["issues"][0]["message"]) == (False, "no changes to publish")
+    r = await client.post(check, json={**same, "timer": STEPS})
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "next_version": 2, "issues": [], "changes": []}
+
+    # Timed now: the same timer is no change again; dropping it is one.
+    assert (await client.post("/topics/sleep-log/versions", json={**same, "timer": STEPS})).status_code == 201
+    same["base_version"] = 2
+    assert (await client.post(check, json={**same, "timer": STEPS})).json()["ok"] is False
+    assert (await client.post(check, json={**same, "timer": None})).json()["ok"] is True
+    # Question errors still block, whatever the timer.
+    retyped = sleep_questions()
+    retyped[1]["type"] = "double"
+    r = await client.post(check, json={"questions": retyped, "timer": None})
+    assert r.json()["ok"] is False
+    r = await client.post(check, json={**same, "timer": {"steps": [{"key": "Bad", "label": "x"}]}})
+    assert [e["loc"] for e in r.json()["errors"]] == [["body", "timer", "steps", 0, "key"]]

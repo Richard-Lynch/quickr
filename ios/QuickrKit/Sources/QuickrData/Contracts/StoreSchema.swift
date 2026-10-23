@@ -95,9 +95,20 @@ public enum StoreSchema {
     }
 
     /// Timed topics (timers.md §2.1): a version's timer, `TopicTimer` as JSON; null when untimed.
-    /// Rows from before it are null, which they are on the server too. Both layers gain it at the
-    /// end, so a swap still copies rows 1:1.
-    static let v2: [String] = ["", "stage_"].map { "ALTER TABLE \($0)topic_version ADD COLUMN timer_json TEXT" }
+    /// Both layers gain it at the end, so a swap still copies rows 1:1.
+    ///
+    /// Versions synced before it have no timer here, though the server may have given them one
+    /// (an older build synced a timers server), and versions are never rewritten. So a store that
+    /// has synced re-pulls its whole server layer through the rebuild (sync-protocol.md §7):
+    /// staging starts over, and `rebuilding` targets the epoch it already has (or the one it was
+    /// already staging). A store with no epoch yet has nothing to re-pull.
+    static let v2: [String] =
+        ["", "stage_"].map { "ALTER TABLE \($0)topic_version ADD COLUMN timer_json TEXT" }
+        + serverLayerTables.map { "DELETE FROM stage_\($0)" }
+        + [
+            "UPDATE stage_state SET cursor = 0 WHERE id = 1",
+            "UPDATE sync_state SET rebuilding = COALESCE(rebuilding, epoch) WHERE id = 1 AND epoch IS NOT NULL",
+        ]
 
     static let v1: [String] =
         serverLayer(prefix: "")

@@ -282,6 +282,11 @@ class VersionDraft(StrictModel):
         description="Optional: the version this draft was based on. When given and stale, the dry run "
         "fails with 409 just as publishing would.",
     )
+    timer: Timer | None = Field(
+        default=None,
+        description="Optional: the draft's timer (null for untimed). When given, a timer change with no "
+        "question changes is a change, as publishing treats it; the report itself covers questions only.",
+    )
 
 
 class VersionCreate(VersionDraft):

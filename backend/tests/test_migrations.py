@@ -359,6 +359,25 @@ async def test_timed_topics_round_trip(clean_db: None) -> None:
                         " VALUES ('ef', 'other', 'cd', 'sandbox')"
                     )
                 )
+        # Deleting a topic takes its runs, their events and aliases with it.
+        async with get_engine().begin() as conn:
+            for sql in (
+                "INSERT INTO topics (id, slug, name, description, status, current_version)"
+                f" VALUES ('{T}b', 'gone', 'Gone', '', 'active', 1)",
+                "INSERT INTO topic_versions (id, topic_id, version, questions, change_note)"
+                f" VALUES ('{T}c', '{T}b', 1, '[]', '')",
+                "INSERT INTO runs (id, topic_id, topic_version_id, version, status, started_at, state,"
+                f" source, channel) VALUES ('{T}d', '{T}b', '{T}c', 1, 'running', '2026-01-01T08:00:00Z',"
+                " '{}', 'phone', 'ui')",
+                f"INSERT INTO run_events (id, run_id, type, at, source) VALUES ('{T}e', '{T}d', 'start',"
+                " '2026-01-01T08:00:00Z', 'phone')",
+                f"INSERT INTO run_aliases (id, run_id) VALUES ('{T}f', '{T}d')",
+            ):
+                await conn.execute(text(sql))
+            await conn.execute(text(f"DELETE FROM topics WHERE id = '{T}b'"))
+            for table, key in (("runs", "d"), ("run_events", "e"), ("run_aliases", "f")):
+                assert await conn.scalar(text(f"SELECT count(*) FROM {table} WHERE id = '{T}{key}'")) == 0
+            assert await conn.scalar(text("SELECT count(*) FROM runs")) == 3  # the other topic's
 
         await _alembic(command.downgrade, before)
         async with get_engine().connect() as conn:

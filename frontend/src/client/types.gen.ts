@@ -1990,13 +1990,13 @@ export type VersionCreate = {
      */
     base_version: number;
     /**
-     * Change Note
-     */
-    change_note?: string;
-    /**
      * The new version's timer, or null for an untimed topic. Required, so leaving it out can't switch timing off: send the current version's timer to keep it.
      */
     timer: Timer | null;
+    /**
+     * Change Note
+     */
+    change_note?: string;
 };
 
 /**
@@ -2013,6 +2013,10 @@ export type VersionDraft = {
      * Optional: the version this draft was based on. When given and stale, the dry run fails with 409 just as publishing would.
      */
     base_version?: number | null;
+    /**
+     * Optional: the draft's timer (null for untimed). When given, a timer change with no question changes is a change, as publishing treats it; the report itself covers questions only.
+     */
+    timer?: Timer | null;
 };
 
 export type HealthData = {
