@@ -5,28 +5,28 @@ Generated from the backend and checked by every platform (the Swift tests in
 `make vectors` (it needs the test database, like `make check`) and commit the
 result.
 
-| File                           | Generator                                                                                         | Checked by                                                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `due-vectors.json`             | `backend/tests/test_due_vectors.py` (real `services/schedule.py`)                                 | pytest drift check; Swift `QuickrCore` due tests (M1)                                            |
-| `quicklog-vectors.json`        | `backend/tests/test_quicklog_vectors.py` (`services/quicklog.py`)                                 | pytest drift check; `frontend/src/lib/quickLog.vectors.test.ts`; Swift (M1)                      |
-| `answer-text-vectors.json`     | `backend/tests/test_answer_text_vectors.py` (`services/answers.py`)                               | pytest drift check; `frontend/src/lib/answerText.vectors.test.ts`; Swift `AnswerTextVectorTests` |
-| `jsnumber-vectors.json`        | `frontend/scripts/gen-jsnumber-vectors.js` (V8 `String(x)`, run once by hand)                     | Swift `JSNumberVectorTests`; pytest (`js_number_string` in `services/quicklog.py`)               |
-| `notification-vectors.json`    | `backend/tests/test_notification_vectors.py` (`services/notification.py`)                         | pytest drift check; Swift notification categories (M3, spec test N1)                             |
-| `apns-payload-vectors.json`    | `backend/tests/test_apns_payload_vectors.py` (`push/apns.render`)                                 | pytest drift check; Swift DEBUG demo reminder (`DueReminderVectorTests`, M3 media)               |
-| `action-entry-id-vectors.json` | `backend/tests/test_action_entry_id_vectors.py` (`services/notification.py`)                      | pytest drift check; `frontend/src/lib/pushActions.test.ts`; Swift action handler (M3)            |
-| `home-vectors.json`            | `backend/tests/test_home_vectors.py` (`list_topics`, test database)                               | pytest drift check; Swift home list ordering, status filter and search (M2)                      |
-| `home-due-vectors.json`        | `frontend/src/lib/home.vectors.test.ts` (`dueParts`, `splitByDue`, vitest)                        | vitest drift check; Swift home due pill and sections (M2)                                        |
-| `entries-vectors.json`         | `backend/tests/test_entries_vectors.py` (`list_entries`, test database)                           | pytest drift check; Swift topic entry list filters, order and sources (M2)                       |
-| `entries-range-vectors.json`   | `frontend/src/lib/entries.vectors.test.ts` (`rangeStart`, `parseRange`)                           | vitest drift check; Swift entries range filter (M2)                                              |
-| `stats-vectors.json`           | `backend/tests/test_stats_vectors.py` (the app, via ASGI)                                         | pytest drift check; input of `stats-chart-vectors.json`; Swift stats decoding and requests (M6)  |
-| `stats-chart-vectors.json`     | `frontend/src/components/charts/stats.vectors.test.ts` (the PWA's chart code)                     | vitest drift check; Swift chart models and Overview summaries (M6)                               |
-| `builder-vectors.json`         | `backend/tests/test_builder_vectors.py` (`schemas/questions.py`, `services/compat.py`, `slugify`) | pytest drift check; Swift `BuilderVectorTests`                                                   |
-| `schedule-vectors.json`        | `frontend/src/lib/schedule.vectors.test.ts` (`schedule.ts`, vitest)                               | vitest drift check; Swift schedule editor (TOPIC, M2)                                            |
-| `builder-ui-vectors.json`      | `frontend/src/lib/builderUi.vectors.test.ts` (`builder.ts`, `questionSummary.ts`, vitest)         | vitest drift check; Swift builder screens and versions list (BUILDER-UI, M6)                     |
-| `run-fold-vectors.json`        | `backend/tests/test_run_fold_vectors.py` (`services/run_fold.py`)                                 | pytest drift check; vitest `runFold.vectors.test.ts` (F-CORE); Swift `RunFoldVectorTests`        |
-| `timing-stats-vectors.json`    | `backend/tests/test_timing_stats_vectors.py` (`services/timing_stats.py`)                         | pytest drift check; `getTopicTiming` (T-STATS); PWA and Swift timing chart models                |
-| `duration-format-vectors.json` | `backend/tests/test_duration_vectors.py` (`run_fold.fmt_duration`)                                | pytest drift check; vitest and Swift `fmtDuration` (F-CORE, I-CORE)                              |
-| `api/*.json`                   | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                                          | pytest drift check; Swift `QuickrData` decoding tests (M1)                                       |
+| File                           | Generator                                                                                         | Checked by                                                                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `due-vectors.json`             | `backend/tests/test_due_vectors.py` (real `services/schedule.py`)                                 | pytest drift check; Swift `QuickrCore` due tests (M1)                                                                                         |
+| `quicklog-vectors.json`        | `backend/tests/test_quicklog_vectors.py` (`services/quicklog.py`)                                 | pytest drift check; `frontend/src/lib/quickLog.vectors.test.ts`; Swift (M1)                                                                   |
+| `answer-text-vectors.json`     | `backend/tests/test_answer_text_vectors.py` (`services/answers.py`)                               | pytest drift check; `frontend/src/lib/answerText.vectors.test.ts`; Swift `AnswerTextVectorTests`                                              |
+| `jsnumber-vectors.json`        | `frontend/scripts/gen-jsnumber-vectors.js` (V8 `String(x)`, run once by hand)                     | Swift `JSNumberVectorTests`; pytest (`js_number_string` in `services/quicklog.py`)                                                            |
+| `notification-vectors.json`    | `backend/tests/test_notification_vectors.py` (`services/notification.py`)                         | pytest drift check; Swift notification categories (M3, spec test N1)                                                                          |
+| `apns-payload-vectors.json`    | `backend/tests/test_apns_payload_vectors.py` (`push/apns.render`)                                 | pytest drift check; Swift DEBUG demo reminder (`DueReminderVectorTests`, M3 media)                                                            |
+| `action-entry-id-vectors.json` | `backend/tests/test_action_entry_id_vectors.py` (`services/notification.py`)                      | pytest drift check; `frontend/src/lib/pushActions.test.ts`; Swift action handler (M3)                                                         |
+| `home-vectors.json`            | `backend/tests/test_home_vectors.py` (`list_topics`, test database)                               | pytest drift check; Swift home list ordering, status filter and search (M2)                                                                   |
+| `home-due-vectors.json`        | `frontend/src/lib/home.vectors.test.ts` (`dueParts`, `splitByDue`, vitest)                        | vitest drift check; Swift home due pill and sections (M2)                                                                                     |
+| `entries-vectors.json`         | `backend/tests/test_entries_vectors.py` (`list_entries`, test database)                           | pytest drift check; Swift topic entry list filters, order and sources (M2)                                                                    |
+| `entries-range-vectors.json`   | `frontend/src/lib/entries.vectors.test.ts` (`rangeStart`, `parseRange`)                           | vitest drift check; Swift entries range filter (M2)                                                                                           |
+| `stats-vectors.json`           | `backend/tests/test_stats_vectors.py` (the app, via ASGI)                                         | pytest drift check; input of `stats-chart-vectors.json`; Swift stats decoding and requests (M6)                                               |
+| `stats-chart-vectors.json`     | `frontend/src/components/charts/stats.vectors.test.ts` (the PWA's chart code)                     | vitest drift check; Swift chart models and Overview summaries (M6)                                                                            |
+| `builder-vectors.json`         | `backend/tests/test_builder_vectors.py` (`schemas/questions.py`, `services/compat.py`, `slugify`) | pytest drift check; Swift `BuilderVectorTests`                                                                                                |
+| `schedule-vectors.json`        | `frontend/src/lib/schedule.vectors.test.ts` (`schedule.ts`, vitest)                               | vitest drift check; Swift schedule editor (TOPIC, M2)                                                                                         |
+| `builder-ui-vectors.json`      | `frontend/src/lib/builderUi.vectors.test.ts` (`builder.ts`, `questionSummary.ts`, vitest)         | vitest drift check; Swift builder screens and versions list (BUILDER-UI, M6)                                                                  |
+| `run-fold-vectors.json`        | `backend/tests/test_run_fold_vectors.py` (`services/run_fold.py`)                                 | pytest drift check; vitest `runFold.vectors.test.ts` (`lib/runs/fold.ts`, F-CORE); Swift `RunFoldVectorTests`                                 |
+| `timing-stats-vectors.json`    | `backend/tests/test_timing_stats_vectors.py` (`services/timing_stats.py`)                         | pytest drift check; `getTopicTiming` (T-STATS); vitest `timingStats.vectors.test.ts` (`lib/runs/stats.ts`, F-CORE); Swift timing chart models |
+| `duration-format-vectors.json` | `backend/tests/test_duration_vectors.py` (`run_fold.fmt_duration`)                                | pytest drift check; vitest `format.vectors.test.ts` (`lib/runs/format.ts` `fmtDuration`, F-CORE); Swift `fmtDuration` (I-CORE)                |
+| `api/*.json`                   | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                                          | pytest drift check; Swift `QuickrData` decoding tests (M1)                                                                                    |
 
 ## Drift checks
 
@@ -116,7 +116,7 @@ scheduler's inputs ([notifications.md](../../docs/ios/specs/notifications.md)
 screenshots) builds the same notification on the simulator, so it must match.
 
 - `cases[]`: `{name, server_id, topic_id, topic_slug, title, body, version,
-  due_since, questions, counts, last, expected}`. `title` is the topic name,
+due_since, questions, counts, last, expected}`. `title` is the topic name,
   `body` the scheduler's message, and `questions`, `counts` and `last` feed the
   descriptor as in `notification-vectors.json`. `due_since` may be any ISO 8601
   instant. `expected` is the APNs JSON body: `aps` (alert title and body,
@@ -229,7 +229,6 @@ The entries page's date-range filter, which the PWA computes client side
 `now` is UTC ISO-8601 with a `Z` suffix, some with milliseconds. Each case is
 one line.
 
-
 ## `schedule-vectors.json`
 
 The topic schedule editor's rules, which the PWA runs client side
@@ -265,9 +264,9 @@ en-US (the generator checks the locale).
 - `meta`: `generator`, `version`, `locale`.
 - `new_question[]`: `{type, expected}` (`newDraftQuestion`). A draft is the
   PWA's `DraftQuestion` without its `uid`s: `{type, key, label, help_text,
-  required, keyEdited, locked, min, max, unit, decimals, min_length,
-  max_length, multiline, options: [{value, label, archived, valueEdited,
-  locked}], multiple, min_selected, max_selected, publishedMultiple}`, every
+required, keyEdited, locked, min, max, unit, decimals, min_length,
+max_length, multiline, options: [{value, label, archived, valueEdited,
+locked}], multiple, min_selected, max_selected, publishedMultiple}`, every
   constraint as the text of its field.
 - `from_question[]`: `{question, locked, expected}` (`draftFromQuestion`: the
   draft a published question opens as in the editor).

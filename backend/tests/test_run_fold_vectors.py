@@ -69,6 +69,9 @@ DAY = 24 * 60 * 60
 # Two ids whose order differs between raw and lowercase comparison ("B" < "a" < "b").
 UPPER_B = "0e000000-0000-4000-8000-00000000000B"
 LOWER_A = "0e000000-0000-4000-8000-00000000000a"
+# A pause whose id is uppercase, named in lowercase by a resume whose id sorts before it.
+UPPER_PAUSE = "0e000000-0000-4000-8000-00000000000D"
+LOWER_RESUME = "0e000000-0000-4000-8000-00000000000c"
 
 # name -> (step set, events in arrival order, frozen as (after, reason) or None)
 CASES: dict[str, tuple[str, list[dict[str, Any]], tuple[int, FrozenReason] | None]] = {
@@ -160,6 +163,18 @@ CASES: dict[str, tuple[str, list[dict[str, Any]], tuple[int, FrozenReason] | Non
         [START, ev(9, "pause", 60), ev(3, "resume", 60, pause=9), ev(4, "stop", 90)],
         None,
     ),
+    "resume-at-the-pause-instant-mixed-case": (
+        "none",
+        # Ids compare lowercase: the resume names its pause in another case, and still sorts
+        # right after it.
+        [
+            START,
+            ev(UPPER_PAUSE, "pause", 60),
+            ev(LOWER_RESUME, "resume", 60, pause=UPPER_PAUSE.lower()),
+            ev(4, "stop", 90),
+        ],
+        None,
+    ),
     "stopped-before-the-last-step": ("three", [START, ev(1, "next", 100, seg=0), ev(2, "stop", 200)], None),
     "pause-resume": (
         "none",
@@ -203,6 +218,12 @@ CASES: dict[str, tuple[str, list[dict[str, Any]], tuple[int, FrozenReason] | Non
         ],
         None,
     ),
+    "next-while-paused-pause-open": (
+        "two",
+        # The closed segment's paused_ms runs from the open pause to the segment's end.
+        [START, ev(1, "pause", 60), ev(2, "next", 90, seg=0)],
+        None,
+    ),
     "stop-while-paused": (
         "two",
         [START, ev(1, "next", 30, seg=0), ev(2, "pause", 60), ev(3, "stop", 100)],
@@ -243,6 +264,21 @@ CASES: dict[str, tuple[str, list[dict[str, Any]], tuple[int, FrozenReason] | Non
     "discard-then-stop": (
         "two",
         [START, ev(1, "next", 50, seg=0), ev(2, "discard", 100), ev(3, "stop", 120)],
+        None,
+    ),
+    "next-at-the-start-instant": (
+        "two",
+        [START, ev(1, "next", 0, seg=0), ev(2, "stop", 50)],
+        None,
+    ),
+    "uppercase-run-id": (
+        "two",
+        [
+            {**START, "id": RUN.upper()},
+            ev(1, "next", 30, seg=0),
+            ev(RUN.upper(), "start", 0),
+            ev(2, "stop", 60),
+        ],
         None,
     ),
     "stop-at-a-next-instant": ("two", [START, ev(1, "next", 100, seg=0), ev(2, "stop", 100)], None),
@@ -417,6 +453,14 @@ def test_vectors_cover_the_spec() -> None:
     assert effects("resume-at-the-pause-instant")[eid(3)] == ("applied", None)
     assert built["resume-at-the-pause-instant"]["timing"]["paused_ms"] == 0
     assert built["stopped-before-the-last-step"]["timing"]["complete"] is False
+    assert effects("resume-at-the-pause-instant-mixed-case")[LOWER_RESUME.lower()] == ("applied", None)
+    assert built["resume-at-the-pause-instant-mixed-case"]["timing"]["paused_ms"] == 0
+    assert [s["active_ms"] for s in built["next-at-the-start-instant"]["timing"]["segments"]] == [0, 50_000]
+    open_pause = built["next-while-paused-pause-open"]["state"]
+    assert (open_pause["status"], open_pause["paused_since"]) == ("paused", at(60))
+    assert [(s["active_ms"], s["paused_ms"]) for s in open_pause["segments"]] == [(60_000, 30_000)]
+    assert effects("uppercase-run-id")[RUN] == ("applied", None)
+    assert built["uppercase-run-id"]["timing"]["active_ms"] == 60_000
     assert built["three-steps-all-done"]["timing"]["complete"] is True
     assert built["pause-resume"]["timing"]["paused_ms"] == 30_000
     assert reasons("resume-naming-an-older-pause") == ["stale"]

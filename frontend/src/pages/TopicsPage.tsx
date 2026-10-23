@@ -17,7 +17,7 @@ import { Segmented } from '../components/ui/Segmented';
 import { Skeleton } from '../components/ui/Spinner';
 import { useDebounced, useNow } from '../lib/hooks';
 import { plural } from '../lib/format';
-import { splitByDue } from '../lib/home';
+import { NO_OPEN_RUNS, dueCount, splitByDue } from '../lib/home';
 
 type Query = NonNullable<ListTopicsData['query']>;
 type StatusFilter = NonNullable<Query['status']>;
@@ -85,8 +85,9 @@ export function TopicsPage() {
   const total = query.data?.pages[0]?.total ?? 0;
   const filtered = q !== '' || status !== 'active';
   const sectioned = sort === 'due' && !filtered;
-  const sections = useMemo(() => splitByDue(items, now), [items, now]);
-  const dueCount = sections.due.length;
+  // No run data in the PWA yet: no topic has an open run.
+  const sections = useMemo(() => splitByDue(items, now, NO_OPEN_RUNS), [items, now]);
+  const dueTotal = useMemo(() => dueCount(items, now, NO_OPEN_RUNS), [items, now]);
 
   return (
     <>
@@ -161,7 +162,7 @@ export function TopicsPage() {
             {sectioned ? (
               <Section
                 title="Due now"
-                count={dueCount}
+                count={dueTotal}
                 tone="accent"
                 empty={
                   <p className="flex items-center gap-2 rounded-card border border-dashed border-line-strong px-4 py-3 text-sm text-muted">

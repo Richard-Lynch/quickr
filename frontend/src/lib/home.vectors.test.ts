@@ -11,7 +11,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import type { ScheduleOutput } from './schedule';
 import { FRESH_DUE_MS, SOON_MS, dueParts, type DueStatus } from './schedule';
-import { splitByDue, type SplittableTopic } from './home';
+import { NO_OPEN_RUNS, splitByDue, type SplittableTopic } from './home';
 
 // No @types/node in the app's tsconfig: reach Node through narrow local types.
 interface NodeProcess {
@@ -412,7 +412,7 @@ function build(): Record<string, unknown> {
         schedule: x.scheduled ? DUMMY_SCHEDULE : null,
         due: x.due,
       }));
-      const s = splitByDue(topics, new Date(c.now));
+      const s = splitByDue(topics, new Date(c.now), NO_OPEN_RUNS);
       const ids = (xs: Topic[]) => xs.map((x) => x.id);
       return {
         ...c,
