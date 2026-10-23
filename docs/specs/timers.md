@@ -1,6 +1,6 @@
 # Spec: timed topics (runs, steps, laps and Live Activities)
 
-**Status:** draft, revision 3, 2026-10-23. **Applies to:** the backend, the PWA,
+**Status:** draft, revision 4, 2026-10-23 (review of rev 3 applied). **Applies to:** the backend, the PWA,
 the iOS app (app, widgets, Live Activity, intents, notifications) and the MCP
 server. **Companion specs:** [sync-protocol.md](../ios/specs/sync-protocol.md),
 [outbox.md](../ios/specs/outbox.md) and
@@ -83,13 +83,13 @@ as for entries (sync-protocol.md F3).
 
 ### 1.2 What lives where
 
-| Data                                      | Stored in                                                        | In the change feed as |
-| ----------------------------------------- | ---------------------------------------------------------------- | --------------------- |
-| Whether a topic is timed, and its steps   | `topic_versions.timer` (§2.1)                                    | `version` items       |
-| An open or finishing run, with its events | `runs`, `run_events`, `run_aliases` (§2.2)                       | `run` items (§7.1)    |
-| A finished run's times                    | `entries.timing` (§2.3), plus the run row                        | `entry` items         |
-| A finished run's answers                  | `answers`, as for any entry                                      | `entry` items         |
-| Live Activity push tokens                 | `apns_devices.live_activity_start_token`, `live_activity_tokens` | No                    |
+| Data                                      | Stored in                                  | In the change feed as |
+| ----------------------------------------- | ------------------------------------------ | --------------------- |
+| Whether a topic is timed, and its steps   | `topic_versions.timer` (§2.1)              | `version` items       |
+| An open or finishing run, with its events | `runs`, `run_events`, `run_aliases` (§2.2) | `run` items (§7.1)    |
+| A finished run's times                    | `entries.timing` (§2.3), plus the run row  | `entry` items         |
+| A finished run's answers                  | `answers`, as for any entry                | `entry` items         |
+| Live Activity push tokens                 | `live_activity_tokens` (§10.3)             | No                    |
 
 ## 2. Data model and migration **[server]**
 
@@ -119,10 +119,9 @@ Step  = { key: QuestionKey, label: Label }      // same key regex and label limi
   `null` for an untimed topic. Required, so no caller (the PWA, iOS, the MCP
   tool) can switch timing off by leaving it out. In `createTopic` it is optional
   and defaults to `null`.
-- `TopicVersionOut` gains `timer: Timer | null`.
-- `checkTopicVersion` reports step changes in its compatibility report as
-  informational lines (renamed, added, removed, reordered). They never block a
-  publish: past runs keep their own steps.
+- `TopicVersionOut` gains `timer: Timer | null`. `checkTopicVersion` ignores
+  `timer`: past runs keep their own steps, so a step change never blocks a
+  publish.
 
 ### 2.2 Runs
 
@@ -156,7 +155,8 @@ CREATE TABLE run_events (
   type        run_event_type NOT NULL,
   at          TIMESTAMPTZ NOT NULL,                        -- device time of the tap
   seg         INTEGER NULL,                                -- next, lap, skip (§3.2)
-  step        VARCHAR(64) NULL,                            -- skip (optional check)
+  step        VARCHAR(64) NULL,                            -- skip: the step being skipped (required)
+  pause_id    UUID NULL,                                   -- resume: the pause event it ends (required)
   payload     JSONB NOT NULL DEFAULT '{}',                 -- stop/finish: answers, notes, meta; start: version
   source      VARCHAR(100) NOT NULL,
   received_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -209,9 +209,12 @@ Segment = { kind: "step" | "lap", step: StepKey | null, label: string,
   `[started_at, ended_at]`; **T4** each step key appears at most once across
   `segments` and `skipped`; **T5** `active_ms` and `paused_ms` add up over
   segments, and pauses are split at segment boundaries.
-- Durations are **integer milliseconds**, computed from the stored microsecond
-  instants and **truncated** (`floor((end − start) in µs / 1000)`). Integer ms
-  keeps Python, Swift and JavaScript identical (§13.1).
+- **Every instant is a whole millisecond.** The server truncates each event's
+  `at` (and every edited instant) to milliseconds when it stores it, and clients
+  truncate before they enqueue. Durations are then exact integer differences,
+  so T5 holds exactly (no per-segment rounding). The Swift and TypeScript fold
+  ports parse wire strings to integer epoch milliseconds and never go through
+  `Date` or a floating-point value (§13.1).
 - `EntryOut` gains `timing: Timing | null`. `channel` and `source` come from the
   run's start event.
 
@@ -225,9 +228,9 @@ Segment = { kind: "step" | "lap", step: StepKey | null, label: string,
   feed, "deleted" means "no longer open". A stopped run's data arrives as its
   entry. Late events are still accepted after the close (§4.4) and change the
   **entry**, never the run item.
-- Stopping logs the new entry `(kind entry, op upsert)` **before** the run's
-  delete, in the same transaction, so a client never sees the run vanish without
-  its entry on the same or an earlier page.
+- Stopping logs the new entry `(kind entry, op upsert)` before the run's delete,
+  in the same transaction. The feed's emission rule that makes this visible to
+  clients is in §7.1.
 
 ## 3. API **[server]**
 
@@ -237,17 +240,16 @@ sync-protocol.md §1.5.
 
 ### 3.1 Endpoints
 
-| operationId                     | Method and path                                  | Purpose                                                                 |
-| ------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------- |
-| `recordRunEvent`                | `POST /api/v1/runs/{run_id}/events`              | Every tap: start, next, lap, skip, pause, resume, stop, finish, discard |
-| `getRun`                        | `GET /api/v1/runs/{run_id}`                      | One run, in any status, with its events and effects. An alias resolves. |
-| `listRuns`                      | `GET /api/v1/runs?status=open\|finishing&topic=` | Open and finishing runs (the PWA's source of runs)                      |
-| `listChanges` (changed)         | `GET /api/v1/changes`                            | Gains the `run` item and deletion kinds (§7.1). **Breaking.**           |
-| `getTopicTiming`                | `GET /api/v1/topics/{ref}/timing?from=&to=`      | Timing stats (§9)                                                       |
-| `updateEntry` (extended)        | `PATCH /api/v1/entries/{id}`                     | Gains an optional `timing` field: edit a past run's times (§3.8)        |
-| `registerLiveActivity`          | `POST /api/v1/push/apns/live-activities`         | Register a Live Activity's update token (§10.3)                         |
-| `deleteLiveActivity`            | `POST /api/v1/push/apns/live-activities/delete`  | Unregister it                                                           |
-| `registerApnsDevice` (extended) | `POST /api/v1/push/apns/devices`                 | Gains an optional `live_activity_start_token` (push-to-start, §10.3)    |
+| operationId              | Method and path                                  | Purpose                                                                 |
+| ------------------------ | ------------------------------------------------ | ----------------------------------------------------------------------- |
+| `recordRunEvent`         | `POST /api/v1/runs/{run_id}/events`              | Every tap: start, next, lap, skip, pause, resume, stop, finish, discard |
+| `getRun`                 | `GET /api/v1/runs/{run_id}`                      | One run, in any status, with its events and effects. An alias resolves. |
+| `listRuns`               | `GET /api/v1/runs?status=open\|finishing&topic=` | Open and finishing runs (the PWA's source of runs)                      |
+| `listChanges` (changed)  | `GET /api/v1/changes`                            | Gains the `run` item and deletion kinds (§7.1). **Breaking.**           |
+| `getTopicTiming`         | `GET /api/v1/topics/{ref}/timing?from=&to=`      | Timing stats (§9)                                                       |
+| `updateEntry` (extended) | `PATCH /api/v1/entries/{id}`                     | Gains an optional `timing` field: edit a past run's times (§3.8)        |
+| `registerLiveActivity`   | `POST /api/v1/push/apns/live-activities`         | Register a push-to-start token or an activity's update token (§10.3)    |
+| `deleteLiveActivity`     | `POST /api/v1/push/apns/live-activities/delete`  | Unregister one                                                          |
 
 ### 3.2 `recordRunEvent`
 
@@ -259,14 +261,15 @@ RunEventIn {
   type:    "start" | "next" | "lap" | "skip" | "pause" | "resume" | "stop" | "finish" | "discard"
   at:      datetime              // device time of the tap
   seg:     int ≥ 0 | null        // required for next, lap and skip; the open segment the device saw
-  step:    StepKey | null        // skip only, optional: the step the device saw as being skipped
+  step:    StepKey | null        // required for skip: the step the device saw as being skipped
+  pause_id: UUID | null          // required for resume: the id of the pause event it ends
   topic_id: UUID | null          // start only, required
   version: int | null            // start only, required
   answers: Answers | null        // stop and finish only (§3.6)
   notes:   string | null         // stop and finish only
   meta:    {string: string} | null
   source:  string | null         // as for EntryCreate; defaults by channel
-  device:  { apns_token: hex, live_activity: bool } | null   // start only (§10.3)
+  device:  { apns_token: hex, live_activity: bool } | null   // every event from iOS (§10.3)
 }
 ```
 
@@ -290,8 +293,8 @@ RunOut {
 
 - **Idempotent by event id.** A replay with the same id and the same content
   returns the current `RunEventResult` with `200`. The same id with different
-  content (type, `at`, `seg`, `step`, `topic_id`) answers 409 `event_conflict`.
-  Content compares `at` at microsecond precision.
+  content (type, `at`, `seg`, `step`, `pause_id`, `topic_id`) answers 409
+  `event_conflict`. `at` is compared after truncation to milliseconds (§2.3).
 - **Void is not an error.** An event that the fold voids (a double tap, a lap
   after Stop, §4.2) is stored and answered with `200` and `effect: "void"`.
   Clients ack it like any success.
@@ -305,7 +308,8 @@ A `start` with run id R for topic T:
 | Situation                                                    | Result                                                                                                    |
 | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
 | R is a known run or alias                                    | Replay (§3.2)                                                                                             |
-| R is in `deleted_ids` as a run, or is an entry id            | 409 `run_deleted` or 409 `id_conflict`                                                                    |
+| R is in `deleted_ids` as a run                               | 409 `run_deleted`                                                                                         |
+| R is the id of an entry                                      | 409 `id_conflict` (new code, §3.9)                                                                        |
 | T doesn't exist                                              | 404                                                                                                       |
 | T is archived                                                | 409 `topic_archived`                                                                                      |
 | Version `version` of T doesn't exist, or its `timer` is null | 409 `topic_not_timed`                                                                                     |
@@ -317,20 +321,22 @@ A `start` with run id R for topic T:
 These are applied through the fold (§4). The request is rejected only for these
 reasons:
 
-| Situation                                                              | Response                  |
-| ---------------------------------------------------------------------- | ------------------------- |
-| The run (or alias) doesn't exist                                       | 404                       |
-| The run id is in `deleted_ids` and the run row is gone (topic deleted) | 409 `run_deleted`         |
-| `seg` is missing for next, lap or skip                                 | 422                       |
-| The run already has 1,000 events                                       | 422 `run_too_many_events` |
-| `at` fails the time bounds (§5)                                        | 422                       |
+| Situation                                                                      | Response                  |
+| ------------------------------------------------------------------------------ | ------------------------- |
+| The run (or alias) doesn't exist                                               | 404                       |
+| The run id is in `deleted_ids` and the run row is gone (topic deleted)         | 409 `run_deleted`         |
+| `seg` is missing for next, lap or skip; `step` for skip; `pause_id` for resume | 422                       |
+| The run already has 1,000 events                                               | 422 `run_too_many_events` |
+| `at` fails the time bounds (§5)                                                | 422                       |
 
 Anything else is stored and folded, even when the run is closed: the fold
 decides whether it applies (§4.4).
 
 ### 3.5 Stop
 
-Stop ends the clock at `at`. It is terminal (§4.1). Then:
+Stop ends the clock at `at`. It is terminal (§4.1). A stop with `at` before the
+run's `started_at` answers 422 `before_start` and is not stored: it would make a
+negative segment. Otherwise:
 
 | Answers in the request | The version's questions        | Result                                                                                                                          |
 | ---------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -345,23 +351,35 @@ the start event, `notes` and `meta` from the stop. It is checked as a
 run began before the archive, and refusing would lose the timing. The run
 becomes `stopped`, with `entry_id = id`. Both are logged (§2.4).
 
+A **second stop** that carries answers (another device stopped first) is not
+lost: its answers are applied as a `finish` (§3.6). A second stop without
+answers is void (`already_closed`).
+
 ### 3.6 Finish
 
-`finish` gives a `finishing` run its answers. The answers are validated against
-the run's version, with required questions enforced (422 on failure). The entry
-is then created as in §3.5, and the run becomes `stopped`. A `finish` on a run
-that isn't `finishing` is void (`not_finishing`).
+`finish` carries the run's answers (and notes). It is valid in two states:
 
-**Why two steps.** The Live Activity, widgets, the Action button and Siri can't
-ask questions. Their Stop must still end the clock at the moment of the tap. A
-run with required questions therefore waits in `finishing`, and every client
-shows it as "Add details" (§10, §11). Form-capable clients send `stop` at the
-tap and then `finish` from the answers sheet.
+| Run status                            | Effect                                                                                                                                                                                                |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `finishing`                           | The answers are validated against the run's version, required questions enforced (422 on failure, nothing stored). The entry is created as in §3.5; the run becomes `stopped`.                        |
+| `stopped`                             | The answers and notes are applied to the existing entry as a PATCH would apply them (answers merge by key), validated with required questions enforced on the result. The entry's revision increases. |
+| `discarded`, or the entry was deleted | Void (`already_closed` or `entry_deleted`)                                                                                                                                                            |
+
+**Why it works this way.** The Live Activity, widgets, the Action button and
+Siri can't ask questions, but their Stop must end the clock at the tap. So
+**every client sends `stop` at the tap, without answers, and every form sends
+its answers as `finish`**, whether the stop made an entry (no required
+questions) or left the run `finishing`. There is one path for answers, and it
+is a run event, so it needs no cross-kind outbox ordering (§8.1). A finishing
+run shows as "Add details" on every client (§11).
 
 ### 3.7 Discard
 
-`discard` throws an open or finishing run away. The run becomes `discarded`, and
-it is logged as a delete (§2.4). A discard of a stopped run is void
+`discard` throws an open or **finishing** run away. The run becomes
+`discarded`, and it is logged as a delete (§2.4). A finishing run's stop is
+already its terminal event, so the fold would void a later discard: the server
+handles a discard of a finishing run outside the fold, as it handles `finish`,
+and records the event as applied. A discard of a stopped run is void
 (`already_closed`): delete its entry instead.
 
 ### 3.8 Editing a past run's times
@@ -396,16 +414,18 @@ TimingEdit = {
 
 ### 3.9 Problem codes (new)
 
-| Status | Code                  | When                                                           |
-| ------ | --------------------- | -------------------------------------------------------------- |
-| 409    | `topic_not_timed`     | `start` against a version without a `timer`                    |
-| 409    | `event_conflict`      | An event id was reused with different content                  |
-| 409    | `run_deleted`         | The run's topic was deleted                                    |
-| 422    | `run_too_long`        | A stop or edit that would make the run longer than 7 days (§5) |
-| 422    | `run_too_many_events` | Over 1,000 events                                              |
+| Status | Code                  | When                                                                                                                                                                                      |
+| ------ | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 409    | `topic_not_timed`     | `start` against a version without a `timer`                                                                                                                                               |
+| 409    | `id_conflict`         | `start` with an entry's id; `createEntry` with the id of an open or finishing run or of an alias. (`createEntry` with a stopped run's id is the existing idempotent replay of its entry.) |
+| 422    | `before_start`        | A stop with `at` before the run's `started_at` (§3.5)                                                                                                                                     |
+| 409    | `event_conflict`      | An event id was reused with different content                                                                                                                                             |
+| 409    | `run_deleted`         | The run's topic was deleted                                                                                                                                                               |
+| 422    | `run_too_long`        | A stop or edit that would make the run longer than 7 days (§5)                                                                                                                            |
+| 422    | `run_too_many_events` | Over 1,000 events                                                                                                                                                                         |
 
-`id_conflict`, `topic_archived`, `invalid_answers` and `invalid_request` keep
-their meaning.
+`conflict`, `topic_archived`, `invalid_answers` and `invalid_request` keep their
+meaning (`backend/app/errors.py`).
 
 ## 4. The fold (state machine)
 
@@ -441,7 +461,6 @@ fold(steps, events_in_arrival_order):
       if terminal: void(e, already_closed) else terminal = e
       continue
     if e.type == finish: continue                         // the server decides it (§3.6)
-    if edited: void(e, run_edited); continue
     accepted += e
 
   st = { open: Seg(label = pop(pending = steps), start = start.at, index = 0),
@@ -459,14 +478,16 @@ fold(steps, events_in_arrival_order):
       skip:
         if e.seg != st.open.index: void(e, stale); continue
         if st.open.label is a step s:
-          if e.step and e.step != s: void(e, stale); continue
+          if e.step != s: void(e, stale); continue
           st.skipped += s; st.open.label = pop(pending)   // relabel: no time is lost or created
         else:
           if pending is empty: void(e, no_step); continue
-          if e.step and e.step != head(pending): void(e, stale); continue
+          if e.step != head(pending): void(e, stale); continue
           st.skipped += pop(pending)
-      pause:  if st.paused_since: void(e, already_paused) else st.paused_since = e.at
-      resume: if !st.paused_since: void(e, not_paused) else st.pauses += [paused_since, e.at); paused_since = null
+      pause:  if st.paused_since: void(e, already_paused) else st.paused_since = e.at; st.pause_id = e.id
+      resume: if !st.paused_since: void(e, not_paused); continue
+              if e.pause_id != st.pause_id: void(e, stale); continue    // a resume of an older pause
+              st.pauses += [paused_since, e.at); paused_since = null
   if terminal:
     if terminal.type == stop:
       if paused_since: st.pauses += [paused_since, terminal.at)
@@ -478,8 +499,16 @@ fold(steps, events_in_arrival_order):
 
 - **Void reasons** (`VoidReason`): `merged`, `already_closed`, `run_edited`,
   `entry_deleted`, `before_start`, `after_stop`, `too_long`, `stale`,
-  `no_step`, `already_paused`, `not_paused` and `not_finishing`. The server
-  decides `entry_deleted` and `not_finishing` outside the fold (§4.4, §3.6).
+  `no_step`, `already_paused` and `not_paused`. The server decides
+  `run_edited` and `entry_deleted` outside the fold (§4.4), and `finish` and a
+  finishing run's `discard` (§3.6, §3.7).
+- **An edited run is never folded again.** Its timing is the edit (§3.8). An
+  event that arrives after the edit is stored as void (`run_edited`) and the
+  run's state and entry are left as they are; events that arrived before the
+  edit keep their recorded effects.
+- **Skip names its step and resume names its pause**, so a double-tapped skip
+  can't skip two steps, and an offline resume of an earlier pause can't end a
+  later one (both `stale`).
 - **Next after the last step** opens a lap segment. Clients don't offer Next
   there: they offer Lap and Stop (§10, §11). The rule only makes stray taps
   well-defined.
@@ -520,11 +549,13 @@ rules:
 | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `next`, `lap`, `skip`, `pause`, `resume` with `at ≤ ended_at`, run stopped and not edited, entry not deleted | **Merged.** The fold runs again with it. The entry's `timing` is replaced, `captured_at` stays `ended_at`, and the entry's revision increases (it is logged as an entry upsert). |
 | The same, with `at > ended_at`                                                                               | Void, `after_stop`                                                                                                                                                               |
-| Any non-terminal event on an **edited** run                                                                  | Void, `run_edited`. The user's edit wins.                                                                                                                                        |
+| Any event arriving after an **edit**                                                                         | Void, `run_edited`, with no refold. The user's edit wins.                                                                                                                        |
 | Any event on a run whose entry was **deleted**                                                               | Void, `entry_deleted`                                                                                                                                                            |
 | Any event on a **discarded** run                                                                             | Void, `already_closed`                                                                                                                                                           |
 | Any event on a `finishing` run with `at ≤ ended_at`                                                          | Merged into the run (no entry yet)                                                                                                                                               |
-| `stop` or `discard`                                                                                          | Void, `already_closed`                                                                                                                                                           |
+| `stop` without answers                                                                                       | Void, `already_closed`. With answers: applied as a `finish` (§3.5).                                                                                                              |
+| `discard` on a `finishing` run                                                                               | Applied: the run is discarded (§3.7)                                                                                                                                             |
+| `discard` on a stopped run                                                                                   | Void, `already_closed`                                                                                                                                                           |
 
 A merge can turn an earlier applied event void (for example, a late Next at
 08:04 makes the 08:05 Next stale). The fold is re-run from all events, so this
@@ -544,6 +575,10 @@ tapped after a start from the app):
 3. R2 is reserved: it can't be used as an entry or run id again. `getRun(R2)`
    returns R1.
 
+**A device never makes its own duplicate.** A client whose own view already
+shows an open run for the topic doesn't enqueue a start: the tap routes to the
+existing run. Aliases therefore only arise between devices.
+
 A start that arrives when the topic has **no open run** creates a new run, even
 if its `at` falls inside a run that has since closed. That can leave two
 overlapping entries. It needs two devices to time the same session while one of
@@ -559,13 +594,12 @@ them is offline the whole time, which is rare, and either entry can be deleted.
 | Run length                   | At most 7 days from `started_at`. A stop later than that answers 422 `run_too_long`; the run must be discarded or the stop sent with an earlier `at`. Other events later than that are void (`too_long`). |
 | Events per run               | 1,000, including void events                                                                                                                                                                              |
 | Open runs per topic          | 1 (`running` or `paused`), enforced by the partial unique index as well as by the merge rule                                                                                                              |
-| Finishing runs per topic     | 20. A stop that would make a 21st answers 422; the client asks the user to finish or discard an older one.                                                                                                |
 | Answers, notes, meta, source | As for `createEntry`                                                                                                                                                                                      |
 | Timing edit                  | §3.8; the same length limit                                                                                                                                                                               |
 
-**Precision.** Instants are stored as `timestamptz` (microseconds). Clients send
-`at` with millisecond precision or better. Durations are integer milliseconds
-(§2.3).
+**Precision.** Instants are whole milliseconds (§2.3), stored as `timestamptz`.
+Durations are integer milliseconds. A stop before the start is refused
+(§3.5).
 
 **Clock skew.** `at` is device time and is never corrected by the skew estimate,
 as for `captured_at` (sync-protocol.md §10). Taps from two devices whose clocks
@@ -580,7 +614,10 @@ Settings warning for a skew over 5 minutes covers the bad case.
 - The transaction: resolve an alias; insert the event if its id is new (or
   compare it, §3.2); load all events; fold; update `runs` (status, state,
   `ended_at`, revision); create or update the entry; write change-log rows;
-  commit. Push work (§10.3) runs after the commit.
+  commit. Push work (§10.3) never runs in this transaction: it is a background
+  task started after the response is sent, which reads the run's latest state
+  and does its token bookkeeping in its own short transaction. A tap's flush
+  budget (4 s, outbox.md §10) therefore never waits on APNs.
 - A run is folded from scratch on every event. The cap of 1,000 events keeps
   that cheap.
 - The client-generated event id is the idempotency key, as the entry id is for
@@ -598,8 +635,19 @@ Settings warning for a skew over 5 minutes covers the bad case.
   finishing in the page's snapshot;
 - a deletion kind `run` for runs that closed or were deleted.
 
-Bootstrap pages (`after = 0`) carry only open and finishing runs, never closed
-ones. Closed runs reach clients as entries.
+Bootstrap pages (`after = 0`) carry only open and finishing runs as items.
+Closed runs reach clients as entries. A bootstrap also emits a `run` deletion
+for every closed run ever (F3); for one user that is a small list, and it is
+accepted.
+
+**Emission rule for runs.** `services/changes.py` emits a vanished entity as a
+deletion at its latest seq on the page. A run that closed after the page's
+first row of it would then be deleted on this page while its entry's row is on
+the next. So: **a closed run is emitted as a deletion only when its own delete
+row is on the page; otherwise it is skipped**, as F2 skips entities whose delete
+comes later. The entry's row precedes the run's delete row (§2.4), so a page
+that deletes a stopped run always also carries its entry, or an earlier page
+did.
 
 Builds from before this milestone fail a page on the new kinds. No
 compatibility is kept (§12).
@@ -611,6 +659,8 @@ compatibility is kept (§12).
   (fence, tombstone, revision). A `run` deletion inserts a tombstone of kind
   `run` and deletes the row.
 - Epoch rebuilds stage runs like other kinds. Fences and leases are unchanged.
+- The local **topic tombstone cascade** (sync-protocol.md §4.3 step 2) also
+  deletes the topic's `run` and `run_alias` rows and tombstones them.
 - Tombstone dependents (sync-protocol.md §4.3) for a run tombstone: **queued
   `run.event` items are kept and sent**. A closed run still accepts late merges
   (§4.4), and the server decides. A topic tombstone fails them as
@@ -633,10 +683,12 @@ The PWA has no change feed. It reads `listRuns(status=open|finishing)`:
 | `run.event` | `run:{run_id}` | `POST /api/v1/runs/{run_id}/events`, body `RunEventIn` | `{topic: {id, slug, name}, run_id, event: RunEventIn}` |
 
 - **The item id is the event id.** For a start it is the run id.
-- **Ordering (outbox.md §7.1), extended:** a `run.event` waits for every earlier
-  unresolved item of the same run, and for `topic.*` items of its topic. An
-  `entry.*` item for entity E also waits for earlier `run.event` items of run E
-  (answers patched onto a just-stopped run's entry, §11.2).
+- **Ordering (outbox.md §7.1), extended:** a `run.event` waits only for its
+  run's unresolved **start** item and for `topic.*` items of its topic. Events
+  are idempotent and folded by time (§4), so they don't need to wait for each
+  other. A failed non-start event never blocks the run; a failed start blocks
+  its run's events until it is retried or discarded (discarding it discards
+  them). Entries need no new rule: answers go as `finish` (§3.6).
 - **Coalescing (outbox.md §8), one new rule, K6:** when a `discard` is enqueued
   and every item of its run is `pending` and never attempted, including the
   `start`, all of them and the discard are dropped. Nothing is sent: the server
@@ -659,9 +711,12 @@ The PWA has no change feed. It reads `listRuns(status=open|finishing)`:
 
 ### 8.2 PWA **[pwa]**
 
-The IndexedDB outbox (`frontend/src/lib/outbox`) gains the same `run.event`
-kind, with the same ordering, K6 and classification. Its base classification
-stays byte-compatible with iOS.
+The IndexedDB outbox (`frontend/src/lib/outbox`) has only `entry.create` today
+(`kinds.ts`) and no per-entity ordering: a pass skips a retrying item and sends
+later ones (`outbox.ts` `pass`). It gains the `run.event` kind with **one**
+ordering rule, "wait for this run's start", plus K6 and the classification
+above. PWA entry edits stay online mutations; no other ordering is added. Its
+base classification stays byte-compatible with iOS.
 
 ### 8.3 The local view of a run
 
@@ -679,6 +734,13 @@ converges at its next pull.
 A queued **start** makes a local open run at once, so every surface on the
 device (Live Activity, widget, Action button, Siri) can advance it before the
 start reaches the server.
+
+A queued **stop** that the client knows will produce an entry (the run's
+version has no required question) projects an **optimistic entry** with id =
+run id, the folded timing and `sync_state = pending`. The entry list, due
+state, the badge and widgets then update at once, offline too. The server's
+entry replaces it on ack or pull, as for any create. A stop that will leave the
+run finishing projects nothing; the run shows "Add details".
 
 ## 9. Stats
 
@@ -720,18 +782,21 @@ isn't timed and has no timed entries answers with zero counts, not an error.
 
 ### 10.1 Reminders for timed topics **[server]**
 
-- **Descriptor.** For a timed topic, `quick_log` is
-  `{ "type": "timed", "steps": n, "first_step": "Shower" | null }`.
+- **Descriptor.** For a timed topic, `quick_log` is `{ "type": "timed" }`. The
+  action needs nothing more.
 - **Action.** One action, kind `start`, title "Start", identifier
   `q1|{server_id}|{topic_id}|{version}||t|` (the `k` value `t`, empty key and
   value; notifications.md §4.2). No `.foreground`.
 - **Category id.** The algorithm of notifications.md §4.3, with `kind = start`
   hashed like any other kind. New vectors are added to
   `notification-vectors.json`.
-- **The scheduler skips a timed topic that has an open run.** Someone timing it
-  doesn't need a reminder. Finishing runs don't suppress reminders.
+- **The scheduler skips a timed topic that has an open run**, without marking
+  the slot as sent. Someone timing it doesn't need a reminder. If the run is
+  then discarded, the slot is still due and the reminder fires at the next tick;
+  that is intended. Finishing runs don't suppress reminders.
 - **Web Push** carries the same descriptor. Chromium shows one action,
-  `{action: "run|start", title: "Start"}`.
+  `{action: "log|t|", title: "Start"}`, following the `log|k|` convention of
+  `frontend/src/lib/pushActions.ts`.
 
 ### 10.2 The Start action **[ios]** **[pwa]**
 
@@ -755,7 +820,11 @@ The handler follows notifications.md §7.1 with these changes:
 
 **Identity.** One Live Activity per **(server, topic)** with an open run: not
 per run id, so a merge (§4.5) never leaves two. The attributes are
-`{server_id, topic_id, topic_name, steps: [label]}`.
+`{server_id, topic_id, topic_name}`, with `topic_name` truncated to 64
+characters. There is no step list in the attributes: it could be the wrong
+version's after a merge, and with 30 labels of up to 200 characters
+(`MAX_LABEL_LENGTH`) it could push a push-to-start payload over 4 KB. The
+content state carries what is shown.
 
 **Content state** (Codable; part of the push contract, so fields are only ever
 added as optional):
@@ -766,8 +835,8 @@ RunActivityState {
   status: "running" | "paused",
   started_at: Double,                 // Unix seconds; never Date (ActivityKit decodes Date from 2001)
   seg: Int, seg_started_at: Double,
-  label: String, step_index: Int?, step_count: Int,       // "Step 2 of 5 · Shower"
-  next_label: String?,                // what Next will start; null on the last step
+  label: String, step_index: Int?, step_count: Int,       // "Step 2 of 5 · Shower"; labels ≤ 64 chars
+  next_label: String?,                // what Next will start; null on the last step; ≤ 64 chars
   paused_at: Double?, paused_ms_before_seg: Int, paused_ms_in_seg: Int
 }
 ```
@@ -792,26 +861,57 @@ whose `seg` is stale is void on the server and does nothing harmful (§4.2).
 **Updates: local first, push for other devices.**
 
 - **Local.** The device that taps updates or ends its activity immediately.
-- **Push [server].** After every committed change to an open run, the server
-  sends a Live Activity push (`apns-push-type: liveactivity`, topic
-  `com.bahumia.quickr.push-type.liveactivity`, priority 10) to every registered
-  activity token for that topic: `event: update` with the content state, or
-  `event: end` with a final state and a dismissal date when the run closes. Each
-  push carries `timestamp` = the commit time, and the content carries
-  `revision`. A device ignores a state whose revision is lower than the one it
-  shows.
+  Each local update sets `staleDate` to 4 hours ahead, so an orphaned activity
+  shows as stale instead of ticking silently to the 8-hour limit.
+- **Push [server].** After every committed change to an open run, the
+  background task (§6) sends a Live Activity push (`apns-push-type:
+liveactivity`, topic `com.bahumia.quickr.push-type.liveactivity`, priority
+  10): `event: update` with the content state, or `event: end` with a final
+  state and a dismissal date when the run closes. Rules:
+  - The content is the run's **latest state when the push is sent**, not the
+    state of the event that triggered it. Sends are **serialised per topic**
+    (one in flight at a time; a newer change replaces a queued one), so a later
+    state never goes out before an earlier one.
+  - The originating device's tokens are **excluded**: every iOS event carries
+    `device` (§3.2), and that device already updated locally. Its own echo
+    can't overwrite a newer local state.
+  - APNs `timestamp` has whole-second resolution, and iOS applies pushes
+    without the app, so the spec makes **no revision-ordering claim** on the
+    device. Correctness comes from the rules above plus reconciliation.
 - **Push-to-start [server].** When a run is created, the server sends
-  `event: start` to every device with a `live_activity_start_token`, except the
-  device named in the start's `device` field when `live_activity` is true (it
-  started one locally). This is how a run started on the PWA, by MCP, or by a
-  reminder action in the background appears on the phone.
-- **Tokens [ios].** The app registers its push-to-start token
-  (`Activity<RunActivityAttributes>.pushToStartTokenUpdates`) through
-  `registerApnsDevice`, and each activity's update token through
-  `registerLiveActivity {device_token, topic_id, activity_token}`. Both are
-  online-only and best-effort, with the retry rules of notifications.md §9.2.
-  The server drops tokens on APNs 410 or `BadDeviceToken`, and drops a topic's
-  activity tokens after sending `end`.
+  `event: start` to every push-to-start token, except the originating device's
+  when its start says `live_activity: true` (it started one locally). This is
+  how a run started on the PWA, by MCP, or by a reminder action in the
+  background appears on the phone.
+- **Tokens.** One table, separate from `apns_devices`:
+
+  ```sql
+  CREATE TABLE live_activity_tokens (
+    token        TEXT PRIMARY KEY,                -- lowercase hex
+    kind         TEXT NOT NULL,                   -- 'start' | 'update'
+    device_token TEXT NOT NULL,                   -- the APNs device token of the phone that owns it
+    environment  TEXT NOT NULL,                   -- 'sandbox' | 'production'
+    topic_id     UUID NULL,                       -- update tokens
+    run_id       UUID NULL,                       -- update tokens: the run it was registered for
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  ```
+
+  The app registers its push-to-start token
+  (`Activity<RunActivityAttributes>.pushToStartTokenUpdates`) and each
+  activity's update token through `registerLiveActivity`. Both are online-only
+  and best-effort, with the retry rules of notifications.md §9.2.
+
+- **Token failures [server].** Live Activity sends do **not** use
+  `services/push` `deliver()`, which deletes the APNs device on `PushGone`
+  (`backend/app/services/push/__init__.py`, `apns.py` `_failure`). A 410 or
+  `BadDeviceToken` for a Live Activity token deletes **only that token row**. It
+  never touches `apns_devices` and never counts toward its `failure_count`.
+- **Ending a run [server].** After sending `end`, the server drops the update
+  tokens **registered for that run id**. A token registered for a newer run of
+  the same topic, in the gap, is kept.
+- **Broadcast channels** (iOS 18) were considered and not used: one user's
+  token table is simpler than managing a channel per topic.
 
 **Reconciliation [ios].** On every app activation, after every sync, and when a
 push wakes the app:
@@ -820,7 +920,7 @@ push wakes the app:
   while this device was offline, or a missed `end` push);
 - end duplicates for the same (server, topic), keeping the most recently
   updated;
-- update an activity whose `revision` is behind the view's.
+- update an activity whose displayed content differs from the view's state.
 
 **When the app is killed.** The activity stays, and its timers keep ticking
 because they are rendered by the system. Its buttons launch the app in the
@@ -836,9 +936,13 @@ a "Live Activities" switch, on by default.
 
 - The Live Activity payloads (`start`, `update`, `end`) are pinned in
   `shared/fixtures/live-activity-vectors.json`, decoded by a new Swift suite
-  `LiveActivityVectorTests`.
+  `LiveActivityVectorTests`. The vectors pin the full `aps` keys:
+  `timestamp`, `event`, `content-state`, `stale-date`, `dismissal-date`, and
+  for `start` also `attributes-type`, `attributes`, `alert` and
+  `input-push-token`. T-LAPUSH checks each key against Apple's current
+  ActivityKit push documentation and cites it in the generator.
 
-## 11. Client surfaces## 11. Client surfaces
+## 11. Client surfaces
 
 ### 11.1 Shared rules
 
@@ -853,9 +957,16 @@ a "Live Activities" switch, on by default.
   Start; a named step remains → Next; otherwise → Stop. The dishwasher is then
   one press to start and one to stop.
 - **Home and badge.** A timed topic with an open run shows "Running · 4:12"
-  instead of its due state, and is not counted as due (badge, due section). A
-  finishing run shows "Add details". These sit above derived due state; the due
-  port itself (`due-vectors.json`) doesn't change.
+  instead of its due state, and is not counted as due. A finishing run shows
+  "Add details". These sit above derived due state; the due port itself
+  (`due-vectors.json`) doesn't change. **One helper per platform** computes the
+  count, and every writer uses it: on iOS a `QuickrCore` `dueCount(view)` used
+  by the app badge, the NSE badge (notifications.md §6, §8), the home due
+  section and the widgets; on the PWA one `dueCount` in `lib/home.ts` used by
+  the home screen and the `badge.ts` caller.
+- **Timed entries hide `captured_at`** on the entry edit screens (iOS and PWA).
+  The time is changed through Edit times; a `captured_at` PATCH would be
+  refused (§3.8).
 - **Untimed entries** of a timed topic are listed normally, with no timing
   section.
 
@@ -869,10 +980,9 @@ a "Live Activities" switch, on by default.
   with done, skipped and upcoming states and each done step's time; the primary
   button; Lap, Skip, Pause/Resume; Stop; Discard in a menu with a confirmation.
 - **Stop:** sends `stop` at once. Then, if the version has questions, the
-  answers sheet opens (the existing form engine). With required questions, Save
-  sends `finish`. Without required questions, the entry already exists, and Save
-  sends an `entry.update` for it (ordered after the stop, §8.1). Dismissing the
-  sheet leaves a finishing run as "Add details" on home.
+  answers sheet opens (the existing form engine), and Save sends `finish`
+  (§3.6). Dismissing the sheet leaves a finishing run as "Add details" on home;
+  a run without required questions is already an entry.
 - **Entry details:** a timing section with the segments, skipped steps and
   pauses, and **Edit times**: each boundary is a time field with seconds, plus
   add and remove pause. It sends `entry.update` with `timing`.
@@ -884,12 +994,12 @@ a "Live Activities" switch, on by default.
 
 ### 11.3 Widgets, Controls, the Action button and Siri **[ios]**
 
-| Surface                               | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Topic widget (timed topic)            | Idle: Start. Running: label, ticking timer, Next (or Lap) and Stop; small size shows one Auto button. Buttons are `LiveActivityIntent`s, so they run in the app process and can start or update the Live Activity.                                                                                                                                                                                                                                                                                |
-| Control (Control Centre, Lock Screen) | A button control "Timer: {topic}" running Auto                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Action button                         | The App Intent `AdvanceRunIntent(topic, action: auto)`, offered in the Shortcuts gallery. It is a `LiveActivityIntent`.                                                                                                                                                                                                                                                                                                                                                                           |
-| Siri and Shortcuts                    | App Shortcuts: "Start {topic} in quickR", "Next step in quickR", "Stop {topic} in quickR", "Pause {topic} in quickR", "Resume {topic} in quickR", "How long has {topic} been running in quickR". A phrase without a topic uses the only open run, and asks when there are several. Spoken results: "Started Morning routine. First: Shower." / "Shower took 4:12. Next: Breakfast." / "Saved Dishwasher: 7:42." When the stop leaves the run finishing: "Saved 7:42. Open quickR to add details." |
+| Surface                               | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Topic widget (timed topic)            | Idle: Start. Running: label, ticking timer, Next (or Lap) and Stop; small size shows one Auto button. Buttons are `LiveActivityIntent`s, so they run in the app process and can start or update the Live Activity.                                                                                                                                                                                                                                                                                                                                                                    |
+| Control (Control Centre, Lock Screen) | A button control "Timer: {topic}" running Auto. Its intent is a `LiveActivityIntent`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Action button                         | The App Intent `AdvanceRunIntent(topic, action: auto)`, offered in the Shortcuts gallery. It is a `LiveActivityIntent`.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Siri and Shortcuts                    | **One** App Shortcut, `RunActionIntent(action, topic)`, a `LiveActivityIntent`, with phrases such as "\(action) \(topic) in quickR" (action: start, next, stop, pause, resume). The app has 5 App Shortcuts (`ios/App/Intents/QuickRAppIntents.swift`), so this makes 6 of the 10 allowed. Without a topic it uses the only open run, and asks when there are several. Spoken results: "Started Morning routine. First: Shower." / "Shower took 4:12. Next: Breakfast." / "Saved Dishwasher: 7:42." When the stop leaves the run finishing: "Saved 7:42. Open quickR to add details." |
 
 All of them write through the outbox with `origin` widget or siri, the same as
 existing intents.
@@ -920,23 +1030,19 @@ taps that did what the user wanted.
 - **Overview page:** the Timing section, with the existing chart components
   (`LineChart`, `StackedBars`).
 - **Builder:** the Timed switch and steps editor.
-- **Keyboard:** Space or N = Next, L = Lap, P = Pause/Resume, S = Stop, while
-  the run panel has focus.
 
 ### 11.6 MCP **[server]**
 
-| Tool                                                   | Does                                                                                                                                  |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `start_run(ref, at?)`                                  | A start with a new id; `at` defaults to server now                                                                                    |
-| `run_action(run_id, action, at?, answers?, notes?)`    | next, lap, skip, pause, resume, stop, finish or discard. `seg` is taken from the current state, so the tool acts on what is open now. |
-| `list_runs(status?)`                                   | Open and finishing runs                                                                                                               |
-| `get_run(run_id)`                                      | One run with its events and effects                                                                                                   |
-| `edit_run_timing(entry_id, timing, expected_revision)` | §3.8                                                                                                                                  |
-| `timing_stats(ref, from?, to?)`                        | `getTopicTiming`                                                                                                                      |
+| Tool                                                   | Does                                                                                                                                                           |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `start_run(ref, at?)`                                  | A start with a new id; `at` defaults to server now                                                                                                             |
+| `run_action(run_id, action, at?, answers?, notes?)`    | next, lap, skip, pause, resume, stop, finish or discard. `seg`, `step` and `pause_id` are filled from the current state, so the tool acts on what is open now. |
+| `list_runs(status?)`                                   | Open and finishing runs, with their state                                                                                                                      |
+| `edit_run_timing(entry_id, timing, expected_revision)` | §3.8                                                                                                                                                           |
 
 `publish_topic_version` gains the required `timer` and `create_topic` the
-optional one (§2.1). `record_entry` on a timed topic still makes an
-untimed entry.
+optional one (§2.1). `record_entry` on a timed topic still makes an untimed
+entry.
 
 ## 12. Compatibility
 
@@ -955,56 +1061,60 @@ forced-update mechanism for later releases is a separate, follow-on milestone
 Generated by `make vectors`, checked for drift by pytest, and never edited by
 hand (`shared/fixtures/README.md` gains a row for each).
 
-| File                                    | Generator (Python reference)                                              | Checked by                                                                | Cases (at least)                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| --------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `run-fold-vectors.json`                 | `backend/tests/test_run_fold_vectors.py` (`services/run_fold.py`)         | Swift `RunFoldVectorTests` (QuickrCore); vitest `runFold.vectors.test.ts` | No steps start/stop; laps; 3 steps all done; Next after the last step; skip on a step; skip from a lap; pause/resume; Next while paused; stop while paused; double Next from two devices (one `stale`); offline taps arriving after Stop (merge, and `after_stop`); a late merge that turns an earlier Next stale; edited run with late taps; two stops (`already_closed`); discard then stop; equal `at` tie-break by id; events before start; `too_long` |
-| `timing-stats-vectors.json`             | `backend/tests/test_timing_stats_vectors.py` (`services/timing_stats.py`) | Swift stats models; vitest chart models                                   | Empty; one run; even and odd medians; skipped steps; laps; pauses; renamed and removed steps across versions; untimed entries ignored                                                                                                                                                                                                                                                                                                                      |
-| `duration-format-vectors.json`          | `backend/tests/test_duration_vectors.py`                                  | Swift and vitest `fmtDuration`                                            | 0, 999, 1000, 59 999, 60 000, 3 599 999, 3 600 000, 86 400 000, negative                                                                                                                                                                                                                                                                                                                                                                                   |
-| `notification-vectors.json` (new cases) | existing generator                                                        | existing                                                                  | Timed with and without steps; the `start` kind in the hash                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `apns-payload-vectors.json` (new cases) | existing generator                                                        | existing                                                                  | A timed reminder                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `live-activity-vectors.json`            | `backend/tests/test_live_activity_vectors.py` (`push/live_activity.py`)   | Swift `LiveActivityVectorTests`                                           | start, update (running, paused, last step, no steps), end (stopped, finishing, discarded); size ≤ 4 KB                                                                                                                                                                                                                                                                                                                                                     |
-| `api/*.json` (new)                      | `test_api_fixtures.py`                                                    | Swift decoding; G1                                                        | `recordRunEvent` (start, merged, next, void, stop with entry, finishing, finish), `getRun`, `listRuns`, `listChanges` (bootstrap with an open run, a run deletion with its entry), `getTopicTiming`, `updateEntry.timing`, `registerLiveActivity`, `deleteLiveActivity`                                                                                                                                                                                    |
-| `requests/*.json` (new)                 | Swift golden generator                                                    | `test_request_goldens.py` (G2)                                            | `recordRunEvent.{start,next,lap,skip,pause,resume,stop,stop_answers,finish,discard}`, `updateEntry.timing`, `registerLiveActivity`, `registerApnsDevice.live_activity`                                                                                                                                                                                                                                                                                     |
+| File                                    | Generator (Python reference)                                              | Checked by                                                                | Cases (at least)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run-fold-vectors.json`                 | `backend/tests/test_run_fold_vectors.py` (`services/run_fold.py`)         | Swift `RunFoldVectorTests` (QuickrCore); vitest `runFold.vectors.test.ts` | Instants with sub-millisecond digits (truncated; segment sums equal the total exactly); no steps start/stop; laps; 3 steps all done; Next after the last step; skip on a step; skip from a lap; a double-tapped skip (one `stale`); pause/resume; a resume naming an older pause (`stale`); Next while paused; stop while paused; double Next from two devices (one `stale`); offline taps arriving after Stop (merge, and `after_stop`); a late merge that turns an earlier Next stale; edited run with late taps; two stops (`already_closed`); discard then stop; equal `at` tie-break by id; events before start; `too_long` |
+| `timing-stats-vectors.json`             | `backend/tests/test_timing_stats_vectors.py` (`services/timing_stats.py`) | Swift stats models; vitest chart models                                   | Empty; one run; even and odd medians; skipped steps; laps; pauses; renamed and removed steps across versions; untimed entries ignored                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `duration-format-vectors.json`          | `backend/tests/test_duration_vectors.py`                                  | Swift and vitest `fmtDuration`                                            | 0, 999, 1000, 59 999, 60 000, 3 599 999, 3 600 000, 86 400 000, negative                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `notification-vectors.json` (new cases) | existing generator                                                        | existing                                                                  | Timed with and without steps; the `start` kind in the hash                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `apns-payload-vectors.json` (new cases) | existing generator                                                        | existing                                                                  | A timed reminder                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `live-activity-vectors.json`            | `backend/tests/test_live_activity_vectors.py` (`push/live_activity.py`)   | Swift `LiveActivityVectorTests`                                           | start, update (running, paused, last step, no steps), end (stopped, finishing, discarded); size ≤ 4 KB                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `api/*.json` (new)                      | `test_api_fixtures.py`                                                    | Swift decoding; G1                                                        | `recordRunEvent` (start, merged, next, void, stop with entry, finishing, finish), `getRun`, `listRuns`, `listChanges` (bootstrap with an open run, a run deletion with its entry), `recordRunEvent.finish_stopped`, `recordRunEvent.discard_finishing`, `getTopicTiming`, `updateEntry.timing`, `registerLiveActivity`, `deleteLiveActivity`                                                                                                                                                                                                                                                                                     |
+| `requests/*.json` (new)                 | Swift golden generator                                                    | `test_request_goldens.py` (G2)                                            | `recordRunEvent.{start,next,lap,skip,pause,resume,stop,stop_answers,finish,discard}`, `updateEntry.timing`, `registerLiveActivity.start`, `registerLiveActivity.update`                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ### 13.2 Backend
 
-| #   | Case                                                                                                                                                                                            |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| T1  | Every fold vector, through the real endpoint, gives the same `RunState` and effects as the pure fold.                                                                                           |
-| T2  | Two concurrent `next` requests with the same `seg` (two tasks, one database): one applied, one `stale`, one advance.                                                                            |
-| T3  | Two concurrent `start`s for one topic with different ids: one run, one alias, and later events to the alias apply to the run.                                                                   |
-| T4  | Replaying any event returns the same result. Reusing an event id with another `at` answers 409 `event_conflict`.                                                                                |
-| T5  | Stop without answers: no required questions gives an entry; required questions give `finishing`; `finish` with bad answers answers 422 and stores nothing.                                      |
-| T6  | A late Next merged after Stop bumps the entry revision and logs an entry upsert, never a run upsert.                                                                                            |
-| T7  | `listChanges` bootstrap carries open and finishing runs and no closed ones; an incremental page carries run upserts and run deletions.                                                          |
-| T8  | `listChanges`: a stopped run's entry appears at a lower or equal seq than its run deletion (§2.4).                                                                                              |
-| T9  | Topic delete with an open run: run ids and aliases are in `deleted_ids`, and a later event answers 409 `run_deleted`.                                                                           |
-| T10 | PATCH of `captured_at` without `timing` on a timed entry answers 422 and changes nothing.                                                                                                       |
-| T11 | Publish without `timer` answers 422; with `null` turns timing off; a run started on the old version still stops against it.                                                                     |
-| T12 | The scheduler sends no reminder for a topic with an open run, and sends one for a topic with only a finishing run.                                                                              |
-| T13 | `createEntry` with a run's id and `start` with an entry's id both answer 409 `id_conflict`.                                                                                                     |
-| T15 | Live Activity sender: one push per registered token per change; `end` drops the topic's tokens; 410 drops a token; the start's `device` is excluded from push-to-start when it started locally. |
+| #   | Case                                                                                                                                                                                                                                                                                                          |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T1  | Every fold vector, through the real endpoint, gives the same `RunState` and effects as the pure fold.                                                                                                                                                                                                         |
+| T2  | Two concurrent `next` requests with the same `seg` (two tasks, one database): one applied, one `stale`, one advance.                                                                                                                                                                                          |
+| T3  | Two concurrent `start`s for one topic with different ids: one run, one alias, and later events to the alias apply to the run.                                                                                                                                                                                 |
+| T4  | Replaying any event returns the same result. Reusing an event id with another `at` answers 409 `event_conflict`. An `at` with microseconds is stored truncated to milliseconds.                                                                                                                               |
+| T5  | Stop without answers: no required questions gives an entry; required questions give `finishing`; `finish` with bad answers answers 422 and stores nothing. A stop before the start answers 422 `before_start`.                                                                                                |
+| T6  | A late Next merged after Stop bumps the entry revision and logs an entry upsert, never a run upsert.                                                                                                                                                                                                          |
+| T7  | `listChanges` bootstrap carries open and finishing runs as items and no closed ones; an incremental page carries run upserts and run deletions.                                                                                                                                                               |
+| T8  | `listChanges` page contents, with `limit` cutting between a run's first row and its delete row: the run's deletion is not on the page that lacks its delete row, and every page that deletes a stopped run carries its entry or follows one that did.                                                         |
+| T9  | Topic delete with an open run: run ids and aliases are in `deleted_ids`, and a later event answers 409 `run_deleted`.                                                                                                                                                                                         |
+| T10 | PATCH of `captured_at` without `timing` on a timed entry answers 422 and changes nothing.                                                                                                                                                                                                                     |
+| T11 | Publish without `timer` answers 422; with `null` turns timing off; a run started on the old version still stops against it.                                                                                                                                                                                   |
+| T12 | The scheduler sends no reminder for a topic with an open run and doesn't mark the slot; after a discard the reminder goes out; a topic with only a finishing run gets its reminder.                                                                                                                           |
+| T13 | `start` with an entry's id, and `createEntry` with an open or finishing run's id or an alias, answer 409 `id_conflict`; `createEntry` with a stopped run's id replays its entry.                                                                                                                              |
+| T14 | Live Activity sender: latest state at send time; one in flight per topic; the originating device's tokens excluded; `end` drops only that run's update tokens; a 410 drops only that token and leaves `apns_devices` (and its `failure_count`) unchanged; push work never runs inside the writer transaction. |
+| T15 | Discarding a finishing run: applied, the run is discarded and logged as a delete; discarding a stopped run is void.                                                                                                                                                                                           |
+| T16 | `finish` on a stopped run patches the entry's answers and bumps its revision; a second stop with answers is applied as a finish; an edited run ignores later events without refolding.                                                                                                                        |
 
 ### 13.3 iOS
 
-| #   | Case                                                                                                                                                        | Class   |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| R1  | Fold, stats and format vectors                                                                                                                              | host    |
-| R2  | `listChanges` decode and apply: run items and run deletions, live and staged                                                                                | host    |
-| R4  | Outbox `run.event`: ordering behind its start; `entry.update` after `stop`; K6 drops a never-sent start…discard; classification table (§8.1)                | host    |
-| R5  | Local view: queued start → open run at once; queued Next folds over server events; an alias response re-keys the local run                                  | host    |
-| R6  | (MP) The widget's Next and the app's Next for one segment, enqueued in the same instant: both queued, the server applies one                                | host MP |
-| R7  | (INT) Device A starts and steps; device B, offline, taps Next twice and Lap; A stops; B flushes: the entry's timing equals the fold vector for that history | INT     |
-| R8  | (INT) A reminder Start tapped on iOS and in the PWA: one run, whose id is the action entry id                                                               | INT     |
-| R9  | Live Activity reconciliation with a fake activity centre: ends orphaned and duplicate activities; ignores a lower revision                                  | host    |
-| R10 | UI test: start, Next ×2, Skip, Pause, Resume, Stop, answer, Save; the entry shows the expected segments                                                     | sim     |
-| R11 | UI test: Edit times on a finished run, then the stats screen shows the new median                                                                           | sim     |
+| #   | Case                                                                                                                                                                                                                               | Class   |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| R1  | Fold, stats and format vectors, with instants parsed to integer milliseconds (no `Date`)                                                                                                                                           | host    |
+| R2  | `listChanges` decode and apply: run items and run deletions, live and staged; a topic tombstone clears its runs and aliases                                                                                                        | host    |
+| R3  | Outbox `run.event`: waits only for its start; a failed Next doesn't block Stop; K6 drops a never-sent start…discard; classification table (§8.1)                                                                                   | host    |
+| R4  | Local view: queued start → open run at once; queued Next folds over server events; an alias response re-keys the local run; a queued stop projects an optimistic entry; a start for a topic with a local open run enqueues nothing | host    |
+| R5  | (MP) The widget's Next and the app's Next for one segment, enqueued in the same instant: both queued, the server applies one                                                                                                       | host MP |
+| R6  | (INT) Device A starts and steps; device B, offline, taps Next twice and Lap; A stops; B flushes: the entry's timing equals the fold vector for that history                                                                        | INT     |
+| R7  | (INT) A reminder Start tapped on iOS and in the PWA: one run, whose id is the action entry id                                                                                                                                      | INT     |
+| R8  | Live Activity reconciliation with a fake activity centre: ends orphaned and duplicate activities; updates one whose content differs from the view                                                                                  | host    |
+| R9  | UI test: start, Next ×2, Skip, Pause, Resume, Stop, answer, Save; the entry shows the expected segments                                                                                                                            | sim     |
+| R10 | UI test: Edit times on a finished run, then the stats screen shows the new median                                                                                                                                                  | sim     |
+| R11 | `dueCount` is the one helper behind the app badge, the NSE badge, home and widgets: a topic with an open run isn't counted by any of them                                                                                          | host    |
 
 ### 13.4 PWA
 
-Vitest for the fold port, `fmtDuration`, the outbox kind (ordering, K6,
-classification) and the components (tile states, run panel, answers flow, timing
-editor validation). The existing `classifyStatus` parity test covers the new
+Vitest for the fold port, `fmtDuration`, the outbox kind (start ordering, K6,
+classification), `dueCount`, and the components (tile states, run panel,
+answers flow, timing editor validation, `captured_at` hidden on timed
+entries). The existing `classifyStatus` parity test covers the new
 kind's base classification.
 
 ### 13.5 Device validation (not automatable)
