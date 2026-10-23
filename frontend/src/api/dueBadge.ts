@@ -9,7 +9,7 @@ import type { InfiniteData, Query, QueryClient } from '@tanstack/react-query';
 
 import type { TopicPage, TopicSummary } from '../client';
 import { setAppBadge } from '../lib/badge';
-import { isDueNow } from '../lib/schedule';
+import { NO_OPEN_RUNS, dueCount } from '../lib/home';
 import { keyMeta } from './cache';
 
 function topicsOf(data: unknown): TopicSummary[] | null {
@@ -17,11 +17,6 @@ function topicsOf(data: unknown): TopicSummary[] | null {
   if ('pages' in data) return (data as InfiniteData<TopicPage>).pages.flatMap((p) => p.items);
   if ('items' in data) return (data as TopicPage).items;
   return null;
-}
-
-/** Number of due topics in a topic list (pure; unit-tested). */
-export function dueCount(topics: readonly TopicSummary[], now: Date = new Date()): number {
-  return topics.filter((t) => t.status === 'active' && isDueNow(t.due, now)).length;
 }
 
 export function connectDueBadge(qc: QueryClient): () => void {
@@ -37,7 +32,8 @@ export function connectDueBadge(qc: QueryClient): () => void {
       for (const t of topicsOf(q.state.data) ?? []) byId.set(t.id, t);
     }
     if (byId.size === 0 && last === null) return;
-    const n = dueCount([...byId.values()]);
+    // No run data in the PWA yet: no topic has an open run.
+    const n = dueCount([...byId.values()], new Date(), NO_OPEN_RUNS);
     if (n === last) return;
     last = n;
     void setAppBadge(n);
