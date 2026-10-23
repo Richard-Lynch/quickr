@@ -23,6 +23,9 @@ result.
 | `builder-vectors.json`         | `backend/tests/test_builder_vectors.py` (`schemas/questions.py`, `services/compat.py`, `slugify`) | pytest drift check; Swift `BuilderVectorTests`                                                   |
 | `schedule-vectors.json`        | `frontend/src/lib/schedule.vectors.test.ts` (`schedule.ts`, vitest)                               | vitest drift check; Swift schedule editor (TOPIC, M2)                                            |
 | `builder-ui-vectors.json`      | `frontend/src/lib/builderUi.vectors.test.ts` (`builder.ts`, `questionSummary.ts`, vitest)         | vitest drift check; Swift builder screens and versions list (BUILDER-UI, M6)                     |
+| `run-fold-vectors.json`        | `backend/tests/test_run_fold_vectors.py` (`services/run_fold.py`)                                 | pytest drift check; vitest `runFold.vectors.test.ts` (F-CORE); Swift `RunFoldVectorTests`        |
+| `timing-stats-vectors.json`    | `backend/tests/test_timing_stats_vectors.py` (`services/timing_stats.py`)                         | pytest drift check; `getTopicTiming` (T-STATS); PWA and Swift timing chart models                |
+| `duration-format-vectors.json` | `backend/tests/test_duration_vectors.py` (`run_fold.fmt_duration`)                                | pytest drift check; vitest and Swift `fmtDuration` (F-CORE, I-CORE)                              |
 | `api/*.json`                   | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                                          | pytest drift check; Swift `QuickrData` decoding tests (M1)                                       |
 
 ## Drift checks
@@ -429,6 +432,63 @@ What the PWA's Overview makes of each `stats-vectors.json` case (same `name`), e
   (`visible`, `top`, `shares`, `colors`) or str (`distinct`, `most_common`, `recent`).
 - `default_bucket`, `ticks` (`niceTicks` and `formatTick`), `numbers` (`formatNumber`; NaN and
   null as strings), `percents` (`formatPercent`) and `pick` (`pickLabels`): the helpers alone.
+
+## `run-fold-vectors.json`
+
+The run fold ([docs/specs/timers.md](../../docs/specs/timers.md) §4) and the
+timing projection (§2.3). Every client folds a run's events with its own port
+and must reach the same state, effects and timing.
+
+- `meta`: `run_id` (every case's run), `max_run_ms` (7 days) and `semantics`:
+  the rules in prose.
+- `step_sets`: `id -> [{key, label}]`, the run version's steps. Cases refer to
+  them by id.
+- `cases[]`: `{name, steps, events, frozen, expected}`. `events` are
+  `{id, type, at, seg, step, pause_id}` in server arrival order. `frozen` is
+  `null` or `{after, reason}`: events from arrival index `after` on are void
+  with `reason` (`run_edited`, `entry_deleted` or `already_closed`) and not
+  folded, as the server does once a run is edited, its entry deleted or the run
+  discarded. `expected` is `{state, timing}`: `state` is `RunState` (§4.3) plus
+  `started_at` and `ended_at`; `effects` maps each lowercase event id to
+  `{effect, reason}` (`finish` events have none: the server decides them).
+  `timing` is the entry's `Timing` for a stopped run, else `null`.
+
+Input `at` values are wire strings, some with sub-millisecond digits or a
+non-UTC offset: parse each to integer epoch milliseconds, truncating, and do
+all arithmetic on integers. Output instants are UTC with `Z`, with six fraction
+digits only when the millisecond part isn't zero (the API's form). Each case is
+one line.
+
+Notes for the ports:
+
+- An open pause covers a closed segment up to that segment's end. Measure it to
+  the segment's end; don't stand in a large number for "not resumed" (`2**62`
+  is past JavaScript's `Number.MAX_SAFE_INTEGER`).
+- Time order is `(at, lowercase id)`, except that a resume with the same `at`
+  as the pause it names sorts right after that pause
+  (`resume-at-the-pause-instant`).
+
+## `timing-stats-vectors.json`
+
+Timing stats ([timers.md](../../docs/specs/timers.md) §9.1): what
+`getTopicTiming` answers for a set of entries, and what the clients' timing
+chart models are checked against.
+
+- `cases[]`: `{name, versions, current_version, entries, expected}`. `versions`
+  maps a version number (a string) to its steps, or `null` for an untimed
+  version. `entries` are `{entry_id, captured_at, timing}`, with `timing` in
+  the `run-fold-vectors.json` form or `null` for an untimed entry. `expected`
+  is `TopicTiming` (§9.2): `runs`, `complete_runs`, `total`, `steps`, `laps`,
+  `paused` and `series`, in integer milliseconds.
+- `meta.semantics`: the rules in prose: complete runs only for `total`; floored
+  medians and means; which step keys are listed, in which order, with which
+  label.
+
+## `duration-format-vectors.json`
+
+- `cases[]`: `{name, ms, expected}`: `fmtDuration(ms)`
+  ([timers.md](../../docs/specs/timers.md) §11.1): `m:ss` below one hour,
+  `h:mm:ss` from it, truncated to whole seconds, negative as `0:00`.
 
 ## `provisioning/`
 

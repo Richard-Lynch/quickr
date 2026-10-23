@@ -1,0 +1,26 @@
+{
+  "cases": [
+    {"expected":"0:00","ms":0,"name":"zero"},
+    {"expected":"0:00","ms":999,"name":"just-under-a-second"},
+    {"expected":"0:01","ms":1000,"name":"one-second"},
+    {"expected":"0:59","ms":59999,"name":"just-under-a-minute"},
+    {"expected":"1:00","ms":60000,"name":"one-minute"},
+    {"expected":"7:42","ms":462000,"name":"seven-forty-two"},
+    {"expected":"10:00","ms":600000,"name":"ten-minutes"},
+    {"expected":"59:59","ms":3599999,"name":"just-under-an-hour"},
+    {"expected":"1:00:00","ms":3600000,"name":"one-hour"},
+    {"expected":"1:00:01","ms":3601000,"name":"one-hour-one-second"},
+    {"expected":"10:00:00","ms":36000000,"name":"ten-hours"},
+    {"expected":"24:00:00","ms":86400000,"name":"one-day"},
+    {"expected":"168:00:00","ms":604800000,"name":"seven-days"},
+    {"expected":"0:00","ms":-1,"name":"negative-one"},
+    {"expected":"0:00","ms":-60000,"name":"negative-minute"}
+  ],
+  "meta": {
+    "generator": "backend/tests/test_duration_vectors.py",
+    "generator_version": 1,
+    "semantics": [
+      "fmtDuration(ms): s = floor(max(0, ms) / 1000) (truncated, never rounded); below one hour 'm:ss', from one hour 'h:mm:ss' with unbounded hours; minutes and seconds two digits after the first field. docs/specs/timers.md §11.1."
+    ]
+  }
+}

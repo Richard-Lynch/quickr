@@ -189,7 +189,7 @@ Timing = {
   ended_at:    datetime,              // == entry.captured_at (invariant T1)
   active_ms:   int,                   // ended − started − paused_ms
   paused_ms:   int,
-  complete:    bool,                  // the version has steps and none was skipped (§9.1)
+  complete:    bool,                  // no steps, or every step has a segment and none skipped (§9.1)
   edited:      bool,
   segments:    Segment[],             // in time order
   skipped:     StepKey[],             // in step order
@@ -208,7 +208,8 @@ Segment = { kind: "step" | "lap", step: StepKey | null, label: string,
   ends at `ended_at`; **T3** pauses are sorted, don't overlap, and lie within
   `[started_at, ended_at]`; **T4** each step key appears at most once across
   `segments` and `skipped`; **T5** `active_ms` and `paused_ms` add up over
-  segments, and pauses are split at segment boundaries.
+  segments. Pauses stay whole; each segment's `paused_ms` is its overlap with
+  them.
 - **Every instant is a whole millisecond.** The server truncates each event's
   `at` (and every edited instant) to milliseconds when it stores it, and clients
   truncate before they enqueue. Durations are then exact integer differences,
@@ -439,8 +440,9 @@ uses two orders on purpose:
   void (`already_closed`), whatever its `at`. Closing creates or drops an entry,
   so it must never be undone by a replay.
 - **Time order** decides everything else. Non-terminal events are replayed by
-  `(at, id)`, ascending, with ids compared as lowercase strings. A tap made
-  offline at 08:05 that arrives at 08:20 lands at 08:05.
+  `(at, id)`, ascending, with ids compared as lowercase strings, except that a
+  resume with the same `at` as the pause it names is ordered right after that
+  pause. A tap made offline at 08:05 that arrives at 08:20 lands at 08:05.
 
 Arrival order on the server is `run_events.arrival`. A client folding its local
 view uses the server's events in their arrival order, then its own queued events
@@ -466,14 +468,14 @@ fold(steps, events_in_arrival_order):
   st = { open: Seg(label = pop(pending = steps), start = start.at, index = 0),
          paused_since: null, segments: [], skipped: [], pauses: [] }
   end = terminal ? terminal.at : +∞
-  for e in sort(accepted, by (at, id)):                   // pass 2: time
+  for e in sort(accepted, by (at, id)):                   // pass 2: time; a resume at its pause's `at` right after it
     if e.at < start.at:  void(e, before_start); continue
     if e.at > end:       void(e, after_stop);   continue  // also covers a terminal that arrived first
     if e.at > start.at + 7 days: void(e, too_long); continue   // §5
     case e.type:
       next, lap:
         if e.seg != st.open.index: void(e, stale); continue
-        close(st.open, e.at)                              // pushes it to segments, splits pauses
+        close(st.open, e.at)                              // pushes it to segments; paused_ms = overlap with pauses
         st.open = Seg(label = e.type == next ? pop(pending) : lap, start = e.at, index + 1)
       skip:
         if e.seg != st.open.index: void(e, stale); continue
@@ -520,6 +522,9 @@ fold(steps, events_in_arrival_order):
   tap, and the new segment starts paused. Durations are always wall time minus
   the overlap with pauses, so no case needs special handling.
 - **Stop while paused** ends the pause at the stop.
+- **A stop before the start, or more than 7 days after it, is not a
+  terminal.** It is void (`before_start`, `too_long`) whenever it arrives, as
+  the server refuses it (§3.5, §5).
 - **`stale` makes double taps safe.** Two devices that both saw segment 3 and
   both tapped Next produce one advance: the earlier tap by time applies, and the
   later is void. An offline device that tapped through several steps applies
@@ -779,12 +784,12 @@ timed topic count toward `getTopicStats` as before, but never toward timing.
 | Statistic               | Definition                                                                                                                                                                                                                                |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Run total**           | `timing.active_ms`. Includes step segments and lap segments.                                                                                                                                                                              |
-| **Complete run**        | A run of a version **with steps** in which no step was skipped. A run of a version without steps is always complete.                                                                                                                      |
+| **Complete run**        | A run of a version **without steps**, or a run in which every step of its version has a segment and none was skipped. A run stopped before its last step is not complete.                                                                 |
 | **Best** and **median** | Over the **complete** runs in range (OPEN 2). Median of an even count is `floor((a + b) / 2)` of the two middle values. Null when there are none.                                                                                         |
 | **Mean**                | `floor(sum / n)`, same population                                                                                                                                                                                                         |
 | **Per step**            | For each step key seen in range: `done` (runs where the step has a segment), `skipped` (runs where it is in `skipped`), and best, median and mean over the **done** segments' `active_ms`. Skipped steps contribute nothing to durations. |
 | **Laps**                | Lap segments are never attributed to a step. Per run, `lap_ms` is their sum. Stats report `lap_ms` median and mean over runs that have laps.                                                                                              |
-| **Paused**              | `paused_ms` per run, reported separately; never part of a duration above                                                                                                                                                                  |
+| **Paused**              | `paused_ms` per run, reported separately; never part of a duration above. `runs_with_pauses` counts runs with `paused_ms > 0`, so a zero-length pause doesn't count.                                                                      |
 | **Series**              | One point per timed entry, by `captured_at` (the end), with `active_ms`, `paused_ms`, `complete`, and `steps: {key: active_ms}`                                                                                                           |
 | **Step labels**         | The latest version's label for a key; a key no longer in the current version keeps its last label and is listed after current steps                                                                                                       |
 
