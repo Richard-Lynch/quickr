@@ -65,20 +65,25 @@ public struct TopicUpdateDTO: Codable, Sendable, Hashable {
 
 /// `VersionCreate` (publishTopicVersion). Online only: the 409 on a stale `base_version` must be
 /// seen live (sync-protocol.md §11).
+///
+/// `timer` is required and sent even when null: leaving it out is a 422, so an edit can't switch
+/// timing off by omission (timers.md §2.1).
 public struct VersionCreateDTO: Codable, Sendable, Hashable {
     public var questions: [QuestionInputDTO]
     public var baseVersion: Int
     public var changeNote: String?
+    @RequiredKey public var timer: TopicTimer?
 
     enum CodingKeys: String, CodingKey {
-        case questions
+        case questions, timer
         case baseVersion = "base_version"
         case changeNote = "change_note"
     }
 
-    public init(questions: [Question], baseVersion: Int, changeNote: String? = nil) {
+    public init(questions: [Question], baseVersion: Int, timer: TopicTimer?, changeNote: String? = nil) {
         self.questions = questions.map(QuestionInputDTO.init)
         self.baseVersion = baseVersion
+        self.timer = timer
         self.changeNote = changeNote
     }
 }

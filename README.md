@@ -313,7 +313,10 @@ you publish a new version (`POST /topics/{ref}/versions`):
 
 `POST /topics/{ref}/versions/check` is a dry run. It returns the change list and
 any errors, warnings or info. Publishing also requires `base_version` to equal
-the topic's current version (optimistic concurrency, `409` otherwise).
+the topic's current version (optimistic concurrency, `409` otherwise), and a
+`timer`: the version's steps (`{steps: [{key, label}]}`) for a timed topic, or
+`null`. It is required, so a client that leaves it out can't switch timing off;
+send the current version's timer to keep it.
 
 ## API overview
 

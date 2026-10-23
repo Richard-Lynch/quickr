@@ -29,8 +29,8 @@ from app.schemas.api import (
     VersionCreate,
 )
 from app.schemas.base import issues_from
-from app.schemas.questions import Question, QuestionSet
-from app.services.compat import check_compatibility
+from app.schemas.questions import Question, QuestionSet, Timer
+from app.services.compat import NO_CHANGES, check_compatibility
 from app.services.feed import log_change, tombstone, writer
 from app.services.schedule import compute_due, dump_schedule, parse_schedule
 
@@ -45,6 +45,14 @@ def parse_questions(raw: list[dict[str, Any]]) -> list[Question]:
 def dump_questions(questions: list[Question]) -> list[dict[str, Any]]:
     dumped: list[dict[str, Any]] = _questions_adapter.dump_python(questions, mode="json")
     return dumped
+
+
+def parse_timer(raw: dict[str, Any] | None) -> Timer | None:
+    return None if raw is None else Timer.model_validate(raw, context={"stored": True})
+
+
+def dump_timer(timer: Timer | None) -> dict[str, Any] | None:
+    return None if timer is None else timer.model_dump(mode="json")
 
 
 def slugify(name: str) -> str:
@@ -310,6 +318,7 @@ async def create_topic(db: AsyncSession, body: TopicCreate) -> TopicDetail:
         id=uuid4(),
         version=1,
         questions=dump_questions(questions),
+        timer=dump_timer(body.timer),
         change_note="Initial version",
     )
     topic.versions.append(first)
@@ -424,12 +433,18 @@ async def publish_version(db: AsyncSession, ref: str, body: VersionCreate) -> To
         raise _stale(topic, body.base_version)
     questions = _validated_set(body.questions)
     report = check_compatibility(await _history(db, topic), questions)
-    if not report.ok:
+    timer = dump_timer(body.timer)
+    # The report ignores the timer (timers.md §2.1), so a timer change alone is a change.
+    timer_changed = timer != (await get_version(db, topic)).timer
+    errors = [
+        i
+        for i in report.issues
+        if i.level == "error" and not (timer_changed and i.question_key is None and i.message == NO_CHANGES)
+    ]
+    if errors:
         raise IncompatibleVersion(
             "; ".join(
-                i.message if i.question_key is None else f"{i.question_key}: {i.message}"
-                for i in report.issues
-                if i.level == "error"
+                i.message if i.question_key is None else f"{i.question_key}: {i.message}" for i in errors
             )
         )
     next_version = TopicVersion(
@@ -437,6 +452,7 @@ async def publish_version(db: AsyncSession, ref: str, body: VersionCreate) -> To
         topic_id=topic.id,
         version=topic.current_version + 1,
         questions=dump_questions(questions),
+        timer=timer,
         change_note=body.change_note,
     )
     db.add(next_version)
@@ -466,6 +482,7 @@ async def _versions(db: AsyncSession, *where: Any) -> list[tuple[TopicVersion, T
             TopicVersionOut(
                 version=v.version,
                 questions=parse_questions(v.questions),
+                timer=parse_timer(v.timer),
                 change_note=v.change_note,
                 created_at=v.created_at,
                 entry_count=n or 0,

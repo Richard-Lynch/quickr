@@ -46,6 +46,7 @@ from app.schemas.api import (
     VersionCreate,
 )
 from app.schemas.base import describe_issues, issues_from
+from app.schemas.questions import Timer
 from app.services import entries as entry_svc
 from app.services import stats as stats_svc
 from app.services import topics as topic_svc
@@ -64,6 +65,9 @@ whether an entry is expected now, and `list_due_topics` lists the ones waiting.
 To change questions, call `check_topic_version` with the full new question list,
 then `publish_topic_version` with `base_version` = the topic's current_version.
 Question types can never change for a key and enum options can only be archived.
+A topic is timed when its current version has a `timer` ({steps: [{key, label}]};
+no steps is a plain stopwatch). `publish_topic_version` requires `timer`: pass the
+current version's (from `list_topic_versions`) to keep it, or null for untimed.
 """
 
 
@@ -147,6 +151,7 @@ async def create_topic(
     slug: Annotated[str | None, Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")] = None,
     description: str = "",
     schedule: Annotated[Schedule | None, Field(description="Optional daily or interval schedule.")] = None,
+    timer: Annotated[Timer | None, Field(description="Optional: makes the topic timed.")] = None,
 ) -> TopicDetail:
     """Create a topic with an initial (version 1) question list. An empty list makes a single
     topic: logging it records an entry with no answers (record_entry with answers {})."""
@@ -154,7 +159,12 @@ async def create_topic(
         return await topic_svc.create_topic(
             db,
             TopicCreate(
-                name=name, slug=slug, description=description, questions=questions, schedule=schedule
+                name=name,
+                slug=slug,
+                description=description,
+                questions=questions,
+                schedule=schedule,
+                timer=timer,
             ),
         )
 
@@ -206,12 +216,23 @@ async def publish_topic_version(
     ref: TopicRef,
     questions: QuestionList,
     base_version: Annotated[int, Field(ge=1, description="Must equal the topic's current_version.")],
+    timer: Annotated[
+        Timer | None,
+        Field(
+            description="The new version's timer, or null for untimed. Required: pass the current "
+            "version's timer to keep timing as it is."
+        ),
+    ],
     change_note: str = "",
 ) -> TopicDetail:
-    """Publish a new version of the topic's questions (full replacement list)."""
+    """Publish a new version of the topic's questions (full replacement list) and timer."""
     async with _db() as db:
         return await topic_svc.publish_version(
-            db, ref, VersionCreate(questions=questions, base_version=base_version, change_note=change_note)
+            db,
+            ref,
+            VersionCreate(
+                questions=questions, base_version=base_version, timer=timer, change_note=change_note
+            ),
         )
 
 

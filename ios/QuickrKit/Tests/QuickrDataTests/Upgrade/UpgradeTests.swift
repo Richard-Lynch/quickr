@@ -214,7 +214,32 @@ import Testing
             try await store.writer.read { db in try Self.migrations(db) } == StoreSchema.migrations.map(\.identifier))
 
         // Nothing lost: every v1 row, column for column.
-        #expect(try await store.writer.read { db in try Self.dump(db, tables: storeTables) } == storeRows)
+        let storeV1Columns = try await store.writer.read { db in
+            try Dictionary(
+                uniqueKeysWithValues: storeTables.map { table in
+                    (
+                        table,
+                        try Row.fetchAll(db, sql: "PRAGMA table_info(\(table))").map { $0["name"] as String }
+                            .filter { !table.hasSuffix("topic_version") || $0 != "timer_json" }
+                    )
+                })
+        }
+        #expect(
+            try await store.writer.read { db in try Self.dump(db, tables: storeTables, columns: storeV1Columns) }
+                == storeRows)
+        // The store's v2 column: no version was timed before timers.
+        let timed = try await store.writer.read { db in
+            try Int.fetchOne(
+                db,
+                sql: """
+                    SELECT (SELECT COUNT(*) FROM topic_version WHERE timer_json IS NOT NULL)
+                      + (SELECT COUNT(*) FROM stage_topic_version WHERE timer_json IS NOT NULL)
+                    """)
+        }
+        #expect(timed == 0)
+        #expect(
+            try await store.writer.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM topic_version") } ?? 0
+                > 0)
         let v1Columns = try await registry.read { db in
             try Dictionary(
                 uniqueKeysWithValues: registryTables.map { table in

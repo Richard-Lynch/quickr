@@ -176,9 +176,22 @@ import Testing
         #expect(syncs.reasons.isEmpty)
     }
 
+    static let timer = TopicTimer(steps: [.init(key: "load", label: "Load"), .init(key: "rinse", label: "Rinse")])
+
+    /// The base version's row, as a pull leaves it.
+    func storeVersion(_ number: Int, timer: TopicTimer?) throws {
+        try harness.write { db in
+            _ = try ServerLayer.insert(
+                db, version: TopicVersion(version: number, questions: Make.questions, timer: timer, createdAt: Make.t0),
+                id: UUID(), topicId: self.harness.topic.id)
+        }
+    }
+
     @Test func aPublishAppliesTheTopicAndPulls() async throws {
-        let body = TopicRequests.publish(Self.version(), baseVersion: 1, changeNote: "  add energy \n")
-        guard case .done(let topic) = await try writes().publishVersion(topicId: harness.topic.id, body) else {
+        try storeVersion(1, timer: Self.timer)
+        let outcome = await try writes().publishVersion(
+            topicId: harness.topic.id, Self.version(), baseVersion: 1, changeNote: "  add energy \n")
+        guard case .done(let topic) = outcome else {
             Issue.record("not done")
             return
         }
@@ -191,10 +204,43 @@ import Testing
         let sent = try JSONSerialization.jsonObject(with: try #require(request.body)) as? [String: Any]
         #expect(sent?["change_note"] as? String == "add energy")
         #expect(sent?["base_version"] as? Int == 1)
+        // The base version's timer, kept as it is (timers.md §2.1).
+        let timer = try #require(sent?["timer"] as? [String: Any])
+        #expect(
+            (timer["steps"] as? [[String: String]]) == [
+                ["key": "load", "label": "Load"], ["key": "rinse", "label": "Rinse"],
+            ])
+    }
+
+    @Test func aPublishOfAnUntimedVersionSendsANullTimer() async throws {
+        try storeVersion(1, timer: nil)
+        guard
+            case .done = await try writes().publishVersion(
+                topicId: harness.topic.id, Self.version(), baseVersion: 1, changeNote: "")
+        else {
+            Issue.record("not done")
+            return
+        }
+        let sent = try JSONSerialization.jsonObject(with: try #require(harness.server.requests.last?.body))
+        let body = try #require(sent as? [String: Any])
+        #expect(body.keys.contains("timer") && body["timer"] is NSNull, "sent, as null: leaving it out is a 422")
+    }
+
+    @Test func aPublishWithoutItsBaseVersionInTheStoreSendsNothing() async throws {
+        try storeVersion(1, timer: Self.timer)
+        let outcome = await try writes().publishVersion(
+            topicId: harness.topic.id, Self.version(), baseVersion: 2, changeNote: "")
+        guard case .failed(let message) = outcome else {
+            Issue.record("\(outcome)")
+            return
+        }
+        #expect(message == TopicWrites.baseVersionMissingMessage)
+        #expect(harness.server.requests.isEmpty)
+        #expect(syncs.reasons.isEmpty)
     }
 
     @Test func aStalePublishIsAConflictAndNothingChanges() async throws {
-        let body = TopicRequests.publish(Self.version(), baseVersion: 1, changeNote: "")
+        let body = TopicRequests.publish(Self.version(), baseVersion: 1, timer: nil, changeNote: "")
         guard case .done = await try writes().publishVersion(topicId: harness.topic.id, body) else {
             Issue.record("first publish")
             return
@@ -212,7 +258,7 @@ import Testing
         // `mood` changes type: never allowed under the same key.
         var questions = Make.questions
         questions[0] = Question(key: "mood", label: "Mood", kind: .double(.init()))
-        let body = TopicRequests.publish(Self.version(questions), baseVersion: 1, changeNote: "")
+        let body = TopicRequests.publish(Self.version(questions), baseVersion: 1, timer: nil, changeNote: "")
         guard case .rejected(422, let problem?) = await try writes().publishVersion(topicId: harness.topic.id, body)
         else {
             Issue.record("not rejected")
@@ -246,7 +292,7 @@ import Testing
             Issue.record("check not resyncing")
             return
         }
-        let body = TopicRequests.publish(Self.version(), baseVersion: 1, changeNote: "")
+        let body = TopicRequests.publish(Self.version(), baseVersion: 1, timer: nil, changeNote: "")
         guard case .resyncing = await try writes().publishVersion(topicId: harness.topic.id, body) else {
             Issue.record("not resyncing")
             return

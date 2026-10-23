@@ -101,7 +101,7 @@ describe('SDK request validation', () => {
   ])('publishTopicVersion with a %i-emoji change note: %s', async (n, expected) => {
     const call = publishTopicVersion({
       path: { ref: 'sleep' },
-      body: { questions: [question], base_version: 1, change_note: emoji(n) },
+      body: { questions: [question], base_version: 1, change_note: emoji(n), timer: null },
       ...stubbed(),
     });
     expect(await outcome(call)).toBe(expected);

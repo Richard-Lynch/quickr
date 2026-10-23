@@ -64,6 +64,11 @@ public struct TopicWrites: Sendable {
     public static let unconfirmedMessage =
         "The connection dropped before the server answered. Check the topic once it has synced."
 
+    /// A publish whose base version hasn't synced yet: its timer, which the publish must carry,
+    /// isn't known.
+    public static let baseVersionMissingMessage =
+        "This topic’s latest version hasn’t synced yet. Try again in a moment."
+
     public let scope: Scope
     let store: LocalStore
     let client: APIClient
@@ -183,6 +188,25 @@ public struct TopicWrites: Sendable {
     /// `conflict` when the topic has a newer version). Nothing local changes and no pull follows.
     public func checkVersion(topicId: UUID, _ body: VersionDraftDTO) async -> Outcome<CompatibilityReport> {
         await send({ try await client.checkTopicVersion(ref: topicId.wireString, body, options: options).outcome })
+    }
+
+    /// Publishes `version` (``TopicRequests/publish(_:baseVersion:timer:changeNote:)``) with the
+    /// timer of the version it was edited from, read from the store: a publish must send a timer
+    /// (null turns timing off, timers.md §2.1), and the builder keeps it as it is. Without that
+    /// version in the store nothing is sent.
+    public func publishVersion(
+        topicId: UUID, _ version: TopicDraft.Version, baseVersion: Int, changeNote: String
+    ) async -> Outcome<Topic> {
+        let base: TopicVersion?
+        do {
+            base = try await store.versions.version(topicId: topicId, number: baseVersion)
+        } catch {
+            return .failed(String(describing: error))
+        }
+        guard let base else { return .failed(Self.baseVersionMissingMessage) }
+        return await publishVersion(
+            topicId: topicId,
+            TopicRequests.publish(version, baseVersion: baseVersion, timer: base.timer, changeNote: changeNote))
     }
 
     /// `POST /topics/{ref}/versions`: publishes the next version (409 `conflict` on a stale

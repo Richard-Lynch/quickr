@@ -310,6 +310,7 @@
               "type": "str"
             }
           ],
+          "timer": null,
           "version": 1
         }
       },
@@ -334,6 +335,7 @@
               "unit": null
             }
           ],
+          "timer": null,
           "version": 1
         }
       },
@@ -358,6 +360,7 @@
               "unit": null
             }
           ],
+          "timer": null,
           "version": 1
         }
       },
@@ -457,6 +460,18 @@
               "type": "str"
             }
           ],
+          "timer": {
+            "steps": [
+              {
+                "key": "pour",
+                "label": "Pour"
+              },
+              {
+                "key": "drink",
+                "label": "Drink"
+              }
+            ]
+          },
           "version": 2
         }
       },

@@ -23,6 +23,9 @@ from app.schemas.questions import (
     StrQuestion,
 )
 
+# The error for a draft whose questions equal the current version's.
+NO_CHANGES = "no changes to publish"
+
 
 def _fmt(v: object) -> str:
     return "none" if v is None else str(v)
@@ -215,7 +218,7 @@ def check_compatibility(
         changes.append(QuestionChange(kind="reordered", question_key="*"))
 
     if not changes:
-        issues.append(CompatibilityIssue(level="error", question_key=None, message="no changes to publish"))
+        issues.append(CompatibilityIssue(level="error", question_key=None, message=NO_CHANGES))
 
     return CompatibilityReport(
         ok=not any(i.level == "error" for i in issues),

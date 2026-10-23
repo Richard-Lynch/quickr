@@ -291,7 +291,12 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
         "publishTopicVersion",
         "POST",
         "/topics/everything/versions",
-        {"questions": everything_v2(), "base_version": 1, "change_note": "Retire 'poor'"},
+        {
+            "questions": everything_v2(),
+            "base_version": 1,
+            "change_note": "Retire 'poor'",
+            "timer": {"steps": [{"key": "pour", "label": "Pour"}, {"key": "drink", "label": "Drink"}]},
+        },
         status=201,
     )
     await record(
@@ -370,7 +375,7 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
         "publishTopicVersion",
         "POST",
         "/topics/everything/versions",
-        {"questions": everything_v2(), "base_version": 1},
+        {"questions": everything_v2(), "base_version": 1, "timer": None},
         status=409,
         variant="conflict",
     )

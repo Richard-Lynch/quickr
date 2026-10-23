@@ -42,6 +42,7 @@ from app.schemas.limits import (
     MAX_HELP_TEXT_LENGTH,
     MAX_LABEL_LENGTH,
     MAX_QUESTIONS,
+    MAX_STEPS,
     MAX_STR_LENGTH,
     MAX_UNIT_LENGTH,
 )
@@ -240,6 +241,27 @@ class QuestionSet(StrictModel):
     """An ordered list of questions with cross-question invariants."""
 
     questions: QuestionList
+
+
+class Step(StrictModel):
+    """A named checkpoint of a timed topic. Its key is its identity across versions, in a
+    namespace of its own (a step and a question may share a key)."""
+
+    key: QuestionKey
+    label: Label
+
+
+class Timer(StrictModel):
+    """A version's timing: its steps, timed in this order. No steps makes a plain stopwatch."""
+
+    steps: Annotated[list[Step], Field(max_length=MAX_STEPS)]
+
+    @model_validator(mode="after")
+    def _unique_keys(self) -> Self:
+        keys = [s.key for s in self.steps]
+        for i in _duplicate_indices(keys):
+            raise field_error(f"steps.{i}.key", f"duplicate step key '{keys[i]}'")
+        return self
 
 
 def _single_answer_error(v: object, handler: ValidatorFunctionWrapHandler) -> object:

@@ -201,7 +201,19 @@
           "required": false,
           "type": "str"
         }
-      ]
+      ],
+      "timer": {
+        "steps": [
+          {
+            "key": "pour",
+            "label": "Pour"
+          },
+          {
+            "key": "drink",
+            "label": "Drink"
+          }
+        ]
+      }
     },
     "method": "POST",
     "path": "/api/v1/topics/everything/versions"

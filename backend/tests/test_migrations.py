@@ -288,3 +288,97 @@ async def test_change_feed_backfill(clean_db: None) -> None:
         assert page.server_id == first[1]
     finally:
         await _alembic(command.upgrade, "head")
+
+
+async def _insert_run(conn: AsyncConnection, n: int, status: str) -> None:
+    await conn.execute(
+        text(
+            "INSERT INTO runs (id, topic_id, topic_version_id, version, status, started_at, state, source,"
+            f" channel) VALUES ('{T}{n:x}', '{T}1', '{T}2', 1, '{status}', '2026-01-01T08:00:00Z', '{{}}',"
+            " 'phone', 'ios')"
+        )
+    )
+
+
+async def test_timed_topics_round_trip(clean_db: None) -> None:
+    """Upgrade a seeded database to the timed-topics schema, use it, and downgrade it again."""
+    from sqlalchemy.exc import IntegrityError
+
+    before = "b8f9a0b1c2d3"
+    await _alembic(command.downgrade, before)
+    try:
+        async with get_engine().begin() as conn:
+            await _insert_v1_data_at_head(conn, channel="ios")
+        await _alembic(command.upgrade, "head")
+        async with get_engine().begin() as conn:
+            row = (await conn.execute(text("SELECT timer FROM topic_versions"))).one()
+            assert tuple(row) == (None,)
+            assert (await conn.scalar(text("SELECT timing FROM entries"))) is None
+            await conn.execute(text("""UPDATE topic_versions SET timer = '{"steps": []}'"""))
+            await _insert_run(conn, 5, "stopped")
+            await _insert_run(conn, 6, "running")
+            await conn.execute(
+                text(
+                    "INSERT INTO run_events (id, run_id, type, at, source)"
+                    f" VALUES ('{T}7', '{T}6', 'start', '2026-01-01T08:00:00Z', 'phone'),"
+                    f" ('{T}8', '{T}6', 'lap', '2026-01-01T08:01:00Z', 'phone')"
+                )
+            )
+            await conn.execute(text(f"INSERT INTO run_aliases (id, run_id) VALUES ('{T}9', '{T}6')"))
+            await conn.execute(
+                text(
+                    "INSERT INTO live_activity_tokens (token, kind, device_token, environment, topic_id,"
+                    f" run_id) VALUES ('ab', 'update', 'cd', 'sandbox', '{T}1', '{T}6')"
+                )
+            )
+            await conn.execute(
+                text(
+                    f"INSERT INTO change_log (kind, op, entity_id, topic_id)"
+                    f" VALUES ('entry', 'upsert', '{T}3', '{T}1'), ('run', 'upsert', '{T}6', '{T}1')"
+                )
+            )
+            await conn.execute(
+                text(f"INSERT INTO deleted_ids (kind, id, topic_id) VALUES ('run', '{T}5', '{T}1')")
+            )
+            arrivals = (
+                (await conn.execute(text("SELECT arrival FROM run_events ORDER BY id"))).scalars().all()
+            )
+            assert arrivals[0] < arrivals[1]
+            assert (await conn.scalar(text("SELECT payload FROM run_events LIMIT 1"))) == {}
+        # One open (running or paused) run per topic.
+        with pytest.raises(IntegrityError):
+            async with get_engine().begin() as conn:
+                await _insert_run(conn, 10, "paused")
+        async with get_engine().begin() as conn:
+            await _insert_run(conn, 10, "finishing")
+        with pytest.raises(IntegrityError):
+            async with get_engine().begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO live_activity_tokens (token, kind, device_token, environment)"
+                        " VALUES ('ef', 'other', 'cd', 'sandbox')"
+                    )
+                )
+
+        await _alembic(command.downgrade, before)
+        async with get_engine().connect() as conn:
+            tables = set(
+                (
+                    await conn.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'"))
+                ).scalars()
+            )
+            assert not tables & {"runs", "run_events", "run_aliases", "live_activity_tokens"}
+            types = set((await conn.execute(text("SELECT typname FROM pg_type"))).scalars())
+            assert not types & {"run_status", "run_event_type", "feed_kind_old"}
+            labels = (await conn.execute(text("SELECT unnest(enum_range(NULL::feed_kind))::text"))).scalars()
+            assert list(labels) == ["entry", "topic", "version"]
+            assert (await conn.scalar(text("SELECT count(*) FROM change_log WHERE kind = 'entry'"))) == 1
+            assert (await conn.scalar(text("SELECT count(*) FROM deleted_ids"))) == 0
+            entry = (await conn.execute(text("SELECT id::text, channel::text FROM entries"))).one()
+            assert tuple(entry) == (f"{T}3", "ios")
+        await _alembic(command.upgrade, "head")
+        async with get_engine().connect() as conn:
+            assert (await conn.scalar(text("SELECT timer FROM topic_versions"))) is None
+            assert (await conn.scalar(text("SELECT count(*) FROM runs"))) == 0
+    finally:
+        await _alembic(command.upgrade, "head")

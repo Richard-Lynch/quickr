@@ -19,7 +19,9 @@ import Testing
         try SharedDatabase.migrate(first, StoreSchema.migrations)
         for pool in [first, second] {
             try pool.read { (db: Database) throws in
-                #expect(try String.fetchAll(db, sql: "SELECT identifier FROM grdb_migrations") == ["v1"])
+                #expect(
+                    try String.fetchAll(db, sql: "SELECT identifier FROM grdb_migrations ORDER BY identifier")
+                        == StoreSchema.migrations.map(\.identifier))
                 #expect(try StoreSchema.migrator().hasCompletedMigrations(db))
                 #expect(try db.tableExists("outbox_item"))
                 #expect(try String.fetchAll(db, sql: "SELECT name FROM lease ORDER BY name") == ["flush", "sync"])
@@ -45,7 +47,7 @@ import Testing
             try await group.waitForAll()
         }
         try await pools[0].read { (db: Database) throws in
-            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM grdb_migrations") == 1)
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM grdb_migrations") == StoreSchema.migrations.count)
             #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM lease") == 2)
         }
     }

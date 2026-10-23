@@ -14,17 +14,20 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     Double,
     Enum,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -89,6 +92,8 @@ class TopicVersion(Base):
     # Validated QuestionSet.questions payload (list of question dicts).
     questions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     change_note: Mapped[str] = mapped_column(Text, default="")
+    # Validated Timer payload ({steps: [...]}); null = not timed (timers.md §2.1).
+    timer: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     topic: Mapped[Topic] = relationship(back_populates="versions")
@@ -110,6 +115,8 @@ class Entry(Base):
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str] = mapped_column(Text, default="")
     meta: Mapped[dict[str, str]] = mapped_column(JSONB, default=dict)
+    # A finished run's Timing projection; null = untimed entry (timers.md §2.3).
+    timing: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
     # Bumped on every update (optimistic concurrency, see feed).
     revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -163,6 +170,127 @@ class Answer(Base):
         UniqueConstraint("entry_id", "question_key", name="uq_answer_entry_key"),
         Index("ix_answers_topic_key", "topic_id", "question_key"),
         CheckConstraint(ANSWER_TYPED_VALUE_CHECK, name="ck_answer_typed_value"),
+    )
+
+
+class RunStatus(enum.StrEnum):
+    running = "running"
+    paused = "paused"
+    finishing = "finishing"
+    stopped = "stopped"
+    discarded = "discarded"
+
+
+class RunEventType(enum.StrEnum):
+    start = "start"
+    next = "next"
+    lap = "lap"
+    skip = "skip"
+    pause = "pause"
+    resume = "resume"
+    stop = "stop"
+    finish = "finish"
+    discard = "discard"
+
+
+class Run(Base):
+    """One timing session of a timed topic (timers.md §2.2).
+
+    Its id is the start event's id, and the id of the entry it becomes once stopped. The run
+    is pinned to the version it started on.
+    """
+
+    __tablename__ = "runs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    topic_id: Mapped[UUID] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"))
+    topic_version_id: Mapped[UUID] = mapped_column(ForeignKey("topic_versions.id", ondelete="CASCADE"))
+    version: Mapped[int] = mapped_column(Integer)
+    status: Mapped[RunStatus] = mapped_column(Enum(RunStatus, name="run_status", native_enum=True))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # Timing edited after stop (§3.8).
+    edited: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # == id once the entry exists; null again if it is deleted.
+    entry_id: Mapped[UUID | None] = mapped_column(default=None)
+    # The fold's output (§4), cached.
+    state: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    source: Mapped[str] = mapped_column(String(100))
+    channel: Mapped[Channel] = mapped_column(Enum(Channel, name="entry_channel", native_enum=True))
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        # One open run per topic.
+        Index(
+            "ux_runs_one_open",
+            "topic_id",
+            unique=True,
+            postgresql_where=text("status IN ('running', 'paused')"),
+        ),
+    )
+
+
+class RunEvent(Base):
+    """One tap of a run. Its effect (applied or void) is the fold's output, not stored."""
+
+    __tablename__ = "run_events"
+
+    # Client-generated: the idempotency key.
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    run_id: Mapped[UUID] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"))
+    # Server arrival order (§4.1).
+    arrival: Mapped[int] = mapped_column(BigInteger, Identity())
+    type: Mapped[RunEventType] = mapped_column(Enum(RunEventType, name="run_event_type", native_enum=True))
+    # Device time of the tap.
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # next, lap, skip: the open segment's index (§3.2).
+    seg: Mapped[int | None] = mapped_column(Integer, default=None)
+    # skip: the step being skipped.
+    step: Mapped[str | None] = mapped_column(String(64), default=None)
+    # resume: the pause event it ends.
+    pause_id: Mapped[UUID | None] = mapped_column(default=None)
+    # stop/finish: answers, notes, meta; start: version.
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    source: Mapped[str] = mapped_column(String(100))
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_run_events_run", "run_id", "arrival"),)
+
+
+class RunAlias(Base):
+    """A losing start's run id, merged into another open run of the same topic (§4.5)."""
+
+    __tablename__ = "run_aliases"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    run_id: Mapped[UUID] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"))
+
+
+class LiveActivityToken(Base):
+    """A Live Activity push token (timers.md §10.3): separate from ``apns_devices``, so a failed
+    send drops only this row."""
+
+    __tablename__ = "live_activity_tokens"
+
+    token: Mapped[str] = mapped_column(Text, primary_key=True)  # lower-case hex
+    kind: Mapped[str] = mapped_column(Text)
+    # The APNs device token of the phone that owns it.
+    device_token: Mapped[str] = mapped_column(Text)
+    environment: Mapped[str] = mapped_column(Text)
+    # Update tokens: the topic, and the run it was registered for.
+    topic_id: Mapped[UUID | None] = mapped_column(default=None)
+    run_id: Mapped[UUID | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('start', 'update')", name="ck_live_activity_tokens_kind"),
+        CheckConstraint(
+            "environment IN ('sandbox', 'production')", name="ck_live_activity_tokens_environment"
+        ),
     )
 
 
@@ -242,6 +370,7 @@ class FeedKind(enum.StrEnum):
     entry = "entry"
     topic = "topic"
     version = "version"
+    run = "run"
 
 
 class FeedOp(enum.StrEnum):

@@ -175,7 +175,9 @@ async def test_editing_keeps_archived_enum_value_valid(client: httpx.AsyncClient
     # Archive 'poor' in v2 and record against v2.
     qs = sleep_questions()
     qs[2]["options"][0]["archived"] = True
-    r = await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 1})
+    r = await client.post(
+        "/topics/sleep-log/versions", json={"questions": qs, "base_version": 1, "timer": None}
+    )
     assert r.status_code == 201
     s2 = await record(client, "sleep-log", {**ANSWERS, "quality": "ok"})
     assert s2["version"] == 2
@@ -198,12 +200,12 @@ async def test_editing_v2_entry_holding_archived_value(client: httpx.AsyncClient
     await make_topic(client)
     qs = sleep_questions()
     qs[0]["label"] = "Hours"
-    await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 1})
+    await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 1, "timer": None})
     s = await record(client, "sleep-log", {**ANSWERS, "quality": "poor"})
     assert s["version"] == 2
     # v3 archives 'poor'; s is pinned to v2 where it is active, so edits are fine.
     qs[2]["options"][0]["archived"] = True
-    await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 2})
+    await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 2, "timer": None})
     s3 = await record(client, "sleep-log", ANSWERS)
     assert s3["version"] == 3
     r = await client.patch(f"/entries/{s['id']}", json={"answers": {"wakeups": 0}})

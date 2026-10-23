@@ -91,6 +91,18 @@
           "type": "str"
         }
       ],
+      "timer": {
+        "steps": [
+          {
+            "key": "pour",
+            "label": "Pour"
+          },
+          {
+            "key": "drink",
+            "label": "Drink"
+          }
+        ]
+      },
       "version": 2
     },
     {
@@ -184,6 +196,7 @@
           "type": "str"
         }
       ],
+      "timer": null,
       "version": 1
     }
   ],

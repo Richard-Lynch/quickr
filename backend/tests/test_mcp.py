@@ -100,6 +100,7 @@ async def test_create_record_stats_publish(mcp_client: Client[Any]) -> None:
         ref="sleep-log",
         questions=new_qs,
         base_version=1,
+        timer=None,
         change_note="nap",
     )
     assert published["current_version"] == 2
@@ -153,12 +154,13 @@ async def test_domain_errors_are_surfaced(mcp_client: Client[Any]) -> None:
         await mcp_client.call_tool("create_topic", {"name": "Sleep log", "questions": sleep_questions()})
     with pytest.raises(ToolError, match="no changes to publish"):
         await mcp_client.call_tool(
-            "publish_topic_version", {"ref": "sleep-log", "questions": sleep_questions(), "base_version": 1}
+            "publish_topic_version",
+            {"ref": "sleep-log", "questions": sleep_questions(), "base_version": 1, "timer": None},
         )
     with pytest.raises(ToolError, match="based on version 7"):
         await mcp_client.call_tool(
             "publish_topic_version",
-            {"ref": "sleep-log", "questions": sleep_questions()[:2], "base_version": 7},
+            {"ref": "sleep-log", "questions": sleep_questions()[:2], "base_version": 7, "timer": None},
         )
     dup = [*sleep_questions(), sleep_questions()[0]]
     with pytest.raises(ToolError, match=r"duplicate question key .hours."):
@@ -268,3 +270,37 @@ async def test_single_topics_through_mcp(mcp_client: Client[Any]) -> None:
     report = await call(mcp_client, "check_topic_version", ref="took-vitamins", questions=dose)
     assert report["ok"] is True
     assert report["changes"] == [{"kind": "added", "question_key": "dose", "details": []}]
+
+
+async def test_publish_requires_timer(mcp_client: Client[Any]) -> None:
+    timer = {"steps": [{"key": "load", "label": "Load"}]}
+    await call(mcp_client, "create_topic", name="Dishwasher", questions=[], timer=timer)
+    tools = {t.name: t for t in await mcp_client.list_tools()}
+    assert "timer" in tools["publish_topic_version"].input_schema["required"]
+    assert "timer" not in tools["create_topic"].input_schema.get("required", [])
+
+    qs = [
+        {"key": "full", "label": "Full load?", "type": "enum", "options": [{"value": "yes", "label": "Yes"}]}
+    ]
+    with pytest.raises(ToolError, match="timer"):
+        await mcp_client.call_tool(
+            "publish_topic_version", {"ref": "dishwasher", "questions": qs, "base_version": 1}
+        )
+    with pytest.raises(ToolError, match="duplicate step key 'load'"):
+        await mcp_client.call_tool(
+            "publish_topic_version",
+            {
+                "ref": "dishwasher",
+                "questions": qs,
+                "base_version": 1,
+                "timer": {"steps": [timer["steps"][0]] * 2},
+            },
+        )
+    await call(
+        mcp_client, "publish_topic_version", ref="dishwasher", questions=qs, base_version=1, timer=timer
+    )
+    await call(
+        mcp_client, "publish_topic_version", ref="dishwasher", questions=qs, base_version=2, timer=None
+    )
+    versions = (await mcp_client.call_tool("list_topic_versions", {"ref": "dishwasher"})).structured_content
+    assert [v["timer"] for v in versions["result"]] == [None, timer, timer]  # type: ignore[index]

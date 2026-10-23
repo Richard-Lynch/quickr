@@ -84,7 +84,19 @@
           "required": false,
           "type": "str"
         }
-      ]
+      ],
+      "timer": {
+        "steps": [
+          {
+            "key": "pour",
+            "label": "Pour"
+          },
+          {
+            "key": "drink",
+            "label": "Drink"
+          }
+        ]
+      }
     },
     "headers": {
       "accept": "application/json",

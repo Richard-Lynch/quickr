@@ -114,7 +114,10 @@ import Testing
         Case(name: "publishTopicVersion") { client in
             _ = try await client.publishTopicVersion(
                 ref: topicId.wireString,
-                VersionCreateDTO(questions: everythingV2, baseVersion: 1, changeNote: "Retire 'poor'"))
+                VersionCreateDTO(
+                    questions: everythingV2, baseVersion: 1,
+                    timer: TopicTimer(steps: [.init(key: "pour", label: "Pour"), .init(key: "drink", label: "Drink")]),
+                    changeNote: "Retire 'poor'"))
         },
         Case(name: "checkTopicVersion") { client in
             _ = try await client.checkTopicVersion(

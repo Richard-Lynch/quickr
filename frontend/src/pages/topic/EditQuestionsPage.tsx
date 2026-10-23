@@ -11,6 +11,7 @@ import {
   checkTopicVersionMutation,
   getTopicOptions,
   getTopicQueryKey,
+  listTopicVersionsOptions,
   publishTopicVersionMutation,
 } from '../../client/@tanstack/react-query.gen';
 import type { CompatibilityReport, TopicDetail } from '../../client';
@@ -116,6 +117,14 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
     () => setBanner({ message: CLIENT_INVALID, extra: [] }),
   );
 
+  /** The base version's timer: publishing requires one, and this editor keeps it as it is. */
+  const baseTimer = async () => {
+    const versions = await qc.query(listTopicVersionsOptions({ path: { ref: base.slug } }));
+    const version = versions.find((v) => v.version === base.current_version);
+    if (!version) throw new Error(`Version ${String(base.current_version)} wasn’t found`);
+    return version.timer;
+  };
+
   const onPublish = async () => {
     if (!review) return;
     const note = form.getValues('change_note').trim();
@@ -126,6 +135,7 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
           questions: review.draft.questions,
           base_version: base.current_version,
           change_note: note,
+          timer: await baseTimer(),
         },
       });
       qc.setQueryData(getTopicQueryKey({ path: { ref: updated.slug } }), updated);

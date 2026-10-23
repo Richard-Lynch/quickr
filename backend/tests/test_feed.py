@@ -119,7 +119,9 @@ async def test_every_topic_mutation_is_logged(client: httpx.AsyncClient) -> None
     qs = sleep_questions()
     qs[0]["label"] = "Hours"
     assert (
-        await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 1})
+        await client.post(
+            "/topics/sleep-log/versions", json={"questions": qs, "base_version": 1, "timer": None}
+        )
     ).status_code == 201
     await client.post("/topics/sleep-log/archive")
     await client.post("/topics/sleep-log/unarchive")
@@ -250,7 +252,7 @@ async def test_topic_delete_tombstones_children(client: httpx.AsyncClient) -> No
     t = await make_topic(client)
     qs = sleep_questions()
     qs[0]["label"] = "Hours"
-    await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 1})
+    await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 1, "timer": None})
     entries = [(await record(client, "sleep-log", ANSWERS))["id"] for _ in range(3)]
     await client.post("/topics/sleep-log/archive")
     cursor = (await changes(client))["next"]

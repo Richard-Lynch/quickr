@@ -20,7 +20,7 @@ import GRDB
 /// `grdb_migrations` exactly as `migrator()` does, so the two agree.
 public enum StoreSchema {
     /// The append-only migrations, in order: `(identifier, statements)`.
-    public static let migrations: [(identifier: String, statements: [String])] = [("v1", v1)]
+    public static let migrations: [(identifier: String, statements: [String])] = [("v1", v1), ("v2", v2)]
 
     public static func migrator() -> DatabaseMigrator { DatabaseMigrator(steps: migrations) }
 
@@ -93,6 +93,11 @@ public enum StoreSchema {
             "CREATE INDEX ix_\(prefix)tombstone_topic ON \(prefix)tombstone(topic_id)",
         ]
     }
+
+    /// Timed topics (timers.md §2.1): a version's timer, `TopicTimer` as JSON; null when untimed.
+    /// Rows from before it are null, which they are on the server too. Both layers gain it at the
+    /// end, so a swap still copies rows 1:1.
+    static let v2: [String] = ["", "stage_"].map { "ALTER TABLE \($0)topic_version ADD COLUMN timer_json TEXT" }
 
     static let v1: [String] =
         serverLayer(prefix: "")
