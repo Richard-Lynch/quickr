@@ -1,7 +1,19 @@
 # Plan: timed topics (milestone T)
 
-**Status:** draft, 2026-10-23. **Spec:** [timers.md](timers.md). **Branch:**
-`feat/timers`; each WP on its own branch cut from it and merged back into it.
+**Status:** draft, revision 2, 2026-10-23. **Specs:** [timers.md](timers.md)
+and its prerequisite [client-versions.md](client-versions.md).
+
+Two milestones, in order:
+
+1. **CV, client versions and forced updates.** On `feat/client-versions`, cut
+   from `main`, merged to `main` and released on its own. Then the user installs
+   the floor build, and CV-FLOOR raises the iOS minimum.
+2. **T, timed topics.** On `feat/timers`, rebased onto `main` after CV merges.
+   Each WP is on its own branch cut from it and merged back into it. The
+   milestone merges to `main` as one PR and is released with one `v*` tag.
+
+Non-breaking T WPs can start before CV is released. **T-FEED, the only breaking
+WP, needs CV merged; the T release needs CV-FLOOR done.**
 
 ## Scope guard
 
@@ -20,12 +32,15 @@ This milestone is the list of work packages below, and nothing else.
   no WP, it stops and reports to the lead. The lead decides; the WP does not
   absorb the work.
 - A spec change needed during implementation is a separate, small docs commit to
-  `timers.md`, approved by the lead, before the code that relies on it.
+  `timers.md` or `client-versions.md`, approved by the lead, before the code
+  that relies on it.
+- **Only T-FEED may break the API.** Any other WP that finds it must break
+  something stops and reports to the lead.
 - Every WP diff gets a Codex review, as does the milestone at the end.
 
 ## Out of scope
 
-These are not in milestone T. Each becomes an issue if the user wants it.
+These are not in milestones CV or T. Each becomes an issue if the user wants it.
 
 - An Apple Watch app or complications (the system's Smart Stack mirroring of the
   Live Activity is fine, with no work).
@@ -44,7 +59,11 @@ These are not in milestone T. Each becomes an issue if the user wants it.
 - A server job that stops or discards abandoned runs.
 - Live Activity layouts for Mac, CarPlay or StandBy beyond what the system
   derives.
-- Changes to old builds' behaviour beyond what spec §12 lists.
+- Anything that keeps builds below the minimum working (they are forced to
+  update: client-versions.md).
+- An in-app updater, App Store distribution, or update prompts for platforms
+  other than iOS (TestFlight) and the PWA.
+- Per-endpoint or per-feature minimum levels: there is one level per platform.
 
 ## Work packages
 
@@ -60,7 +79,91 @@ Every WP:
 - regenerates `openapi.json` and the TS client when it changes the API;
 - leaves `compat/openapi-break-approvals.txt` without new lines.
 
-### Backend
+### Milestone CV: client versions (do first)
+
+#### CV-SERVER · API level, headers and enforcement · be · M
+
+- **Scope:** `shared/api-level.json` at `{api_level: 1, min_client_level:
+{ios: 0, web: 0}}`; `backend/app/client_versions.py`; the response headers
+  and the enforcing middleware (client-versions.md §3.2–§3.3), including the
+  426 `client_outdated` Problem; `getClientVersions`; the env overrides and
+  `QUICKR_IOS_UPDATE_URL`; the client level stored by `registerApnsDevice` and
+  display-only reminders below the iOS minimum (§3.4); request goldens gain
+  `X-QuickR-Client`.
+- **Areas:** `shared/api-level.json`, `backend/app/client_versions.py` (new),
+  `backend/app/api/identity.py` (or a sibling middleware module),
+  `backend/app/config.py`, `backend/app/services/push/`, `services/scheduler.py`,
+  `backend/alembic/versions/` (the APNs level column), `shared/fixtures/`,
+  `openapi.json`, `frontend/src/api` (regenerated client only).
+- **Depends on:** nothing.
+- **Acceptance:** client-versions.md V1–V5; every existing test passes (they
+  send no client headers, so they aren't checked).
+- **Tests:** V1–V5.
+
+#### CV-COMPAT · the gate under the new policy · be · S
+
+- **Scope:** client-versions.md §7: `api_level` on each listed client (0 for
+  both current builds); `client_fixtures.py` checks only clients at or above
+  the minimum; the `openapi breaking` tag rule (a break needs a bump); the new
+  `api level` check; compatibility.md updated to match.
+- **Areas:** `compat/`, `.github/workflows/compat.yml`,
+  `docs/ios/specs/compatibility.md`.
+- **Depends on:** CV-SERVER.
+- **Acceptance:** client-versions.md V11 and V12; with today's values the gate
+  checks both listed builds exactly as before.
+- **Tests:** V11 against fixture repos; the workflow runs green on the PR.
+
+#### CV-IOS-DATA · client header, outdated state, held queue · host · M
+
+- **Scope:** `X-QuickR-Client` from every process (the `Info.plist` key from
+  `shared/api-level.json`, written by a build phase); `client_outdated_min` in
+  `sync_state`; the coordinator and claim guards; 426 handling in the outbox
+  (restore, never fail); the store migration that revives 426-failed items
+  (§4.2); tolerant feed decoding (§4.4); result texts for widgets, intents and
+  notification actions (§4.1). The one-paragraph amendments to
+  sync-protocol.md §2.2 and outbox.md §5.2 and §6.2.
+- **Areas:** `ios/QuickrKit/Sources/QuickrData/API/`, `Store/`, `Sync/`,
+  `Outbox/`, `Intents/`, `Notifications/`, `ios/project.yml`,
+  `docs/ios/specs/`.
+- **Depends on:** CV-SERVER.
+- **Acceptance:** client-versions.md V6–V8; an unknown feed kind is skipped,
+  not a page failure; every existing outbox and sync test passes.
+- **Tests:** V6–V8; a decode test with an unknown item and deletion kind.
+
+#### CV-IOS-UI · the "Update required" screen · sim · S
+
+- **Scope:** the blocking view, Open TestFlight, Check again, the server-switch
+  escape, the widget line and the "server needs updating" note (§4.1, §3.3).
+- **Areas:** `ios/App/` (root view, Settings), `ios/Widgets/`, `QuickrUI/`.
+- **Depends on:** CV-IOS-DATA.
+- **Acceptance:** client-versions.md V9.
+- **Tests:** V9 as a UI test against a fake transport.
+
+#### CV-PWA · header, detection and forced reload · fe · S
+
+- **Scope:** `X-QuickR-Client` on every request; detection; the update path of
+  §5.2 with the blocking overlay; the outbox hold (§5.3). The same PR sets
+  `min_client_level.web` to 1: the PWA ships with the server.
+- **Areas:** `frontend/src/api/`, `frontend/src/components/pwa/`,
+  `frontend/src/lib/outbox/`, `frontend/vite.config.ts`, `shared/api-level.json`.
+- **Depends on:** CV-SERVER.
+- **Acceptance:** client-versions.md V10; the outbox parity tests pass.
+- **Tests:** V10.
+
+#### CV-FLOOR · raise the iOS floor · release · S
+
+- **Scope:** after CV is on `main`, released, and its TestFlight build is
+  installed on the user's phone (the lead confirms with the user): list that
+  build in `compat/supported-clients.json` with `api_level: 1`, and raise
+  `min_client_level.ios` to 1. The level-0 builds may leave the list in the same
+  PR.
+- **Depends on:** CV-SERVER, CV-COMPAT, CV-IOS-DATA, CV-IOS-UI, CV-PWA, and the
+  release.
+- **Acceptance:** the compat gate passes; a level-0 request answers 426 on the
+  deployed server; the installed build syncs.
+- **Tests:** none beyond the gate (V2 already covers the 426).
+
+### Milestone T: backend
 
 #### T-DB · migration and models · be · M
 
@@ -119,16 +222,21 @@ Every WP:
 - **Tests:** as listed, plus the concurrency tests T2 and T3 with two tasks
   against one database.
 
-#### T-FEED · `listChangesV2` and v1 filtering · be · M
+#### T-FEED · runs in the change feed (the breaking change) · be · M
 
-- **Scope:** v1 skips run rows; `listChangesV2` with run items, run deletions
-  and bootstrap rules (§7.1); fixtures `listChangesV2.*.json`.
+- **Scope:** the `run` item and deletion kinds in `listChanges`, and the
+  bootstrap rules (timers.md §7.1); fixtures. **The bump:**
+  `shared/api-level.json` to `api_level: 2`, `min_client_level: {ios: 2, web: 2}`;
+  the two level-0 builds leave `compat/supported-clients.json` (timers.md
+  §13.3).
 - **Areas:** `backend/app/services/changes.py`, `api/routes.py`,
-  `schemas/api.py`, `shared/fixtures/api/`.
-- **Depends on:** T-API.
-- **Acceptance:** spec tests T7 and T8; the existing `listChanges.*.json`
-  fixtures are byte-identical after `make vectors`.
-- **Tests:** T7, T8; a v2 bootstrap with open, finishing and closed runs.
+  `schemas/api.py`, `shared/fixtures/api/`, `shared/api-level.json`,
+  `compat/supported-clients.json`.
+- **Depends on:** T-API, CV-COMPAT, CV-IOS-DATA (the tree's iOS client must
+  already skip unknown kinds, so `make check-ios` stays green until I-SYNC).
+- **Acceptance:** spec T7, T8 and T14; the compat gate passes with no new
+  approval lines and no fallbacks.
+- **Tests:** T7, T8; a bootstrap with open, finishing and closed runs.
 
 #### T-STATS · `getTopicTiming` · be · S
 
@@ -145,15 +253,11 @@ Every WP:
 
 - **Scope:** the `timed` descriptor, the `start` action and its category hash,
   the Web Push action, and the scheduler skip (§10.1). New cases in
-  `notification-vectors.json` and `apns-payload-vectors.json`. The fallbacks in
-  `compat/supported-clients.json` (§13.3), confirmed by a CI run of
-  `old clients`.
+  `notification-vectors.json` and `apns-payload-vectors.json`.
 - **Areas:** `backend/app/services/quicklog.py`, `services/notification.py`,
-  `services/scheduler.py`, `services/push/`, `shared/fixtures/`,
-  `compat/supported-clients.json`.
+  `services/scheduler.py`, `services/push/`, `shared/fixtures/`.
 - **Depends on:** T-DB; T-API for the open-run check.
-- **Acceptance:** spec T12; the vectors include timed cases; the compat gate
-  passes on the PR with the declared fallbacks.
+- **Acceptance:** spec T12; the vectors include timed cases.
 - **Tests:** scheduler skip, descriptor, payload size, vector drift.
 
 #### T-LAPUSH · Live Activity pushes · be · M
@@ -170,18 +274,6 @@ Every WP:
   never called inside the writer transaction.
 - **Tests:** T15 with the existing MockTransport sender; vector drift.
 
-#### T-COMPAT · per-client suite filter · be · S
-
-- **Scope:** `compat/client_fixtures.py suites` runs a suite only when the
-  client's sources define it (§13.3); `LiveActivityVectorTests` added to
-  `suites`; `compatibility.md` §3 updated in one paragraph.
-- **Areas:** `compat/`, `docs/ios/specs/compatibility.md`.
-- **Depends on:** nothing. It must merge before I-LA adds the suite.
-- **Acceptance:** with a listed client that lacks a listed suite, the harness
-  prints that it skips it and passes; a listed suite that the client has still
-  runs.
-- **Tests:** a pytest for the filter over a fake client tree.
-
 #### T-MCP · MCP tools · be · S
 
 - **Scope:** the tools of §11.6, and `timer` on `publish_topic_version` and
@@ -192,7 +284,7 @@ Every WP:
   reads `seg` from the current state.
 - **Tests:** one test per tool.
 
-### PWA
+### Milestone T: PWA
 
 #### F-CORE · fold port, format, outbox kind, data hooks · fe · M
 
@@ -252,7 +344,7 @@ Every WP:
   action entry id vector for the slot.
 - **Tests:** vitest in the style of `pushActions.test.ts`.
 
-### iOS
+### Milestone T: iOS
 
 #### I-CORE · fold, format and stats ports · host · M
 
@@ -266,16 +358,16 @@ Every WP:
   passes for the operations the client will call.
 - **Tests:** vector suites; decoding tests.
 
-#### I-SYNC · store and feed v2 · host · M
+#### I-SYNC · store and feed · host · M
 
-- **Scope:** the `run` and `run_alias` tables, the `runs_backfill` migration
-  flag and backfill (§7.2), the coordinator's switch to `listChangesV2` with
-  tolerant decoding, run tombstones and their dependent-item rule.
+- **Scope:** the `run` and `run_alias` tables; applying `run` items and
+  deletions (timers.md §7.2), including staged pages; run tombstones and their
+  dependent-item rule.
 - **Areas:** `QuickrData/Store/`, `QuickrData/Sync/`,
   `QuickrCore/Models/ChangeFeed.swift`, `QuickrData/Contracts/ChangesDTO.swift`.
 - **Depends on:** I-CORE, T-FEED.
-- **Acceptance:** spec R2 and R3; every existing sync test passes unchanged.
-- **Tests:** R2, R3; an epoch rebuild with an open run in the staged pages.
+- **Acceptance:** spec R2; every existing sync test passes unchanged.
+- **Tests:** R2; an epoch rebuild with an open run in the staged pages.
 
 #### I-OUTBOX · the `run.event` kind and the local view · host · M
 
@@ -326,7 +418,7 @@ Every WP:
 - **Areas:** `ios/Widgets/` (the activity views), `ios/App/LiveActivity/` (new),
   `QuickrData/Intents/`, `ios/App/Settings/`, `ios/project.yml`
   (`NSSupportsLiveActivities`, `NSSupportsLiveActivitiesFrequentUpdates`).
-- **Depends on:** I-RUNUI, T-LAPUSH, T-COMPAT.
+- **Depends on:** I-RUNUI, T-LAPUSH.
 - **Acceptance:** spec R9; the vector suite passes; views render in previews for
   running, paused, last step, no steps, finishing and ended.
 - **Tests:** R9; vector suite; snapshot or preview tests per state.
@@ -363,13 +455,17 @@ Every WP:
 - **Acceptance:** R6–R8 pass locally; the run is recorded in the PR.
 - **Tests:** as listed.
 
-### Validation and close
+### Milestone T: validation and close
 
 #### T-DEV · device validation · device · S
 
-- **Scope:** the six checks of spec §13.6 on a device with a TestFlight or
+- **Scope:** the six checks of spec §13.6, plus the forced update itself: the
+  CV build shows "Update required" against the T server, its queued taps
+  survive, and the T build sends them on a device with a TestFlight or
   development build, with a recording of each in `docs/ios/demo/timers/`.
-- **Depends on:** I-LA, I-INTENTS, I-NOTIF, T-LAPUSH, F-RUN.
+- **Depends on:** I-LA, I-INTENTS, I-NOTIF, T-LAPUSH, F-RUN, and CV-FLOOR (so
+  the update prompt is checked too: the device starts on the CV build and must
+  be told to update when the T build's server is deployed).
 - **Acceptance:** each check passes or has an issue filed with what was seen.
 - **Tests:** none (manual).
 
@@ -385,6 +481,17 @@ Every WP:
 
 ```mermaid
 flowchart LR
+  CVS[CV-SERVER] --> CVC[CV-COMPAT]
+  CVS --> CVID[CV-IOS-DATA]
+  CVID --> CVIU[CV-IOS-UI]
+  CVS --> CVP[CV-PWA]
+  CVC --> CVF[CV-FLOOR]
+  CVID --> CVF
+  CVIU --> CVF
+  CVP --> CVF
+  CVC --> TFEED
+  CVID --> TFEED
+  CVF --> TDEV
   TDB[T-DB] --> TAPI[T-API]
   TFOLD[T-FOLD] --> TAPI
   TAPI --> TFEED[T-FEED]
@@ -395,7 +502,6 @@ flowchart LR
   TAPI --> TLAPUSH[T-LAPUSH]
   TAPI --> TMCP[T-MCP]
   TSTATS --> TMCP
-  TCOMPAT[T-COMPAT]
 
   TFOLD --> FCORE[F-CORE]
   TAPI --> FCORE
@@ -418,7 +524,6 @@ flowchart LR
   TSTATS --> IEDIT
   IRUN --> ILA[I-LA]
   TLAPUSH --> ILA
-  TCOMPAT --> ILA
   IOUT --> IINT[I-INTENTS]
   ILA --> IINT
   TPUSH --> INOTIF[I-NOTIF]
@@ -437,46 +542,55 @@ flowchart LR
   TDEV --> TREV[T-REVIEW]
 ```
 
-| WP           | Depends on (hard)                         | Class     | Effort |
-| ------------ | ----------------------------------------- | --------- | ------ |
-| T-DB         | —                                         | be        | M      |
-| T-FOLD       | —                                         | be        | M      |
-| T-COMPAT     | —                                         | be        | S      |
-| T-API        | T-DB, T-FOLD                              | be        | L      |
-| T-FEED       | T-API                                     | be        | M      |
-| T-STATS      | T-API, T-FOLD                             | be        | S      |
-| T-PUSH       | T-DB, T-API                               | be        | M      |
-| T-LAPUSH     | T-API                                     | be        | M      |
-| T-MCP        | T-API, T-STATS                            | be        | S      |
-| F-CORE       | T-FOLD, T-API                             | fe        | M      |
-| F-RUN        | F-CORE                                    | fe        | M      |
-| F-BUILDER    | T-DB                                      | fe        | S      |
-| F-EDIT-STATS | F-CORE, T-STATS                           | fe        | M      |
-| F-PUSH       | T-PUSH, F-CORE                            | fe        | S      |
-| I-CORE       | T-FOLD, T-API                             | host      | M      |
-| I-SYNC       | I-CORE, T-FEED                            | host      | M      |
-| I-OUTBOX     | I-SYNC                                    | host      | M      |
-| I-RUNUI      | I-OUTBOX                                  | sim       | L      |
-| I-BUILDER    | T-DB, F-BUILDER                           | sim       | S      |
-| I-EDIT-STATS | I-OUTBOX, T-STATS                         | sim       | M      |
-| I-LA         | I-RUNUI, T-LAPUSH, T-COMPAT               | sim       | L      |
-| I-INTENTS    | I-OUTBOX, I-LA                            | sim       | M      |
-| I-NOTIF      | T-PUSH, I-OUTBOX (I-LA soft)              | sim       | M      |
-| I-INT        | I-OUTBOX, T-FEED, T-PUSH, F-PUSH          | host + be | M      |
-| T-DEV        | I-LA, I-INTENTS, I-NOTIF, T-LAPUSH, F-RUN | device    | S      |
-| T-REVIEW     | all                                       | docs      | S      |
+| WP           | Depends on (hard)                                   | Class     | Effort |
+| ------------ | --------------------------------------------------- | --------- | ------ |
+| CV-SERVER    | —                                                   | be        | M      |
+| CV-COMPAT    | CV-SERVER                                           | be        | S      |
+| CV-IOS-DATA  | CV-SERVER                                           | host      | M      |
+| CV-IOS-UI    | CV-IOS-DATA                                         | sim       | S      |
+| CV-PWA       | CV-SERVER                                           | fe        | S      |
+| CV-FLOOR     | all CV WPs, the CV release, the build installed     | release   | S      |
+| T-DB         | —                                                   | be        | M      |
+| T-FOLD       | —                                                   | be        | M      |
+| T-API        | T-DB, T-FOLD                                        | be        | L      |
+| T-FEED       | T-API, CV-COMPAT, CV-IOS-DATA                       | be        | M      |
+| T-STATS      | T-API, T-FOLD                                       | be        | S      |
+| T-PUSH       | T-DB, T-API                                         | be        | M      |
+| T-LAPUSH     | T-API                                               | be        | M      |
+| T-MCP        | T-API, T-STATS                                      | be        | S      |
+| F-CORE       | T-FOLD, T-API                                       | fe        | M      |
+| F-RUN        | F-CORE                                              | fe        | M      |
+| F-BUILDER    | T-DB                                                | fe        | S      |
+| F-EDIT-STATS | F-CORE, T-STATS                                     | fe        | M      |
+| F-PUSH       | T-PUSH, F-CORE                                      | fe        | S      |
+| I-CORE       | T-FOLD, T-API                                       | host      | M      |
+| I-SYNC       | I-CORE, T-FEED                                      | host      | M      |
+| I-OUTBOX     | I-SYNC                                              | host      | M      |
+| I-RUNUI      | I-OUTBOX                                            | sim       | L      |
+| I-BUILDER    | T-DB, F-BUILDER                                     | sim       | S      |
+| I-EDIT-STATS | I-OUTBOX, T-STATS                                   | sim       | M      |
+| I-LA         | I-RUNUI, T-LAPUSH                                   | sim       | L      |
+| I-INTENTS    | I-OUTBOX, I-LA                                      | sim       | M      |
+| I-NOTIF      | T-PUSH, I-OUTBOX (I-LA soft)                        | sim       | M      |
+| I-INT        | I-OUTBOX, T-FEED, T-PUSH, F-PUSH                    | host + be | M      |
+| T-DEV        | I-LA, I-INTENTS, I-NOTIF, T-LAPUSH, F-RUN, CV-FLOOR | device    | S      |
+| T-REVIEW     | all                                                 | docs      | S      |
 
-**Critical path:** T-FOLD ∥ T-DB → T-API → T-FEED → I-SYNC → I-OUTBOX → I-RUNUI
-→ I-LA → I-INTENTS → T-DEV → T-REVIEW. Backend and PWA work runs beside it. The
-sim WPs (I-RUNUI, I-BUILDER, I-EDIT-STATS, I-LA, I-INTENTS, I-NOTIF) share the
-two simulator slots.
+**Critical path:** CV-SERVER → CV-IOS-DATA → (T-FEED, with T-DB ∥ T-FOLD →
+T-API beside it) → I-SYNC → I-OUTBOX → I-RUNUI → I-LA → I-INTENTS → T-DEV →
+T-REVIEW. CV-FLOOR sits off the path but gates T-DEV and the T release: it needs
+the CV release installed on the phone, which is the user's step. Backend and
+PWA work runs beside the path. The sim WPs (CV-IOS-UI, I-RUNUI, I-BUILDER,
+I-EDIT-STATS, I-LA, I-INTENTS, I-NOTIF) share the two simulator slots.
 
-**First wave** (no dependencies): T-DB, T-FOLD, T-COMPAT.
+**First wave** (no dependencies): CV-SERVER, T-DB, T-FOLD. The T WPs merge on
+`feat/timers`, which is never released before CV-FLOOR.
 
 ## Before starting
 
 - The two OPEN questions in the spec need the user's answer, or an explicit "go
   with the recommendation". Only T-FOLD (OPEN 1) and T-STATS (OPEN 2) depend on
   them.
-- The spec gets a Codex review before T-API starts; its findings go into the
-  spec, not into WPs.
+- Both specs get a Codex review before CV-SERVER and T-API start; findings go
+  into the specs, not into WPs.
+- The user installs the CV TestFlight build before CV-FLOOR merges.

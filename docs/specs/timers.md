@@ -1,12 +1,15 @@
 # Spec: timed topics (runs, steps, laps and Live Activities)
 
-**Status:** draft, revision 1, 2026-10-23. **Applies to:** the backend, the PWA,
+**Status:** draft, revision 2, 2026-10-23 (compatibility relaxed: old builds
+are forced to update by [client-versions.md](client-versions.md)). **Applies to:** the backend, the PWA,
 the iOS app (app, widgets, Live Activity, intents, notifications) and the MCP
 server. **Companion specs:** [sync-protocol.md](../ios/specs/sync-protocol.md),
 [outbox.md](../ios/specs/outbox.md),
 [notifications.md](../ios/specs/notifications.md) and
 [compatibility.md](../ios/specs/compatibility.md). This spec extends them; where
-it doesn't say otherwise, their rules hold unchanged. **Plan:**
+it doesn't say otherwise, their rules hold unchanged. **Prerequisite:**
+[client-versions.md](client-versions.md), the forced-update mechanism. This
+spec's feed change is a breaking change shipped under it (§12). **Plan:**
 [timers-plan.md](timers-plan.md).
 
 ## Purpose
@@ -56,7 +59,7 @@ recommendation; the spec assumes the recommendation until it is answered.
 | **Active time**   | Wall time minus paused time. Every duration in stats is active time unless it says otherwise.                                                                                  |
 | **Alias**         | A run id that was merged into another open run of the same topic (§4.5). Events sent to an alias apply to its target.                                                          |
 | **Timing**        | The `timing` object on a timed entry (§2.3): start, end, segments, skipped steps and pauses.                                                                                   |
-| **Untimed entry** | An entry of a timed topic with `timing = null`. Old clients and `createEntry` make these (§11).                                                                                |
+| **Untimed entry** | An entry of a timed topic with `timing = null`. `createEntry` (and MCP `record_entry`) make these.                                                                             |
 
 ## 1. The model, and why
 
@@ -69,13 +72,13 @@ projection. The run row stays on the server as the record of its events.
 
 The alternative was an entry with a nullable `ended_at`. It was rejected:
 
-| Concern                 | Separate run (chosen)                                                                                                             | Entry with nullable `ended_at`                                                                                                 |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Old iOS clients         | Never see open runs: they are not entries, and the v1 feed doesn't carry them (§7). Finished runs reach them as ordinary entries. | Every old client would show half-finished entries, count them for due state and stats, and could edit or delete them mid-run.  |
-| Due state and reminders | An entry exists only once the run is finished, so due state and the scheduler keep their meaning.                                 | `captured_at` would be the start, and an open run would satisfy a reminder before the work is done.                            |
-| Stats, CSV, entry lists | Unchanged: they read entries.                                                                                                     | Every query needs an "only finished" filter, and every client must learn it.                                                   |
-| Offline merging         | Events are idempotent and folded deterministically (§4), so taps from two devices merge.                                          | Concurrent PATCHes of one entry are last-writer-wins (outbox.md §7.4). A Next on one device would overwrite a Next on another. |
-| Required answers        | A run can wait in `finishing` until the answers come (§3.6).                                                                      | An entry missing required answers would be an invalid entry.                                                                   |
+| Concern                 | Separate run (chosen)                                                                             | Entry with nullable `ended_at`                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Every reader of entries | Open runs aren't entries, so entry lists, CSV, stats and due state never see half-finished work.  | Every reader (PWA, iOS, MCP, CSV) must learn to hide or special-case an entry without an end.                                  |
+| Due state and reminders | An entry exists only once the run is finished, so due state and the scheduler keep their meaning. | `captured_at` would be the start, and an open run would satisfy a reminder before the work is done.                            |
+| Stats, CSV, entry lists | Unchanged: they read entries.                                                                     | Every query needs an "only finished" filter, and every client must learn it.                                                   |
+| Offline merging         | Events are idempotent and folded deterministically (§4), so taps from two devices merge.          | Concurrent PATCHes of one entry are last-writer-wins (outbox.md §7.4). A Next on one device would overwrite a Next on another. |
+| Required answers        | A run can wait in `finishing` until the answers come (§3.6).                                      | An entry missing required answers would be an invalid entry.                                                                   |
 
 **One id space.** A run id is reserved in the entry id space, and an entry id in
 the run id space. `createEntry` with the id of a run answers 409 `id_conflict`,
@@ -84,13 +87,13 @@ as for entries (sync-protocol.md F3).
 
 ### 1.2 What lives where
 
-| Data                                      | Stored in                                                        | Reaches old iOS clients?    |
-| ----------------------------------------- | ---------------------------------------------------------------- | --------------------------- |
-| Whether a topic is timed, and its steps   | `topic_versions.timer` (§2.1)                                    | Yes, as a field they ignore |
-| An open or finishing run, with its events | `runs`, `run_events`, `run_aliases` (§2.2)                       | No (§7.1)                   |
-| A finished run's times                    | `entries.timing` (§2.3), plus the run row                        | Yes, as a field they ignore |
-| A finished run's answers                  | `answers`, as for any entry                                      | Yes                         |
-| Live Activity push tokens                 | `apns_devices.live_activity_start_token`, `live_activity_tokens` | No                          |
+| Data                                      | Stored in                                                        | In the change feed as |
+| ----------------------------------------- | ---------------------------------------------------------------- | --------------------- |
+| Whether a topic is timed, and its steps   | `topic_versions.timer` (§2.1)                                    | `version` items       |
+| An open or finishing run, with its events | `runs`, `run_events`, `run_aliases` (§2.2)                       | `run` items (§7.1)    |
+| A finished run's times                    | `entries.timing` (§2.3), plus the run row                        | `entry` items         |
+| A finished run's answers                  | `answers`, as for any entry                                      | `entry` items         |
+| Live Activity push tokens                 | `apns_devices.live_activity_start_token`, `live_activity_tokens` | No                    |
 
 ## 2. Data model and migration **[server]**
 
@@ -118,7 +121,7 @@ Step  = { key: QuestionKey, label: Label }      // same key regex and label limi
   doesn't change the running run.
 - **Publish compatibility.** In `publishTopicVersion` (and `createTopic`),
   `timer` is optional. **Absent means "inherit the base version's timer"**, so
-  an old client that publishes questions can't switch timing off. Explicit
+  a caller that only edits questions (the MCP tool, a script) can't switch timing off. Explicit
   `null` turns timing off. New clients always send the field.
 - `TopicVersionOut` gains `timer: Timer | null`.
 - `checkTopicVersion` reports step changes in its compatibility report as
@@ -238,17 +241,17 @@ sync-protocol.md §1.5.
 
 ### 3.1 Endpoints
 
-| operationId                     | Method and path                                  | Purpose                                                                  |
-| ------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------ |
-| `recordRunEvent`                | `POST /api/v1/runs/{run_id}/events`              | Every tap: start, next, lap, skip, pause, resume, stop, finish, discard  |
-| `getRun`                        | `GET /api/v1/runs/{run_id}`                      | One run, in any status, with its events and effects. An alias resolves.  |
-| `listRuns`                      | `GET /api/v1/runs?status=open\|finishing&topic=` | Open and finishing runs (the PWA's source, and the iOS upgrade backfill) |
-| `listChangesV2`                 | `GET /api/v1/changes/v2?after=&limit=`           | The change feed including runs (§7.1)                                    |
-| `getTopicTiming`                | `GET /api/v1/topics/{ref}/timing?from=&to=`      | Timing stats (§9)                                                        |
-| `updateEntry` (extended)        | `PATCH /api/v1/entries/{id}`                     | Gains an optional `timing` field: edit a past run's times (§3.8)         |
-| `registerLiveActivity`          | `POST /api/v1/push/apns/live-activities`         | Register a Live Activity's update token (§10.3)                          |
-| `deleteLiveActivity`            | `POST /api/v1/push/apns/live-activities/delete`  | Unregister it                                                            |
-| `registerApnsDevice` (extended) | `POST /api/v1/push/apns/devices`                 | Gains an optional `live_activity_start_token` (push-to-start, §10.3)     |
+| operationId                     | Method and path                                  | Purpose                                                                 |
+| ------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------- |
+| `recordRunEvent`                | `POST /api/v1/runs/{run_id}/events`              | Every tap: start, next, lap, skip, pause, resume, stop, finish, discard |
+| `getRun`                        | `GET /api/v1/runs/{run_id}`                      | One run, in any status, with its events and effects. An alias resolves. |
+| `listRuns`                      | `GET /api/v1/runs?status=open\|finishing&topic=` | Open and finishing runs (the PWA's source of runs)                      |
+| `listChanges` (changed)         | `GET /api/v1/changes`                            | Gains the `run` item and deletion kinds (§7.1). **Breaking.**           |
+| `getTopicTiming`                | `GET /api/v1/topics/{ref}/timing?from=&to=`      | Timing stats (§9)                                                       |
+| `updateEntry` (extended)        | `PATCH /api/v1/entries/{id}`                     | Gains an optional `timing` field: edit a past run's times (§3.8)        |
+| `registerLiveActivity`          | `POST /api/v1/push/apns/live-activities`         | Register a Live Activity's update token (§10.3)                         |
+| `deleteLiveActivity`            | `POST /api/v1/push/apns/live-activities/delete`  | Unregister it                                                           |
+| `registerApnsDevice` (extended) | `POST /api/v1/push/apns/devices`                 | Gains an optional `live_activity_start_token` (push-to-start, §10.3)    |
 
 ### 3.2 `recordRunEvent`
 
@@ -388,8 +391,8 @@ TimingEdit = {
 - The edit sets `timing.edited = true` and `runs.edited = true`. From then on,
   late events for that run are void (`run_edited`, §4.4).
 - `timing` together with `captured_at` in one request answers 422.
-- **A `captured_at` change without `timing`** on a timed entry (what an old
-  client sends when its user edits the time) **shifts the whole run** by
+- **A `captured_at` change without `timing`** on a timed entry (what a caller that doesn't know timing sends, such as MCP
+  `update_entry`) **shifts the whole run** by
   `captured_at − ended_at`: every instant in `timing` moves by the same delta,
   so durations are kept. It also sets `edited`.
 - `timing: null` on a timed entry answers 422. Turning a timed entry into an
@@ -593,30 +596,28 @@ Settings warning for a skew over 5 minutes covers the bad case.
 
 ## 7. Sync
 
-### 7.1 The feed: v1 unchanged, v2 with runs **[server]**
+### 7.1 The feed **[server]**
 
-Old iOS builds fail a whole page on an unknown item or deletion kind
-(`FeedItemDTO` throws; sync-protocol.md §2.2). Runs therefore never appear in
-the existing feed:
+`listChanges` gains, with the same F1–F11 contract (sync-protocol.md §1.3):
 
-- **`listChanges` (v1)** skips change-log rows of kind `run`. Its schema is
-  unchanged. A page whose rows are all runs is empty, with `next` advanced past
-  them, which F8 already allows ("a page can hold fewer items than `limit`").
-- **`listChangesV2`** (`GET /api/v1/changes/v2`) has the same parameters, the
-  same seq space and the same F1–F11 contract, plus:
-  - an item kind `{ kind: "run", seq, run: RunOut }` for runs that are open or
-    finishing in the page's snapshot;
-  - a deletion kind `run` for runs that closed or were deleted;
-  - **a v2 client MUST skip item and deletion kinds it doesn't know**, instead
-    of failing the page. A future kind then needs no v3. A client that later
-    learns a kind backfills it once (as in §7.2), because its cursor has passed
-    those rows.
-- Bootstrap pages of v2 (`after = 0`) carry only open and finishing runs, never
-  closed ones. Closed runs reach clients as entries.
-- A separate operation, not a query flag on `listChanges`, keeps the compat
-  harness exact: it drops fixtures per `operationId`
-  (`compat/client_fixtures.py`), so `listChangesV2.*.json` fixtures never reach
-  an old build.
+- an item kind `{ kind: "run", seq, run: RunOut }` for runs that are open or
+  finishing in the page's snapshot;
+- a deletion kind `run` for runs that closed or were deleted.
+
+Bootstrap pages (`after = 0`) carry only open and finishing runs, never closed
+ones. Closed runs reach clients as entries.
+
+**This is a breaking change.** Builds before it fail a whole page on an unknown
+kind (`FeedItemDTO` throws; sync-protocol.md §2.2). It ships under
+[client-versions.md](client-versions.md): the same PR raises `api_level` and
+both minimums to 2, so an older build is refused before it can read a page, and
+its cursor never passes a run row. That is why no backfill is needed: a store
+first reaches a run row through a build that understands it.
+
+**From now on, a client MUST skip item and deletion kinds it doesn't know**
+instead of failing the page (the floor build of client-versions.md already
+does). A future kind then needs a backfill in the build that learns it, not a
+minimum bump, if it is optional to older builds.
 
 ### 7.2 iOS store **[ios]**
 
@@ -624,14 +625,7 @@ the existing feed:
   `run_alias(id, run_id)`. The upsert guards of sync-protocol.md §4.2 apply
   (fence, tombstone, revision). A `run` deletion inserts a tombstone of kind
   `run` and deletes the row.
-- **Upgrade backfill:** a store migrated from a build without runs has a cursor
-  that already passed run rows. The migration sets
-  `sync_state.runs_backfill = 1`. The coordinator, before its next live pull,
-  calls `listRuns(status=open)` and `listRuns(status=finishing)`, upserts the
-  results under the guards, and clears the flag in the same fenced transaction.
-  A fresh bootstrap clears it without the call.
-- The coordinator uses `listChangesV2` for live and staged pages. Epoch
-  rebuilds, fences and leases are unchanged.
+- Epoch rebuilds stage runs like other kinds. Fences and leases are unchanged.
 - Tombstone dependents (sync-protocol.md §4.3) for a run tombstone: **queued
   `run.event` items are kept and sent**. A closed run still accepts late merges
   (§4.4), and the server decides. A topic tombstone fails them as
@@ -858,8 +852,11 @@ a "Live Activities" switch, on by default.
 - The Live Activity payloads (`start`, `update`, `end`) are pinned in
   `shared/fixtures/live-activity-vectors.json`, decoded by a new Swift suite
   `LiveActivityVectorTests`.
-- The compat harness runs a suite only for clients whose sources contain it
-  (§13.3), so adding this suite doesn't break builds that predate it.
+- Content-state fields are only ever added as optional, so a supported build
+  (at or above the minimum, client-versions.md §7) keeps decoding them. A
+  change that can't be optional bumps the API level.
+- Live Activity pushes are never sent to devices below the iOS minimum
+  (client-versions.md §3.4).
 
 ## 11. Client surfaces
 
@@ -961,31 +958,34 @@ taps that did what the user wanted.
 same "absent inherits" rule. `record_entry` on a timed topic still makes an
 untimed entry.
 
-## 12. Compatibility (what old clients see)
+## 12. Compatibility
 
-Listed builds: `20261022.005113` (daa2160) and `20261021.194105` (8aaa7cf).
+The user relaxed compatibility: old builds may be forced to update, as long as
+they can't corrupt data first. [client-versions.md](client-versions.md) is the
+mechanism, and it ships before this milestone (timers-plan.md).
 
-| Old client sees                             | What happens                                                                                                                                                                                                                                                                                                                                                              |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The change feed                             | `listChanges` never carries run items or run deletions (§7.1). Pages decode as before.                                                                                                                                                                                                                                                                                    |
-| A timed topic                               | An ordinary topic. `timer` on its versions is an unknown field and ignored.                                                                                                                                                                                                                                                                                               |
-| Home and quick-log on a timed topic         | Its tile works as for any topic. A topic with no questions is a `single` tile ("Log it"), and logging makes an **untimed entry**, which the server accepts. Nothing touches a run.                                                                                                                                                                                        |
-| A finished run                              | An ordinary entry: answers, and `captured_at` = the end. `timing` is ignored.                                                                                                                                                                                                                                                                                             |
-| Editing a timed entry                       | Answers and notes edit as usual. A `captured_at` edit shifts the whole run (§3.8), so the durations survive.                                                                                                                                                                                                                                                              |
-| Deleting a timed entry                      | Works. Late events for that run become void (`entry_deleted`).                                                                                                                                                                                                                                                                                                            |
-| Publishing questions on a timed topic       | `timer` is absent from its request, so it is inherited (§2.1). Timing can't be switched off by accident.                                                                                                                                                                                                                                                                  |
-| A reminder for a timed topic                | The `timed` quick_log type is unknown. **8aaa7cf**: the payload doesn't decode (`unread`), and iOS shows the alert without actions. **daa2160**: an unknown type falls back to a plain reminder (`plain`); its category isn't registered on that build, so no actions. Tapping opens the record screen. Declared as fallbacks in `compat/supported-clients.json` (§13.3). |
-| Due state and the badge while a run is open | Old builds don't know about runs, so they may show the topic as due. The server doesn't send the reminder (§10.1).                                                                                                                                                                                                                                                        |
-| Stats                                       | `getTopicStats` is unchanged and counts timed and untimed entries alike.                                                                                                                                                                                                                                                                                                  |
-| Live Activity pushes                        | Only sent to tokens that a new build registered.                                                                                                                                                                                                                                                                                                                          |
-
-**OpenAPI.** Every change is additive: new operations; new optional request
-fields (`timer`, `timing`, `live_activity_start_token`); new nullable response
-fields (`TopicVersionOut.timer`, `EntryOut.timing`). `listChanges`' schema
-doesn't change. `compat/openapi-break-approvals.txt` must need **no new lines**;
-the backend WP asserts that.
-
-**The PWA** ships with the server, so it is always current.
+- **The break.** The `run` feed kind (§7.1) is the only breaking change. Its PR
+  (T-FEED) sets `shared/api-level.json` to `api_level: 2` and
+  `min_client_level: {ios: 2, web: 2}`. Everything else in this spec is
+  additive.
+- **What older builds see.** Every `/api/v1` request answers 426
+  `client_outdated` before any effect, so they can't write runs, entries or
+  versions. A build with the mechanism (level 1) shows "Update required" and
+  holds its queue. A build before it (level 0) shows sync errors and keeps its
+  failed items, which the next build resends (client-versions.md §4.2). Their
+  reminders are display-only.
+- **Corruption check.** No older build can reach a write path once the server
+  is deployed. Before the deploy, the server doesn't have runs. There is no
+  window in which an old build talks to a server with runs.
+- **The compat gate** checks only listed builds at or above the minimum
+  (client-versions.md §7). After this milestone that is the first timers build;
+  until it is listed, the gate checks none. The two current listed builds
+  (level 0) leave the list in the T-FEED PR. No `fallbacks` are needed.
+- **The PWA** ships with the server. A tab with an older bundle is forced to
+  reload (client-versions.md §5.2).
+- **Deploy order.** The milestone merges to `main` as one PR, and one `v*` tag
+  deploys the server and uploads the TestFlight build. Until that build is
+  installed, the phone shows "Update required" and keeps what it queued.
 
 ## 13. Tests
 
@@ -1002,7 +1002,7 @@ hand (`shared/fixtures/README.md` gains a row for each).
 | `notification-vectors.json` (new cases) | existing generator                                                        | existing                                                                  | Timed with and without steps; the `start` kind in the hash                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `apns-payload-vectors.json` (new cases) | existing generator                                                        | existing                                                                  | A timed reminder                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `live-activity-vectors.json`            | `backend/tests/test_live_activity_vectors.py` (`push/live_activity.py`)   | Swift `LiveActivityVectorTests`                                           | start, update (running, paused, last step, no steps), end (stopped, finishing, discarded); size ≤ 4 KB                                                                                                                                                                                                                                                                                                                                                     |
-| `api/*.json` (new)                      | `test_api_fixtures.py`                                                    | Swift decoding; G1                                                        | `recordRunEvent` (start, merged, next, void, stop with entry, finishing, finish), `getRun`, `listRuns`, `listChangesV2` (bootstrap with an open run, a run deletion with its entry), `getTopicTiming`, `updateEntry.timing`, `registerLiveActivity`, `deleteLiveActivity`                                                                                                                                                                                  |
+| `api/*.json` (new)                      | `test_api_fixtures.py`                                                    | Swift decoding; G1                                                        | `recordRunEvent` (start, merged, next, void, stop with entry, finishing, finish), `getRun`, `listRuns`, `listChanges` (bootstrap with an open run, a run deletion with its entry), `getTopicTiming`, `updateEntry.timing`, `registerLiveActivity`, `deleteLiveActivity`                                                                                                                                                                                    |
 | `requests/*.json` (new)                 | Swift golden generator                                                    | `test_request_goldens.py` (G2)                                            | `recordRunEvent.{start,next,lap,skip,pause,resume,stop,stop_answers,finish,discard}`, `updateEntry.timing`, `registerLiveActivity`, `registerApnsDevice.live_activity`                                                                                                                                                                                                                                                                                     |
 
 ### 13.2 Backend
@@ -1015,35 +1015,30 @@ hand (`shared/fixtures/README.md` gains a row for each).
 | T4  | Replaying any event returns the same result. Reusing an event id with another `at` answers 409 `event_conflict`.                                                                                |
 | T5  | Stop without answers: no required questions gives an entry; required questions give `finishing`; `finish` with bad answers answers 422 and stores nothing.                                      |
 | T6  | A late Next merged after Stop bumps the entry revision and logs an entry upsert, never a run upsert.                                                                                            |
-| T7  | `listChanges` (v1) over a log with run rows: no run items, no run deletions, and `next` advances past them. A page of only run rows is empty with `has_more` correct.                           |
-| T8  | `listChangesV2`: a stopped run's entry appears at a lower or equal seq than its run deletion (§2.4).                                                                                            |
+| T7  | `listChanges` bootstrap carries open and finishing runs and no closed ones; an incremental page carries run upserts and run deletions.                                                          |
+| T8  | `listChanges`: a stopped run's entry appears at a lower or equal seq than its run deletion (§2.4).                                                                                              |
 | T9  | Topic delete with an open run: run ids and aliases are in `deleted_ids`, and a later event answers 409 `run_deleted`.                                                                           |
 | T10 | Old-client PATCH of `captured_at` on a timed entry shifts every instant by the delta, keeps durations, and sets `edited`.                                                                       |
 | T11 | Publish without `timer` inherits it; with `null` turns it off; a run started on the old version still stops against it.                                                                         |
 | T12 | The scheduler sends no reminder for a topic with an open run, and sends one for a topic with only a finishing run.                                                                              |
 | T13 | `createEntry` with a run's id and `start` with an entry's id both answer 409 `id_conflict`.                                                                                                     |
-| T14 | `old requests` (compat) passes unchanged, and `openapi breaking` passes with no new approval lines.                                                                                             |
+| T14 | `openapi breaking` passes against the tag only because `shared/api-level.json` was bumped (client-versions.md §7); `old requests` checks no client below the minimum.                           |
 | T15 | Live Activity sender: one push per registered token per change; `end` drops the topic's tokens; 410 drops a token; the start's `device` is excluded from push-to-start when it started locally. |
 
 ### 13.3 Compatibility gate
 
-- Add fallbacks for the new timed cases: 8aaa7cf `apns-payload-vectors.json` →
-  `unread`, `notification-vectors.json` → `no-category`; daa2160
-  `apns-payload-vectors.json` → `plain`, `notification-vectors.json` →
-  `no-category`. The WP confirms each with the `old clients` job; a build that
-  behaves differently gets the fallback it actually has, recorded with the
-  reason.
-- `compat/client_fixtures.py suites` gains a per-client filter: a suite is run
-  only when the client's `ios/QuickrKit/Tests` defines it, so
-  `LiveActivityVectorTests` can be listed.
+- T-FEED bumps `shared/api-level.json` to 2 and removes the two level-0 builds
+  from `compat/supported-clients.json` (client-versions.md §7). The gate must
+  pass with no new lines in `openapi-break-approvals.txt` and no `fallbacks`.
+- No other WP may break the API. A WP that finds it must is stopped and
+  reported to the lead (scope guard, timers-plan.md).
 
 ### 13.4 iOS
 
 | #   | Case                                                                                                                                                        | Class   |
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
 | R1  | Fold, stats and format vectors                                                                                                                              | host    |
-| R2  | `listChangesV2` decode: run items, run deletions, and an unknown kind skipped without failing the page                                                      | host    |
-| R3  | Upgrade backfill: a store with a cursor and `runs_backfill = 1` calls `listRuns` once, under a fence, and clears the flag                                   | host    |
+| R2  | `listChanges` decode: run items, run deletions, and an unknown kind skipped without failing the page                                                        | host    |
 | R4  | Outbox `run.event`: ordering behind its start; `entry.update` after `stop`; K6 drops a never-sent start…discard; classification table (§8.1)                | host    |
 | R5  | Local view: queued start → open run at once; queued Next folds over server events; an alias response re-keys the local run                                  | host    |
 | R6  | (MP) The widget's Next and the app's Next for one segment, enqueued in the same instant: both queued, the server applies one                                | host MP |
@@ -1089,21 +1084,21 @@ kind's base classification.
 
 ## Traceability
 
-| User request or decision                                            | Where                    |
-| ------------------------------------------------------------------- | ------------------------ |
-| Start on one tap, capture the end on the second                     | §3.3, §3.5, §11.1 (Auto) |
-| Optional internal checkpoints; named steps, skip, ad-hoc laps       | §2.1, §4.2, OPEN 1       |
-| Versioned steps                                                     | §2.1                     |
-| Stop saves start, end, total and per-segment times; answers at Stop | §2.3, §3.5, §3.6         |
-| Stored server-side; any surface advances it; offline-tolerant       | §1, §4.1, §7, §8         |
-| One open run per topic                                              | §2.2 (index), §4.5       |
-| iOS and PWA UI                                                      | §11.2, §11.5             |
-| Live Activity with Next and Stop as App Intents                     | §10.3                    |
-| Action button, widget, Siri and Shortcuts                           | §11.3                    |
-| Pause and resume                                                    | §4.2                     |
-| Editing a past run's times                                          | §3.8                     |
-| Stats: total over time, per step, median and best                   | §9, OPEN 2               |
-| MCP tools                                                           | §11.6                    |
-| Reminders with a Start action                                       | §10.1, §10.2             |
-| Precision to the second or better; m:ss                             | §2.3, §5, §11.1          |
-| Old clients keep working                                            | §7.1, §12, §13.3         |
+| User request or decision                                            | Where                         |
+| ------------------------------------------------------------------- | ----------------------------- |
+| Start on one tap, capture the end on the second                     | §3.3, §3.5, §11.1 (Auto)      |
+| Optional internal checkpoints; named steps, skip, ad-hoc laps       | §2.1, §4.2, OPEN 1            |
+| Versioned steps                                                     | §2.1                          |
+| Stop saves start, end, total and per-segment times; answers at Stop | §2.3, §3.5, §3.6              |
+| Stored server-side; any surface advances it; offline-tolerant       | §1, §4.1, §7, §8              |
+| One open run per topic                                              | §2.2 (index), §4.5            |
+| iOS and PWA UI                                                      | §11.2, §11.5                  |
+| Live Activity with Next and Stop as App Intents                     | §10.3                         |
+| Action button, widget, Siri and Shortcuts                           | §11.3                         |
+| Pause and resume                                                    | §4.2                          |
+| Editing a past run's times                                          | §3.8                          |
+| Stats: total over time, per step, median and best                   | §9, OPEN 2                    |
+| MCP tools                                                           | §11.6                         |
+| Reminders with a Start action                                       | §10.1, §10.2                  |
+| Precision to the second or better; m:ss                             | §2.3, §5, §11.1               |
+| Old builds are forced to update and can't corrupt data              | §7.1, §12, client-versions.md |
