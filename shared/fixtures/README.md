@@ -330,6 +330,12 @@ the iOS builder (`QuickrCore/Builder`) can prove it agrees offline.
   `expected` is `check_compatibility`'s report. Python visits option sets in
   hash order, so `issues` are sorted by `(level, question_key, message)` and
   each change's `details` are sorted; compare them sorted.
+- `timers[]`: `{name, timer, expected: {errors}}`. `timer` is a version's timer
+  as a client sends it (`{steps: [{key, label}]}`; no steps is a plain
+  stopwatch). `errors` lists the sorted dotted locations, relative to the timer,
+  where `Timer` rejects it (`steps`, `steps.2.key`); `[]` means accepted. Step
+  keys follow the question key rule and are unique; labels follow the question
+  label limit and need not be unique; at most 30 steps (timers.md §2.1, §5).
 - `slugs[]`: `{input, expected}`: `slugify` (`services/topics.py`), which gives
   `topic` when nothing is left.
 - `casefold[]`: `[code point, [folded code points]]` for every code point whose

@@ -47,8 +47,7 @@ final class SessionTopicWriter: TopicWriter, VersionWriter {
         -> TopicWriteOutcome<Topic>
     {
         await perform {
-            await $0.publishVersion(
-                topicId: topicId, TopicRequests.publish(version, baseVersion: baseVersion, changeNote: changeNote))
+            await $0.publishVersion(topicId: topicId, version, baseVersion: baseVersion, changeNote: changeNote)
         }
     }
 

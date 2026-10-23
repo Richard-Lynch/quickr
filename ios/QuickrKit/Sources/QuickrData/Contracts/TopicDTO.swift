@@ -119,12 +119,13 @@ where Item.Domain: Hashable {
 public struct TopicVersionDTO: Codable, Sendable, Hashable, DomainConvertible {
     public var version: Int
     public var questions: [QuestionDTO]
+    @RequiredKey public var timer: TopicTimer?
     public var changeNote: String
     public var createdAt: Date
     public var entryCount: Int
 
     enum CodingKeys: String, CodingKey {
-        case version, questions
+        case version, questions, timer
         case changeNote = "change_note"
         case createdAt = "created_at"
         case entryCount = "entry_count"
@@ -132,8 +133,8 @@ public struct TopicVersionDTO: Codable, Sendable, Hashable, DomainConvertible {
 
     public func toDomain() throws -> TopicVersion {
         TopicVersion(
-            version: version, questions: try questions.toDomain(), changeNote: changeNote, createdAt: createdAt,
-            entryCount: entryCount)
+            version: version, questions: try questions.toDomain(), timer: timer, changeNote: changeNote,
+            createdAt: createdAt, entryCount: entryCount)
     }
 }
 

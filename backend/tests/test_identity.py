@@ -123,7 +123,7 @@ def _mutations(ids: dict[str, str]) -> list[tuple[str, str, dict[str, Any] | Non
         ("POST", "/topics/sleep-log/archive", None),
         ("POST", "/topics/old/unarchive", None),
         ("DELETE", "/topics/old", None),
-        ("POST", "/topics/sleep-log/versions", {"questions": qs, "base_version": 1}),
+        ("POST", "/topics/sleep-log/versions", {"questions": qs, "base_version": 1, "timer": None}),
         ("POST", "/topics/sleep-log/entries", {"answers": ANSWERS}),
         ("PATCH", f"/entries/{ids['entry']}", {"notes": "changed"}),
         ("DELETE", f"/entries/{ids['entry']}", None),

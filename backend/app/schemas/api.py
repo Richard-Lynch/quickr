@@ -56,7 +56,7 @@ from app.schemas.limits import (
     SLUG_PATTERN,
     TIME_PATTERN,
 )
-from app.schemas.questions import KEY_PATTERN, AnswerValue, Question, QuestionKey, QuestionList
+from app.schemas.questions import KEY_PATTERN, AnswerValue, Question, QuestionKey, QuestionList, Timer
 
 __all__ = ["FieldIssue", "Problem", "QuestionList"]
 
@@ -205,6 +205,9 @@ class TopicCreate(StrictModel):
     description: Description = ""
     questions: QuestionList
     schedule: Schedule | None = Field(default=None, description="When entries are expected (optional).")
+    timer: Timer | None = Field(
+        default=None, description="Makes the topic timed (optional; null: not timed)."
+    )
 
 
 class TopicUpdate(StrictModel):
@@ -279,6 +282,11 @@ class VersionDraft(StrictModel):
         description="Optional: the version this draft was based on. When given and stale, the dry run "
         "fails with 409 just as publishing would.",
     )
+    timer: Timer | None = Field(
+        default=None,
+        description="Optional: the draft's timer (null for untimed). When given, a timer change with no "
+        "question changes is a change, as publishing treats it; the report itself covers questions only.",
+    )
 
 
 class VersionCreate(VersionDraft):
@@ -288,11 +296,16 @@ class VersionCreate(VersionDraft):
         "(optimistic concurrency); otherwise 409.",
     )
     change_note: Annotated[str, Field(max_length=MAX_CHANGE_NOTE_LENGTH)] = ""
+    timer: Timer | None = Field(
+        description="The new version's timer, or null for an untimed topic. Required, so leaving it "
+        "out can't switch timing off: send the current version's timer to keep it."
+    )
 
 
 class TopicVersionOut(StrictModel):
     version: int
     questions: list[Question]
+    timer: Timer | None = Field(description="Null when this version is not timed.")
     change_note: str
     created_at: datetime
     entry_count: int
@@ -823,10 +836,13 @@ class FeedVersion(StrictModel):
 FeedItem = Annotated[FeedEntry | FeedTopic | FeedVersion, Field(discriminator="kind")]
 
 
+DeletionKind = Literal["entry", "topic", "version"]
+
+
 class FeedDeletion(StrictModel):
     """A permanently deleted id. A topic deletion also deletes all of its versions and entries."""
 
-    kind: Literal["entry", "topic", "version"]
+    kind: DeletionKind
     seq: int
     id: UUID
     topic_id: UUID

@@ -5922,6 +5922,33 @@
         ],
         "title": "SeriesPoint"
       },
+      "Step": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,62}$",
+            "title": "Key",
+            "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+            "examples": [
+              "hours_slept"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "Step",
+        "description": "A named checkpoint of a timed topic. Its key is its identity across versions, in a\nnamespace of its own (a step and a question may share a key)."
+      },
       "StrAnswer": {
         "properties": {
           "key": {
@@ -6146,6 +6173,25 @@
         ],
         "title": "StrStats"
       },
+      "Timer": {
+        "properties": {
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/Step"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Steps"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "steps"
+        ],
+        "title": "Timer",
+        "description": "A version's timing: its steps, timed in this order. No steps makes a plain stopwatch."
+      },
       "TopicCreate": {
         "properties": {
           "name": {
@@ -6232,6 +6278,17 @@
             ],
             "title": "Schedule",
             "description": "When entries are expected (optional)."
+          },
+          "timer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Makes the topic timed (optional; null: not timed)."
           }
         },
         "additionalProperties": false,
@@ -6805,6 +6862,17 @@
             "type": "array",
             "title": "Questions"
           },
+          "timer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when this version is not timed."
+          },
           "change_note": {
             "type": "string",
             "title": "Change Note"
@@ -6824,6 +6892,7 @@
         "required": [
           "version",
           "questions",
+          "timer",
           "change_note",
           "created_at",
           "entry_count"
@@ -6888,6 +6957,17 @@
             "title": "Base Version",
             "description": "The version this edit was based on. Must equal the topic's current version (optimistic concurrency); otherwise 409."
           },
+          "timer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The new version's timer, or null for an untimed topic. Required, so leaving it out can't switch timing off: send the current version's timer to keep it."
+          },
           "change_note": {
             "type": "string",
             "maxLength": 2000,
@@ -6899,7 +6979,8 @@
         "type": "object",
         "required": [
           "questions",
-          "base_version"
+          "base_version",
+          "timer"
         ],
         "title": "VersionCreate"
       },
@@ -6948,6 +7029,17 @@
             ],
             "title": "Base Version",
             "description": "Optional: the version this draft was based on. When given and stale, the dry run fails with 409 just as publishing would."
+          },
+          "timer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional: the draft's timer (null for untimed). When given, a timer change with no question changes is a change, as publishing treats it; the report itself covers questions only."
           }
         },
         "additionalProperties": false,

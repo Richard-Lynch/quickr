@@ -170,7 +170,8 @@ async def build(client: httpx.AsyncClient) -> dict[str, Any]:
             current = (await client.get("/topics/everything")).json()["current_version"]
             if current == 1:
                 r = await client.post(
-                    "/topics/everything/versions", json={"questions": EVERYTHING_V2, "base_version": 1}
+                    "/topics/everything/versions",
+                    json={"questions": EVERYTHING_V2, "base_version": 1, "timer": None},
                 )
                 assert r.status_code == 201, r.text
         await post("everything", n, at, source, answers, version)

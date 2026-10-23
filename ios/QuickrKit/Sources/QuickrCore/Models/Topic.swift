@@ -101,17 +101,44 @@ public struct TopicSummary: Sendable, Hashable, Identifiable {
 public struct TopicVersion: Sendable, Hashable {
     public var version: Int
     public var questions: [Question]
+    /// Nil when the version isn't timed. A topic is timed when its current version has one.
+    public var timer: TopicTimer?
     public var changeNote: String
     public var createdAt: Date
     /// Derived; recomputed locally (sync-protocol.md §3.3).
     public var entryCount: Int
 
-    public init(version: Int, questions: [Question], changeNote: String = "", createdAt: Date, entryCount: Int = 0) {
+    public init(
+        version: Int, questions: [Question], timer: TopicTimer? = nil, changeNote: String = "", createdAt: Date,
+        entryCount: Int = 0
+    ) {
         self.version = version
         self.questions = questions
+        self.timer = timer
         self.changeNote = changeNote
         self.createdAt = createdAt
         self.entryCount = entryCount
+    }
+}
+
+/// A version's timing (the server's `Timer`, timers.md §2.1): its named steps, timed in this
+/// order. No steps is a plain stopwatch. The wire shape, so it is `Codable` as is.
+public struct TopicTimer: Codable, Sendable, Hashable {
+    public var steps: [Step]
+
+    public init(steps: [Step]) {
+        self.steps = steps
+    }
+
+    /// A named checkpoint. Its key is its identity across versions (a step keeps it when renamed).
+    public struct Step: Codable, Sendable, Hashable {
+        public var key: String
+        public var label: String
+
+        public init(key: String, label: String) {
+            self.key = key
+            self.label = label
+        }
     }
 }
 

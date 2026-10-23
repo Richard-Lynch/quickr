@@ -79,17 +79,21 @@ public enum ServerLayer {
         {
             return .tombstoned
         }
+        // `timer_json` (store v2) is written only for a timed version; null is its default, so an
+        // untimed one is the same row a v1 file holds.
+        var values: [String: (any DatabaseValueConvertible)?] = [
+            "id": id.wireString, "topic_id": topicId.wireString, "version": version.version,
+            "questions_json": try StoreJSON.encode(version.questions.map(QuestionDTO.init)),
+            "change_note": version.changeNote, "created_at": version.createdAt.unixSeconds,
+        ]
+        if let timer = version.timer { values["timer_json"] = try StoreJSON.encode(timer) }
+        let columns = values.keys.sorted()
         try db.execute(
             sql: """
-                INSERT OR IGNORE INTO \(layer.table("topic_version"))
-                  (id, topic_id, version, questions_json, change_note, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO \(layer.table("topic_version")) (\(columns.joined(separator: ", ")))
+                VALUES (\(columns.map { _ in "?" }.joined(separator: ", ")))
                 """,
-            arguments: [
-                id.wireString, topicId.wireString, version.version,
-                try StoreJSON.encode(version.questions.map(QuestionDTO.init)), version.changeNote,
-                version.createdAt.unixSeconds,
-            ])
+            arguments: StatementArguments(columns.map { values[$0] ?? nil }))
         return db.changesCount > 0 ? .applied : .exists
     }
 
@@ -215,6 +219,7 @@ extension TopicVersion {
         self.init(
             version: row["version"],
             questions: try StoreJSON.decode([QuestionDTO].self, row["questions_json"]).toDomain(),
+            timer: try (row["timer_json"] as String?).map { try StoreJSON.decode(TopicTimer.self, $0) },
             changeNote: row["change_note"], createdAt: Date(unixSeconds: row["created_at"]))
     }
 }

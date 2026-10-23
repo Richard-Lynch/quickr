@@ -85,6 +85,20 @@ import Testing
                 """)
     }
 
+    /// The store's columns that "nothing lost" compares: v2's `timer_json` is new, and v2 sets
+    /// `sync_state.rebuilding` (checked on its own).
+    static func storeV1Columns(_ db: Database, tables: [String]) throws -> [String: [String]] {
+        try Dictionary(
+            uniqueKeysWithValues: tables.map { table in
+                (
+                    table,
+                    try Row.fetchAll(db, sql: "PRAGMA table_info(\(table))").map { $0["name"] as String }
+                        .filter { !table.hasSuffix("topic_version") || $0 != "timer_json" }
+                        .filter { table != "sync_state" || $0 != "rebuilding" }
+                )
+            })
+    }
+
     static func migrations(_ db: Database) throws -> [String] {
         try String.fetchAll(db, sql: "SELECT identifier FROM grdb_migrations ORDER BY identifier")
     }
@@ -188,7 +202,9 @@ import Testing
         // Before: read with today's views over the v1 files (the store schema is the same).
         let before = try DatabaseQueue(path: storeURL.path)
         let storeTables = try await before.read { db in try Self.tables(db) }
-        let storeRows = try await before.read { db in try Self.dump(db, tables: storeTables) }
+        let storeRows = try await before.read { db in
+            try Self.dump(db, tables: storeTables, columns: try Self.storeV1Columns(db, tables: storeTables))
+        }
         let storeViews = try await before.read { db in try Self.views(db) }
         let registryBefore = try DatabaseQueue(path: location.registryURL.path)
         let registryTables = try await registryBefore.read { db in try Self.tables(db) }
@@ -214,7 +230,26 @@ import Testing
             try await store.writer.read { db in try Self.migrations(db) } == StoreSchema.migrations.map(\.identifier))
 
         // Nothing lost: every v1 row, column for column.
-        #expect(try await store.writer.read { db in try Self.dump(db, tables: storeTables) } == storeRows)
+        let storeV1Columns = try await store.writer.read { db in try Self.storeV1Columns(db, tables: storeTables) }
+        #expect(
+            try await store.writer.read { db in try Self.dump(db, tables: storeTables, columns: storeV1Columns) }
+                == storeRows)
+        // The store's v2 column: no version was timed before timers.
+        let timed = try await store.writer.read { db in
+            try Int.fetchOne(
+                db,
+                sql: """
+                    SELECT (SELECT COUNT(*) FROM topic_version WHERE timer_json IS NOT NULL)
+                      + (SELECT COUNT(*) FROM stage_topic_version WHERE timer_json IS NOT NULL)
+                    """)
+        }
+        #expect(timed == 0)
+        // …and a rebuild of the epoch it has, so the server's timers arrive (store v2).
+        let state = try await store.state()
+        #expect(state.epoch != nil && state.rebuilding == state.epoch)
+        #expect(
+            try await store.writer.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM topic_version") } ?? 0
+                > 0)
         let v1Columns = try await registry.read { db in
             try Dictionary(
                 uniqueKeysWithValues: registryTables.map { table in
@@ -348,6 +383,62 @@ import Testing
         #expect(shown == stored)
         #expect(shown > Self.spec.entries - 100)
         await session.shutdown()
+    }
+
+    // MARK: - Store v2: timers
+
+    /// A timers server synced by a build before store v2: its timed version is stored without a
+    /// timer. The update's v2 migration starts a rebuild, the next sync re-pulls the server layer,
+    /// and a question edit then publishes the timer the server has, not null.
+    @Test func aStoreSyncedBeforeV2RebuildsAndPublishesTheTimer() async throws {
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        let synced = try await env.connect(env.coordinator())
+        let everything = SyncTimerTests.everything
+        // As the old build left it: v1 only, so no timer column.
+        try await synced.writer.write { db in
+            for prefix in ["", "stage_"] {
+                try db.execute(sql: "ALTER TABLE \(prefix)topic_version DROP COLUMN timer_json")
+            }
+            try db.execute(sql: "DELETE FROM grdb_migrations WHERE identifier = 'v2'")
+        }
+
+        // The updated app (a new process) opens it: v2 runs and asks for a rebuild of its epoch.
+        let partitions = try env.otherProcess()
+        let store = try #require(try await partitions.openActiveStore(role: .app)).store
+        let state = try await store.state()
+        #expect(state.rebuilding == state.epoch && state.epoch != nil)
+        #expect(try await store.versions.version(topicId: everything, number: 2)?.timer == nil)
+
+        let relaunched = env.coordinator(owner: "app:B", partitions: partitions)
+        #expect(await relaunched.sync(reason: .activation) == .synced)
+        let after = try await store.state()
+        #expect(after.rebuilding == nil && after.epoch == state.epoch && after.layerGen == state.layerGen + 1)
+        #expect(try await store.versions.version(topicId: everything, number: 2)?.timer == SyncTimerTests.fixtureTimer)
+
+        // A publish from this device keeps it.
+        let binding = AppSession.Binding(serverId: store.serverId, storeGen: store.storeGen, baseURL: SyncEnv.baseURL)
+        let scope = try #require(await TopicWrites.scope(binding: binding, store: store))
+        let recorder = SyncTimerTests.Recorder()
+        let writes = TopicWrites(
+            scope: scope, store: store, transport: recorder, credentials: StaticAccessCredentials(nil),
+            requestSync: { _ in })
+        let questions = try #require(try await store.versions.version(topicId: everything, number: 2)).questions
+        _ = await writes.publishVersion(
+            topicId: everything, TopicDraft.Version(questions: questions), baseVersion: 2, changeNote: "")
+        let body = try #require(recorder.requests.last?.body)
+        #expect(
+            try WireCoding.decoder().decode(SyncTimerTests.SentTimer.self, from: body).timer
+                == SyncTimerTests.fixtureTimer)
+    }
+
+    /// A store that never synced has nothing to re-pull: v2 leaves `rebuilding` alone.
+    @Test func v2DoesNotRebuildAStoreWithNoEpoch() throws {
+        let queue = try DatabaseQueue()
+        try SharedDatabase.migrate(queue, [("v1", Self.frozen.storeV1)])
+        try queue.write { db in try LocalStore.createSyncState(db, serverId: "s", baseURL: "https://q.example") }
+        try SharedDatabase.migrate(queue, StoreSchema.migrations)
+        #expect(try queue.read { db in try String.fetchOne(db, sql: "SELECT rebuilding FROM sync_state") } == nil)
     }
 }
 #endif

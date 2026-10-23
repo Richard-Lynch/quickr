@@ -219,7 +219,14 @@ async def list_versions(db: Db, ref: TopicRef) -> list[TopicVersionOut]:
 @router.post("/topics/{ref}/versions/check", tags=["versions"], operation_id="checkTopicVersion")
 async def check_version(db: Db, ref: TopicRef, body: VersionDraft) -> CompatibilityReport:
     """Dry-run: report what publishing these questions would change, and whether it is allowed."""
-    return await topic_svc.check_version(db, ref, body.questions, body.base_version)
+    return await topic_svc.check_version(
+        db,
+        ref,
+        body.questions,
+        body.base_version,
+        timer=body.timer,
+        with_timer="timer" in body.model_fields_set,
+    )
 
 
 @router.post(

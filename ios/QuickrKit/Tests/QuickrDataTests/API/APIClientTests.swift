@@ -26,7 +26,9 @@ import Testing
         "unarchiveTopic": { try await $0.unarchiveTopic(ref: "old-habit").erased },
         "listTopicVersions": { try await $0.listTopicVersions(ref: "everything").erased },
         "publishTopicVersion": {
-            try await $0.publishTopicVersion(ref: "everything", VersionCreateDTO(questions: [], baseVersion: 1)).erased
+            try await $0.publishTopicVersion(
+                ref: "everything", VersionCreateDTO(questions: [], baseVersion: 1, timer: nil)
+            ).erased
         },
         "checkTopicVersion": {
             try await $0.checkTopicVersion(ref: "everything", VersionDraftDTO(questions: [], baseVersion: 2)).erased

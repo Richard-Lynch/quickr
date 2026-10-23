@@ -1601,12 +1601,13 @@
   ],
   "meta": {
     "generator": "backend/tests/test_builder_vectors.py",
-    "generator_version": 2,
+    "generator_version": 3,
     "semantics": [
       "questions[].drafts: builder drafts, every constraint the text of its field; the request sends numbers parsed from that text and selection limits only when multiple.",
       "questions[].expected.errors: sorted dotted locations (relative to the question list) where QuestionSet rejects it; [] = accepted.",
       "compat[].expected: check_compatibility's report. issues are sorted by (level, question_key, message) and each change's details are sorted, because Python visits option sets in hash order.",
       "compat questions are full API shapes; whole double bounds below 1e16 are ints, as Swift's JSONEncoder sends them.",
+      "timers[].timer: a version's timer as a client sends it; expected.errors: sorted dotted locations (relative to the timer) where Timer rejects it; [] = accepted. Step keys are unique; step labels need not be.",
       "slugs[]: services/topics.py slugify ('topic' when nothing is left).",
       "casefold[]: [code point, [folded code points]] for every code point whose Python str.casefold() differs from itself (the server compares labels by casefold, code point by code point, with no normalisation). unicode_version is Python's."
     ],
@@ -1758,5 +1759,31 @@
     {"expected":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","input":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbb"},
     {"expected":"xii-chapter","input":"Ⅻ chapter"},
     {"expected":"angstrom","input":"Ångström"}
+  ],
+  "timers": [
+    {"expected":{"errors":[]},"name":"stopwatch","timer":{"steps":[]}},
+    {"expected":{"errors":[]},"name":"one-step","timer":{"steps":[{"key":"load","label":"Load"}]}},
+    {"expected":{"errors":[]},"name":"three-steps","timer":{"steps":[{"key":"load","label":"Load"},{"key":"run","label":"Run"},{"key":"unload","label":"Unload"}]}},
+    {"expected":{"errors":[]},"name":"max-steps","timer":{"steps":[{"key":"step_0","label":"Step 0"},{"key":"step_1","label":"Step 1"},{"key":"step_2","label":"Step 2"},{"key":"step_3","label":"Step 3"},{"key":"step_4","label":"Step 4"},{"key":"step_5","label":"Step 5"},{"key":"step_6","label":"Step 6"},{"key":"step_7","label":"Step 7"},{"key":"step_8","label":"Step 8"},{"key":"step_9","label":"Step 9"},{"key":"step_10","label":"Step 10"},{"key":"step_11","label":"Step 11"},{"key":"step_12","label":"Step 12"},{"key":"step_13","label":"Step 13"},{"key":"step_14","label":"Step 14"},{"key":"step_15","label":"Step 15"},{"key":"step_16","label":"Step 16"},{"key":"step_17","label":"Step 17"},{"key":"step_18","label":"Step 18"},{"key":"step_19","label":"Step 19"},{"key":"step_20","label":"Step 20"},{"key":"step_21","label":"Step 21"},{"key":"step_22","label":"Step 22"},{"key":"step_23","label":"Step 23"},{"key":"step_24","label":"Step 24"},{"key":"step_25","label":"Step 25"},{"key":"step_26","label":"Step 26"},{"key":"step_27","label":"Step 27"},{"key":"step_28","label":"Step 28"},{"key":"step_29","label":"Step 29"}]}},
+    {"expected":{"errors":["steps"]},"name":"too-many-steps","timer":{"steps":[{"key":"step_0","label":"Step 0"},{"key":"step_1","label":"Step 1"},{"key":"step_2","label":"Step 2"},{"key":"step_3","label":"Step 3"},{"key":"step_4","label":"Step 4"},{"key":"step_5","label":"Step 5"},{"key":"step_6","label":"Step 6"},{"key":"step_7","label":"Step 7"},{"key":"step_8","label":"Step 8"},{"key":"step_9","label":"Step 9"},{"key":"step_10","label":"Step 10"},{"key":"step_11","label":"Step 11"},{"key":"step_12","label":"Step 12"},{"key":"step_13","label":"Step 13"},{"key":"step_14","label":"Step 14"},{"key":"step_15","label":"Step 15"},{"key":"step_16","label":"Step 16"},{"key":"step_17","label":"Step 17"},{"key":"step_18","label":"Step 18"},{"key":"step_19","label":"Step 19"},{"key":"step_20","label":"Step 20"},{"key":"step_21","label":"Step 21"},{"key":"step_22","label":"Step 22"},{"key":"step_23","label":"Step 23"},{"key":"step_24","label":"Step 24"},{"key":"step_25","label":"Step 25"},{"key":"step_26","label":"Step 26"},{"key":"step_27","label":"Step 27"},{"key":"step_28","label":"Step 28"},{"key":"step_29","label":"Step 29"},{"key":"step_30","label":"Step 30"}]}},
+    {"expected":{"errors":["steps.2.key"]},"name":"duplicate-key","timer":{"steps":[{"key":"load","label":"Load"},{"key":"run","label":"Run"},{"key":"load","label":"Load again"}]}},
+    {"expected":{"errors":["steps.1.key"]},"name":"duplicate-keys-twice","timer":{"steps":[{"key":"a","label":"A"},{"key":"a","label":"A"},{"key":"a","label":"A"}]}},
+    {"expected":{"errors":[]},"name":"duplicate-label-allowed","timer":{"steps":[{"key":"first","label":"Rinse"},{"key":"second","label":"Rinse"}]}},
+    {"expected":{"errors":["steps.0.key"]},"name":"key-uppercase","timer":{"steps":[{"key":"Load","label":"Load"}]}},
+    {"expected":{"errors":["steps.0.key"]},"name":"key-leading-digit","timer":{"steps":[{"key":"1st","label":"First"}]}},
+    {"expected":{"errors":["steps.0.key"]},"name":"key-hyphen","timer":{"steps":[{"key":"load-up","label":"Load"}]}},
+    {"expected":{"errors":["steps.0.key"]},"name":"key-empty","timer":{"steps":[{"key":"","label":"Load"}]}},
+    {"expected":{"errors":[]},"name":"key-63","timer":{"steps":[{"key":"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk","label":"Long"}]}},
+    {"expected":{"errors":["steps.0.key"]},"name":"key-64","timer":{"steps":[{"key":"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk","label":"Long"}]}},
+    {"expected":{"errors":[]},"name":"key-padded","timer":{"steps":[{"key":" load ","label":"Load"}]}},
+    {"expected":{"errors":["steps.0.label"]},"name":"label-empty","timer":{"steps":[{"key":"load","label":""}]}},
+    {"expected":{"errors":["steps.0.label"]},"name":"label-whitespace","timer":{"steps":[{"key":"load","label":"   "}]}},
+    {"expected":{"errors":[]},"name":"label-padded","timer":{"steps":[{"key":"load","label":"  Load  "}]}},
+    {"expected":{"errors":[]},"name":"label-200","timer":{"steps":[{"key":"load","label":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}]}},
+    {"expected":{"errors":["steps.0.label"]},"name":"label-201","timer":{"steps":[{"key":"load","label":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}]}},
+    {"expected":{"errors":[]},"name":"label-200-emoji","timer":{"steps":[{"key":"load","label":"🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽"}]}},
+    {"expected":{"errors":["steps.0.label"]},"name":"label-201-emoji","timer":{"steps":[{"key":"load","label":"🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽🍽"}]}},
+    {"expected":{"errors":[]},"name":"label-200-padded","timer":{"steps":[{"key":"load","label":" xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx "}]}},
+    {"expected":{"errors":["steps.0.key","steps.0.label"]},"name":"two-errors","timer":{"steps":[{"key":"Bad","label":""},{"key":"ok","label":"Ok"}]}}
   ]
 }

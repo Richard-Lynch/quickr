@@ -29,11 +29,13 @@ extension TopicRequests {
         VersionDraftDTO(questions: version.questions, baseVersion: baseVersion)
     }
 
-    /// `VersionCreate` for "Publish": the reviewed questions, the same base, and the change note as
-    /// typed in the review (`.trim()`ed; empty is sent as is, like the PWA).
-    public static func publish(_ version: TopicDraft.Version, baseVersion: Int, changeNote: String) -> VersionCreateDTO
-    {
+    /// `VersionCreate` for "Publish": the reviewed questions, the same base, the base version's
+    /// timer (the builder doesn't edit it yet, so it is kept as it is), and the change note as typed
+    /// in the review (`.trim()`ed; empty is sent as is, like the PWA).
+    public static func publish(
+        _ version: TopicDraft.Version, baseVersion: Int, timer: TopicTimer?, changeNote: String
+    ) -> VersionCreateDTO {
         VersionCreateDTO(
-            questions: version.questions, baseVersion: baseVersion, changeNote: JSNumber.trim(changeNote))
+            questions: version.questions, baseVersion: baseVersion, timer: timer, changeNote: JSNumber.trim(changeNote))
     }
 }

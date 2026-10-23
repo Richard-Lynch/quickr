@@ -583,6 +583,17 @@ export const zQuestionSeries = z.object({
 });
 
 /**
+ * Step
+ *
+ * A named checkpoint of a timed topic. Its key is its identity across versions, in a
+ * namespace of its own (a step and a question may share a key).
+ */
+export const zStep = z.object({
+    key: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/),
+    label: z.string().min(1).max(200)
+});
+
+/**
  * StrAnswer
  */
 export const zStrAnswer = z.object({
@@ -663,6 +674,15 @@ export const zStrQuestionOutput = z.object({
 });
 
 /**
+ * Timer
+ *
+ * A version's timing: its steps, timed in this order. No steps makes a plain stopwatch.
+ */
+export const zTimer = z.object({
+    steps: z.array(zStep).max(30)
+});
+
+/**
  * TopicCreate
  */
 export const zTopicCreate = z.object({
@@ -678,7 +698,8 @@ export const zTopicCreate = z.object({
     schedule: z.discriminatedUnion('kind', [
         zDailyScheduleInput,
         zIntervalScheduleInput
-    ]).nullish()
+    ]).nullish(),
+    timer: zTimer.nullish()
 });
 
 /**
@@ -793,6 +814,7 @@ export const zTopicVersionOut = z.object({
         zStrQuestionOutput,
         zEnumQuestionOutput
     ])),
+    timer: zTimer.nullable(),
     change_note: z.string(),
     created_at: z.iso.datetime({ offset: true }),
     entry_count: z.int()
@@ -884,6 +906,7 @@ export const zVersionCreate = z.object({
         zEnumQuestionInput
     ])).min(0).max(100),
     base_version: z.int().gte(1),
+    timer: zTimer.nullable(),
     change_note: z.string().max(2000).optional().default('')
 });
 
@@ -897,7 +920,8 @@ export const zVersionDraft = z.object({
         zStrQuestionInput,
         zEnumQuestionInput
     ])).min(0).max(100),
-    base_version: z.int().gte(1).nullish()
+    base_version: z.int().gte(1).nullish(),
+    timer: zTimer.nullish()
 });
 
 /**

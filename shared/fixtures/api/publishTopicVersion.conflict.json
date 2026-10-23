@@ -85,7 +85,8 @@
           "required": false,
           "type": "str"
         }
-      ]
+      ],
+      "timer": null
     },
     "method": "POST",
     "path": "/api/v1/topics/everything/versions"

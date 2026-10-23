@@ -9,13 +9,22 @@ follows in a later page).
 
 from __future__ import annotations
 
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import func, select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ChangeLog, DeletedId, Entry, FeedKind
-from app.schemas.api import ChangesPage, FeedDeletion, FeedEntry, FeedItem, FeedTopic, FeedVersion
+from app.schemas.api import (
+    ChangesPage,
+    DeletionKind,
+    FeedDeletion,
+    FeedEntry,
+    FeedItem,
+    FeedTopic,
+    FeedVersion,
+)
 from app.services import entries as entry_svc
 from app.services import topics as topic_svc
 from app.services.feed import ensure_identity, read_identity
@@ -85,7 +94,12 @@ async def _page(db: AsyncSession, after: int, limit: int) -> ChangesPage:
     deleted = [
         # The log row's topic_id: a tombstone's is null only for ids that were never logged.
         FeedDeletion(
-            kind=k[0].value, seq=latest[k].seq, id=k[1], topic_id=latest[k].topic_id, deleted_at=d.deleted_at
+            # Nothing logs a run yet: run deletions join the feed with T-FEED (timers.md §7.1).
+            kind=cast("DeletionKind", k[0].value),
+            seq=latest[k].seq,
+            id=k[1],
+            topic_id=latest[k].topic_id,
+            deleted_at=d.deleted_at,
         )
         for k in vanished
         if (d := tombstones.get(k)) is not None

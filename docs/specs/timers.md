@@ -121,7 +121,8 @@ Step  = { key: QuestionKey, label: Label }      // same key regex and label limi
   and defaults to `null`.
 - `TopicVersionOut` gains `timer: Timer | null`. `checkTopicVersion` ignores
   `timer`: past runs keep their own steps, so a step change never blocks a
-  publish.
+  publish. It takes an optional `timer`, and with one a timer-only change is not
+  "no changes" (as in publish).
 
 ### 2.2 Runs
 

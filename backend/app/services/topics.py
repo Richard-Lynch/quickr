@@ -29,7 +29,7 @@ from app.schemas.api import (
     VersionCreate,
 )
 from app.schemas.base import issues_from
-from app.schemas.questions import Question, QuestionSet
+from app.schemas.questions import Question, QuestionSet, Timer
 from app.services.compat import check_compatibility
 from app.services.feed import log_change, tombstone, writer
 from app.services.schedule import compute_due, dump_schedule, parse_schedule
@@ -45,6 +45,14 @@ def parse_questions(raw: list[dict[str, Any]]) -> list[Question]:
 def dump_questions(questions: list[Question]) -> list[dict[str, Any]]:
     dumped: list[dict[str, Any]] = _questions_adapter.dump_python(questions, mode="json")
     return dumped
+
+
+def parse_timer(raw: dict[str, Any] | None) -> Timer | None:
+    return None if raw is None else Timer.model_validate(raw, context={"stored": True})
+
+
+def dump_timer(timer: Timer | None) -> dict[str, Any] | None:
+    return None if timer is None else timer.model_dump(mode="json")
 
 
 def slugify(name: str) -> str:
@@ -310,6 +318,7 @@ async def create_topic(db: AsyncSession, body: TopicCreate) -> TopicDetail:
         id=uuid4(),
         version=1,
         questions=dump_questions(questions),
+        timer=dump_timer(body.timer),
         change_note="Initial version",
     )
     topic.versions.append(first)
@@ -407,13 +416,34 @@ def _stale(topic: Topic, base_version: int) -> Conflict:
     )
 
 
-async def check_version(
-    db: AsyncSession, ref: str, questions: list[Question], base_version: int | None = None
+async def _report(
+    db: AsyncSession, topic: Topic, questions: list[Question], timer: dict[str, Any] | None, with_timer: bool
 ) -> CompatibilityReport:
+    """``check_compatibility`` compares questions only. With the draft's timer, a timer change
+    with no question changes is still a change, so the report's "no changes" error goes."""
+    report = check_compatibility(await _history(db, topic), questions)
+    if not with_timer or report.changes or timer == (await get_version(db, topic)).timer:
+        return report
+    # With no question changes, "no changes to publish" is the report's only issue without a
+    # question; an error on a question (a type change of a historic key, say) still blocks.
+    issues = [i for i in report.issues if i.question_key is not None]
+    return report.model_copy(update={"issues": issues, "ok": not any(i.level == "error" for i in issues)})
+
+
+async def check_version(
+    db: AsyncSession,
+    ref: str,
+    questions: list[Question],
+    base_version: int | None = None,
+    *,
+    timer: Timer | None = None,
+    with_timer: bool = False,
+) -> CompatibilityReport:
+    """``with_timer``: the draft has a timer (``timer``, None for untimed) to compare too."""
     topic = await resolve_topic(db, ref)
     if base_version is not None and base_version != topic.current_version:
         raise _stale(topic, base_version)
-    return check_compatibility(await _history(db, topic), _validated_set(questions))
+    return await _report(db, topic, _validated_set(questions), dump_timer(timer), with_timer)
 
 
 @writer
@@ -423,13 +453,13 @@ async def publish_version(db: AsyncSession, ref: str, body: VersionCreate) -> To
     if body.base_version != topic.current_version:
         raise _stale(topic, body.base_version)
     questions = _validated_set(body.questions)
-    report = check_compatibility(await _history(db, topic), questions)
-    if not report.ok:
+    timer = dump_timer(body.timer)
+    report = await _report(db, topic, questions, timer, with_timer=True)
+    errors = [i for i in report.issues if i.level == "error"]
+    if errors:
         raise IncompatibleVersion(
             "; ".join(
-                i.message if i.question_key is None else f"{i.question_key}: {i.message}"
-                for i in report.issues
-                if i.level == "error"
+                i.message if i.question_key is None else f"{i.question_key}: {i.message}" for i in errors
             )
         )
     next_version = TopicVersion(
@@ -437,6 +467,7 @@ async def publish_version(db: AsyncSession, ref: str, body: VersionCreate) -> To
         topic_id=topic.id,
         version=topic.current_version + 1,
         questions=dump_questions(questions),
+        timer=timer,
         change_note=body.change_note,
     )
     db.add(next_version)
@@ -466,6 +497,7 @@ async def _versions(db: AsyncSession, *where: Any) -> list[tuple[TopicVersion, T
             TopicVersionOut(
                 version=v.version,
                 questions=parse_questions(v.questions),
+                timer=parse_timer(v.timer),
                 change_note=v.change_note,
                 created_at=v.created_at,
                 entry_count=n or 0,

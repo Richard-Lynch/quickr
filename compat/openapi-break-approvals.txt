@@ -13,3 +13,7 @@
 # that tag adds its own lines here, each with the comment
 #   # timers milestone, no old builds supported (T-UNGATE)
 # above it. Remove them all once a v* tag includes the milestone (docs/ios/specs/compatibility.md §2).
+
+# T-DB: publishTopicVersion requires `timer` (docs/specs/timers.md §2.1).
+# timers milestone, no old builds supported (T-UNGATE)
+POST /api/v1/topics/{ref}/versions added the new required request property `timer`
