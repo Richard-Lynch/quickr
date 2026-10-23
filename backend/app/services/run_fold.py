@@ -11,7 +11,8 @@ are truncated to the millisecond by :func:`parse_instant`, never rounded, and ne
 through a float.
 
 - :func:`fold` replays a run's events (in server arrival order) into a :class:`RunState`:
-  terminal events by arrival, everything else by ``(at, id)`` (§4.1, §4.2).
+  terminal events by arrival, everything else by ``(at, id)``, except that a resume at the
+  same instant as the pause it names comes right after it (§4.1, §4.2).
 - :func:`project_timing` turns a stopped run's state into the entry's :class:`Timing`, and
   :func:`make_timing` builds one from segment boundaries and pauses (a fold, or an edit).
   :func:`check_timing` enforces T1 to T5.

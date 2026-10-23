@@ -440,8 +440,9 @@ uses two orders on purpose:
   void (`already_closed`), whatever its `at`. Closing creates or drops an entry,
   so it must never be undone by a replay.
 - **Time order** decides everything else. Non-terminal events are replayed by
-  `(at, id)`, ascending, with ids compared as lowercase strings. A tap made
-  offline at 08:05 that arrives at 08:20 lands at 08:05.
+  `(at, id)`, ascending, with ids compared as lowercase strings, except that a
+  resume with the same `at` as the pause it names is ordered right after that
+  pause. A tap made offline at 08:05 that arrives at 08:20 lands at 08:05.
 
 Arrival order on the server is `run_events.arrival`. A client folding its local
 view uses the server's events in their arrival order, then its own queued events
@@ -467,14 +468,14 @@ fold(steps, events_in_arrival_order):
   st = { open: Seg(label = pop(pending = steps), start = start.at, index = 0),
          paused_since: null, segments: [], skipped: [], pauses: [] }
   end = terminal ? terminal.at : +∞
-  for e in sort(accepted, by (at, id)):                   // pass 2: time
+  for e in sort(accepted, by (at, id)):                   // pass 2: time; a resume at its pause's `at` right after it
     if e.at < start.at:  void(e, before_start); continue
     if e.at > end:       void(e, after_stop);   continue  // also covers a terminal that arrived first
     if e.at > start.at + 7 days: void(e, too_long); continue   // §5
     case e.type:
       next, lap:
         if e.seg != st.open.index: void(e, stale); continue
-        close(st.open, e.at)                              // pushes it to segments, splits pauses
+        close(st.open, e.at)                              // pushes it to segments; paused_ms = overlap with pauses
         st.open = Seg(label = e.type == next ? pop(pending) : lap, start = e.at, index + 1)
       skip:
         if e.seg != st.open.index: void(e, stale); continue
