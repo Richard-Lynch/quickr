@@ -1,6 +1,6 @@
 # Plan: timed topics (milestone T)
 
-**Status:** draft, revision 4, 2026-10-23 (review of rev 3 applied). **Spec:** [timers.md](timers.md).
+**Status:** draft, revision 5, 2026-10-23 (server-time offset, timers.md §5.1). **Spec:** [timers.md](timers.md).
 **Branch:** `feat/timers`; each WP is on its own branch cut from it and merged
 back into it. The milestone merges to `main` as one PR and is released with one
 `v*` tag. The server, the PWA and the iOS app are updated together; there is
@@ -150,15 +150,16 @@ Every WP:
   §6): millisecond truncation, idempotency, start and merge, stop (including
   `before_start` and a second stop with answers), finish in both states, discard
   of a finishing run, late merges, the edited-run rule; entry creation and
-  `EntryOut.timing`; `id_conflict` in both directions (§3.9); topic delete and
-  archive; the change-log writes and their order (§2.4); API fixtures.
+  `EntryOut.timing`; `id_conflict` in both directions (§3.9); the `X-QuickR-Server-Time`
+  header on every `/api/v1` response (§5.1, beside the identity headers in
+  `backend/app/api/identity.py`); topic delete and archive; the change-log writes and their order (§2.4); API fixtures.
 - **Areas:** `backend/app/services/runs.py` (new), `services/entries.py`,
   `services/topics.py`, `services/feed.py`, `api/routes.py`, `schemas/api.py`,
-  `errors.py`, `shared/fixtures/api/`, `openapi.json`, `frontend/src/api`
+  `errors.py`, `api/identity.py`, `shared/fixtures/api/`, `openapi.json`, `frontend/src/api`
   (regenerated client only), the iOS endpoint table and `EntryDTO.timing`
   (minimal, per the rule above).
 - **Depends on:** T-DB, T-FOLD.
-- **Acceptance:** spec T1–T6, T9, T13, T15 and T16.
+- **Acceptance:** spec T1–T6, T9, T13, T15, T16 and T17.
 - **Tests:** as listed; T2 and T3 with two tasks against one database.
 
 ### T-FEED · runs in the change feed · be · M
@@ -235,20 +236,23 @@ Every WP:
 
 - **Scope:** `lib/runs/fold.ts` (integer-millisecond instants, no `Date`
   arithmetic), `lib/runs/format.ts`, the timing chart models, and the shared
-  `dueCount` in `lib/home.ts` with the open-run rule (§11.1).
+  `dueCount` in `lib/home.ts` with the open-run rule (§11.1); the pure
+  server-time offset and clamp helpers (§5.1).
 - **Areas:** `frontend/src/lib/runs/` (new), `frontend/src/lib/home.ts`, the
   `badge.ts` caller.
 - **Depends on:** T-FOLD.
 - **Acceptance:** fold, stats-model and format vectors pass; the badge and the
   home screen use the one `dueCount`.
-- **Tests:** vitest vector suites; `dueCount`.
+- **Tests:** vitest vector suites; `dueCount`; offset and clamp (as R12).
 
 ### F-OUTBOX · PWA `run.event` kind, local view, run data · fe · M
 
 - **Scope:** the `run.event` kind in the IndexedDB outbox with the one ordering
   rule "wait for this run's start", K6 and the classification (§8.1, §8.2); the
   local run view, including "never enqueue a second start" (§4.5, §8.3); the
-  open-runs hook with the polling rules (§7.3).
+  open-runs hook with the polling rules (§7.3); the API client records offset
+  samples from `X-QuickR-Server-Time`, and every enqueued event is stamped and
+  clamped (§5.1).
 - **Areas:** `frontend/src/lib/outbox/`, `frontend/src/lib/runs/`,
   `frontend/src/lib/hooks.ts`.
 - **Depends on:** F-CORE, T-RUNS.
@@ -289,12 +293,13 @@ Every WP:
 
 - **Scope:** QuickrCore `RunFold` (wire strings parsed to integer epoch
   milliseconds, never `Date`), `Timing`, `fmtDuration`, timing-stats models, and
-  `dueCount(view)` with the open-run rule; DTOs for the new operations.
+  `dueCount(view)` with the open-run rule; the pure server-time offset and
+  clamp helpers (§5.1); DTOs for the new operations.
 - **Areas:** `ios/QuickrKit/Sources/QuickrCore/Runs/` (new), `QuickrCore/Home/`,
   `QuickrData/Contracts/`.
 - **Depends on:** T-FOLD, T-RUNS.
-- **Acceptance:** R1; every new `api/*.json` fixture decodes; G1 coverage
-  passes.
+- **Acceptance:** R1 and the helper half of R12; every new `api/*.json`
+  fixture decodes; G1 coverage passes.
 - **Tests:** vector suites; decoding tests.
 
 ### I-SYNC · store and feed · host · M
@@ -313,12 +318,13 @@ Every WP:
 - **Scope:** the outbox kind with start-only ordering, K6 and classification
   (§8.1); the local run view with optimistic entries and "never enqueue a second
   start" (§4.5, §8.3); the write façade every surface uses (start, next, lap,
-  skip, pause, resume, stop, finish, discard, auto), stamping `device` on every
-  event; request goldens.
+  skip, pause, resume, stop, finish, discard, auto), stamping `device` and the
+  offset-corrected, clamped `at` on every event; the API client stores offset
+  samples in `sync_state.server_offset_ms` (§5.1); request goldens.
 - **Areas:** `QuickrData/Outbox/`, `QuickrData/Store/Overlay.swift`,
   `QuickrData/Session/`, `shared/fixtures/requests/`.
 - **Depends on:** I-SYNC.
-- **Acceptance:** R3–R5; the goldens validate in pytest (G2).
+- **Acceptance:** R3–R5 and R12; the goldens validate in pytest (G2).
 - **Tests:** R3–R5.
 
 ### I-RUNUI · tile, run screen, Stop flow · sim · L
