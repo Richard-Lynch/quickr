@@ -2117,6 +2117,337 @@
         }
       }
     },
+    "/api/v1/runs/{run_id}/events": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Record Run Event",
+        "description": "Record one tap on a run: start, next, lap, skip, pause, resume, stop, finish or discard.\n\nIdempotent by event id. An event the fold voids (a double tap, a lap after the stop) is\nstored and answered with 200 and ``effect: \"void\"``. ``run_id`` may be an alias: the\nevent applies to the run it was merged into, and ``run.id`` says which.",
+        "operationId": "recordRunEvent",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "X-QuickR-Channel",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Channel"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Client channel; defaults to 'api'.",
+              "title": "X-Quickr-Channel"
+            },
+            "description": "Client channel; defaults to 'api'."
+          },
+          {
+            "name": "X-QuickR-Expect-Server-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 server_mismatch unless this is the server's id.",
+              "title": "X-Quickr-Expect-Server-Id"
+            },
+            "description": "Optional: reject with 409 server_mismatch unless this is the server's id."
+          },
+          {
+            "name": "X-QuickR-Expect-Epoch",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.",
+              "title": "X-Quickr-Expect-Epoch"
+            },
+            "description": "Optional: reject with 409 epoch_mismatch unless this is the current feed epoch."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunEventIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunEventResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "201": {
+            "description": "The call created the run (or merged it).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunEventResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "List Runs",
+        "description": "Open and finishing runs, oldest start first. Closed runs are entries.",
+        "operationId": "listRuns",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "open",
+                  "finishing"
+                ],
+                "type": "string"
+              },
+              "description": "open (running or paused) and/or finishing; default both.",
+              "default": [
+                "open",
+                "finishing"
+              ],
+              "title": "Status"
+            },
+            "description": "open (running or paused) and/or finishing; default both."
+          },
+          {
+            "name": "topic",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this topic (UUID or slug).",
+              "title": "Topic"
+            },
+            "description": "Only this topic (UUID or slug)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RunOut"
+                  },
+                  "title": "Response Listruns"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Run",
+        "description": "One run in any status, with its events and their effects. An alias returns its run.",
+        "operationId": "getRun",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
     "/api/v1/changes": {
       "get": {
         "tags": [
@@ -4243,6 +4574,17 @@
             },
             "type": "array",
             "title": "Answers"
+          },
+          "timing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timing"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A finished run's times; null for an untimed entry."
           }
         },
         "additionalProperties": false,
@@ -4259,7 +4601,8 @@
           "updated_at",
           "notes",
           "meta",
-          "answers"
+          "answers",
+          "timing"
         ],
         "title": "EntryOut"
       },
@@ -5856,6 +6199,737 @@
         ],
         "title": "RecentText"
       },
+      "RunDevice": {
+        "properties": {
+          "apns_token": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64,200}$",
+            "title": "Apns Token",
+            "description": "The APNs device token, hex (stored lower-case)."
+          },
+          "live_activity": {
+            "type": "boolean",
+            "title": "Live Activity"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "apns_token",
+          "live_activity"
+        ],
+        "title": "RunDevice",
+        "description": "The iOS device that sent the event, for Live Activity pushes (timers.md \u00a710.3)."
+      },
+      "RunEventEffect": {
+        "properties": {
+          "effect": {
+            "type": "string",
+            "enum": [
+              "applied",
+              "void"
+            ],
+            "title": "Effect"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "merged",
+                  "already_closed",
+                  "run_edited",
+                  "entry_deleted",
+                  "before_start",
+                  "after_stop",
+                  "too_long",
+                  "stale",
+                  "no_step",
+                  "already_paused",
+                  "not_paused"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "effect",
+          "reason"
+        ],
+        "title": "RunEventEffect"
+      },
+      "RunEventIn": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "The event id, client-generated. For a start it must equal the run id."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "start",
+              "next",
+              "lap",
+              "skip",
+              "pause",
+              "resume",
+              "stop",
+              "finish",
+              "discard"
+            ],
+            "title": "Type"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At",
+            "description": "The tap, on the server's clock as the device estimates it (X-QuickR-Server-Time). Stored truncated to whole milliseconds. Not before 2000-01-01, at most 24h ahead; a start's at most 7 days old."
+          },
+          "seg": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seg",
+            "description": "next, lap and skip (required): the open segment the device saw."
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,62}$",
+                "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+                "examples": [
+                  "hours_slept"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step",
+            "description": "skip (required): the step the device saw as being skipped."
+          },
+          "pause_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pause Id",
+            "description": "resume (required): the pause event it ends."
+          },
+          "topic_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Id",
+            "description": "start (required): the timed topic."
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version",
+            "description": "start (required): the topic version the run is pinned to."
+          },
+          "answers": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "propertyNames": {
+                  "pattern": "^[a-z][a-z0-9_]{0,62}$"
+                },
+                "type": "object",
+                "description": "Map of question key -> value. int questions take integers, double questions numbers, str questions strings, enum questions an option value, multi-select enum questions a list of option values. null/absent/empty list = unanswered.",
+                "examples": [
+                  {
+                    "factors": [
+                      "caffeine",
+                      "screen"
+                    ],
+                    "hours_slept": 7.5,
+                    "quality": "good"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answers",
+            "description": "stop and finish only."
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes",
+            "description": "stop and finish only."
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "propertyNames": {
+                  "maxLength": 64,
+                  "minLength": 1
+                },
+                "type": "object",
+                "maxProperties": 50,
+                "description": "Arbitrary string key/value metadata."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1,
+                "description": "Free-form origin of the data, e.g. 'iphone', 'garmin-sync', 'claude'."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source",
+            "description": "Defaults to the channel name."
+          },
+          "device": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunDevice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "at"
+        ],
+        "title": "RunEventIn",
+        "description": "One tap on a run (``recordRunEvent``). Idempotent by ``id``."
+      },
+      "RunEventOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "start",
+              "next",
+              "lap",
+              "skip",
+              "pause",
+              "resume",
+              "stop",
+              "finish",
+              "discard"
+            ],
+            "title": "Type"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "seg": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seg"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "pause_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pause Id"
+          },
+          "arrival": {
+            "type": "integer",
+            "title": "Arrival",
+            "description": "Server arrival order."
+          },
+          "effect": {
+            "type": "string",
+            "enum": [
+              "applied",
+              "void"
+            ],
+            "title": "Effect"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "merged",
+                  "already_closed",
+                  "run_edited",
+                  "entry_deleted",
+                  "before_start",
+                  "after_stop",
+                  "too_long",
+                  "stale",
+                  "no_step",
+                  "already_paused",
+                  "not_paused"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "at",
+          "seg",
+          "step",
+          "pause_id",
+          "arrival",
+          "effect",
+          "reason",
+          "source"
+        ],
+        "title": "RunEventOut"
+      },
+      "RunEventResult": {
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/RunEventResultEvent"
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunOut",
+            "description": "The target run: not the path's id when that is an alias."
+          },
+          "entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntryOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run's entry, once it is stopped and the entry exists."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "event",
+          "run",
+          "entry"
+        ],
+        "title": "RunEventResult"
+      },
+      "RunEventResultEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "effect": {
+            "type": "string",
+            "enum": [
+              "applied",
+              "void"
+            ],
+            "title": "Effect"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "merged",
+                  "already_closed",
+                  "run_edited",
+                  "entry_deleted",
+                  "before_start",
+                  "after_stop",
+                  "too_long",
+                  "stale",
+                  "no_step",
+                  "already_paused",
+                  "not_paused"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "effect",
+          "reason"
+        ],
+        "title": "RunEventResultEvent"
+      },
+      "RunOpenSegment": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index",
+            "description": "The `seg` a next, lap or skip of this segment sends."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "step",
+              "lap"
+            ],
+            "title": "Kind"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "index",
+          "kind",
+          "step",
+          "label",
+          "started_at"
+        ],
+        "title": "RunOpenSegment"
+      },
+      "RunOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "topic_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Topic Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "paused",
+              "finishing",
+              "stopped",
+              "discarded"
+            ],
+            "title": "Status"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision",
+            "description": "Bumped by every event and status change."
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At",
+            "description": "The stop's at; null until the run stops."
+          },
+          "edited": {
+            "type": "boolean",
+            "title": "Edited",
+            "description": "The entry's times were edited; later events are void."
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/RunEventOut"
+            },
+            "type": "array",
+            "title": "Events",
+            "description": "In arrival order."
+          },
+          "state": {
+            "$ref": "#/components/schemas/RunState"
+          },
+          "aliases": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Aliases",
+            "description": "Run ids merged into this one."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "topic_id",
+          "version",
+          "status",
+          "revision",
+          "started_at",
+          "ended_at",
+          "edited",
+          "events",
+          "state",
+          "aliases"
+        ],
+        "title": "RunOut",
+        "description": "A run in any status, with every event and its current effect."
+      },
+      "RunState": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "paused",
+              "finishing",
+              "stopped",
+              "discarded"
+            ],
+            "title": "Status"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "open": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunOpenSegment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The segment being timed; null once the run closes."
+          },
+          "next_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Step",
+            "description": "The step Next starts; null when it would start a lap."
+          },
+          "paused_since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paused Since"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/TimingSegment"
+            },
+            "type": "array",
+            "title": "Segments",
+            "description": "Closed so far, in time order."
+          },
+          "skipped": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Skipped"
+          },
+          "pauses": {
+            "items": {
+              "$ref": "#/components/schemas/TimingPause"
+            },
+            "type": "array",
+            "title": "Pauses",
+            "description": "Ended pauses; an open one is paused_since."
+          },
+          "effects": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RunEventEffect"
+            },
+            "type": "object",
+            "title": "Effects",
+            "description": "Each event's effect, by lowercase event id."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "started_at",
+          "ended_at",
+          "open",
+          "next_step",
+          "paused_since",
+          "segments",
+          "skipped",
+          "pauses",
+          "effects"
+        ],
+        "title": "RunState",
+        "description": "The fold's output (timers.md \u00a74.3). For a stopped run, ``segments``, ``skipped`` and\n``pauses`` are exactly its entry's ``timing``."
+      },
       "SeriesPoint": {
         "properties": {
           "start": {
@@ -6191,6 +7265,159 @@
         ],
         "title": "Timer",
         "description": "A version's timing: its steps, timed in this order. No steps makes a plain stopwatch."
+      },
+      "Timing": {
+        "properties": {
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ended At"
+          },
+          "active_ms": {
+            "type": "integer",
+            "title": "Active Ms",
+            "description": "ended_at - started_at - paused_ms."
+          },
+          "paused_ms": {
+            "type": "integer",
+            "title": "Paused Ms"
+          },
+          "complete": {
+            "type": "boolean",
+            "title": "Complete",
+            "description": "No steps, or every step has a segment and none was skipped."
+          },
+          "edited": {
+            "type": "boolean",
+            "title": "Edited",
+            "description": "The times were edited after the run stopped."
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/TimingSegment"
+            },
+            "type": "array",
+            "title": "Segments",
+            "description": "In time order."
+          },
+          "skipped": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Skipped",
+            "description": "Skipped step keys, in step order."
+          },
+          "pauses": {
+            "items": {
+              "$ref": "#/components/schemas/TimingPause"
+            },
+            "type": "array",
+            "title": "Pauses"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "started_at",
+          "ended_at",
+          "active_ms",
+          "paused_ms",
+          "complete",
+          "edited",
+          "segments",
+          "skipped",
+          "pauses"
+        ],
+        "title": "Timing",
+        "description": "A finished run's times (timers.md \u00a72.3). Every instant is a whole millisecond;\n``ended_at`` equals the entry's ``captured_at``."
+      },
+      "TimingPause": {
+        "properties": {
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "TimingPause"
+      },
+      "TimingSegment": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "step",
+              "lap"
+            ],
+            "title": "Kind"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step",
+            "description": "The step's key; null for a lap."
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "The step's label in the run's version, or 'Lap n'."
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ended At"
+          },
+          "active_ms": {
+            "type": "integer",
+            "title": "Active Ms"
+          },
+          "paused_ms": {
+            "type": "integer",
+            "title": "Paused Ms",
+            "description": "Its overlap with the run's pauses."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "step",
+          "label",
+          "started_at",
+          "ended_at",
+          "active_ms",
+          "paused_ms"
+        ],
+        "title": "TimingSegment",
+        "description": "One segment of a finished run: a named step's time, or an unnamed lap's."
       },
       "TopicCreate": {
         "properties": {

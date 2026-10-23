@@ -71,3 +71,59 @@ class ApnsDisabled(Conflict):
     """APNs is not configured on this server (``GET /push/config`` says ``apns_enabled: false``)."""
 
     code = "apns_disabled"
+
+
+class InvalidRequest(DomainError):
+    """A request that is well-formed JSON but breaks a rule the schema can't express."""
+
+    status_code = 422
+    code = "invalid_request"
+
+
+# --- runs (docs/specs/timers.md §3.9) -------------------------------------------------
+
+
+class TopicNotTimed(Conflict):
+    """A ``start`` against a topic version without a ``timer``."""
+
+    code = "topic_not_timed"
+
+
+class IdConflict(Conflict):
+    """Run and entry ids share one id space: a ``start`` with an entry's id, or a ``createEntry``
+    with the id of a run that has no entry (open, finishing, discarded) or of an alias."""
+
+    code = "id_conflict"
+
+
+class EventConflict(Conflict):
+    """A run event id was reused with different content."""
+
+    code = "event_conflict"
+
+
+class RunDeleted(Conflict):
+    """The run's topic was deleted: its id is reserved and the run is gone."""
+
+    code = "run_deleted"
+
+
+class BeforeStart(DomainError):
+    """A ``stop`` with ``at`` before the run's ``started_at``: it would make a negative segment."""
+
+    status_code = 422
+    code = "before_start"
+
+
+class RunTooLong(DomainError):
+    """A ``stop`` that would make the run longer than 7 days."""
+
+    status_code = 422
+    code = "run_too_long"
+
+
+class RunTooManyEvents(DomainError):
+    """The run already has the maximum number of events (void ones included)."""
+
+    status_code = 422
+    code = "run_too_many_events"

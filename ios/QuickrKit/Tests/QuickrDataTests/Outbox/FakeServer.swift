@@ -421,7 +421,7 @@ private struct WireEntry: Encodable {
     init(_ entry: Entry) { self.entry = entry }
 
     enum Keys: String, CodingKey {
-        case id, version, revision, source, channel, notes, meta, answers
+        case id, version, revision, source, channel, notes, meta, answers, timing
         case topicId = "topic_id"
         case capturedAt = "captured_at"
         case createdAt = "created_at"
@@ -445,6 +445,7 @@ private struct WireEntry: Encodable {
             AnswerDTO(key: key, type: Self.type(value), value: value)
         }
         try c.encode(answers, forKey: .answers)
+        try c.encodeNil(forKey: .timing)  // the outbox makes untimed entries only
     }
 
     static func type(_ value: AnswerValue) -> String {

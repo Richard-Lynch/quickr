@@ -506,6 +506,10 @@ export type EntryOut = {
      * Answers
      */
     answers: Array<IntAnswer | DoubleAnswer | StrAnswer | EnumAnswer | EnumListAnswer>;
+    /**
+     * A finished run's times; null for an untimed entry.
+     */
+    timing: Timing | null;
 };
 
 /**
@@ -1444,6 +1448,346 @@ export type RecentText = {
 };
 
 /**
+ * RunDevice
+ *
+ * The iOS device that sent the event, for Live Activity pushes (timers.md §10.3).
+ */
+export type RunDevice = {
+    /**
+     * Apns Token
+     *
+     * The APNs device token, hex (stored lower-case).
+     */
+    apns_token: string;
+    /**
+     * Live Activity
+     */
+    live_activity: boolean;
+};
+
+/**
+ * RunEventEffect
+ */
+export type RunEventEffect = {
+    /**
+     * Effect
+     */
+    effect: 'applied' | 'void';
+    /**
+     * Reason
+     */
+    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | null;
+};
+
+/**
+ * RunEventIn
+ *
+ * One tap on a run (``recordRunEvent``). Idempotent by ``id``.
+ */
+export type RunEventIn = {
+    /**
+     * Id
+     *
+     * The event id, client-generated. For a start it must equal the run id.
+     */
+    id: string;
+    /**
+     * Type
+     */
+    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard';
+    /**
+     * At
+     *
+     * The tap, on the server's clock as the device estimates it (X-QuickR-Server-Time). Stored truncated to whole milliseconds. Not before 2000-01-01, at most 24h ahead; a start's at most 7 days old.
+     */
+    at: string;
+    /**
+     * Seg
+     *
+     * next, lap and skip (required): the open segment the device saw.
+     */
+    seg?: number | null;
+    /**
+     * Step
+     *
+     * skip (required): the step the device saw as being skipped.
+     */
+    step?: string | null;
+    /**
+     * Pause Id
+     *
+     * resume (required): the pause event it ends.
+     */
+    pause_id?: string | null;
+    /**
+     * Topic Id
+     *
+     * start (required): the timed topic.
+     */
+    topic_id?: string | null;
+    /**
+     * Version
+     *
+     * start (required): the topic version the run is pinned to.
+     */
+    version?: number | null;
+    /**
+     * Answers
+     *
+     * stop and finish only.
+     */
+    answers?: {
+        [key: string]: number | string | Array<string> | null;
+    } | null;
+    /**
+     * Notes
+     *
+     * stop and finish only.
+     */
+    notes?: string | null;
+    /**
+     * Meta
+     */
+    meta?: {
+        [key: string]: string;
+    } | null;
+    /**
+     * Source
+     *
+     * Defaults to the channel name.
+     */
+    source?: string | null;
+    device?: RunDevice | null;
+};
+
+/**
+ * RunEventOut
+ */
+export type RunEventOut = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Type
+     */
+    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard';
+    /**
+     * At
+     */
+    at: string;
+    /**
+     * Seg
+     */
+    seg: number | null;
+    /**
+     * Step
+     */
+    step: string | null;
+    /**
+     * Pause Id
+     */
+    pause_id: string | null;
+    /**
+     * Arrival
+     *
+     * Server arrival order.
+     */
+    arrival: number;
+    /**
+     * Effect
+     */
+    effect: 'applied' | 'void';
+    /**
+     * Reason
+     */
+    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | null;
+    /**
+     * Source
+     */
+    source: string;
+};
+
+/**
+ * RunEventResult
+ */
+export type RunEventResult = {
+    event: RunEventResultEvent;
+    /**
+     * The target run: not the path's id when that is an alias.
+     */
+    run: RunOut;
+    /**
+     * The run's entry, once it is stopped and the entry exists.
+     */
+    entry: EntryOut | null;
+};
+
+/**
+ * RunEventResultEvent
+ */
+export type RunEventResultEvent = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Effect
+     */
+    effect: 'applied' | 'void';
+    /**
+     * Reason
+     */
+    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | null;
+};
+
+/**
+ * RunOpenSegment
+ */
+export type RunOpenSegment = {
+    /**
+     * Index
+     *
+     * The `seg` a next, lap or skip of this segment sends.
+     */
+    index: number;
+    /**
+     * Kind
+     */
+    kind: 'step' | 'lap';
+    /**
+     * Step
+     */
+    step: string | null;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Started At
+     */
+    started_at: string;
+};
+
+/**
+ * RunOut
+ *
+ * A run in any status, with every event and its current effect.
+ */
+export type RunOut = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Topic Id
+     */
+    topic_id: string;
+    /**
+     * Version
+     */
+    version: number;
+    /**
+     * Status
+     */
+    status: 'running' | 'paused' | 'finishing' | 'stopped' | 'discarded';
+    /**
+     * Revision
+     *
+     * Bumped by every event and status change.
+     */
+    revision: number;
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Ended At
+     *
+     * The stop's at; null until the run stops.
+     */
+    ended_at: string | null;
+    /**
+     * Edited
+     *
+     * The entry's times were edited; later events are void.
+     */
+    edited: boolean;
+    /**
+     * Events
+     *
+     * In arrival order.
+     */
+    events: Array<RunEventOut>;
+    state: RunState;
+    /**
+     * Aliases
+     *
+     * Run ids merged into this one.
+     */
+    aliases: Array<string>;
+};
+
+/**
+ * RunState
+ *
+ * The fold's output (timers.md §4.3). For a stopped run, ``segments``, ``skipped`` and
+ * ``pauses`` are exactly its entry's ``timing``.
+ */
+export type RunState = {
+    /**
+     * Status
+     */
+    status: 'running' | 'paused' | 'finishing' | 'stopped' | 'discarded';
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Ended At
+     */
+    ended_at: string | null;
+    /**
+     * The segment being timed; null once the run closes.
+     */
+    open: RunOpenSegment | null;
+    /**
+     * Next Step
+     *
+     * The step Next starts; null when it would start a lap.
+     */
+    next_step: string | null;
+    /**
+     * Paused Since
+     */
+    paused_since: string | null;
+    /**
+     * Segments
+     *
+     * Closed so far, in time order.
+     */
+    segments: Array<TimingSegment>;
+    /**
+     * Skipped
+     */
+    skipped: Array<string>;
+    /**
+     * Pauses
+     *
+     * Ended pauses; an open one is paused_since.
+     */
+    pauses: Array<TimingPause>;
+    /**
+     * Effects
+     *
+     * Each event's effect, by lowercase event id.
+     */
+    effects: {
+        [key: string]: RunEventEffect;
+    };
+};
+
+/**
  * SeriesPoint
  */
 export type SeriesPoint = {
@@ -1642,6 +1986,117 @@ export type Timer = {
      * Steps
      */
     steps: Array<Step>;
+};
+
+/**
+ * Timing
+ *
+ * A finished run's times (timers.md §2.3). Every instant is a whole millisecond;
+ * ``ended_at`` equals the entry's ``captured_at``.
+ */
+export type Timing = {
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Ended At
+     */
+    ended_at: string;
+    /**
+     * Active Ms
+     *
+     * ended_at - started_at - paused_ms.
+     */
+    active_ms: number;
+    /**
+     * Paused Ms
+     */
+    paused_ms: number;
+    /**
+     * Complete
+     *
+     * No steps, or every step has a segment and none was skipped.
+     */
+    complete: boolean;
+    /**
+     * Edited
+     *
+     * The times were edited after the run stopped.
+     */
+    edited: boolean;
+    /**
+     * Segments
+     *
+     * In time order.
+     */
+    segments: Array<TimingSegment>;
+    /**
+     * Skipped
+     *
+     * Skipped step keys, in step order.
+     */
+    skipped: Array<string>;
+    /**
+     * Pauses
+     */
+    pauses: Array<TimingPause>;
+};
+
+/**
+ * TimingPause
+ */
+export type TimingPause = {
+    /**
+     * Start
+     */
+    start: string;
+    /**
+     * End
+     */
+    end: string;
+};
+
+/**
+ * TimingSegment
+ *
+ * One segment of a finished run: a named step's time, or an unnamed lap's.
+ */
+export type TimingSegment = {
+    /**
+     * Kind
+     */
+    kind: 'step' | 'lap';
+    /**
+     * Step
+     *
+     * The step's key; null for a lap.
+     */
+    step: string | null;
+    /**
+     * Label
+     *
+     * The step's label in the run's version, or 'Lap n'.
+     */
+    label: string;
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Ended At
+     */
+    ended_at: string;
+    /**
+     * Active Ms
+     */
+    active_ms: number;
+    /**
+     * Paused Ms
+     *
+     * Its overlap with the run's pauses.
+     */
+    paused_ms: number;
 };
 
 /**
@@ -3060,6 +3515,166 @@ export type UpdateEntryResponses = {
 };
 
 export type UpdateEntryResponse = UpdateEntryResponses[keyof UpdateEntryResponses];
+
+export type RecordRunEventData = {
+    body: RunEventIn;
+    headers?: {
+        /**
+         * X-Quickr-Channel
+         *
+         * Client channel; defaults to 'api'.
+         */
+        'X-QuickR-Channel'?: Channel | null;
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
+    path: {
+        /**
+         * Run Id
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/api/v1/runs/{run_id}/events';
+};
+
+export type RecordRunEventErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type RecordRunEventError = RecordRunEventErrors[keyof RecordRunEventErrors];
+
+export type RecordRunEventResponses = {
+    /**
+     * Successful Response
+     */
+    200: RunEventResult;
+    /**
+     * The call created the run (or merged it).
+     */
+    201: RunEventResult;
+};
+
+export type RecordRunEventResponse = RecordRunEventResponses[keyof RecordRunEventResponses];
+
+export type ListRunsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Status
+         *
+         * open (running or paused) and/or finishing; default both.
+         */
+        status?: Array<'open' | 'finishing'>;
+        /**
+         * Topic
+         *
+         * Only this topic (UUID or slug).
+         */
+        topic?: string | null;
+    };
+    url: '/api/v1/runs';
+};
+
+export type ListRunsErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type ListRunsError = ListRunsErrors[keyof ListRunsErrors];
+
+export type ListRunsResponses = {
+    /**
+     * Response Listruns
+     *
+     * Successful Response
+     */
+    200: Array<RunOut>;
+};
+
+export type ListRunsResponse = ListRunsResponses[keyof ListRunsResponses];
+
+export type GetRunData = {
+    body?: never;
+    path: {
+        /**
+         * Run Id
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/api/v1/runs/{run_id}';
+};
+
+export type GetRunErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type GetRunError = GetRunErrors[keyof GetRunErrors];
+
+export type GetRunResponses = {
+    /**
+     * Successful Response
+     */
+    200: RunOut;
+};
+
+export type GetRunResponse = GetRunResponses[keyof GetRunResponses];
 
 export type ListChangesData = {
     body?: never;

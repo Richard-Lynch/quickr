@@ -552,6 +552,141 @@ export const zRecentText = z.object({
 });
 
 /**
+ * RunDevice
+ *
+ * The iOS device that sent the event, for Live Activity pushes (timers.md §10.3).
+ */
+export const zRunDevice = z.object({
+    apns_token: z.string().regex(/^[0-9a-fA-F]{64,200}$/),
+    live_activity: z.boolean()
+});
+
+/**
+ * RunEventEffect
+ */
+export const zRunEventEffect = z.object({
+    effect: z.enum(['applied', 'void']),
+    reason: z.enum([
+        'merged',
+        'already_closed',
+        'run_edited',
+        'entry_deleted',
+        'before_start',
+        'after_stop',
+        'too_long',
+        'stale',
+        'no_step',
+        'already_paused',
+        'not_paused'
+    ]).nullable()
+});
+
+/**
+ * RunEventIn
+ *
+ * One tap on a run (``recordRunEvent``). Idempotent by ``id``.
+ */
+export const zRunEventIn = z.object({
+    id: z.uuid(),
+    type: z.enum([
+        'start',
+        'next',
+        'lap',
+        'skip',
+        'pause',
+        'resume',
+        'stop',
+        'finish',
+        'discard'
+    ]),
+    at: z.iso.datetime({ offset: true }),
+    seg: z.int().gte(0).nullish(),
+    step: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/).nullish(),
+    pause_id: z.uuid().nullish(),
+    topic_id: z.uuid().nullish(),
+    version: z.int().gte(1).nullish(),
+    answers: z.record(z.string(), z.union([
+        z.number(),
+        z.string(),
+        z.array(z.string())
+    ]).nullable()).nullish(),
+    notes: z.string().max(5000).nullish(),
+    meta: z.record(z.string(), z.string().max(500)).nullish(),
+    source: z.string().min(1).max(100).nullish(),
+    device: zRunDevice.nullish()
+});
+
+/**
+ * RunEventOut
+ */
+export const zRunEventOut = z.object({
+    id: z.uuid(),
+    type: z.enum([
+        'start',
+        'next',
+        'lap',
+        'skip',
+        'pause',
+        'resume',
+        'stop',
+        'finish',
+        'discard'
+    ]),
+    at: z.iso.datetime({ offset: true }),
+    seg: z.int().nullable(),
+    step: z.string().nullable(),
+    pause_id: z.uuid().nullable(),
+    arrival: z.int(),
+    effect: z.enum(['applied', 'void']),
+    reason: z.enum([
+        'merged',
+        'already_closed',
+        'run_edited',
+        'entry_deleted',
+        'before_start',
+        'after_stop',
+        'too_long',
+        'stale',
+        'no_step',
+        'already_paused',
+        'not_paused'
+    ]).nullable(),
+    source: z.string()
+});
+
+/**
+ * RunEventResultEvent
+ */
+export const zRunEventResultEvent = z.object({
+    id: z.uuid(),
+    effect: z.enum(['applied', 'void']),
+    reason: z.enum([
+        'merged',
+        'already_closed',
+        'run_edited',
+        'entry_deleted',
+        'before_start',
+        'after_stop',
+        'too_long',
+        'stale',
+        'no_step',
+        'already_paused',
+        'not_paused'
+    ]).nullable()
+});
+
+/**
+ * RunOpenSegment
+ */
+export const zRunOpenSegment = z.object({
+    index: z.int(),
+    kind: z.enum(['step', 'lap']),
+    step: z.string().nullable(),
+    label: z.string(),
+    started_at: z.iso.datetime({ offset: true })
+});
+
+/**
  * SeriesPoint
  */
 export const zSeriesPoint = z.object({
@@ -603,49 +738,6 @@ export const zStrAnswer = z.object({
 });
 
 /**
- * EntryOut
- */
-export const zEntryOut = z.object({
-    id: z.uuid(),
-    topic_id: z.uuid(),
-    version: z.int(),
-    revision: z.int(),
-    source: z.string(),
-    channel: zChannel,
-    captured_at: z.iso.datetime({ offset: true }),
-    created_at: z.iso.datetime({ offset: true }),
-    updated_at: z.iso.datetime({ offset: true }),
-    notes: z.string(),
-    meta: z.record(z.string(), z.string()),
-    answers: z.array(z.union([
-        zIntAnswer,
-        zDoubleAnswer,
-        zStrAnswer,
-        zEnumAnswer,
-        zEnumListAnswer
-    ]))
-});
-
-/**
- * EntryPage
- */
-export const zEntryPage = z.object({
-    items: z.array(zEntryOut),
-    total: z.int(),
-    limit: z.int(),
-    offset: z.int()
-});
-
-/**
- * FeedEntry
- */
-export const zFeedEntry = z.object({
-    kind: z.literal('entry').default('entry'),
-    seq: z.int(),
-    entry: zEntryOut
-});
-
-/**
  * StrQuestion
  */
 export const zStrQuestionInput = z.object({
@@ -680,6 +772,150 @@ export const zStrQuestionOutput = z.object({
  */
 export const zTimer = z.object({
     steps: z.array(zStep).max(30)
+});
+
+/**
+ * TimingPause
+ */
+export const zTimingPause = z.object({
+    start: z.iso.datetime({ offset: true }),
+    end: z.iso.datetime({ offset: true })
+});
+
+/**
+ * TimingSegment
+ *
+ * One segment of a finished run: a named step's time, or an unnamed lap's.
+ */
+export const zTimingSegment = z.object({
+    kind: z.enum(['step', 'lap']),
+    step: z.string().nullable(),
+    label: z.string(),
+    started_at: z.iso.datetime({ offset: true }),
+    ended_at: z.iso.datetime({ offset: true }),
+    active_ms: z.int(),
+    paused_ms: z.int()
+});
+
+/**
+ * RunState
+ *
+ * The fold's output (timers.md §4.3). For a stopped run, ``segments``, ``skipped`` and
+ * ``pauses`` are exactly its entry's ``timing``.
+ */
+export const zRunState = z.object({
+    status: z.enum([
+        'running',
+        'paused',
+        'finishing',
+        'stopped',
+        'discarded'
+    ]),
+    started_at: z.iso.datetime({ offset: true }),
+    ended_at: z.iso.datetime({ offset: true }).nullable(),
+    open: zRunOpenSegment.nullable(),
+    next_step: z.string().nullable(),
+    paused_since: z.iso.datetime({ offset: true }).nullable(),
+    segments: z.array(zTimingSegment),
+    skipped: z.array(z.string()),
+    pauses: z.array(zTimingPause),
+    effects: z.record(z.string(), zRunEventEffect)
+});
+
+/**
+ * RunOut
+ *
+ * A run in any status, with every event and its current effect.
+ */
+export const zRunOut = z.object({
+    id: z.uuid(),
+    topic_id: z.uuid(),
+    version: z.int(),
+    status: z.enum([
+        'running',
+        'paused',
+        'finishing',
+        'stopped',
+        'discarded'
+    ]),
+    revision: z.int(),
+    started_at: z.iso.datetime({ offset: true }),
+    ended_at: z.iso.datetime({ offset: true }).nullable(),
+    edited: z.boolean(),
+    events: z.array(zRunEventOut),
+    state: zRunState,
+    aliases: z.array(z.uuid())
+});
+
+/**
+ * Timing
+ *
+ * A finished run's times (timers.md §2.3). Every instant is a whole millisecond;
+ * ``ended_at`` equals the entry's ``captured_at``.
+ */
+export const zTiming = z.object({
+    started_at: z.iso.datetime({ offset: true }),
+    ended_at: z.iso.datetime({ offset: true }),
+    active_ms: z.int(),
+    paused_ms: z.int(),
+    complete: z.boolean(),
+    edited: z.boolean(),
+    segments: z.array(zTimingSegment),
+    skipped: z.array(z.string()),
+    pauses: z.array(zTimingPause)
+});
+
+/**
+ * EntryOut
+ */
+export const zEntryOut = z.object({
+    id: z.uuid(),
+    topic_id: z.uuid(),
+    version: z.int(),
+    revision: z.int(),
+    source: z.string(),
+    channel: zChannel,
+    captured_at: z.iso.datetime({ offset: true }),
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true }),
+    notes: z.string(),
+    meta: z.record(z.string(), z.string()),
+    answers: z.array(z.union([
+        zIntAnswer,
+        zDoubleAnswer,
+        zStrAnswer,
+        zEnumAnswer,
+        zEnumListAnswer
+    ])),
+    timing: zTiming.nullable()
+});
+
+/**
+ * EntryPage
+ */
+export const zEntryPage = z.object({
+    items: z.array(zEntryOut),
+    total: z.int(),
+    limit: z.int(),
+    offset: z.int()
+});
+
+/**
+ * FeedEntry
+ */
+export const zFeedEntry = z.object({
+    kind: z.literal('entry').default('entry'),
+    seq: z.int(),
+    entry: zEntryOut
+});
+
+/**
+ * RunEventResult
+ */
+export const zRunEventResult = z.object({
+    event: zRunEventResultEvent,
+    run: zRunOut,
+    entry: zEntryOut.nullable()
 });
 
 /**
@@ -1193,6 +1429,44 @@ export const zUpdateEntryPath = z.object({
  * Successful Response
  */
 export const zUpdateEntryResponse = zEntryOut;
+
+export const zRecordRunEventBody = zRunEventIn;
+
+export const zRecordRunEventHeaders = z.object({
+    'X-QuickR-Channel': zChannel.nullish(),
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
+export const zRecordRunEventPath = z.object({
+    run_id: z.uuid()
+});
+
+/**
+ * Successful Response
+ */
+export const zRecordRunEventResponse = zRunEventResult;
+
+export const zListRunsQuery = z.object({
+    status: z.array(z.enum(['open', 'finishing'])).optional().default(['open', 'finishing']),
+    topic: z.string().max(64).nullish()
+});
+
+/**
+ * Response Listruns
+ *
+ * Successful Response
+ */
+export const zListRunsResponse = z.array(zRunOut);
+
+export const zGetRunPath = z.object({
+    run_id: z.uuid()
+});
+
+/**
+ * Successful Response
+ */
+export const zGetRunResponse = zRunOut;
 
 export const zListChangesQuery = z.object({
     after: z.int().gte(0).optional().default(0),

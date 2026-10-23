@@ -517,6 +517,7 @@
           "notes": "",
           "revision": 1,
           "source": "ios",
+          "timing": null,
           "topic_id": "00000000-0000-4000-8000-000000000001",
           "updated_at": "2026-06-01T12:00:00.123456Z",
           "version": 1
@@ -558,6 +559,7 @@
           "notes": "Weekend.",
           "revision": 1,
           "source": "api",
+          "timing": null,
           "topic_id": "00000000-0000-4000-8000-000000000001",
           "updated_at": "2026-06-01T12:00:00.123456Z",
           "version": 2
@@ -582,6 +584,7 @@
           "notes": "",
           "revision": 1,
           "source": "api",
+          "timing": null,
           "topic_id": "00000000-0000-4000-8000-000000000003",
           "updated_at": "2026-06-01T12:00:00.123456Z",
           "version": 1
@@ -621,6 +624,7 @@
           "notes": "Edited later.",
           "revision": 2,
           "source": "api",
+          "timing": null,
           "topic_id": "00000000-0000-4000-8000-000000000001",
           "updated_at": "2026-06-01T12:00:00.123456Z",
           "version": 1
@@ -645,6 +649,7 @@
           "notes": "",
           "revision": 1,
           "source": "api",
+          "timing": null,
           "topic_id": "00000000-0000-4000-8000-000000000003",
           "updated_at": "2026-06-01T12:00:00.123456Z",
           "version": 1

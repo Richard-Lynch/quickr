@@ -130,6 +130,8 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         let raw = [
             "bad_request", "not_found", "conflict", "invalid_request", "invalid_answers", "incompatible_version",
             "topic_archived", "entry_deleted", "stale_revision", "server_mismatch", "epoch_mismatch", "internal_error",
+            "topic_not_timed", "id_conflict", "before_start", "event_conflict", "run_deleted", "run_too_long",
+            "run_too_many_events",
         ]
         #expect(ProblemCode.known.map(\.rawValue) == raw)
         for code in raw { #expect(ProblemCode(rawValue: code).rawValue == code) }

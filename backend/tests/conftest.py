@@ -43,6 +43,9 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 TABLES = (
     "answers",
     "entries",
+    "run_events",
+    "run_aliases",
+    "runs",
     "topic_versions",
     "topics",
     "push_subscriptions",

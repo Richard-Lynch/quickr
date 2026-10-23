@@ -1,0 +1,25 @@
+{
+  "body": {
+    "code": "id_conflict",
+    "detail": "'0a000000-0000-4000-8000-000000000005' is the id of a run that has no entry",
+    "errors": [
+      {
+        "loc": [
+          "id"
+        ],
+        "message": "already used by a run"
+      }
+    ]
+  },
+  "operation_id": "createEntry",
+  "request": {
+    "body": {
+      "answers": {},
+      "captured_at": "2026-03-04T11:41:00Z",
+      "id": "0a000000-0000-4000-8000-000000000005"
+    },
+    "method": "POST",
+    "path": "/api/v1/topics/00000000-0000-4000-8000-000000000012/entries"
+  },
+  "status": 409
+}

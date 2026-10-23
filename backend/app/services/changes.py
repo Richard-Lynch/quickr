@@ -64,6 +64,8 @@ async def _page(db: AsyncSession, after: int, limit: int) -> ChangesPage:
     )
     latest: dict[Key, ChangeLog] = {}
     for row in rows:
+        if row.kind == FeedKind.run:
+            continue  # run items and deletions join the feed with T-FEED (timers.md §7.1)
         key = (row.kind, row.entity_id)
         latest.pop(key, None)
         latest[key] = row  # re-insert: dict order = order of latest seq
@@ -94,7 +96,7 @@ async def _page(db: AsyncSession, after: int, limit: int) -> ChangesPage:
     deleted = [
         # The log row's topic_id: a tombstone's is null only for ids that were never logged.
         FeedDeletion(
-            # Nothing logs a run yet: run deletions join the feed with T-FEED (timers.md §7.1).
+            # Run rows are skipped above until T-FEED (timers.md §7.1).
             kind=cast("DeletionKind", k[0].value),
             seq=latest[k].seq,
             id=k[1],

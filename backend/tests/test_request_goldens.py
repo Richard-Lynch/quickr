@@ -131,10 +131,17 @@ def test_goldens_exist_and_have_expectations() -> None:
     assert set(GOLDENS) == set(EXPECTED), "add the new golden's expected status to EXPECTED"
 
 
+# Mutations the Swift client doesn't send yet. Each one says when it will.
+NO_GOLDEN_YET = {
+    "recordRunEvent": "the iOS run.event outbox kind writes its goldens (timers-plan.md, I-OUTBOX)",
+}
+
+
 def test_every_mutation_has_a_golden() -> None:
     covered = {name.split(".")[0] for name in GOLDENS}
     mutations = {op for op, (method, _) in operations().items() if method != "GET"}
-    assert mutations - covered == set(), "the Swift client needs a request golden for these"
+    assert mutations - covered == set(NO_GOLDEN_YET), "the Swift client needs a request golden for these"
+    assert not set(NO_GOLDEN_YET) & covered, "a stale exclusion: the golden exists now"
 
 
 @pytest.mark.parametrize("name", GOLDENS)

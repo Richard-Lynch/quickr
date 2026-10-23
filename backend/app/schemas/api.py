@@ -456,6 +456,38 @@ class EntryUpdate(StrictModel):
     expected_revision: ExpectedRevision = None
 
 
+class TimingSegment(StrictModel):
+    """One segment of a finished run: a named step's time, or an unnamed lap's."""
+
+    kind: Literal["step", "lap"]
+    step: str | None = Field(description="The step's key; null for a lap.")
+    label: str = Field(description="The step's label in the run's version, or 'Lap n'.")
+    started_at: datetime
+    ended_at: datetime
+    active_ms: int
+    paused_ms: int = Field(description="Its overlap with the run's pauses.")
+
+
+class TimingPause(StrictModel):
+    start: datetime
+    end: datetime
+
+
+class Timing(StrictModel):
+    """A finished run's times (timers.md §2.3). Every instant is a whole millisecond;
+    ``ended_at`` equals the entry's ``captured_at``."""
+
+    started_at: datetime
+    ended_at: datetime
+    active_ms: int = Field(description="ended_at - started_at - paused_ms.")
+    paused_ms: int
+    complete: bool = Field(description="No steps, or every step has a segment and none was skipped.")
+    edited: bool = Field(description="The times were edited after the run stopped.")
+    segments: list[TimingSegment] = Field(description="In time order.")
+    skipped: list[str] = Field(description="Skipped step keys, in step order.")
+    pauses: list[TimingPause]
+
+
 class EntryOut(StrictModel):
     id: UUID
     topic_id: UUID
@@ -469,6 +501,7 @@ class EntryOut(StrictModel):
     notes: str
     meta: dict[str, str]
     answers: list[AnswerOut]
+    timing: Timing | None = Field(description="A finished run's times; null for an untimed entry.")
 
 
 class EntryPage(StrictModel):
@@ -801,6 +834,157 @@ class ApnsDeviceRef(StrictModel):
     """One device, by token (unregister, test)."""
 
     token: ApnsToken
+
+
+# ---------------------------------------------------------------------------
+# Runs (docs/specs/timers.md §3)
+# ---------------------------------------------------------------------------
+
+RunEventKind = Literal["start", "next", "lap", "skip", "pause", "resume", "stop", "finish", "discard"]
+RunStatusName = Literal["running", "paused", "finishing", "stopped", "discarded"]
+VoidReason = Literal[
+    "merged",
+    "already_closed",
+    "run_edited",
+    "entry_deleted",
+    "before_start",
+    "after_stop",
+    "too_long",
+    "stale",
+    "no_step",
+    "already_paused",
+    "not_paused",
+]
+RunListStatus = Literal["open", "finishing"]
+
+# Which optional fields each event type needs (timers.md §3.2).
+_REQUIRED_FOR: dict[str, tuple[str, ...]] = {
+    "start": ("topic_id", "version"),
+    "next": ("seg",),
+    "lap": ("seg",),
+    "skip": ("seg", "step"),
+    "resume": ("pause_id",),
+}
+
+
+class RunDevice(StrictModel):
+    """The iOS device that sent the event, for Live Activity pushes (timers.md §10.3)."""
+
+    apns_token: ApnsToken
+    live_activity: StrictBool
+
+
+class RunEventIn(StrictModel):
+    """One tap on a run (``recordRunEvent``). Idempotent by ``id``."""
+
+    id: UUID = Field(description="The event id, client-generated. For a start it must equal the run id.")
+    type: RunEventKind
+    at: Annotated[
+        AwareDatetime,
+        AfterValidator(check_captured_at),
+        Field(
+            description="The tap, on the server's clock as the device estimates it (X-QuickR-Server-Time). "
+            "Stored truncated to whole milliseconds. Not before 2000-01-01, at most 24h ahead; a start's "
+            "at most 7 days old."
+        ),
+    ]
+    seg: Annotated[StrictInt, Field(ge=0)] | None = Field(
+        default=None, description="next, lap and skip (required): the open segment the device saw."
+    )
+    step: QuestionKey | None = Field(
+        default=None, description="skip (required): the step the device saw as being skipped."
+    )
+    pause_id: UUID | None = Field(default=None, description="resume (required): the pause event it ends.")
+    topic_id: UUID | None = Field(default=None, description="start (required): the timed topic.")
+    version: Annotated[StrictInt, Field(ge=1)] | None = Field(
+        default=None, description="start (required): the topic version the run is pinned to."
+    )
+    answers: AnswerMap | None = Field(default=None, description="stop and finish only.")
+    notes: Notes | None = Field(default=None, description="stop and finish only.")
+    meta: Meta | None = None
+    source: Source | None = Field(default=None, description="Defaults to the channel name.")
+    device: RunDevice | None = None
+
+    @model_validator(mode="after")
+    def _fields_for_type(self) -> Self:
+        for name in _REQUIRED_FOR.get(self.type, ()):
+            if getattr(self, name) is None:
+                raise field_error(name, f"required for a {self.type} event")
+        if self.type not in ("stop", "finish"):
+            for name in ("answers", "notes"):
+                if getattr(self, name) is not None:
+                    raise field_error(name, "only a stop or a finish carries answers and notes")
+        return self
+
+
+class RunEventOut(StrictModel):
+    id: UUID
+    type: RunEventKind
+    at: datetime
+    seg: int | None
+    step: str | None
+    pause_id: UUID | None
+    arrival: int = Field(description="Server arrival order.")
+    effect: Literal["applied", "void"]
+    reason: VoidReason | None
+    source: str
+
+
+class RunEventEffect(StrictModel):
+    effect: Literal["applied", "void"]
+    reason: VoidReason | None
+
+
+class RunOpenSegment(StrictModel):
+    index: int = Field(description="The `seg` a next, lap or skip of this segment sends.")
+    kind: Literal["step", "lap"]
+    step: str | None
+    label: str
+    started_at: datetime
+
+
+class RunState(StrictModel):
+    """The fold's output (timers.md §4.3). For a stopped run, ``segments``, ``skipped`` and
+    ``pauses`` are exactly its entry's ``timing``."""
+
+    status: RunStatusName
+    started_at: datetime
+    ended_at: datetime | None
+    open: RunOpenSegment | None = Field(description="The segment being timed; null once the run closes.")
+    next_step: str | None = Field(description="The step Next starts; null when it would start a lap.")
+    paused_since: datetime | None
+    segments: list[TimingSegment] = Field(description="Closed so far, in time order.")
+    skipped: list[str]
+    pauses: list[TimingPause] = Field(description="Ended pauses; an open one is paused_since.")
+    effects: dict[str, RunEventEffect] = Field(description="Each event's effect, by lowercase event id.")
+
+
+class RunOut(StrictModel):
+    """A run in any status, with every event and its current effect."""
+
+    id: UUID
+    topic_id: UUID
+    version: int
+    status: RunStatusName
+    revision: int = Field(description="Bumped by every event and status change.")
+    started_at: datetime
+    ended_at: datetime | None = Field(description="The stop's at; null until the run stops.")
+    edited: bool = Field(description="The entry's times were edited; later events are void.")
+    events: list[RunEventOut] = Field(description="In arrival order.")
+    state: RunState
+    aliases: list[UUID] = Field(description="Run ids merged into this one.")
+
+
+class RunEventResultEvent(StrictModel):
+    id: UUID
+    effect: Literal["applied", "void"]
+    reason: VoidReason | None
+
+
+class RunEventResult(StrictModel):
+    event: RunEventResultEvent
+    run: RunOut = Field(description="The target run: not the path's id when that is an alias.")
+    entry: EntryOut | None = Field(description="The run's entry, once it is stopped and the entry exists.")
 
 
 # ---------------------------------------------------------------------------

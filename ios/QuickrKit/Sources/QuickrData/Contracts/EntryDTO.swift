@@ -83,9 +83,12 @@ public struct EntryDTO: Codable, Sendable, Hashable, WireResponse {
     public var notes: String
     public var meta: [String: String]
     public var answers: [AnswerDTO]
+    /// A finished run's times; `nil` for an untimed entry (timers.md §2.3). Not mapped to the
+    /// domain yet (I-CORE).
+    @RequiredKey public var timing: TimingDTO?
 
     enum CodingKeys: String, CodingKey {
-        case id, version, revision, source, channel, notes, meta, answers
+        case id, version, revision, source, channel, notes, meta, answers, timing
         case topicId = "topic_id"
         case capturedAt = "captured_at"
         case createdAt = "created_at"
