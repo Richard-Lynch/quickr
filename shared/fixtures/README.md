@@ -459,6 +459,15 @@ all arithmetic on integers. Output instants are UTC with `Z`, with six fraction
 digits only when the millisecond part isn't zero (the API's form). Each case is
 one line.
 
+Notes for the ports:
+
+- An open pause covers a closed segment up to that segment's end. Measure it to
+  the segment's end; don't stand in a large number for "not resumed" (`2**62`
+  is past JavaScript's `Number.MAX_SAFE_INTEGER`).
+- Time order is `(at, lowercase id)`, except that a resume with the same `at`
+  as the pause it names sorts right after that pause
+  (`resume-at-the-pause-instant`).
+
 ## `timing-stats-vectors.json`
 
 Timing stats ([timers.md](../../docs/specs/timers.md) §9.1): what

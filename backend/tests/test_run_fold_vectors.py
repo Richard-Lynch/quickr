@@ -17,7 +17,7 @@ from app.services.run_fold import Event, Frozen, FrozenReason, Step
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
 
 PATH = FIXTURES_DIR / "run-fold-vectors.json"
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
 
 RUN = "0a000000-0000-4000-8000-000000000000"
 T0 = run_fold.parse_instant("2026-10-23T08:00:00Z")
@@ -139,6 +139,11 @@ CASES: dict[str, tuple[str, list[dict[str, Any]], tuple[int, FrozenReason] | Non
         [START, ev(1, "skip", 60, seg=0, step="shower"), ev(2, "stop", 100)],
         None,
     ),
+    "skip-stale-seg": (
+        "three",
+        [START, ev(1, "lap", 50, seg=0), ev(2, "lap", 60, seg=1), ev(3, "skip", 65, seg=1, step="breakfast")],
+        None,
+    ),
     "double-tapped-skip": (
         "three",
         [
@@ -149,6 +154,13 @@ CASES: dict[str, tuple[str, list[dict[str, Any]], tuple[int, FrozenReason] | Non
         ],
         None,
     ),
+    "resume-at-the-pause-instant": (
+        "none",
+        # The resume's id sorts before its pause's: it still applies after it.
+        [START, ev(9, "pause", 60), ev(3, "resume", 60, pause=9), ev(4, "stop", 90)],
+        None,
+    ),
+    "stopped-before-the-last-step": ("three", [START, ev(1, "next", 100, seg=0), ev(2, "stop", 200)], None),
     "pause-resume": (
         "none",
         [START, ev(1, "pause", 60), ev(2, "resume", 90, pause=1), ev(3, "stop", 120)],
@@ -244,7 +256,11 @@ CASES: dict[str, tuple[str, list[dict[str, Any]], tuple[int, FrozenReason] | Non
         [START, ev(1, "next", -5, seg=0), ev(2, "pause", -1), ev(3, "stop", 50)],
         None,
     ),
-    "client-stop-before-start": ("none", [START, ev(1, "stop", -10), ev(2, "stop", 20)], None),
+    "client-stop-before-start": (
+        "none",
+        [START, ev(1, "stop", -10), ev(2, "stop", 20), ev(3, "stop", -5)],
+        None,
+    ),
     "too-long": (
         "none",
         [
@@ -295,7 +311,7 @@ def case(
     name: str, steps: str, events: list[dict[str, Any]], frozen: tuple[int, FrozenReason] | None
 ) -> dict[str, Any]:
     state = fold_case(steps, events, frozen)
-    timing = run_fold.project_timing(state) if state.status == "stopped" else None
+    timing = run_fold.project_timing(state, steps_of(steps)) if state.status == "stopped" else None
     return {
         "name": name,
         "steps": steps,
@@ -325,28 +341,33 @@ def build() -> dict[str, Any]:
                 "frozen.after is void with frozen.reason and not folded; a `start` is applied if its id is "
                 "run_id, else void `merged`; the first `stop`/`discard` is the terminal, later ones void "
                 "`already_closed`; a `stop` before the start is void `before_start`, one more than "
-                "max_run_ms after it void `too_long`, and neither closes the run.",
-                "Pass 2, by (at, lowercase id) ascending: void `before_start` if at < start; `after_stop` "
-                "if at > terminal.at; `too_long` if at > start + max_run_ms; next/lap/skip with seg != the "
-                "open segment's index: `stale`. next closes the open segment and opens the next pending "
-                "step (a lap when none is left); lap closes it and opens a lap (pending unchanged). skip "
-                "on a step segment must name that step (else `stale`): it joins `skipped` and the open "
-                "segment is relabelled to the next pending step (or a lap); skip on a lap: `no_step` if "
-                "nothing is pending, `stale` unless it names the head of pending, which joins `skipped`. "
-                "pause: `already_paused` if paused. resume: `not_paused` if not paused, `stale` unless "
-                "pause_id is the open pause's id; else the pause [paused_since, at) closes.",
+                "max_run_ms after it void `too_long`, whenever it arrives (checked before "
+                "`already_closed`), and neither closes the run.",
+                "Pass 2, by (at, lowercase id) ascending, except that a resume with the same at as the "
+                "pause its pause_id names sorts right after that pause (several such resumes by "
+                "lowercase id): void `before_start` if at < start; `after_stop` if at > terminal.at; "
+                "`too_long` if at > start + max_run_ms; next/lap/skip with seg != the open segment's "
+                "index: `stale`. next closes the open segment and opens the next pending step (a lap "
+                "when none is left); lap closes it and opens a lap (pending unchanged). skip on a step "
+                "segment must name that step (else `stale`): it joins `skipped` and the open segment is "
+                "relabelled to the next pending step (or a lap); skip on a lap: `no_step` if nothing is "
+                "pending, `stale` unless it names the head of pending, which joins `skipped`. pause: "
+                "`already_paused` if paused. resume: `not_paused` if not paused, `stale` unless pause_id "
+                "is the open pause's id; else the pause [paused_since, at) closes.",
                 "Terminal stop: an open pause ends at the stop, the open segment closes at it, status "
                 "`stopped` (the server says `finishing` while required answers are missing). Discard: "
                 "status `discarded`, no open segment or pause. Otherwise `paused` or `running`.",
-                "Segments: paused_ms is the overlap with the pauses (an open pause counts up to the "
-                "segment's end), active_ms = length - paused_ms. Lap labels are 'Lap n', n counting lap "
-                "segments from 1 in segment order (the open one included). open.index = closed segment "
-                "count; next_step = head of pending while the run is open, else null.",
+                "Segments: pauses stay whole; a segment's paused_ms is its overlap with them (an open "
+                "pause covers up to the segment's end: measure it to that end, not to a large sentinel), "
+                "active_ms = length - paused_ms. Lap labels are 'Lap n', n counting lap segments from 1 "
+                "in segment order (the open one included). open.index = closed segment count; "
+                "next_step = head of pending while the run is open, else null.",
                 "Instants out: UTC, 'Z', six fraction digits only when the millisecond part is not zero "
                 "(how the API writes them). Compare by parsing to milliseconds or as strings.",
-                "timing (stopped runs only): started_at, ended_at, paused_ms = sum of pauses, active_ms = "
-                "ended - started - paused_ms, complete = no step skipped, edited = false, and the state's "
-                "segments, skipped and pauses.",
+                "timing (stopped runs only): started_at, ended_at, paused_ms = sum of pauses, active_ms "
+                "= ended - started - paused_ms, complete = the version has no steps, or every one of its "
+                "steps has a segment and none was skipped; edited = false; and the state's segments, "
+                "skipped and pauses.",
             ],
         },
         "step_sets": STEP_SETS,
@@ -391,6 +412,12 @@ def test_vectors_cover_the_spec() -> None:
     assert built["skip-on-a-step"]["timing"]["skipped"] == ["shower"]
     assert built["skip-from-a-lap"]["timing"]["skipped"] == ["breakfast"]
     assert reasons("double-tapped-skip") == ["stale"]
+    assert effects("skip-stale-seg")[eid(3)] == ("void", "stale")
+    assert effects("client-stop-before-start")[eid(3)] == ("void", "before_start")
+    assert effects("resume-at-the-pause-instant")[eid(3)] == ("applied", None)
+    assert built["resume-at-the-pause-instant"]["timing"]["paused_ms"] == 0
+    assert built["stopped-before-the-last-step"]["timing"]["complete"] is False
+    assert built["three-steps-all-done"]["timing"]["complete"] is True
     assert built["pause-resume"]["timing"]["paused_ms"] == 30_000
     assert reasons("resume-naming-an-older-pause") == ["stale"]
     assert built["next-while-paused"]["timing"]["segments"][1]["paused_ms"] == 60_000

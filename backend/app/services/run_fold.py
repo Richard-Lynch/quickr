@@ -28,7 +28,7 @@ past it.
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -214,7 +214,7 @@ def fold(
 
     clock = _Clock(steps, start.at)
     end = terminal.at if terminal is not None else None
-    for e in sorted(accepted, key=lambda e: (e.at, e.id.lower())):
+    for e in sorted(accepted, key=_time_order(accepted)):
         if e.at < start.at:
             reason: VoidReason | None = "before_start"
         elif end is not None and e.at > end:
@@ -226,6 +226,20 @@ def fold(
         effects[e.id.lower()] = APPLIED if reason is None else Effect("void", reason)
 
     return clock.state(start.at, terminal, effects)
+
+
+def _time_order(accepted: Sequence[Event]) -> Callable[[Event], tuple[int, str, int, str]]:
+    """Pass 2's order: ``(at, id)`` ascending, ids lowercase, except that a resume at the same
+    instant as the pause it names comes right after that pause."""
+    pauses = {e.id.lower(): e.at for e in accepted if e.type == "pause"}
+
+    def key(e: Event) -> tuple[int, str, int, str]:
+        named = (e.pause_id or "").lower()
+        if e.type == "resume" and pauses.get(named) == e.at:
+            return (e.at, named, 1, e.id.lower())
+        return (e.at, e.id.lower(), 0, "")
+
+    return key
 
 
 def _arrival_pass(
@@ -251,12 +265,13 @@ def _arrival_pass(
         elif e.type == "start":
             reason = None if eid == run_id else "merged"
         elif e.type in ("stop", "discard"):
-            if terminal is not None:
-                reason = "already_closed"
-            elif e.type == "stop" and e.at < start.at:
+            # An out-of-range stop is never a terminal, whenever it arrives (the server refuses it).
+            if e.type == "stop" and e.at < start.at:
                 reason = "before_start"
             elif e.type == "stop" and e.at > start.at + MAX_RUN_MS:
                 reason = "too_long"
+            elif terminal is not None:
+                reason = "already_closed"
             else:
                 terminal = e
         else:
@@ -341,10 +356,7 @@ class _Clock:
         else:
             status = "paused" if self.paused_since is not None else "running"
 
-        pauses = list(self.pauses)
-        if self.paused_since is not None:
-            pauses.append(Pause(self.paused_since, _OPEN_PAUSE_END))
-        segments = _segments(self.closed, pauses)
+        segments = _segments(self.closed, self.pauses, open_pause=self.paused_since)
         open_seg: OpenSegment | None = None
         if status in ("running", "paused"):
             laps = sum(s.kind == "lap" for s in segments)
@@ -370,21 +382,24 @@ class _Clock:
         )
 
 
-_OPEN_PAUSE_END = 2**62  # an open pause, when measuring its overlap with closed segments
+def _overlap(start: int, end: int, pauses: Sequence[Pause], open_pause: int | None = None) -> int:
+    """How much of ``[start, end)`` the pauses cover; ``open_pause`` is the start of a pause
+    not resumed yet, which covers up to ``end``."""
+    paused = sum(max(0, min(end, p.end) - max(start, p.start)) for p in pauses)
+    return paused if open_pause is None else paused + max(0, end - max(start, open_pause))
 
 
-def _overlap(start: int, end: int, pauses: Sequence[Pause]) -> int:
-    return sum(max(0, min(end, p.end) - max(start, p.start)) for p in pauses)
-
-
-def _segments(closed: Sequence[tuple[Step | None, int, int]], pauses: Sequence[Pause]) -> list[Segment]:
-    """Closed segments with their labels, and pauses split at segment boundaries (T5)."""
+def _segments(
+    closed: Sequence[tuple[Step | None, int, int]], pauses: Sequence[Pause], *, open_pause: int | None = None
+) -> list[Segment]:
+    """Closed segments with their labels. Pauses stay whole; each segment's paused_ms is its
+    overlap with them (T5)."""
     out: list[Segment] = []
     laps = 0
     for step, started_at, ended_at in closed:
         if step is None:
             laps += 1
-        paused = _overlap(started_at, ended_at, pauses)
+        paused = _overlap(started_at, ended_at, pauses, open_pause)
         out.append(
             Segment(
                 kind="lap" if step is None else "step",
@@ -408,11 +423,12 @@ def make_timing(
     skipped: Sequence[str],
     pauses: Sequence[Pause],
     *,
+    steps: Sequence[Step],
     edited: bool = False,
 ) -> Timing:
     """A ``Timing`` from its boundaries: ``parts`` is each segment's step (None for a lap)
-    and end, in order; the last end is the run's end. ``complete`` is "no step skipped"
-    (§9.1: a run of a version without steps is always complete)."""
+    and end, in order; the last end is the run's end. ``steps`` are the run version's steps,
+    for ``complete`` (:func:`is_complete`)."""
     if not parts:
         raise ValueError("a timing has at least one segment")
     closed: list[tuple[Step | None, int, int]] = []
@@ -427,7 +443,7 @@ def make_timing(
         ended_at=previous,
         active_ms=previous - started_at - paused,
         paused_ms=paused,
-        complete=not skipped,
+        complete=is_complete(steps, segments, skipped),
         edited=edited,
         segments=tuple(segments),
         skipped=tuple(skipped),
@@ -435,8 +451,16 @@ def make_timing(
     )
 
 
-def project_timing(state: RunState) -> Timing:
-    """A stopped run's ``Timing``: exactly its fold state (§4.3)."""
+def is_complete(steps: Sequence[Step], segments: Sequence[Segment], skipped: Sequence[str]) -> bool:
+    """§9.1: the version has no steps, or every one of its steps has a segment and none was
+    skipped. A run stopped before it reached its last step is not complete."""
+    done = {s.step for s in segments}
+    return not skipped and all(step.key in done for step in steps)
+
+
+def project_timing(state: RunState, steps: Sequence[Step]) -> Timing:
+    """A stopped run's ``Timing``: exactly its fold state (§4.3). ``steps`` are the run
+    version's steps, the ones it was folded over."""
     if state.status != "stopped" or state.ended_at is None:
         raise ValueError("only a stopped run has a timing")
     paused = sum(p.end - p.start for p in state.pauses)
@@ -445,7 +469,7 @@ def project_timing(state: RunState) -> Timing:
         ended_at=state.ended_at,
         active_ms=state.ended_at - state.started_at - paused,
         paused_ms=paused,
-        complete=not state.skipped,
+        complete=is_complete(steps, state.segments, state.skipped),
         edited=False,
         segments=state.segments,
         skipped=state.skipped,

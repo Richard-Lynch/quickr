@@ -150,6 +150,14 @@ def test_equal_instants_order_by_lowercase_id() -> None:
     assert state.effects[b.id.lower()].reason == "stale"
 
 
+def test_a_resume_at_its_pause_instant_applies_after_it() -> None:
+    pause = Event("0e000000-0000-4000-8000-00000000ffff", "pause", 10 * S)
+    resume = Event("0e000000-0000-4000-8000-000000000001", "resume", 10 * S, pause_id=pause.id)
+    state = fold([pause, resume])
+    assert state.effects[resume.id].effect == "applied"
+    assert (state.status, state.pauses) == ("running", (Pause(10 * S, 10 * S),))
+
+
 def test_events_before_the_start_are_void() -> None:
     state = fold([e(1, "next", -1, seg=0)])
     assert effect(state, 1) == ("void", "before_start")
@@ -225,6 +233,12 @@ def test_skip_on_a_step_must_name_it() -> None:
     assert state.skipped == ()
 
 
+def test_skip_must_name_the_open_segment() -> None:
+    state = fold([e(1, "lap", 5, seg=0), e(2, "lap", 6, seg=1), e(3, "skip", 6.5, seg=1, step="b")])
+    assert effect(state, 3) == ("void", "stale")
+    assert state.skipped == ()
+
+
 def test_a_double_tapped_skip_skips_once() -> None:
     state = fold([e(1, "skip", 5, seg=0, step="a"), e(2, "skip", 5.5, seg=0, step="a")])
     assert state.skipped == ("a",)
@@ -287,7 +301,7 @@ def test_stop_while_paused_ends_the_pause() -> None:
     state = fold([e(1, "pause", 10), e(2, "stop", 25)])
     assert state.pauses == (Pause(10 * S, 25 * S),)
     assert state.paused_since is None
-    assert run_fold.project_timing(state).active_ms == 10 * S
+    assert run_fold.project_timing(state, STEPS).active_ms == 10 * S
 
 
 def test_open_run_state() -> None:
@@ -346,13 +360,28 @@ def test_a_replay_after_the_freeze_keeps_its_effect() -> None:
 
 def test_project_timing_needs_a_stopped_run() -> None:
     with pytest.raises(ValueError, match="stopped"):
-        run_fold.project_timing(fold([]))
+        run_fold.project_timing(fold([]), STEPS)
 
 
-def test_complete_means_no_step_skipped() -> None:
-    assert run_fold.project_timing(fold([e(1, "stop", 1)], steps=[])).complete
-    assert run_fold.project_timing(fold([e(1, "stop", 1)])).complete
-    assert not run_fold.project_timing(fold([e(1, "skip", 0, seg=0, step="a"), e(2, "stop", 1)])).complete
+def complete(events: list[Event], steps: Sequence[Step] = STEPS) -> bool:
+    return run_fold.project_timing(fold(events, steps=steps), steps).complete
+
+
+def test_complete_means_every_step_timed_and_none_skipped() -> None:
+    assert complete([e(1, "stop", 1)], steps=[])  # no steps: always complete
+    assert complete([e(1, "next", 1, seg=0), e(2, "next", 2, seg=1), e(3, "stop", 3)])
+    assert complete([e(1, "next", 1, seg=0), e(2, "lap", 2, seg=1), e(3, "next", 3, seg=2), e(4, "stop", 4)])
+    assert not complete([e(1, "stop", 1)])  # stopped on the first step
+    assert not complete([e(1, "next", 1, seg=0), e(2, "stop", 2)])  # stopped before the last step
+    assert not complete(
+        [e(1, "skip", 0, seg=0, step="a"), e(2, "next", 1, seg=0), e(3, "next", 2, seg=1), e(4, "stop", 3)]
+    )
+
+
+def test_an_edited_timing_is_complete_against_the_version_steps() -> None:
+    parts = [(STEPS[0], S), (STEPS[1], 2 * S)]
+    assert not run_fold.make_timing(0, parts, (), [], steps=STEPS, edited=True).complete
+    assert run_fold.make_timing(0, parts, (), [], steps=STEPS[:2], edited=True).complete
 
 
 def test_make_timing_matches_the_projection() -> None:
@@ -366,15 +395,16 @@ def test_make_timing_matches_the_projection() -> None:
         ]
     )
     made = run_fold.make_timing(
-        0, [(STEPS[0], 10 * S), (STEPS[1], 20 * S), (None, 30 * S)], (), [Pause(5 * S, 12 * S)]
+        0, [(STEPS[0], 10 * S), (STEPS[1], 20 * S), (None, 30 * S)], (), [Pause(5 * S, 12 * S)], steps=STEPS
     )
-    assert made == run_fold.project_timing(state)
-    assert run_fold.make_timing(0, [(None, S)], (), [], edited=True).edited
+    assert made == run_fold.project_timing(state, STEPS)
+    assert run_fold.make_timing(0, [(None, S)], (), [], steps=[], edited=True).edited
 
 
 def good_timing() -> Timing:
     return run_fold.project_timing(
-        fold([e(1, "pause", 5), e(2, "next", 10, seg=0), e(3, "resume", 12, pause=1), e(4, "stop", 30)])
+        fold([e(1, "pause", 5), e(2, "next", 10, seg=0), e(3, "resume", 12, pause=1), e(4, "stop", 30)]),
+        STEPS,
     )
 
 
@@ -406,6 +436,22 @@ def test_check_timing_names_the_broken_invariant(invariant: str) -> None:
     with pytest.raises(TimingError) as caught:
         run_fold.check_timing(broken(t, invariant), captured_at=t.ended_at - 1 if invariant == "T1" else None)
     assert caught.value.invariant == invariant
+
+
+def test_check_timing_t3_refuses_unsorted_overlapping_and_early_pauses() -> None:
+    t = make_paused([(10, 12), (20, 25)])
+    run_fold.check_timing(t)
+    for pauses in ([(20, 25), (10, 12)], [(10, 22), (20, 25)], [(-1, 2)], [(28, 31)], [(5, 4)]):
+        bad = dataclasses.replace(t, pauses=tuple(Pause(a * S, b * S) for a, b in pauses))
+        with pytest.raises(TimingError) as caught:
+            run_fold.check_timing(bad)
+        assert caught.value.invariant == "T3", pauses
+
+
+def make_paused(pauses: list[tuple[int, int]]) -> Timing:
+    return run_fold.make_timing(
+        0, [(None, 15 * S), (None, 30 * S)], (), [Pause(a * S, b * S) for a, b in pauses], steps=[]
+    )
 
 
 def test_check_timing_refuses_negative_segments_and_unsplit_pauses() -> None:
@@ -443,8 +489,8 @@ def random_run(rng: random.Random) -> tuple[list[Step], list[Event]]:
     for n in range(1, rng.randint(1, 16)):
         type_ = rng.choice(TYPES)
         at = rng.randint(-3, 120) * S + rng.choice([0, 0, 1, 999])
-        if type_ == "stop":
-            at = max(at, 0)
+        if rng.random() < 0.05:
+            at = run_fold.MAX_RUN_MS + rng.choice([0, 1])  # at, or just past, the 7-day limit
         pause = rng.choice(pauses) if pauses and type_ == "resume" else None
         if type_ == "pause":
             pauses.append(n)
@@ -463,7 +509,7 @@ def random_run(rng: random.Random) -> tuple[list[Step], list[Event]]:
     return steps, events
 
 
-def check_sums(state: RunState) -> None:
+def check_sums(state: RunState, steps: Sequence[Step]) -> None:
     """Segments tile the run, and durations add up exactly."""
     previous = state.started_at
     for s in state.segments:
@@ -476,16 +522,25 @@ def check_sums(state: RunState) -> None:
         assert state.open.started_at == previous
         assert state.open.index == len(state.segments)
     if state.status == "stopped":
-        t = run_fold.project_timing(state)
+        t = run_fold.project_timing(state, steps)
         run_fold.check_timing(t, captured_at=state.ended_at)
         assert sum(s.active_ms for s in t.segments) == t.active_ms
         assert sum(s.paused_ms for s in t.segments) == t.paused_ms
         assert t.active_ms + t.paused_ms == t.ended_at - t.started_at
 
 
-def reorder(rng: random.Random, events: list[Event], first: Event | None) -> list[Event]:
-    """A random arrival order in which ``first`` is still the first terminal to arrive."""
-    rest = [x for x in events if x is not first]
+def reorder(
+    rng: random.Random, events: list[Event], first: Event | None, frozen: Frozen | None
+) -> list[Event]:
+    """A random arrival order in which ``first`` is still the first terminal to arrive, and the
+    events before the ``frozen`` cut-off stay before it."""
+    if frozen is not None:
+        tail = events[frozen.after :]
+        rng.shuffle(tail)
+        return [*reorder(rng, events[: frozen.after], first, None), *tail]
+    rest = list(events)
+    if first is not None:
+        rest.remove(first)  # one copy: a replay of it stays, so the frozen cut-off doesn't move
     rng.shuffle(rest)
     if first is None:
         return rest
@@ -507,11 +562,16 @@ def test_every_arrival_order_with_the_same_first_terminal_gives_the_same_state()
     stopped = 0
     for _ in range(1500):
         steps, events = random_run(rng)
-        state = run_fold.fold(RUN, steps, events)
-        check_sums(state)
+        frozen = None
+        if rng.random() < 0.25:
+            frozen = Frozen(
+                rng.randint(1, len(events)), rng.choice(["run_edited", "entry_deleted", "already_closed"])
+            )
+        state = run_fold.fold(RUN, steps, events, frozen=frozen)
+        check_sums(state, steps)
         stopped += state.status == "stopped"
         first = first_terminal(state, events)
         for _ in range(6):
-            again = run_fold.fold(RUN, steps, reorder(rng, events, first))
+            again = run_fold.fold(RUN, steps, reorder(rng, events, first, frozen), frozen=frozen)
             assert again == state
     assert stopped > 300  # the generator reaches stopped runs often

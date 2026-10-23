@@ -6,9 +6,9 @@ the iOS app's timing chart models: ``shared/fixtures/timing-stats-vectors.json``
 ``getTopicTiming`` (§9.2) serves :func:`timing_stats` over the entries in its range.
 
 Every duration is active time (paused time excluded) in integer milliseconds. Best, median
-and mean of run totals count **complete** runs only (no step skipped; a run of a version
-without steps is always complete). Per-step stats, laps, pauses and the series count every
-timed run. Untimed entries (``timing`` None) count toward nothing here.
+and mean of run totals count **complete** runs only (``timing.complete``: the version has no
+steps, or every step has a segment and none was skipped). Per-step stats, laps, pauses and
+the series count every timed run. Untimed entries (``timing`` None) count toward nothing here.
 """
 
 from __future__ import annotations
@@ -141,7 +141,7 @@ def timing_stats(
         laps = [s.active_ms for s in t.segments if s.kind == "lap"]
         if laps:
             lap_totals.append(sum(laps))
-        if t.pauses:
+        if t.paused_ms > 0:  # a zero-length pause doesn't count
             paused.append(t.paused_ms)
         series.append(
             SeriesPoint(

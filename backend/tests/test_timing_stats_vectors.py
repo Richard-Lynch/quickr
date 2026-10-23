@@ -16,7 +16,7 @@ from app.services.run_fold import Pause, Step
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
 
 PATH = FIXTURES_DIR / "timing-stats-vectors.json"
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
 
 T0 = run_fold.parse_instant("2026-10-01T07:00:00Z")
 DAY = 24 * 60 * 60 * 1000
@@ -37,9 +37,13 @@ def run(
     *,
     skipped: tuple[str, ...] = (),
     pauses: tuple[tuple[int, int], ...] = (),
+    steps: list[Step] | None = None,
 ) -> dict[str, Any]:
     """Entry ``n``, started on day ``n`` at T0: ``parts`` are (step or lap, seconds long, to the ms);
-    ``pauses`` are (seconds from the start, seconds long)."""
+    ``pauses`` are (seconds from the start, seconds long). ``steps`` are the run version's steps
+    (by default the steps it timed and skipped, so it is complete unless it skipped one)."""
+    if steps is None:
+        steps = [s for s, _ in parts if s is not None] + [Step(k, k) for k in skipped]
     start = T0 + n * DAY
     ends: list[tuple[Step | None, int]] = []
     at = start
@@ -51,6 +55,7 @@ def run(
         ends,
         skipped,
         [Pause(start + s * 1000, start + (s + d) * 1000) for s, d in pauses],
+        steps=steps,
     )
     run_fold.check_timing(timing)
     return {
@@ -100,6 +105,14 @@ CASES: dict[str, tuple[dict[int, list[Step] | None], int, list[dict[str, Any]]]]
             run(4, [(SHOWER, 300), (DRESS, 90)], skipped=("breakfast",)),
         ],
     ),
+    "stopped-before-the-last-step": (
+        ONE_VERSION,
+        1,
+        [
+            run(1, [(SHOWER, 240), (BREAKFAST, 600)], steps=ROUTINE),
+            run(2, [(SHOWER, 300), (BREAKFAST, 700), (DRESS, 100)], steps=ROUTINE),
+        ],
+    ),
     "all-runs-incomplete": (
         ONE_VERSION,
         1,
@@ -121,6 +134,7 @@ CASES: dict[str, tuple[dict[int, list[Step] | None], int, list[dict[str, Any]]]]
             run(1, [(None, 600)], pauses=((60, 120),)),
             run(2, [(None, 100), (None, 500)], pauses=((50, 100), (300, 7))),
             run(3, [(None, 400)]),
+            run(4, [(None, 50)], pauses=((10, 0),)),
         ],
     ),
     "renamed-and-removed-steps": (
@@ -143,6 +157,11 @@ CASES: dict[str, tuple[dict[int, list[Step] | None], int, list[dict[str, Any]]]]
             run(3, [(Step("shower", "Wash"), 230)], skipped=("brekkie",)),
             run(4, [(Step("ghost", "Gone"), 30)]),
         ],
+    ),
+    "versions-sort-as-numbers": (
+        {2: [Step("shower", "Old label")], 10: [Step("shower", "New label")]},
+        10,
+        [run(1, [(Step("shower", "Old label"), 60)])],
     ),
     "timing-turned-off": (
         {1: ROUTINE, 2: None},
@@ -222,10 +241,12 @@ def build() -> dict[str, Any]:
             "semantics": [
                 "docs/specs/timers.md §9.1. Durations are integer milliseconds of active time. Entries "
                 "with timing null are ignored entirely.",
-                "complete = timing.complete (no step skipped; always true without steps). total.best_ms, "
+                "complete = timing.complete (the version has no steps, or every step has a segment and none "
+                "was skipped; computed when the timing is made). total.best_ms, "
                 "median_ms and mean_ms are over complete runs' active_ms only; null when there are none.",
                 "median: the middle value of the sorted values, or floor((a + b) / 2) of the two middle "
                 "ones. mean: floor(sum / n).",
+                "versions keys are version numbers as strings: order them as numbers. "
                 "steps: every key seen in range (a segment's step, or in skipped); the current version's "
                 "keys first in its step order, then the rest by key (code point order). done = runs with "
                 "a segment for the key, skipped = runs that skipped it; best, median and mean over the "
@@ -234,7 +255,8 @@ def build() -> dict[str, Any]:
                 "the current version (versions[current_version], null when timing is off).",
                 "laps: per run, lap_ms = sum of its lap segments' active_ms; runs_with_laps, median and "
                 "mean over the runs with at least one lap segment.",
-                "paused: runs_with_pauses = runs with at least one pause; median of their paused_ms.",
+                "paused: runs_with_pauses = runs with paused_ms > 0 (a zero-length pause doesn't count); "
+                "median of their paused_ms.",
                 "series: one point per timed entry, by (captured_at, entry_id); steps maps each step "
                 "segment's key to its active_ms.",
             ],
@@ -278,6 +300,9 @@ def test_vectors_cover_the_spec() -> None:
     assert (laps.runs_with_laps, laps.median_ms, laps.mean_ms) == (2, 42_500, 42_500)
     paused = compute("pauses").paused
     assert (paused.runs_with_pauses, paused.median_ms) == (2, 113_500)
+    stopped_early = compute("stopped-before-the-last-step")
+    assert (stopped_early.complete_runs, stopped_early.total.best_ms) == (1, 1100_000)
+    assert compute("versions-sort-as-numbers").steps[0].label == "New label"
     renamed = compute("renamed-and-removed-steps").steps
     assert [(s.key, s.label, s.current) for s in renamed] == [
         ("shower", "Wash", True),
