@@ -1,10 +1,10 @@
 # Spec: client API levels and forced updates
 
-**Status:** draft, revision 1, 2026-10-23. **Applies to:** the backend, the PWA
-and the iOS app. **Replaces part of:**
-[compatibility.md](../ios/specs/compatibility.md) (§7 here says how). **Needed
-by:** [timers.md](timers.md), whose feed change is the first break shipped under
-this policy.
+**Status:** draft, revision 2, 2026-10-23. **Milestone CV, a follow-on after
+the timers milestone (T)**; not a prerequisite for it. The design is to be
+reviewed before CV starts. **Applies to:** the backend, the PWA and the iOS app.
+**Replaces part of:** [compatibility.md](../ios/specs/compatibility.md) (§7 here
+says how).
 
 ## Purpose
 
@@ -52,7 +52,7 @@ One file, `shared/api-level.json`:
 The values change over time. This mechanism ships as `api_level: 1` with
 `min_client_level: {ios: 0, web: 1}`: the PWA is deployed with the server, so
 its minimum can rise at once; the iOS minimum rises to 1 at the floor (§4.3).
-Timed topics then raise all three to 2, as above.
+A later breaking change raises all three, as above.
 
 | Reader  | How                                                                                                                         |
 | ------- | --------------------------------------------------------------------------------------------------------------------------- |
@@ -139,8 +139,7 @@ Content-Type: application/problem+json
 ```
 
 **Reads and writes are both refused.** It is simpler, and safer: an outdated
-client that can still read may misread new shapes (the feed is the example in
-[timers.md](timers.md)) and advance its cursor past data it dropped. The
+client that can still read may misread new shapes (a new item kind in the change feed, say) and advance its cursor past data it dropped. The
 exceptions are `/health` and `getClientVersions`.
 
 A client **above** the server's `api_level` (a new build against a server that
@@ -190,7 +189,7 @@ build that changes the outbox schema MUST migrate them.
 
 ### 4.2 Builds before the mechanism (level 0)
 
-The two listed TestFlight builds, and any older one, don't send
+Every build before CV (the timers build included) don't send
 `X-QuickR-Client`, so they are level 0 and get 426 on every request. They don't
 know the code:
 
@@ -215,7 +214,7 @@ The first TestFlight build with this mechanism is the **floor**. It ships at
 level 1. Once it is installed, `min_client_level.ios` is raised to 1 in a small
 PR, so level-0 builds are refused from then on. Raising the minimum before the
 floor build is on the user's phone would leave them on a build that can't show
-the prompt; the plan orders it after (timers-plan.md, CV-FLOOR).
+the prompt; the plan orders it after (§8, CV-FLOOR).
 
 ### 4.4 Tolerant decoding, from the floor build on
 
@@ -290,10 +289,11 @@ compatibility.md stays, with these changes (one PR, CV-COMPAT):
 1. **The rule (§1).** The server MUST stay compatible with every listed build
    **whose API level is at least the server's `min_client_level.ios`**. Builds
    below it are refused by the server and are not checked.
-2. **`compat/supported-clients.json`.** Each client gains `"api_level"`. The two
-   current builds are level 0. `client_fixtures.py` lists only the clients at or
-   above the minimum in `shared/api-level.json`, and prints the ones it skips. A
-   listed client below the minimum MAY be removed in the same PR that raises it.
+2. **`compat/supported-clients.json`.** Each client gains `"api_level"`. The
+   list is empty when CV starts (timers emptied it). `client_fixtures.py` lists
+   only the clients at or above the minimum in `shared/api-level.json`, and
+   prints the ones it skips. A listed client below the minimum MAY be removed in
+   the same PR that raises it.
 3. **`openapi breaking` (§2).**
    - Against each **supported** listed client: unchanged. A break against one of
      them fails, because raising the minimum above that client is the only way
@@ -309,12 +309,101 @@ compatibility.md stays, with these changes (one PR, CV-COMPAT):
    `min_client_level ≤ api_level`; neither went down compared with the base
    branch; and the PWA and iOS readers get the same numbers (V12).
 5. **Fallbacks (§3).** The `fallbacks` mechanism stays for the rare additive
-   change that an old supported build reads differently. Timed topics need none.
+   change that an old supported build reads differently.
 
 **Deploying a bump.** A `v*` tag deploys the server and uploads a TestFlight
 build from the same commit (compatibility.md §5). Between the deploy and the
 user installing the new build, the app shows "Update required" and keeps its
 queued writes. That window is the cost of this policy, and the user accepted it.
+
+## 8. Plan (milestone CV, after T)
+
+Branch `feat/client-versions`, cut from `main` after the timers milestone
+merges. The scope guard and conventions of
+[timers-plan.md](timers-plan.md) apply, with issues labelled `cv-followup`.
+After T-UNGATE, `compat/supported-clients.json` is empty, so CV-COMPAT starts
+from an empty list and CV-FLOOR lists the first build.
+
+### CV-SERVER · API level, headers and enforcement · be · M
+
+- **Scope:** `shared/api-level.json` at `{api_level: 1, min_client_level:
+{ios: 0, web: 0}}`; `backend/app/client_versions.py`; the response headers
+  and the enforcing middleware (client-versions.md §3.2–§3.3), including the
+  426 `client_outdated` Problem; `getClientVersions`; the env overrides and
+  `QUICKR_IOS_UPDATE_URL`; the client level stored by `registerApnsDevice` and
+  display-only reminders below the iOS minimum (§3.4); request goldens gain
+  `X-QuickR-Client`.
+- **Areas:** `shared/api-level.json`, `backend/app/client_versions.py` (new),
+  `backend/app/api/identity.py` (or a sibling middleware module),
+  `backend/app/config.py`, `backend/app/services/push/`, `services/scheduler.py`,
+  `backend/alembic/versions/` (the APNs level column), `shared/fixtures/`,
+  `openapi.json`, `frontend/src/api` (regenerated client only).
+- **Depends on:** nothing.
+- **Acceptance:** client-versions.md V1–V5; every existing test passes (they
+  send no client headers, so they aren't checked).
+- **Tests:** V1–V5.
+
+### CV-COMPAT · the gate under the new policy · be · S
+
+- **Scope:** client-versions.md §7: `api_level` on each listed client (the list
+  is empty after timers); `client_fixtures.py` checks only clients at or above
+  the minimum; the `openapi breaking` tag rule (a break needs a bump); the new
+  `api level` check; compatibility.md updated to match.
+- **Areas:** `compat/`, `.github/workflows/compat.yml`,
+  `docs/ios/specs/compatibility.md`.
+- **Depends on:** CV-SERVER.
+- **Acceptance:** client-versions.md V11 and V12; the gate passes with the empty
+  list.
+- **Tests:** V11 against fixture repos; the workflow runs green on the PR.
+
+### CV-IOS-DATA · client header, outdated state, held queue · host · M
+
+- **Scope:** `X-QuickR-Client` from every process (the `Info.plist` key from
+  `shared/api-level.json`, written by a build phase); `client_outdated_min` in
+  `sync_state`; the coordinator and claim guards; 426 handling in the outbox
+  (restore, never fail); the store migration that revives 426-failed items
+  (§4.2); tolerant feed decoding (§4.4); result texts for widgets, intents and
+  notification actions (§4.1). The one-paragraph amendments to
+  sync-protocol.md §2.2 and outbox.md §5.2 and §6.2.
+- **Areas:** `ios/QuickrKit/Sources/QuickrData/API/`, `Store/`, `Sync/`,
+  `Outbox/`, `Intents/`, `Notifications/`, `ios/project.yml`,
+  `docs/ios/specs/`.
+- **Depends on:** CV-SERVER.
+- **Acceptance:** client-versions.md V6–V8; an unknown feed kind is skipped,
+  not a page failure; every existing outbox and sync test passes.
+- **Tests:** V6–V8; a decode test with an unknown item and deletion kind.
+
+### CV-IOS-UI · the "Update required" screen · sim · S
+
+- **Scope:** the blocking view, Open TestFlight, Check again, the server-switch
+  escape, the widget line and the "server needs updating" note (§4.1, §3.3).
+- **Areas:** `ios/App/` (root view, Settings), `ios/Widgets/`, `QuickrUI/`.
+- **Depends on:** CV-IOS-DATA.
+- **Acceptance:** client-versions.md V9.
+- **Tests:** V9 as a UI test against a fake transport.
+
+### CV-PWA · header, detection and forced reload · fe · S
+
+- **Scope:** `X-QuickR-Client` on every request; detection; the update path of
+  §5.2 with the blocking overlay; the outbox hold (§5.3). The same PR sets
+  `min_client_level.web` to 1: the PWA ships with the server.
+- **Areas:** `frontend/src/api/`, `frontend/src/components/pwa/`,
+  `frontend/src/lib/outbox/`, `frontend/vite.config.ts`, `shared/api-level.json`.
+- **Depends on:** CV-SERVER.
+- **Acceptance:** client-versions.md V10; the outbox parity tests pass.
+- **Tests:** V10.
+
+### CV-FLOOR · raise the iOS floor · release · S
+
+- **Scope:** after CV is on `main`, released, and its TestFlight build is
+  installed on the user's phone (the lead confirms with the user): list that
+  build in `compat/supported-clients.json` with `api_level: 1`, and raise
+  `min_client_level.ios` to 1.
+- **Depends on:** CV-SERVER, CV-COMPAT, CV-IOS-DATA, CV-IOS-UI, CV-PWA, and the
+  release.
+- **Acceptance:** the compat gate passes; a level-0 request answers 426 on the
+  deployed server; the installed build syncs.
+- **Tests:** none beyond the gate (V2 already covers the 426).
 
 ## Open questions
 

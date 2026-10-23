@@ -1,16 +1,12 @@
 # Spec: timed topics (runs, steps, laps and Live Activities)
 
-**Status:** draft, revision 2, 2026-10-23 (compatibility relaxed: old builds
-are forced to update by [client-versions.md](client-versions.md)). **Applies to:** the backend, the PWA,
+**Status:** draft, revision 3, 2026-10-23. **Applies to:** the backend, the PWA,
 the iOS app (app, widgets, Live Activity, intents, notifications) and the MCP
 server. **Companion specs:** [sync-protocol.md](../ios/specs/sync-protocol.md),
-[outbox.md](../ios/specs/outbox.md),
-[notifications.md](../ios/specs/notifications.md) and
-[compatibility.md](../ios/specs/compatibility.md). This spec extends them; where
-it doesn't say otherwise, their rules hold unchanged. **Prerequisite:**
-[client-versions.md](client-versions.md), the forced-update mechanism. This
-spec's feed change is a breaking change shipped under it (§12). **Plan:**
-[timers-plan.md](timers-plan.md).
+[outbox.md](../ios/specs/outbox.md) and
+[notifications.md](../ios/specs/notifications.md). This spec extends them; where
+it doesn't say otherwise, their rules hold unchanged. **No compatibility with
+older builds** (§12). **Plan:** [timers-plan.md](timers-plan.md).
 
 ## Purpose
 
@@ -119,10 +115,10 @@ Step  = { key: QuestionKey, label: Label }      // same key regex and label limi
   is renamed, so stats join across versions by key (§9).
 - A run is **pinned to the version it started on**. Publishing during a run
   doesn't change the running run.
-- **Publish compatibility.** In `publishTopicVersion` (and `createTopic`),
-  `timer` is optional. **Absent means "inherit the base version's timer"**, so
-  a caller that only edits questions (the MCP tool, a script) can't switch timing off. Explicit
-  `null` turns timing off. New clients always send the field.
+- **`timer` is required in `publishTopicVersion`**: the new version's timer, or
+  `null` for an untimed topic. Required, so no caller (the PWA, iOS, the MCP
+  tool) can switch timing off by leaving it out. In `createTopic` it is optional
+  and defaults to `null`.
 - `TopicVersionOut` gains `timer: Timer | null`.
 - `checkTopicVersion` reports step changes in its compatibility report as
   informational lines (renamed, added, removed, reordered). They never block a
@@ -391,10 +387,8 @@ TimingEdit = {
 - The edit sets `timing.edited = true` and `runs.edited = true`. From then on,
   late events for that run are void (`run_edited`, §4.4).
 - `timing` together with `captured_at` in one request answers 422.
-- **A `captured_at` change without `timing`** on a timed entry (what a caller that doesn't know timing sends, such as MCP
-  `update_entry`) **shifts the whole run** by
-  `captured_at − ended_at`: every instant in `timing` moves by the same delta,
-  so durations are kept. It also sets `edited`.
+- `captured_at` without `timing` on a timed entry answers 422 ("edit the run's
+  times instead"): `captured_at` is derived from `timing` (T1).
 - `timing: null` on a timed entry answers 422. Turning a timed entry into an
   untimed one is not supported.
 - Only stopped runs can be edited. An open run's times are corrected by stopping
@@ -607,17 +601,8 @@ Settings warning for a skew over 5 minutes covers the bad case.
 Bootstrap pages (`after = 0`) carry only open and finishing runs, never closed
 ones. Closed runs reach clients as entries.
 
-**This is a breaking change.** Builds before it fail a whole page on an unknown
-kind (`FeedItemDTO` throws; sync-protocol.md §2.2). It ships under
-[client-versions.md](client-versions.md): the same PR raises `api_level` and
-both minimums to 2, so an older build is refused before it can read a page, and
-its cursor never passes a run row. That is why no backfill is needed: a store
-first reaches a run row through a build that understands it.
-
-**From now on, a client MUST skip item and deletion kinds it doesn't know**
-instead of failing the page (the floor build of client-versions.md already
-does). A future kind then needs a backfill in the build that learns it, not a
-minimum bump, if it is optional to older builds.
+Builds from before this milestone fail a page on the new kinds. No
+compatibility is kept (§12).
 
 ### 7.2 iOS store **[ios]**
 
@@ -847,18 +832,13 @@ and is shown in the app.
 request is logged, and the run works without one. Settings ▸ Notifications gets
 a "Live Activities" switch, on by default.
 
-### 10.4 APNs payload compatibility
+### 10.4 Live Activity payload contract
 
 - The Live Activity payloads (`start`, `update`, `end`) are pinned in
   `shared/fixtures/live-activity-vectors.json`, decoded by a new Swift suite
   `LiveActivityVectorTests`.
-- Content-state fields are only ever added as optional, so a supported build
-  (at or above the minimum, client-versions.md §7) keeps decoding them. A
-  change that can't be optional bumps the API level.
-- Live Activity pushes are never sent to devices below the iOS minimum
-  (client-versions.md §3.4).
 
-## 11. Client surfaces
+## 11. Client surfaces## 11. Client surfaces
 
 ### 11.1 Shared rules
 
@@ -954,38 +934,19 @@ taps that did what the user wanted.
 | `edit_run_timing(entry_id, timing, expected_revision)` | §3.8                                                                                                                                  |
 | `timing_stats(ref, from?, to?)`                        | `getTopicTiming`                                                                                                                      |
 
-`publish_topic_version` and `create_topic` gain the optional `timer`, with the
-same "absent inherits" rule. `record_entry` on a timed topic still makes an
+`publish_topic_version` gains the required `timer` and `create_topic` the
+optional one (§2.1). `record_entry` on a timed topic still makes an
 untimed entry.
 
 ## 12. Compatibility
 
-The user relaxed compatibility: old builds may be forced to update, as long as
-they can't corrupt data first. [client-versions.md](client-versions.md) is the
-mechanism, and it ships before this milestone (timers-plan.md).
-
-- **The break.** The `run` feed kind (§7.1) is the only breaking change. Its PR
-  (T-FEED) sets `shared/api-level.json` to `api_level: 2` and
-  `min_client_level: {ios: 2, web: 2}`. Everything else in this spec is
-  additive.
-- **What older builds see.** Every `/api/v1` request answers 426
-  `client_outdated` before any effect, so they can't write runs, entries or
-  versions. A build with the mechanism (level 1) shows "Update required" and
-  holds its queue. A build before it (level 0) shows sync errors and keeps its
-  failed items, which the next build resends (client-versions.md §4.2). Their
-  reminders are display-only.
-- **Corruption check.** No older build can reach a write path once the server
-  is deployed. Before the deploy, the server doesn't have runs. There is no
-  window in which an old build talks to a server with runs.
-- **The compat gate** checks only listed builds at or above the minimum
-  (client-versions.md §7). After this milestone that is the first timers build;
-  until it is listed, the gate checks none. The two current listed builds
-  (level 0) leave the list in the T-FEED PR. No `fallbacks` are needed.
-- **The PWA** ships with the server. A tab with an older bundle is forced to
-  reload (client-versions.md §5.2).
-- **Deploy order.** The milestone merges to `main` as one PR, and one `v*` tag
-  deploys the server and uploads the TestFlight build. Until that build is
-  installed, the phone shows "Update required" and keeps what it queued.
+None. The user decided: "No build compatibility for this version!" The server,
+the PWA and the iOS app are updated together, and builds from before this
+milestone are not supported against its server. The only compatibility work is
+mechanical: T-UNGATE (timers-plan.md) empties the compat gate's client list and
+records the milestone's intentional breaks, so CI doesn't block them. The
+forced-update mechanism for later releases is a separate, follow-on milestone
+([client-versions.md](client-versions.md)).
 
 ## 13. Tests
 
@@ -1018,27 +979,18 @@ hand (`shared/fixtures/README.md` gains a row for each).
 | T7  | `listChanges` bootstrap carries open and finishing runs and no closed ones; an incremental page carries run upserts and run deletions.                                                          |
 | T8  | `listChanges`: a stopped run's entry appears at a lower or equal seq than its run deletion (§2.4).                                                                                              |
 | T9  | Topic delete with an open run: run ids and aliases are in `deleted_ids`, and a later event answers 409 `run_deleted`.                                                                           |
-| T10 | Old-client PATCH of `captured_at` on a timed entry shifts every instant by the delta, keeps durations, and sets `edited`.                                                                       |
-| T11 | Publish without `timer` inherits it; with `null` turns it off; a run started on the old version still stops against it.                                                                         |
+| T10 | PATCH of `captured_at` without `timing` on a timed entry answers 422 and changes nothing.                                                                                                       |
+| T11 | Publish without `timer` answers 422; with `null` turns timing off; a run started on the old version still stops against it.                                                                     |
 | T12 | The scheduler sends no reminder for a topic with an open run, and sends one for a topic with only a finishing run.                                                                              |
 | T13 | `createEntry` with a run's id and `start` with an entry's id both answer 409 `id_conflict`.                                                                                                     |
-| T14 | `openapi breaking` passes against the tag only because `shared/api-level.json` was bumped (client-versions.md §7); `old requests` checks no client below the minimum.                           |
 | T15 | Live Activity sender: one push per registered token per change; `end` drops the topic's tokens; 410 drops a token; the start's `device` is excluded from push-to-start when it started locally. |
 
-### 13.3 Compatibility gate
-
-- T-FEED bumps `shared/api-level.json` to 2 and removes the two level-0 builds
-  from `compat/supported-clients.json` (client-versions.md §7). The gate must
-  pass with no new lines in `openapi-break-approvals.txt` and no `fallbacks`.
-- No other WP may break the API. A WP that finds it must is stopped and
-  reported to the lead (scope guard, timers-plan.md).
-
-### 13.4 iOS
+### 13.3 iOS
 
 | #   | Case                                                                                                                                                        | Class   |
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
 | R1  | Fold, stats and format vectors                                                                                                                              | host    |
-| R2  | `listChanges` decode: run items, run deletions, and an unknown kind skipped without failing the page                                                        | host    |
+| R2  | `listChanges` decode and apply: run items and run deletions, live and staged                                                                                | host    |
 | R4  | Outbox `run.event`: ordering behind its start; `entry.update` after `stop`; K6 drops a never-sent start…discard; classification table (§8.1)                | host    |
 | R5  | Local view: queued start → open run at once; queued Next folds over server events; an alias response re-keys the local run                                  | host    |
 | R6  | (MP) The widget's Next and the app's Next for one segment, enqueued in the same instant: both queued, the server applies one                                | host MP |
@@ -1048,14 +1000,14 @@ hand (`shared/fixtures/README.md` gains a row for each).
 | R10 | UI test: start, Next ×2, Skip, Pause, Resume, Stop, answer, Save; the entry shows the expected segments                                                     | sim     |
 | R11 | UI test: Edit times on a finished run, then the stats screen shows the new median                                                                           | sim     |
 
-### 13.5 PWA
+### 13.4 PWA
 
 Vitest for the fold port, `fmtDuration`, the outbox kind (ordering, K6,
 classification) and the components (tile states, run panel, answers flow, timing
 editor validation). The existing `classifyStatus` parity test covers the new
 kind's base classification.
 
-### 13.6 Device validation (not automatable)
+### 13.5 Device validation (not automatable)
 
 1. A notification Start with the app killed: the run starts; the Live Activity
    appears (locally if iOS allows it, otherwise by push-to-start); record which.
@@ -1068,6 +1020,8 @@ kind's base classification.
    be opened), with a notice that asks the user to unlock.
 
 ## Open questions
+
+Both are **taken as decided by the lead**, pending the user's final word.
 
 1. **OPEN 1: what a lap means in a run with steps.** This spec makes a lap close
    the current segment and open an **unnamed** segment; the next Next then
@@ -1084,21 +1038,21 @@ kind's base classification.
 
 ## Traceability
 
-| User request or decision                                            | Where                         |
-| ------------------------------------------------------------------- | ----------------------------- |
-| Start on one tap, capture the end on the second                     | §3.3, §3.5, §11.1 (Auto)      |
-| Optional internal checkpoints; named steps, skip, ad-hoc laps       | §2.1, §4.2, OPEN 1            |
-| Versioned steps                                                     | §2.1                          |
-| Stop saves start, end, total and per-segment times; answers at Stop | §2.3, §3.5, §3.6              |
-| Stored server-side; any surface advances it; offline-tolerant       | §1, §4.1, §7, §8              |
-| One open run per topic                                              | §2.2 (index), §4.5            |
-| iOS and PWA UI                                                      | §11.2, §11.5                  |
-| Live Activity with Next and Stop as App Intents                     | §10.3                         |
-| Action button, widget, Siri and Shortcuts                           | §11.3                         |
-| Pause and resume                                                    | §4.2                          |
-| Editing a past run's times                                          | §3.8                          |
-| Stats: total over time, per step, median and best                   | §9, OPEN 2                    |
-| MCP tools                                                           | §11.6                         |
-| Reminders with a Start action                                       | §10.1, §10.2                  |
-| Precision to the second or better; m:ss                             | §2.3, §5, §11.1               |
-| Old builds are forced to update and can't corrupt data              | §7.1, §12, client-versions.md |
+| User request or decision                                            | Where                    |
+| ------------------------------------------------------------------- | ------------------------ |
+| Start on one tap, capture the end on the second                     | §3.3, §3.5, §11.1 (Auto) |
+| Optional internal checkpoints; named steps, skip, ad-hoc laps       | §2.1, §4.2, OPEN 1       |
+| Versioned steps                                                     | §2.1                     |
+| Stop saves start, end, total and per-segment times; answers at Stop | §2.3, §3.5, §3.6         |
+| Stored server-side; any surface advances it; offline-tolerant       | §1, §4.1, §7, §8         |
+| One open run per topic                                              | §2.2 (index), §4.5       |
+| iOS and PWA UI                                                      | §11.2, §11.5             |
+| Live Activity with Next and Stop as App Intents                     | §10.3                    |
+| Action button, widget, Siri and Shortcuts                           | §11.3                    |
+| Pause and resume                                                    | §4.2                     |
+| Editing a past run's times                                          | §3.8                     |
+| Stats: total over time, per step, median and best                   | §9, OPEN 2               |
+| MCP tools                                                           | §11.6                    |
+| Reminders with a Start action                                       | §10.1, §10.2             |
+| Precision to the second or better; m:ss                             | §2.3, §5, §11.1          |
+| No build compatibility for this version                             | §12                      |
