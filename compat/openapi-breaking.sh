@@ -16,7 +16,8 @@ if (($# == 0)); then
   [[ -n "$tag" ]] || { echo "compat: no v* tag to compare openapi.json with" >&2; exit 1; }
   clients=()
   while IFS= read -r sha; do clients+=("$sha"); done < <(python3 compat/client_fixtures.py shas)
-  set -- "$tag" "${clients[@]}"
+  # No listed clients is allowed (compat/supported-clients.json); bash < 4.4 needs the guard.
+  set -- "$tag" ${clients[@]+"${clients[@]}"}
 fi
 
 old="$(mktemp)"

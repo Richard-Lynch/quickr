@@ -26,6 +26,17 @@ RFC 2119.
    relies on it ships after that, and the server keeps serving the older listed
    builds.
 
+**Note, 2026-10-23: the timers milestone.** The timers milestone
+([timers-plan.md](../../specs/timers-plan.md), T-UNGATE) supports no earlier
+build, so `compat/supported-clients.json` lists no clients (`"clients": []`).
+With an empty list, `old clients` and `old requests` check nothing, and
+`openapi breaking` compares only with the newest `v*` tag; the milestone's
+breaks against it are approved under its own header in
+`compat/openapi-break-approvals.txt`. The list stays empty until a timers build
+is added by the usual TestFlight PR (§5). Forced updates, for builds the server
+no longer serves, come with milestone CV
+([client-versions.md](../../specs/client-versions.md)).
+
 ## 2. OpenAPI breaking changes (`openapi breaking`, ubuntu)
 
 `compat/openapi-breaking.sh` compares `openapi.json` with the one at the newest
