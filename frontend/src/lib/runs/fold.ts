@@ -39,7 +39,7 @@ import { RUN_EVENT_TYPES } from './types';
 /** §5: a run lasts at most 7 days from its start. */
 export const MAX_RUN_MS = 7 * 24 * 60 * 60 * 1000;
 
-const APPLIED: Effect = { effect: 'applied', reason: null };
+const APPLIED: Effect = Object.freeze({ effect: 'applied', reason: null });
 const effectOf = (reason: VoidReason | null): Effect =>
   reason === null ? APPLIED : { effect: 'void', reason };
 
@@ -381,6 +381,8 @@ export function stateToWire(state: RunState): RunStateWire {
         : { ...state.open, started_at: formatInstant(state.open.started_at) },
     paused_since: state.paused_since === null ? null : formatInstant(state.paused_since),
     segments: state.segments.map(segmentToWire),
+    skipped: [...state.skipped],
+    effects: { ...state.effects },
     pauses: state.pauses.map(pauseToWire),
   };
 }

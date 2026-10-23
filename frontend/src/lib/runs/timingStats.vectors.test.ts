@@ -44,7 +44,13 @@ describe('timing stats vectors (shared with the backend and iOS)', () => {
   });
 
   it.each(vectors.cases.map((c) => [c.name, c] as const))('%s', (name, c) => {
-    const versions = new Map(Object.entries(c.versions).map(([n, s]) => [Number(n), s] as const));
+    // Highest version first, so a port that relies on the Map's order (not sorting by
+    // number) gets the wrong labels in versions-sort-as-numbers.
+    const versions = new Map(
+      Object.entries(c.versions)
+        .map(([n, s]) => [Number(n), s] as const)
+        .sort(([a], [b]) => b - a),
+    );
     const entries = c.entries.map((e) => ({
       entry_id: e.entry_id,
       captured_at: parseInstant(e.captured_at),

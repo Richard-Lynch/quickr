@@ -7,8 +7,8 @@
  *   epoch milliseconds ({@link parseServerTime}).
  * - The client keeps one offset, from the **latest** response whose round trip took at
  *   most 5 s; 0 before the first sample ({@link nextOffset}).
- * - A run event's `at` is device now + offset, truncated to whole milliseconds, and never
- *   earlier than the latest `at` among that run's events in the local view
+ * - A run event's `at` is device now + offset, truncated to whole milliseconds, and always
+ *   after the latest `at` among that run's events in the local view
  *   ({@link stampRunEvent}).
  */
 
@@ -62,14 +62,18 @@ export function latestAt(ats: Iterable<number>): number | null {
   return latest;
 }
 
-/** `at`, clamped up to the run's latest `at` so a device's own events never go backwards. */
+/**
+ * `at`, clamped to at least the run's latest `at` + 1 ms, so a device's own events stay in
+ * the order it made them. Strictly after: with an equal `at` the fold's id tie-break (§4.1)
+ * could put a later tap first and void the earlier one as stale.
+ */
 export function clampToRun(at: number, latest: number | null): number {
-  return latest === null ? at : Math.max(at, latest);
+  return latest === null ? at : Math.max(at, latest + 1);
 }
 
 /**
- * The `at` for a new event of a run: device now + offset, truncated, and clamped up to the
- * latest `at` among `runAts`, the run's events in the local view (its own queued ones and
+ * The `at` for a new event of a run: device now + offset, truncated, and clamped to just
+ * after the latest `at` among `runAts`, the run's events in the local view (its own queued ones and
  * the server's). Offline, `offset` is simply the last one known.
  */
 export function stampRunEvent(deviceNow: number, offset: number, runAts: Iterable<number>): number {

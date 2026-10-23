@@ -11,7 +11,7 @@ const MS_PER_DAY = 86_400_000;
 
 // `YYYY-MM-DDTHH:MM:SS[.fraction](Z|±HH:MM)`: the API's date-time form (sync-protocol.md §1.5).
 const INSTANT =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:([Zz])|([+-])(\d{2}):(\d{2}))$/;
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:(Z)|([+-])(\d{2}):(\d{2}))$/;
 
 /** Days from 1970-01-01 to a proleptic Gregorian date (H. Hinnant's `days_from_civil`). */
 function daysFromCivil(y: number, m: number, d: number): number {
@@ -44,7 +44,8 @@ function daysInMonth(y: number, m: number): number {
 
 /**
  * A wire date-time as epoch milliseconds, truncated (sub-millisecond digits dropped). It
- * needs an offset (`Z` or `±HH:MM`); throws on anything else.
+ * needs an offset (`Z` or `±HH:MM`); throws on anything else. Stricter than Python's
+ * `fromisoformat` on purpose: only the form the API writes.
  */
 export function parseInstant(text: string): number {
   const m = INSTANT.exec(text);

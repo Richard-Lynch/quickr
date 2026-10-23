@@ -27,6 +27,9 @@ describe('parseInstant', () => {
     '2026-10-23T24:00:00Z',
     '2026-10-23T08:00:00+0100',
     '2026-10-23T08:00:00.Z',
+    // Lowercase z: refused, as the reference refuses it. The TS parser is intentionally
+    // stricter than Python's fromisoformat elsewhere (a space separator, `+0100`, no offset).
+    '2026-10-23T08:00:00z',
     '',
   ])('refuses %j', (text) => {
     expect(() => parseInstant(text)).toThrow(RangeError);

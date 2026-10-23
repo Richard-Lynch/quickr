@@ -178,6 +178,12 @@ CASES: dict[str, tuple[dict[int, list[Step] | None], int, list[dict[str, Any]]]]
         1,
         [run(5, [(None, 100)]), run(2, [(None, 300)]), run(3, [(None, 200)])],
     ),
+    "series-tie-on-captured-at-by-entry-id": (
+        NO_STEPS,
+        1,
+        # Both end at day 3 + 100 s; listed with the higher id first.
+        [run(3, [(None, 100)]), run(2, [(None, 24 * 60 * 60 + 100)])],
+    ),
 }
 
 
@@ -317,3 +323,6 @@ def test_vectors_cover_the_spec() -> None:
         entry_id(3),
         entry_id(5),
     ]
+    tie = compute("series-tie-on-captured-at-by-entry-id").series
+    assert tie[0].captured_at == tie[1].captured_at
+    assert [p.entry_id for p in tie] == [entry_id(2), entry_id(3)]

@@ -124,10 +124,10 @@ export interface RunState {
   open: OpenSegment | null;
   next_step: string | null;
   paused_since: number | null;
-  segments: Segment[];
-  skipped: string[];
-  pauses: Pause[];
-  effects: Record<string, Effect>;
+  readonly segments: readonly Segment[];
+  readonly skipped: readonly string[];
+  readonly pauses: readonly Pause[];
+  readonly effects: Readonly<Record<string, Effect>>;
 }
 export interface RunStateWire {
   status: RunStatus;
@@ -150,9 +150,9 @@ export interface Timing {
   paused_ms: number;
   complete: boolean;
   edited: boolean;
-  segments: Segment[];
-  skipped: string[];
-  pauses: Pause[];
+  readonly segments: readonly Segment[];
+  readonly skipped: readonly string[];
+  readonly pauses: readonly Pause[];
 }
 export interface TimingWire extends Omit<
   Timing,
