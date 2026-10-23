@@ -211,7 +211,7 @@ final class FakeServerState: Sendable {
 
     /// Publishes `questions` as the topic's next version: the topic row and the version row go
     /// into the feed. Returns the updated topic.
-    fileprivate func publish(_ id: String, questions: [[String: Any]], note: String) -> [String: Any]? {
+    fileprivate func publish(_ id: String, questions: [[String: Any]], timer: Any?, note: String) -> [String: Any]? {
         guard var topic = topic(id) else { return nil }
         let now = ISO8601DateFormatter().string(from: Date())
         let number = (topic["current_version"] as? Int ?? 1) + 1
@@ -221,7 +221,8 @@ final class FakeServerState: Sendable {
         topic["revision"] = (topic["revision"] as? Int ?? 1) + 1
         topic["updated_at"] = now
         let version: [String: Any] = [
-            "version": number, "questions": questions, "change_note": note, "created_at": now, "entry_count": 0,
+            "version": number, "questions": questions, "timer": timer ?? NSNull(), "change_note": note,
+            "created_at": now, "entry_count": 0,
         ]
         put(topic)
         appendToFeed(topic, version: version)
@@ -357,7 +358,7 @@ enum FakeServer {
         #"""
         {"id": "\#(versionId)", "kind": "version", "seq": \#(seq), "topic_id": "\#(topicId.wireString)",
          "version": {"change_note": "", "created_at": "2026-01-01T00:00:00Z", "entry_count": 0,
-                     "questions": \#(questions), "version": 1}}
+                     "questions": \#(questions), "timer": null, "version": 1}}
         """#
     }
 
@@ -536,8 +537,8 @@ private struct FakeServerTransport: Transport {
             state.appendToFeed(
                 topic,
                 version: [
-                    "version": 1, "questions": questions, "change_note": "Initial version", "created_at": now,
-                    "entry_count": 0,
+                    "version": 1, "questions": questions, "timer": body["timer"] ?? NSNull(),
+                    "change_note": "Initial version", "created_at": now, "entry_count": 0,
                 ])
             return json(201, topic)
         }
@@ -605,7 +606,8 @@ private struct FakeServerTransport: Transport {
                 "key": "energy", "label": "Energy", "type": "int", "min": 1, "max": 10, "unit": NSNull(),
                 "help_text": NSNull(), "required": false,
             ]
-            _ = state.publish(id, questions: (current["questions"] as? [[String: Any]] ?? []) + [energy], note: "")
+            _ = state.publish(
+                id, questions: (current["questions"] as? [[String: Any]] ?? []) + [energy], timer: nil, note: "")
         }
         guard let topic = state.topic(id) else { return problem(404, "not_found", "topic not found") }
         let current = topic["current_version"] as? Int ?? 1
@@ -635,7 +637,14 @@ private struct FakeServerTransport: Transport {
         }
         guard report.ok else { return problem(422, "incompatible_version", "the new version is incompatible") }
         let note = body["change_note"] as? String ?? ""
-        guard let updated = state.publish(id, questions: inputs.map(FakeServer.outputQuestion), note: note) else {
+        // The backend requires `timer` (null: untimed) and puts it on the new version.
+        guard body.keys.contains("timer") else { return problem(422, "invalid_request", "timer is required") }
+        guard
+            let updated = state.publish(
+                id, questions: inputs.map(FakeServer.outputQuestion),
+                timer: body["timer"].flatMap { $0 is NSNull ? nil : $0 },
+                note: note)
+        else {
             return problem(404, "not_found", "topic not found")
         }
         return json(201, updated)
