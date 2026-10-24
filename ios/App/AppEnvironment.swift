@@ -115,7 +115,7 @@ final class AppEnvironment {
         activityTokens = tokens
         let activities = LiveActivities(
             center: activityCenter ?? NoRunActivityCenter(), tokens: tokens, enabled: settings.liveActivities,
-            snapshot: { await box.activitySnapshot() })
+            snapshot: { await box.activitySnapshot() }, hold: { await box.holdStore() })
         liveActivities = activities
         // The app's own taps update its activity at once; a start here requests one (§10.3).
         runActions = RunActions(writer: {

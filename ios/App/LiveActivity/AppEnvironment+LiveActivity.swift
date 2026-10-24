@@ -156,6 +156,13 @@ final class SessionBox {
             credentials: configuration.credentials, origin: .app, serverOffset: StoreServerOffset(store: store))
     }
 
+    /// Keeps the databases resumed for a token pass (it can run in the background, like a tap),
+    /// returning the release.
+    func holdStore() -> @Sendable () async -> Void {
+        let hold = session?.holdStoreResumed()
+        return { await hold?.release() }
+    }
+
     /// The active server's id, lowercase.
     func activeServerId() async -> String? { await activeStore()?.serverId.lowercased() }
 

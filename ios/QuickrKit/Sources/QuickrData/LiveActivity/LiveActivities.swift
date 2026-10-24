@@ -24,6 +24,9 @@ public final class LiveActivities {
     private let tokens: LiveActivityTokens?
     private let snapshot: @Sendable () async -> RunActivitySnapshot?
     private let now: @Sendable () -> Date
+    /// Keeps the store usable for a token pass (the app's `holdStoreResumed`: a pass can run while
+    /// the app is in the background), returning the release.
+    private let hold: @Sendable () async -> @Sendable () async -> Void
     private var enabled: Bool
     /// The activity work in order: each call waits for the one before.
     private var tail: Task<Void, Never>?
@@ -38,13 +41,15 @@ public final class LiveActivities {
     public init(
         center: any RunActivityCenter, tokens: LiveActivityTokens?, enabled: Bool,
         snapshot: @escaping @Sendable () async -> RunActivitySnapshot?,
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        hold: @escaping @Sendable () async -> @Sendable () async -> Void = { {} }
     ) {
         self.center = center
         self.tokens = tokens
         self.enabled = enabled
         self.snapshot = snapshot
         self.now = now
+        self.hold = hold
     }
 
     /// The Settings switch is on.
@@ -79,7 +84,10 @@ public final class LiveActivities {
     }
 
     public func tokensChanged() async {
-        syncTokens(await snapshot())
+        let release = await hold()
+        let snapshot = await snapshot()
+        await release()
+        syncTokens(snapshot)
     }
 
     public func setEnabled(_ on: Bool) async {
@@ -106,10 +114,12 @@ public final class LiveActivities {
     /// Queues one token pass over the activities as they are now.
     private func syncTokens(_ snapshot: RunActivitySnapshot?) {
         guard let tokens else { return }
-        let (previous, center, enabled) = (tokenTail, center, enabled)
+        let (previous, center, enabled, hold) = (tokenTail, center, enabled, hold)
         tokenTail = Task {
             await previous?.value
+            let release = await hold()
             await tokens.sync(await center.activities(), snapshot, enabled: enabled)
+            await release()
         }
     }
 
@@ -211,6 +221,9 @@ public actor LiveActivityTokens {
     private var registered: [String: UpdateRegistration] = [:]
     /// Tokens owed a delete (the switch went off).
     private var owed: Set<String>
+    /// Tokens deleted while the switch is off: not owed again at every pass. Cleared when it goes
+    /// back on.
+    private var deleted: Set<String> = []
 
     public init(_ dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -232,7 +245,9 @@ public actor LiveActivityTokens {
     public func sync(_ activities: [RunActivityRecord], _ snapshot: RunActivitySnapshot?, enabled: Bool) async {
         if !enabled {
             // Every token this device has, the ended activities' too (they were just ended).
-            owe(Set(registered.keys).union(updateTokens.values).union(startToken.map { [$0] } ?? []))
+            owe(
+                Set(registered.keys).union(updateTokens.values).union(startToken.map { [$0] } ?? [])
+                    .subtracting(deleted))
             registered = [:]
             startRegistered = nil
         }
@@ -243,6 +258,7 @@ public actor LiveActivityTokens {
         registered = registered.filter { kept.contains($0.key) }  // the server drops an ended run's
         if enabled {
             // Back on: a token about to be registered again is no longer owed a delete.
+            deleted = []
             forgive(Set(updateTokens.values).union(startToken.map { [$0] } ?? []))
         }
         await payOwed()
@@ -289,6 +305,7 @@ public actor LiveActivityTokens {
         guard !owed.isEmpty else { return }
         for token in owed.sorted() where (try? await dependencies.unregister(token)) != nil {
             owed.remove(token)
+            deleted.insert(token)
         }
         dependencies.saveOwed(owed.sorted())
     }
