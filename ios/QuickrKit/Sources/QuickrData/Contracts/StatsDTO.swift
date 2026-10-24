@@ -187,3 +187,98 @@ public struct QuestionSeriesDTO: Codable, Sendable, Hashable, WireResponse {
             })
     }
 }
+
+/// `TopicTiming` (getTopicTiming, timers.md §9.2). Durations are integer milliseconds; the
+/// timing chart models (I-CORE) read it as it is.
+public struct TopicTimingDTO: Codable, Sendable, Hashable, WireResponse {
+    /// `TimingSummary`, and the median and mean of `TimingLaps`.
+    public struct Summary: Codable, Sendable, Hashable {
+        @RequiredKey public var bestMs: Int?
+        @RequiredKey public var medianMs: Int?
+        @RequiredKey public var meanMs: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case bestMs = "best_ms"
+            case medianMs = "median_ms"
+            case meanMs = "mean_ms"
+        }
+    }
+
+    /// `TimingStepStats`.
+    public struct StepStats: Codable, Sendable, Hashable {
+        public var key: String
+        public var label: String
+        public var current: Bool
+        public var done: Int
+        public var skipped: Int
+        @RequiredKey public var bestMs: Int?
+        @RequiredKey public var medianMs: Int?
+        @RequiredKey public var meanMs: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case key, label, current, done, skipped
+            case bestMs = "best_ms"
+            case medianMs = "median_ms"
+            case meanMs = "mean_ms"
+        }
+    }
+
+    /// `TimingLaps`.
+    public struct Laps: Codable, Sendable, Hashable {
+        public var runsWithLaps: Int
+        @RequiredKey public var medianMs: Int?
+        @RequiredKey public var meanMs: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case runsWithLaps = "runs_with_laps"
+            case medianMs = "median_ms"
+            case meanMs = "mean_ms"
+        }
+    }
+
+    /// `TimingPaused`.
+    public struct Paused: Codable, Sendable, Hashable {
+        public var runsWithPauses: Int
+        @RequiredKey public var medianMs: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case runsWithPauses = "runs_with_pauses"
+            case medianMs = "median_ms"
+        }
+    }
+
+    /// `TimingSeriesPoint`. Instants stay wire strings, as in `TimingDTO`.
+    public struct Point: Codable, Sendable, Hashable {
+        public var entryId: String
+        public var capturedAt: String
+        public var startedAt: String
+        public var activeMs: Int
+        public var pausedMs: Int
+        public var complete: Bool
+        public var steps: [String: Int]
+
+        enum CodingKeys: String, CodingKey {
+            case complete, steps
+            case entryId = "entry_id"
+            case capturedAt = "captured_at"
+            case startedAt = "started_at"
+            case activeMs = "active_ms"
+            case pausedMs = "paused_ms"
+        }
+    }
+
+    public var runs: Int
+    public var completeRuns: Int
+    public var total: Summary
+    public var steps: [StepStats]
+    public var laps: Laps
+    public var paused: Paused
+    public var series: [Point]
+
+    enum CodingKeys: String, CodingKey {
+        case runs, total, steps, laps, paused, series
+        case completeRuns = "complete_runs"
+    }
+
+    public func toDomain() -> TopicTimingDTO { self }
+}

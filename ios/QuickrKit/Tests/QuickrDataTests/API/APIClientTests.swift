@@ -52,6 +52,7 @@ import Testing
         "listRuns": { try await $0.listRuns(statuses: ["finishing"]).erased },
         "listChanges": { try await $0.listChanges(after: 0).erased },
         "getTopicStats": { try await $0.getTopicStats(ref: "everything").erased },
+        "getTopicTiming": { try await $0.getTopicTiming(ref: "everything").erased },
         "getQuestionSeries": {
             try await $0.getQuestionSeries(ref: "everything", key: "hours", bucket: .day, timezone: "Europe/London")
                 .erased

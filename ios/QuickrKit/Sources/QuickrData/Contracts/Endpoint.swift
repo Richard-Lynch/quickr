@@ -120,6 +120,9 @@ public enum Endpoints {
 
     public static let getTopicStats = Endpoint<EmptyBody, TopicStatsDTO>(
         "getTopicStats", .get, "/api/v1/topics/{ref}/stats")
+    /// Query: the same entry filters as getTopicStats (timers.md §9.2).
+    public static let getTopicTiming = Endpoint<EmptyBody, TopicTimingDTO>(
+        "getTopicTiming", .get, "/api/v1/topics/{ref}/timing")
     public static let getQuestionSeries = Endpoint<EmptyBody, QuestionSeriesDTO>(
         "getQuestionSeries", .get, "/api/v1/topics/{ref}/questions/{key}/series")
 
@@ -145,7 +148,7 @@ public enum Endpoints {
         listTopicVersions.erased, publishTopicVersion.erased, checkTopicVersion.erased, listEntries.erased,
         createEntry.erased, exportEntriesCsv.erased, getEntry.erased, updateEntry.erased, deleteEntry.erased,
         recordRunEvent.erased, getRun.erased, listRuns.erased, listChanges.erased, getTopicStats.erased,
-        getQuestionSeries.erased, getPushConfig.erased,
+        getTopicTiming.erased, getQuestionSeries.erased, getPushConfig.erased,
         createPushSubscription.erased, deletePushSubscription.erased, sendTestPush.erased,
         registerApnsDevice.erased, deleteApnsDevice.erased, sendApnsTestPush.erased,
     ]

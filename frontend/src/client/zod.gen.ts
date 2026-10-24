@@ -778,11 +778,28 @@ export const zTimer = z.object({
 });
 
 /**
+ * TimingLaps
+ */
+export const zTimingLaps = z.object({
+    runs_with_laps: z.int(),
+    median_ms: z.int().nullable(),
+    mean_ms: z.int().nullable()
+});
+
+/**
  * TimingPause
  */
 export const zTimingPause = z.object({
     start: z.iso.datetime({ offset: true }),
     end: z.iso.datetime({ offset: true })
+});
+
+/**
+ * TimingPaused
+ */
+export const zTimingPaused = z.object({
+    runs_with_pauses: z.int(),
+    median_ms: z.int().nullable()
 });
 
 /**
@@ -934,6 +951,44 @@ export const zRunEventResult = z.object({
 });
 
 /**
+ * TimingSeriesPoint
+ */
+export const zTimingSeriesPoint = z.object({
+    entry_id: z.uuid(),
+    captured_at: z.iso.datetime({ offset: true }),
+    started_at: z.iso.datetime({ offset: true }),
+    active_ms: z.int(),
+    paused_ms: z.int(),
+    complete: z.boolean(),
+    steps: z.record(z.string(), z.int())
+});
+
+/**
+ * TimingStepStats
+ */
+export const zTimingStepStats = z.object({
+    key: z.string(),
+    label: z.string(),
+    current: z.boolean(),
+    done: z.int(),
+    skipped: z.int(),
+    best_ms: z.int().nullable(),
+    median_ms: z.int().nullable(),
+    mean_ms: z.int().nullable()
+});
+
+/**
+ * TimingSummary
+ *
+ * Best, median and mean of active times in milliseconds; null when there are none.
+ */
+export const zTimingSummary = z.object({
+    best_ms: z.int().nullable(),
+    median_ms: z.int().nullable(),
+    mean_ms: z.int().nullable()
+});
+
+/**
  * TopicCreate
  */
 export const zTopicCreate = z.object({
@@ -1034,6 +1089,22 @@ export const zTopicPage = z.object({
     total: z.int(),
     limit: z.int(),
     offset: z.int()
+});
+
+/**
+ * TopicTiming
+ *
+ * Timing stats over the timed entries in range (timers.md §9). Durations are active
+ * time in integer milliseconds; untimed entries count toward nothing here.
+ */
+export const zTopicTiming = z.object({
+    runs: z.int(),
+    complete_runs: z.int(),
+    total: zTimingSummary,
+    steps: z.array(zTimingStepStats),
+    laps: zTimingLaps,
+    paused: zTimingPaused,
+    series: z.array(zTimingSeriesPoint)
 });
 
 /**
@@ -1511,6 +1582,23 @@ export const zGetTopicStatsQuery = z.object({
  * Successful Response
  */
 export const zGetTopicStatsResponse = zTopicStats;
+
+export const zGetTopicTimingPath = z.object({
+    ref: z.string()
+});
+
+export const zGetTopicTimingQuery = z.object({
+    captured_from: z.iso.datetime({ offset: true }).nullish(),
+    captured_to: z.iso.datetime({ offset: true }).nullish(),
+    version: z.int().gte(1).nullish(),
+    source: z.string().max(100).nullish(),
+    channel: zChannel.nullish()
+});
+
+/**
+ * Successful Response
+ */
+export const zGetTopicTimingResponse = zTopicTiming;
 
 export const zGetQuestionSeriesPath = z.object({
     ref: z.string(),

@@ -2065,6 +2065,26 @@ export type Timing = {
 };
 
 /**
+ * TimingLaps
+ */
+export type TimingLaps = {
+    /**
+     * Runs With Laps
+     */
+    runs_with_laps: number;
+    /**
+     * Median Ms
+     *
+     * Of each such run's summed lap time.
+     */
+    median_ms: number | null;
+    /**
+     * Mean Ms
+     */
+    mean_ms: number | null;
+};
+
+/**
  * TimingPause
  */
 export type TimingPause = {
@@ -2076,6 +2096,22 @@ export type TimingPause = {
      * End
      */
     end: string;
+};
+
+/**
+ * TimingPaused
+ */
+export type TimingPaused = {
+    /**
+     * Runs With Pauses
+     *
+     * Runs with paused_ms > 0.
+     */
+    runs_with_pauses: number;
+    /**
+     * Median Ms
+     */
+    median_ms: number | null;
 };
 
 /**
@@ -2118,6 +2154,114 @@ export type TimingSegment = {
      * Its overlap with the run's pauses.
      */
     paused_ms: number;
+};
+
+/**
+ * TimingSeriesPoint
+ */
+export type TimingSeriesPoint = {
+    /**
+     * Entry Id
+     */
+    entry_id: string;
+    /**
+     * Captured At
+     *
+     * The run's end.
+     */
+    captured_at: string;
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Active Ms
+     */
+    active_ms: number;
+    /**
+     * Paused Ms
+     */
+    paused_ms: number;
+    /**
+     * Complete
+     */
+    complete: boolean;
+    /**
+     * Steps
+     *
+     * Each step segment's key and its active_ms.
+     */
+    steps: {
+        [key: string]: number;
+    };
+};
+
+/**
+ * TimingStepStats
+ */
+export type TimingStepStats = {
+    /**
+     * Key
+     */
+    key: string;
+    /**
+     * Label
+     *
+     * The latest version's label for the key, else its latest segment's.
+     */
+    label: string;
+    /**
+     * Current
+     *
+     * The key is a step of the current version.
+     */
+    current: boolean;
+    /**
+     * Done
+     *
+     * Runs with a segment for the step.
+     */
+    done: number;
+    /**
+     * Skipped
+     *
+     * Runs that skipped the step.
+     */
+    skipped: number;
+    /**
+     * Best Ms
+     *
+     * Over the done segments' active_ms, from every run.
+     */
+    best_ms: number | null;
+    /**
+     * Median Ms
+     */
+    median_ms: number | null;
+    /**
+     * Mean Ms
+     */
+    mean_ms: number | null;
+};
+
+/**
+ * TimingSummary
+ *
+ * Best, median and mean of active times in milliseconds; null when there are none.
+ */
+export type TimingSummary = {
+    /**
+     * Best Ms
+     */
+    best_ms: number | null;
+    /**
+     * Median Ms
+     */
+    median_ms: number | null;
+    /**
+     * Mean Ms
+     */
+    mean_ms: number | null;
 };
 
 /**
@@ -2369,6 +2513,41 @@ export type TopicSummary = {
      * Null when the topic has no schedule.
      */
     due: DueStatus | null;
+};
+
+/**
+ * TopicTiming
+ *
+ * Timing stats over the timed entries in range (timers.md §9). Durations are active
+ * time in integer milliseconds; untimed entries count toward nothing here.
+ */
+export type TopicTiming = {
+    /**
+     * Runs
+     */
+    runs: number;
+    /**
+     * Complete Runs
+     */
+    complete_runs: number;
+    /**
+     * Best, median and mean run totals, over complete runs only.
+     */
+    total: TimingSummary;
+    /**
+     * Steps
+     *
+     * Every step key seen in range: the current version's steps in step order, then the rest by key.
+     */
+    steps: Array<TimingStepStats>;
+    laps: TimingLaps;
+    paused: TimingPaused;
+    /**
+     * Series
+     *
+     * One point per timed entry, by captured_at then entry_id.
+     */
+    series: Array<TimingSeriesPoint>;
 };
 
 /**
@@ -3815,6 +3994,75 @@ export type GetTopicStatsResponses = {
 };
 
 export type GetTopicStatsResponse = GetTopicStatsResponses[keyof GetTopicStatsResponses];
+
+export type GetTopicTimingData = {
+    body?: never;
+    path: {
+        /**
+         * Ref
+         *
+         * Topic UUID or slug.
+         */
+        ref: string;
+    };
+    query?: {
+        /**
+         * Captured From
+         *
+         * Inclusive lower bound.
+         */
+        captured_from?: string | null;
+        /**
+         * Captured To
+         *
+         * Exclusive upper bound.
+         */
+        captured_to?: string | null;
+        /**
+         * Version
+         */
+        version?: number | null;
+        /**
+         * Source
+         */
+        source?: string | null;
+        /**
+         * Channel
+         */
+        channel?: Channel | null;
+    };
+    url: '/api/v1/topics/{ref}/timing';
+};
+
+export type GetTopicTimingErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type GetTopicTimingError = GetTopicTimingErrors[keyof GetTopicTimingErrors];
+
+export type GetTopicTimingResponses = {
+    /**
+     * Successful Response
+     */
+    200: TopicTiming;
+};
+
+export type GetTopicTimingResponse = GetTopicTimingResponses[keyof GetTopicTimingResponses];
 
 export type GetQuestionSeriesData = {
     body?: never;

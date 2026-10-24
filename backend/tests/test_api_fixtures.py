@@ -528,6 +528,10 @@ async def runs(client: httpx.AsyncClient, rec: Recorder) -> None:
         variant="finish_stopped",
     )
 
+    # R1's entry: a run of 'everything' v2 with a skipped step and a pause.
+    await rec("getTopicTiming", "GET", "/topics/everything/timing", status=200)
+    await rec("getTopicTiming", "GET", "/topics/water/timing", status=200, variant="untimed")
+
     await client.post(post(R3), json=start(R3, dishwasher, "2026-03-04T11:10:00Z"))
     await rec(
         "recordRunEvent",

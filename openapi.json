@@ -2704,6 +2704,172 @@
         }
       }
     },
+    "/api/v1/topics/{ref}/timing": {
+      "get": {
+        "tags": [
+          "stats"
+        ],
+        "summary": "Get Timing",
+        "description": "Timing stats over the topic's timed entries (timers.md \u00a79): best, median and mean run\ntotals over complete runs, per step, laps, pauses and one series point per run. The filters\nare getTopicStats's; ``version`` keeps that version's runs, labels still come from the latest.\nA topic that isn't timed answers zero counts.",
+        "operationId": "getTopicTiming",
+        "parameters": [
+          {
+            "name": "ref",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Topic UUID or slug.",
+              "examples": [
+                "sleep-log"
+              ],
+              "title": "Ref"
+            },
+            "description": "Topic UUID or slug."
+          },
+          {
+            "name": "captured_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Inclusive lower bound.",
+              "title": "Captured From"
+            },
+            "description": "Inclusive lower bound."
+          },
+          {
+            "name": "captured_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exclusive upper bound.",
+              "title": "Captured To"
+            },
+            "description": "Exclusive upper bound."
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "name": "channel",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Channel"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Channel"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicTiming"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
     "/api/v1/topics/{ref}/questions/{key}/series": {
       "get": {
         "tags": [
@@ -7368,6 +7534,45 @@
         "title": "Timing",
         "description": "A finished run's times (timers.md \u00a72.3). Every instant is a whole millisecond;\n``ended_at`` equals the entry's ``captured_at``."
       },
+      "TimingLaps": {
+        "properties": {
+          "runs_with_laps": {
+            "type": "integer",
+            "title": "Runs With Laps"
+          },
+          "median_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Ms",
+            "description": "Of each such run's summed lap time."
+          },
+          "mean_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "runs_with_laps",
+          "median_ms",
+          "mean_ms"
+        ],
+        "title": "TimingLaps"
+      },
       "TimingPause": {
         "properties": {
           "start": {
@@ -7388,6 +7593,33 @@
           "end"
         ],
         "title": "TimingPause"
+      },
+      "TimingPaused": {
+        "properties": {
+          "runs_with_pauses": {
+            "type": "integer",
+            "title": "Runs With Pauses",
+            "description": "Runs with paused_ms > 0."
+          },
+          "median_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "runs_with_pauses",
+          "median_ms"
+        ],
+        "title": "TimingPaused"
       },
       "TimingSegment": {
         "properties": {
@@ -7449,6 +7681,179 @@
         ],
         "title": "TimingSegment",
         "description": "One segment of a finished run: a named step's time, or an unnamed lap's."
+      },
+      "TimingSeriesPoint": {
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Entry Id"
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Captured At",
+            "description": "The run's end."
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "active_ms": {
+            "type": "integer",
+            "title": "Active Ms"
+          },
+          "paused_ms": {
+            "type": "integer",
+            "title": "Paused Ms"
+          },
+          "complete": {
+            "type": "boolean",
+            "title": "Complete"
+          },
+          "steps": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Steps",
+            "description": "Each step segment's key and its active_ms."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "entry_id",
+          "captured_at",
+          "started_at",
+          "active_ms",
+          "paused_ms",
+          "complete",
+          "steps"
+        ],
+        "title": "TimingSeriesPoint"
+      },
+      "TimingStepStats": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "The latest version's label for the key, else its latest segment's."
+          },
+          "current": {
+            "type": "boolean",
+            "title": "Current",
+            "description": "The key is a step of the current version."
+          },
+          "done": {
+            "type": "integer",
+            "title": "Done",
+            "description": "Runs with a segment for the step."
+          },
+          "skipped": {
+            "type": "integer",
+            "title": "Skipped",
+            "description": "Runs that skipped the step."
+          },
+          "best_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Ms",
+            "description": "Over the done segments' active_ms, from every run."
+          },
+          "median_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Ms"
+          },
+          "mean_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "current",
+          "done",
+          "skipped",
+          "best_ms",
+          "median_ms",
+          "mean_ms"
+        ],
+        "title": "TimingStepStats"
+      },
+      "TimingSummary": {
+        "properties": {
+          "best_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Ms"
+          },
+          "median_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Ms"
+          },
+          "mean_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "best_ms",
+          "median_ms",
+          "mean_ms"
+        ],
+        "title": "TimingSummary",
+        "description": "Best, median and mean of active times in milliseconds; null when there are none."
       },
       "TopicCreate": {
         "properties": {
@@ -7998,6 +8403,57 @@
           "due"
         ],
         "title": "TopicSummary"
+      },
+      "TopicTiming": {
+        "properties": {
+          "runs": {
+            "type": "integer",
+            "title": "Runs"
+          },
+          "complete_runs": {
+            "type": "integer",
+            "title": "Complete Runs"
+          },
+          "total": {
+            "$ref": "#/components/schemas/TimingSummary",
+            "description": "Best, median and mean run totals, over complete runs only."
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/TimingStepStats"
+            },
+            "type": "array",
+            "title": "Steps",
+            "description": "Every step key seen in range: the current version's steps in step order, then the rest by key."
+          },
+          "laps": {
+            "$ref": "#/components/schemas/TimingLaps"
+          },
+          "paused": {
+            "$ref": "#/components/schemas/TimingPaused"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/TimingSeriesPoint"
+            },
+            "type": "array",
+            "title": "Series",
+            "description": "One point per timed entry, by captured_at then entry_id."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "runs",
+          "complete_runs",
+          "total",
+          "steps",
+          "laps",
+          "paused",
+          "series"
+        ],
+        "title": "TopicTiming",
+        "description": "Timing stats over the timed entries in range (timers.md \u00a79). Durations are active\ntime in integer milliseconds; untimed entries count toward nothing here."
       },
       "TopicUpdate": {
         "properties": {

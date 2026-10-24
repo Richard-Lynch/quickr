@@ -1,0 +1,62 @@
+{
+  "body": {
+    "complete_runs": 0,
+    "laps": {
+      "mean_ms": 149875,
+      "median_ms": 149875,
+      "runs_with_laps": 1
+    },
+    "paused": {
+      "median_ms": 60000,
+      "runs_with_pauses": 1
+    },
+    "runs": 1,
+    "series": [
+      {
+        "active_ms": 300000,
+        "captured_at": "2026-03-04T11:06:00Z",
+        "complete": false,
+        "entry_id": "0a000000-0000-4000-8000-000000000001",
+        "paused_ms": 60000,
+        "started_at": "2026-03-04T11:00:00Z",
+        "steps": {
+          "pour": 150125
+        }
+      }
+    ],
+    "steps": [
+      {
+        "best_ms": 150125,
+        "current": true,
+        "done": 1,
+        "key": "pour",
+        "label": "Pour",
+        "mean_ms": 150125,
+        "median_ms": 150125,
+        "skipped": 0
+      },
+      {
+        "best_ms": null,
+        "current": true,
+        "done": 0,
+        "key": "drink",
+        "label": "Drink",
+        "mean_ms": null,
+        "median_ms": null,
+        "skipped": 1
+      }
+    ],
+    "total": {
+      "best_ms": null,
+      "mean_ms": null,
+      "median_ms": null
+    }
+  },
+  "operation_id": "getTopicTiming",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/topics/everything/timing"
+  },
+  "status": 200
+}
