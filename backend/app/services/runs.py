@@ -564,8 +564,13 @@ async def _merge_into_entry(
 # --- after the response -------------------------------------------------------------------
 
 
-async def after_run_event(run_id: UUID, topic_id: UUID, device: RunDevice | None, *, created: bool) -> None:
-    """Runs once the response is sent, outside the writer (§6): the Live Activity pushes
-    (§10.3). ``run_id`` is the target run (after a merge, the run merged into); ``created``
-    says the event created it, which owes a push-to-start."""
-    await live_activity.notify(run_id, topic_id, device, created=created)
+async def after_run_event(path_id: UUID, recorded: Recorded, device: RunDevice | None) -> None:
+    """Runs once the response is sent (the route's background task; MCP awaits it after the
+    commit), outside the writer (§6): the Live Activity pushes (§10.3). Only an event that changed
+    the run pushes: not a replay, not a void event. ``path_id`` is the id the event was sent to;
+    a start whose run is another (merged) created nothing, so it owes no push-to-start."""
+    if recorded.replayed or recorded.result.event.effect != "applied":
+        return
+    run = recorded.result.run
+    created = recorded.created and run.id == path_id
+    await live_activity.notify(run.id, run.topic_id, device, created=created)

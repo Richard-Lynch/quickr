@@ -354,10 +354,7 @@ async def record_run_event(
     recorded = await run_svc.record_event(db, run_id, body, channel or Channel.api)
     if recorded.created:
         response.status_code = status.HTTP_201_CREATED
-    run = recorded.result.run
-    if not recorded.replayed and recorded.result.event.effect == "applied":  # void: nothing changed
-        created = recorded.created and run.id == run_id  # a merged start created nothing
-        background.add_task(run_svc.after_run_event, run.id, run.topic_id, body.device, created=created)
+    background.add_task(run_svc.after_run_event, run_id, recorded, body.device)
     return recorded.result
 
 
