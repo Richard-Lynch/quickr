@@ -66,7 +66,8 @@ export interface OutboxKind<P = unknown> {
    * Ids of items this one must wait for: while any of them is still queued, a flush skips
    * this item without attempting it, and it isn't due. `queue` is every queued item, so
    * the rule can depend on their status (`run.event`: an event waits for its run's start,
-   * pending or failed; a finish also waits for its run's pending stops).
+   * pending or failed; a finish also waits for its run's pending stops; a start waits for
+   * the pending stops and discards of its topic's other runs enqueued before it).
    */
   waitsFor?(item: OutboxItem<P>, queue: readonly OutboxItem[]): readonly string[];
   /**

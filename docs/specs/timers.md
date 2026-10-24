@@ -730,7 +730,9 @@ The PWA has no change feed. It reads `listRuns(status=open|finishing)`:
 - **Ordering (outbox.md §7.1), extended:** a `run.event` waits only for its
   run's unresolved **start** item and for `topic.*` items of its topic. Events
   are idempotent and folded by time (§4), so they don't need to wait for each
-  other. A failed non-start event never blocks the run; a failed start blocks
+  other. A start also waits for the topic's earlier active stop/discard (of
+  another run): otherwise it can overtake a retrying stop, and the server merges
+  the new run into the one it still has open (§4.5). A failed non-start event never blocks the run; a failed start blocks
   its run's events until it is retried or discarded (discarding it discards
   them). Entries need no new rule: answers go as `finish` (§3.6).
 - **Coalescing (outbox.md §8), one new rule, K6:** when a `discard` is enqueued
@@ -758,7 +760,7 @@ The PWA has no change feed. It reads `listRuns(status=open|finishing)`:
 The IndexedDB outbox (`frontend/src/lib/outbox`) has only `entry.create` today
 (`kinds.ts`) and no per-entity ordering: a pass skips a retrying item and sends
 later ones (`outbox.ts` `pass`). It gains the `run.event` kind with **one**
-ordering rule, "wait for this run's start", plus K6 and the classification
+ordering rule, "wait for this run's start" (and §8.1's start-after-stop), plus K6 and the classification
 above. PWA entry edits stay online mutations; no other ordering is added. Its
 base classification stays byte-compatible with iOS.
 

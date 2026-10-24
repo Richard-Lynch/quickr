@@ -740,6 +740,43 @@ describe('a timed topic (timers.md §10.1, §10.2)', () => {
     expect(await outbox.list()).toEqual([]);
   });
 
+  it('a Start waits for this device’s retrying stop of the topic’s run, so it isn’t merged (§8.1)', async () => {
+    let clock = T;
+    const { server, outbox, queued, click } = rig(() => clock);
+    const id = vectorId ?? '';
+    expect(await click()).toEqual({ kind: 'none' }); // started, acked
+    clock += 1000;
+    server.unavailable.add('stop-1');
+    await outbox.enqueue(
+      RUN_EVENT,
+      {
+        topic: { id: TOPIC, slug: 'mood', name: 'Mood' },
+        run_id: id,
+        version: 3,
+        steps: [],
+        requires_answers: false,
+        makes_entry: true,
+        event: { type: 'stop', at: formatInstant(clock) },
+      } satisfies RunEventPayload,
+      { id: 'stop-1' },
+    );
+    await outbox.flush(); // 503: retrying
+    clock += 1000;
+    expect(await click({ data: nextDay(data), sendTimeoutMs: 50 })).toEqual({ kind: 'none' });
+    expect(queued).toHaveBeenCalled();
+    const nextId = await actionEntryId(SERVER, TOPIC, '2026-10-18T08:00:00Z');
+    expect(server.requests.map((r) => r.url)).not.toContain(`/api/v1/runs/${nextId}/events`);
+    server.unavailable.delete('stop-1');
+    await outbox.flush({ force: true });
+    expect(server.requests.map((r) => (r.body as { type: string }).type).slice(-2)).toEqual([
+      'stop',
+      'start',
+    ]);
+    expect(server.runs.get(id)?.status).toBe('stopped');
+    expect(server.runs.get(id)?.aliases).toBeUndefined();
+    expect(server.runs.get(nextId)?.status).toBe('running');
+  });
+
   it('a fresh acked start of another slot doesn’t make an open run either: the server merges', async () => {
     const { server, outbox, click } = rig();
     await click();
