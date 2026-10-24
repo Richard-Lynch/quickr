@@ -83,8 +83,7 @@ public struct EntryDTO: Codable, Sendable, Hashable, WireResponse {
     public var notes: String
     public var meta: [String: String]
     public var answers: [AnswerDTO]
-    /// A finished run's times; `nil` for an untimed entry (timers.md §2.3). Not mapped to the
-    /// domain yet (I-CORE).
+    /// A finished run's times; `nil` for an untimed entry (timers.md §2.3).
     @RequiredKey public var timing: TimingDTO?
 
     enum CodingKeys: String, CodingKey {
@@ -105,7 +104,7 @@ public struct EntryDTO: Codable, Sendable, Hashable, WireResponse {
         return Entry(
             id: try .wire(id, "entry.id"), topicId: try .wire(topicId, "entry.topic_id"), version: version,
             revision: revision, source: source, channel: channel, capturedAt: capturedAt, createdAt: createdAt,
-            updatedAt: updatedAt, notes: notes, meta: meta, answers: byKey)
+            updatedAt: updatedAt, notes: notes, meta: meta, answers: byKey, timing: try timing?.toDomain())
     }
 }
 

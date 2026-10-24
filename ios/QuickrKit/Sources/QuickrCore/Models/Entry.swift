@@ -54,11 +54,13 @@ public struct Entry: Sendable, Hashable, Identifiable {
     public var meta: [String: String]
     /// Answers by question key. Unanswered optional questions are absent.
     public var answers: [String: AnswerValue]
+    /// A finished run's times; nil for an untimed entry (timers.md §2.3).
+    public var timing: Timing?
 
     public init(
         id: UUID, topicId: UUID, version: Int, revision: Int, source: String, channel: Channel, capturedAt: Date,
         createdAt: Date, updatedAt: Date, notes: String = "", meta: [String: String] = [:],
-        answers: [String: AnswerValue]
+        answers: [String: AnswerValue], timing: Timing? = nil
     ) {
         self.id = id
         self.topicId = topicId
@@ -72,5 +74,6 @@ public struct Entry: Sendable, Hashable, Identifiable {
         self.notes = notes
         self.meta = meta
         self.answers = answers
+        self.timing = timing
     }
 }

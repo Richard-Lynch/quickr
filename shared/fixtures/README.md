@@ -15,7 +15,7 @@ result.
 | `apns-payload-vectors.json`    | `backend/tests/test_apns_payload_vectors.py` (`push/apns.render`)                                 | pytest drift check; Swift DEBUG demo reminder (`DueReminderVectorTests`, M3 media)                                                            |
 | `action-entry-id-vectors.json` | `backend/tests/test_action_entry_id_vectors.py` (`services/notification.py`)                      | pytest drift check; `frontend/src/lib/pushActions.test.ts`; Swift action handler (M3)                                                         |
 | `home-vectors.json`            | `backend/tests/test_home_vectors.py` (`list_topics`, test database)                               | pytest drift check; Swift home list ordering, status filter and search (M2)                                                                   |
-| `home-due-vectors.json`        | `frontend/src/lib/home.vectors.test.ts` (`dueParts`, `splitByDue`, vitest)                        | vitest drift check; Swift home due pill and sections (M2)                                                                                     |
+| `home-due-vectors.json`        | `frontend/src/lib/home.vectors.test.ts` (`dueParts`, `splitByDue`, `dueCount`, vitest)            | vitest drift check; Swift home due pill, sections and `dueCount` (M2, R11)                                                                    |
 | `entries-vectors.json`         | `backend/tests/test_entries_vectors.py` (`list_entries`, test database)                           | pytest drift check; Swift topic entry list filters, order and sources (M2)                                                                    |
 | `entries-range-vectors.json`   | `frontend/src/lib/entries.vectors.test.ts` (`rangeStart`, `parseRange`)                           | vitest drift check; Swift entries range filter (M2)                                                                                           |
 | `stats-vectors.json`           | `backend/tests/test_stats_vectors.py` (the app, via ASGI)                                         | pytest drift check; input of `stats-chart-vectors.json`; Swift stats decoding and requests (M6)                                               |
@@ -196,12 +196,15 @@ decision, not the label.
     as "tomorrow {time}", `|d| < 7` as "{weekday} {time}", else the date.
   - `minutes`: for `due_in`, `max(1, round(wait_ms / 60000))` with JS
     `Math.round` (halves round up).
-- `split[]`: `{name, now, topics, expected}`. Each topic is
-  `{id, status, scheduled, due}`. `expected` is `{due, upcoming, other}`, the
-  ids in order: active topics that are due now (the server says `is_due`, or
+- `split[]`: `{name, now, topics, open_runs, expected}`. Each topic is
+  `{id, status, scheduled, due}`. `open_runs` are the ids of the topics with an
+  open run (running or paused; an id may name no listed topic). `expected` is
+  `{due, upcoming, other, due_count}`, the ids in order: active topics without
+  an open run that are due now (the server says `is_due`, or
   `next_due_at <= now`) in input order; other active scheduled topics, stably
   sorted by `next_due_at` (none counts as `9999-12-31`); everything else
-  (including archived topics) in input order.
+  (including archived topics) in input order. `due_count` is `dueCount`, the
+  length of `due` (timers.md §11.1).
 
 Timestamps are UTC ISO-8601, some with milliseconds. Each case is one line.
 

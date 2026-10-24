@@ -209,7 +209,7 @@ public final class HomeModel {
         let now = serverNow
         rows = TopicListing.list(
             topics, topic: \.topic, now: now, status: status, sort: sort, query: query)
-        sections = TopicListing.sections(rows, now: now)
-        badgeCount = TopicListing.badgeCount(topics.map(\.topic), now: now)
+        sections = TopicListing.sections(rows, now: now, openRuns: TopicListing.noOpenRuns)
+        badgeCount = TopicListing.dueCount(topics.map(\.topic), now: now, openRuns: TopicListing.noOpenRuns)
     }
 }

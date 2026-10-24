@@ -312,7 +312,7 @@ public struct APIClient: Sendable {
     /// One tap on a run (timers.md §3.2). `runId` may be an alias. A nil `body.source` becomes
     /// the client's `origin.source`.
     public func recordRunEvent(runId: UUID, _ body: RunEventInDTO, options: RequestOptions = .init()) async throws
-        -> APIResponse<RunEventResultDTO>
+        -> APIResponse<RunEventResult>
     {
         var body = body
         if body.source == nil { body.source = origin.source }
@@ -320,13 +320,13 @@ public struct APIClient: Sendable {
             Endpoints.recordRunEvent, path: ["run_id": runId.wireString], body: body, options: options)
     }
 
-    public func getRun(id: UUID, options: RequestOptions = .init()) async throws -> APIResponse<RunDTO> {
+    public func getRun(id: UUID, options: RequestOptions = .init()) async throws -> APIResponse<Run> {
         try await send(Endpoints.getRun, path: ["run_id": id.wireString], options: options)
     }
 
     /// `statuses`: `open` and/or `finishing` (the server's default is both).
     public func listRuns(statuses: [String] = [], topic: String? = nil, options: RequestOptions = .init())
-        async throws -> APIResponse<[RunDTO]>
+        async throws -> APIResponse<[Run]>
     {
         var items = statuses.map { URLQueryItem(name: "status", value: $0) }
         if let topic { items.append(URLQueryItem(name: "topic", value: topic)) }

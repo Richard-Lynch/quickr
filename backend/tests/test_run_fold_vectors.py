@@ -17,7 +17,7 @@ from app.services.run_fold import Event, Frozen, FrozenReason, Step
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
 
 PATH = FIXTURES_DIR / "run-fold-vectors.json"
-GENERATOR_VERSION = 2
+GENERATOR_VERSION = 3
 
 RUN = "0a000000-0000-4000-8000-000000000000"
 T0 = run_fold.parse_instant("2026-10-23T08:00:00Z")
@@ -314,6 +314,37 @@ CASES: dict[str, tuple[str, list[dict[str, Any]], tuple[int, FrozenReason] | Non
         None,
     ),
     "finish-has-no-effect": ("none", [START, ev(1, "stop", 60), ev(2, "finish", 70)], None),
+    # After a valid stop, after_stop is checked before too_long (the lap is within the server's
+    # `now + 24 h` bound in test_api_runs.py's T1 run).
+    "after-stop-beyond-the-limit": (
+        "none",
+        [START, ev(1, "stop", 100), ev(2, "lap", 7 * DAY + 3600, seg=0)],
+        None,
+    ),
+    # The open pause covers the whole second segment: its overlap is clamped to the segment's start.
+    "next-twice-while-paused-open": (
+        "three",
+        [START, ev(1, "pause", 30), ev(2, "next", 60, seg=0), ev(3, "next", 100, seg=1)],
+        None,
+    ),
+    # A discard drops the open pause: no paused_since, and no open-pause overlap in the segments.
+    "pause-then-discard": (
+        "two",
+        [START, ev(1, "pause", 10), ev(2, "next", 20, seg=0), ev(3, "discard", 60)],
+        None,
+    ),
+    "resume-uppercase-pause-id": (
+        "two",
+        [START, ev(1, "pause", 30), ev(2, "resume", 60, pause=eid(1).upper()), ev(3, "stop", 100)],
+        None,
+    ),
+    # The same id in another case is a replay, not a second event (the server answers a replay
+    # with other content 409, so the content is the same).
+    "replayed-event-id-case": (
+        "two",
+        [START, ev(1, "next", 30, seg=0), ev(eid(1).upper(), "next", 30, seg=0), ev(2, "stop", 60)],
+        None,
+    ),
 }
 
 
@@ -483,3 +514,14 @@ def test_vectors_cover_the_spec() -> None:
     assert reasons("merged-start") == ["merged"]
     assert reasons("skip-from-a-lap-no-step") == ["no_step"]
     assert reasons("double-pause-and-stray-resume") == ["already_paused", "not_paused"]
+    assert effects("after-stop-beyond-the-limit")[eid(2)] == ("void", "after_stop")
+    paused_open = built["next-twice-while-paused-open"]["state"]
+    segments = [(s["active_ms"], s["paused_ms"]) for s in paused_open["segments"]]
+    assert segments == [(30_000, 30_000), (0, 40_000)]
+    discarded = built["pause-then-discard"]["state"]
+    assert (discarded["status"], discarded["paused_since"]) == ("discarded", None)
+    assert [s["paused_ms"] for s in discarded["segments"]] == [0]
+    assert effects("resume-uppercase-pause-id")[eid(2)] == ("applied", None)
+    assert built["resume-uppercase-pause-id"]["timing"]["paused_ms"] == 30_000
+    assert effects("replayed-event-id-case") == dict.fromkeys((RUN, eid(1), eid(2)), ("applied", None))
+    assert len(built["replayed-event-id-case"]["timing"]["segments"]) == 2

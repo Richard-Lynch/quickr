@@ -3,8 +3,9 @@ import QuickrCore
 import QuickrTestSupport
 import Testing
 
-/// `shared/fixtures/home-due-vectors.json`, from the PWA's own `dueParts` and `splitByDue`: the
-/// tile's due pill and the home sections. Day offsets are in the file's timezone.
+/// `shared/fixtures/home-due-vectors.json`, from the PWA's own `dueParts`, `splitByDue` and
+/// `dueCount`: the tile's due pill, the home sections and the due count with the open-run rule
+/// (timers.md §11.1, R11). Day offsets are in the file's timezone.
 @Suite struct DueViewTests {
     struct Vectors: Decodable {
         struct Meta: Decodable {
@@ -74,12 +75,25 @@ import Testing
                 var due: [String]
                 var upcoming: [String]
                 var other: [String]
+                var dueCount: Int
+
+                enum CodingKeys: String, CodingKey {
+                    case due, upcoming, other
+                    case dueCount = "due_count"
+                }
             }
 
             var name: String
             var now: Date
             var topics: [Item]
+            /// Ids of the topics with an open run.
+            var openRuns: [String]
             var expected: Expected
+
+            enum CodingKeys: String, CodingKey {
+                case name, now, topics, expected
+                case openRuns = "open_runs"
+            }
             var testDescription: String { name }
         }
 
@@ -128,10 +142,34 @@ import Testing
             TopicListing.Item(
                 value: item.id, topic: Self.topic(item), due: item.due?.status)
         }
-        let sections = TopicListing.sections(items, now: vector.now)
+        // An id with no topic in the case stands for a run of a topic that isn't listed.
+        let openRuns = Set(vector.openRuns.map { id in items.first { $0.value == id }?.topic.id ?? UUID() })
+        let sections = TopicListing.sections(items, now: vector.now, openRuns: openRuns)
         #expect(sections.due.map(\.value) == vector.expected.due)
         #expect(sections.upcoming.map(\.value) == vector.expected.upcoming)
         #expect(sections.other.map(\.value) == vector.expected.other)
+        #expect(TopicListing.dueCount(items, now: vector.now, openRuns: openRuns) == vector.expected.dueCount)
+        #expect(sections.due.count == vector.expected.dueCount, "the due section and the count agree")
+    }
+
+    /// Every split case ran (a parameterized case can be filtered out), and the open-run rule has
+    /// cases.
+    @Test func splitCasesAreAllPresent() {
+        #expect(Self.vectors.split.count >= 11)
+        #expect(Set(Self.vectors.split.map(\.name)).count == Self.vectors.split.count)
+        #expect(Self.vectors.split.contains { !$0.openRuns.isEmpty && $0.expected.dueCount == 0 })
+    }
+
+    /// The overload over topics computes each one's due status, then applies the same rule.
+    @Test func dueCountOverTopicsLeavesOutOpenRuns() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let due = Vectors.SplitCase.Item(id: "a", status: "active", scheduled: true, due: nil)
+        let topics = [
+            Self.topic(due), Self.topic(due), Self.topic(.init(id: "b", status: "archived", scheduled: true)),
+        ]
+        #expect(TopicListing.dueCount(topics, now: now, openRuns: TopicListing.noOpenRuns) == 2)
+        #expect(TopicListing.dueCount(topics, now: now, openRuns: [topics[0].id]) == 1)
+        #expect(TopicListing.dueCount(topics, now: now, openRuns: [topics[0].id, topics[1].id]) == 0)
     }
 
     // MARK: - Labels (the device's formats)
