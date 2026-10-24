@@ -35,6 +35,11 @@ import Testing
         run["id"] = runB
         run["topic_id"] = FakeFeedServer.water
         run["aliases"] = [aliasB]
+        // A minute after A, so a read has an order to keep.
+        run["started_at"] = "2026-03-04T11:01:00Z"
+        var state = run["state"] as? [String: Any] ?? [:]
+        state["started_at"] = "2026-03-04T11:01:00Z"
+        run["state"] = state
         return run
     }
 
@@ -99,7 +104,9 @@ import Testing
         #expect(await coordinator.sync(reason: .requested) == .synced)
         #expect(try await store.runs.runs().isEmpty)
         #expect(try await store.count("run_alias") == 0)
-        #expect(try await Self.tombstones(store, kind: "run") == [Self.runA])
+        // Its alias closed with it: tombstoned, and no longer resolves.
+        #expect(try await Self.tombstones(store, kind: "run") == [Self.runA, Self.aliasA])
+        #expect(try await store.runs.run(id: UUID(uuidString: Self.aliasA)!) == nil)
         let expected = try Self.domainEntry(entry)
         let timing = try #require(expected.timing)
         let viewed = try #require(try await store.entries.entry(id: expected.id)).entry
@@ -112,6 +119,12 @@ import Testing
         let late = try Self.domain(stale)
         let outcome = try await store.writer.write { db in try ServerLayer.upsert(db, run: late) }
         #expect(outcome == .tombstoned)
+        // Nor can the alias come back as a run of its own.
+        stale["id"] = Self.aliasA
+        stale["aliases"] = [String]()
+        let asAlias = try Self.domain(stale)
+        let aliasOutcome = try await store.writer.write { db in try ServerLayer.upsert(db, run: asAlias) }
+        #expect(aliasOutcome == .tombstoned)
         #expect(try await store.runs.runs().isEmpty)
     }
 
@@ -154,6 +167,25 @@ import Testing
         env.server.closeRun(Self.runA, entry: try Self.stoppedEntry())
         #expect(await coordinator.sync(reason: .requested) == .synced)
         #expect(try await values.next() == [])
+    }
+
+    /// `observeRuns(topicId:)` sees only that topic's runs: another topic's run doesn't show, and
+    /// a change to it emits nothing new (equal values are dropped).
+    @Test func observeRunsOfATopicSeesOnlyItsRuns() async throws {
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        let coordinator = env.coordinator()
+        let store = try await env.connect(coordinator)
+        var values = store.observeRuns(topicId: Self.everything).makeAsyncIterator()
+        #expect(try await values.next() == [])
+
+        env.server.putRun(try Self.otherRun())
+        #expect(await coordinator.sync(reason: .requested) == .synced)
+        let run = try Self.openRun()
+        env.server.putRun(run)
+        #expect(await coordinator.sync(reason: .requested) == .synced)
+        let expected: [Run] = [try Self.domain(run)]
+        #expect(try await values.next() == expected)
     }
 
     // MARK: - Staged pages (§7)
@@ -243,6 +275,65 @@ import Testing
             #expect(try ServerLayer.upsert(db, run: newer) == .applied, "equal revisions overwrite")
             #expect(try Int.fetchOne(db, sql: "SELECT revision FROM run") == 4)
         }
+    }
+
+    /// The topic-tombstone guard, in both layers: once its topic is deleted, a run is dropped.
+    @Test func aRunOfADeletedTopicIsDropped() throws {
+        let s = try TestStore()
+        let run = try Self.domain(try Self.openRun())
+        try s.write { (db: Database) throws in
+            for layer in [ServerLayer.Layer.live, .stage] {
+                try ServerLayer.applyDeletion(
+                    db, kind: .topic, id: Self.everything, topicId: Self.everything, seq: 40, into: layer)
+                #expect(try ServerLayer.upsert(db, run: run, into: layer) == .tombstoned, "\(layer)")
+            }
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM run") == 0)
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM stage_run") == 0)
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM run_alias") == 0)
+        }
+    }
+
+    /// An upsert replaces the run's alias rows with its `aliases`: fewer, or different, ones.
+    @Test func anUpsertReplacesTheAliasRows() throws {
+        let s = try TestStore()
+        var json = try Self.openRun()
+        let other = "0a000000-0000-4000-8000-0000000000c1"
+        let aliases = { () throws -> Set<String> in
+            try s.read { db in Set(try String.fetchAll(db, sql: "SELECT id FROM run_alias")) }
+        }
+        json["aliases"] = [Self.aliasA, other]
+        try s.write { db in _ = try ServerLayer.upsert(db, run: try Self.domain(json)) }
+        #expect(try aliases() == [Self.aliasA, other])
+        json["revision"] = 4
+        json["aliases"] = [Self.aliasA]
+        try s.write { db in _ = try ServerLayer.upsert(db, run: try Self.domain(json)) }
+        #expect(try aliases() == [Self.aliasA])
+        json["revision"] = 5
+        json["aliases"] = [other]
+        try s.write { db in _ = try ServerLayer.upsert(db, run: try Self.domain(json)) }
+        #expect(try aliases() == [other])
+        #expect(try s.read { db in try String.fetchOne(db, sql: "SELECT run_id FROM run_alias") } == Self.runA)
+    }
+
+    /// The reads: a run is hidden until its topic arrives, and runs come newest start first.
+    @Test func runReadsJoinTheTopicAndOrderNewestFirst() async throws {
+        let s = try TestStore()
+        let a = try Self.domain(try Self.openRun())
+        var bJSON = try Self.otherRun()
+        bJSON["topic_id"] = FakeFeedServer.everything
+        let b = try Self.domain(bJSON)
+        try s.write { (db: Database) throws in
+            _ = try ServerLayer.upsert(db, run: a)
+            _ = try ServerLayer.upsert(db, run: b)
+        }
+        #expect(try await s.store.runs.runs().isEmpty, "no topic yet")
+        #expect(try await s.store.runs.run(id: a.id) == nil)
+        try s.write { db in _ = try ServerLayer.upsert(db, topic: Make.topic(id: Self.everything)) }
+        let expected: [Run] = [b, a]
+        #expect(b.startedAt > a.startedAt)
+        #expect(try await s.store.runs.runs() == expected)
+        #expect(try await s.store.runs.runs(topicId: Self.everything) == expected)
+        #expect(try await s.store.runs.run(id: a.id) == a)
     }
 
     /// A run deletion that names an alias (a topic's deletion lists them) removes that alias row.

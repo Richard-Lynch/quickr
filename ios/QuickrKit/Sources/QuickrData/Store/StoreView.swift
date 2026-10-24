@@ -314,7 +314,7 @@ public enum StoreView {
 
     // MARK: - Runs (timers.md §7.2)
 
-    /// The server layer's runs of a topic (or all), open or finishing, oldest start first. Like
+    /// The server layer's runs of a topic (or all), open **and finishing**, newest start first. Like
     /// entries, a run is hidden until its topic arrives. Queued `run.event` items are not folded in
     /// here: that is the local view of a run (timers.md §8.3).
     public static func runs(_ db: Database, topicId: String? = nil) throws -> [Run] {
@@ -323,7 +323,7 @@ public enum StoreView {
             db,
             sql: """
                 SELECT r.* FROM run AS r JOIN topic AS t ON t.id = r.topic_id \(filter)
-                ORDER BY r.started_at, r.id
+                ORDER BY r.started_at DESC, r.id DESC
                 """,
             arguments: StatementArguments(topicId.map { [$0] } ?? [])
         ).map(Run.init(serverRow:))

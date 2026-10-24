@@ -135,7 +135,8 @@ public enum ServerLayer {
     // MARK: - Tombstones (§4.3 steps 1, 2 and 4)
 
     /// Inserts the tombstone (idempotent) and deletes the row. A run's deletion also removes its
-    /// alias rows; its id may be an alias's (a topic's deletion lists them), which goes too. A
+    /// alias rows and tombstones their ids as kind `run`; its id may be an alias's (a topic's
+    /// deletion lists them), which goes too. A
     /// topic tombstone also removes the topic's versions, entries, runs and aliases and tombstones
     /// them, runs and aliases as kind `run` (the local cascade incremental pages rely on, F3;
     /// timers.md §7.2); in the live layer it also clears the topic's `ui_draft`, `stats_cache` and
@@ -153,6 +154,13 @@ public enum ServerLayer {
             try db.execute(sql: "DELETE FROM \(layer.table("topic_version")) WHERE id = ?", arguments: [id])
         case .run:
             try db.execute(sql: "DELETE FROM \(layer.table("run")) WHERE id = ?", arguments: [id])
+            // The aliases close with the run: tombstoned too, so nothing recreates one as a run.
+            try db.execute(
+                sql: """
+                    INSERT OR IGNORE INTO \(layer.table("tombstone")) (kind, id, topic_id, seq)
+                    SELECT 'run', id, topic_id, ? FROM \(layer.table("run_alias")) WHERE run_id = ?
+                    """,
+                arguments: [seq, id])
             try db.execute(
                 sql: "DELETE FROM \(layer.table("run_alias")) WHERE run_id = ? OR id = ?", arguments: [id, id])
         case .topic:

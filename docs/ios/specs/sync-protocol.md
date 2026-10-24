@@ -345,7 +345,9 @@ coordinator:
 1. Check the **fence** (§5.5), then run the §2.2 checks. Stop on the first
    failure.
 2. **Upserts.** Apply the `items` of kind `topic`, then `version`, then `entry`,
-   each through the §4.2 guards.
+   then `run` (`run` and `run_alias` rows,
+   [timers.md §7.2](../../specs/timers.md#72-ios-store-ios)), each through the
+   §4.2 guards.
 3. **Deletions.** Apply `deleted` as in §4.3.
 4. **Pull-ack.** Apply §4.4.
 5. Recompute derived fields for every touched topic.
@@ -370,9 +372,11 @@ For each item in `deleted` (`{kind, seq, id, topic_id, deleted_at}`):
 
 1. Insert into `tombstone`. This is idempotent.
 2. Delete the server-layer row. A **topic** tombstone also deletes every
-   `topic_version` and `entry` row with that `topic_id`, and inserts tombstones
-   for them. **This local cascade is required:** incremental pages carry only
-   the topic's own deletion (F3).
+   `topic_version`, `entry`, `run` and `run_alias` row with that `topic_id`, and
+   inserts tombstones for them (kind `run` for runs and aliases;
+   [timers.md §7.2](../../specs/timers.md#72-ios-store-ios)). **This local
+   cascade is required:** incremental pages carry only the topic's own deletion
+   (F3).
 3. **Dependent outbox items.** These are the items for the deleted entity, or,
    for a topic, every item with that `topic_id`. They are resolved in the same
    transaction:
@@ -618,8 +622,9 @@ coordinator rebuilds**, while it holds the `sync` lease.
    1. Acquire the `flush` lease (lock order `sync` → `flush`). This waits for
       any live sender to finish, or for its lease to expire.
    2. In one `IMMEDIATE` transaction, fenced on both leases:
-      - replace `topic`, `topic_version`, `entry` and `tombstone` with the
-        staged rows;
+      - replace `topic`, `topic_version`, `entry`, `run`, `run_alias` and
+        `tombstone` with the staged rows
+        ([timers.md §7.2](../../specs/timers.md#72-ios-store-ios));
       - set `epoch`, `cursor = stage cursor`, `rebuilding = null`,
         `epoch_suspect = 0`, and **`layer_gen += 1`**;
       - set every `in_flight` item to `uncertain` and clear its claim. Its

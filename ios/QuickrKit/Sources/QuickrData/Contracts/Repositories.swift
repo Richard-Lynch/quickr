@@ -36,7 +36,7 @@ public protocol EntryRepository: Sendable {
 /// The server layer's runs: open or finishing (timers.md §7.2). Writes are run events, through
 /// the outbox.
 public protocol RunRepository: Sendable {
-    /// A topic's runs, or every topic's when `topicId` is nil, oldest start first.
+    /// A topic's runs, or every topic's when `topicId` is nil, newest start first.
     func runs(topicId: UUID?) async throws -> [Run]
     /// The run with this id, or the run it was merged into when `id` is an alias (§4.5).
     func run(id: UUID) async throws -> Run?

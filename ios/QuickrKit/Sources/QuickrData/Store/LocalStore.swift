@@ -107,8 +107,10 @@ public struct LocalStore: Sendable {
         }
     }
 
-    /// The server layer's runs (open or finishing) of a topic, or of every topic when `topicId` is
-    /// nil (`StoreView.runs`), re-emitted on every change.
+    /// The server layer's runs of a topic, or of every topic when `topicId` is nil, re-emitted on
+    /// every change (`StoreView.runs`). Both **open** (running, paused) **and finishing** runs: check
+    /// `status` (`RunStatus.isOpen`) for the topic's one open run. Queued run events aren't folded
+    /// in (timers.md §8.3).
     public func observeRuns(topicId: UUID? = nil, refresh: AsyncStream<Void>? = nil)
         -> AsyncThrowingStream<[Run], any Error>
     {
