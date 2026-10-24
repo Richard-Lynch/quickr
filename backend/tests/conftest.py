@@ -50,6 +50,7 @@ TABLES = (
     "topics",
     "push_subscriptions",
     "apns_devices",
+    "live_activity_tokens",
     "push_slot_deliveries",
     "app_settings",
     "change_log",

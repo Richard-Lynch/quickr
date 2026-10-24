@@ -291,6 +291,9 @@ class LiveActivityToken(Base):
         CheckConstraint(
             "environment IN ('sandbox', 'production')", name="ck_live_activity_tokens_environment"
         ),
+        Index("ix_live_activity_tokens_run", "run_id"),
+        Index("ix_live_activity_tokens_topic", "topic_id"),
+        Index("ix_live_activity_tokens_device", "device_token"),
     )
 
 

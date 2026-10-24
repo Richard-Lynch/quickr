@@ -409,6 +409,43 @@ export const zLimits = z.object({
 });
 
 /**
+ * LiveActivityIn
+ *
+ * A Live Activity push token (timers.md §10.3), upserted by token: the device's push-to-start
+ * token, or one activity's update token with the topic and run it shows.
+ */
+export const zLiveActivityIn = z.object({
+    token: z.string().regex(/^[0-9a-fA-F]{64,512}$/),
+    kind: z.enum(['start', 'update']),
+    device_token: z.string().regex(/^[0-9a-fA-F]{64,200}$/),
+    environment: z.enum(['sandbox', 'production']),
+    topic_id: z.uuid().nullish(),
+    run_id: z.uuid().nullish()
+});
+
+/**
+ * LiveActivityOut
+ */
+export const zLiveActivityOut = z.object({
+    token: z.string(),
+    kind: z.enum(['start', 'update']),
+    device_token: z.string(),
+    environment: z.enum(['sandbox', 'production']),
+    topic_id: z.uuid().nullable(),
+    run_id: z.uuid().nullable(),
+    created_at: z.iso.datetime({ offset: true })
+});
+
+/**
+ * LiveActivityRef
+ *
+ * One Live Activity token, by token (unregister).
+ */
+export const zLiveActivityRef = z.object({
+    token: z.string().regex(/^[0-9a-fA-F]{64,512}$/)
+});
+
+/**
  * NumericStats
  */
 export const zNumericStats = z.object({
@@ -1719,6 +1756,30 @@ export const zDeleteApnsDeviceHeaders = z.object({
  * Successful Response
  */
 export const zDeleteApnsDeviceResponse = z.void();
+
+export const zRegisterLiveActivityBody = zLiveActivityIn;
+
+export const zRegisterLiveActivityHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
+/**
+ * Successful Response
+ */
+export const zRegisterLiveActivityResponse = zLiveActivityOut;
+
+export const zDeleteLiveActivityBody = zLiveActivityRef;
+
+export const zDeleteLiveActivityHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
+/**
+ * Successful Response
+ */
+export const zDeleteLiveActivityResponse = z.void();
 
 export const zSendApnsTestPushBody = zApnsDeviceRef;
 

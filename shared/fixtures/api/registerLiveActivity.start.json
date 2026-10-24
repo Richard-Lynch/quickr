@@ -1,0 +1,23 @@
+{
+  "body": {
+    "created_at": "2026-06-01T12:00:00.123456Z",
+    "device_token": "7c5d0e1fa2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d",
+    "environment": "sandbox",
+    "kind": "start",
+    "run_id": null,
+    "token": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+    "topic_id": null
+  },
+  "operation_id": "registerLiveActivity",
+  "request": {
+    "body": {
+      "device_token": "7c5d0e1fa2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d",
+      "environment": "sandbox",
+      "kind": "start",
+      "token": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+    },
+    "method": "POST",
+    "path": "/api/v1/push/apns/live-activities"
+  },
+  "status": 201
+}

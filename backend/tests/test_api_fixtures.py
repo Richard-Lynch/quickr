@@ -446,7 +446,27 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
         status=204,
     )
     await runs(client, rec)
+    await live_activities(client, rec)
     return rec.files
+
+
+async def live_activities(client: httpx.AsyncClient, rec: Recorder) -> None:
+    """Live Activity tokens (timers.md §10.3): the push-to-start token, and one activity's."""
+    everything = (await client.get("/topics/everything")).json()["id"]
+    device = {"device_token": APNS_DEVICE["token"], "environment": "sandbox"}
+    start = {"token": "5a" * 80, "kind": "start", **device}
+    update = {"token": "6b" * 80, "kind": "update", "topic_id": everything, "run_id": RUN_IDS[0], **device}
+    await rec(
+        "registerLiveActivity", "POST", "/push/apns/live-activities", start, status=201, variant="start"
+    )
+    await rec("registerLiveActivity", "POST", "/push/apns/live-activities", update, status=201)
+    await rec(
+        "deleteLiveActivity",
+        "POST",
+        "/push/apns/live-activities/delete",
+        {"token": update["token"]},
+        status=204,
+    )
 
 
 def run_event(event_id: str, kind: str, at: str, **fields: Any) -> dict[str, Any]:

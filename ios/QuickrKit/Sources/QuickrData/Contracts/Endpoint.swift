@@ -138,6 +138,11 @@ public enum Endpoints {
         "registerApnsDevice", .post, "/api/v1/push/apns/devices")
     public static let deleteApnsDevice = Endpoint<ApnsDeviceRefDTO, EmptyBody>(
         "deleteApnsDevice", .post, "/api/v1/push/apns/devices/delete")
+    /// A Live Activity push token: push-to-start or one activity's (timers.md §10.3).
+    public static let registerLiveActivity = Endpoint<LiveActivityInDTO, LiveActivityDTO>(
+        "registerLiveActivity", .post, "/api/v1/push/apns/live-activities")
+    public static let deleteLiveActivity = Endpoint<LiveActivityRefDTO, EmptyBody>(
+        "deleteLiveActivity", .post, "/api/v1/push/apns/live-activities/delete")
     /// "Test this device". Online only.
     public static let sendApnsTestPush = Endpoint<ApnsDeviceRefDTO, PushTestResultDTO>(
         "sendApnsTestPush", .post, "/api/v1/push/apns/devices/test")
@@ -151,6 +156,7 @@ public enum Endpoints {
         getTopicTiming.erased, getQuestionSeries.erased, getPushConfig.erased,
         createPushSubscription.erased, deletePushSubscription.erased, sendTestPush.erased,
         registerApnsDevice.erased, deleteApnsDevice.erased, sendApnsTestPush.erased,
+        registerLiveActivity.erased, deleteLiveActivity.erased,
     ]
 
     public static func named(_ operationId: String) -> AnyEndpoint? {

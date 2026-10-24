@@ -245,9 +245,10 @@ import Testing
     /// G1 for requests (PLAN §6a rule 12): every mutation and every operation with a body has at
     /// least one golden, and every golden names a known operation.
     /// Operations the app doesn't send yet; each one gets its goldens with the WP that sends it.
-    /// `recordRunEvent`: the `run.event` outbox kind (timers-plan.md, I-OUTBOX). The backend's
+    /// `recordRunEvent`: the `run.event` outbox kind (timers-plan.md, I-OUTBOX).
+    /// `registerLiveActivity`, `deleteLiveActivity`: the Live Activity (I-LA). The backend's
     /// `test_request_goldens.py` lists the same ones.
-    static let noGoldenYet: Set<String> = ["recordRunEvent"]
+    static let noGoldenYet: Set<String> = ["recordRunEvent", "registerLiveActivity", "deleteLiveActivity"]
 
     @Test func everyMutationAndBodiedOperationHasAGolden() {
         let covered = Set(Self.cases.map(\.operationId))

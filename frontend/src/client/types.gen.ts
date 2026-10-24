@@ -1230,6 +1230,97 @@ export type Limits = {
 };
 
 /**
+ * LiveActivityIn
+ *
+ * A Live Activity push token (timers.md §10.3), upserted by token: the device's push-to-start
+ * token, or one activity's update token with the topic and run it shows.
+ */
+export type LiveActivityIn = {
+    /**
+     * Token
+     *
+     * A Live Activity push token, hex (stored lowercase).
+     */
+    token: string;
+    /**
+     * Kind
+     *
+     * start: the device's push-to-start token (it replaces the device's older ones). update: one activity's update token.
+     */
+    kind: 'start' | 'update';
+    /**
+     * Device Token
+     *
+     * The APNs device token of the phone that owns it.
+     */
+    device_token: string;
+    /**
+     * Environment
+     */
+    environment: 'sandbox' | 'production';
+    /**
+     * Topic Id
+     *
+     * update (required): the activity's topic.
+     */
+    topic_id?: string | null;
+    /**
+     * Run Id
+     *
+     * update (required): the run it was started for.
+     */
+    run_id?: string | null;
+};
+
+/**
+ * LiveActivityOut
+ */
+export type LiveActivityOut = {
+    /**
+     * Token
+     */
+    token: string;
+    /**
+     * Kind
+     */
+    kind: 'start' | 'update';
+    /**
+     * Device Token
+     */
+    device_token: string;
+    /**
+     * Environment
+     */
+    environment: 'sandbox' | 'production';
+    /**
+     * Topic Id
+     */
+    topic_id: string | null;
+    /**
+     * Run Id
+     */
+    run_id: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * LiveActivityRef
+ *
+ * One Live Activity token, by token (unregister).
+ */
+export type LiveActivityRef = {
+    /**
+     * Token
+     *
+     * A Live Activity push token, hex (stored lowercase).
+     */
+    token: string;
+};
+
+/**
  * NumericStats
  */
 export type NumericStats = {
@@ -4517,6 +4608,108 @@ export type DeleteApnsDeviceResponses = {
 };
 
 export type DeleteApnsDeviceResponse = DeleteApnsDeviceResponses[keyof DeleteApnsDeviceResponses];
+
+export type RegisterLiveActivityData = {
+    body: LiveActivityIn;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/push/apns/live-activities';
+};
+
+export type RegisterLiveActivityErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type RegisterLiveActivityError = RegisterLiveActivityErrors[keyof RegisterLiveActivityErrors];
+
+export type RegisterLiveActivityResponses = {
+    /**
+     * Successful Response
+     */
+    201: LiveActivityOut;
+};
+
+export type RegisterLiveActivityResponse = RegisterLiveActivityResponses[keyof RegisterLiveActivityResponses];
+
+export type DeleteLiveActivityData = {
+    body: LiveActivityRef;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/push/apns/live-activities/delete';
+};
+
+export type DeleteLiveActivityErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type DeleteLiveActivityError = DeleteLiveActivityErrors[keyof DeleteLiveActivityErrors];
+
+export type DeleteLiveActivityResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteLiveActivityResponse = DeleteLiveActivityResponses[keyof DeleteLiveActivityResponses];
 
 export type SendApnsTestPushData = {
     body: ApnsDeviceRef;

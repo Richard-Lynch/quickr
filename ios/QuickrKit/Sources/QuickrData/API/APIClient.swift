@@ -417,6 +417,19 @@ public struct APIClient: Sendable {
         try await send(Endpoints.sendApnsTestPush, body: body, options: options)
     }
 
+    /// A Live Activity push token: the device's push-to-start token, or one activity's (timers.md §10.3).
+    public func registerLiveActivity(_ body: LiveActivityInDTO, options: RequestOptions = .init()) async throws
+        -> APIResponse<LiveActivityDTO>
+    {
+        try await send(Endpoints.registerLiveActivity, body: body, options: options)
+    }
+
+    public func deleteLiveActivity(_ body: LiveActivityRefDTO, options: RequestOptions = .init()) async throws
+        -> APIResponse<EmptyBody>
+    {
+        try await send(Endpoints.deleteLiveActivity, body: body, options: options)
+    }
+
     // MARK: Core
 
     /// Builds, sends and classifies one call. Throws only `APIClientError`.

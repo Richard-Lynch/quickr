@@ -31,6 +31,7 @@ from app.schemas.limits import (
     CAPTURED_AT_MIN,
     INTERVAL_MAX_MINUTES,
     INTERVAL_MIN_MINUTES,
+    LIVE_ACTIVITY_TOKEN_PATTERN,
     MAX_APP_VERSION_LENGTH,
     MAX_CHANGE_NOTE_LENGTH,
     MAX_DECIMALS,
@@ -959,6 +960,56 @@ class ApnsDeviceRef(StrictModel):
     """One device, by token (unregister, test)."""
 
     token: ApnsToken
+
+
+LiveActivityPushToken = Annotated[
+    str,
+    Field(
+        pattern=LIVE_ACTIVITY_TOKEN_PATTERN, description="A Live Activity push token, hex (stored lowercase)."
+    ),
+    AfterValidator(str.lower),
+]
+LiveActivityTokenKind = Literal["start", "update"]
+
+
+class LiveActivityIn(StrictModel):
+    """A Live Activity push token (timers.md §10.3), upserted by token: the device's push-to-start
+    token, or one activity's update token with the topic and run it shows."""
+
+    token: LiveActivityPushToken
+    kind: LiveActivityTokenKind = Field(
+        description="start: the device's push-to-start token (it replaces the device's older ones). "
+        "update: one activity's update token."
+    )
+    device_token: ApnsToken = Field(description="The APNs device token of the phone that owns it.")
+    environment: ApnsEnvironment
+    topic_id: UUID | None = Field(default=None, description="update (required): the activity's topic.")
+    run_id: UUID | None = Field(default=None, description="update (required): the run it was started for.")
+
+    @model_validator(mode="after")
+    def _fields_for_kind(self) -> Self:
+        for name in ("topic_id", "run_id"):
+            if self.kind == "update" and getattr(self, name) is None:
+                raise field_error(name, "required for an update token")
+            if self.kind == "start" and getattr(self, name) is not None:
+                raise field_error(name, "a push-to-start token has no topic or run")
+        return self
+
+
+class LiveActivityOut(StrictModel):
+    token: str
+    kind: LiveActivityTokenKind
+    device_token: str
+    environment: ApnsEnvironment
+    topic_id: UUID | None
+    run_id: UUID | None
+    created_at: datetime
+
+
+class LiveActivityRef(StrictModel):
+    """One Live Activity token, by token (unregister)."""
+
+    token: LiveActivityPushToken
 
 
 # ---------------------------------------------------------------------------

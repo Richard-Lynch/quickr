@@ -81,6 +81,7 @@ from app.services import entries as entry_svc
 from app.services import run_fold
 from app.services.answers import validate_answers
 from app.services.feed import is_deleted, log_change, tombstone, writer
+from app.services.push import live_activity
 from app.services.topics import parse_questions, resolve_topic
 
 OPEN = (RunStatus.running, RunStatus.paused)
@@ -562,6 +563,8 @@ async def _merge_into_entry(
 # --- after the response -------------------------------------------------------------------
 
 
-async def after_run_event(run_id: UUID, device: RunDevice | None) -> None:
+async def after_run_event(run_id: UUID, topic_id: UUID, device: RunDevice | None, *, created: bool) -> None:
     """Runs once the response is sent, outside the writer (§6): the Live Activity pushes
-    (T-LAPUSH) go here. Nothing yet."""
+    (§10.3). ``run_id`` is the target run (after a merge, the run merged into); ``created``
+    says the event created it, which owes a push-to-start."""
+    await live_activity.notify(run_id, topic_id, device, created=created)

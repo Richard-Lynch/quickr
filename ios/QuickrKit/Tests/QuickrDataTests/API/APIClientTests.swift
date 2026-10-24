@@ -75,6 +75,12 @@ import Testing
         },
         "deleteApnsDevice": { try await $0.deleteApnsDevice(ApnsDeviceRefDTO(token: "ab")).erased },
         "sendApnsTestPush": { try await $0.sendApnsTestPush(ApnsDeviceRefDTO(token: "ab")).erased },
+        "registerLiveActivity": {
+            try await $0.registerLiveActivity(
+                LiveActivityInDTO(token: "cd", kind: .start, deviceToken: "ab", environment: .sandbox)
+            ).erased
+        },
+        "deleteLiveActivity": { try await $0.deleteLiveActivity(LiveActivityRefDTO(token: "cd")).erased },
     ]
 
     @Test func everyOperationHasATypedCall() {
