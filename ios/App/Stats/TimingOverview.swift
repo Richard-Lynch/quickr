@@ -219,11 +219,16 @@ private struct StepStackChart: View {
     private func label(_ key: String) -> String { text.steps.first { $0.key == key }?.label ?? key }
 
     var body: some View {
-        let keys = text.steps.map(\.key)
+        // Every key in the bars (a run can time a key `steps` doesn't list), current steps first.
+        let listed = text.steps.map(\.key)
+        let extra = Set(points.flatMap { $0.meanMs.map(\.key) }).subtracting(listed).sorted()
+        let keys = listed + extra
         Chart {
             ForEach(points, id: \.start) { point in
                 ForEach(point.meanMs, id: \.key) { segment in
-                    BarMark(x: .value("Bucket", point.start, unit: unit), y: .value("Time", segment.ms))
+                    // By the bucket's own start (the Monday, the 1st): a date unit would rebin it by
+                    // the locale's first weekday.
+                    BarMark(x: .value("Bucket", id(point)), y: .value("Time", segment.ms))
                         .foregroundStyle(by: .value("Step", segment.key))
                         .accessibilityLabel(ChartFormat.bucket(point.start, bucket))
                         .accessibilityValue("\(label(segment.key)) \(DurationFormat.format(segment.ms))")
@@ -240,16 +245,19 @@ private struct StepStackChart: View {
                 }
             }
         }
+        .chartXAxis {
+            AxisMarks(values: points.map(id)) { value in
+                AxisValueLabel {
+                    if let key = value.as(String.self), let point = points.first(where: { id($0) == key }) {
+                        Text(ChartFormat.bucket(point.start, bucket)).font(.qr(.caption)).fixedSize()
+                    }
+                }
+            }
+        }
         .frame(height: 160)
         .accessibilityLabel("Time per step, per \(bucket.rawValue)")
         .accessibilityIdentifier("overview.timing.perStep")
     }
 
-    private var unit: Calendar.Component {
-        switch bucket {
-        case .day: .day
-        case .week: .weekOfYear
-        case .month: .month
-        }
-    }
+    private func id(_ point: TimingOverviewText.StepBucket) -> String { point.start.ISO8601Format() }
 }
