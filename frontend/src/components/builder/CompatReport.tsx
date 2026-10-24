@@ -35,9 +35,12 @@ const KIND: Record<CompatibilityReport['changes'][number]['kind'], { tone: Tone;
 export function CompatReport({
   report,
   labelFor,
+  emptyText = 'No changes.',
 }: {
   report: CompatibilityReport;
   labelFor: (key: string) => string;
+  /** Shown when no question changed (e.g. "No question changes." beside a timer change). */
+  emptyText?: string;
 }) {
   const order = { error: 0, warning: 1, info: 2 } as const;
   const issues = [...report.issues].sort((a, b) => order[a.level] - order[b.level]);
@@ -87,7 +90,7 @@ export function CompatReport({
       <section className="flex flex-col gap-2">
         <h3 className="text-xs font-semibold tracking-wide text-muted uppercase">Changes</h3>
         {report.changes.length === 0 ? (
-          <p className="text-sm text-muted">No changes.</p>
+          <p className="text-sm text-muted">{emptyText}</p>
         ) : (
           <ul className="flex flex-col divide-y divide-dashed divide-line rounded-xl border border-line">
             {report.changes.map((c, n) => (

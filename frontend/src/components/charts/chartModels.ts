@@ -28,14 +28,19 @@ export interface LineModel {
   labelled: Set<number>;
 }
 
-/** Mean per bucket with a min–max band; null when no bucket has a mean. */
-export function lineModel(points: readonly SeriesPoint[], width: number): LineModel | null {
+/** Mean per bucket with a min–max band; null when no bucket has a mean. `ticker` picks the
+ *  y ticks (durations use whole seconds and minutes, `durationTicks`). */
+export function lineModel(
+  points: readonly SeriesPoint[],
+  width: number,
+  ticker: (min: number, max: number, count: number) => number[] = niceTicks,
+): LineModel | null {
   const { height, pad } = LINE_LAYOUT;
   const data = points.filter((p) => p.mean !== null);
   if (data.length === 0) return null;
   const lows = data.map((p) => p.min ?? p.mean ?? 0);
   const highs = data.map((p) => p.max ?? p.mean ?? 0);
-  const ticks = niceTicks(Math.min(...lows), Math.max(...highs), 4);
+  const ticks = ticker(Math.min(...lows), Math.max(...highs), 4);
   const y0 = ticks[0] ?? 0;
   const y1 = ticks[ticks.length - 1] ?? 1;
   const t0 = new Date(data[0]?.start ?? 0).getTime();

@@ -5,6 +5,8 @@ import { errorMessage } from '../../api/errors';
 import {
   getQuestionSeriesOptions,
   getTopicStatsOptions,
+  getTopicTimingOptions,
+  listTopicVersionsOptions,
 } from '../../client/@tanstack/react-query.gen';
 import type { EnumStats, NumericStats, StrStats, TopicStats } from '../../client';
 import { defaultBucket, enumView } from '../../components/charts/chartModels';
@@ -14,6 +16,7 @@ import { Histogram } from '../../components/charts/Histogram';
 import { LineChart } from '../../components/charts/LineChart';
 import { StackedBars } from '../../components/charts/StackedBars';
 import { FilterBar } from '../../components/FilterBar';
+import { TimingOverview } from '../../components/runs/TimingOverview';
 import { ButtonLink } from '../../components/ui/Button';
 import { Badge, Banner, Card, EmptyState } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
@@ -41,6 +44,13 @@ export function OverviewPage() {
     getTopicStatsOptions({ path: { ref: topic.slug }, query: filterQuery(filters) }),
   );
   const allStats = useQuery(getTopicStatsOptions({ path: { ref: topic.slug } }));
+  // Timed topics: the Timing section (an untimed topic answers with zero runs).
+  const timing = useQuery(
+    getTopicTimingOptions({ path: { ref: topic.slug }, query: filterQuery(filters) }),
+  );
+  // Timed now: the section keeps its place while loading and says when the range has no runs.
+  const versions = useQuery(listTopicVersionsOptions({ path: { ref: topic.slug } }));
+  const timed = versions.data?.find((v) => v.version === topic.current_version)?.timer != null;
   const byKey = useMemo(() => new Map(topic.questions.map((q) => [q.key, q])), [topic.questions]);
 
   return (
@@ -90,6 +100,20 @@ export function OverviewPage() {
       ) : (
         <>
           <Summary stats={stats.data} />
+          {timing.isError ? (
+            <Banner title="Could not load timing">{errorMessage(timing.error)}</Banner>
+          ) : timing.data && timing.data.runs > 0 ? (
+            <TimingOverview timing={timing.data} bucket={bucket} />
+          ) : !timed ? null : timing.isPending ? (
+            <Skeleton className="h-72 rounded-card" />
+          ) : (
+            <Card className="p-4 sm:p-5" role="region" aria-label="Timing">
+              <h3 className="font-display text-lg leading-tight font-semibold">Run time</h3>
+              <p className="mt-1 text-sm text-muted">
+                No runs in this range. Start one from the topic, or try a wider range.
+              </p>
+            </Card>
+          )}
           <div className="grid gap-3 md:grid-cols-2">
             {stats.data.questions.map((qs, i) => (
               <div

@@ -1,8 +1,9 @@
 /**
  * Generator + drift check for shared/fixtures/builder-ui-vectors.json: the builder screens'
  * client-side rules (a new question's draft, the draft a published question opens as, the live
- * preview's best-effort question, the versions list's constraint line), for the iOS port
- * (BUILDER-UI). What the server decides is builder-vectors.json (backend).
+ * preview's best-effort question, the versions list's constraint line; and for timed topics a
+ * new step's key, the steps a published timer opens as, renaming, the timer a draft publishes
+ * (or its issues) and the review sheet's timing lines), for the iOS port (BUILDER-UI, I-MANAGE). What the server decides is builder-vectors.json (backend).
  *
  * Text is en-US (the test checks the locale). With QUICKR_UPDATE_VECTORS=1 (`make vectors`)
  * this writes the file; otherwise it fails when the committed file differs.
@@ -11,11 +12,18 @@ import { describe, expect, it } from 'vitest';
 
 import {
   draftFromQuestion,
+  draftFromTimer,
   newDraftQuestion,
+  newDraftStep,
   previewQuestion,
+  timerChanges,
+  timerFromDraft,
+  withStepLabel,
   type DraftOption,
   type DraftQuestion,
+  type DraftStep,
 } from './builder';
+import type { Timer } from '../client';
 import { QUESTION_TYPES, type Question } from './questions';
 import { constraintText } from './questionSummary';
 
@@ -417,6 +425,135 @@ const QUESTIONS: Question[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Timed topics (timers.md §2.1)
+// ---------------------------------------------------------------------------
+
+type PlainStep = Omit<DraftStep, 'uid'>;
+const plainStep = ({ key, label, locked }: DraftStep): PlainStep => ({ key, label, locked });
+const step = (key: string, label: string, locked = false): DraftStep => ({
+  uid: 's',
+  key,
+  label,
+  locked,
+});
+
+const HISTORY = [
+  { key: 'prep', label: 'Old prep' },
+  { key: 'shower', label: 'Shower' },
+];
+
+const NEW_STEP: { label: string; taken: string[]; history?: { key: string; label: string }[] }[] = [
+  { label: '', taken: [] },
+  { label: '   ', taken: [] },
+  { label: 'Shower', taken: [] },
+  { label: '  Brush teeth  ', taken: [] },
+  { label: 'Shower', taken: ['shower'] },
+  { label: 'Shower', taken: ['shower', 'shower_2'] },
+  { label: '123', taken: [] },
+  { label: '123', taken: ['step'] },
+  { label: 'Café au lait!', taken: [] },
+  { label: 'x'.repeat(80), taken: [] },
+  { label: ' old PREP ', taken: [], history: HISTORY },
+  { label: 'Prep', taken: [], history: HISTORY },
+  { label: 'Old prep', taken: ['prep'], history: HISTORY },
+  { label: 'Shower', taken: ['shower'], history: HISTORY },
+];
+
+const TIMERS: (Timer | null)[] = [
+  null,
+  { steps: [] },
+  {
+    steps: [
+      { key: 'shower', label: 'Shower' },
+      { key: 'dress', label: 'Get dressed' },
+    ],
+  },
+];
+
+const STEP_LABEL: {
+  name: string;
+  step: DraftStep;
+  label: string;
+  taken: string[];
+  history?: { key: string; label: string }[];
+}[] = [
+  { name: 'published: key kept', step: step('shower', 'Shower', true), label: 'Bath', taken: [] },
+  {
+    name: 'published: blank keeps key',
+    step: step('shower', 'Shower', true),
+    label: '',
+    taken: [],
+  },
+  { name: 'new: key follows', step: step('shower', 'Shower'), label: 'Bath', taken: [] },
+  { name: 'new: blank clears key', step: step('shower', 'Shower'), label: ' ', taken: [] },
+  { name: 'new: taken key', step: step('', ''), label: 'Dress', taken: ['dress'] },
+  {
+    name: 'new: a retired step again',
+    step: step('', ''),
+    label: 'Old Prep',
+    taken: [],
+    history: HISTORY,
+  },
+  {
+    name: 'new: not a retired key',
+    step: step('', ''),
+    label: 'Prep',
+    taken: [],
+    history: HISTORY,
+  },
+  {
+    name: 'published: history ignored',
+    step: step('dress', 'Dress', true),
+    label: 'Old prep',
+    taken: [],
+    history: HISTORY,
+  },
+];
+
+const TIMER_OUTPUT: { name: string; timed: boolean; steps: DraftStep[] }[] = [
+  { name: 'not timed', timed: false, steps: [] },
+  { name: 'not timed ignores steps', timed: false, steps: [step('', '')] },
+  { name: 'stopwatch', timed: true, steps: [] },
+  {
+    name: 'steps trimmed, in order',
+    timed: true,
+    steps: [step('dress', ' Get dressed '), step('shower', 'Shower', true)],
+  },
+  { name: 'blank label', timed: true, steps: [step('', '  ')] },
+  { name: 'bad key', timed: true, steps: [step('Shower', 'Shower')] },
+  {
+    name: 'duplicate key (a repeated label is fine)',
+    timed: true,
+    steps: [step('a', 'A'), step('a', 'a')],
+  },
+  {
+    name: 'repeated label',
+    timed: true,
+    steps: [step('rinse', 'Rinse'), step('rinse_2', 'rinse')],
+  },
+  { name: 'label too long', timed: true, steps: [step('long', 'x'.repeat(201))] },
+  {
+    name: 'too many steps',
+    timed: true,
+    steps: Array.from({ length: 31 }, (_, i) => step(`s${String(i)}`, `S${String(i)}`)),
+  },
+];
+
+const shower = { key: 'shower', label: 'Shower' };
+const dress = { key: 'dress', label: 'Get dressed' };
+const TIMER_CHANGES: { name: string; base: Timer | null; next: Timer | null }[] = [
+  { name: 'untimed both', base: null, next: null },
+  { name: 'unchanged', base: { steps: [shower, dress] }, next: { steps: [shower, dress] } },
+  { name: 'turned on, stopwatch', base: null, next: { steps: [] } },
+  { name: 'turned on, one step', base: null, next: { steps: [shower] } },
+  { name: 'turned on, two steps', base: null, next: { steps: [shower, dress] } },
+  { name: 'turned off', base: { steps: [shower] }, next: null },
+  { name: 'renamed', base: { steps: [shower] }, next: { steps: [{ ...shower, label: 'Bath' }] } },
+  { name: 'added and removed', base: { steps: [shower] }, next: { steps: [dress] } },
+  { name: 'reordered', base: { steps: [shower, dress] }, next: { steps: [dress, shower] } },
+];
+
 function generate() {
   return {
     meta: { generator: 'frontend/src/lib/builderUi.vectors.test.ts', version: 1, locale: 'en-US' },
@@ -438,6 +575,41 @@ function generate() {
       question,
       expected: constraintText(question),
     })),
+    new_step: NEW_STEP.map(({ label, taken, history = [] }) => ({
+      label,
+      taken,
+      history,
+      expected: plainStep(newDraftStep(label, taken, history)),
+    })),
+    from_timer: TIMERS.map((timer) => {
+      const d = draftFromTimer(timer);
+      return { timer, expected: { timed: d.timed, steps: d.steps.map(plainStep) } };
+    }),
+    step_label: STEP_LABEL.map(({ name, step: st, label, taken, history = [] }) => ({
+      name,
+      step: plainStep(st),
+      label,
+      taken,
+      history,
+      expected: plainStep(withStepLabel(st, label, taken, history)),
+    })),
+    timer_output: TIMER_OUTPUT.map(({ name, timed, steps }) => {
+      const r = timerFromDraft({ timed, steps });
+      return {
+        name,
+        timed,
+        steps: steps.map(plainStep),
+        expected: r.ok
+          ? { timer: r.timer, issues: [] }
+          : { timer: null, issues: r.issues.map((i) => ({ path: i.path, message: i.message })) },
+      };
+    }),
+    timer_changes: TIMER_CHANGES.map(({ name, base, next }) => ({
+      name,
+      base,
+      next,
+      expected: timerChanges(base, next),
+    })),
   };
 }
 
@@ -446,7 +618,17 @@ function serialise(data: ReturnType<typeof generate>): string {
   const section = (items: unknown[]) =>
     `[\n${items.map((x) => `    ${JSON.stringify(x)}`).join(',\n')}\n  ]`;
   return `{\n  "meta": ${JSON.stringify(data.meta)},\n${(
-    ['new_question', 'from_question', 'preview', 'constraint_text'] as const
+    [
+      'new_question',
+      'from_question',
+      'preview',
+      'constraint_text',
+      'new_step',
+      'from_timer',
+      'step_label',
+      'timer_output',
+      'timer_changes',
+    ] as const
   )
     .map((k) => `  "${k}": ${section(data[k])}`)
     .join(',\n')}\n}\n`;
@@ -455,6 +637,12 @@ function serialise(data: ReturnType<typeof generate>): string {
 describe('builder UI vectors', () => {
   it('runs in en-US', () => {
     expect(new Intl.NumberFormat().resolvedOptions().locale).toBe('en-US');
+  });
+
+  it('has timed cases', () => {
+    const data = generate();
+    expect(data.new_step.length).toBeGreaterThanOrEqual(10);
+    expect(data.timer_output.some((c) => c.expected.issues.length > 0)).toBe(true);
   });
 
   it(`${FILE_LABEL} matches builder.ts and questionSummary.ts`, async () => {

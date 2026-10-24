@@ -11,7 +11,7 @@
 import { z } from 'zod';
 
 import { FALLBACK_LIMITS, patternOf } from '../api/limits';
-import type { Limits } from '../client';
+import type { Limits, Timer } from '../client';
 import {
   zDoubleQuestionInput,
   zEnumQuestionInput,
@@ -26,6 +26,7 @@ import {
   type ScheduleDraft,
   type ScheduleInput,
 } from './schedule';
+import { plural } from './format';
 import { charCount } from './text';
 
 export interface DraftOption {
@@ -68,12 +69,26 @@ export interface DraftQuestion {
   publishedMultiple: boolean;
 }
 
+/** A named step of a timed topic (timers.md §2.1). */
+export interface DraftStep {
+  uid: string;
+  /** Derived from the label until the step is published; fixed from then on. */
+  key: string;
+  label: string;
+  /** Exists in the base version: renaming keeps its key, so stats join across versions. */
+  locked: boolean;
+}
+
 export interface TopicDraft {
   name: string;
   slug: string;
   slugEdited: boolean;
   description: string;
   questions: DraftQuestion[];
+  /** The topic is timed: publishing sends a `timer` (with `steps`), else `timer: null`. */
+  timed: boolean;
+  /** The timer's steps, in order. Empty while timed is a plain stopwatch. */
+  steps: DraftStep[];
   /** Only used when publishing a new version. */
   change_note: string;
   /** Only used when creating a topic (an existing topic's schedule is edited in settings). */
@@ -218,12 +233,29 @@ export function draftFromQuestion(q: Question, locked: boolean): DraftQuestion {
   }
 }
 
-export function draftFromTopic(topic: {
-  name: string;
-  slug: string;
-  description: string;
-  questions: readonly Question[];
-}): TopicDraft {
+/** The draft a published timer opens as: its steps locked, so their keys never change. */
+export function draftFromTimer(timer: Timer | null): Pick<TopicDraft, 'timed' | 'steps'> {
+  return {
+    timed: timer !== null,
+    steps: (timer?.steps ?? []).map((s) => ({
+      uid: uid('s'),
+      key: s.key,
+      label: s.label,
+      locked: true,
+    })),
+  };
+}
+
+/** `timer`: the base version's (`TopicVersionOut.timer`); TopicDetail doesn't carry it. */
+export function draftFromTopic(
+  topic: {
+    name: string;
+    slug: string;
+    description: string;
+    questions: readonly Question[];
+  },
+  timer: Timer | null = null,
+): TopicDraft {
   return {
     name: topic.name,
     slug: topic.slug,
@@ -231,6 +263,7 @@ export function draftFromTopic(topic: {
     change_note: '',
     description: topic.description,
     questions: topic.questions.map((q) => draftFromQuestion(q, true)),
+    ...draftFromTimer(timer),
     schedule: emptyScheduleDraft(),
   };
 }
@@ -243,9 +276,70 @@ export function emptyTopicDraft(): TopicDraft {
     slugEdited: false,
     description: '',
     questions: [],
+    timed: false,
+    steps: [],
     change_note: '',
     schedule: emptyScheduleDraft(),
   };
+}
+
+/** A step's key from its label: snake_case, unique among `taken`; '' for a blank label. */
+/** A step key some version of the topic has used, with its latest label (`stepHistory`). */
+export interface HistoricStep {
+  key: string;
+  label: string;
+}
+
+/**
+ * Every step key any version has used, with the label of the latest version that has it
+ * (versions in any order). Stats join on keys across versions (timers.md §2.1, §9), so a
+ * new step must not take a retired step's key unless it is that step.
+ */
+export function stepHistory(
+  versions: readonly { version: number; timer: Timer | null }[],
+): HistoricStep[] {
+  const labels = new Map<string, string>();
+  for (const v of [...versions].sort((a, b) => a.version - b.version))
+    for (const step of v.timer?.steps ?? []) labels.set(step.key, step.label);
+  return [...labels].map(([key, label]) => ({ key, label }));
+}
+
+/**
+ * A new step's key from its label; '' for a blank label. `taken`: the other draft steps'
+ * keys. A label matching (ignoring case and surrounding space) a historic step whose key is
+ * free is that step again, and takes its key; otherwise the key is derived from the label
+ * and unique among `taken` and every historic key (`prep`, else `prep_2`…).
+ */
+export function stepKeyFor(
+  label: string,
+  taken: Iterable<string>,
+  history: readonly HistoricStep[] = [],
+): string {
+  if (!label.trim()) return '';
+  const used = new Set(taken);
+  const same = history.find((h) => !used.has(h.key) && fold(h.label) === fold(label));
+  if (same) return same.key;
+  return uniqueKey(toSnakeKey(label) || 'step', [...used, ...history.map((h) => h.key)]);
+}
+
+/** A new, unpublished step. `taken`: the other steps' keys; `history`: see {@link stepKeyFor}. */
+export function newDraftStep(
+  label = '',
+  taken: Iterable<string> = [],
+  history: readonly HistoricStep[] = [],
+): DraftStep {
+  return { uid: uid('s'), key: stepKeyFor(label, taken, history), label, locked: false };
+}
+
+/** Rename a step. A published step keeps its key; a new one re-derives it from the label. */
+export function withStepLabel(
+  step: DraftStep,
+  label: string,
+  takenKeys: Iterable<string>,
+  history: readonly HistoricStep[] = [],
+): DraftStep {
+  if (step.locked) return { ...step, label };
+  return { ...step, label, key: stepKeyFor(label, takenKeys, history) };
 }
 
 /** Apply a label change, deriving the key while it has not been hand-edited. */
@@ -605,6 +699,87 @@ export function makeQuestionsSchema(limits: Limits = FALLBACK_LIMITS) {
   });
 }
 
+/** Steps per version (backend `MAX_STEPS`, timers.md §5); `GET /limits` doesn't carry it. */
+export const MAX_STEPS = 30;
+
+/**
+ * The steps' rules (timers.md §2.1, §5): a label (at most the label limit), a key matching the
+ * key pattern, keys unique (labels may repeat, as on the server), at most {@link MAX_STEPS}. Paths are
+ * relative to the steps list: `[i, 'label']`, `[i, 'key']`, or `[]` for the list.
+ */
+export function stepIssues(
+  steps: readonly Pick<DraftStep, 'key' | 'label'>[],
+  limits: Limits = FALLBACK_LIMITS,
+): Issue[] {
+  const issues: Issue[] = [];
+  const keyRe = keyPattern(limits);
+  if (steps.length > MAX_STEPS)
+    issues.push({ path: [], message: `At most ${String(MAX_STEPS)} steps` });
+  steps.forEach((step, i) => {
+    const label = step.label.trim();
+    if (!label) issues.push({ path: [i, 'label'], message: 'Required' });
+    maxLength(issues, [i, 'label'], label, limits.max_label_length);
+    const key = step.key.trim();
+    if (label && !key) issues.push({ path: [i, 'key'], message: 'Required' });
+    else if (key && !keyRe.test(key)) issues.push({ path: [i, 'key'], message: KEY_MESSAGE });
+  });
+  for (const i of duplicates(steps.map((x) => x.key.trim())))
+    issues.push({ path: [i, 'key'], message: 'Another step has this key' });
+  return issues;
+}
+
+/** The `timer` a draft publishes: null when not timed, else its steps trimmed, in order. */
+export function timerFromDraft(
+  draft: Pick<TopicDraft, 'timed' | 'steps'>,
+  limits: Limits = FALLBACK_LIMITS,
+): { ok: true; timer: Timer | null } | { ok: false; issues: Issue[] } {
+  if (!draft.timed) return { ok: true, timer: null };
+  const issues = stepIssues(draft.steps, limits);
+  if (issues.length > 0) return { ok: false, issues };
+  return { ok: true, timer: draftTimer(draft.steps) };
+}
+
+const draftStepShape = z.object({
+  uid: z.string(),
+  key: z.string(),
+  label: z.string(),
+  locked: z.boolean(),
+});
+
+/**
+ * The steps field: checked whatever `timed` says, so its errors show next to the questions'.
+ * The builder empties it when Timed is switched off (and restores it when switched back on).
+ */
+export function makeStepsSchema(limits: Limits = FALLBACK_LIMITS) {
+  return z.array(draftStepShape).superRefine((steps, ctx) => {
+    for (const i of stepIssues(steps, limits))
+      ctx.addIssue({ code: 'custom', message: i.message, path: i.path });
+  });
+}
+
+/** What changed in the timer between two versions, for the review sheet; [] when nothing. */
+export function timerChanges(base: Timer | null, next: Timer | null): string[] {
+  if (base === null && next === null) return [];
+  if (base === null) {
+    const n = next?.steps.length ?? 0;
+    return [n ? `Timed, with ${plural(n, 'step')}` : 'Timed, as a stopwatch (no steps)'];
+  }
+  if (next === null) return ['No longer timed'];
+  const out: string[] = [];
+  const before = new Map(base.steps.map((s) => [s.key, s]));
+  const after = new Map(next.steps.map((s) => [s.key, s]));
+  for (const s of next.steps) {
+    const old = before.get(s.key);
+    if (!old) out.push(`Step added: ${s.label}`);
+    else if (old.label !== s.label) out.push(`Step renamed: ${old.label} → ${s.label}`);
+  }
+  for (const s of base.steps) if (!after.has(s.key)) out.push(`Step removed: ${s.label}`);
+  const keptBefore = base.steps.filter((s) => after.has(s.key)).map((s) => s.key);
+  const keptAfter = next.steps.filter((s) => before.has(s.key)).map((s) => s.key);
+  if (keptBefore.join('\n') !== keptAfter.join('\n')) out.push('Steps reordered');
+  return out;
+}
+
 function nameSchema(limits: Limits) {
   return z
     .string()
@@ -651,16 +826,24 @@ export function makeTopicDraftSchema(limits: Limits = FALLBACK_LIMITS) {
       slugEdited: z.boolean(),
       description: descriptionSchema(limits),
       questions: makeQuestionsSchema(limits),
+      timed: z.boolean(),
+      steps: makeStepsSchema(limits),
       change_note: z.string(),
       schedule: makeScheduleSchema(limits),
     })
-    .transform(({ name, slug, description, questions, schedule }) => ({
+    .transform(({ name, slug, description, questions, schedule, timed, steps }) => ({
       name,
       slug,
       description,
       questions,
       schedule,
+      timer: timed ? draftTimer(steps) : null,
     }));
+}
+
+/** Valid steps (the steps schema passed) as the API's timer. */
+function draftTimer(steps: readonly Pick<DraftStep, 'key' | 'label'>[]): Timer {
+  return { steps: steps.map((s) => ({ key: s.key.trim(), label: s.label.trim() })) };
 }
 
 export type TopicDraftOutput = z.output<ReturnType<typeof makeTopicDraftSchema>>;
@@ -674,6 +857,8 @@ export function makeVersionDraftSchema(limits: Limits = FALLBACK_LIMITS) {
       slugEdited: z.boolean(),
       description: z.string(),
       questions: makeQuestionsSchema(limits),
+      timed: z.boolean(),
+      steps: makeStepsSchema(limits),
       change_note: z
         .string()
         .trim()
@@ -684,7 +869,11 @@ export function makeVersionDraftSchema(limits: Limits = FALLBACK_LIMITS) {
       // Not part of a version (edited in topic settings); shape-checked only.
       schedule: scheduleDraftShape,
     })
-    .transform(({ questions, change_note }) => ({ questions, change_note }));
+    .transform(({ questions, change_note, timed, steps }) => ({
+      questions,
+      change_note,
+      timer: timed ? draftTimer(steps) : null,
+    }));
 }
 
 export type VersionDraftOutput = z.output<ReturnType<typeof makeVersionDraftSchema>>;

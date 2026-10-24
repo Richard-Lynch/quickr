@@ -42,6 +42,7 @@ export type OperationId =
   | 'getEntry'
   | 'getTopicStats'
   | 'getQuestionSeries'
+  | 'getTopicTiming'
   | 'listRuns';
 
 /** Invalidate every cached query for the given generated operations. */
@@ -62,6 +63,8 @@ export const ENTRY_DATA_OPS: readonly OperationId[] = [
   'listEntries',
   'getTopicStats',
   'getQuestionSeries',
+  // Timed entries' run times (timers.md §9.2): a stop, a finish or an Edit times changes them.
+  'getTopicTiming',
 ];
 
 /**

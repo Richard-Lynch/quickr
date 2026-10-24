@@ -10,17 +10,23 @@ interface Props {
   bucket: Bucket;
   unit: string | null;
   label: string;
+  /** How values read on the axis and in the tooltip (default: plain numbers). */
+  format?: (v: number) => string;
+  /** The y ticks (default `niceTicks`). */
+  ticker?: (min: number, max: number, count: number) => number[];
 }
 
 /**
  * Mean per bucket as a 2px line with a soft min–max band, plus a crosshair
  * tooltip that follows the pointer (or finger).
  */
-export function LineChart({ points, bucket, unit, label }: Props) {
+export function LineChart({ points, bucket, unit, label, format, ticker }: Props) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [active, setActive] = useState<number | null>(null);
   const { height, pad } = LINE_LAYOUT;
-  const model = lineModel(points, width);
+  const model = lineModel(points, width, ticker);
+  // Null (no min or max in the bucket) reads "—" whatever the format.
+  const value = (v: number | null) => (v === null || !format ? formatNumber(v) : format(v));
 
   if (model === null) {
     return <p className="py-8 text-center text-sm text-muted">No answers in this range.</p>;
@@ -91,7 +97,7 @@ export function LineChart({ points, bucket, unit, label }: Props) {
               textAnchor="end"
               className="fill-muted font-mono text-[10px]"
             >
-              {formatTick(t)}
+              {format ? format(t) : formatTick(t)}
             </text>
           </g>
         ))}
@@ -155,11 +161,11 @@ export function LineChart({ points, bucket, unit, label }: Props) {
         >
           <p className="font-semibold">{formatBucket(shown.start, bucket, 'long')}</p>
           <p className="mt-0.5 font-mono tabular">
-            avg <strong>{formatNumber(shown.mean)}</strong>
+            avg <strong>{value(shown.mean)}</strong>
             {u}
           </p>
           <p className="font-mono text-muted tabular">
-            {formatNumber(shown.min)}–{formatNumber(shown.max)} · n={shown.count}
+            {value(shown.min)}–{value(shown.max)} · n={shown.count}
           </p>
         </div>
       ) : null}

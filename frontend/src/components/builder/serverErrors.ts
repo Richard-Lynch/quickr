@@ -21,6 +21,14 @@ export function builderFieldFor(path: string, draft: TopicDraft): FieldPath<Topi
     return f as FieldPath<TopicDraft>;
   }
   if (path === 'questions') return 'questions';
+  // The server says `timer.steps.N.…`; the draft keeps the steps at the top level.
+  if (path === 'timer' || path === 'timer.steps') return draft.timed ? 'steps' : null;
+  const st = /^timer\.steps\.(\d+)(?:\.(key|label))?/.exec(path);
+  if (st) {
+    const i = Number(st[1]);
+    if (!draft.steps[i]) return 'steps';
+    return `steps.${i}.${st[2] === 'key' ? 'key' : 'label'}`;
+  }
   const m = /^questions\.(\d+)(?:\.(.+))?$/.exec(path);
   if (!m) return null;
   const i = Number(m[1]);
