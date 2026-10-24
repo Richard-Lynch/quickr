@@ -987,6 +987,11 @@ push wakes the app:
   updated;
 - update an activity whose displayed content differs from the view's state.
 
+The app has no silent-push sync today, so reconciliation runs on activation,
+after a background refresh's sync, whenever the local view of runs changes, and
+after this device's own taps. A future silent-push sync must call `reconcile()`
+after it.
+
 **When the app is killed.** The activity stays, and its timers keep ticking
 because they are rendered by the system. Its buttons launch the app in the
 background. A run stopped elsewhere ends it by push, or at the next
