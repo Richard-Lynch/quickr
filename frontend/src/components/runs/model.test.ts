@@ -153,3 +153,13 @@ describe('pendingTimedEntries (§8.3)', () => {
     expect(pendingTimedEntries(runs, 'topic-1', new Set(['r1']))).toEqual([]);
   });
 });
+
+describe('steps not known here (null)', () => {
+  const r = run([start]);
+
+  it('offers plain Next (a step may be left), no Skip, and no step list', () => {
+    expect(primaryAction(r, null)).toEqual({ type: 'next', label: 'Next' });
+    expect(skipTarget(r, null)).toBeNull();
+    expect(checklist(r.state, null)).toEqual([]);
+  });
+});

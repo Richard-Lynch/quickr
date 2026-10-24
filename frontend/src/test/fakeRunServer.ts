@@ -40,6 +40,8 @@ export interface FakeRunServer {
   requests: RecordedRequest[];
   /** The `recordRunEvent` bodies, in order. */
   events: () => RunEventIn[];
+  /** `listTopicVersions` fails (503): the device can't learn the steps. */
+  versionsDown: boolean;
   /** Answer an event yourself: return a Response, or undefined for the normal handling. */
   override: ((body: RunEventIn, server: FakeRunServer) => Response | undefined) | null;
   fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -62,6 +64,7 @@ export function fakeRunServer(topic: TopicDetail, versions: TopicVersionOut[]): 
     entries: [],
     requests: [],
     override: null,
+    versionsDown: false,
     events: () =>
       server.requests
         .filter((r) => r.method === 'POST' && r.path.startsWith('/api/v1/runs/'))
@@ -233,7 +236,9 @@ export function fakeRunServer(topic: TopicDetail, versions: TopicVersionOut[]): 
     const ref = t ? decodeURIComponent(t[1] ?? '') : null;
     if (method === 'GET' && t && (ref === topic.id || ref === topic.slug)) {
       if (!t[2]) return json(200, topic);
-      if (t[2] === '/versions') return json(200, versions);
+      if (t[2] === '/versions') {
+        return server.versionsDown ? problem(503, 'unavailable') : json(200, versions);
+      }
       if (t[2] === '/entries') {
         return json(200, {
           items: server.entries,

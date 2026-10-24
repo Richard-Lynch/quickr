@@ -102,6 +102,37 @@ describe('the home tile of a timed topic', () => {
   });
 });
 
+describe('a run whose steps aren’t known here (T-PUSH: a reminder’s Start, nothing cached)', () => {
+  const unknownSteps = (s: Parameters<typeof seedRun>[0]) => {
+    s.versionsDown = true;
+    seedRun(s);
+  };
+
+  it('the panel shows the clock, Next, Stop, Lap and Pause, but no step list and no Skip', async () => {
+    h = renderRunApp('/t/morning/record', timedTopic(), unknownSteps);
+    const next = await screen.findByRole('button', { name: 'Next' });
+    await waitFor(() => expect(next).toBeEnabled());
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Lap' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeDisabled();
+    // The total clock runs (its screen-reader label is "Total").
+    expect(screen.getByText('Total').parentElement).toHaveTextContent(/^Total 1:0\d$/);
+    expect(screen.queryByText('Breakfast')).toBeNull();
+    await userEvent.click(next);
+    await sent(h, 1);
+    expect(h.server.events()[0]).toMatchObject({ type: 'next', seg: 0 });
+    expect(h.server.events()[0]?.step ?? null).toBeNull();
+  });
+
+  it('the tile offers Next', async () => {
+    h = renderRunApp('/', timedTopic(), unknownSteps);
+    const t = await tile();
+    const next = await within(t).findByRole('button', { name: 'Next · Morning' });
+    await waitFor(() => expect(next).toBeEnabled());
+  });
+});
+
 describe('a due timed topic', () => {
   const due = () => {
     const f = timedTopic();

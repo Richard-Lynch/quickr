@@ -49,26 +49,28 @@ export type PrimaryAction = { type: 'next'; label: string } | { type: 'stop'; la
 
 /**
  * §11.1: "Next: {next step}" while a named step remains, otherwise Stop (with Lap beside
- * it). That is also the "Auto" advance.
+ * it). That is also the "Auto" advance. With the steps unknown (`null`) there may be a
+ * step left: plain "Next", with Stop beside it.
  */
 export function primaryAction(
   run: Pick<LocalRun, 'state'>,
-  steps: readonly TimerStep[],
+  steps: readonly TimerStep[] | null,
 ): PrimaryAction {
+  if (steps === null) return { type: 'next', label: 'Next' };
   const next = labelOf(steps, run.state.next_step);
   return next === null ? { type: 'stop', label: 'Stop' } : { type: 'next', label: `Next: ${next}` };
 }
 
 /**
  * The step a Skip would skip: the open step, or after a lap the next step (§4.2). Null
- * when no step is left.
+ * when no step is left, or the steps aren't known (a skip must name its step).
  */
 export function skipTarget(
   run: Pick<LocalRun, 'state'>,
-  steps: readonly TimerStep[],
+  steps: readonly TimerStep[] | null,
 ): { key: string; label: string } | null {
   const open = run.state.open;
-  if (!open) return null;
+  if (!open || steps === null) return null;
   const key = open.kind === 'step' ? open.step : run.state.next_step;
   if (key === null) return null;
   return {
@@ -87,9 +89,9 @@ export interface ChecklistRow {
   ms: number | null;
 }
 
-/** The version's steps, in order, with their state in the run (§11.2). */
-export function checklist(state: RunState, steps: readonly TimerStep[]): ChecklistRow[] {
-  return steps.map((s) => {
+/** The version's steps, in order, with their state in the run (§11.2); none if unknown. */
+export function checklist(state: RunState, steps: readonly TimerStep[] | null): ChecklistRow[] {
+  return (steps ?? []).map((s) => {
     const seg = state.segments.find((x) => x.kind === 'step' && x.step === s.key);
     if (seg) return { key: s.key, label: seg.label, status: 'done', ms: seg.active_ms };
     if (state.skipped.includes(s.key))
@@ -123,7 +125,7 @@ export function pendingTimedEntries(
 }
 
 /** What the run's controls show now, for `tapRun`'s `expect` (a double tap goes stale). */
-export function expectOf(run: LocalRun, steps: readonly TimerStep[]): TapExpect {
+export function expectOf(run: LocalRun, steps: readonly TimerStep[] | null): TapExpect {
   return {
     seg: run.state.open?.index ?? null,
     step: skipTarget(run, steps)?.key ?? null,

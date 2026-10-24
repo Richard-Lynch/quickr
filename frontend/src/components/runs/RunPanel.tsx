@@ -47,7 +47,8 @@ export function RunPanel({
 }) {
   const paused = run.status === 'paused';
   const now = useServerNow(!paused);
-  const steps: readonly TimerStep[] = ctx?.steps ?? run.steps ?? [];
+  // Null: the steps aren't known here yet (no step list, no Skip; the clock still runs).
+  const steps: readonly TimerStep[] | null = ctx ? ctx.steps : run.steps;
   const total = activeMs(run.state, now);
   const segment = segmentMs(run.state, now);
   const primary = primaryAction(run, steps);
@@ -203,7 +204,7 @@ function Steps({
   segmentMs: live,
 }: {
   run: LocalRun;
-  steps: readonly TimerStep[];
+  steps: readonly TimerStep[] | null;
   segmentMs: number;
 }) {
   const rows = checklist(run.state, steps);

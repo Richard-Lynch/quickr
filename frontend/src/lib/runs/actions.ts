@@ -33,10 +33,13 @@ export const RUN_TAP_LOCK = 'quickr-run-tap';
 export interface RunContext {
   topic: RunEventPayload['topic'];
   version: number;
-  /** That version's steps. */
-  steps: TimerStep[];
-  /** The version has a required question: a stop without answers leaves it finishing. */
-  requires_answers: boolean;
+  /** That version's steps; null when this device doesn't know them yet (no step list). */
+  steps: TimerStep[] | null;
+  /**
+   * The version has a required question: a stop without answers leaves it finishing. Null
+   * when not known: a stop then projects no entry (the server decides, §3.5).
+   */
+  requires_answers: boolean | null;
 }
 
 export interface RunTapDeps {
@@ -231,7 +234,7 @@ function targetOf(run: LocalRun, type: TapType): Partial<RunEventIn> | null {
 /** Whether the tap makes the run's entry (`RunEventPayload.makes_entry`). */
 function makesEntry(run: LocalRun, ctx: RunContext, type: TapType, body: TapBody): boolean {
   if (type === 'finish') return run.status === 'finishing';
-  if (type === 'stop') return body.answers != null || !ctx.requires_answers;
+  if (type === 'stop') return body.answers != null || ctx.requires_answers === false;
   return false;
 }
 

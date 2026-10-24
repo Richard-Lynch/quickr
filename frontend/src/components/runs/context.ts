@@ -40,13 +40,16 @@ export function contextFor(
   };
 }
 
-/** A run's context from its own queued items, when the versions aren't known. */
-export function contextFromRun(run: LocalRun, topic: TopicRef): RunContext | null {
-  if (!run.steps || run.requires_answers === null) return null;
+/**
+ * A run's context from its own items, when the versions aren't known. Their steps may be
+ * unknown too (a run only the server has told us of, or a reminder's Start with nothing
+ * cached): the run can still be timed, with no step list and no Skip.
+ */
+export function contextFromRun(run: LocalRun, topic: TopicRef): RunContext {
   return {
     topic,
     version: run.version,
-    steps: [...run.steps],
+    steps: run.steps ? [...run.steps] : null,
     requires_answers: run.requires_answers,
   };
 }

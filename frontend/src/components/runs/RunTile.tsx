@@ -166,7 +166,7 @@ export function useRunPrimary(
   const versions = useTopicVersions(run?.topic_id ?? '', Boolean(run));
   const runCtx = useRunContext(run, topic);
   if (!run || !isOpen(run)) return null;
-  const steps = runCtx?.steps ?? run.steps ?? [];
+  const steps = runCtx ? runCtx.steps : run.steps;
   const primary = primaryAction(run, steps);
   const expect = expectOf(run, steps);
   return {
