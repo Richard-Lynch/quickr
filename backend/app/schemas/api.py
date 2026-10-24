@@ -1034,8 +1034,8 @@ DeletionKind = Literal["entry", "topic", "version", "run"]
 
 class FeedDeletion(StrictModel):
     """A permanently deleted id. A topic deletion also deletes all of its versions, entries and
-    runs. A ``run`` deletion means the run is no longer open: it stopped, was discarded, or went
-    with its topic."""
+    runs. A ``run`` deletion means the run is no longer open or finishing: it stopped, was
+    discarded, or went with its topic."""
 
     kind: DeletionKind
     seq: int

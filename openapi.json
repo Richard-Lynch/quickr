@@ -5204,7 +5204,7 @@
           "deleted_at"
         ],
         "title": "FeedDeletion",
-        "description": "A permanently deleted id. A topic deletion also deletes all of its versions, entries and\nruns. A ``run`` deletion means the run is no longer open: it stopped, was discarded, or went\nwith its topic."
+        "description": "A permanently deleted id. A topic deletion also deletes all of its versions, entries and\nruns. A ``run`` deletion means the run is no longer open or finishing: it stopped, was\ndiscarded, or went with its topic."
       },
       "FeedEntry": {
         "properties": {

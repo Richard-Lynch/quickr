@@ -61,9 +61,8 @@ async def test_bootstrap_carries_open_and_finishing_runs_only(client: httpx.Asyn
     run_deletions = deleted(page, "run")
     assert set(run_deletions) == {stopped.id, discarded.id}
     assert run_deletions[stopped.id]["topic_id"] == stopped.topic["id"]
-    # Runs apply after entries, and their deletions before every other kind.
+    # Runs apply after entries (deletion order: test_a_run_deleted_with_its_topic_is_a_deletion).
     assert [i["kind"] for i in page["items"]][-3:] == ["run"] * 3
-    assert page["deleted"][0]["kind"] == "run"
 
 
 async def test_incremental_pages_carry_run_upserts_and_deletions(client: httpx.AsyncClient) -> None:
@@ -103,6 +102,25 @@ async def test_incremental_pages_carry_run_upserts_and_deletions(client: httpx.A
     assert not page["deleted"]
 
 
+async def test_incremental_pages_carry_a_finishing_run(client: httpx.AsyncClient) -> None:
+    run = await started(client, "Routine", questions=REQUIRED)
+    cursor = await head()
+
+    await run.tap("stop", 60)
+    page = await changes(client, cursor)
+    assert [i["kind"] for i in page["items"]] == ["run"]
+    assert run_items(page)[run.id]["run"]["status"] == "finishing"
+    assert not page["deleted"]
+    cursor = page["next"]
+
+    await run.tap("finish", 70, answers={"mood": 5})
+    page = await changes(client, cursor)
+    assert entry_ids(page) == {run.id}
+    assert not run_items(page)
+    assert set(deleted(page, "run")) == {run.id}
+    assert len(page["deleted"]) == 1
+
+
 async def test_a_discarded_run_is_a_deletion_without_an_entry(client: httpx.AsyncClient) -> None:
     run = Driver(client, await timed(client, "Routine"))
     cursor = await head()
@@ -115,6 +133,8 @@ async def test_a_discarded_run_is_a_deletion_without_an_entry(client: httpx.Asyn
 
 async def test_a_run_deleted_with_its_topic_is_a_deletion(client: httpx.AsyncClient) -> None:
     run = await started(client, "Routine")
+    r = await client.post(f"/topics/{run.topic['id']}/entries", json={"answers": {}})
+    assert r.status_code == 201, r.text
     assert (await client.post(f"/topics/{run.topic['id']}/archive")).status_code == 200
     assert (await client.delete(f"/topics/{run.topic['id']}")).status_code == 204
     # The topic delete logs only the topic; its run's own rows, read now, find no row and a
@@ -123,6 +143,8 @@ async def test_a_run_deleted_with_its_topic_is_a_deletion(client: httpx.AsyncCli
     assert not run_items(page)
     assert set(deleted(page, "run")) == {run.id}
     assert set(deleted(page, "topic")) == {run.topic["id"]}
+    # Deletions apply children first: runs, then entries, versions and the topic.
+    assert [d["kind"] for d in page["deleted"]] == ["run", "entry", "version", "topic"]
 
 
 # --- T8 ---------------------------------------------------------------------------------------

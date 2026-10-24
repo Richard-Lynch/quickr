@@ -21,6 +21,8 @@ public struct ChangePageDTO: Codable, Sendable, Hashable, WireResponse {
 
     /// Runs decode (so every row is checked) but are dropped here until the store keeps them
     /// (I-SYNC, timers.md §7.2).
+    /// TODO(I-SYNC): the cursor moves past the dropped runs, so I-SYNC's store migration must
+    /// force a rebuild from `after=0` (reset the feed cursor), as T-DB's store v2 did.
     public func toDomain() throws -> ChangePage {
         ChangePage(
             serverId: serverId, epoch: epoch, head: head, next: next, hasMore: hasMore, serverTime: serverTime,

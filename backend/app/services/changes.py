@@ -8,8 +8,11 @@ follows in a later page).
 
 Runs (timers.md §7.1) are items only while open or finishing. A closed run is still a
 row, so it is a deletion only when its own delete row is on the page; otherwise it is
-skipped, which keeps its deletion off any page before its entry's row. A bootstrap
-therefore deletes every closed run ever, which is accepted for one user.
+skipped, which keeps its deletion off any page before its entry's row. A run whose row
+is gone (its topic was deleted) is the exception: it is a deletion at its latest row on
+the page, like the topic's entries; it has no entry to wait for, and clients apply a
+repeated deletion idempotently. A bootstrap therefore deletes every closed run ever, which
+is accepted for one user.
 """
 
 from __future__ import annotations
