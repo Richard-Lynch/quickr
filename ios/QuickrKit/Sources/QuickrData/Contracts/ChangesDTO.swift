@@ -19,22 +19,28 @@ public struct ChangePageDTO: Codable, Sendable, Hashable, WireResponse {
         case serverTime = "server_time"
     }
 
+    /// Runs decode (so every row is checked) but are dropped here until the store keeps them
+    /// (I-SYNC, timers.md §7.2).
+    /// TODO(I-SYNC): the cursor moves past the dropped runs, so I-SYNC's store migration must
+    /// force a rebuild from `after=0` (reset the feed cursor), as T-DB's store v2 did.
     public func toDomain() throws -> ChangePage {
         ChangePage(
             serverId: serverId, epoch: epoch, head: head, next: next, hasMore: hasMore, serverTime: serverTime,
-            items: try items.toDomain(), deleted: try deleted.toDomain())
+            items: try items.compactMap { try $0.toDomain() }, deleted: try deleted.compactMap { try $0.toDomain() })
     }
 }
 
 /// A feed item, tagged by `kind`. An unknown kind fails decoding, which fails the page
 /// (sync-protocol.md §2.2, "every row decodes").
-public enum FeedItemDTO: Codable, Sendable, Hashable, DomainConvertible {
+public enum FeedItemDTO: Codable, Sendable, Hashable {
     case topic(seq: Int, topic: TopicDetailDTO)
     case version(seq: Int, id: String, topicId: String, version: TopicVersionDTO)
     case entry(seq: Int, entry: EntryDTO)
+    /// An open or finishing run (timers.md §7.1).
+    case run(seq: Int, run: RunDTO)
 
     enum CodingKeys: String, CodingKey {
-        case kind, seq, topic, id, version, entry
+        case kind, seq, topic, id, version, entry, run
         case topicId = "topic_id"
     }
 
@@ -51,6 +57,8 @@ public enum FeedItemDTO: Codable, Sendable, Hashable, DomainConvertible {
                 version: try container.decode(TopicVersionDTO.self, forKey: .version))
         case "entry":
             self = .entry(seq: seq, entry: try container.decode(EntryDTO.self, forKey: .entry))
+        case "run":
+            self = .run(seq: seq, run: try container.decode(RunDTO.self, forKey: .run))
         case let kind:
             throw DecodingError.dataCorruptedError(
                 forKey: .kind, in: container, debugDescription: "unknown feed item kind \(kind)")
@@ -74,10 +82,15 @@ public enum FeedItemDTO: Codable, Sendable, Hashable, DomainConvertible {
             try container.encode("entry", forKey: .kind)
             try container.encode(seq, forKey: .seq)
             try container.encode(entry, forKey: .entry)
+        case .run(let seq, let run):
+            try container.encode("run", forKey: .kind)
+            try container.encode(seq, forKey: .seq)
+            try container.encode(run, forKey: .run)
         }
     }
 
-    public func toDomain() throws -> ChangeItem {
+    /// The domain item, or nil for a run, which the store doesn't keep yet (I-SYNC).
+    public func toDomain() throws -> ChangeItem? {
         switch self {
         case .topic(let seq, let topic):
             .topic(seq: seq, topic: try topic.toDomain())
@@ -87,13 +100,20 @@ public enum FeedItemDTO: Codable, Sendable, Hashable, DomainConvertible {
                 version: try version.toDomain())
         case .entry(let seq, let entry):
             .entry(seq: seq, entry: try entry.toDomain())
+        case .run:
+            nil
         }
     }
 }
 
+/// `DeletionKind`: the domain's kinds, and `run`, which the store doesn't keep yet (I-SYNC).
+public enum FeedDeletionKindDTO: String, Codable, Sendable, Hashable {
+    case entry, topic, version, run
+}
+
 /// `FeedDeletion`: a tombstone on a feed page.
-public struct FeedDeletionDTO: Codable, Sendable, Hashable, DomainConvertible {
-    public var kind: Deletion.EntityKind
+public struct FeedDeletionDTO: Codable, Sendable, Hashable {
+    public var kind: FeedDeletionKindDTO
     public var seq: Int
     public var id: String
     public var topicId: String
@@ -105,8 +125,16 @@ public struct FeedDeletionDTO: Codable, Sendable, Hashable, DomainConvertible {
         case deletedAt = "deleted_at"
     }
 
-    public func toDomain() throws -> Deletion {
-        Deletion(
+    /// The domain deletion, or nil for a run's (I-SYNC).
+    public func toDomain() throws -> Deletion? {
+        let kind: Deletion.EntityKind
+        switch self.kind {
+        case .entry: kind = .entry
+        case .topic: kind = .topic
+        case .version: kind = .version
+        case .run: return nil
+        }
+        return Deletion(
             kind: kind, seq: seq, id: try .wire(id, "deletion.id"), topicId: try .wire(topicId, "deletion.topic_id"),
             deletedAt: deletedAt)
     }

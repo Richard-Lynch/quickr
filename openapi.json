@@ -3777,12 +3777,16 @@
                 },
                 {
                   "$ref": "#/components/schemas/FeedVersion"
+                },
+                {
+                  "$ref": "#/components/schemas/FeedRun"
                 }
               ],
               "discriminator": {
                 "propertyName": "kind",
                 "mapping": {
                   "entry": "#/components/schemas/FeedEntry",
+                  "run": "#/components/schemas/FeedRun",
                   "topic": "#/components/schemas/FeedTopic",
                   "version": "#/components/schemas/FeedVersion"
                 }
@@ -3841,7 +3845,7 @@
           "server_time"
         ],
         "title": "ChangesPage",
-        "description": "One page of the change feed, read from a single consistent snapshot.\n\nEach changed entity appears once, in its latest state (``items``) or as a deletion\n(``deleted``). Apply ``items`` in order (topics, then versions, then entries), then\n``deleted`` (entries, then versions, then topics), then store ``next`` as the cursor."
+        "description": "One page of the change feed, read from a single consistent snapshot.\n\nEach changed entity appears once, in its latest state (``items``) or as a deletion\n(``deleted``). Apply ``items`` in order (topics, then versions, then entries, then runs),\nthen ``deleted`` (runs, then entries, then versions, then topics), then store ``next`` as\nthe cursor."
       },
       "Channel": {
         "type": "string",
@@ -5165,7 +5169,8 @@
             "enum": [
               "entry",
               "topic",
-              "version"
+              "version",
+              "run"
             ],
             "title": "Kind"
           },
@@ -5199,7 +5204,7 @@
           "deleted_at"
         ],
         "title": "FeedDeletion",
-        "description": "A permanently deleted id. A topic deletion also deletes all of its versions and entries."
+        "description": "A permanently deleted id. A topic deletion also deletes all of its versions, entries and\nruns. A ``run`` deletion means the run is no longer open or finishing: it stopped, was\ndiscarded, or went with its topic."
       },
       "FeedEntry": {
         "properties": {
@@ -5225,6 +5230,32 @@
           "entry"
         ],
         "title": "FeedEntry"
+      },
+      "FeedRun": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "run",
+            "title": "Kind",
+            "default": "run"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunOut"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "seq",
+          "run"
+        ],
+        "title": "FeedRun",
+        "description": "A run that is open or finishing in the page's snapshot (timers.md \u00a77.1). A closed run\nleaves the feed as a ``run`` deletion; a stopped run's data arrives as its entry."
       },
       "FeedTopic": {
         "properties": {

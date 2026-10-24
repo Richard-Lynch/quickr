@@ -684,7 +684,9 @@ the next. So: **a closed run is emitted as a deletion only when its own delete
 row is on the page; otherwise it is skipped**, as F2 skips entities whose delete
 comes later. The entry's row precedes the run's delete row (§2.4), so a page
 that deletes a stopped run always also carries its entry, or an earlier page
-did.
+did. The exception is a run whose row is gone because its topic was deleted: it
+is emitted as a deletion at its latest row on the page, like the topic's
+entries. It has no entry to wait for, and a repeated deletion is idempotent.
 
 Builds from before this milestone fail a page on the new kinds. No
 compatibility is kept (§12).

@@ -306,7 +306,10 @@ Every WP:
 
 - **Scope:** the `run` and `run_alias` tables; applying `run` items and
   deletions in live and staged pages, replacing T-FEED's skip (§7.2); run
-  tombstones, their dependent-item rule, and the topic cascade.
+  tombstones, their dependent-item rule, and the topic cascade. Builds between
+  T-FEED and I-SYNC drop run items and deletions while their cursor moves past
+  them, so I-SYNC's store migration forces a rebuild from `after=0` (it resets
+  the feed cursor), as T-DB's store v2 did.
 - **Areas:** `QuickrData/Store/`, `QuickrData/Sync/`,
   `QuickrCore/Models/ChangeFeed.swift`, `QuickrData/Contracts/ChangesDTO.swift`.
 - **Depends on:** I-CORE, T-FEED.

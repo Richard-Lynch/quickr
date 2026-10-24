@@ -300,13 +300,16 @@ export const zEnumStats = z.object({
 /**
  * FeedDeletion
  *
- * A permanently deleted id. A topic deletion also deletes all of its versions and entries.
+ * A permanently deleted id. A topic deletion also deletes all of its versions, entries and
+ * runs. A ``run`` deletion means the run is no longer open or finishing: it stopped, was
+ * discarded, or went with its topic.
  */
 export const zFeedDeletion = z.object({
     kind: z.enum([
         'entry',
         'topic',
-        'version'
+        'version',
+        'run'
     ]),
     seq: z.int(),
     id: z.uuid(),
@@ -848,6 +851,18 @@ export const zRunOut = z.object({
 });
 
 /**
+ * FeedRun
+ *
+ * A run that is open or finishing in the page's snapshot (timers.md §7.1). A closed run
+ * leaves the feed as a ``run`` deletion; a stopped run's data arrives as its entry.
+ */
+export const zFeedRun = z.object({
+    kind: z.literal('run').default('run'),
+    seq: z.int(),
+    run: zRunOut
+});
+
+/**
  * Timing
  *
  * A finished run's times (timers.md §2.3). Every instant is a whole millisecond;
@@ -1075,14 +1090,16 @@ export const zFeedVersion = z.object({
  * One page of the change feed, read from a single consistent snapshot.
  *
  * Each changed entity appears once, in its latest state (``items``) or as a deletion
- * (``deleted``). Apply ``items`` in order (topics, then versions, then entries), then
- * ``deleted`` (entries, then versions, then topics), then store ``next`` as the cursor.
+ * (``deleted``). Apply ``items`` in order (topics, then versions, then entries, then runs),
+ * then ``deleted`` (runs, then entries, then versions, then topics), then store ``next`` as
+ * the cursor.
  */
 export const zChangesPage = z.object({
     items: z.array(z.union([
         zFeedEntry,
         zFeedTopic,
-        zFeedVersion
+        zFeedVersion,
+        zFeedRun
     ])),
     deleted: z.array(zFeedDeletion),
     next: z.int(),

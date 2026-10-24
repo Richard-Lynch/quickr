@@ -101,6 +101,26 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         #expect(deletion.kind == .topic && deletion.id == deletion.topicId)
     }
 
+    /// Run items and deletions decode, then drop until the store keeps them (I-SYNC).
+    @Test func runPagesDecodeAndSkipRuns() throws {
+        let fixture = try Fixtures.api("listChanges.run")
+        let wire = try ChangePageDTO.decode(try #require(fixture.body), using: WireCoding.decoder())
+        guard case .run(_, let run) = try #require(wire.items.first) else {
+            Issue.record("expected a run item")
+            return
+        }
+        #expect(run.status == "finishing")
+        #expect(try wire.toDomain().items.isEmpty)
+
+        let closed = try Fixtures.api("listChanges.run_deletion")
+        let closedWire = try ChangePageDTO.decode(try #require(closed.body), using: WireCoding.decoder())
+        #expect(closedWire.deleted.map(\.kind) == [.run, .run, .run])
+        let page = try closedWire.toDomain()
+        #expect(page.deleted.isEmpty)
+        #expect(page.items.count == 2)
+        #expect(page.next == closedWire.next)
+    }
+
     @Test func unknownFeedKindFailsThePage() throws {
         let json = """
             {"items":[{"kind":"comment","seq":1}],"deleted":[],"next":1,"has_more":false,"head":1,
