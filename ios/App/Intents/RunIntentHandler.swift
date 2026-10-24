@@ -19,12 +19,13 @@ extension AppEnvironment {
     /// One run intent: refused before first unlock, and for a widget drawn from another store;
     /// inside the topic's cooldown (shared with the app's controls and the Live Activity) it does
     /// nothing, so a double press doesn't Start then Stop. Otherwise the write (`RunWrites.perform`,
-    /// origin `.widget` or `.siri`); then this device's activity (a Start requests one, I-LA), a
-    /// flush within the intent's budget, and the widgets and Controls reload.
+    /// origin `.widget` or `.siri`); then this device's activity (a Start requests one, I-LA), and
+    /// after a write a flush within the intent's budget and a reload of the widgets and Controls.
     func handleRunIntent(_ request: RunIntentRequest) async throws -> RunIntentResult {
-        guard let session else { throw RunActivityTaps.Failure.noHandler }
-        // Before first unlock the store can't be opened (timers.md §13.5 item 6).
+        // Before first unlock the store can't be opened (timers.md §13.5 item 6), nor the session
+        // made: checked first, so the intent says so.
         guard UIApplication.shared.isProtectedDataAvailable else { throw RunActivityTaps.Failure.locked }
+        guard let session else { throw RunActivityTaps.Failure.noHandler }
         // Suspended in the background, the databases are resumed for the write.
         let hold = session.holdStoreResumed()
         defer { hold.release() }
@@ -40,18 +41,21 @@ extension AppEnvironment {
             reloadWidgetsAndControls()
             throw RunIntents.Failure.stale
         }
+        // `device.live_activity` as I-LA stamps it: true only in the foreground. From the
+        // background the server's push-to-start shows the run; reconciliation ends a duplicate.
+        let writes = session.runWrites(store: store, origin: request.origin)
+        // Siri without a topic: the cooldown is the resolved topic's.
+        var request = request
+        if request.topicId == nil { request.topicId = try await writes.topicId(for: request) }
         if let topicId = request.topicId, !runActions.admits(topicId: topicId) {
             return RunIntentResult(.ignored(topic: nil), topicId: topicId)
         }
-        // iOS lets a `LiveActivityIntent` request an activity from the background, so a start
-        // here says whether this device will show it (the server then skips its push-to-start).
-        let activities = liveActivities
-        let writes = session.runWrites(
-            store: store, origin: request.origin, liveActivity: { await activities.willShowLocally() })
         let result = try await writes.perform(request)
         await liveActivities.reconcile(startFor: result.started ? result.topicId : nil)
-        if result.wrote { await flushAfterActivityTap(store, session: session) }
-        reloadWidgetsAndControls()
+        if result.wrote {
+            await flushAfterActivityTap(store, session: session)
+            reloadWidgetsAndControls()
+        }
         return result
     }
 

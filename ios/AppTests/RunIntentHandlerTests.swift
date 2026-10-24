@@ -52,6 +52,14 @@ import Testing
         let requests = await center.requests
         #expect(requests.count == 1, "this device's own Start requests its activity")
 
+        // Siri without a topic: the cooldown is the resolved topic's (its only open run).
+        let untargeted = try await environment.handleRunIntent(
+            RunIntentRequest(action: .stop, topicId: nil, origin: .siri))
+        let ignoredStop: RunIntentOutcome = .ignored(topic: nil)
+        #expect(untargeted.outcome == ignoredStop)
+        let afterStop = try await LiveActivityTapTests.runEvents(location)
+        #expect(afterStop == ["start"])
+
         try await Task.sleep(for: .milliseconds(500))
         let next = try await environment.handleRunIntent(auto)
         let expected: RunIntentOutcome = .advanced(done: "A", ms: next.outcome.ms, next: "B")

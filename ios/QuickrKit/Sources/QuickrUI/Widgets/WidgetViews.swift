@@ -466,7 +466,8 @@ public struct DueListWidgetView: View {
                     .foregroundStyle(.qr.muted)
             }
             ForEach(rows) { topic in
-                Link(destination: topic.recordURL) {
+                // A timed topic opens its run screen, like its tile (timers.md §11.3).
+                Link(destination: topic.runTile.isTimed ? topic.runURL : topic.recordURL) {
                     HStack(spacing: 8) {
                         Text(topic.topic.name)
                             .font(.qr(.callout))

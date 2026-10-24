@@ -136,23 +136,22 @@ struct TopicControl: ControlWidget {
 /// What a timed topic's Control (timers.md §11.3) shows and does: "Timer: {topic}", and what a
 /// press does now, which is Auto (`RunWidgetIntent`, pinned to the store it was read from): Start,
 /// "Next: Breakfast" (or a plain Next while the steps aren't known), or Stop on the last step. A
-/// finishing run isn't open, so a press starts a new one.
+/// finishing run isn't open, so a press starts a new one. A topic it can't time (untimed,
+/// archived, gone) gets an empty intent, which does nothing.
 struct TimerControlValue: Sendable {
     let title: String
     let detail: String?
     let intent: RunWidgetIntent
     let icon: String
-    let acts: Bool
 
     static let unconfigured = TimerControlValue(
-        title: "Choose a topic", detail: nil, intent: RunWidgetIntent(), icon: "timer", acts: false)
+        title: "Choose a topic", detail: nil, intent: RunWidgetIntent(), icon: "timer")
 
-    init(title: String, detail: String?, intent: RunWidgetIntent, icon: String, acts: Bool) {
+    init(title: String, detail: String?, intent: RunWidgetIntent, icon: String) {
         self.title = title
         self.detail = detail
         self.intent = intent
         self.icon = icon
-        self.acts = acts
     }
 
     init(_ shown: WidgetTopic) {
@@ -164,32 +163,49 @@ struct TimerControlValue: Sendable {
         let auto = RunWidgetIntent(action: .auto, topicId: shown.id, scope: scope)
         switch shown.runTile {
         case .untimed:
-            self.init(title: title, detail: "Not timed", intent: auto, icon: "timer", acts: false)
+            self.init(title: title, detail: "Not timed", intent: RunWidgetIntent(), icon: "timer")
         case .open:
             if shown.runButtons(compact: true).first == .next {
                 let detail = shown.run?.nextLabel.map { "Next: \($0)" } ?? "Next"
-                self.init(title: title, detail: detail, intent: auto, icon: "forward.end", acts: true)
+                self.init(title: title, detail: detail, intent: auto, icon: "forward.end")
             } else {
-                self.init(title: title, detail: "Stop", intent: auto, icon: "stop", acts: true)
+                self.init(title: title, detail: "Stop", intent: auto, icon: "stop")
             }
         case .idle, .finishing:
             guard shown.topic.status != .archived else {
-                self.init(title: title, detail: "Archived", intent: auto, icon: "timer", acts: false)
+                self.init(title: title, detail: "Archived", intent: RunWidgetIntent(), icon: "timer")
                 return
             }
-            self.init(title: title, detail: "Start", intent: auto, icon: "play", acts: true)
+            self.init(title: title, detail: "Start", intent: auto, icon: "play")
         }
     }
 }
 
+/// The Timer Control's picker: timed topics only. Declared here, in the extension: App Intents'
+/// metadata can't find an options provider declared in a package.
+struct TimedTopicOptions: DynamicOptionsProvider {
+    func results() async throws -> [TopicEntity] {
+        try await TopicEntityQuery().timedEntities()
+    }
+}
+
+/// Chooses the timed topic a Timer Control advances: the picker lists timed topics only.
+struct SelectTimerControlIntent: ControlConfigurationIntent {
+    static let title: LocalizedStringResource = "Timed Topic"
+
+    @Parameter(title: "Topic", optionsProvider: TimedTopicOptions()) var topic: TopicEntity?
+
+    init() {}
+}
+
 struct TimerControlProvider: AppIntentControlValueProvider {
-    func previewValue(configuration: SelectTopicControlIntent) -> TimerControlValue {
+    func previewValue(configuration: SelectTimerControlIntent) -> TimerControlValue {
         guard let topic = configuration.topic else { return .unconfigured }
         return TimerControlValue(
-            title: "Timer: \(topic.name)", detail: nil, intent: RunWidgetIntent(), icon: "timer", acts: false)
+            title: "Timer: \(topic.name)", detail: nil, intent: RunWidgetIntent(), icon: "timer")
     }
 
-    func currentValue(configuration: SelectTopicControlIntent) async throws -> TimerControlValue {
+    func currentValue(configuration: SelectTimerControlIntent) async throws -> TimerControlValue {
         await Self.value(for: configuration.topic?.id)
     }
 

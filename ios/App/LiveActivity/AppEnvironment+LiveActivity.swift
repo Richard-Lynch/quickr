@@ -21,9 +21,10 @@ extension AppEnvironment {
     /// with the content state's `seg`, the activity updated at once, then a flush within the
     /// intent's budget.
     func handleActivityTap(_ tap: RunActivityTap) async throws {
-        guard let session else { throw RunActivityTaps.Failure.noHandler }
-        // Before first unlock the store can't be opened (timers.md §13.5 item 6).
+        // Before first unlock the store can't be opened (timers.md §13.5 item 6), nor the session
+        // made: checked first, so the tap says so.
         guard UIApplication.shared.isProtectedDataAvailable else { throw RunActivityTaps.Failure.locked }
+        guard let session else { throw RunActivityTaps.Failure.noHandler }
         guard runActions.admits(topicId: tap.topicId) else { return }
         // Suspended in the background, the databases are resumed for the write.
         let hold = session.holdStoreResumed()

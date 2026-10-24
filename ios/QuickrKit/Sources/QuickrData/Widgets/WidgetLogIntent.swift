@@ -102,6 +102,9 @@ enum WidgetLogging {
         var pinned = context
         pinned.openActiveStore = { store }
         let (_, current) = try await IntentLogging.topic(topicId, in: pinned)
+        // A timed topic is never one-press logged untimed (timers.md §11.1): the Timer Control
+        // times it.
+        if current.timer != nil { return "\(current.name) is timed: use the Timer control." }
         let answers: [String: AnswerValue]
         switch QuickLog(questions: current.questions) {
         case .chips(let question, _)?:

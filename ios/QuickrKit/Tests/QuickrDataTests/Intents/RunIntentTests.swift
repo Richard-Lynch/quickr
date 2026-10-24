@@ -1,9 +1,10 @@
 import Foundation
 import GRDB
 import QuickrCore
-import QuickrData
 import QuickrTestSupport
 import Testing
+
+@testable import QuickrData
 
 /// The run intents' outcomes (timers.md §11.1, §11.3): a timed widget's buttons, the Timer
 /// Control, the Action button and Siri all go through `RunWrites.perform`, which decides and
@@ -26,7 +27,37 @@ import Testing
         return topic
     }
 
+    /// Times version 1 of the harness's topic with `steps` and no questions: a stop saves it.
+    static func timedWithoutQuestions(_ h: OutboxHarness, steps: [TopicTimer.Step]) throws {
+        let version = TopicVersion(version: 1, questions: [], timer: TopicTimer(steps: steps), createdAt: Make.t0)
+        let topicId = h.topic.id
+        try h.write { db in _ = try ServerLayer.insert(db, version: version, id: UUID(), topicId: topicId) }
+    }
+
     // MARK: - Idle
+
+    @Test func anArchivedTopicIsNotStarted() async throws {
+        let h = try OutboxHarness(topicStatus: .archived)
+        try h.timed()
+        let result = try await h.runs(.siri).perform(
+            RunIntentRequest(action: .start, topicId: h.topic.id, origin: .siri))
+        let expected: RunIntentOutcome = .archived(topic: "Mood")
+        #expect(result.outcome == expected)
+        #expect(!result.wrote)
+        #expect(try h.runItems.isEmpty)
+    }
+
+    @Test func theTimerControlsPickerListsTimedTopicsOnly() throws {
+        let h = try OutboxHarness()
+        try h.timed()
+        let dishwasher = try Self.dishwasher(h)
+        let untimed = Make.topic(name: "Water")
+        try h.write { db in _ = try ServerLayer.upsert(db, topic: untimed) }
+        let topics = try h.read { db in try StoreView.topics(db) }
+        let names = TopicEntityQuery.timed(topics).map(\.name).sorted()
+        #expect(names == ["Dishwasher", "Mood"])
+        #expect(dishwasher.name == "Dishwasher")
+    }
 
     @Test func autoOnAnIdleTopicStartsItAndNamesTheFirstStep() async throws {
         let h = try OutboxHarness()
@@ -136,7 +167,7 @@ import Testing
 
     @Test func autoOnTheLastStepStopsAndSaves() async throws {
         let h = try OutboxHarness()
-        try h.timed(steps: Array(OutboxHarness.steps.prefix(1)))
+        try Self.timedWithoutQuestions(h, steps: Array(OutboxHarness.steps.prefix(1)))
         let writes = h.runs(.siri)
         _ = try await writes.perform(Self.auto(h.topic.id))
         h.wall.advance(by: 462)
@@ -157,6 +188,19 @@ import Testing
         let expected11: RunIntentOutcome = .savedNeedsDetails(topic: "Mood", ms: 462_000)
         #expect(result.outcome == expected11)
         #expect(result.outcome.shownText == "Saved 7:42. Open quickR to add details.")
+    }
+
+    /// The app's rule (`RunActions.stop`): optional questions still open the answers form, so the
+    /// stop says to add details even though it made the entry.
+    @Test func aStopOnAVersionWithOptionalQuestionsSaysToAddDetails() async throws {
+        let h = try OutboxHarness()
+        try h.timed(steps: Array(OutboxHarness.steps.prefix(1)))
+        let writes = h.runs(.siri)
+        _ = try await writes.perform(Self.auto(h.topic.id))
+        h.wall.advance(by: 60)
+        let result = try await writes.perform(Self.auto(h.topic.id))
+        let expected: RunIntentOutcome = .savedNeedsDetails(topic: "Mood", ms: 60_000)
+        #expect(result.outcome == expected)
     }
 
     // MARK: - Finishing
@@ -290,7 +334,7 @@ import Testing
 
     @Test func aLockedPhoneGetsTheFriendlyMessage() {
         let message = RunIntents.message(for: RunActivityTaps.Failure.locked)
-        #expect(message == "Unlock your iPhone to use quickR’s buttons.")
+        #expect(message == "Unlock your iPhone to use quickR.")
         #expect(RunIntents.message(for: CancellationError()) == nil)
     }
 }

@@ -229,11 +229,23 @@ extension RunWrites {
             case .resume:
                 outcome = .resumed(topic: name)
             default:
+                // The app's rule (`RunActions.stop`): a version with questions, or whose questions
+                // aren't known, has details to add.
                 let ms = RunPresentation.activeMs(run.state, now: at)
                 outcome =
-                    after?.status == .finishing ? .savedNeedsDetails(topic: name, ms: ms) : .saved(topic: name, ms: ms)
+                    run.hasQuestions != false ? .savedNeedsDetails(topic: name, ms: ms) : .saved(topic: name, ms: ms)
             }
             return result(outcome, wrote: true)
+        }
+    }
+
+    /// The topic `request` acts on, read before the write so the caller can apply the topic's
+    /// cooldown: the given one, or the only open run's; nil when there is none to act on (several
+    /// open runs, none, or an unknown topic: `perform` says which).
+    public func topicId(for request: RunIntentRequest) async throws -> UUID? {
+        try await store.writer.read { db in
+            guard case .topic(let topic) = try Self.resolve(db, request) else { return nil }
+            return topic.id
         }
     }
 

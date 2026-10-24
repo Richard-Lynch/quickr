@@ -30,15 +30,18 @@ final class WidgetReloader {
     }
 
     /// Follows `store` until it closes or the task is cancelled (the next binding follows its own).
-    func observe(_ store: LocalStore, refresh: AsyncStream<Void>? = nil) async {
+    /// `refresh` makes a cross-process trigger stream: one for each observation, since a stream
+    /// has one consumer.
+    func observe(_ store: LocalStore, refresh: (() -> AsyncStream<Void>)? = nil) async {
         let reader = WidgetReader(store: store)
-        async let topics: Void = follow(store.observeTopics(refresh: refresh), reader)
+        let (topicsRefresh, runsRefresh) = (refresh?(), refresh?())
+        async let topics: Void = follow(store.observeTopics(refresh: topicsRefresh), reader)
         async let outbox: Void = follow(store.observeOutbox(), reader)
         // The skew moves due state (sync-protocol.md §10): a pull that changes only it reloads too.
         // Only this process's pulls write it, so it needs no cross-process refresh.
         async let syncState: Void = follow(store.observeSyncState(), reader)
         // A run another device moved (a sync) changes the timed widgets too (timers.md §11.3).
-        async let runs: Void = follow(store.observeLocalRuns(refresh: refresh), reader)
+        async let runs: Void = follow(store.observeLocalRuns(refresh: runsRefresh), reader)
         _ = await (topics, outbox, syncState, runs)
         pending?.cancel()
     }

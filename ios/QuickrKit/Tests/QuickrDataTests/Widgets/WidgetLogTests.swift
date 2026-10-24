@@ -132,6 +132,23 @@ import Testing
         #expect(try await form.b.outbox.items().isEmpty)
     }
 
+    /// A timed topic with no questions: the log Control would log it untimed in one press. It
+    /// refuses and writes nothing (timers.md §11.1); the Timer Control times it.
+    @Test func aTimedTopicIsNeverLoggedUntimed() async throws {
+        let w = try await World(questions: [])
+        defer { w.directory.cleanup() }
+        let version = TopicVersion(
+            version: 1, questions: [], timer: TopicTimer(steps: [TopicTimer.Step(key: "wash", label: "Wash")]),
+            createdAt: Make.t0)
+        let topicId = w.topic.id
+        try await w.b.writer.write { db in
+            _ = try ServerLayer.insert(db, version: version, id: UUID(), topicId: topicId)
+        }
+        let said = try await w.perform(from: w.b.scope)
+        #expect(said == "Mood is timed: use the Timer control.")
+        #expect(try await w.b.outbox.items().isEmpty)
+    }
+
     @Test func withoutAContextItIsNotSetUp() async throws {
         await #expect(throws: IntentLogging.Failure.noStore) {
             try await WidgetLogging.perform(

@@ -468,14 +468,11 @@ public final class AppSession {
     }
 
     /// `store`'s run façade for `origin`, stamping this device's APNs token as `device`, with
-    /// `liveActivityShown` (or `liveActivity`: a `LiveActivityIntent` may request an activity from
-    /// the background). An intent launched in the background writes through the active store
+    /// `liveActivityShown`. An intent launched in the background writes through the active store
     /// before the session binds it.
-    public func runWrites(
-        store: LocalStore, origin: OutboxOrigin = .app, liveActivity: (@Sendable () async -> Bool)? = nil
-    ) -> RunWrites {
+    public func runWrites(store: LocalStore, origin: OutboxOrigin = .app) -> RunWrites {
         let registry = partitions.registry.repository
-        let liveActivity = liveActivity ?? liveActivityShown
+        let liveActivity = liveActivityShown
         return RunWrites(
             store: store, origin: origin,
             device: {

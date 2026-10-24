@@ -75,12 +75,10 @@ public enum RunActionKind: String, AppEnum, Sendable {
     }
 }
 
-/// The dialog of Siri's and the Action button's intents: spoken with natural durations ("4
-/// minutes 12 seconds"), shown as `m:ss`.
+/// The dialog of Siri's and the Action button's intents, with natural durations ("4 minutes 12
+/// seconds"): Siri speaks it, so `m:ss` would be read as a time of day.
 enum RunIntentDialog {
-    static func make(_ outcome: RunIntentOutcome) -> IntentDialog {
-        IntentDialog(full: "\(outcome.spokenText)", supporting: "\(outcome.shownText)")
-    }
+    static func make(_ outcome: RunIntentOutcome) -> IntentDialog { IntentDialog("\(outcome.spokenText)") }
 
     static func make(_ message: String) -> IntentDialog { IntentDialog(stringLiteral: message) }
 }
@@ -96,11 +94,12 @@ public struct RunWidgetIntent: LiveActivityIntent {
     public static let isDiscoverable = false
     public static let supportedModes: IntentModes = .background
 
-    /// `RunIntentAction`'s raw value.
-    @Parameter(title: "Action") public var action: String
-    @Parameter(title: "Topic") public var topicId: String
+    /// `RunIntentAction`'s raw value. Nil, like the topic and store, only for a Control not
+    /// configured yet (or whose topic is gone): it does nothing.
+    @Parameter(title: "Action") public var action: String?
+    @Parameter(title: "Topic") public var topicId: String?
     /// `EntryScope.id`: "{server_id}/{store_gen}".
-    @Parameter(title: "Store") public var scope: String
+    @Parameter(title: "Store") public var scope: String?
     @Parameter(title: "Run") public var runId: String?
     @Parameter(title: "Segment") public var seg: Int?
 
@@ -130,9 +129,10 @@ public struct RunWidgetIntent: LiveActivityIntent {
     }
 
     public func perform() async throws -> some IntentResult {
-        guard let action = RunIntentAction(rawValue: action), let topic = UUID(uuidString: topicId) else {
-            return .result()
-        }
+        guard let action = action.flatMap(RunIntentAction.init(rawValue:)),
+            let topic = topicId.flatMap({ UUID(uuidString: $0) }),
+            let scope
+        else { return .result() }
         let shown = runId.flatMap { id in seg.map { RunIntentRequest.Shown(runId: id, seg: $0) } }
         _ = try await RunIntents.perform(
             RunIntentRequest(action: action, topicId: topic, origin: .widget, scope: EntryScope(scope), shown: shown))

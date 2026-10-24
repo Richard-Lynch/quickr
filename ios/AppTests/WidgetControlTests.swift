@@ -128,9 +128,10 @@ import Testing
         let idle = TimerControlValue(Self.timed())
         #expect(idle.title == "Timer: Morning")
         #expect(idle.detail == "Start")
-        #expect(idle.acts)
-        #expect(idle.intent.action == "auto")
-        #expect(idle.intent.scope == Self.scope.id)
+        let idleAction: String? = idle.intent.action
+        #expect(idleAction == "auto")
+        let idleScope: String? = idle.intent.scope
+        #expect(idleScope == Self.scope.id)
         let idleRun: String? = idle.intent.runId
         #expect(idleRun == nil, "Auto acts on the current state")
 
@@ -142,7 +143,8 @@ import Testing
         #expect(finishing.detail == "Start", "a finishing run isn't open: a press starts a new one")
 
         let untimed = TimerControlValue(Self.shown([Self.mood], last: nil))
-        #expect(!untimed.acts)
+        let untimedAction: String? = untimed.intent.action
+        #expect(untimedAction == nil, "an empty intent: a press does nothing")
         #expect(untimed.detail == "Not timed")
         let noStore = TimerControlValue(Self.shown([Self.mood], last: nil, scope: nil))
         #expect(noStore.title == "Choose a topic")
@@ -152,15 +154,19 @@ import Testing
         let running = Self.timed(status: "running")
         let actions = TopicWidgetEntryView.actions(running)
         let next = try #require(actions.run(.next) as? RunWidgetIntent)
-        #expect(next.action == "next")
-        #expect(next.topicId == running.id.wireString)
-        #expect(next.scope == Self.scope.id)
+        let action: String? = next.action
+        #expect(action == "next")
+        let topicId: String? = next.topicId
+        #expect(topicId == running.id.wireString)
+        let scope: String? = next.scope
+        #expect(scope == Self.scope.id)
         let runId: String = try #require(next.runId)
         #expect(runId == "00000000-0000-4000-8000-0000000000aa")
         let seg: Int = try #require(next.seg)
         #expect(seg == 2)
         let start = try #require(TopicWidgetEntryView.actions(Self.timed()).run(.start) as? RunWidgetIntent)
-        #expect(start.action == "start")
+        let startAction: String? = start.action
+        #expect(startAction == "start")
         let startRun: String? = start.runId
         #expect(startRun == nil)
 

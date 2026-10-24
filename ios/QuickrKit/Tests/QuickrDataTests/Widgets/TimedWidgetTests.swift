@@ -67,8 +67,9 @@ import Testing
         try h.timed()
         try h.seedServerRun(version: 9)
         let topic = try await Self.shown(h)
-        let unknown = try #require(topic.run?.stepsUnknown)
-        #expect(unknown)
+        let run = try #require(topic.run)
+        let unknown: Bool? = run.stepsUnknown
+        #expect(unknown == true)
         #expect(topic.runButtons(compact: false) == [.next, .stop])
         #expect(topic.runButtons(compact: true) == [.next])
         #expect(topic.runButtonLabel(.next) == "Next")
