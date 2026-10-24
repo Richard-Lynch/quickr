@@ -144,6 +144,15 @@ def build() -> dict[str, Any]:
             status="finishing",
         ),
         case("end_discarded", "end", "three", [START, ev(1, "discard", 40)], revision=2),
+        # A finishing run discarded (§3.7): its stop's ended_at is not what was saved.
+        case(
+            "end_discarded_finishing",
+            "end",
+            "none",
+            [START, ev(1, "stop", 60)],
+            revision=3,
+            status="discarded",
+        ),
     ]
     return {
         "meta": {
@@ -246,7 +255,10 @@ def test_content_state_values() -> None:
     assert discarded["content-state"]["status"] == "discarded"
     assert discarded["content-state"]["ended_at"] is None
     assert discarded["content-state"]["active_ms"] is None
-    assert discarded["dismissal-date"] <= TIMESTAMP  # dismissed at once
+    assert discarded["dismissal-date"] < TIMESTAMP  # dismissed at once
+    late = by_name["end_discarded_finishing"]["content-state"]
+    assert late["ended_at"] is None
+    assert late["active_ms"] is None
 
     assert by_name["end_finishing"]["content-state"]["status"] == "finishing"
     assert by_name["start"]["stale-date"] == TIMESTAMP + la.STALE_SECONDS

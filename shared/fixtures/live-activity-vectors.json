@@ -325,12 +325,43 @@
             "step_index": null,
             "v": 1
           },
-          "dismissal-date": 1792743000,
+          "dismissal-date": 1792742999,
           "event": "end",
           "timestamp": 1792743000
         }
       },
       "steps": "three"
+    },
+    {
+      "bytes": 407,
+      "event": "end",
+      "name": "end_discarded_finishing",
+      "payload": {
+        "aps": {
+          "content-state": {
+            "active_ms": null,
+            "ended_at": null,
+            "label": "Lap 1",
+            "next_label": null,
+            "paused_at": null,
+            "paused_ms_before_seg": 0,
+            "paused_ms_in_seg": 0,
+            "revision": 3,
+            "run_id": "0a000000-0000-4000-8000-000000000000",
+            "seg": 0,
+            "seg_started_at": 1792742400.0,
+            "started_at": 1792742400.0,
+            "status": "discarded",
+            "step_count": 0,
+            "step_index": null,
+            "v": 1
+          },
+          "dismissal-date": 1792742999,
+          "event": "end",
+          "timestamp": 1792743000
+        }
+      },
+      "steps": "none"
     }
   ],
   "meta": {

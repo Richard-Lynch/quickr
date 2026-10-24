@@ -3666,7 +3666,7 @@
           "push"
         ],
         "summary": "Register Live Activity",
-        "description": "Register (or refresh, keyed by token) a Live Activity push token: the device's push-to-start\ntoken (``kind: start``; it replaces the device's older ones), or one activity's update token\n(``kind: update``, with its topic and run). Works whether or not APNs is enabled.",
+        "description": "Register (or refresh, keyed by token) a Live Activity push token: the device's push-to-start\ntoken (``kind: start``; it replaces the device's older ones), or one activity's update token\n(``kind: update``, with its topic and its open run; ``run_id`` may be an alias). An update\ntoken for a run that is closed or unknown is answered the same but not kept; a closed run's\ngets its ``end`` push. 422 ``invalid_request`` when the run belongs to another topic. Works\nwhether or not APNs is enabled.",
         "operationId": "registerLiveActivity",
         "parameters": [
           {

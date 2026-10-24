@@ -22,6 +22,7 @@ from app.models import ApnsDevice, LiveActivityToken, Run
 from app.services.push import apns
 from app.services.push import live_activity as la
 from app.services.push.apns import MAX_PAYLOAD_BYTES
+from app.services.push.base import PushFailed
 from tests.fake_apns import TOPIC, FakeApns, Sent, token
 from tests.helpers import feed_locks
 from tests.test_api_runs import Driver, frozen_clock, timed
@@ -38,8 +39,8 @@ def _clock(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def la_token(n: int) -> str:
-    """A well-formed Live Activity token (longer than a device token)."""
-    return f"{n:0160x}"
+    """A well-formed Live Activity token: longer than a device token, with letters in it."""
+    return f"abcdef{n:0154x}"
 
 
 def device(phone: str, *, live_activity: bool = True) -> dict[str, Any]:
@@ -90,15 +91,17 @@ async def routine(client: httpx.AsyncClient, name: str = "Routine") -> dict[str,
 
 
 async def test_register_both_kinds_and_delete(client: httpx.AsyncClient) -> None:
-    topic_id, run_id = str(uuid4()), str(uuid4())
+    topic = await routine(client)
+    run = Driver(client, topic)
+    await run.start()
     out = await register(client, token=la_token(1).upper(), kind="start", device_token=PHONE_A.upper())
     assert out["token"] == la_token(1)
     assert out["device_token"] == PHONE_A
     assert out["topic_id"] is None
     out = await register(
-        client, token=la_token(2), kind="update", device_token=PHONE_A, topic_id=topic_id, run_id=run_id
+        client, token=la_token(2), kind="update", device_token=PHONE_A, topic_id=topic["id"], run_id=run.id
     )
-    assert (out["kind"], out["topic_id"], out["run_id"]) == ("update", topic_id, run_id)
+    assert (out["kind"], out["topic_id"], out["run_id"]) == ("update", topic["id"], run.id)
     assert set(await tokens()) == {la_token(1), la_token(2)}
 
     for _ in range(2):  # idempotent
@@ -115,9 +118,12 @@ async def test_register_checks_the_fields_for_its_kind(client: httpx.AsyncClient
 
 
 async def test_a_new_push_to_start_token_replaces_the_devices_older_one(client: httpx.AsyncClient) -> None:
+    topic = await routine(client)
+    run = Driver(client, topic)
+    await run.start()
     await start_token(client, 1, PHONE_A)
     await start_token(client, 2, PHONE_B)
-    await update_token(client, 3, PHONE_A, str(uuid4()), str(uuid4()))
+    await update_token(client, 3, PHONE_A, topic["id"], run.id)
     await start_token(client, 4, PHONE_A)
     await start_token(client, 4, PHONE_A)  # a refresh keeps it
     assert set(await tokens()) == {la_token(2), la_token(3), la_token(4)}
@@ -276,19 +282,27 @@ async def test_end_drops_only_the_ended_runs_update_tokens(
     await loser.start(5, status=201)
     a = await update_token(client, 1, PHONE_A, topic["id"], run.id)
     b = await update_token(client, 2, PHONE_B, topic["id"], loser.id)  # the alias's
-    newer = await update_token(client, 3, PHONE_B, topic["id"], str(uuid4()))  # a newer run, in the gap
     starts = await start_token(client, 4, PHONE_B)
 
-    await run.tap("stop", 300, device=device(PHONE_A))
+    fake_apns.quota = 0  # the end stalls: a newer run starts, and registers, in the gap
+    stop = asyncio.create_task(run.tap("stop", 300, device=device(PHONE_A)))
+    await fake_apns.wait_started()
+    newer = Driver(client, topic)
+    async with asyncio.timeout(5):
+        await newer.start(400, device=device(PHONE_A))
+        c = await update_token(client, 3, PHONE_A, topic["id"], newer.id)
+    fake_apns.allow()
+    await stop
+
     assert to(fake_apns, a) == []  # it ended locally
-    assert to(fake_apns, newer) == []
     [sent] = to(fake_apns, b)
     body = aps(sent)
     assert body["event"] == "end"
     assert body["content-state"]["status"] == "stopped"
     assert body["content-state"]["active_ms"] == 300_000
     assert body["dismissal-date"] == body["timestamp"] + la.DISMISS_SECONDS
-    assert set(await tokens()) == {newer, starts}
+    assert [aps(s)["event"] for s in to(fake_apns, starts)] == ["start"]  # the newer run's
+    assert set(await tokens()) == {c, starts}
 
 
 async def test_end_when_finishing_and_discarded(client: httpx.AsyncClient, fake_apns: FakeApns) -> None:
@@ -357,3 +371,185 @@ async def test_nothing_is_sent_when_apns_is_off(
     await update_token(client, 2, PHONE_B, topic["id"], run.id)
     await run.tap("stop", 60)
     assert len(await tokens()) == 2  # nothing ended by push, nothing dropped
+
+
+# --- registering for a run that isn't open ----------------------------------------------------
+
+
+async def test_a_token_for_a_closed_run_is_not_kept_and_gets_its_end(
+    client: httpx.AsyncClient, fake_apns: FakeApns
+) -> None:
+    topic = await routine(client)
+    run = Driver(client, topic)
+    await run.start()
+    await run.tap("stop", 120)
+    late = await update_token(client, 1, PHONE_B, topic["id"], run.id)  # raced the stop
+    [sent] = to(fake_apns, late)
+    assert aps(sent)["event"] == "end"
+    assert aps(sent)["content-state"]["status"] == "stopped"
+    assert await tokens() == {}
+
+
+async def test_a_token_for_an_unknown_run_is_not_kept(client: httpx.AsyncClient, fake_apns: FakeApns) -> None:
+    topic = await routine(client)
+    out = await register(
+        client,
+        token=la_token(1),
+        kind="update",
+        device_token=PHONE_B,
+        topic_id=topic["id"],
+        run_id=str(uuid4()),
+    )
+    assert out["kind"] == "update"
+    assert await tokens() == {}
+    assert fake_apns.sent == []
+
+
+async def test_a_token_for_an_alias_is_kept_and_its_topic_is_checked(
+    client: httpx.AsyncClient,
+) -> None:
+    topic, other = await routine(client), await routine(client, "Other")
+    run, loser = Driver(client, topic), Driver(client, topic)
+    await run.start()
+    await loser.start(5, status=201)
+    await update_token(client, 1, PHONE_B, topic["id"], loser.id)
+    body = {
+        "token": la_token(2),
+        "kind": "update",
+        "device_token": PHONE_B,
+        "environment": "production",
+        "topic_id": other["id"],
+        "run_id": run.id,
+    }
+    r = await client.post("/push/apns/live-activities", json=body)
+    assert r.status_code == 422
+    assert r.json()["code"] == "invalid_request"
+    assert set(await tokens()) == {la_token(1)}
+
+
+async def test_deleting_the_topic_drops_its_tokens(client: httpx.AsyncClient) -> None:
+    topic, other = await routine(client), await routine(client, "Other")
+    run, kept = Driver(client, topic), Driver(client, other)
+    await run.start()
+    await kept.start()
+    await update_token(client, 1, PHONE_B, topic["id"], run.id)
+    keep = await update_token(client, 2, PHONE_B, other["id"], kept.id)
+    starts = await start_token(client, 3, PHONE_B)
+    assert (await client.post(f"/topics/{topic['id']}/archive")).status_code == 200
+    assert (await client.delete(f"/topics/{topic['id']}")).status_code == 204
+    assert set(await tokens()) == {keep, starts}
+
+
+# --- what is (not) sent -----------------------------------------------------------------------
+
+
+async def test_void_events_and_replays_push_nothing(client: httpx.AsyncClient, fake_apns: FakeApns) -> None:
+    topic = await routine(client)
+    run = Driver(client, topic)
+    await run.start()
+    b = await update_token(client, 2, PHONE_B, topic["id"], run.id)
+    tap = str(uuid4())
+    await run.tap("next", 60, seg=0, id=tap)
+    await run.tap("next", 60, seg=0, id=tap)  # a replay
+    result = await run.tap("next", 61, seg=0)  # stale: void
+    assert result["event"]["effect"] == "void"
+    assert len(to(fake_apns, b)) == 1
+
+
+async def test_sandbox_tokens_go_to_the_sandbox_host_with_the_expirations(
+    client: httpx.AsyncClient, fake_apns: FakeApns
+) -> None:
+    await register(
+        client,
+        token=la_token(1),
+        kind="start",
+        device_token=PHONE_B,
+        environment="sandbox",
+    )
+    topic = await routine(client)
+    run = Driver(client, topic)
+    await run.start()
+    b = await update_token(client, 2, PHONE_B, topic["id"], run.id)
+    await run.tap("next", 60, seg=0)
+    [start] = to(fake_apns, la_token(1))
+    [update] = to(fake_apns, b)
+    assert start.host == "api.sandbox.push.apple.com"
+    assert update.host == "api.push.apple.com"
+    now = int(fake_apns.now)
+    assert start.headers["apns-expiration"] == str(now + la.START_EXPIRATION_SECONDS)
+    assert update.headers["apns-expiration"] == str(now + la.EXPIRATION_SECONDS)
+
+
+async def test_no_start_for_a_run_that_closed_before_its_push_went_out(
+    client: httpx.AsyncClient, fake_apns: FakeApns
+) -> None:
+    topic = await routine(client)
+    first = Driver(client, topic)
+    await first.start()
+    await update_token(client, 1, PHONE_A, topic["id"], first.id)
+    starts = await start_token(client, 2, PHONE_B)
+
+    fake_apns.quota = 0
+    stop = asyncio.create_task(first.tap("stop", 60))  # its end stalls
+    await fake_apns.wait_started()
+    second = Driver(client, topic)
+    async with asyncio.timeout(5):
+        await second.start(100)  # owes a push-to-start, queued
+        await second.tap("stop", 110)  # closed before it goes out
+    fake_apns.allow()
+    await stop
+    assert to(fake_apns, starts) == []
+
+
+async def test_a_merged_job_excludes_no_one_when_its_changes_came_from_two_devices(
+    client: httpx.AsyncClient, fake_apns: FakeApns
+) -> None:
+    topic = await routine(client)
+    run = Driver(client, topic)
+    await run.start()
+    a = await update_token(client, 1, PHONE_A, topic["id"], run.id)
+    await update_token(client, 2, PHONE_B, topic["id"], run.id)
+    fake_apns.quota = 0
+    first = asyncio.create_task(run.tap("next", 60, seg=0, device=device(PHONE_B)))
+    await fake_apns.wait_started()  # to A only
+    async with asyncio.timeout(5):
+        await run.tap("pause", 70, device=device(PHONE_A))  # queued: A's own
+        await run.tap("lap", 80, seg=1)  # the PWA's, merged into it: A hasn't seen it
+    fake_apns.allow()
+    await first
+    assert [aps(s)["content-state"]["revision"] for s in to(fake_apns, a)] == [2, 4]
+
+
+async def test_a_failing_job_does_not_stop_the_next(
+    client: httpx.AsyncClient, fake_apns: FakeApns, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topic = await routine(client)
+    run = Driver(client, topic)
+    await run.start()
+    b = await update_token(client, 2, PHONE_B, topic["id"], run.id)
+    plan = la._plan
+    entered, release = asyncio.Event(), asyncio.Event()
+    calls = 0
+
+    async def failing_once(*args: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            await release.wait()
+            raise RuntimeError(f"boom {b}")
+        return await plan(*args)
+
+    monkeypatch.setattr(la, "_plan", failing_once)
+    first = asyncio.create_task(run.tap("next", 60, seg=0))
+    async with asyncio.timeout(5):
+        await entered.wait()
+        await run.tap("pause", 70)  # queued behind the failing one
+    release.set()
+    await first
+    assert [aps(s)["content-state"]["status"] for s in to(fake_apns, b)] == ["paused"]
+
+
+def test_encode_refuses_a_payload_over_4_kb() -> None:
+    with pytest.raises(PushFailed):
+        la.encode({"aps": {"alert": "x" * MAX_PAYLOAD_BYTES}})

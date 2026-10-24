@@ -773,7 +773,10 @@ export const deleteApnsDeviceMutation = (options?: Partial<Options<DeleteApnsDev
  *
  * Register (or refresh, keyed by token) a Live Activity push token: the device's push-to-start
  * token (``kind: start``; it replaces the device's older ones), or one activity's update token
- * (``kind: update``, with its topic and run). Works whether or not APNs is enabled.
+ * (``kind: update``, with its topic and its open run; ``run_id`` may be an alias). An update
+ * token for a run that is closed or unknown is answered the same but not kept; a closed run's
+ * gets its ``end`` push. 422 ``invalid_request`` when the run belongs to another topic. Works
+ * whether or not APNs is enabled.
  */
 export const registerLiveActivityMutation = (options?: Partial<Options<RegisterLiveActivityData>>): UseMutationOptions<RegisterLiveActivityResponse, RegisterLiveActivityError, Options<RegisterLiveActivityData>> => {
     const mutationOptions: UseMutationOptions<RegisterLiveActivityResponse, RegisterLiveActivityError, Options<RegisterLiveActivityData>> = {

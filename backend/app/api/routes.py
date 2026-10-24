@@ -355,8 +355,9 @@ async def record_run_event(
     if recorded.created:
         response.status_code = status.HTTP_201_CREATED
     run = recorded.result.run
-    created = recorded.created and run.id == run_id  # a merged start created nothing
-    background.add_task(run_svc.after_run_event, run.id, run.topic_id, body.device, created=created)
+    if not recorded.replayed and recorded.result.event.effect == "applied":  # void: nothing changed
+        created = recorded.created and run.id == run_id  # a merged start created nothing
+        background.add_task(run_svc.after_run_event, run.id, run.topic_id, body.device, created=created)
     return recorded.result
 
 
@@ -506,11 +507,19 @@ async def delete_apns_device(db: Db, body: ApnsDeviceRef) -> Response:
     dependencies=[ExpectIdentity],
     status_code=status.HTTP_201_CREATED,
 )
-async def register_live_activity(db: Db, body: LiveActivityIn) -> LiveActivityOut:
+async def register_live_activity(
+    db: Db, body: LiveActivityIn, background: BackgroundTasks
+) -> LiveActivityOut:
     """Register (or refresh, keyed by token) a Live Activity push token: the device's push-to-start
     token (``kind: start``; it replaces the device's older ones), or one activity's update token
-    (``kind: update``, with its topic and run). Works whether or not APNs is enabled."""
-    return await live_activity.register(db, body)
+    (``kind: update``, with its topic and its open run; ``run_id`` may be an alias). An update
+    token for a run that is closed or unknown is answered the same but not kept; a closed run's
+    gets its ``end`` push. 422 ``invalid_request`` when the run belongs to another topic. Works
+    whether or not APNs is enabled."""
+    registered = await live_activity.register(db, body)
+    if registered.ended_run is not None:
+        background.add_task(live_activity.send_late_end, body, registered.ended_run)
+    return registered.out
 
 
 @router.post(

@@ -103,6 +103,7 @@ def _ms(at: datetime) -> datetime:
 class Recorded:
     result: RunEventResult
     created: bool  # the call created the run (or merged its start): 201
+    replayed: bool = False  # the same event again: nothing changed
 
 
 # --- reads ------------------------------------------------------------------------------
@@ -208,14 +209,14 @@ async def record_event(db: AsyncSession, run_id: UUID, body: RunEventIn, channel
                 [FieldIssue(loc=["id"], message="must equal the run id in the path")],
             )
         if run is not None:
-            return Recorded(await _replay(db, run, body, at), created=False)
+            return Recorded(await _replay(db, run, body, at), created=False, replayed=True)
         return await _start(db, run_id, body, at, channel)
     if run is None:
         if await is_deleted(db, FeedKind.run, run_id):
             raise RunDeleted(f"run '{run_id}' was deleted with its topic")
         raise NotFound(f"run '{run_id}' not found")
     if await db.get(RunEvent, body.id) is not None:
-        return Recorded(await _replay(db, run, body, at), created=False)
+        return Recorded(await _replay(db, run, body, at), created=False, replayed=True)
     await _check_capacity(db, run)
     effect = _decide(run, body)
     if body.type == "stop" and effect is None:  # a decided stop is never folded: its time can't hurt

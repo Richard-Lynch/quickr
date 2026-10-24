@@ -13,7 +13,9 @@ background task, never inside the feed writer) pushes to them:
   registered for the run (or for a run id merged into it), except the originating device's:
   that device already updated locally.
 
-Sends are serialised per topic, in this process: one in flight at a time, and a newer change
+Only an event that changed the run pushes (not a void event, not a replay). Sends are serialised
+per topic **in this process** (the server runs one worker; a second process would serialise
+separately): one in flight at a time, and a newer change
 replaces a queued one for the same run, merging what it owes (a push-to-start is never lost;
 a device is excluded only when every merged change came from it).
 Every send reads the run's **latest** state when it goes out, so a later state never goes out
@@ -23,8 +25,13 @@ transaction, and no transaction is open during the network calls.
 Failures touch only the token row: a 410 or ``BadDeviceToken`` deletes that token, and
 nothing else. This never goes through :func:`app.services.push.deliver`, which would delete
 the APNs device (``apns_devices``) or count against its ``failure_count``. After ``end``, the
-update tokens registered for that run (and its aliases) are dropped; a token registered for
-a newer run of the topic is kept.
+topic's update tokens whose run is closed or gone are dropped, the ended run's (and its
+aliases') among them; a token registered for a newer, open run of the topic is kept.
+
+An update token is kept only for an open run of its topic. One that arrives for a closed run
+(it raced the stop) is not kept and gets that run's ``end``; one for a run the server doesn't
+know (deleted, or its start not synced yet) is not kept either: the app registers it once its
+start is acknowledged. A topic's deletion drops its tokens (``topics.delete_topic``).
 
 The payloads (:func:`content_state`, :func:`payload`) are pinned by
 ``shared/fixtures/live-activity-vectors.json`` (``tests/test_live_activity_vectors.py``).
@@ -35,18 +42,21 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, exists, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_sessionmaker
+from app.errors import InvalidRequest
 from app.models import LiveActivityToken, Run, RunAlias, RunStatus, Topic, TopicVersion
-from app.schemas.api import ApnsEnvironment, LiveActivityIn, LiveActivityOut, RunDevice
+from app.schemas.api import ApnsEnvironment, FieldIssue, LiveActivityIn, LiveActivityOut, RunDevice
 from app.services import run_fold
 from app.services.feed import feed_identity, writer
 from app.services.notification import truncate
@@ -62,9 +72,14 @@ CONTENT_STATE_VERSION = 1
 MAX_LABEL_LENGTH = 64  # the topic name and step labels in a payload (§10.3)
 STALE_SECONDS = 4 * 3600  # as the app's local updates (§10.3)
 DISMISS_SECONDS = 15 * 60  # an ended activity stays this long (§10.3)
-EXPIRATION_SECONDS = 4 * 3600  # how long APNs keeps an undelivered push
+EXPIRATION_SECONDS = 4 * 3600  # how long APNs keeps an undelivered update or end
+# A push-to-start that arrives much later would start an activity the person no longer expects
+# (the run may well have ended by then): APNs drops it after this.
+START_EXPIRATION_SECONDS = 10 * 60
 MAX_CONCURRENT_SENDS = 8
 CLOSED = frozenset({RunStatus.finishing, RunStatus.stopped, RunStatus.discarded})
+OPEN = (RunStatus.running, RunStatus.paused)
+_HEX_TOKEN = re.compile(r"[0-9A-Fa-f]{64,}")
 
 type Event = Literal["start", "update", "end"]
 
@@ -113,7 +128,9 @@ def content_state(
         next_label = truncate(steps[keys.index(state["next_step"])].label, MAX_LABEL_LENGTH)
     paused_at = _instant(state["paused_since"])
     ended_at = _instant(state["ended_at"])
-    closed = state["status"] in ("finishing", "stopped", "discarded")
+    closed = state["status"] in ("finishing", "stopped")
+    if not closed:  # open, or discarded (a finishing run that is discarded keeps its stop's at)
+        ended_at = None
     return {
         "v": CONTENT_STATE_VERSION,
         "run_id": str(run_id),
@@ -130,7 +147,7 @@ def content_state(
         "paused_ms_before_seg": sum(max(0, min(end, seg_started_at) - start) for start, end in pauses),
         "paused_ms_in_seg": sum(max(0, end - max(start, seg_started_at)) for start, end in pauses),
         "ended_at": None if ended_at is None else _seconds(ended_at),
-        "active_ms": sum(s["active_ms"] for s in segments) if closed and ended_at is not None else None,
+        "active_ms": sum(s["active_ms"] for s in segments) if ended_at is not None else None,
     }
 
 
@@ -163,7 +180,7 @@ def payload(
     """
     aps: dict[str, Any] = {"timestamp": timestamp, "event": event, "content-state": state}
     if event == "end":
-        dismiss_in = 0 if state["status"] == "discarded" else DISMISS_SECONDS
+        dismiss_in = -1 if state["status"] == "discarded" else DISMISS_SECONDS  # past: at once
         aps["dismissal-date"] = timestamp + dismiss_in
     else:
         aps["stale-date"] = timestamp + STALE_SECONDS
@@ -188,11 +205,40 @@ def encode(body: dict[str, Any]) -> bytes:
 # --- tokens ---------------------------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class Registered:
+    out: LiveActivityOut
+    ended_run: UUID | None = None  # a closed run's update token: not kept, owed that run's end
+
+
+async def _resolve_run(db: AsyncSession, run_id: UUID) -> Run | None:
+    run = await db.get(Run, run_id)
+    if run is not None:
+        return run
+    target = await db.scalar(select(RunAlias.run_id).where(RunAlias.id == run_id))
+    return None if target is None else await db.get(Run, target)
+
+
 @writer
-async def register(db: AsyncSession, body: LiveActivityIn) -> LiveActivityOut:
+async def register(db: AsyncSession, body: LiveActivityIn) -> Registered:
     """Create or refresh (by token) a Live Activity token. A device has one push-to-start token:
-    a new one replaces its older ones, so a start never reaches the device twice."""
-    if body.kind == "start":
+    a new one replaces its older ones, so a start never reaches the device twice. An update
+    token is kept only for an open run of its topic (``run_id`` may be an alias); otherwise
+    it is answered the same, not kept, and a closed run's is owed its ``end``. Raises
+    :class:`InvalidRequest` when the run is another topic's."""
+    if body.kind == "update":
+        assert body.run_id is not None  # LiveActivityIn requires both for an update token
+        run = await _resolve_run(db, body.run_id)
+        if run is not None and run.topic_id != body.topic_id:
+            raise InvalidRequest(
+                "the run belongs to another topic",
+                [FieldIssue(loc=["topic_id"], message="must be the run's topic")],
+            )
+        if run is None or run.status not in OPEN:
+            await db.execute(delete(LiveActivityToken).where(LiveActivityToken.token == body.token))
+            out = LiveActivityOut(**body.model_dump(), created_at=datetime.now(UTC))
+            return Registered(out, ended_run=None if run is None else run.id)
+    else:
         await db.execute(
             delete(LiveActivityToken).where(
                 LiveActivityToken.kind == "start",
@@ -209,7 +255,7 @@ async def register(db: AsyncSession, body: LiveActivityIn) -> LiveActivityOut:
         .execution_options(populate_existing=True)
     )
     row = (await db.execute(stmt)).scalar_one()
-    return LiveActivityOut.model_validate(row, from_attributes=True)
+    return Registered(LiveActivityOut.model_validate(row, from_attributes=True))
 
 
 @writer
@@ -272,15 +318,15 @@ async def notify(run_id: UUID, topic_id: UUID, device: RunDevice | None, *, crea
             job = queue.jobs.pop(next(iter(queue.jobs)))
             try:
                 await _push(sender, job)
-            except Exception:
-                log.exception("Live Activity push for run %s failed", job.run_id)
+            except Exception as exc:  # the next job still goes out
+                log.error("Live Activity push for run %s failed: %s", job.run_id, _describe(exc))
     finally:
         del _queues[topic_id]
 
 
 async def _push(sender: apns.ApnsSender, job: _Job) -> None:
     async with get_sessionmaker()() as db:
-        sends, ids, ended = await _plan(db, sender, job)
+        sends, topic_id, ended = await _plan(db, sender, job)
         await db.rollback()
     gone = await _send_all(sender, sends)
     if not (gone or ended):
@@ -289,28 +335,51 @@ async def _push(sender: apns.ApnsSender, job: _Job) -> None:
         if gone:
             await db.execute(delete(LiveActivityToken).where(LiveActivityToken.token.in_(gone)))
         if ended:
-            await db.execute(
-                delete(LiveActivityToken).where(
-                    LiveActivityToken.kind == "update", LiveActivityToken.run_id.in_(ids)
-                )
-            )
+            assert topic_id is not None
+            await _drop_closed(db, topic_id)
 
 
-async def _plan(db: AsyncSession, sender: apns.ApnsSender, job: _Job) -> tuple[list[_Send], list[UUID], bool]:
-    """The sends for ``job`` from the run's latest state, the run ids its update tokens may be
-    registered for, and whether it ended. Read only."""
-    server_id = (await feed_identity(db)).server_id
-    run = await db.get(Run, job.run_id)
-    if run is None:  # deleted with its topic
-        return [], [], False
+async def _drop_closed(db: AsyncSession, topic_id: UUID) -> None:
+    """Drop the topic's update tokens whose run (directly or by alias) is no longer open."""
+    token = LiveActivityToken
+    open_run = exists().where(
+        Run.status.in_(OPEN),
+        or_(
+            Run.id == token.run_id,
+            exists().where(RunAlias.id == token.run_id, RunAlias.run_id == Run.id),
+        ),
+    )
+    await db.execute(delete(token).where(token.kind == "update", token.topic_id == topic_id, ~open_run))
+
+
+def _describe(exc: BaseException) -> str:
+    """An exception for the log: its type, and its message with any token redacted (a database
+    error's message can carry its bound parameters)."""
+    return f"{type(exc).__name__}: {_HEX_TOKEN.sub('<token>', apns.redact(str(exc)))}"
+
+
+async def _state(db: AsyncSession, run: Run) -> dict[str, Any]:
+    """The run's content state, from its stored state and its version's steps."""
     version = await db.get_one(TopicVersion, run.topic_version_id)
-    topic = await db.get_one(Topic, run.topic_id)
     timer = parse_timer(version.timer)
     steps = [] if timer is None else [run_fold.Step(s.key, s.label) for s in timer.steps]
+    return content_state(run.id, run.revision, run.state, steps)
+
+
+async def _plan(
+    db: AsyncSession, sender: apns.ApnsSender, job: _Job
+) -> tuple[list[_Send], UUID | None, bool]:
+    """The sends for ``job`` from the run's latest state, the run's topic, and whether it
+    ended. Read only."""
+    server_id = (await feed_identity(db)).server_id
+    run = await db.get(Run, job.run_id)
+    if run is None:  # deleted with its topic, which dropped its tokens
+        return [], None, False
+    topic = await db.get_one(Topic, run.topic_id)
     aliases = (await db.execute(select(RunAlias.id).where(RunAlias.run_id == run.id))).scalars()
     ids = [run.id, *aliases]
     ended = run.status in CLOSED
-    state = content_state(run.id, run.revision, run.state, steps)
+    state = await _state(db, run)
     now = sender.now()
 
     sends: list[_Send] = []
@@ -328,7 +397,7 @@ async def _plan(db: AsyncSession, sender: apns.ApnsSender, job: _Job) -> tuple[l
         for t in (await db.execute(stmt)).scalars():
             if t.device_token != job.start_except:
                 sends.append(_Send(t.token, _environment(t.environment), "start", start))
-    return sends, ids, ended
+    return sends, run.topic_id, ended
 
 
 def _environment(value: str) -> ApnsEnvironment:
@@ -336,21 +405,42 @@ def _environment(value: str) -> ApnsEnvironment:
 
 
 async def _send_all(sender: apns.ApnsSender, sends: Sequence[_Send]) -> list[str]:
-    """Send each, ``MAX_CONCURRENT_SENDS`` at a time. Returns the tokens APNs says are gone."""
+    """Send each, ``MAX_CONCURRENT_SENDS`` at a time. Returns the tokens APNs says are gone; any
+    other failure is logged (by type, tokens redacted) and leaves the token alone."""
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_SENDS)
-    expiration = sender.now() + EXPIRATION_SECONDS
+    now = sender.now()
 
-    async def one(s: _Send) -> str | None:
+    async def one(s: _Send) -> None:
+        ttl = START_EXPIRATION_SECONDS if s.event == "start" else EXPIRATION_SECONDS
         async with semaphore:
-            try:
-                await sender.post_live_activity(
-                    s.token, s.environment, s.body, expiration=expiration, what=f"live activity {s.event}"
-                )
-            except PushGone as exc:
-                log.info("Live Activity token is gone; removing it: %s", exc)
-                return s.token
-            except PushFailed as exc:
-                log.warning("Live Activity %s push failed: %s", s.event, exc)
-            return None
+            await sender.post_live_activity(
+                s.token, s.environment, s.body, expiration=now + ttl, what=f"live activity {s.event}"
+            )
 
-    return [token for token in await asyncio.gather(*(one(s) for s in sends)) if token is not None]
+    gone: list[str] = []
+    outcomes = await asyncio.gather(*(one(s) for s in sends), return_exceptions=True)
+    for s, outcome in zip(sends, outcomes, strict=True):
+        if isinstance(outcome, PushGone):
+            log.info("Live Activity token is gone; removing it: %s", outcome)
+            gone.append(s.token)
+        elif isinstance(outcome, PushFailed):
+            log.warning("Live Activity %s push failed: %s", s.event, outcome)
+        elif isinstance(outcome, BaseException):
+            log.error("Live Activity %s push failed unexpectedly: %s", s.event, _describe(outcome))
+    return gone
+
+
+async def send_late_end(body: LiveActivityIn, run_id: UUID) -> None:
+    """The ``end`` of a closed run, to an update token registered after it closed (not kept).
+    A post-response background task, like :func:`notify`."""
+    sender = apns.get_sender()
+    if sender is None:
+        return
+    async with get_sessionmaker()() as db:
+        run = await db.get(Run, run_id)
+        state = None if run is None else await _state(db, run)
+        await db.rollback()
+    if state is None:
+        return
+    end = encode(payload("end", state, timestamp=sender.now()))
+    await _send_all(sender, [_Send(body.token, body.environment, "end", end)])
