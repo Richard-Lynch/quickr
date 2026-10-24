@@ -27,7 +27,8 @@ import Testing
     func category(_ vector: Case) throws {
         let category = NotificationCategory(
             serverId: vector.serverId, topicId: vector.topicId, version: vector.version,
-            questions: vector.questions.map { $0.toDomain() }, counts: vector.counts, last: vector.last)
+            questions: vector.questions.map { $0.toDomain() }, counts: vector.counts, last: vector.last,
+            timed: vector.timed)
         #expect(category?.descriptor == vector.expected.quickLog, "\(vector.name): descriptor")
         #expect(category?.actions ?? [] == vector.expected.actions, "\(vector.name): actions")
         #expect(category?.id == vector.expected.categoryId, "\(vector.name): category id")
@@ -94,6 +95,8 @@ import Testing
         var topicId: String
         var version: Int
         var questions: [QuestionDTO]
+        /// The version has a timer (timers.md §10.1).
+        var timed: Bool
         var counts: [String: Int]
         var last: AnswerValue?
         var expected: Expected
@@ -117,7 +120,7 @@ import Testing
         }
 
         enum CodingKeys: String, CodingKey {
-            case name, version, questions, counts, last, expected
+            case name, version, questions, timer, counts, last, expected
             case serverId = "server_id"
             case topicId = "topic_id"
         }
@@ -129,6 +132,7 @@ import Testing
             topicId = try c.decode(String.self, forKey: .topicId)
             version = try c.decode(Int.self, forKey: .version)
             questions = try c.decode([QuestionDTO].self, forKey: .questions)
+            timed = try !c.decodeNil(forKey: .timer)
             counts = try c.decode([String: Int].self, forKey: .counts)
             expected = try c.decode(Expected.self, forKey: .expected)
             // An answer as the store holds it: an int stays exact; a string or a bool isn't a number.

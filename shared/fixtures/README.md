@@ -95,14 +95,17 @@ produce byte-identical descriptors, actions and category ids.
 - `meta.semantics`: the rules in prose (descriptor, `last_value`, actions, hash
   input, category id, body suffix, `fmt`).
 - `cases[]`:
-  `{name, server_id, topic_id, version, questions, counts, last, expected}`.
-  `counts` maps an option value to the number of entries that chose it, and
+  `{name, server_id, topic_id, version, questions, timer, counts, last, expected}`.
+  `timer` is the version's timer (`{steps}`) or null; a timed version's
+  `quick_log` is `{type: "timed"}` whatever its questions
+  ([timers.md](../../docs/specs/timers.md) §10.1). `counts` maps an option value to the number of entries that chose it, and
   `last` is the latest numeric answer for the key (any JSON value). `expected`
   is `{quick_log, actions[], hash_input, category_id, body_suffix}`, with
   `quick_log`, `hash_input` and `category_id` null and `actions` empty when the
   topic isn't quick-loggable. Each action is `{kind, identifier, title}`, plus
   `text_input_button_title` and `text_input_placeholder` for `kind: "input"`.
-  `kind` is `log`, `input`, or `open` (the "More…" action, identifier `…|m|`).
+  `kind` is `log`, `input`, `open` (the "More…" action, identifier `…|m|`), or
+  `start` (a timed topic's "Start", identifier `…||t|`).
   `hash_input` is already NFC-normalised, with U+001E and U+001F separators.
 - `fmt[]`: `{kind, value, bits, expected}`: how numbers appear in action titles
   and identifiers: the shortest round-trip decimal, positional, never rounded to
@@ -117,8 +120,8 @@ scheduler's inputs ([notifications.md](../../docs/ios/specs/notifications.md)
 screenshots) builds the same notification on the simulator, so it must match.
 
 - `cases[]`: `{name, server_id, topic_id, topic_slug, title, body, version,
-due_since, questions, counts, last, expected}`. `title` is the topic name,
-  `body` the scheduler's message, and `questions`, `counts` and `last` feed the
+due_since, questions, timer, counts, last, expected}`. `title` is the topic name,
+  `body` the scheduler's message, and `questions`, `timer`, `counts` and `last` feed the
   descriptor as in `notification-vectors.json`. `due_since` may be any ISO 8601
   instant. `expected` is the APNs JSON body: `aps` (alert title and body,
   `category`, `thread-id`, `sound`, `mutable-content`, `relevance-score`) and
@@ -411,7 +414,8 @@ To add an endpoint, add one `rec(...)` call to `scenario()`.
 ## `action-entry-id-vectors.json`
 
 - `cases[]`: `{name, server_id, topic_id, due_since, expected}`: the id every
-  client gives the entry a reminder action logs (notifications.md §7.4).
+  client gives the entry a reminder action logs (notifications.md §7.4), and the
+  run id a timed reminder's Start uses (timers.md §10.2).
 - `meta.semantics`: the exact bytes hashed. Both ids are lowercased;
   `due_since` is used exactly as the payload carries it, so the non-canonical
   cases give different ids on purpose.

@@ -51,8 +51,16 @@ export interface QuickLogSingleDescriptor {
   type: 'single';
 }
 
+/** A timed topic: one "Start" action, which starts a run (timers.md §10.1). */
+export interface QuickLogTimedDescriptor {
+  type: 'timed';
+}
+
 export type QuickLogDescriptor =
-  QuickLogEnumDescriptor | QuickLogNumberDescriptor | QuickLogSingleDescriptor;
+  | QuickLogEnumDescriptor
+  | QuickLogNumberDescriptor
+  | QuickLogSingleDescriptor
+  | QuickLogTimedDescriptor;
 
 const str = (v: unknown): string | undefined =>
   typeof v === 'string' && v.trim() ? v.trim() : undefined;
@@ -127,6 +135,7 @@ function parseQuickr(o: Record<string, unknown>): PushQuickr | undefined {
 export function parseQuickLog(raw: unknown): QuickLogDescriptor | undefined {
   const q = record(raw);
   if (q?.type === 'single') return { type: 'single' };
+  if (q?.type === 'timed') return { type: 'timed' };
   const key = str(q?.key);
   if (!q || !key) return undefined;
   const label = typeof q.label === 'string' ? q.label : key;

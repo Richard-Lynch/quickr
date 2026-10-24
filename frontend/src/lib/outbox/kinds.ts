@@ -83,11 +83,13 @@ export interface RunEventPayload {
   /**
    * The run's version, its steps, and whether it has a required question, as the device
    * knew them at the tap: the local view folds queued events over these steps
-   * (timers.md §8.3), and a stop without answers leaves such a run finishing (§3.5).
+   * (timers.md §8.3), and a stop without answers leaves such a run finishing (§3.5). Null
+   * when the device didn't know them (a reminder's Start with nothing cached, §10.2): the
+   * local view then takes them from another of the run's items, or defers to the server.
    */
   version: number;
-  steps: TimerStep[];
-  requires_answers: boolean;
+  steps: TimerStep[] | null;
+  requires_answers: boolean | null;
   /**
    * The tap makes the run's entry: a stop that won't leave the run finishing, or a finish
    * of a finishing run. Its entry is projected optimistically until the server answers.
@@ -95,6 +97,11 @@ export interface RunEventPayload {
   makes_entry: boolean;
   /** Body for `POST /runs/{run_id}/events` minus `id`: the item id *is* the event id. */
   event: Omit<RunEventIn, 'id'>;
+  /**
+   * The server a reminder's Start came from (`X-QuickR-Expect-Server-Id`, as for
+   * `entry.create`): another server refuses it with 409 `server_mismatch`.
+   */
+  expect_server_id?: string;
 }
 
 const runEvent: OutboxKind<RunEventPayload> = {
@@ -167,6 +174,9 @@ const runEvent: OutboxKind<RunEventPayload> = {
       url: `${API_PREFIX}/runs/${encodeURIComponent(item.payload.run_id)}/events`,
       // Idempotent by event id: a retry after a lost response is a replay (§3.2).
       body: { ...item.payload.event, id: item.id } satisfies RunEventIn,
+      ...(item.payload.expect_server_id
+        ? { headers: { [EXPECT_SERVER_ID_HEADER]: item.payload.expect_server_id } }
+        : {}),
     };
   },
 };

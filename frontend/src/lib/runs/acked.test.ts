@@ -28,6 +28,14 @@ describe('acked run events', () => {
     expect(getAckedSnapshot().map((i) => i.id)).toEqual(['n1']);
   });
 
+  it('with a time, leaves out records older than the maximum age (the SW’s view)', async () => {
+    await recordAcked(start, 1000);
+    await recordAcked(next, 2000);
+    expect((await ackedItems(1000 + ACKED_MAX_AGE_MS)).map((i) => i.id)).toEqual(['r1', 'n1']);
+    expect((await ackedItems(1000 + ACKED_MAX_AGE_MS + 1)).map((i) => i.id)).toEqual(['n1']);
+    expect((await ackedItems()).map((i) => i.id)).toEqual(['r1', 'n1']); // no time: all
+  });
+
   it('drops anything older than the maximum age', async () => {
     await recordAcked(start, 1000);
     await pruneAcked(0, 1000 + ACKED_MAX_AGE_MS + 1);

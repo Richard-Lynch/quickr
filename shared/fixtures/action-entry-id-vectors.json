@@ -19,7 +19,8 @@
       "id = UUIDv8 from the first 16 bytes of SHA-256(UTF-8(name)), with byte 6 = (b & 0x0f) | 0x80 and byte 8 = (b & 0x3f) | 0x80, written as lowercase 8-4-4-4-12 hex",
       "name = 'quickr-action-entry-v1|' + lower(server_id) + '|' + lower(topic_id) + '|' + due_since",
       "due_since is used exactly as the push payload carries it (canonical: UTC, whole seconds, 'Z'); it is never re-normalised",
-      "docs/ios/specs/notifications.md §7.4"
+      "docs/ios/specs/notifications.md §7.4",
+      "a timed reminder's Start uses the same id as its run id and start event id, so one reminder starts one run on every client (docs/specs/timers.md §10.2)"
     ]
   }
 }

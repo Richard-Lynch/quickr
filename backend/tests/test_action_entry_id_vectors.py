@@ -54,6 +54,8 @@ def build() -> dict[str, Any]:
                 "due_since is used exactly as the push payload carries it "
                 "(canonical: UTC, whole seconds, 'Z'); it is never re-normalised",
                 "docs/ios/specs/notifications.md §7.4",
+                "a timed reminder's Start uses the same id as its run id and start event id, so "
+                "one reminder starts one run on every client (docs/specs/timers.md §10.2)",
             ],
         },
         "cases": [

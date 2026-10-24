@@ -13,10 +13,16 @@
 import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { OUTBOX_KINDS } from '../lib/outbox/kinds';
+import idRaw from '../../../shared/fixtures/action-entry-id-vectors.json?raw';
+import { OUTBOX_KINDS, type RunEventPayload } from '../lib/outbox/kinds';
 import { createOutbox } from '../lib/outbox/outbox';
 import { idbOutboxStore } from '../lib/outbox/store';
+import type { OutboxItem } from '../lib/outbox/types';
+import { ACKED_MAX_AGE_MS, recordAcked } from '../lib/runs/acked';
+import { parseInstant } from '../lib/runs/instant';
+import { persistServerOffset } from '../lib/runs/serverClock';
 import { fakeQuickrServer, type FakeQuickrServer } from './fakeQuickrServer';
+import { runItem } from './runs';
 
 vi.mock('workbox-core', () => ({ clientsClaim: vi.fn() }));
 vi.mock('workbox-precaching', () => ({
@@ -275,5 +281,86 @@ describe('service worker: reminder actions', () => {
     expect((await push({ ...reminder, kind: 'test' })).options.actions).toBeUndefined();
     (self as unknown as { Notification: unknown }).Notification = undefined;
     expect((await push(reminder)).options.actions).toBeUndefined();
+  });
+});
+
+describe('service worker: a timed reminder’s Start (timers.md §10.2)', () => {
+  const timed = { ...reminder, title: 'Routine', quick_log: { type: 'timed' } };
+  /** The action entry id vector of the reminder's (server, topic, slot). */
+  const runId = (JSON.parse(idRaw) as { cases: { name: string; expected: string }[] }).cases.find(
+    (c) => c.name === 'canonical',
+  )?.expected;
+
+  it('offers Start; a click starts the run, its id the action entry id, at the page’s offset', async () => {
+    vi.stubGlobal('localStorage', undefined); // as in a service worker
+    const n = await push(timed);
+    expect(n.options.actions).toEqual([{ action: 'log|t|', title: 'Start' }]);
+    await persistServerOffset(5000); // the page's latest sample, in IndexedDB
+    const before = Date.now();
+    await click(n, 'log|t|');
+    const after = Date.now();
+    const run = server.runs.get(runId ?? '');
+    expect(run).toMatchObject({ topic_id: TOPIC, version: 3, source: 'pwa.notification' });
+    const at = parseInstant(run?.at ?? '');
+    expect(at).toBeGreaterThanOrEqual(before + 5000);
+    expect(at).toBeLessThanOrEqual(after + 5000);
+    expect(server.requests[0]?.headers['x-quickr-expect-server-id']).toBe(SERVER);
+    expect(shown).toHaveLength(1); // no follow-up
+    expect(await appOutbox().list()).toEqual([]);
+  });
+
+  it('without cached versions, a cached getTopic with the version’s timer gives the steps', async () => {
+    cacheStore.cache.put('/api/v1/topics/mood', {
+      id: TOPIC,
+      current_version: 3,
+      questions: [{ key: 'mood', type: 'int', required: true }],
+      timer: { steps: [{ key: 'warm', label: 'Warm up' }] },
+    });
+    server.offline = true;
+    await click(await push(timed), 'log|t|');
+    const [item] = (await appOutbox().list()) as OutboxItem<RunEventPayload>[];
+    expect(item?.payload).toMatchObject({
+      steps: [{ key: 'warm', label: 'Warm up' }],
+      requires_answers: true,
+    });
+  });
+
+  it('with nothing cached, the start’s steps and questions are unknown (null)', async () => {
+    server.offline = true;
+    await click(await push(timed), 'log|t|');
+    const [item] = (await appOutbox().list()) as OutboxItem<RunEventPayload>[];
+    expect(item?.payload).toMatchObject({ steps: null, requires_answers: null });
+  });
+
+  it('reads the acked record as of now: a stale ack doesn’t make the Start known', async () => {
+    const id = runId ?? '';
+    const acked = runItem('start', { id, run: id, at: Date.now() });
+    await recordAcked(acked, Date.now() - ACKED_MAX_AGE_MS - 60_000);
+    await click(await push(timed), 'log|t|');
+    expect(server.requests).toHaveLength(1); // stale: started (no page pruned it)
+
+    server.requests.length = 0;
+    server.runs.clear();
+    await recordAcked(acked, Date.now()); // fresh: this device started it
+    await click(await push(timed), 'log|t|');
+    expect(server.requests).toEqual([]);
+  });
+
+  it('racing clicks and a re-delivered push start one run; offline, the app sends it later', async () => {
+    cacheStore.cache.put('/api/v1/topics/mood/versions', [
+      { version: 3, questions: [], timer: { steps: [{ key: 'shower', label: 'Shower' }] } },
+    ]);
+    const n = await push(timed);
+    server.offline = true;
+    await Promise.all([click(n, 'log|t|'), click(n, 'log|t|')]);
+    await click(await push(timed), 'log|t|');
+    expect(syncTags).toContain('quickr-outbox');
+    const app = appOutbox();
+    const items = (await app.list()) as OutboxItem<RunEventPayload>[];
+    expect(items.map((i) => i.id)).toEqual([runId]);
+    expect(items[0]?.payload.steps).toEqual([{ key: 'shower', label: 'Shower' }]);
+    server.offline = false;
+    expect((await app.flush({ force: true })).sent).toBe(1);
+    expect([...server.runs.keys()]).toEqual([runId]);
   });
 });

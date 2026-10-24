@@ -137,7 +137,9 @@ function buildRun(
   // fold this run); the latest tap knows it best.
   const fitting = server ? mine.filter((i) => i.payload.version === server.version) : mine;
   const meta = fitting.at(-1)?.payload;
-  const steps = meta?.steps ?? null;
+  // A reminder's Start may not know the steps (null): another item's, else the server's.
+  const known = fitting.findLast((i) => i.payload.steps !== null)?.payload;
+  const steps = known?.steps ?? null;
   let state: RunState;
   if (mine.length === 0 && server) {
     state = stateFromWire(server.state);
@@ -152,6 +154,16 @@ function buildRun(
     }
   } else if (server) {
     state = stateFromWire(server.state);
+  } else if (mine.some((i) => i.payload.event.type === 'start')) {
+    // This device's start that didn't know the steps (a reminder's, nothing cached, §10.2):
+    // fold over none, so the run shows its clock and can be stopped offline. `steps` stays
+    // null: there is no step list yet.
+    try {
+      state = fold(id, [], events);
+    } catch (err) {
+      console.error('[runs] could not fold the local view', err);
+      return null;
+    }
   } else {
     return null;
   }
@@ -167,14 +179,14 @@ function buildRun(
     topic_id: topicId,
     topic: meta?.topic ?? null,
     version: server?.version ?? meta?.version ?? 0,
-    status: statusOf(server, state, mine, meta?.requires_answers ?? false),
+    status: statusOf(server, state, mine, known?.requires_answers ?? false),
     state,
     events,
     aliases: [...aliases],
     server,
     queued,
     steps,
-    requires_answers: meta?.requires_answers ?? null,
+    requires_answers: known?.requires_answers ?? null,
   };
 }
 

@@ -39,6 +39,12 @@ export interface RunContext {
   requires_answers: boolean;
 }
 
+/** A start's context: a reminder's Start may not know the version's steps and questions. */
+export type StartContext = Omit<RunContext, 'steps' | 'requires_answers'> & {
+  steps: TimerStep[] | null;
+  requires_answers: boolean | null;
+};
+
 export interface RunTapDeps {
   outbox: Outbox;
   /** The server's runs as last known (the cached `listRuns` answer). Read inside the lock. */
@@ -70,10 +76,12 @@ function serialised<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-async function view(deps: RunTapDeps): Promise<{ runs: LocalRun[]; items: OutboxItem[] }> {
+async function view(
+  deps: RunTapDeps,
+): Promise<{ runs: LocalRun[]; items: OutboxItem[]; acked: readonly OutboxItem[] }> {
   const items = await deps.outbox.list();
   const acked = (await deps.acked?.()) ?? [];
-  return { runs: localRuns(deps.serverRuns(), items, acked), items };
+  return { runs: localRuns(deps.serverRuns(), items, acked), items, acked };
 }
 
 /**
@@ -102,7 +110,7 @@ function stamp(tapAt: number, run: LocalRun | null, items: readonly OutboxItem[]
 }
 
 function payloadOf(
-  ctx: RunContext,
+  ctx: StartContext,
   runId: string,
   makesEntry: boolean,
   event: RunEventPayload['event'],
@@ -126,21 +134,64 @@ export interface StartResult {
 }
 
 /**
+ * The run of `topicId` this device's **pending** items open: a pending start with no pending
+ * stop or discard. No fold: a reminder's Start may not know the steps.
+ */
+function pendingOpenRun(items: readonly OutboxItem[], topicId: string): string | null {
+  const pending = items.filter(
+    (i): i is OutboxItem<RunEventPayload> => isRunEvent(i) && i.status === 'pending',
+  );
+  for (const start of pending) {
+    const { event, run_id: runId } = start.payload;
+    if (event.type !== 'start' || event.topic_id !== topicId) continue;
+    const closed = pending.some(
+      (i) =>
+        i.payload.run_id === runId &&
+        (i.payload.event.type === 'stop' || i.payload.event.type === 'discard'),
+    );
+    if (!closed) return runId;
+  }
+  return null;
+}
+
+/**
  * Start a run of `ctx.topic`, unless the local view already has an open run for it: then
  * the tap routes to that run and nothing is enqueued (§4.5). `id` is the run id (a
- * reminder's Start derives it from the slot, §10.1); a new one by default.
+ * reminder's Start derives it from the slot, §10.2); a new one by default. A given `id`
+ * this device already knows (an item, an acked event or a run with it) was already
+ * started: nothing is enqueued either.
+ *
+ * A reminder's Start (`reminder`, from the service worker) sees no `listRuns` and nothing
+ * prunes its acked record, so only this device's **pending** items count as an open run
+ * there; acked and failed ones only count as a known id. A start for a topic whose run is
+ * open on the server is merged by the server (§4.5).
  */
 export function startRun(
   deps: RunTapDeps,
-  ctx: RunContext,
-  opts: { id?: string; source?: string; meta?: Record<string, string> } = {},
+  ctx: StartContext,
+  opts: {
+    id?: string;
+    source?: string;
+    meta?: Record<string, string>;
+    /** A reminder's Start: the server it came from (`RunEventPayload.expect_server_id`). */
+    expectServerId?: string;
+    /** A reminder's Start: an open run is one this device's pending items make. */
+    reminder?: boolean;
+  } = {},
 ): Promise<StartResult> {
   const tapAt = tapTime(deps);
   return serialised(async () => {
-    const { runs, items } = await view(deps);
-    const open = openRunOf(runs, ctx.topic.id);
-    if (open) return { runId: open.id, started: false };
+    const { runs, items, acked } = await view(deps);
     const runId = (opts.id ?? uuid()).toLowerCase();
+    const known = (i: OutboxItem) => i.id.toLowerCase() === runId;
+    if (opts.id !== undefined && (items.some(known) || acked.some(known) || runById(runs, runId))) {
+      return { runId, started: false };
+    }
+    // The page also checks the pending items: a run only they open may not fold (§8.3).
+    const open = opts.reminder
+      ? pendingOpenRun(items, ctx.topic.id)
+      : (openRunOf(runs, ctx.topic.id)?.id ?? pendingOpenRun(items, ctx.topic.id));
+    if (open !== null) return { runId: open, started: false };
     const event: RunEventPayload['event'] = {
       type: 'start',
       at: stamp(tapAt, null, items),
@@ -149,7 +200,11 @@ export function startRun(
       ...(opts.source !== undefined ? { source: opts.source } : {}),
       ...(opts.meta !== undefined ? { meta: opts.meta } : {}),
     };
-    await deps.outbox.enqueue(RUN_EVENT, payloadOf(ctx, runId, false, event), { id: runId });
+    const payload: RunEventPayload = {
+      ...payloadOf(ctx, runId, false, event),
+      ...(opts.expectServerId !== undefined ? { expect_server_id: opts.expectServerId } : {}),
+    };
+    await deps.outbox.enqueue(RUN_EVENT, payload, { id: runId });
     return { runId, started: true };
   });
 }
