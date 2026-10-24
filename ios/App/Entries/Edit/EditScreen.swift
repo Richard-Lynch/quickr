@@ -156,7 +156,11 @@ struct EditView: View {
 
     var body: some View {
         FormView(model: model.form) {
-            TimingCard(model: model)
+            // The entry's own version's steps name its skipped ones (a later version may have
+            // renamed or retired them); Edit times when the server has the run (timers.md §3.8).
+            EntryTimingSection(
+                timing: model.entry.timing, stepLabels: stepLabels, onEdit: editTimes, showsStatus: true,
+                editUnavailable: model.timingEditUnavailable)
             EntryDetailsSection(model: model, idPrefix: "edit")
             deleteSection
         }
@@ -279,6 +283,19 @@ struct EditView: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { delete() }
             .accessibilityIdentifier("edit.delete")
+    }
+
+    private var stepLabels: [String: String] {
+        var labels: [String: String] = [:]
+        for step in model.timerSteps where labels[step.key] == nil { labels[step.key] = step.label }
+        return labels
+    }
+
+    /// Edit times, when it can be offered.
+    private var editTimes: (() -> Void)? {
+        guard model.timingEditUnavailable == nil else { return nil }
+        let model = model
+        return { model.openTimingEditor() }
     }
 
     private func delete() {

@@ -10,7 +10,8 @@ struct SyncPillButton: View {
     @Environment(AppEnvironment.self) private var environment
 
     var body: some View {
-        let state = environment.sync.pill(status: environment.session?.syncStatus ?? DataSyncStatus())
+        let state = environment.sync.pill(
+            status: environment.session?.syncStatus ?? DataSyncStatus(), notices: environment.runNotices.notices.count)
         SyncPill(state.design) { environment.sync.isSheetPresented = true }
             .accessibilityIdentifier("sync.pill")
     }
@@ -40,7 +41,7 @@ extension SyncPillState {
         case .failed: kind = .failed
         case .offline: kind = .offline
         case .waiting: kind = .waiting
-        case .differentServer, .syncError: kind = .attention
+        case .differentServer, .syncError, .notices: kind = .attention
         case .loadingHistory: kind = .loading
         }
         return DesignSyncStatus(kind: kind, short: shortLabel, label: label, accessibilityLabel: accessibilityLabel)

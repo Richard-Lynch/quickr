@@ -11,7 +11,7 @@ public struct TileView<Meta: View, Quick: View>: View {
     let title: String
     let isDue: Bool
     let onOpen: () -> Void
-    let onLog: (() -> Void)?
+    let action: TileAction?
     let meta: Meta
     let quick: Quick
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -24,10 +24,21 @@ public struct TileView<Meta: View, Quick: View>: View {
         title: String, isDue: Bool, onOpen: @escaping () -> Void, onLog: (() -> Void)?,
         @ViewBuilder meta: () -> Meta, @ViewBuilder quick: () -> Quick
     ) {
+        self.init(
+            title: title, isDue: isDue, onOpen: onOpen, action: onLog.map { TileAction.log(title: title, $0) },
+            meta: meta, quick: quick)
+    }
+
+    /// A tile whose block does `action` instead of Log (a timed topic's Start, Next, Stop or Add
+    /// details); nil hides it.
+    public init(
+        title: String, isDue: Bool, onOpen: @escaping () -> Void, action: TileAction?,
+        @ViewBuilder meta: () -> Meta, @ViewBuilder quick: () -> Quick
+    ) {
         self.title = title
         self.isDue = isDue
         self.onOpen = onOpen
-        self.onLog = onLog
+        self.action = action
         self.meta = meta()
         self.quick = quick()
     }
@@ -68,7 +79,7 @@ public struct TileView<Meta: View, Quick: View>: View {
                     .buttonStyle(.plain)
                     .accessibilityHidden(true)
             }
-            if let onLog { logBlock(onLog, stacked: stacked) }
+            if let action { logBlock(action, stacked: stacked) }
         }
         .overlay(alignment: .leading) {
             if isDue { Color.qr.accent.frame(width: 4).accessibilityHidden(true) }
@@ -79,26 +90,59 @@ public struct TileView<Meta: View, Quick: View>: View {
         .accessibilityLabel(title)
     }
 
-    private func logBlock(_ action: @escaping () -> Void, stacked: Bool) -> some View {
-        Button(action: action) {
+    private func logBlock(_ action: TileAction, stacked: Bool) -> some View {
+        let loud = action.loud ?? isDue
+        return Button(action: action.perform) {
             let layout = stacked ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 4))
             layout {
-                QIcon.plus.view(size: plusSize, weight: .bold)
-                Text("Log").font(.qr(.callout))
+                action.icon.view(size: plusSize, weight: .bold)
+                Text(action.title).font(.qr(.callout)).multilineTextAlignment(.center)
             }
-            .foregroundStyle(isDue ? Color.qr.onAccent : .qr.accentStrong)
+            .foregroundStyle(loud ? Color.qr.onAccent : .qr.accentStrong)
             .frame(width: stacked ? nil : QuickrMetrics.logBlockWidth)
             .frame(maxWidth: stacked ? .infinity : nil, maxHeight: .infinity)
             .frame(minHeight: stacked ? QuickrMetrics.tapTarget + 12 : nil)
-            .background(isDue ? Color.qr.accent : .qr.accentSoft)
+            .background(loud ? Color.qr.accent : .qr.accentSoft)
             .overlay(alignment: stacked ? .top : .leading) {
-                let line = isDue ? Color.qr.accentStrong.opacity(0.3) : .qr.line
+                let line = loud ? Color.qr.accentStrong.opacity(0.3) : .qr.line
                 if stacked { line.frame(height: 1) } else { line.frame(width: 1) }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(QuickrPressStyle())
-        .accessibilityLabel("Log \(title)")
+        .disabled(action.disabled)
+        .accessibilityLabel(action.label)
+        .accessibilityIdentifier(action.identifier ?? "")
+    }
+}
+
+/// The tile's full-height block: Log, or a timed topic's run control.
+public struct TileAction {
+    public var icon: QIcon
+    public var title: String
+    /// What VoiceOver reads ("Log Water", "Next: Teeth · Morning").
+    public var label: String
+    public var identifier: String?
+    /// Filled (accent) or soft; nil follows the tile's due state, as Log does.
+    public var loud: Bool?
+    public var disabled: Bool
+    public var perform: () -> Void
+
+    public init(
+        icon: QIcon, title: String, label: String, identifier: String? = nil, loud: Bool? = nil,
+        disabled: Bool = false, perform: @escaping () -> Void
+    ) {
+        self.icon = icon
+        self.title = title
+        self.label = label
+        self.identifier = identifier
+        self.loud = loud
+        self.disabled = disabled
+        self.perform = perform
+    }
+
+    static func log(title: String, _ perform: @escaping () -> Void) -> TileAction {
+        TileAction(icon: .plus, title: "Log", label: "Log \(title)", perform: perform)
     }
 }
 

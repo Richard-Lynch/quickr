@@ -25,6 +25,12 @@ final class AppEnvironment {
     let widgets = WidgetReloader()
     /// Every screen's toasts, hosted once at the root so a toast outlives navigation.
     let toasts = ToastCenter()
+    /// The §11.4 run notices: toasted while on screen, otherwise listed in the sync sheet.
+    let runNotices: RunNoticeCenter
+    /// The run surfaces' taps, with their shared cooldown (timers.md §11.1).
+    let runActions: RunActions
+    /// The one clock behind every running timer on screen.
+    let runTicker = RunTicker()
     /// How far above the bottom toasts sit: a screen with a sticky bar (Record's Save) raises them
     /// above it, like the PWA's.
     var toastBottomInset: CGFloat = 8
@@ -83,9 +89,16 @@ final class AppEnvironment {
         self.makePush = makePush
         self.prepare = prepare
         entryToasts = EntryToasts(center: toasts, writer: entryWriter)
+        let toastCenter = toasts
+        runNotices = RunNoticeCenter(toast: { text in
+            toastCenter.show(Toast(text, tone: .info, duration: RunNoticeCenter.toastDuration))
+        })
+        var weakSession: () -> AppSession? = { nil }
+        runActions = RunActions(writer: { weakSession().map(RunActions.Writer.init(session:)) })
         quickLogModels = QuickLogModels(writer: entryWriter, toasts: entryToasts, drafts: quickLogDrafts)
         if prepare == nil { openSession() }
         entryWriter.session = { [weak self] in self?.session }
+        weakSession = { [weak self] in self?.session }
     }
 
     /// The live session over the App Group's files, sending through URLSession with the
@@ -244,6 +257,20 @@ final class AppEnvironment {
     /// The `scenePhase` hooks (outbox.md §10, sync-protocol.md §9): on `.active`, resume, rebind,
     /// flush and pull; on `.background`, flush inside a background task whose expiration handler
     /// cancels the flush, then suspend the database (0xDEAD10CC).
+    /// The run surfaces' part of `scenePhase`, from the first phase on (`initial: true`): a notice
+    /// recorded on screen is toasted, and the run clocks read the time again on return.
+    func runScenePhaseChanged(_ phase: ScenePhase) {
+        switch phase {
+        case .active:
+            runNotices.didBecomeActive()
+            runTicker.refresh()
+        case .background:
+            runNotices.didEnterBackground()
+        default:
+            break
+        }
+    }
+
     func scenePhaseChanged(_ phase: ScenePhase) {
         if phase == .background { backgroundSinceActive = true }
         if phase == .active, backgroundSinceActive {

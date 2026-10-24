@@ -4,16 +4,22 @@ import QuickrCore
 import QuickrData
 import Synchronization
 
-/// `-QuickrSeedTimedTopic` (I-MANAGE's UI tests, timers.md §3.8, §9): the fake server also has a
-/// timed topic, "Morning" (steps Shower and Dress, no questions), with one finished run logged
-/// yesterday: Shower 4:00, then Dress 5:00. It answers Edit times (`PATCH /entries/{id}` with
+/// `-QuickrSeedTimedTopic` (I-MANAGE's UI tests, timers.md §3.8, §9): the fake server's timed
+/// topic, Morning (`FakeServer.morningId`), has one finished, complete run logged yesterday:
+/// Shower 4:00, Dress 5:00, Breakfast 1:00, then Teeth 3:00. It answers Edit times (`PATCH /entries/{id}` with
 /// `timing`, rebuilt as the backend's `edited_timing` does, checked against `expected_revision`),
 /// `GET /entries/{id}`, and the topic's stats and timing stats (`TimingStats`, the backend's port).
 enum FakeTiming {
     static let flag = "-QuickrSeedTimedTopic"
-    static let morningId = UUID(uuidString: "00000000-0000-4000-8000-0000000000c3")!
+    static var morningId: UUID { FakeServer.morningId }
     static let entryId = UUID(uuidString: "00000000-0000-4000-8000-0000000000e3")!
-    static let steps = [TopicTimer.Step(key: "shower", label: "Shower"), TopicTimer.Step(key: "dress", label: "Dress")]
+    /// `FakeServer.morningTimer`'s steps.
+    static let steps: [TopicTimer.Step] = {
+        guard let timer = try? JSONDecoder().decode(TopicTimer.self, from: Data(FakeServer.morningTimer.utf8)) else {
+            return []
+        }
+        return timer.steps
+    }()
 
     static var isEnabled: Bool {
         UITestLaunch.isActive && ProcessInfo.processInfo.arguments.contains(flag)
@@ -26,54 +32,24 @@ enum FakeTiming {
 
     private static let state = Mutex(State(timing: seededTiming()))
 
-    /// Yesterday 07:00 (UTC): Shower to 07:04, Dress to 07:09.
+    /// Yesterday 07:00 (UTC): Shower to 07:04, Dress to 07:09, Breakfast to 07:10, Teeth to 07:13.
     static func seededTiming(now: Date = Date()) -> Timing {
         let day = RunInstant.milliseconds(now) / 86_400_000 - 1  // after 1970: truncation is floor
         let start = day * 86_400_000 + 7 * 3_600_000
-        let shower = start + 4 * 60_000
-        let end = shower + 5 * 60_000
+        let ends = [4, 9, 10, 13].map { start + $0 * 60_000 }
         return TimingDraft.Edit(
             startedAt: start,
-            segments: [
-                .init(kind: .step, step: "shower", endedAt: shower), .init(kind: .step, step: "dress", endedAt: end),
-            ],
+            segments: zip(steps, ends).map { .init(kind: .step, step: $0.key, endedAt: $1) },
             skipped: [], pauses: []
         ).timing(steps: steps)
     }
 
-    static let stepsJSON = #"{"steps": [{"key": "shower", "label": "Shower"}, {"key": "dress", "label": "Dress"}]}"#
-
-    /// The topic as `TopicDetail`.
-    static var topicDetail: [String: Any] {
-        [
-            "archived_at": NSNull(), "created_at": "2026-01-01T00:00:00Z", "current_version": 1, "description": "",
-            "due": NSNull(), "entry_count": 1, "id": morningId.wireString, "last_captured_at": NSNull(),
-            "name": "Morning", "question_count": 0, "questions": [Any](), "revision": 1, "schedule": NSNull(),
-            "schedule_updated_at": NSNull(), "slug": "morning", "status": "active",
-            "timer": (try? JSONSerialization.jsonObject(with: Data(stepsJSON.utf8))) ?? NSNull(),
-            "updated_at": "2026-01-01T00:00:00Z",
-        ]
-    }
-
-    /// The feed items the server starts with: the topic's version, the topic and the run's entry.
+    /// The feed items the server starts with: the run's entry (Morning and its version are
+    /// `FakeServer`'s seeded page).
     static func seedFeed() -> [String] {
         guard isEnabled else { return [] }
-        let version: [String: Any] = [
-            "kind": "version", "seq": 5, "id": "00000000-0000-4000-8000-0000000000d3",
-            "topic_id": morningId.wireString,
-            "version": [
-                "change_note": "", "created_at": "2026-01-01T00:00:00Z", "entry_count": 0, "questions": [Any](),
-                "timer": topicDetail["timer"] ?? NSNull(), "version": 1,
-            ] as [String: Any],
-        ]
-        let topic: [String: Any] = ["kind": "topic", "seq": 6, "topic": topicDetail]
-        let entry: [String: Any] = ["kind": "entry", "seq": 7, "entry": entryJSON()]
-        return [version, topic, entry].compactMap(json)
-    }
-
-    static func seedTopics() -> [String: Data] {
-        guard isEnabled, let data = try? JSONSerialization.data(withJSONObject: topicDetail) else { return [:] }
-        return [morningId.wireString: data]
+        let entry: [String: Any] = ["kind": "entry", "seq": FakeServer.seededHead + 1, "entry": entryJSON()]
+        return [entry].compactMap(json)
     }
 
     /// The run's entry as `EntryOut`.
@@ -83,7 +59,8 @@ enum FakeTiming {
         return [
             "id": entryId.wireString, "topic_id": morningId.wireString, "version": 1, "revision": revision,
             "source": "ios", "channel": "ios", "captured_at": end, "created_at": end, "updated_at": end, "notes": "",
-            "meta": [String: String](), "answers": [Any](), "timing": timingJSON(timing),
+            "meta": [String: String](), "answers": [["key": "mood", "type": "enum", "value": "good"]],
+            "timing": timingJSON(timing),
         ]
     }
 

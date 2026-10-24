@@ -44,6 +44,21 @@ import Testing
         #expect(waiting.accessibilityLabel == "2 waiting to sync, checking")
     }
 
+    /// §11.4 (timers.md): run notices alone show the pill, so the sheet that lists them is reachable;
+    /// anything else comes first.
+    @Test func noticesAloneShowThePill() {
+        let quiet = SyncPillState.make(summary: summary(), status: SyncStatus(), online: true, notices: 2)
+        #expect(quiet == .notices(count: 2))
+        let label: String = quiet.label
+        #expect(label == "2 notices")
+        let one: String = SyncPillState.notices(count: 1).label
+        #expect(one == "1 notice")
+        let failing = SyncPillState.make(summary: summary(failed: 1), status: SyncStatus(), online: true, notices: 2)
+        #expect(failing == .failed(count: 1))
+        let none = SyncPillState.make(summary: summary(), status: SyncStatus(), online: true, notices: 0)
+        #expect(none == .hidden)
+    }
+
     @Test func aHeldDeleteAloneShowsNothing() {
         // In its undo window: not waiting to sync yet.
         #expect(SyncPillState.make(summary: summary(queued: 1, held: 1), status: SyncStatus(), online: true) == .hidden)

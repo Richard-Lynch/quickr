@@ -2,7 +2,7 @@ import XCTest
 
 /// I-MANAGE against the fake server (`-QuickrUITest`, https://quickr.test): R10 (timers.md §13.3),
 /// Edit times on a finished run and the Overview's new median (`-QuickrSeedTimedTopic`: Morning,
-/// one run of Shower 4:00 then Dress 5:00), and publishing a timed topic from the builder.
+/// one complete run: Shower 4:00, Dress 5:00, Breakfast 1:00, Teeth 3:00), and publishing a timed topic from the builder.
 final class TimingUITests: XCTestCase {
     static let entryId = "00000000-0000-4000-8000-0000000000e3"
 
@@ -10,14 +10,14 @@ final class TimingUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    /// R10: the stats show the run's 9:00; Dress ends two minutes earlier in Edit times; the
-    /// entry shows 7:00 and so does the Overview's median.
+    /// R10: the stats show the run's 13:00; Teeth ends two minutes earlier in Edit times; the
+    /// entry shows 11:00 and so does the Overview's median.
     @MainActor
     func testEditTimesThenTheStatsShowTheNewMedian() throws {
         let app = launch(open: "quickr://t/morning", extra: ["-QuickrSeedTimedTopic"])
         let median = element("overview.timing.median", in: app)
         XCTAssertTrue(median.waitForExistence(timeout: 20))
-        XCTAssertEqual(median.label, "9:00, median")
+        XCTAssertEqual(median.label, "13:00, median")
         XCTAssertTrue(element("overview.timing.step.dress", in: app).exists, "per-step bars")
 
         // In the app (a link would relaunch it, with a fresh store and fake server).
@@ -25,13 +25,13 @@ final class TimingUITests: XCTestCase {
         let row = element("entry.\(Self.entryId)", in: app)
         XCTAssertTrue(row.waitForExistence(timeout: 10))
         row.tap()
-        let total = element("edit.timing.total", in: app)
+        let total = element("entry.timing.total", in: app)
         XCTAssertTrue(total.waitForExistence(timeout: 15))
-        XCTAssertEqual(total.label, "9:00")
+        XCTAssertEqual(total.label, "Total 13 minutes")
         XCTAssertFalse(element("edit.capturedAt", in: app).exists, "a timed entry's time is its run's")
-        tap("edit.timing.edit", in: app)
+        tap("entry.timing.edit", in: app)
 
-        let end = app.textFields["timing.segment1.end"]
+        let end = app.textFields["timing.segment3.end"]
         XCTAssertTrue(end.waitForExistence(timeout: 10))
         let shown = end.value as? String ?? ""
         let earlier = try XCTUnwrap(Self.shifted(shown, by: -120), "the field shows a local time: \(shown)")
@@ -40,19 +40,19 @@ final class TimingUITests: XCTestCase {
         end.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: shown.count))
         end.typeText(earlier)
         XCTAssertEqual(end.value as? String, earlier)
-        XCTAssertEqual(element("timing.total", in: app).label, "Total, 7:00", "the total follows as you type")
+        XCTAssertEqual(element("timing.total", in: app).label, "Total, 11:00", "the total follows as you type")
         snap(app, "edit-times")
         app.buttons["timing.save"].tap()
 
         XCTAssertTrue(toast("Times updated", in: app).waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["timing.save"].exists, "the sheet closes")
-        XCTAssertEqual(element("edit.timing.total", in: app).label, "7:00")
+        XCTAssertEqual(element("entry.timing.total", in: app).label, "Total 11 minutes")
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
         selectTopicTab("Overview", in: app)
         let after = element("overview.timing.median", in: app)
         XCTAssertTrue(after.waitForExistence(timeout: 20))
-        let updated = NSPredicate(format: "label == '7:00, median'")
+        let updated = NSPredicate(format: "label == '11:00, median'")
         expectation(for: updated, evaluatedWith: after)
         waitForExpectations(timeout: 15)
     }

@@ -21,7 +21,7 @@ import GRDB
 public enum StoreSchema {
     /// The append-only migrations, in order: `(identifier, statements)`.
     public static let migrations: [(identifier: String, statements: [String])] = [
-        ("v1", v1), ("v2", v2), ("v3", v3), ("v4", v4),
+        ("v1", v1), ("v2", v2), ("v3", v3), ("v4", v4), ("v5", v5),
     ]
 
     public static func migrator() -> DatabaseMigrator { DatabaseMigrator(steps: migrations) }
@@ -34,7 +34,10 @@ public enum StoreSchema {
     public static let stageTables = serverLayerTables.map { "stage_\($0)" }
     public static let tables =
         serverLayerTables + ["sync_state"] + stageTables
-        + ["stage_state", "reset_veto", "outbox_item", "lease", "ui_draft", "stats_cache", "widget_state"]
+        + [
+            "stage_state", "reset_veto", "outbox_item", "lease", "ui_draft", "stats_cache", "widget_state",
+            "run_notice",
+        ]
 
     // The server layer and its staging copy share one definition, so a swap can copy rows 1:1.
     private static func serverLayer(prefix: String) -> [String] {
@@ -181,6 +184,26 @@ public enum StoreSchema {
     /// sample. Local state, so no rebuild.
     static let v4: [String] = [
         "ALTER TABLE sync_state ADD COLUMN server_offset_ms INTEGER NOT NULL DEFAULT 0"
+    ]
+
+    /// The §11.4 notices (timers.md): a run event of this device that the server voided for a
+    /// reason the user is told about, written in its ack's transaction by whichever process
+    /// flushed it, and kept until it is toasted or dismissed, so the sync sheet still lists it
+    /// after the app was ended. `stopped_at` is the run's end (epoch ms) for `after_stop`.
+    /// Local state, so no rebuild.
+    static let v5: [String] = [
+        """
+        CREATE TABLE run_notice (
+          id         TEXT PRIMARY KEY NOT NULL,
+          run_id     TEXT NOT NULL,
+          topic_id   TEXT NOT NULL,
+          topic_name TEXT NOT NULL,
+          tap        TEXT NOT NULL,
+          reason     TEXT NOT NULL,
+          stopped_at INTEGER,
+          created_at REAL NOT NULL
+        )
+        """
     ]
 
     static let v1: [String] =
