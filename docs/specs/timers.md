@@ -123,6 +123,9 @@ Step  = { key: QuestionKey, label: Label }      // same key regex and label limi
   `timer`: past runs keep their own steps, so a step change never blocks a
   publish. It takes an optional `timer`, and with one a timer-only change is not
   "no changes" (as in publish).
+- `TopicSummary` (listTopics) and `TopicDetail` carry the current version's
+  `timer` (required, nullable), so a home tile knows a topic is timed without
+  fetching its versions.
 
 ### 2.2 Runs
 

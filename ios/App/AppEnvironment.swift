@@ -89,8 +89,10 @@ final class AppEnvironment {
     }
 
     /// The live session over the App Group's files, sending through URLSession with the
-    /// Cloudflare Access token from the shared Keychain. `categoryCenter` is the system's: app
-    /// tests pass nil unless they hold `SystemCategoriesLock` (the set is one per process).
+    /// Cloudflare Access token from the shared Keychain. `categoryCenter` registers the reminder
+    /// categories: the app passes the system's; app tests pass nil unless they hold
+    /// `SystemCategoriesLock` (the set is one per process, so another suite's session would
+    /// replace theirs). No default, so no caller registers with the system by omission.
     /// `notificationCenter` carries GRDB's suspend and resume: `.default` is GRDB's own, so the
     /// app's databases really suspend in the background; a hosted test that backgrounds a session
     /// passes its own, or it would suspend every other suite's database in the process.
@@ -98,7 +100,7 @@ final class AppEnvironment {
         location: StoreLocation = .shared(appGroup: AppGroup.identifier), defaults: UserDefaults = AppGroup.defaults,
         keychain: any KeychainStore = SystemKeychain(), transport: any Transport = URLSessionTransport(),
         network: any NetworkMonitoring = NWNetworkMonitor(),
-        categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter(),
+        categoryCenter: (any NotificationCenterProtocol)?,
         notificationCenter: NotificationCenter = .default
     ) -> AppEnvironment {
         let credentials = KeychainAccessCredentials(keychain: keychain)

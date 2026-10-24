@@ -193,5 +193,6 @@ struct RootView: View {
 #Preview {
     RootView()
         .environment(
-            AppEnvironment.live(location: StoreLocation(root: URL.temporaryDirectory.appending(path: "preview"))))
+            AppEnvironment.live(
+                location: StoreLocation(root: URL.temporaryDirectory.appending(path: "preview")), categoryCenter: nil))
 }

@@ -135,7 +135,7 @@ async def _summaries(
     rows = (await db.execute(stmt)).all()
     now = now or datetime.now(UTC)
     out: list[tuple[TopicSummary, list[Question]]] = []
-    for topic, questions_raw, entry_count, last_captured in rows:
+    for topic, questions_raw, timer_raw, entry_count, last_captured in rows:
         questions = parse_questions(questions_raw)
         out.append(
             (
@@ -156,6 +156,7 @@ async def _summaries(
                     schedule=parse_schedule(topic.schedule),
                     schedule_updated_at=topic.schedule_updated_at,
                     due=_due(topic, last_captured, now),
+                    timer=parse_timer(timer_raw),
                 ),
                 questions,
             )
@@ -169,6 +170,7 @@ def _base_select() -> tuple[Select[Any], Any]:
         select(
             Topic,
             TopicVersion.questions,
+            TopicVersion.timer,
             stats.c.entry_count,
             stats.c.last_captured_at,
         )

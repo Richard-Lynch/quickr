@@ -27,6 +27,7 @@
     "schedule_updated_at": null,
     "slug": "old-habit",
     "status": "archived",
+    "timer": null,
     "updated_at": "2026-06-01T12:00:00.123456Z"
   },
   "operation_id": "archiveTopic",

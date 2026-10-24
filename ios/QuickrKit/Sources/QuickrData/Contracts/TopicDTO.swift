@@ -38,10 +38,11 @@ public struct TopicDetailDTO: Codable, Sendable, Hashable, WireResponse {
     @RequiredKey public var schedule: ScheduleDTO?
     @RequiredKey public var scheduleUpdatedAt: Date?
     @RequiredKey public var due: DueStatusDTO?
+    @RequiredKey public var timer: TopicTimer?
     public var questions: [QuestionDTO]
 
     enum CodingKeys: String, CodingKey {
-        case id, slug, name, description, status, revision, schedule, due, questions
+        case id, slug, name, description, status, revision, schedule, due, timer, questions
         case currentVersion = "current_version"
         case questionCount = "question_count"
         case entryCount = "entry_count"
@@ -58,7 +59,7 @@ public struct TopicDetailDTO: Codable, Sendable, Hashable, WireResponse {
             currentVersion: currentVersion, revision: revision, questionCount: questionCount, entryCount: entryCount,
             lastCapturedAt: lastCapturedAt, createdAt: createdAt, updatedAt: updatedAt, archivedAt: archivedAt,
             schedule: try schedule?.toDomain(), scheduleUpdatedAt: scheduleUpdatedAt, due: due?.toDomain(),
-            questions: try questions.toDomain())
+            timer: timer, questions: try questions.toDomain())
     }
 }
 
@@ -80,9 +81,10 @@ public struct TopicSummaryDTO: Codable, Sendable, Hashable, DomainConvertible {
     @RequiredKey public var schedule: ScheduleDTO?
     @RequiredKey public var scheduleUpdatedAt: Date?
     @RequiredKey public var due: DueStatusDTO?
+    @RequiredKey public var timer: TopicTimer?
 
     enum CodingKeys: String, CodingKey {
-        case id, slug, name, description, status, revision, schedule, due
+        case id, slug, name, description, status, revision, schedule, due, timer
         case currentVersion = "current_version"
         case questionCount = "question_count"
         case entryCount = "entry_count"
@@ -98,7 +100,8 @@ public struct TopicSummaryDTO: Codable, Sendable, Hashable, DomainConvertible {
             id: try .wire(id, "topic.id"), slug: slug, name: name, description: description, status: status,
             currentVersion: currentVersion, revision: revision, questionCount: questionCount, entryCount: entryCount,
             lastCapturedAt: lastCapturedAt, createdAt: createdAt, updatedAt: updatedAt, archivedAt: archivedAt,
-            schedule: try schedule?.toDomain(), scheduleUpdatedAt: scheduleUpdatedAt, due: due?.toDomain())
+            schedule: try schedule?.toDomain(), scheduleUpdatedAt: scheduleUpdatedAt, due: due?.toDomain(),
+            timer: timer)
     }
 }
 

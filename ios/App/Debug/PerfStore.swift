@@ -43,7 +43,8 @@ enum PerfStore {
         }
         // `AppEnvironment.bootstrap`'s path, over this store and with a server that can't be reached.
         let environment = AppEnvironment.live(
-            location: location, defaults: defaults, keychain: InMemoryKeychain(), transport: OfflineTransport())
+            location: location, defaults: defaults, keychain: InMemoryKeychain(), transport: OfflineTransport(),
+            categoryCenter: SystemNotificationCenter())
         environment.settings.serverURL = URL(string: PerfSeed.Spec.standard.baseURL)
         environment.registerIntentTopics()
         return environment

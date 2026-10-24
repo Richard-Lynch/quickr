@@ -245,6 +245,7 @@ class TopicSummary(StrictModel):
         description="When the schedule was last set or changed; due status ignores anything before it."
     )
     due: DueStatus | None = Field(description="Null when the topic has no schedule.")
+    timer: Timer | None = Field(description="The current version's timer; null when the topic is not timed.")
 
 
 class TopicDetail(TopicSummary):

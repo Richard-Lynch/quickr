@@ -230,7 +230,8 @@ extension Date {
 }
 
 extension Topic {
-    /// A `topic` row; derived fields are left empty for the view to fill.
+    /// A `topic` row; derived fields are left empty for the view to fill. `timer` comes from the
+    /// row's `timer_json`, the current version's (`StoreView.topicRows`).
     init(serverRow row: Row) throws {
         let id: String = row["id"]
         let scheduleJSON: String? = row["schedule_json"]
@@ -244,6 +245,7 @@ extension Topic {
             archivedAt: (row["archived_at"] as Double?).map(Date.init(unixSeconds:)),
             schedule: try scheduleJSON.map { try StoreJSON.decode(ScheduleDTO.self, $0).toDomain() },
             scheduleUpdatedAt: (row["schedule_updated_at"] as Double?).map(Date.init(unixSeconds:)),
+            timer: try (row["timer_json"] as String?).map { try StoreJSON.decode(TopicTimer.self, $0) },
             questions: try StoreJSON.decode([QuestionDTO].self, row["questions_json"]).toDomain())
     }
 }

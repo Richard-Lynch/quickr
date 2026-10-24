@@ -348,9 +348,14 @@ final class FakeServer: Transport {
             return HTTPResponse(status: 200, headers: ["Content-Type": "application/json"], body: data)
         }
         guard report.ok else { return problem(422, "incompatible_version", "incompatible") }
+        // Publishing requires `timer` (null: untimed), and the topic takes the new version's.
+        guard let publish = try? WireCoding.decoder().decode(VersionCreateDTO.self, from: body) else {
+            return problem(422, "invalid_request", "timer is required")
+        }
         topic.currentVersion += 1
         topic.questions = proposed
         topic.questionCount = proposed.count
+        topic.timer = publish.timer
         topic.revision += 1
         state.topics[id] = topic
         return ok(201, topic)
@@ -465,7 +470,7 @@ private struct WireTopic: Encodable {
     init(_ topic: Topic) { self.topic = topic }
 
     enum Keys: String, CodingKey {
-        case id, slug, name, description, status, revision, schedule, due, questions
+        case id, slug, name, description, status, revision, schedule, due, timer, questions
         case currentVersion = "current_version"
         case questionCount = "question_count"
         case entryCount = "entry_count"
@@ -494,6 +499,7 @@ private struct WireTopic: Encodable {
         try c.encode(topic.schedule.map(ScheduleDTO.init), forKey: .schedule)
         try c.encode(topic.scheduleUpdatedAt, forKey: .scheduleUpdatedAt)
         try c.encodeNil(forKey: .due)
+        try c.encode(topic.timer, forKey: .timer)
         try c.encode(topic.questions.map(QuestionDTO.init), forKey: .questions)
     }
 }

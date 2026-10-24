@@ -1106,6 +1106,7 @@ export const zTopicDetail = z.object({
     ]).nullable(),
     schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
     due: zDueStatus.nullable(),
+    timer: zTimer.nullable(),
     questions: z.array(z.union([
         zIntQuestionOutput,
         zDoubleQuestionOutput,
@@ -1148,7 +1149,8 @@ export const zTopicSummary = z.object({
         zIntervalScheduleOutput
     ]).nullable(),
     schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
-    due: zDueStatus.nullable()
+    due: zDueStatus.nullable(),
+    timer: zTimer.nullable()
 });
 
 /**

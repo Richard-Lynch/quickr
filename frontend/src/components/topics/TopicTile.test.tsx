@@ -30,6 +30,7 @@ const vitamins: TopicSummary = {
   schedule: null,
   schedule_updated_at: null,
   due: null,
+  timer: null,
 };
 
 function renderTile(topic: TopicSummary) {
