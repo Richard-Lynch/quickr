@@ -59,8 +59,10 @@ import Testing
         #expect(environment.session?.store == nil, "launched for the intent: nothing bound yet")
 
         let next = RunActivityTap(button: .next, serverId: "test-server", topicId: topic.id, runId: runId, seg: 0)
-        try await environment.handleActivityTap(next)
-        try await environment.handleActivityTap(next)
+        // A double tap: the second arrives while the first is still being written and flushed.
+        async let first: Void = environment.handleActivityTap(next)
+        async let second: Void = environment.handleActivityTap(next)
+        _ = try await (first, second)
         let events = try await Self.runEvents(location)
         #expect(events == ["next"])
 
