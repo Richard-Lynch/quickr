@@ -102,6 +102,9 @@ public enum AckEffect: Sendable, Hashable {
     case topic(Topic)
     /// A DELETE that succeeded (204, 404 or `entry_deleted`): remove the row, insert a tombstone.
     case entryDeleted(id: UUID, topicId: UUID)
+    /// A `run.event` answered (timers.md §8.1), applied or void: its run (and entry), with
+    /// `runId`, the id the event was sent to, recorded as an alias when the run differs.
+    case runEvent(RunEventResult, runId: UUID)
 }
 
 public enum AckOutcome: Sendable, Hashable {
@@ -131,6 +134,8 @@ public enum AtomicAck {
         case .entryDeleted(let id, let topicId):
             try ServerLayer.applyDeletion(db, kind: .entry, id: id, topicId: topicId, seq: nil)
             upsert = nil
+        case .runEvent(let result, let runId):
+            upsert = try ServerLayer.apply(db, runEvent: result, sentTo: runId)
         }
         try OutboxStorage.delete(db, id: itemId)
         try OutboxStorage.chainRevision(db, entityKind: item.entityKind, entityId: item.entityId)

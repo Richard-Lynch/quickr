@@ -36,7 +36,7 @@ import Testing
                 try columns(db, "sync_state") == [
                     "id", "server_id", "base_url", "epoch", "cursor", "head_seen", "layer_gen", "rebuilding",
                     "epoch_suspect", "retired", "identity_mismatch", "last_pull_at", "skew_ms", "skew_measured_at",
-                    "bootstrap_complete",
+                    "bootstrap_complete", "server_offset_ms",
                 ])
             for table in StoreSchema.serverLayerTables {
                 #expect(try columns(db, "stage_" + table) == columns(db, table), "\(table)")
@@ -76,6 +76,16 @@ import Testing
             let insert = "INSERT INTO tombstone (kind, id, topic_id, seq) VALUES (?, ?, 't', 1)"
             try db.execute(sql: insert, arguments: ["run", "r"])
             #expect(throws: DatabaseError.self) { try db.execute(sql: insert, arguments: ["lap", "l"]) }
+        }
+    }
+
+    /// Store v4 (timers.md §5.1): the run-event offset, 0 until the first sample.
+    @Test func storeV4AddsTheServerOffset() throws {
+        let queue = try TestDatabase.store()
+        try queue.write { (db: Database) throws in
+            try LocalStore.createSyncState(db, serverId: "s", baseURL: "https://q.example")
+            let offset = try Int.fetchOne(db, sql: "SELECT server_offset_ms FROM sync_state WHERE id = 1")
+            #expect(offset == 0)
         }
     }
 

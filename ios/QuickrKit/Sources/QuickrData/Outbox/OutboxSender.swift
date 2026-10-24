@@ -11,6 +11,9 @@ public enum OutboxOperation: Sendable, Hashable {
     case deleteEntry(entryId: UUID)
     case archiveTopic(topicId: String, expectedRevision: Int?)
     case unarchiveTopic(topicId: String, expectedRevision: Int?)
+    /// `POST /runs/{run_id}/events` (timers.md §8.1); `body.id` is the item id and `body.source` is
+    /// set.
+    case recordRunEvent(runId: UUID, body: RunEventInDTO)
     /// The §7.4 refetch. A read: no precondition headers, but the response is still checked.
     case getEntry(entryId: UUID)
     case getTopic(topicId: String)
@@ -35,6 +38,8 @@ public struct OutboxRequest: Sendable, Hashable {
 public enum OutboxSuccess: Sendable, Hashable {
     case entry(Entry)
     case topic(Topic)
+    /// A `RunEventResult` (timers.md §3.2), void effects included.
+    case runEvent(RunEventResult)
     case empty
 }
 
@@ -68,6 +73,9 @@ extension APIClient: OutboxSender {
             case .unarchiveTopic(let topicId, let revision):
                 return try await unarchiveTopic(ref: topicId, expectedRevision: revision, options: options)
                     .mapSuccess(OutboxSuccess.topic)
+            case .recordRunEvent(let runId, let body):
+                return try await recordRunEvent(runId: runId, body, options: options)
+                    .mapSuccess(OutboxSuccess.runEvent)
             case .getEntry(let entryId):
                 return try await getEntry(id: entryId, options: options).mapSuccess(OutboxSuccess.entry)
             case .getTopic(let topicId):

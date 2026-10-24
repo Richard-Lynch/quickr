@@ -22,6 +22,17 @@ final class FakeServer: Transport {
         var topics: [String: Topic] = [:]
         /// Strip both identity headers from every response (a misbehaving proxy).
         var omitHeaders = false
+        /// Runs (timers.md §3), by id; `FakeServer+Runs.swift`.
+        var runs: [String: FakeRun] = [:]
+        /// Merged run ids → the run they were merged into (§4.5).
+        var runAliases: [String: String] = [:]
+        /// The timed versions, by `"<topic id>#<version>"`: a start pinned to any other is
+        /// `topic_not_timed`.
+        var timers: [String: FakeTimer] = [:]
+        /// Run ids whose topic was deleted (`run_deleted`).
+        var deletedRuns: Set<String> = []
+        /// `X-QuickR-Server-Time` on every response (timers.md §5.1), when set.
+        var serverTime: Int?
     }
 
     enum Action: Sendable {
@@ -204,6 +215,7 @@ final class FakeServer: Transport {
                 response.headers[QuickrHeader.serverId] = state.serverId
                 response.headers[QuickrHeader.epoch] = state.epoch
             }
+            if let serverTime = state.serverTime { response.headers[RunClock.serverTimeHeader] = String(serverTime) }
             return response
         }
         executed.withLock { $0.append("\(request.method.rawValue) \(request.url.path) → \(response.status)") }
@@ -231,6 +243,7 @@ final class FakeServer: Transport {
             .first { $0.name == "expected_revision" }?.value.flatMap(Int.init)
         switch (request.method, parts[2], parts.count > 4 ? parts[4] : nil) {
         case (.post, "topics", "entries"): return createEntry(topicId: id, request, &state)
+        case (.post, "runs", "events"): return recordRunEvent(id, request, &state)
         case (.get, "entries", nil):
             guard let entry = state.entries[id] else { return problem(404, "not_found") }
             return ok(200, entry)
@@ -415,7 +428,7 @@ final class FakeServer: Transport {
 }
 
 /// `EntryOut` as the server writes it.
-private struct WireEntry: Encodable {
+struct WireEntry: Encodable {
     var entry: Entry
 
     init(_ entry: Entry) { self.entry = entry }
@@ -445,7 +458,11 @@ private struct WireEntry: Encodable {
             AnswerDTO(key: key, type: Self.type(value), value: value)
         }
         try c.encode(answers, forKey: .answers)
-        try c.encodeNil(forKey: .timing)  // the outbox makes untimed entries only
+        if let timing = entry.timing {
+            try c.encode(TimingDTO(timing), forKey: .timing)
+        } else {
+            try c.encodeNil(forKey: .timing)
+        }
     }
 
     static func type(_ value: AnswerValue) -> String {

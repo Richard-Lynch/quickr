@@ -98,6 +98,9 @@ enum OutboxQueue {
             return .appended(try OutboxStorage.append(db, new, now: wall))
         }
         new.hold = nil
+        if case .runEvent(let event) = payload, event.type == .discard, try dropUnsentRun(db, runId: entityId) {
+            return .cancelled
+        }
         if let previous = try OutboxStorage.items(db, topicId: payload.topicId).last,
             previous.entityKind == kind.entityKind, previous.entityId == entityId, previous.state == .pending,
             previous.attempts == 0
@@ -116,6 +119,18 @@ enum OutboxQueue {
         guard kind == .entryDelete else { return .appended(item) }
         // K4: an immediate delete is released at once.
         return try releaseDelete(db, item, wall: wall).map(OutboxEnqueueResult.appended) ?? .cancelled
+    }
+
+    /// K6 (timers.md §8.1): a discard of a run the server never saw (its start and every other item
+    /// of it still `pending` and never attempted) drops all of them, and the discard isn't stored.
+    /// Returns whether it did.
+    static func dropUnsentRun(_ db: Database, runId: String) throws -> Bool {
+        let items = try OutboxStorage.items(db, entityKind: .run, entityId: runId)
+        guard items.contains(where: { $0.id == runId }),
+            items.allSatisfy({ $0.state == .pending && $0.attempts == 0 })
+        else { return false }
+        for item in items { try OutboxStorage.delete(db, id: item.id) }
+        return true
     }
 
     /// C0: an entry with a tombstone or any unresolved delete takes no more writes. A failed
@@ -334,7 +349,8 @@ enum OutboxQueue {
     ) throws {
         let item = try require(db, itemId)
         let fixable: Set<OutboxFailureReason> = [.rejected, .topicArchived, .futureTime]
-        guard item.state == .failed, !item.maybeDelivered, item.kind == .entryCreate || item.kind == .entryUpdate,
+        guard item.state == .failed, !item.maybeDelivered,
+            try item.kind == .entryCreate || item.kind == .entryUpdate || isFixableRunEvent(item, payload),
             payload.kind == item.kind, item.failureReason.map(fixable.contains) ?? false
         else { throw OutboxError.notAllowed("Fix isn't available for this item") }
         try db.execute(
@@ -373,9 +389,30 @@ enum OutboxQueue {
         }
     }
 
+    /// timers.md §8.1: a refused `finish`, or `stop` with answers, offers Fix (the answers sheet).
+    /// The fix replaces only the answers, notes and meta: the same event (id, type, run and `at`).
+    private static func isFixableRunEvent(_ item: OutboxItem, _ payload: OutboxPayload) throws -> Bool {
+        guard let old = try item.runEventPayload(), case .runEvent(let new) = payload,
+            old.type == .finish || (old.type == .stop && old.event.answers != nil)
+        else { return false }
+        var unchanged = new
+        unchanged.event.answers = old.event.answers
+        unchanged.event.notes = old.event.notes
+        unchanged.event.meta = old.event.meta
+        return unchanged == old
+    }
+
     static func discard(_ db: Database, itemId: String, origin: OutboxOrigin, now: LeaseInstant, wall: Date) throws {
         let item = try require(db, itemId)
         guard item.state != .inFlight else { throw OutboxError.notAllowed("The item is being sent") }
+        if item.kind == .runEvent, item.id == item.entityId {
+            // A run's start: its events can't be sent without it (timers.md §8.1), so they go too.
+            for event in try OutboxStorage.items(db, entityKind: .run, entityId: item.entityId)
+            where event.state != .inFlight {
+                try OutboxStorage.delete(db, id: event.id)
+            }
+            return
+        }
         guard item.kind == .entryCreate else {
             try remove(db, item)
             return
@@ -449,7 +486,8 @@ public enum OutboxSyncEffects {
                 } else {
                     try OutboxQueue.fail(db, item.id, .deletedElsewhere, gone, wall: wall)
                 }
-            case .topicUnarchive:
+            case .topicUnarchive, .runEvent:
+                // A run's events go with its topic (timers.md §7.2).
                 try OutboxQueue.fail(db, item.id, .deletedElsewhere, gone, wall: wall)
             }
         }

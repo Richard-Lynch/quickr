@@ -261,6 +261,12 @@ public struct GRDBRegistryRepository: RegistryRepository {
         try await reader.read { db in try String.fetchOne(db, sql: "SELECT server_id FROM active WHERE id = 1") }
     }
 
+    /// This device's APNs token (hex), once the system gave one (notifications.md §9): the
+    /// `device.apns_token` of every run event (timers.md §3.2).
+    public func apnsToken() async throws -> String? {
+        try await reader.read { db in try String.fetchOne(db, sql: "SELECT token FROM apns_state WHERE id = 1") }
+    }
+
     public func notificationCategories() async throws -> [NotificationCategoryRecord] {
         try await reader.read { db in
             try Row.fetchAll(db, sql: "SELECT * FROM notification_category ORDER BY created_at, id").map { row in

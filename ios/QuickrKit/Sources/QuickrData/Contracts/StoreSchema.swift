@@ -21,7 +21,7 @@ import GRDB
 public enum StoreSchema {
     /// The append-only migrations, in order: `(identifier, statements)`.
     public static let migrations: [(identifier: String, statements: [String])] = [
-        ("v1", v1), ("v2", v2), ("v3", v3),
+        ("v1", v1), ("v2", v2), ("v3", v3), ("v4", v4),
     ]
 
     public static func migrator() -> DatabaseMigrator { DatabaseMigrator(steps: migrations) }
@@ -175,6 +175,13 @@ public enum StoreSchema {
             "UPDATE stage_state SET cursor = 0 WHERE id = 1",
             "UPDATE sync_state SET rebuilding = COALESCE(rebuilding, epoch) WHERE id = 1 AND epoch IS NOT NULL",
         ]
+
+    /// The run-event offset (timers.md §5.1): `server_time − (t_send + t_recv) / 2` in whole
+    /// milliseconds from the latest response whose round trip took at most 5 s; 0 before the first
+    /// sample. Local state, so no rebuild.
+    static let v4: [String] = [
+        "ALTER TABLE sync_state ADD COLUMN server_offset_ms INTEGER NOT NULL DEFAULT 0"
+    ]
 
     static let v1: [String] =
         serverLayer(prefix: "")

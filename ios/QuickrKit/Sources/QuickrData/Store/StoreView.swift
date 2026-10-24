@@ -217,7 +217,16 @@ public enum StoreView {
             items += 1
             try builder?.apply(item)
         }
-        _ = try finish()
+        guard try finish() else { return }
+        // Queued run stops' optimistic entries (timers.md §8.3), unless the entity has items.
+        for overlay in try RunOverlay.optimisticEntries(db, topicId: topicId, book: book) {
+            guard let id = overlay.entry?.id.wireString,
+                try Bool.fetchOne(
+                    db, sql: "SELECT EXISTS (SELECT 1 FROM outbox_item WHERE entity_kind = 'entry' AND entity_id = ?)",
+                    arguments: [id]) == false
+            else { continue }
+            guard try body(overlay) else { return }
+        }
     }
 
     /// How many (topic, version) question sets a stream keeps decoded.
@@ -257,8 +266,13 @@ public enum StoreView {
         let server = try Row.fetchOne(db, sql: "SELECT * FROM entry WHERE id = ?", arguments: [id]).map { row in
             try Entry(serverRow: row, questions: try book.questions(row["topic_id"], row["version"]))
         }
-        let overlay = try EntryOverlay.resolve(
-            server: server, items: OutboxStorage.items(db, entityKind: .entry, entityId: id), questions: book.lookup)
+        let items = try OutboxStorage.items(db, entityKind: .entry, entityId: id)
+        if server == nil, items.isEmpty {
+            // A queued run stop's optimistic entry (timers.md §8.3), if any.
+            return try RunOverlay.optimisticEntries(db, topicId: nil, book: book)
+                .first { $0.entry?.id.wireString == id }?.viewEntry
+        }
+        let overlay = try EntryOverlay.resolve(server: server, items: items, questions: book.lookup)
         guard let viewEntry = overlay.viewEntry, try topicExists(db, viewEntry.entry.topicId.wireString) else {
             return nil
         }
@@ -346,10 +360,20 @@ public enum StoreView {
 
     /// The resolved overlays of every entry entity with outbox items (in one topic, or all),
     /// tombstoned ids and entities whose topic isn't in the server layer removed.
+    /// Queued run stops that make an entry add their optimistic entries (timers.md §8.3).
     static func overlays(_ db: Database, topicId: String?, book: QuestionBook? = nil) throws -> [EntryOverlay] {
         let book = book ?? QuestionBook(db)
         let items = try topicId.map { try OutboxStorage.items(db, topicId: $0) } ?? OutboxStorage.items(db)
         let byEntity = Dictionary(grouping: items.filter { $0.entityKind == .entry }, by: \.entityId)
+        let runs = try RunOverlay.optimisticEntries(db, topicId: topicId, book: book).filter { overlay in
+            overlay.entry.map { byEntity[$0.id.wireString] == nil } ?? false
+        }
+        return try entryOverlays(db, byEntity, book: book) + runs
+    }
+
+    private static func entryOverlays(_ db: Database, _ byEntity: [String: [OutboxItem]], book: QuestionBook) throws
+        -> [EntryOverlay]
+    {
         guard !byEntity.isEmpty else { return [] }
         let ids = Array(byEntity.keys)
         let marks = Array(repeating: "?", count: ids.count).joined(separator: ",")

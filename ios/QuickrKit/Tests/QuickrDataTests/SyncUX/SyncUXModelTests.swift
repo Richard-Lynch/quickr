@@ -101,6 +101,7 @@ import Testing
         case .entryCreate: id
         case .entryUpdate(let entryId, _, _), .entryDelete(let entryId, _): entryId
         case .topicArchive(let topicId), .topicUnarchive(let topicId): topicId
+        case .runEvent(let payload): payload.runId
         }
     }
 
