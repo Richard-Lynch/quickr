@@ -114,9 +114,9 @@ public struct SyncSheetModel: Sendable, Hashable {
         _ item: OutboxItem, title: String, blockedBy: String?, online: Bool, now: LeaseInstant, scope: EntryScope
     ) -> SyncItemRow {
         let failed = item.state == .failed
-        // Nothing can come of these: dismissed, never retried.
-        let deletedElsewhere =
-            failed && (item.failureReason == .deletedElsewhere || item.failureReason == .loggedElsewhere)
+        let deletedElsewhere = failed && item.failureReason == .deletedElsewhere
+        // A tap on a run that never existed (timers.md §10.2): never retried; discarded by the user.
+        let loggedElsewhere = failed && item.failureReason == .loggedElsewhere
         var when = item.createdAt
         if case .entryCreate(_, let body)? = try? item.payload(), let capturedAt = body.capturedAt { when = capturedAt }
         let (status, tone) = statusLine(item, blockedBy: blockedBy, online: online, now: now)
@@ -131,7 +131,7 @@ public struct SyncSheetModel: Sendable, Hashable {
             }
         return SyncItemRow(
             id: item.id, scope: scope, title: title, when: when, status: status, tone: tone,
-            canRetry: !deletedElsewhere && item.state != .held && item.state != .inFlight,
+            canRetry: !deletedElsewhere && !loggedElsewhere && item.state != .held && item.state != .inFlight,
             retryTitle: failed ? "Retry as is" : "Retry now", fix: fix,
             canDiscard: !deletedElsewhere && item.state != .inFlight, canDismiss: deletedElsewhere)
     }

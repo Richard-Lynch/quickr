@@ -293,9 +293,11 @@ import Testing
         #expect(requests == 3, "the start, its run read and its entry read; the taps never go")
         let left = try h.runItems
         let leftTypes: [String] = try left.map { try h.payload($0).event.type }
-        #expect(leftTypes == ["stop"], "the Next went with the start; the answers stay, failed")
+        #expect(leftTypes == ["next", "stop"], "the start went; the taps stay, failed, to discard")
         let reasons: [OutboxFailureReason?] = left.map(\.failureReason)
-        #expect(reasons == [.loggedElsewhere])
+        #expect(reasons == [.loggedElsewhere, .loggedElsewhere])
+        let messages: [String?] = left.map { $0.lastError?.message }
+        #expect(messages == ["Already logged elsewhere", "Already logged elsewhere"])
         #expect(h.signals.contains(.pullRequested))
 
         try await h.runs().start(topic: h.ref, version: 1, id: theirs)
@@ -331,7 +333,7 @@ import Testing
         #expect(h.signals.contains(.pullRequested))
     }
 
-    @Test("R7 · a terminal refusal of the run read fails the start rejected, the start's 409 kept")
+    @Test("R7 · a terminal refusal of the run read fails the start rejected, with the read's error")
     func startKnownReadRefused() async throws {
         let h = try OutboxHarness()
         try h.timed()
@@ -344,8 +346,10 @@ import Testing
         let failed: Int = report.failed
         #expect(failed == 1)
         let item = try #require(try h.item(id))
+        let reason: OutboxFailureReason? = item.failureReason
+        #expect(reason == .rejected)
         let error: String = item.lastErrorJSON ?? ""
-        #expect(error.contains("event_conflict"), "\(error)")
+        #expect(error.contains("invalid_request"), "the read's error, as the PWA keeps: \(error)")
     }
 
     @Test("R7 · the start's id is an alias of the topic's run: a run_alias row, and the Next goes to that run")

@@ -62,6 +62,22 @@ import Testing
         #expect(title == "Stop · Morning")
     }
 
+    /// timers.md §10.2: a tap on a run that was logged elsewhere can't be fixed or retried, only
+    /// discarded (a Stop's answers included).
+    @Test func aTapLoggedElsewhereIsDiscardedNotFixedOrRetried() throws {
+        for event in [Self.event("next"), Self.event("stop", answers: ["mood": WireAnswer(.string("ok"))])] {
+            let row = try row(try Self.failed(event, reason: .loggedElsewhere, status: 409))
+            let fix: Route? = row.fix
+            #expect(fix == nil)
+            let canRetry: Bool = row.canRetry
+            #expect(!canRetry)
+            let canDiscard: Bool = row.canDiscard
+            #expect(canDiscard)
+            let status: String = row.status
+            #expect(status == "Already logged elsewhere")
+        }
+    }
+
     @Test func noFixWhenTheRunIsGoneOrTheRefusalIsNotAnAnswerError() throws {
         let gone = try Self.failed(Self.event("finish"), reason: .deletedElsewhere, status: 404)
         let goneFix: Route? = try row(gone).fix
