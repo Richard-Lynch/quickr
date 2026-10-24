@@ -223,4 +223,25 @@ import Testing
         let count: Int = try h.runItems.count
         #expect(count == 0)
     }
+
+    @Test("A Live Activity tap shares the topic's cooldown: a double tap on Pause can't land on Resume")
+    func activityTapsShareTheCooldown() async throws {
+        let h = try OutboxHarness()
+        try h.timed()
+        let clock = Clock()
+        let actions = actions(h, clock: clock)
+        let first = actions.admits(topicId: h.topic.id)
+        #expect(first)
+        clock.advance(.milliseconds(200))
+        let second = actions.admits(topicId: h.topic.id)
+        #expect(second == false)
+        let other = actions.admits(topicId: UUID())
+        #expect(other, "another topic's controls aren't held")
+        // The app's own controls are held by it too.
+        let started = await actions.start(topic: h.ref, version: 1)
+        #expect(started == nil)
+        clock.advance(.milliseconds(450))
+        let later = actions.admits(topicId: h.topic.id)
+        #expect(later)
+    }
 }

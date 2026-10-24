@@ -24,6 +24,7 @@ enum AppGroup {
 final class AppSettings {
     static let serverURLKey = "serverURL"
     static let logAnotherKey = "logAnother"
+    static let liveActivitiesKey = "liveActivities"
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -38,9 +39,15 @@ final class AppSettings {
         didSet { defaults.set(logAnother, forKey: Self.logAnotherKey) }
     }
 
+    /// Settings ▸ Notifications ▸ Live Activities (timers.md §10.3): on by default.
+    var liveActivities: Bool {
+        didSet { defaults.set(liveActivities, forKey: Self.liveActivitiesKey) }
+    }
+
     init(defaults: UserDefaults) {
         self.defaults = defaults
         serverURL = defaults.string(forKey: Self.serverURLKey).flatMap(URL.init(string:))
         logAnother = defaults.bool(forKey: Self.logAnotherKey)
+        liveActivities = defaults.object(forKey: Self.liveActivitiesKey) as? Bool ?? true
     }
 }

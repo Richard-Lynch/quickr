@@ -81,6 +81,10 @@ targets:
         UIBackgroundModes:
           - fetch
           - remote-notification
+        # The run's Live Activity (timers.md §10.3): updated by this app and by the server's pushes,
+        # which come after every tap on another device (frequent updates).
+        NSSupportsLiveActivities: true
+        NSSupportsLiveActivitiesFrequentUpdates: true
         BGTaskSchedulerPermittedIdentifiers:
           - com.bahumia.quickr.refresh
         NSAppTransportSecurity:

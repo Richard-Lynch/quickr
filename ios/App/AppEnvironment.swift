@@ -31,6 +31,10 @@ final class AppEnvironment {
     let runActions: RunActions
     /// The one clock behind every running timer on screen.
     let runTicker = RunTicker()
+    /// This device's run Live Activities (timers.md §10.3): local first, reconciled with the view.
+    let liveActivities: LiveActivities
+    /// Their tokens' registration with the active server.
+    let activityTokens: LiveActivityTokens
     /// How far above the bottom toasts sit: a screen with a sticky bar (Record's Save) raises them
     /// above it, like the PWA's.
     var toastBottomInset: CGFloat = 8
@@ -80,6 +84,7 @@ final class AppEnvironment {
         network: any NetworkMonitoring = NWNetworkMonitor(),
         prepare: (@MainActor () async -> Void)? = nil,
         makePush: (@MainActor (AppSession) -> PushLifecycle)? = nil,
+        activityCenter: (any RunActivityCenter)? = nil,
         makeSession: @escaping @MainActor () throws -> AppSession
     ) {
         self.settings = settings
@@ -94,11 +99,37 @@ final class AppEnvironment {
             toastCenter.show(Toast(text, tone: .info, duration: RunNoticeCenter.toastDuration))
         })
         var weakSession: () -> AppSession? = { nil }
-        runActions = RunActions(writer: { weakSession().map(RunActions.Writer.init(session:)) })
+        let box = SessionBox()
+        let tokens = LiveActivityTokens(
+            .api(
+                { await box.liveActivityClient() }, deviceToken: { await box.apnsToken() },
+                environment: { try? PushEnvironment.current.get() }))
+        activityTokens = tokens
+        let activities = LiveActivities(
+            center: activityCenter ?? NoRunActivityCenter(), tokens: tokens, enabled: settings.liveActivities,
+            snapshot: { await box.activitySnapshot() })
+        liveActivities = activities
+        // The app's own taps update its activity at once; a start here requests one (§10.3).
+        runActions = RunActions(writer: {
+            guard let session = weakSession() else { return nil }
+            let base = RunActions.Writer(session: session)
+            return RunActions.Writer(
+                start: { topic, version in
+                    let result = try await base.start(topic, version)
+                    await activities.reconcile(startFor: UUID(uuidString: topic.id))
+                    return result
+                },
+                tap: { type, runId, target in
+                    let result = try await base.tap(type, runId, target)
+                    await activities.reconcile()
+                    return result
+                })
+        })
         quickLogModels = QuickLogModels(writer: entryWriter, toasts: entryToasts, drafts: quickLogDrafts)
         if prepare == nil { openSession() }
         entryWriter.session = { [weak self] in self?.session }
         weakSession = { [weak self] in self?.session }
+        box.environment = self
     }
 
     /// The live session over the App Group's files, sending through URLSession with the
@@ -114,7 +145,8 @@ final class AppEnvironment {
         keychain: any KeychainStore = SystemKeychain(), transport: any Transport = URLSessionTransport(),
         network: any NetworkMonitoring = NWNetworkMonitor(),
         categoryCenter: (any NotificationCenterProtocol)?,
-        notificationCenter: NotificationCenter = .default
+        notificationCenter: NotificationCenter = .default,
+        activityCenter: (any RunActivityCenter)? = nil
     ) -> AppEnvironment {
         let credentials = KeychainAccessCredentials(keychain: keychain)
         // APNs registration (REG) sends through the same transport and Access token.
@@ -134,7 +166,7 @@ final class AppEnvironment {
         }
         return AppEnvironment(
             settings: AppSettings(defaults: defaults), credentials: credentials, network: network, makePush: makePush,
-            makeSession: makeSession)
+            activityCenter: activityCenter, makeSession: makeSession)
     }
 
     /// The app's launch path: builds the live environment and registers the active store's topics
@@ -146,18 +178,25 @@ final class AppEnvironment {
         location: StoreLocation = .shared(appGroup: AppGroup.identifier),
         categoryCenter: (any NotificationCenterProtocol)? = SystemNotificationCenter()
     ) -> AppEnvironment {
+        // ActivityKit's activities: the real app only (UI tests and app tests have none).
+        let activities = SystemRunActivityCenter()
         #if DEBUG
+        let watchesActivities = !UITestLaunch.isActive
         // A probe launch (DeviceProbeLaunch) holds the app's category registrations back while it runs.
         let environment =
             UITestLaunch.isActive
             ? UITestLaunch.environment()
             : DeviceProbeLaunch.requested() != nil
-                ? live(location: location, categoryCenter: DeviceProbeLaunch.gatedCenter())
-                : live(location: location, categoryCenter: categoryCenter)
+                ? live(location: location, categoryCenter: DeviceProbeLaunch.gatedCenter(), activityCenter: activities)
+                : live(location: location, categoryCenter: categoryCenter, activityCenter: activities)
         #else
-        let environment = live(location: location, categoryCenter: categoryCenter)
+        let watchesActivities = true
+        let environment = live(location: location, categoryCenter: categoryCenter, activityCenter: activities)
         #endif
         environment.registerIntentTopics()
+        if watchesActivities {
+            activities.watch(tokens: environment.activityTokens) { await environment.liveActivities.tokensChanged() }
+        }
         return environment
     }
 
@@ -182,6 +221,7 @@ final class AppEnvironment {
                     let hold = await current()?.holdStoreResumed()
                     return { await hold?.release() }
                 }))
+        registerLiveActivityTaps()
         // OpenRecordIntent, and repeat-last falling back to the record screen: the same hand-off as
         // a tap-to-fix notification's prefill.
         IntentNavigation.register { [weak self] request in
@@ -264,6 +304,7 @@ final class AppEnvironment {
         case .active:
             runNotices.didBecomeActive()
             runTicker.refresh()
+            Task { await liveActivities.reconcile() }
         case .background:
             runNotices.didEnterBackground()
         default:
@@ -404,6 +445,7 @@ final class AppEnvironment {
     private func openSession() {
         do {
             session = try makeSession()
+            session?.liveActivityShown = { [weak self] in await self?.showsLiveActivityLocally() ?? false }
             sessionError = nil
         } catch {
             sessionError = String(describing: error)

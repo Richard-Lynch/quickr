@@ -40,6 +40,20 @@
           "timestamp": 1792743000
         }
       },
+      "run": {
+        "events": [
+          {
+            "at": "2026-10-23T08:00:00Z",
+            "id": "0a000000-0000-4000-8000-000000000000",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "start"
+          }
+        ],
+        "revision": 1,
+        "status": null
+      },
       "steps": "three"
     },
     {
@@ -82,6 +96,20 @@
           "timestamp": 1792743000
         }
       },
+      "run": {
+        "events": [
+          {
+            "at": "2026-10-23T08:00:00Z",
+            "id": "0a000000-0000-4000-8000-000000000000",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "start"
+          }
+        ],
+        "revision": 1,
+        "status": null
+      },
       "steps": "long"
     },
     {
@@ -112,6 +140,28 @@
           "stale-date": 1792757400,
           "timestamp": 1792743000
         }
+      },
+      "run": {
+        "events": [
+          {
+            "at": "2026-10-23T08:00:00Z",
+            "id": "0a000000-0000-4000-8000-000000000000",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "start"
+          },
+          {
+            "at": "2026-10-23T08:02:00Z",
+            "id": "0e000000-0000-4000-8000-000000000001",
+            "pause_id": null,
+            "seg": 0,
+            "step": null,
+            "type": "next"
+          }
+        ],
+        "revision": 2,
+        "status": null
       },
       "steps": "three"
     },
@@ -144,6 +194,52 @@
           "timestamp": 1792743000
         }
       },
+      "run": {
+        "events": [
+          {
+            "at": "2026-10-23T08:00:00Z",
+            "id": "0a000000-0000-4000-8000-000000000000",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "start"
+          },
+          {
+            "at": "2026-10-23T08:00:30Z",
+            "id": "0e000000-0000-4000-8000-000000000001",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "pause"
+          },
+          {
+            "at": "2026-10-23T08:01:00Z",
+            "id": "0e000000-0000-4000-8000-000000000002",
+            "pause_id": "0e000000-0000-4000-8000-000000000001",
+            "seg": null,
+            "step": null,
+            "type": "resume"
+          },
+          {
+            "at": "2026-10-23T08:02:00Z",
+            "id": "0e000000-0000-4000-8000-000000000003",
+            "pause_id": null,
+            "seg": 0,
+            "step": null,
+            "type": "next"
+          },
+          {
+            "at": "2026-10-23T08:03:20Z",
+            "id": "0e000000-0000-4000-8000-000000000004",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "pause"
+          }
+        ],
+        "revision": 5,
+        "status": null
+      },
       "steps": "three"
     },
     {
@@ -174,6 +270,36 @@
           "stale-date": 1792757400,
           "timestamp": 1792743000
         }
+      },
+      "run": {
+        "events": [
+          {
+            "at": "2026-10-23T08:00:00Z",
+            "id": "0a000000-0000-4000-8000-000000000000",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "start"
+          },
+          {
+            "at": "2026-10-23T08:01:40Z",
+            "id": "0e000000-0000-4000-8000-000000000001",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "pause"
+          },
+          {
+            "at": "2026-10-23T08:02:00Z",
+            "id": "0e000000-0000-4000-8000-000000000002",
+            "pause_id": null,
+            "seg": 0,
+            "step": null,
+            "type": "next"
+          }
+        ],
+        "revision": 3,
+        "status": null
       },
       "steps": "three"
     },
@@ -206,6 +332,36 @@
           "timestamp": 1792743000
         }
       },
+      "run": {
+        "events": [
+          {
+            "at": "2026-10-23T08:00:00Z",
+            "id": "0a000000-0000-4000-8000-000000000000",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "start"
+          },
+          {
+            "at": "2026-10-23T08:02:00Z",
+            "id": "0e000000-0000-4000-8000-000000000001",
+            "pause_id": null,
+            "seg": 0,
+            "step": null,
+            "type": "next"
+          },
+          {
+            "at": "2026-10-23T08:02:10Z",
+            "id": "0e000000-0000-4000-8000-000000000002",
+            "pause_id": null,
+            "seg": 1,
+            "step": "breakfast",
+            "type": "skip"
+          }
+        ],
+        "revision": 3,
+        "status": null
+      },
       "steps": "three"
     },
     {
@@ -236,6 +392,28 @@
           "stale-date": 1792757400,
           "timestamp": 1792743000
         }
+      },
+      "run": {
+        "events": [
+          {
+            "at": "2026-10-23T08:00:00Z",
+            "id": "0a000000-0000-4000-8000-000000000000",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "start"
+          },
+          {
+            "at": "2026-10-23T08:01:30Z",
+            "id": "0e000000-0000-4000-8000-000000000001",
+            "pause_id": null,
+            "seg": 0,
+            "step": null,
+            "type": "lap"
+          }
+        ],
+        "revision": 2,
+        "status": null
       },
       "steps": "none"
     },
@@ -268,6 +446,52 @@
           "timestamp": 1792743000
         }
       },
+      "run": {
+        "events": [
+          {
+            "at": "2026-10-23T08:00:00Z",
+            "id": "0a000000-0000-4000-8000-000000000000",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "start"
+          },
+          {
+            "at": "2026-10-23T08:00:30Z",
+            "id": "0e000000-0000-4000-8000-000000000001",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "pause"
+          },
+          {
+            "at": "2026-10-23T08:01:00Z",
+            "id": "0e000000-0000-4000-8000-000000000002",
+            "pause_id": "0e000000-0000-4000-8000-000000000001",
+            "seg": null,
+            "step": null,
+            "type": "resume"
+          },
+          {
+            "at": "2026-10-23T08:02:00Z",
+            "id": "0e000000-0000-4000-8000-000000000003",
+            "pause_id": null,
+            "seg": 0,
+            "step": null,
+            "type": "next"
+          },
+          {
+            "at": "2026-10-23T08:07:42Z",
+            "id": "0e000000-0000-4000-8000-000000000004",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "stop"
+          }
+        ],
+        "revision": 5,
+        "status": null
+      },
       "steps": "three"
     },
     {
@@ -298,6 +522,36 @@
           "event": "end",
           "timestamp": 1792743000
         }
+      },
+      "run": {
+        "events": [
+          {
+            "at": "2026-10-23T08:00:00Z",
+            "id": "0a000000-0000-4000-8000-000000000000",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "start"
+          },
+          {
+            "at": "2026-10-23T08:01:30Z",
+            "id": "0e000000-0000-4000-8000-000000000001",
+            "pause_id": null,
+            "seg": 0,
+            "step": null,
+            "type": "lap"
+          },
+          {
+            "at": "2026-10-23T08:05:00Z",
+            "id": "0e000000-0000-4000-8000-000000000002",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "stop"
+          }
+        ],
+        "revision": 3,
+        "status": "finishing"
       },
       "steps": "none"
     },
@@ -330,6 +584,28 @@
           "timestamp": 1792743000
         }
       },
+      "run": {
+        "events": [
+          {
+            "at": "2026-10-23T08:00:00Z",
+            "id": "0a000000-0000-4000-8000-000000000000",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "start"
+          },
+          {
+            "at": "2026-10-23T08:00:40Z",
+            "id": "0e000000-0000-4000-8000-000000000001",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "discard"
+          }
+        ],
+        "revision": 2,
+        "status": null
+      },
       "steps": "three"
     },
     {
@@ -361,6 +637,28 @@
           "timestamp": 1792743000
         }
       },
+      "run": {
+        "events": [
+          {
+            "at": "2026-10-23T08:00:00Z",
+            "id": "0a000000-0000-4000-8000-000000000000",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "start"
+          },
+          {
+            "at": "2026-10-23T08:01:00Z",
+            "id": "0e000000-0000-4000-8000-000000000001",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "type": "stop"
+          }
+        ],
+        "revision": 3,
+        "status": "discarded"
+      },
       "steps": "none"
     }
   ],
@@ -369,7 +667,7 @@
     "attributes_type": "RunActivityAttributes",
     "dismiss_seconds": 900,
     "generator": "backend/tests/test_live_activity_vectors.py",
-    "generator_version": 1,
+    "generator_version": 2,
     "headers": {
       "apns-priority": "10",
       "apns-push-type": "liveactivity",

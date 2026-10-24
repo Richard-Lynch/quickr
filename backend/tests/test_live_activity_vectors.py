@@ -3,7 +3,9 @@
 Generated from ``app/services/push/live_activity.py`` (docs/specs/timers.md §10.3, §10.4): each
 case is a run's events, folded as the server folds them, and the exact APNs body the server
 sends for it. The iOS app's ``LiveActivityVectorTests`` decodes each ``content-state`` into
-``RunActivityState`` and each start's ``attributes`` into ``RunActivityAttributes``.
+``RunActivityState`` and each start's ``attributes`` into ``RunActivityAttributes``, and builds
+each case's ``run`` (its events, in the run-fold vectors' shape, folded over ``steps``; the
+server's status when it isn't the fold's; the revision) into the same content state.
 
 Every ``aps`` key is Apple's, checked against "Starting and updating Live Activities with
 ActivityKit push notifications" (developer.apple.com/documentation/activitykit/
@@ -29,7 +31,7 @@ from app.services.run_fold import Event, Step
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_json
 
 PATH = FIXTURES_DIR / "live-activity-vectors.json"
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
 
 SERVER_ID = "11111111-1111-4111-8111-111111111111"
 TOPIC_ID = "33333333-3333-4333-8333-333333333333"
@@ -76,7 +78,20 @@ def case(
     body = la.payload(event, state, timestamp=TIMESTAMP, attrs=attrs)
     size = len(la.encode(body))
     assert size <= MAX_PAYLOAD_BYTES
-    return {"name": name, "event": event, "steps": steps, "payload": body, "bytes": size}
+    run = {"events": [wire(e) for e in events], "status": status, "revision": revision}
+    return {"name": name, "event": event, "steps": steps, "run": run, "payload": body, "bytes": size}
+
+
+def wire(e: Event) -> dict[str, Any]:
+    """An event as the run-fold vectors write it (``at`` in the server's instant form)."""
+    return {
+        "id": e.id,
+        "type": e.type,
+        "at": run_fold.format_instant(e.at),
+        "seg": e.seg,
+        "step": e.step,
+        "pause_id": e.pause_id,
+    }
 
 
 START = ev(0, "start", 0)

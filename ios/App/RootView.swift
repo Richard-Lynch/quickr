@@ -112,6 +112,8 @@ struct RootView: View {
         .task(id: environment.session?.binding) {
             if let session = environment.session { await environment.runNotices.observe(session) }
         }
+        // The Live Activities are reconciled with the active store's runs (timers.md §10.3).
+        .task(id: environment.session?.binding) { await environment.observeRunsForLiveActivities() }
         // The widgets follow the active store too.
         .task(id: environment.session?.binding) {
             if let session = environment.session, let store = session.store {
