@@ -17,30 +17,38 @@ import Testing
     @MainActor struct Rig {
         let h: OutboxHarness
         let center = FakeActivityCenter()
-        let api = FakeTokenAPI()
+        let api: FakeTokenAPI
         let tokens: LiveActivityTokens
         let activities: LiveActivities
 
-        static func make(requiresAnswers: Bool = false) async throws -> Rig {
-            let rig = try Rig(requiresAnswers: requiresAnswers)
-            await rig.tokens.pushToStart("start01")
+        /// `api` is shared across "launches" (its server and owed deletes persist).
+        static func make(requiresAnswers: Bool = false, api: FakeTokenAPI = FakeTokenAPI(), pushToStart: Bool = true)
+            async throws -> Rig
+        {
+            let rig = try Rig(requiresAnswers: requiresAnswers, api: api)
+            if pushToStart { await rig.tokens.pushToStart("start01") }
             return rig
         }
 
-        private init(requiresAnswers: Bool) throws {
+        private init(requiresAnswers: Bool, api: FakeTokenAPI) throws {
             let h = try OutboxHarness()
             try h.timed(requiresAnswers: requiresAnswers)
             self.h = h
-            let api = api
+            self.api = api
             tokens = LiveActivityTokens(
                 .init(
-                    register: { try api.register($0) }, unregister: { api.unregister($0) },
-                    deviceToken: { "dev1" }, environment: { .sandbox }))
+                    register: { try await api.register($0) }, unregister: { try api.unregister($0) },
+                    deviceToken: { "dev1" }, environment: { .sandbox }, serverId: { api.serverId },
+                    loadOwed: { api.owed }, saveOwed: { api.owed = $0 }))
             let store = h.store
             activities = LiveActivities(
                 center: center, tokens: tokens, enabled: true,
-                snapshot: { try? await RunActivitySnapshot.read(store) }, now: { LiveActivityReconcileTests.now })
+                snapshot: { (try? await RunActivitySnapshot.read(store)) ?? nil },
+                now: { LiveActivityReconcileTests.now })
         }
+
+        /// Waits for the token work (it runs beside the activity work).
+        func settle() async { await activities.tokensSettled() }
 
         /// An activity's update token arrives (`pushTokenUpdates`).
         func token(_ token: String, for activityId: String) async {
@@ -293,6 +301,7 @@ import Testing
         await rig.token("ab01", for: activity.id)
         await rig.activities.reconcile()
         await rig.activities.setEnabled(false)
+        await rig.settle()
         let ended = try #require(await rig.center.all().first)
         #expect(ended.phase == .ended)
         let dismissal: RunActivityDismissal? = ended.dismissal
@@ -307,8 +316,54 @@ import Testing
         #expect(count == 1)
 
         await rig.activities.setEnabled(true)
+        await rig.settle()
         let starts = rig.api.registered.filter { $0.kind == .start }.count
         #expect(starts == 2)
+    }
+
+    @Test("R8 · M3: off unregisters the push-to-start token even if this launch never registered it")
+    func offUnregistersAnUnregisteredStartToken() async throws {
+        let rig = try await Rig.make()
+        rig.api.serverId = nil  // nothing can be registered this launch
+        await rig.activities.setEnabled(false)
+        await rig.settle()
+        let deleted = rig.api.deleted
+        #expect(deleted == ["start01"])
+    }
+
+    @Test("R8 · M3: a delete that fails is kept and retried, across launches")
+    func owedDeletesAreDurable() async throws {
+        let api = FakeTokenAPI()
+        let first = try await Rig.make(api: api)
+        api.failingDeletes(true)
+        await first.activities.setEnabled(false)
+        await first.settle()
+        let owed = api.owed
+        #expect(owed == ["start01"])
+        // The next launch, the switch still off, pays it.
+        api.failingDeletes(false)
+        let second = try await Rig.make(api: api, pushToStart: false)
+        await second.activities.setEnabled(false)
+        await second.activities.reconcile()
+        await second.settle()
+        let deleted = api.deleted
+        #expect(deleted == ["start01"])
+        let left = api.owed
+        #expect(left.isEmpty)
+    }
+
+    @Test("R8 · M3: while off, reconciliation ends a live activity (a push-to-start that got through)")
+    func offEndsLiveActivities() async throws {
+        let rig = try await Rig.make()
+        let server = try rig.h.seedServerRun()
+        await rig.activities.setEnabled(false)
+        let state = try rig.viewState(server.id.wireString)
+        await rig.center.seed(rig.attributes, state, staleDate: Self.now)
+        await rig.activities.reconcile()
+        let activity = try #require(await rig.center.all().first)
+        #expect(activity.phase == .ended)
+        let dismissal: RunActivityDismissal? = activity.dismissal
+        #expect(dismissal == .immediate)
     }
 
     // MARK: - Tokens
@@ -318,6 +373,7 @@ import Testing
         let rig = try await Rig.make()
         await rig.activities.tokensChanged()
         await rig.activities.tokensChanged()
+        await rig.settle()
         let starts = rig.api.registered.filter { $0.kind == .start }
         #expect(starts.count == 1)
         let first = try #require(starts.first)
@@ -326,22 +382,73 @@ import Testing
         #expect(first.environment == .sandbox)
     }
 
-    @Test("R8 · an update token is registered once the server knows its run, for that run")
-    func updateTokenWaitsForTheRun() async throws {
+    @Test("R8 · M4: the push-to-start token is registered again with a new server")
+    func pushToStartFollowsTheServer() async throws {
+        let rig = try await Rig.make()
+        await rig.activities.tokensChanged()
+        await rig.settle()
+        rig.api.serverId = "server-2"
+        await rig.activities.tokensChanged()
+        await rig.settle()
+        await rig.activities.tokensChanged()
+        await rig.settle()
+        let starts = rig.api.registered.filter { $0.kind == .start }.count
+        #expect(starts == 2)
+    }
+
+    @Test("R8 · H1: a push-to-start activity's update token is registered at once, with its own run")
+    func pushStartedTokenRegistersAtOnce() async throws {
+        let rig = try await Rig.make()
+        // Started on the PWA: this phone hasn't synced the run, and its store isn't bootstrapped.
+        try rig.h.write { db in try db.execute(sql: "UPDATE sync_state SET bootstrap_complete = 0") }
+        let runId = UUID().wireString
+        var state = RunActivityContent.state(
+            runId: runId, revision: 1, status: .running,
+            state: try RunFold.fold(
+                runId: runId, steps: [],
+                events: [RunEvent(id: runId, type: .start, at: ms())]), steps: [])
+        state.revision = 1
+        let id = await rig.center.seed(rig.attributes, state, staleDate: Self.now)
+        await rig.token("cd03", for: id)
+        await rig.activities.tokensChanged()
+        await rig.settle()
+        let updates = rig.api.registered.filter { $0.kind == .update }
+        #expect(updates.count == 1)
+        let update = try #require(updates.first)
+        let registeredRun: String? = update.runId
+        #expect(registeredRun == runId)
+        let topicId: String? = update.topicId
+        #expect(topicId == rig.h.topic.id.wireString)
+        // Not bootstrapped: the activity is left alone.
+        let activity = try #require(await rig.center.all().first)
+        #expect(activity.phase == .active)
+        // Synced later: the server already had it, so it isn't registered again.
+        try rig.h.write { db in try db.execute(sql: "UPDATE sync_state SET bootstrap_complete = 1") }
+        try rig.h.seedServerRun(id: try #require(UUID(uuidString: runId)), steps: [])
+        await rig.activities.tokensChanged()
+        await rig.settle()
+        let again = rig.api.registered.filter { $0.kind == .update }.count
+        #expect(again == 1)
+    }
+
+    @Test("R8 · an update token of this device's own start is registered again once the server knows the run")
+    func ownStartTokenRegistersAgainOnceKnown() async throws {
         let rig = try await Rig.make()
         let runId = try await rig.h.start()
         await rig.activities.reconcile(startFor: rig.h.topic.id)
         let activity = try #require(await rig.center.all().first)
         await rig.token("AB02", for: activity.id)
         await rig.activities.tokensChanged()
+        await rig.settle()
         let before = rig.api.registered.filter { $0.kind == .update }.count
-        #expect(before == 0, "the server doesn't know the run yet")
+        #expect(before == 1, "sent at once (the server doesn't keep it yet)")
         _ = try await rig.h.outbox().flushNow()
         await rig.activities.reconcile()
         await rig.activities.reconcile()
+        await rig.settle()
         let updates = rig.api.registered.filter { $0.kind == .update }
-        #expect(updates.count == 1)
-        let update = try #require(updates.first)
+        #expect(updates.count == 2)
+        let update = try #require(updates.last)
         #expect(update.token == "ab02")
         let registeredRun: String? = update.runId
         #expect(registeredRun == runId)
@@ -354,10 +461,109 @@ import Testing
         let rig = try await Rig.make()
         rig.api.failing(true)
         await rig.activities.tokensChanged()
+        await rig.settle()
         rig.api.failing(false)
         await rig.activities.reconcile()
+        await rig.settle()
         let starts = rig.api.registered.filter { $0.kind == .start }.count
         #expect(starts == 1)
+    }
+
+    @Test("R8 · M2: a tap's local update doesn't wait for token registration")
+    func localUpdatesDontWaitForTokens() async throws {
+        let rig = try await Rig.make()
+        rig.api.hang(true)
+        let runId = try await rig.h.start()
+        await rig.activities.reconcile(startFor: rig.h.topic.id)
+        rig.h.wall.advance(by: 60)
+        _ = try await rig.h.runs().next(runId: runId)
+        await rig.activities.reconcile()
+        let activity = try #require(await rig.center.all().first)
+        #expect(activity.state.seg == 1, "updated while the registration hangs")
+        rig.api.hang(false)
+        await rig.settle()
+    }
+
+    // MARK: - Which run an activity shows
+
+    @Test("R8 · M1: of several finishing runs, the activity's own; else the newest")
+    func finishingRunChoice() async throws {
+        let rig = try await Rig.make(requiresAnswers: true)
+        let old = UUID()
+        let new = UUID()
+        for (id, at) in [(old, ms(-600)), (new, ms(-60))] {
+            let events = [
+                RunEvent(id: id.wireString, type: .start, at: at),
+                RunEvent(id: UUID().wireString, type: .stop, at: at + 30_000),
+            ]
+            let state = try RunFold.fold(runId: id.wireString, steps: OutboxHarness.steps, events: events)
+            let run = Run(
+                id: id, topicId: rig.h.topic.id, version: 1, status: .finishing, revision: 2, startedAt: at,
+                endedAt: state.endedAt, edited: false,
+                events: events.enumerated().map {
+                    Run.StoredEvent(event: $1, arrival: $0 + 1, effect: .applied, source: "web")
+                },
+                state: state, aliases: [])
+            try rig.h.write { db in _ = try ServerLayer.upsert(db, run: run) }
+        }
+        let snapshot = try #require(try await RunActivitySnapshot.read(rig.h.store))
+        let shownOld = snapshot.run(topicId: rig.h.topic.id, showing: old.wireString)?.id
+        #expect(shownOld == old.wireString)
+        let newest = snapshot.run(topicId: rig.h.topic.id)?.id
+        #expect(newest == new.wireString)
+        // A new run opened: an activity still on a finishing run keeps it; others follow the open one.
+        let open = try rig.h.seedServerRun()
+        let later = try #require(try await RunActivitySnapshot.read(rig.h.store))
+        let kept = later.run(topicId: rig.h.topic.id, showing: old.wireString)?.id
+        #expect(kept == old.wireString)
+        let followed = later.run(topicId: rig.h.topic.id)?.id
+        #expect(followed == open.id.wireString)
+    }
+
+    // MARK: - Unknown steps, ids
+
+    @Test("R8 · a request without the steps offers Next, not Lap, and is updated once they're stored")
+    func unknownStepsThenKnown() async throws {
+        let rig = try await Rig.make()
+        // Version 2 is timed on the server only: this phone doesn't have its steps.
+        let runId = UUID()
+        let start = RunEvent(id: runId.wireString, type: .start, at: ms())
+        try rig.h.write { db in
+            // The server's state, folded over its version's steps.
+            let state = try RunFold.fold(runId: runId.wireString, steps: OutboxHarness.steps, events: [start])
+            let run = Run(
+                id: runId, topicId: rig.h.topic.id, version: 2, status: .running, revision: 1, startedAt: start.at,
+                endedAt: nil, edited: false,
+                events: [Run.StoredEvent(event: start, arrival: 1, effect: .applied, source: "web")],
+                state: state, aliases: [])
+            _ = try ServerLayer.upsert(db, run: run)
+        }
+        await rig.activities.reconcile(startFor: rig.h.topic.id)
+        let requested = try #require(await rig.center.all().first)
+        let buttons: [RunActivityDisplay.Button] = RunActivityDisplay(state: requested.state, topicName: "").buttons
+        #expect(buttons == [.next, .pause, .stop])
+        try rig.h.timed(version: 2)
+        await rig.activities.reconcile()
+        let updated = try #require(await rig.center.all().first)
+        let unknown: Bool? = updated.state.stepsUnknown
+        #expect(unknown == nil)
+        #expect(updated.state.stepCount == 3)
+        let next: String? = updated.state.nextLabel
+        #expect(next == "Breakfast")
+    }
+
+    @Test("R8 · server ids compare without case")
+    func serverIdCase() async throws {
+        let rig = try await Rig.make()
+        let server = try rig.h.seedServerRun()
+        var attributes = rig.attributes
+        attributes.serverId = "SERVER-1"
+        await rig.center.seed(attributes, try rig.viewState(server.id.wireString), staleDate: Self.now)
+        await rig.activities.reconcile()
+        let activity = try #require(await rig.center.all().first)
+        #expect(activity.phase == .active)
+        let made = RunActivityContent.attributes(serverId: "SERVER-1", topicId: rig.h.topic.id, topicName: "T")
+        #expect(made.serverId == "server-1")
     }
 }
 
@@ -427,21 +633,49 @@ actor FakeActivityCenter: RunActivityCenter {
     }
 }
 
-/// registerLiveActivity and deleteLiveActivity, recorded.
+/// registerLiveActivity and deleteLiveActivity, recorded; also the active server's id and the
+/// persisted owed deletes, which outlive one rig ("launch").
 final class FakeTokenAPI: Sendable {
-    private let state = Mutex<(registered: [LiveActivityInDTO], deleted: [String], failing: Bool)>(([], [], false))
+    private struct State {
+        var registered: [LiveActivityInDTO] = []
+        var deleted: [String] = []
+        var failing = false
+        var failingDeletes = false
+        var hanging = false
+        var serverId: String? = "server-1"
+        var owed: [String] = []
+    }
+
+    private let state = Mutex(State())
 
     var registered: [LiveActivityInDTO] { state.withLock { $0.registered } }
     var deleted: [String] { state.withLock { $0.deleted } }
+    var serverId: String? {
+        get { state.withLock { $0.serverId } }
+        set { state.withLock { $0.serverId = newValue } }
+    }
+    var owed: [String] {
+        get { state.withLock { $0.owed } }
+        set { state.withLock { $0.owed = newValue } }
+    }
 
     func failing(_ on: Bool) { state.withLock { $0.failing = on } }
+    func failingDeletes(_ on: Bool) { state.withLock { $0.failingDeletes = on } }
+    /// Registrations wait until it's turned off again.
+    func hang(_ on: Bool) { state.withLock { $0.hanging = on } }
 
-    func register(_ body: LiveActivityInDTO) throws {
+    func register(_ body: LiveActivityInDTO) async throws {
+        while state.withLock({ $0.hanging }) { try await Task.sleep(for: .milliseconds(10)) }
         try state.withLock {
             if $0.failing { throw CancellationError() }
             $0.registered.append(body)
         }
     }
 
-    func unregister(_ token: String) { state.withLock { $0.deleted.append(token) } }
+    func unregister(_ token: String) throws {
+        try state.withLock {
+            if $0.failingDeletes { throw CancellationError() }
+            $0.deleted.append(token)
+        }
+    }
 }

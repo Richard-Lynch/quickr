@@ -69,7 +69,7 @@ public struct RunActivityDisplay: Sendable, Hashable {
     /// Once ended: "Saved · 7:42", "Add details" or "Discarded".
     public var endedText: String?
     /// The Lock Screen's buttons, in order: Next (or Lap without steps and on the last step),
-    /// Pause or Resume, Stop. None once ended.
+    /// Pause or Resume, Stop; a plain Next when the steps aren't known. None once ended.
     public var buttons: [Button]
 
     /// The expanded Dynamic Island's: Next (or Lap) and Stop.
@@ -100,7 +100,9 @@ public struct RunActivityDisplay: Sendable, Hashable {
                 start: state.startedAt + Double(state.pausedMsBeforeSeg + state.pausedMsInSeg) / 1000,
                 pausedAt: pausedAt)
             nextLabel = state.nextLabel
-            buttons = [state.nextLabel != nil ? .next : .lap, phase == .paused ? .resume : .pause, .stop]
+            // Steps not known here: a plain Next (a step may remain), never Lap.
+            let primary: Button = state.nextLabel != nil || state.stepsUnknown == true ? .next : .lap
+            buttons = [primary, phase == .paused ? .resume : .pause, .stop]
         case .finishing:
             endedText = "Add details"
             buttons = []

@@ -14,6 +14,10 @@ final class SystemRunActivityCenter: RunActivityCenter {
     private var watched: Set<String> = []
     private var streams: [Task<Void, Never>] = []
 
+    isolated deinit {
+        for stream in streams { stream.cancel() }
+    }
+
     /// Starts reading the token streams, once: the push-to-start token, new activities (ours and
     /// push-to-start's), and each activity's update token.
     func watch(tokens: LiveActivityTokens, changed: @escaping @MainActor () async -> Void) {

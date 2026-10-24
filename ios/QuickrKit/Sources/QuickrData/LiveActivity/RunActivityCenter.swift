@@ -67,10 +67,14 @@ public struct RunActivitySnapshot: Sendable, Hashable {
         self.topicNames = topicNames
     }
 
-    /// One read of `store`.
-    public static func read(_ store: LocalStore) async throws -> RunActivitySnapshot {
+    /// One read of `store`; nil until its bootstrap is complete (its view of runs would be
+    /// partial, and reconciliation would end activities whose runs are still to come).
+    public static func read(_ store: LocalStore) async throws -> RunActivitySnapshot? {
         let serverId = store.serverId
         return try await store.writer.read { db in
+            let bootstrapped =
+                try Bool.fetchOne(db, sql: "SELECT bootstrap_complete FROM sync_state WHERE id = 1") ?? false
+            guard bootstrapped else { return nil }
             let runs = try RunOverlay.localRuns(db)
             var names: [UUID: String] = [:]
             for topicId in Set(runs.map(\.topicId)) {
@@ -81,11 +85,19 @@ public struct RunActivitySnapshot: Sendable, Hashable {
         }
     }
 
-    /// The run a topic's activity shows: its open run, else its latest finishing one, else one
-    /// that just closed here (a queued stop, finish or discard not acknowledged yet).
-    public func run(topicId: UUID) -> LocalRun? {
+    /// The run a topic's activity shows: the run it shows (`runId`, its id or an alias) while
+    /// that one is open or finishing; else the topic's open run (the activity follows it); else
+    /// the shown run if it just closed here (a queued stop, finish or discard not acknowledged
+    /// yet); else the newest finishing run; else the newest. The local view lists the server's
+    /// runs newest first and then the queued starts, so "newest" is by start time.
+    public func run(topicId: UUID, showing runId: String? = nil) -> LocalRun? {
         let mine = runs.filter { $0.topicId == topicId }
-        return mine.first(where: \.isOpen) ?? mine.last { $0.status == .finishing } ?? mine.last
+        let shown = runId.flatMap { id in mine.first { $0.answers(to: id) } }
+        if let shown, shown.isOpen || shown.status == .finishing { return shown }
+        if let open = mine.first(where: \.isOpen) { return open }
+        if let shown { return shown }
+        func newest(_ runs: [LocalRun]) -> LocalRun? { runs.max { $0.state.startedAt < $1.state.startedAt } }
+        return newest(mine.filter { $0.status == .finishing }) ?? newest(mine)
     }
 
     /// The content state the view gives `run`. Nil when the pinned version's steps aren't stored
@@ -95,6 +107,15 @@ public struct RunActivitySnapshot: Sendable, Hashable {
         guard let steps = run.steps else { return nil }
         return RunActivityContent.state(
             runId: run.id, revision: run.server?.revision ?? 0, status: run.status, state: run.state, steps: steps)
+    }
+
+    /// For a request when the steps aren't stored: no positions or next label, and marked
+    /// `steps_unknown` so the activity offers a plain Next, never Lap. Updated once they are.
+    static func stateWithoutSteps(_ run: LocalRun) -> RunActivityState {
+        var state = RunActivityContent.state(
+            runId: run.id, revision: run.server?.revision ?? 0, status: run.status, state: run.state, steps: [])
+        state.stepsUnknown = true
+        return state
     }
 }
 
@@ -137,7 +158,7 @@ public enum RunActivityPlan {
             let group = (live[key] ?? []).sorted(by: newer)
             guard let keep = group.first else { continue }
             for duplicate in group.dropFirst() { actions.append(.end(id: duplicate.id, duplicate.state, .immediate)) }
-            guard let run = run(for: keep.attributes, in: snapshot) else {
+            guard let run = run(for: keep.attributes, showing: keep.state.runId, in: snapshot) else {
                 actions.append(.end(id: keep.id, keep.state, .immediate))
                 continue
             }
@@ -154,7 +175,7 @@ public enum RunActivityPlan {
             }
         }
         for activity in activities where activity.phase == .ended && activity.state.runStatus == .finishing {
-            let run = run(for: activity.attributes, in: snapshot)
+            let run = run(for: activity.attributes, showing: activity.state.runId, in: snapshot)
             switch run?.status {
             case .finishing, .running, .paused:
                 continue  // still waiting for its answers; or a new run, whose activity is another
@@ -171,12 +192,8 @@ public enum RunActivityPlan {
                 serverId: snapshot.serverId, topicId: startFor,
                 topicName: snapshot.topicNames[startFor] ?? run.topic?.name ?? "")
             if !shown.contains(key(attributes)) {
-                // A run whose steps aren't stored here is shown without them until the server's push.
-                let state =
-                    RunActivitySnapshot.state(run)
-                    ?? RunActivityContent.state(
-                        runId: run.id, revision: run.server?.revision ?? 0, status: run.status, state: run.state,
-                        steps: [])
+                // A run whose steps aren't stored here is shown without them until they are.
+                let state = RunActivitySnapshot.state(run) ?? RunActivitySnapshot.stateWithoutSteps(run)
                 actions.append(.request(attributes, state))
             }
         }
@@ -187,12 +204,14 @@ public enum RunActivityPlan {
         "\(attributes.serverId.lowercased())/\(attributes.topicId.lowercased())"
     }
 
-    /// The view's run for an activity: none for another server's activity.
-    static func run(for attributes: RunActivityAttributes, in snapshot: RunActivitySnapshot) -> LocalRun? {
+    /// The view's run for an activity showing `runId`: none for another server's activity.
+    static func run(for attributes: RunActivityAttributes, showing runId: String?, in snapshot: RunActivitySnapshot)
+        -> LocalRun?
+    {
         guard attributes.serverId.lowercased() == snapshot.serverId.lowercased(),
             let topicId = UUID(uuidString: attributes.topicId)
         else { return nil }
-        return snapshot.run(topicId: topicId)
+        return snapshot.run(topicId: topicId, showing: runId)
     }
 
     /// Most recently updated first.

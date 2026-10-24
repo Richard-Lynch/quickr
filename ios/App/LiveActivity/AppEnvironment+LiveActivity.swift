@@ -3,6 +3,7 @@ import OSLog
 import QuickrCore
 import QuickrData
 import SwiftUI
+import UIKit
 
 extension AppEnvironment {
     /// A Live Activity's buttons (timers.md §10.3). iOS runs them in this process, launching it in
@@ -21,15 +22,18 @@ extension AppEnvironment {
     /// intent's budget.
     func handleActivityTap(_ tap: RunActivityTap) async throws {
         guard let session else { throw RunActivityTaps.Failure.noHandler }
+        // Before first unlock the store can't be opened (timers.md §13.5 item 6).
+        guard UIApplication.shared.isProtectedDataAvailable else { throw RunActivityTaps.Failure.locked }
         guard runActions.admits(topicId: tap.topicId) else { return }
         // Suspended in the background, the databases are resumed for the write.
         let hold = session.holdStoreResumed()
         defer { hold.release() }
         let store: LocalStore
-        if let bound = session.store, bound.serverId == tap.serverId {
+        let serverId = tap.serverId.lowercased()
+        if let bound = session.store, bound.serverId.lowercased() == serverId {
             store = bound
         } else if let opened = try await session.partitions.openActiveStore(role: .app)?.store,
-            opened.serverId == tap.serverId
+            opened.serverId.lowercased() == serverId
         {
             store = opened
         } else {
@@ -80,11 +84,36 @@ extension AppEnvironment {
         let outbox = Outbox(
             store: store, sender: sender, owner: LeaseClaim.owner(kind: "app", launchId: UUID()),
             onSignal: session.coordinator.outboxSignalHandler)
-        let budget = Self.activityTapFlushBudget
+        let budget = activityTapFlushBudget
         _ = try? await outbox.flush(force: true, budget: budget, leaseWait: budget)
     }
 
-    static let activityTapFlushBudget: Duration = .seconds(4)
+    /// I-NOTIF's seam (timers.md §10.2): whether a reminder's Start will show its run here, asked
+    /// before the start is written (its `device.live_activity`). Prompt: no request is made here.
+    /// The request follows the write (`notificationRunStarted`), from the run as written, whose
+    /// start is stamped from `start.startedAt`.
+    func liveActivityForNotificationStart(_ start: NotificationRunStart) async -> Bool {
+        await showsLiveActivityLocally()
+    }
+
+    /// After the handler's `.started`: the local request for the run it started, once per
+    /// (server, topic) (an activity already showing the topic is updated instead). The run's
+    /// start is the tap (`NotificationRunStart.startedAt` stamps it), so the activity's clock is.
+    /// Another server's start isn't shown here.
+    func notificationRunStarted(runId: String, serverId: String) async {
+        guard let session, serverId.lowercased() == session.binding?.serverId.lowercased(),
+            let store = session.store,
+            let run = try? await store.writer.read({ db in try RunOverlay.localRun(db, id: runId) })
+        else { return }
+        await liveActivities.reconcile(startFor: run.topicId)
+    }
+}
+
+/// `UserDefaults` for the token bookkeeping's closures (it is thread-safe).
+struct UncheckedDefaults: @unchecked Sendable {
+    let value: UserDefaults
+
+    init(_ value: UserDefaults) { self.value = value }
 }
 
 /// The session, for the Live Activity closures built before `AppEnvironment.init` finishes.
@@ -97,25 +126,31 @@ final class SessionBox {
     /// The active store's local view: the bound store's, or before the session binds (a button
     /// launched the app in the background) the active one.
     func activitySnapshot() async -> RunActivitySnapshot? {
-        guard let session else { return nil }
-        let opened: LocalStore?
-        if let bound = session.store {
-            opened = bound
-        } else {
-            opened = (try? await session.partitions.openActiveStoreIfExists()) ?? nil
-        }
-        guard let store = opened else { return nil }
-        return try? await RunActivitySnapshot.read(store)
+        guard let store = await activeStore() else { return nil }
+        return (try? await RunActivitySnapshot.read(store)) ?? nil
     }
 
-    /// The bound server's API, for the tokens.
-    func liveActivityClient() -> APIClient? {
-        guard let session, let binding = session.binding, let store = session.store else { return nil }
+    /// The active store: the bound one, or before the session binds the registry's active one.
+    private func activeStore() async -> LocalStore? {
+        guard let session else { return nil }
+        if let bound = session.store { return bound }
+        return (try? await session.partitions.openActiveStoreIfExists()) ?? nil
+    }
+
+    /// The active server's API, for the tokens: from its store's address, so it works before the
+    /// session binds (an activity push-to-start brought in the background).
+    func liveActivityClient() async -> APIClient? {
+        guard let session, let store = await activeStore(),
+            let state = try? await store.syncState.syncState(), let url = URL(string: state.baseURL)
+        else { return nil }
         let configuration = session.configuration
         return APIClient(
-            baseURL: binding.baseURL, transport: configuration.transport, identity: StaticServerIdentity(nil),
+            baseURL: url, transport: configuration.transport, identity: StaticServerIdentity(nil),
             credentials: configuration.credentials, origin: .app, serverOffset: StoreServerOffset(store: store))
     }
+
+    /// The active server's id, lowercase.
+    func activeServerId() async -> String? { await activeStore()?.serverId.lowercased() }
 
     /// This phone's APNs token, once the system gave one.
     func apnsToken() async -> String? {

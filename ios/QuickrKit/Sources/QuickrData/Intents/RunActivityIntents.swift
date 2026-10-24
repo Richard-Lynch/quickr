@@ -45,8 +45,15 @@ public enum RunActivityTaps {
 
     public enum Failure: Error, Sendable, Hashable, CustomStringConvertible {
         case noHandler
+        /// Before first unlock: the store can't be opened.
+        case locked
 
-        public var description: String { "Open quickR to time this topic." }
+        public var description: String {
+            switch self {
+            case .noHandler: "Open quickR to time this topic."
+            case .locked: "Unlock your iPhone to use quickR’s buttons."
+            }
+        }
     }
 
     private static let current = Mutex<Handler?>(nil)

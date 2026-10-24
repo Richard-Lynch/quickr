@@ -35,6 +35,8 @@ final class AppEnvironment {
     let liveActivities: LiveActivities
     /// Their tokens' registration with the active server.
     let activityTokens: LiveActivityTokens
+    /// A Live Activity button's flush (outbox.md §10: the intent's 4 s); tests raise it.
+    var activityTapFlushBudget: Duration = .seconds(4)
     /// How far above the bottom toasts sit: a screen with a sticky bar (Record's Save) raises them
     /// above it, like the PWA's.
     var toastBottomInset: CGFloat = 8
@@ -100,10 +102,14 @@ final class AppEnvironment {
         })
         var weakSession: () -> AppSession? = { nil }
         let box = SessionBox()
+        let owedKey = AppSettings.liveActivityTokensOwedKey
+        let defaults = UncheckedDefaults(settings.defaultsForTokens)
         let tokens = LiveActivityTokens(
             .api(
                 { await box.liveActivityClient() }, deviceToken: { await box.apnsToken() },
-                environment: { try? PushEnvironment.current.get() }))
+                environment: { try? PushEnvironment.current.get() }, serverId: { await box.activeServerId() },
+                loadOwed: { defaults.value.stringArray(forKey: owedKey) ?? [] },
+                saveOwed: { defaults.value.set($0, forKey: owedKey) }))
         activityTokens = tokens
         let activities = LiveActivities(
             center: activityCenter ?? NoRunActivityCenter(), tokens: tokens, enabled: settings.liveActivities,
@@ -374,7 +380,12 @@ final class AppEnvironment {
             await session.backgroundTimeExpiring(episode, within: .seconds(2))
             return
         }
+        // The store stays resumed past the refresh for the Live Activities' reconciliation with
+        // what it pulled (timers.md §10.3); the refresh's suspend waits for the hold.
+        let hold = session.holdStoreResumed()
         let result = await session.backgroundRefresh(episode)
+        if !run.expired { await liveActivities.reconcile() }
+        hold.release()
         task.complete(success: result == .synced && !run.expired)
     }
 

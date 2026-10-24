@@ -37,6 +37,9 @@ public struct RunActivityState: Codable, Sendable, Hashable {
     /// What was saved, once `finishing` or `stopped`; nil otherwise (discarded included).
     public var endedAt: Double?
     public var activeMs: Int?
+    /// This device's own: true when it built the state without the pinned version's steps (not
+    /// stored here yet), so a step may remain whatever `next_label` says. Never in a push.
+    public var stepsUnknown: Bool?
 
     enum CodingKeys: String, CodingKey {
         case v, revision, status, seg, label
@@ -51,12 +54,14 @@ public struct RunActivityState: Codable, Sendable, Hashable {
         case pausedMsInSeg = "paused_ms_in_seg"
         case endedAt = "ended_at"
         case activeMs = "active_ms"
+        case stepsUnknown = "steps_unknown"
     }
 
     public init(
         v: Int = RunActivityContent.version, runId: String, revision: Int, status: String, startedAt: Double,
         seg: Int, segStartedAt: Double, label: String, stepIndex: Int?, stepCount: Int, nextLabel: String?,
-        pausedAt: Double?, pausedMsBeforeSeg: Int, pausedMsInSeg: Int, endedAt: Double?, activeMs: Int?
+        pausedAt: Double?, pausedMsBeforeSeg: Int, pausedMsInSeg: Int, endedAt: Double?, activeMs: Int?,
+        stepsUnknown: Bool? = nil
     ) {
         self.v = v
         self.runId = runId
@@ -74,6 +79,7 @@ public struct RunActivityState: Codable, Sendable, Hashable {
         self.pausedMsInSeg = pausedMsInSeg
         self.endedAt = endedAt
         self.activeMs = activeMs
+        self.stepsUnknown = stepsUnknown
     }
 
     /// The run's status, when it is one this build knows.
@@ -138,9 +144,10 @@ public enum RunActivityContent {
         return String(view)
     }
 
+    /// The server id lowercase, like every id here.
     public static func attributes(serverId: String, topicId: UUID, topicName: String) -> RunActivityAttributes {
         RunActivityAttributes(
-            serverId: serverId, topicId: topicId.uuidString.lowercased(), topicName: truncate(topicName))
+            serverId: serverId.lowercased(), topicId: topicId.uuidString.lowercased(), topicName: truncate(topicName))
     }
 
     /// `status` is the run's own (the server's `finishing` included), not the fold's.

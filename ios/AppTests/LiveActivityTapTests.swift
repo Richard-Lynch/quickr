@@ -51,10 +51,11 @@ import Testing
     @Test func aTapWritesThroughTheActiveStoreOnceInItsCooldown() async throws {
         let (location, topic, runId) = try await Self.seeded()
         defer { TestStores.remove(location) }
-        // The server answers 503, so the tap stays queued. Its flush is best effort within a 4 s
-        // budget, which a starved CI runner can spend before it sends: not asserted.
+        // The server answers 503, so the tap stays queued. Its flush is awaited by the tap, within
+        // a budget raised from the intent's 4 s so a slow runner can't spend it before sending.
         let transport = RecordingTransport()
         let environment = AppEnvironment.live(location: location, transport: transport, categoryCenter: nil)
+        environment.activityTapFlushBudget = .seconds(60)
         defer { Task { await environment.session?.shutdown() } }
         #expect(environment.session?.store == nil, "launched for the intent: nothing bound yet")
 
@@ -65,6 +66,8 @@ import Testing
         _ = try await (first, second)
         let events = try await Self.runEvents(location)
         #expect(events == ["next"])
+        let sent = transport.requests.count
+        #expect(sent >= 1, "flushed before the tap returned")
 
         let other = RunActivityTap(button: .stop, serverId: "other-server", topicId: topic.id, runId: runId, seg: 0)
         try await Task.sleep(for: .milliseconds(500))
@@ -89,4 +92,60 @@ import Testing
         let events = try await Self.runEvents(location)
         #expect(events == ["pause"])
     }
+
+    /// I-NOTIF's seam (timers.md §10.2): the answer is prompt and makes no request; after
+    /// `.started` the run's activity is requested once per (server, topic), from the run as
+    /// written; another server's start shows nothing here.
+    @Test func aNotificationStartRequestsOneActivity() async throws {
+        let (location, topic, runId) = try await Self.seeded()
+        defer { TestStores.remove(location) }
+        let center = AppActivityCenter()
+        let environment = AppEnvironment.live(
+            location: location, transport: RecordingTransport(), categoryCenter: nil, activityCenter: center)
+        defer { Task { await environment.session?.shutdown() } }
+        await environment.start()
+        let start = NotificationRunStart(
+            serverId: "test-server", topic: TopicRef(id: topic.id, slug: topic.slug, name: topic.name),
+            runId: try #require(UUID(uuidString: runId)), version: topic.currentVersion, startedAt: Date())
+        let shown = await environment.liveActivityForNotificationStart(start)
+        #expect(shown == false, "not in the foreground: iOS would refuse, push-to-start shows it")
+        let none = await center.requests
+        #expect(none.isEmpty)
+
+        await environment.notificationRunStarted(runId: runId, serverId: "other-server")
+        await environment.notificationRunStarted(runId: runId, serverId: "TEST-SERVER")
+        await environment.notificationRunStarted(runId: runId, serverId: "test-server")
+        let requests = await center.requests
+        #expect(requests.count == 1)
+        let first = try #require(requests.first)
+        #expect(first.attributes.topicId == topic.id.wireString)
+        #expect(first.state.runId == runId)
+    }
+}
+
+/// ActivityKit's activities in memory, for the app's tests.
+actor AppActivityCenter: RunActivityCenter {
+    struct Request: Sendable {
+        var attributes: RunActivityAttributes
+        var state: RunActivityState
+    }
+
+    private(set) var requests: [Request] = []
+
+    func areActivitiesEnabled() -> Bool { true }
+
+    func activities() -> [RunActivityRecord] {
+        requests.enumerated().map { index, request in
+            RunActivityRecord(
+                id: "a\(index)", attributes: request.attributes, state: request.state, staleDate: nil, phase: .active)
+        }
+    }
+
+    func request(_ attributes: RunActivityAttributes, _ state: RunActivityState, staleDate: Date) -> String {
+        requests.append(Request(attributes: attributes, state: state))
+        return "a\(requests.count - 1)"
+    }
+
+    func update(id: String, _ state: RunActivityState, staleDate: Date) {}
+    func end(id: String, _ state: RunActivityState, dismissal: RunActivityDismissal) {}
 }
