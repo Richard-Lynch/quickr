@@ -365,7 +365,9 @@ async def test_run_action_fills_seg_step_and_pause_id(mcp_client: Client[Any]) -
     lap = await act("lap")
     assert lap["run"]["events"][-1]["seg"] == 1
     # Taps without `at` are strictly after the run's latest one (timers.md §5.1).
-    ats = [e["at"] for e in lap["run"]["events"]]
+    # As instants, not strings: a whole-second instant is written without a fraction ("…05Z"),
+    # which sorts after "…05.011000Z" as text.
+    ats = [datetime.fromisoformat(e["at"]) for e in lap["run"]["events"]]
     assert ats == sorted(set(ats))
     stopped = await act("stop", notes="done")
     assert (stopped["run"]["status"], stopped["entry"]["notes"]) == ("stopped", "done")
