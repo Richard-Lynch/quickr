@@ -212,7 +212,7 @@ function doubleTap(el: HTMLElement) {
 /** Let any further sends happen. */
 const settle = () => new Promise((r) => setTimeout(r, 300));
 
-describe('double taps (review H1)', () => {
+describe('double taps, within one render (review H1): `expect` only, cooldown off', () => {
   it('Next twice advances once', async () => {
     h = renderRunApp('/t/morning/record', timedTopic());
     await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
@@ -234,7 +234,7 @@ describe('double taps (review H1)', () => {
     expect(types(h)).toEqual(['start', 'next']);
   });
 
-  it('the cooldown ignores a Stop that replaced Next under the finger, then accepts one', async () => {
+  it('(cooldown on) a Stop that replaced Next under the finger is ignored, then accepted', async () => {
     h = renderRunApp('/t/morning/record', timedTopic({ steps: STEPS3.slice(0, 2) }));
     await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
     await sent(h, 1);
@@ -265,6 +265,59 @@ describe('double taps (review H1)', () => {
     await settle();
     expect(types(h)).toEqual(['start', 'pause']);
     expect(await screen.findByRole('button', { name: 'Resume' })).toBeInTheDocument();
+  });
+});
+
+/** A real double tap: two clicks ~100 ms apart, the screen re-rendered in between. */
+const GAP_MS = 100;
+const gap = () => new Promise((r) => setTimeout(r, GAP_MS));
+
+describe('double taps, ~100 ms apart (review H1): the cooldown', () => {
+  it('Next twice advances once', async () => {
+    h = renderRunApp('/t/morning/record', timedTopic());
+    await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
+    await sent(h, 1);
+    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    await userEvent.click(await screen.findByRole('button', { name: 'Next: Breakfast' }));
+    await gap();
+    // The button has moved on; the second tap of the pair lands on it.
+    await userEvent.click(await screen.findByRole('button', { name: 'Next: Teeth' }));
+    await settle();
+    expect(types(h)).toEqual(['start', 'next']);
+  });
+
+  it('the last Next twice doesn’t stop the run', async () => {
+    h = renderRunApp('/t/morning/record', timedTopic({ steps: STEPS3.slice(0, 2) }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
+    await sent(h, 1);
+    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    await userEvent.click(await screen.findByRole('button', { name: 'Next: Breakfast' }));
+    await gap();
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+    await settle();
+    expect(types(h)).toEqual(['start', 'next']);
+  });
+
+  it('Pause twice pauses once', async () => {
+    h = renderRunApp('/t/morning/record', timedTopic());
+    await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
+    await sent(h, 1);
+    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pause' }));
+    await gap();
+    await userEvent.click(await screen.findByRole('button', { name: 'Resume' }));
+    await settle();
+    expect(types(h)).toEqual(['start', 'pause']);
+  });
+
+  it('Start then a quick tap on the Next that replaced it starts only', async () => {
+    h = renderRunApp('/t/morning/record', timedTopic());
+    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
+    await gap();
+    await userEvent.click(await screen.findByRole('button', { name: 'Next: Breakfast' }));
+    await settle();
+    expect(types(h)).toEqual(['start']);
   });
 });
 
