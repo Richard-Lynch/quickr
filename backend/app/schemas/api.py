@@ -617,6 +617,64 @@ class QuestionSeries(StrictModel):
     points: list[SeriesPoint]
 
 
+class TimingSummary(StrictModel):
+    """Best, median and mean of active times in milliseconds; null when there are none."""
+
+    best_ms: int | None
+    median_ms: int | None
+    mean_ms: int | None
+
+
+class TimingStepStats(StrictModel):
+    key: str
+    label: str = Field(description="The latest version's label for the key, else its latest segment's.")
+    current: bool = Field(description="The key is a step of the current version.")
+    done: int = Field(description="Runs with a segment for the step.")
+    skipped: int = Field(description="Runs that skipped the step.")
+    best_ms: int | None = Field(description="Over the done segments' active_ms, from every run.")
+    median_ms: int | None
+    mean_ms: int | None
+
+
+class TimingLaps(StrictModel):
+    runs_with_laps: int
+    median_ms: int | None = Field(description="Of each such run's summed lap time.")
+    mean_ms: int | None
+
+
+class TimingPaused(StrictModel):
+    runs_with_pauses: int = Field(description="Runs with paused_ms > 0.")
+    median_ms: int | None
+
+
+class TimingSeriesPoint(StrictModel):
+    entry_id: UUID
+    captured_at: datetime = Field(description="The run's end.")
+    started_at: datetime
+    active_ms: int
+    paused_ms: int
+    complete: bool
+    steps: dict[str, int] = Field(description="Each step segment's key and its active_ms.")
+
+
+class TopicTiming(StrictModel):
+    """Timing stats over the timed entries in range (timers.md §9). Durations are active
+    time in integer milliseconds; untimed entries count toward nothing here."""
+
+    runs: int
+    complete_runs: int
+    total: TimingSummary = Field(description="Best, median and mean run totals, over complete runs only.")
+    steps: list[TimingStepStats] = Field(
+        description="Every step key seen in range: the current version's steps in step order, "
+        "then the rest by key."
+    )
+    laps: TimingLaps
+    paused: TimingPaused
+    series: list[TimingSeriesPoint] = Field(
+        description="One point per timed entry, by captured_at then entry_id."
+    )
+
+
 class EntryFilters(StrictModel):
     captured_from: AwareDatetime | None = None
     captured_to: AwareDatetime | None = None

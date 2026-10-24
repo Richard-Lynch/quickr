@@ -79,7 +79,7 @@ public enum APIClientError: Error, Sendable, Hashable, CustomStringConvertible {
     }
 }
 
-/// Entry filters shared by listEntries, exportEntriesCsv, getTopicStats and getQuestionSeries.
+/// Entry filters shared by listEntries, exportEntriesCsv, getTopicStats, getTopicTiming and getQuestionSeries.
 public struct EntryFilters: Sendable, Hashable {
     public var capturedFrom: Date?
     public var capturedTo: Date?
@@ -355,6 +355,12 @@ public struct APIClient: Sendable {
         async throws -> APIResponse<TopicStats>
     {
         try await send(Endpoints.getTopicStats, path: ["ref": ref], query: filters.queryItems, options: options)
+    }
+
+    public func getTopicTiming(ref: String, filters: EntryFilters = .init(), options: RequestOptions = .init())
+        async throws -> APIResponse<TopicTimingDTO>
+    {
+        try await send(Endpoints.getTopicTiming, path: ["ref": ref], query: filters.queryItems, options: options)
     }
 
     /// `timezone` is an IANA name for bucketing (the server defaults to UTC).

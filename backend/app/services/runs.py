@@ -33,9 +33,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import read_snapshot
 from app.errors import (
     BeforeStart,
     EventConflict,
@@ -152,15 +153,8 @@ async def run_out(db: AsyncSession, run: Run) -> RunOut:
     )
 
 
-async def _snapshot(db: AsyncSession) -> None:
-    """Run the rest of this read in one REPEATABLE READ snapshot, so a run row and its events
-    always agree even when a write commits between the two queries. End it with a rollback."""
-    await db.rollback()  # whatever the session had open; the snapshot starts with the next statement
-    await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
-
-
 async def get_run(db: AsyncSession, run_id: UUID) -> RunOut:
-    await _snapshot(db)
+    await read_snapshot(db)
     try:
         run = await _resolve(db, run_id)
         if run is None:
@@ -176,7 +170,7 @@ async def list_runs(
     """Open (``running``, ``paused``) and/or ``finishing`` runs, oldest start first."""
     wanted = [s for name in set(statuses) for s in (OPEN if name == "open" else (RunStatus.finishing,))]
     stmt = select(Run).where(Run.status.in_(wanted))
-    await _snapshot(db)
+    await read_snapshot(db)
     try:
         if topic_ref is not None:
             stmt = stmt.where(Run.topic_id == (await resolve_topic(db, topic_ref)).id)

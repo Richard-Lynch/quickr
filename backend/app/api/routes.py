@@ -45,6 +45,7 @@ from app.schemas.api import (
     TopicPage,
     TopicSort,
     TopicStats,
+    TopicTiming,
     TopicUpdate,
     TopicVersionOut,
     VersionCreate,
@@ -56,6 +57,7 @@ from app.services import entries as entry_svc
 from app.services import push as push_svc
 from app.services import runs as run_svc
 from app.services import stats as stats_svc
+from app.services import timing as timing_svc
 from app.services import topics as topic_svc
 from app.services.feed import FeedIdentity
 
@@ -400,6 +402,15 @@ async def list_changes(
 @router.get("/topics/{ref}/stats", tags=["stats"], operation_id="getTopicStats")
 async def get_stats(db: Db, ref: TopicRef, filters: Filters) -> TopicStats:
     return await stats_svc.topic_stats(db, ref, filters)
+
+
+@router.get("/topics/{ref}/timing", tags=["stats"], operation_id="getTopicTiming")
+async def get_timing(db: Db, ref: TopicRef, filters: Filters) -> TopicTiming:
+    """Timing stats over the topic's timed entries (timers.md §9): best, median and mean run
+    totals over complete runs, per step, laps, pauses and one series point per run. The filters
+    are getTopicStats's; ``version`` keeps that version's runs, labels still come from the latest.
+    A topic that isn't timed answers zero counts."""
+    return await timing_svc.topic_timing(db, ref, filters)
 
 
 @router.get("/topics/{ref}/questions/{key}/series", tags=["stats"], operation_id="getQuestionSeries")

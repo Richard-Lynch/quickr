@@ -3,8 +3,8 @@
 import { type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { archiveTopic, checkTopicVersion, createEntry, createPushSubscription, createTopic, deleteApnsDevice, deleteEntry, deletePushSubscription, deleteTopic, exportEntriesCsv, getEntry, getLimits, getPushConfig, getQuestionSeries, getRun, getTopic, getTopicStats, health, listChanges, listEntries, listQuestionTypes, listRuns, listTopics, listTopicVersions, type Options, publishTopicVersion, recordRunEvent, registerApnsDevice, sendApnsTestPush, sendTestPush, unarchiveTopic, updateEntry, updateTopic } from '../sdk.gen';
-import type { ArchiveTopicData, ArchiveTopicError, ArchiveTopicResponse, CheckTopicVersionData, CheckTopicVersionError, CheckTopicVersionResponse, CreateEntryData, CreateEntryError, CreateEntryResponse, CreatePushSubscriptionData, CreatePushSubscriptionError, CreatePushSubscriptionResponse, CreateTopicData, CreateTopicError, CreateTopicResponse, DeleteApnsDeviceData, DeleteApnsDeviceError, DeleteApnsDeviceResponse, DeleteEntryData, DeleteEntryError, DeleteEntryResponse, DeletePushSubscriptionData, DeletePushSubscriptionError, DeletePushSubscriptionResponse, DeleteTopicData, DeleteTopicError, DeleteTopicResponse, ExportEntriesCsvData, ExportEntriesCsvError, ExportEntriesCsvResponse, GetEntryData, GetEntryError, GetEntryResponse, GetLimitsData, GetLimitsError, GetLimitsResponse, GetPushConfigData, GetPushConfigError, GetPushConfigResponse, GetQuestionSeriesData, GetQuestionSeriesError, GetQuestionSeriesResponse, GetRunData, GetRunError, GetRunResponse, GetTopicData, GetTopicError, GetTopicResponse, GetTopicStatsData, GetTopicStatsError, GetTopicStatsResponse, HealthData, HealthError, HealthResponse, ListChangesData, ListChangesError, ListChangesResponse, ListEntriesData, ListEntriesError, ListEntriesResponse, ListQuestionTypesData, ListQuestionTypesError, ListQuestionTypesResponse, ListRunsData, ListRunsError, ListRunsResponse, ListTopicsData, ListTopicsError, ListTopicsResponse, ListTopicVersionsData, ListTopicVersionsError, ListTopicVersionsResponse, PublishTopicVersionData, PublishTopicVersionError, PublishTopicVersionResponse, RecordRunEventData, RecordRunEventError, RecordRunEventResponse, RegisterApnsDeviceData, RegisterApnsDeviceError, RegisterApnsDeviceResponse, SendApnsTestPushData, SendApnsTestPushError, SendApnsTestPushResponse, SendTestPushData, SendTestPushError, SendTestPushResponse, UnarchiveTopicData, UnarchiveTopicError, UnarchiveTopicResponse, UpdateEntryData, UpdateEntryError, UpdateEntryResponse, UpdateTopicData, UpdateTopicError, UpdateTopicResponse } from '../types.gen';
+import { archiveTopic, checkTopicVersion, createEntry, createPushSubscription, createTopic, deleteApnsDevice, deleteEntry, deletePushSubscription, deleteTopic, exportEntriesCsv, getEntry, getLimits, getPushConfig, getQuestionSeries, getRun, getTopic, getTopicStats, getTopicTiming, health, listChanges, listEntries, listQuestionTypes, listRuns, listTopics, listTopicVersions, type Options, publishTopicVersion, recordRunEvent, registerApnsDevice, sendApnsTestPush, sendTestPush, unarchiveTopic, updateEntry, updateTopic } from '../sdk.gen';
+import type { ArchiveTopicData, ArchiveTopicError, ArchiveTopicResponse, CheckTopicVersionData, CheckTopicVersionError, CheckTopicVersionResponse, CreateEntryData, CreateEntryError, CreateEntryResponse, CreatePushSubscriptionData, CreatePushSubscriptionError, CreatePushSubscriptionResponse, CreateTopicData, CreateTopicError, CreateTopicResponse, DeleteApnsDeviceData, DeleteApnsDeviceError, DeleteApnsDeviceResponse, DeleteEntryData, DeleteEntryError, DeleteEntryResponse, DeletePushSubscriptionData, DeletePushSubscriptionError, DeletePushSubscriptionResponse, DeleteTopicData, DeleteTopicError, DeleteTopicResponse, ExportEntriesCsvData, ExportEntriesCsvError, ExportEntriesCsvResponse, GetEntryData, GetEntryError, GetEntryResponse, GetLimitsData, GetLimitsError, GetLimitsResponse, GetPushConfigData, GetPushConfigError, GetPushConfigResponse, GetQuestionSeriesData, GetQuestionSeriesError, GetQuestionSeriesResponse, GetRunData, GetRunError, GetRunResponse, GetTopicData, GetTopicError, GetTopicResponse, GetTopicStatsData, GetTopicStatsError, GetTopicStatsResponse, GetTopicTimingData, GetTopicTimingError, GetTopicTimingResponse, HealthData, HealthError, HealthResponse, ListChangesData, ListChangesError, ListChangesResponse, ListEntriesData, ListEntriesError, ListEntriesResponse, ListQuestionTypesData, ListQuestionTypesError, ListQuestionTypesResponse, ListRunsData, ListRunsError, ListRunsResponse, ListTopicsData, ListTopicsError, ListTopicsResponse, ListTopicVersionsData, ListTopicVersionsError, ListTopicVersionsResponse, PublishTopicVersionData, PublishTopicVersionError, PublishTopicVersionResponse, RecordRunEventData, RecordRunEventError, RecordRunEventResponse, RegisterApnsDeviceData, RegisterApnsDeviceError, RegisterApnsDeviceResponse, SendApnsTestPushData, SendApnsTestPushError, SendApnsTestPushResponse, SendTestPushData, SendTestPushError, SendTestPushResponse, UnarchiveTopicData, UnarchiveTopicError, UnarchiveTopicResponse, UpdateEntryData, UpdateEntryError, UpdateEntryResponse, UpdateTopicData, UpdateTopicError, UpdateTopicResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -608,6 +608,29 @@ export const getTopicStatsOptions = (options: Options<GetTopicStatsData>) => que
         return data;
     },
     queryKey: getTopicStatsQueryKey(options)
+});
+
+export const getTopicTimingQueryKey = (options: Options<GetTopicTimingData>) => createQueryKey('getTopicTiming', options);
+
+/**
+ * Get Timing
+ *
+ * Timing stats over the topic's timed entries (timers.md §9): best, median and mean run
+ * totals over complete runs, per step, laps, pauses and one series point per run. The filters
+ * are getTopicStats's; ``version`` keeps that version's runs, labels still come from the latest.
+ * A topic that isn't timed answers zero counts.
+ */
+export const getTopicTimingOptions = (options: Options<GetTopicTimingData>) => queryOptions<GetTopicTimingResponse, GetTopicTimingError, GetTopicTimingResponse, ReturnType<typeof getTopicTimingQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getTopicTiming({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getTopicTimingQueryKey(options)
 });
 
 export const getQuestionSeriesQueryKey = (options: Options<GetQuestionSeriesData>) => createQueryKey('getQuestionSeries', options);

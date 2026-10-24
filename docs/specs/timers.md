@@ -816,6 +816,8 @@ TopicTiming {
 
 `from` and `to` filter on `captured_at`, as `getTopicStats` does. A topic that
 isn't timed and has no timed entries answers with zero counts, not an error.
+The query is `getTopicStats`'s filters (`captured_from` inclusive, `captured_to`
+exclusive, `version`, `source`, `channel`); labels still come from every version.
 
 ## 10. Notifications and Live Activities
 
