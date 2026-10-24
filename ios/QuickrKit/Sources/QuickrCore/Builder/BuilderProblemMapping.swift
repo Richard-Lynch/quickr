@@ -14,6 +14,7 @@ public enum BuilderProblemMapping {
         default: break
         }
         let parts = path.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        if parts.first == "timer" { return stepField(Array(parts.dropFirst()), in: draft) }
         guard parts.count >= 2, parts[0] == "questions", let i = Int(parts[1]) else { return nil }
         guard draft.questions.indices.contains(i) else { return .questions }
         let rest = Array(parts.dropFirst(2))
@@ -23,6 +24,16 @@ public enum BuilderProblemMapping {
         }
         if rest.count == 1, let field = fields[rest[0]] { return .question(i, field) }
         return .question(i, .key)
+    }
+
+    /// `timer.steps.N.key`, else that step's label (`serverErrors.ts`); the timer or its step
+    /// list is the list's while timed (nil, the banner, otherwise), as is a step not in the draft.
+    private static func stepField(_ parts: [String], in draft: TopicDraft) -> DraftField? {
+        guard parts.count >= 2, parts[0] == "steps", let i = Int(parts[1]) else {
+            return parts.count <= 1 && (parts.first ?? "steps") == "steps" && draft.timed ? .steps : nil
+        }
+        guard draft.steps.indices.contains(i) else { return .steps }
+        return .step(i, parts.count >= 3 && parts[2] == "key" ? .key : .label)
     }
 
     private static let fields: [String: QuestionField] = [

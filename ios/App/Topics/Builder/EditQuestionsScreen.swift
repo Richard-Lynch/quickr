@@ -55,9 +55,21 @@ struct EditQuestionsScreen: View {
                 load = .missing
                 return
             }
+            // The draft starts from the base version's timer, and new step keys avoid every
+            // version's: without the base version's row, its timer isn't known (timers.md §2.1).
+            guard
+                let versions = try await TopicLookup.versions(
+                    of: topic.id, including: topic.currentVersion, in: store, refresh: session.refresh.stream(),
+                    wait: TopicSettingsScreen.topicWait),
+                let baseVersion = versions.first(where: { $0.version == topic.currentVersion })
+            else {
+                load = .failed(TopicWrites.baseVersionMissingMessage)
+                return
+            }
             let router = environment.router
             let model = EditQuestionsModel(
-                topic: topic, writer: SessionTopicWriter(session: session, binding: binding),
+                topic: topic, timer: baseVersion.timer, stepHistory: StepKeys.history(versions),
+                writer: SessionTopicWriter(session: session, binding: binding),
                 toasts: environment.toasts,
                 onPublished: { topic in
                     // To the topic's Versions tab: in place of the topic screen this was opened
@@ -129,6 +141,7 @@ struct EditQuestionsView: View {
                     .id(Self.bannerId)
                 }
                 QuestionsSections(model: model, id: "editQuestions")
+                TimerSections(model: model, id: "editQuestions")
             } else {
                 BuilderPreviewSections(model: model, title: model.base.name, id: "editQuestions")
             }
@@ -200,7 +213,16 @@ private struct ReviewSheet: View {
         NavigationStack {
             List {
                 if let review = model.review {
-                    CompatReportSections(report: review.report, label: model.label(forKey:))
+                    CompatReportSections(
+                        report: review.report, label: model.label(forKey:), emptyText: review.emptyChangesText)
+                    if !review.timerChanges.isEmpty {
+                        Section("Timing") {
+                            ForEach(review.timerChanges, id: \.self) { change in
+                                Text(change).font(.qr(.subheadline)).foregroundStyle(.qr.ink)
+                            }
+                        }
+                        .accessibilityIdentifier("review.timing")
+                    }
                     if review.report.ok {
                         Section {
                             TopicLabeledField("Change note", optional: true, error: model.noteError) {
@@ -250,6 +272,8 @@ private struct ReviewSheet: View {
 struct CompatReportSections: View {
     let report: CompatibilityReport
     let label: (String) -> String
+    /// "Changes" when the report lists none ("No question changes." beside a timer change).
+    var emptyText = "No changes."
 
     var body: some View {
         Section {
@@ -275,7 +299,8 @@ struct CompatReportSections: View {
         }
         Section("Changes") {
             if report.changes.isEmpty {
-                Text("No changes.").font(.qr(.subheadline)).foregroundStyle(.qr.muted)
+                Text(emptyText).font(.qr(.subheadline)).foregroundStyle(.qr.muted)
+                    .accessibilityIdentifier("review.noChanges")
             }
             ForEach(Array(report.changes.enumerated()), id: \.offset) { _, change in
                 VStack(alignment: .leading, spacing: 4) {

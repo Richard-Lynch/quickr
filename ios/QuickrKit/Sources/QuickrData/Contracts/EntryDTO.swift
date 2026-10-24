@@ -155,23 +155,26 @@ public struct EntryUpdateDTO: Codable, Sendable, Hashable {
     public var capturedAt: Date?
     public var notes: String?
     public var meta: [String: String]?
+    /// A stopped run's times, replaced as a whole (timers.md §3.8); never with `capturedAt`.
+    public var timing: TimingEditDTO?
     public var expectedRevision: Int?
 
     enum CodingKeys: String, CodingKey {
-        case answers, source, notes, meta
+        case answers, source, notes, meta, timing
         case capturedAt = "captured_at"
         case expectedRevision = "expected_revision"
     }
 
     public init(
         answers: [String: AnswerValue?]? = nil, source: String? = nil, capturedAt: Date? = nil, notes: String? = nil,
-        meta: [String: String]? = nil, expectedRevision: Int? = nil
+        meta: [String: String]? = nil, timing: TimingEditDTO? = nil, expectedRevision: Int? = nil
     ) {
         self.answers = answers?.mapValues { $0.map(WireAnswer.init) }
         self.source = source
         self.capturedAt = capturedAt
         self.notes = notes
         self.meta = meta
+        self.timing = timing
         self.expectedRevision = expectedRevision
     }
 
@@ -183,5 +186,39 @@ public struct EntryUpdateDTO: Codable, Sendable, Hashable {
             let value = answer.value?.value
             result[answer.key] = .some(value.map { value in byKey[answer.key].map(value.normalized(for:)) ?? value })
         }
+    }
+}
+
+/// `TimingEdit` (timers.md §3.8): a stopped run's times. Instants are written as the server
+/// writes them (``RunInstant/format(_:)``), whole milliseconds.
+public struct TimingEditDTO: Codable, Sendable, Hashable {
+    public struct Segment: Codable, Sendable, Hashable {
+        public var kind: String
+        @RequiredKey public var step: String?
+        public var endedAt: String
+
+        enum CodingKeys: String, CodingKey {
+            case kind, step
+            case endedAt = "ended_at"
+        }
+    }
+
+    public var startedAt: String
+    public var segments: [Segment]
+    public var skipped: [String]
+    public var pauses: [TimingPauseDTO]
+
+    enum CodingKeys: String, CodingKey {
+        case segments, skipped, pauses
+        case startedAt = "started_at"
+    }
+
+    public init(_ edit: TimingDraft.Edit) {
+        startedAt = RunInstant.format(edit.startedAt)
+        segments = edit.segments.map {
+            Segment(kind: $0.kind.rawValue, step: $0.step, endedAt: RunInstant.format($0.endedAt))
+        }
+        skipped = edit.skipped
+        pauses = edit.pauses.map { TimingPauseDTO(start: RunInstant.format($0.start), end: RunInstant.format($0.end)) }
     }
 }

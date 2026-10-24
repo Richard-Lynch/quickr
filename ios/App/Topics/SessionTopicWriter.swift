@@ -3,13 +3,14 @@ import QuickrCore
 import QuickrData
 import QuickrUI
 
-/// The topic screens' `TopicWriter`, and the question editor's `VersionWriter`, over the app's
+/// The topic screens' `TopicWriter`, the question editor's `VersionWriter` and Edit times'
+/// `EntryTimingWriting`, over the app's
 /// session, bound to the store the screen was opened from (`binding`). Online-only writes go
 /// through `TopicWrites` (fail closed, Expect headers, fenced apply, then a pull); archive and
 /// unarchive go through the outbox. Once the active store isn't `binding` any more (a server
 /// switch, a reset), every write is refused instead of reaching the other store.
 @MainActor
-final class SessionTopicWriter: TopicWriter, VersionWriter {
+final class SessionTopicWriter: TopicWriter, VersionWriter, EntryTimingWriting {
     let session: AppSession
     let binding: AppSession.Binding
 
@@ -53,6 +54,15 @@ final class SessionTopicWriter: TopicWriter, VersionWriter {
 
     func latestTopic(topicId: UUID) async -> TopicWriteOutcome<Topic> {
         await perform { await $0.latest(topicId: topicId) }
+    }
+
+    /// Edit times: online only (timers.md §3.8), see `TopicWrites.updateEntryTiming`.
+    func saveTiming(_ edit: TimingDraft.Edit, entryId: UUID, expectedRevision: Int) async -> TopicWriteOutcome<Entry> {
+        await perform { await $0.updateEntryTiming(entryId: entryId, edit, expectedRevision: expectedRevision) }
+    }
+
+    func latestEntry(entryId: UUID) async -> TopicWriteOutcome<Entry> {
+        await perform { await $0.latestEntry(entryId: entryId) }
     }
 
     func unsyncedChanges(topicId: UUID) async -> Int {

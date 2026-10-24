@@ -23,6 +23,22 @@ import Testing
             .validatedDetails().get()
     }
 
+    /// A new timed topic sends its timer (timers.md §2.1); an untimed one leaves it out.
+    @Test func aTimedCreationSendsItsTimer() throws {
+        var draft = TopicDraft.empty()
+        draft.setName("Morning")
+        draft.timed = true
+        let id = draft.addStep()
+        draft.setStepLabel(id, " Shower ")
+        let timed = TopicRequests.create(try draft.validatedForCreation().get(), schedule: nil)
+        #expect(timed.timer == TopicTimer(steps: [.init(key: "shower", label: "Shower")]))
+        draft.timed = false
+        let plain = TopicRequests.create(try draft.validatedForCreation().get(), schedule: nil)
+        let data = try WireCoding.encoder().encode(plain)
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        #expect(object["timer"] == nil, "createTopic's timer is optional and defaults to untimed")
+    }
+
     @Test func unchangedDetailsHaveNothingToSave() throws {
         #expect(TopicDetailsChange(try Self.details(), from: Self.topic) == nil)
     }

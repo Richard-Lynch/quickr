@@ -4,7 +4,7 @@ import QuickrCore
 
 /// The online-only topic writes (sync-protocol.md §11): create, details and schedule edits
 /// (`updateTopic`), delete, and a new version (its check, the publish, and reloading the topic
-/// after a conflict). They are never queued.
+/// after a conflict); and an entry's Edit times (timers.md §3.8). They are never queued.
 ///
 /// - **Fail closed.** A write belongs to the store bound when it starts (its ``Scope``): without
 ///   that store's identity nothing is sent, and the request carries the Expect headers, so another
@@ -64,8 +64,8 @@ public struct TopicWrites: Sendable {
     public static let unconfirmedMessage =
         "The connection dropped before the server answered. Check the topic once it has synced."
 
-    /// A publish whose base version hasn't synced yet: its timer, which the publish must carry,
-    /// isn't known.
+    /// An editor whose base version hasn't synced yet: its timer, which the draft starts from
+    /// and a publish must carry, isn't known.
     public static let baseVersionMissingMessage =
         "This topic’s latest version hasn’t synced yet. Try again in a moment."
 
@@ -190,23 +190,13 @@ public struct TopicWrites: Sendable {
         await send({ try await client.checkTopicVersion(ref: topicId.wireString, body, options: options).outcome })
     }
 
-    /// Publishes `version` (``TopicRequests/publish(_:baseVersion:timer:changeNote:)``) with the
-    /// timer of the version it was edited from, read from the store: a publish must send a timer
-    /// (null turns timing off, timers.md §2.1), and the builder keeps it as it is. Without that
-    /// version in the store nothing is sent.
+    /// Publishes `version` (``TopicRequests/publish(_:baseVersion:changeNote:)``), with the
+    /// draft's timer: a publish must send one (null turns timing off, timers.md §2.1).
     public func publishVersion(
         topicId: UUID, _ version: TopicDraft.Version, baseVersion: Int, changeNote: String
     ) async -> Outcome<Topic> {
-        let base: TopicVersion?
-        do {
-            base = try await store.versions.version(topicId: topicId, number: baseVersion)
-        } catch {
-            return .failed(String(describing: error))
-        }
-        guard let base else { return .failed(Self.baseVersionMissingMessage) }
-        return await publishVersion(
-            topicId: topicId,
-            TopicRequests.publish(version, baseVersion: baseVersion, timer: base.timer, changeNote: changeNote))
+        await publishVersion(
+            topicId: topicId, TopicRequests.publish(version, baseVersion: baseVersion, changeNote: changeNote))
     }
 
     /// `POST /topics/{ref}/versions`: publishes the next version (409 `conflict` on a stale
@@ -224,6 +214,31 @@ public struct TopicWrites: Sendable {
         await send(
             { try await client.getTopic(ref: topicId.wireString, options: options).outcome },
             apply: { db, topic in _ = try ServerLayer.upsert(db, topic: topic) })
+    }
+
+    // MARK: Edit times
+
+    /// `PATCH /entries/{id}` with `timing` (Edit times, timers.md §3.8), online only, unlike the
+    /// entry's other edits: the outbox rebases a `stale_revision` and resends (outbox.md §7.4),
+    /// which would save times edited from an older revision over newer ones. Here the 409 comes
+    /// back to the form (`staleRevision`), which asks for a reload instead. `captured_at` is never
+    /// sent with it (the server derives it, T1). On success the entry is in the store (fence
+    /// permitting) and a pull follows.
+    public func updateEntryTiming(entryId: UUID, _ edit: TimingDraft.Edit, expectedRevision: Int) async
+        -> Outcome<Entry>
+    {
+        let body = EntryUpdateDTO(timing: TimingEditDTO(edit), expectedRevision: expectedRevision)
+        return await send(
+            { try await client.updateEntry(id: entryId, body, options: options).outcome },
+            apply: { db, entry in _ = try ServerLayer.upsert(db, entry: entry) })
+    }
+
+    /// `GET /entries/{id}`: the entry as the server holds it now (Edit times' "Reload times"),
+    /// applied like a write's response.
+    public func latestEntry(entryId: UUID) async -> Outcome<Entry> {
+        await send(
+            { try await client.getEntry(id: entryId, options: options).outcome },
+            apply: { db, entry in _ = try ServerLayer.upsert(db, entry: entry) })
     }
 
     /// `POST /topics/{ref}/archive` sent now, for a delete (see ``delete(topicId:)``).

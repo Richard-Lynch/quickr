@@ -151,18 +151,25 @@ public struct TopicDraft: Sendable, Hashable {
     public var slugEdited: Bool
     public var description: String
     public var questions: [DraftQuestion]
+    /// The topic is timed (timers.md §2.1): it publishes a `timer` with ``steps``, else none.
+    public var timed: Bool
+    /// The timer's steps, in order; none while timed is a plain stopwatch. Kept while ``timed``
+    /// is off (and then ignored), so switching it back on restores them.
+    public var steps: [DraftStep]
     /// Only used when publishing a new version.
     public var changeNote: String
 
     public init(
         name: String = "", slug: String = "", slugEdited: Bool = false, description: String = "",
-        questions: [DraftQuestion], changeNote: String = ""
+        questions: [DraftQuestion], timed: Bool = false, steps: [DraftStep] = [], changeNote: String = ""
     ) {
         self.name = name
         self.slug = slug
         self.slugEdited = slugEdited
         self.description = description
         self.questions = questions
+        self.timed = timed
+        self.steps = steps
         self.changeNote = changeNote
     }
 
@@ -170,11 +177,15 @@ public struct TopicDraft: Sendable, Hashable {
     /// logging it is one tap, an entry with no answers.
     public static func empty() -> TopicDraft { TopicDraft(questions: []) }
 
-    /// The latest version of a topic, to edit into the next one (`draftFromTopic`).
-    public static func editing(name: String, slug: String, description: String, questions: [Question]) -> TopicDraft {
-        TopicDraft(
+    /// The latest version of a topic, to edit into the next one (`draftFromTopic`). `timer`: that
+    /// version's (its steps open locked).
+    public static func editing(
+        name: String, slug: String, description: String, questions: [Question], timer: TopicTimer? = nil
+    ) -> TopicDraft {
+        let (timed, steps) = TopicDraft.steps(from: timer)
+        return TopicDraft(
             name: name, slug: slug, slugEdited: true, description: description,
-            questions: questions.map { DraftQuestion(question: $0, locked: true) })
+            questions: questions.map { DraftQuestion(question: $0, locked: true) }, timed: timed, steps: steps)
     }
 
     // MARK: Topic details

@@ -15,6 +15,9 @@ public protocol BuilderEditing: AnyObject, Observable {
     var newOptionLabels: [DraftQuestion.ID: String] { get set }
     var preview: BuilderPreview { get }
     var limits: Limits { get }
+    /// Every step key the topic's versions have used (``StepKeys/history(_:)``): a new step
+    /// named like a retired one takes its key back; any other gets a key no version has used.
+    var stepHistory: [HistoricStep] { get }
 }
 
 extension BuilderEditing {
@@ -30,6 +33,18 @@ extension BuilderEditing {
         guard !label.isEmpty else { return }
         _ = draft.addOption(to: id, label: label)
         newOptionLabels[id] = nil
+    }
+
+    /// Renames a step; a new step's key follows its label, with the topic's step history.
+    public func setStepLabel(_ id: DraftStep.ID, _ label: String) {
+        draft.setStepLabel(id, label, history: stepHistory)
+    }
+
+    /// "Add step": a new, unnamed step at the end. Its id, or nil when no more fit.
+    @discardableResult
+    public func addStep() -> DraftStep.ID? {
+        guard draft.canAddStep else { return nil }
+        return draft.addStep()
     }
 
     /// Some question still on the draft has option text typed but not added.

@@ -23,13 +23,26 @@ public final class EditQuestionsModel: BuilderEditing {
     public static let clientInvalid = NewTopicModel.clientInvalid
     public static let leaveWarning = "Your question changes haven’t been published. Leave and lose them?"
 
-    /// A report the server gave for the draft as it was then, and that draft's questions (what
-    /// "Publish" sends).
+    /// A report the server gave for the draft as it was then, and that draft's questions and
+    /// steps (what "Publish" sends).
     public struct Review: Sendable, Hashable {
         public var report: CompatibilityReport
         public var version: TopicDraft.Version
-        /// The draft's questions it was checked for.
+        /// The draft's questions and steps it was checked for.
+        public var checked: Checked
+        /// What changed in the timer (`timerChanges`): the report covers questions only.
+        public var timerChanges: [String]
+
+        /// The review's "Changes" when the report lists none: a timer-only change isn't "no
+        /// changes" (timers.md §2.1).
+        public var emptyChangesText: String { timerChanges.isEmpty ? "No changes." : "No question changes." }
+    }
+
+    /// The parts of the draft a check and a publish are about.
+    public struct Checked: Sendable, Hashable {
         public var questions: [DraftQuestion]
+        public var timed: Bool
+        public var steps: [DraftStep]
     }
 
     /// A check answered after the questions changed.
@@ -40,6 +53,9 @@ public final class EditQuestionsModel: BuilderEditing {
 
     /// The topic as it was when editing started (or was reloaded): the version edits are based on.
     public private(set) var base: Topic
+    /// The base version's timer; nil when it isn't timed.
+    public private(set) var baseTimer: TopicTimer?
+    public private(set) var stepHistory: [HistoricStep]
     public var draft: TopicDraft {
         didSet { if submitted { revalidate() } }
     }
@@ -72,12 +88,17 @@ public final class EditQuestionsModel: BuilderEditing {
     @ObservationIgnored private let toasts: ToastCenter
     @ObservationIgnored private let onPublished: @MainActor (Topic) -> Void
 
+    /// `timer`: the base version's (from its row: the topic's own is nil until that row syncs);
+    /// `stepHistory`: every version's steps (``StepKeys/history(_:)``).
     public init(
-        topic: Topic, writer: any VersionWriter, toasts: ToastCenter, limits: Limits = .serverDefaults,
+        topic: Topic, timer: TopicTimer?, stepHistory: [HistoricStep] = [], writer: any VersionWriter,
+        toasts: ToastCenter, limits: Limits = .serverDefaults,
         onPublished: @escaping @MainActor (Topic) -> Void = { _ in }
     ) {
-        let draft = Self.draft(for: topic)
+        let draft = Self.draft(for: topic, timer: timer)
         base = topic
+        baseTimer = timer
+        self.stepHistory = stepHistory
         self.draft = draft
         initialDraft = draft
         expansion = QuestionExpansion(.none, questions: draft.questions)
@@ -87,10 +108,23 @@ public final class EditQuestionsModel: BuilderEditing {
         self.onPublished = onPublished
     }
 
-    private static func draft(for topic: Topic) -> TopicDraft {
+    private static func draft(for topic: Topic, timer: TopicTimer?) -> TopicDraft {
         TopicDraft.editing(
-            name: topic.name, slug: topic.slug, description: topic.description, questions: topic.questions)
+            name: topic.name, slug: topic.slug, description: topic.description, questions: topic.questions,
+            timer: timer)
     }
+
+    /// `history` with a newer version's steps: their labels are the latest, their keys used.
+    static func history(_ history: [HistoricStep], then timer: TopicTimer?) -> [HistoricStep] {
+        var out = history
+        for step in timer?.steps ?? [] {
+            let latest = HistoricStep(key: step.key, label: step.label)
+            if let i = out.firstIndex(where: { $0.key == step.key }) { out[i] = latest } else { out.append(latest) }
+        }
+        return out
+    }
+
+    private var checked: Checked { Checked(questions: draft.questions, timed: draft.timed, steps: draft.steps) }
 
     /// The version publishing creates.
     public var nextVersion: Int { base.currentVersion + 1 }
@@ -120,10 +154,10 @@ public final class EditQuestionsModel: BuilderEditing {
 
     @discardableResult
     private func revalidate() -> TopicDraft.Version? {
-        switch draft.validatedQuestions(limits: limits) {
-        case .success(let questions):
+        switch draft.validatedQuestionsAndTimer(limits: limits) {
+        case .success(let version):
             draftErrors = [:]
-            return TopicDraft.Version(questions: questions, changeNote: draft.changeNote)
+            return version
         case .failure(let issues):
             draftErrors = issues.byField
             return nil
@@ -143,10 +177,10 @@ public final class EditQuestionsModel: BuilderEditing {
         }
         isChecking = true
         defer { isChecking = false }
-        let questions = draft.questions
+        let checked = checked
         let outcome = await writer.checkVersion(version, baseVersion: base.currentVersion, topicId: base.id)
-        // The answer is about the questions as they were: if they changed, it isn't theirs.
-        guard draft.questions == questions else {
+        // The answer is about the questions and steps as they were: if they changed, it isn't theirs.
+        guard self.checked == checked else {
             banner = Self.changedWhileChecking
             return
         }
@@ -154,7 +188,9 @@ public final class EditQuestionsModel: BuilderEditing {
         // Light up the questions with blocking issues.
         draftErrors.merge(BuilderProblemMapping.blockingFields(report, draft: draft)) { _, new in new }
         noteError = nil
-        review = Review(report: report, version: version, questions: questions)
+        review = Review(
+            report: report, version: version, checked: checked,
+            timerChanges: TimerChanges.changes(base: baseTimer, next: version.timer))
     }
 
     /// "Publish v(n+1)" in the review.
@@ -175,7 +211,7 @@ public final class EditQuestionsModel: BuilderEditing {
         self.review = nil
         toasts.show(Toast("Published v\(topic.currentVersion)"))
         // Edits made meanwhile weren't in it: keep them, and stay.
-        guard draft.questions == review.questions else {
+        guard checked == review.checked else {
             banner = Self.changedWhilePublishing
             return
         }
@@ -242,10 +278,13 @@ public final class EditQuestionsModel: BuilderEditing {
             Toast("Loaded v\(fresh.currentVersion)", message: "Your unsaved edits were discarded.", tone: .info))
     }
 
+    /// The server's topic carries its current version's timer, and its steps join the history.
     private func rebase(on topic: Topic) {
         base = topic
+        baseTimer = topic.timer
+        stepHistory = Self.history(stepHistory, then: topic.timer)
         submitted = false
-        let draft = Self.draft(for: topic)
+        let draft = Self.draft(for: topic, timer: topic.timer)
         self.draft = draft
         initialDraft = draft
         expansion = QuestionExpansion(.none, questions: draft.questions)

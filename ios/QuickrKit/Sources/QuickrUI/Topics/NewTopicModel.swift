@@ -34,6 +34,8 @@ public final class NewTopicModel: BuilderEditing {
     private var submitted = false
 
     public let limits: Limits
+    /// A new topic has no versions, so no step key is taken yet.
+    public var stepHistory: [HistoricStep] { [] }
     @ObservationIgnored private let initialDraft: TopicDraft
     @ObservationIgnored private let initialSchedule: ScheduleDraft
     @ObservationIgnored private let writer: any TopicWriter

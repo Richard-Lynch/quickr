@@ -59,8 +59,9 @@ final class BuilderUITests: XCTestCase {
         XCTAssertTrue(toast("Loaded v2", in: app).waitForExistence(timeout: 10))
         XCTAssertFalse(reload.exists)
         // The editor starts over from v2: its new question is published, the draft's is gone.
+        // Above Review and the Timing sections (where the review was opened from).
         let third = element("editQuestions.q2.header", in: app)
-        scrollTo(third, in: app)
+        scrollTo(third, in: app, up: true)
         XCTAssertTrue(third.label.contains("Energy"), third.label)
         XCTAssertTrue(third.label.contains("published"), third.label)
         XCTAssertFalse(element("editQuestions.q3.header", in: app).exists)
@@ -79,8 +80,9 @@ final class BuilderUITests: XCTestCase {
         XCTAssertTrue(keep.waitForExistence(timeout: 10))
         keep.tap()
         XCTAssertFalse(keep.waitForExistence(timeout: 2))
+        // Above Review and the Timing sections (where the review was opened from).
         let added = element("editQuestions.q1.header", in: app)
-        scrollTo(added, in: app)
+        scrollTo(added, in: app, up: true)
         XCTAssertTrue(added.label.contains("Sleep"), "the draft is still there to copy from")
     }
 
@@ -281,7 +283,9 @@ final class BuilderUITests: XCTestCase {
     /// they scroll in. Down the list by default; `up` toward its top.
     @MainActor
     private func scrollTo(_ element: XCUIElement, in app: XCUIApplication, up: Bool = false) {
-        for _ in 0..<12 where !(element.exists && element.isHittable) {
+        // Whole on screen: a row half under the home indicator is hittable, but a tap at its centre
+        // misses it.
+        for _ in 0..<12 where !(element.exists && element.isHittable && app.frame.contains(element.frame)) {
             // Above where a keyboard would be.
             let (from, to) = up ? (0.2, 0.55) : (0.45, 0.12)
             let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: from))
