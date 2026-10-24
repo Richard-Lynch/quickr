@@ -39,7 +39,11 @@ export function TimerEditor({ history = [] }: { history?: readonly HistoricStep[
   const parked = useRef<DraftStep[]>([]);
   const addButton = useRef<HTMLButtonElement>(null);
   const steps = useWatch({ control, name: 'steps' });
-  const nameOf = (i: number) => steps[i]?.label.trim() || `step ${String(i + 1)}`;
+  /** "Wipe down (step 2)", or "step 2" while it has no name. */
+  const nameOf = (i: number) => {
+    const label = steps[i]?.label.trim();
+    return label ? `${label} (step ${String(i + 1)})` : `step ${String(i + 1)}`;
+  };
   const listError = fieldError(formState.errors, 'steps');
 
   const setTimed = (next: boolean) => {
@@ -123,7 +127,7 @@ export function TimerEditor({ history = [] }: { history?: readonly HistoricStep[
                       {...reg}
                     />
                     <IconButton
-                      label={`Move ${nameOf(i)} up`}
+                      label={`Move up: ${nameOf(i)}`}
                       size="sm"
                       disabled={i === 0}
                       onClick={() => move(i, i - 1)}
@@ -131,7 +135,7 @@ export function TimerEditor({ history = [] }: { history?: readonly HistoricStep[
                       <Icon name="up" className="size-4.5" />
                     </IconButton>
                     <IconButton
-                      label={`Move ${nameOf(i)} down`}
+                      label={`Move down: ${nameOf(i)}`}
                       size="sm"
                       disabled={i === fields.length - 1}
                       onClick={() => move(i, i + 1)}

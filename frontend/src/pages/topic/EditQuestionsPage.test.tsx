@@ -154,10 +154,12 @@ describe('EditQuestionsPage publish', () => {
       'load',
       'wipe_down',
     ]);
-    await user.click(screen.getByRole('button', { name: 'Move Wipe down up' }));
+    await user.click(screen.getByRole('button', { name: 'Move up: Wipe down (step 2)' }));
     await user.click(screen.getByRole('button', { name: /review changes/i }));
     expect(await screen.findByText('Step renamed: Load → Unload')).toBeInTheDocument();
     expect(screen.getByText('Step added: Wipe down')).toBeInTheDocument();
+    // The report covers questions only, and none changed.
+    expect(screen.getByText('No question changes.')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /publish v3/i }));
     await screen.findByText('versions page');
     const edited = {
@@ -221,12 +223,12 @@ describe('EditQuestionsPage publish', () => {
     const user = renderPage();
     await user.click(await screen.findByRole('button', { name: 'Add step' }));
     await user.type(screen.getByLabelText('Step 2 name'), 'Dry');
-    await user.click(screen.getByRole('button', { name: 'Remove Load' }));
+    await user.click(screen.getByRole('button', { name: 'Remove Load (step 1)' }));
     await waitFor(() => {
       expect(screen.getByLabelText('Step 1 name')).toHaveFocus();
     });
     expect(screen.getByLabelText<HTMLInputElement>('Step 1 name').value).toBe('Dry');
-    await user.click(screen.getByRole('button', { name: 'Remove Dry' }));
+    await user.click(screen.getByRole('button', { name: 'Remove Dry (step 1)' }));
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Add step' })).toHaveFocus();
     });

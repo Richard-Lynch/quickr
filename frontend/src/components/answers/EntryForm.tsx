@@ -100,6 +100,8 @@ interface EntryFormProps {
    * hidden fields still submit their default values.
    */
   meta?: 'all' | 'notes';
+  /** Told whenever the form's dirty state (any field differs from its default) changes. */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 export interface SubmitHelpers {
@@ -124,6 +126,7 @@ export function EntryForm({
   submitOnPick,
   capturedAtLocked = false,
   meta = 'all',
+  onDirtyChange,
 }: EntryFormProps) {
   const limits = useLimits();
   const schema = useMemo(
@@ -152,6 +155,10 @@ export function EntryForm({
     };
   });
   const guard = useUnsavedChangesGuard(guardUnsaved && form.formState.isDirty);
+  const { isDirty } = form.formState;
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
 
   useEffect(() => {
     if (initialError !== undefined) {

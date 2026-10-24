@@ -4,7 +4,7 @@
  * on the fields they name.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -110,6 +110,9 @@ function stubServer(e: EntryOut, patchReply?: (body: unknown) => Response, v = v
   return patches;
 }
 
+/** The page's query client, to refetch as if the server's state moved on. */
+let queryClient = new QueryClient();
+
 function renderPage() {
   const router = createMemoryRouter(
     [
@@ -124,10 +127,9 @@ function renderPage() {
     ],
     { initialEntries: [`/t/routine/entries/${ENTRY_ID}`] },
   );
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider
-      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-    >
+    <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <RouterProvider router={router} />
       </ToastProvider>
@@ -379,5 +381,110 @@ describe('EntryEditPage Edit times', () => {
     expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: /notes/i }).value).toBe(
       'Draft note',
     );
+  });
+
+  it('a newer revision fetched while the sheet is open stops saving, with no 409', async () => {
+    const e = entry(steppedTiming);
+    let served = e;
+    const patches: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: Request) => {
+        const path = new URL(input.url).pathname;
+        if (path.endsWith(`/entries/${ENTRY_ID}`) && input.method === 'PATCH') {
+          patches.push(JSON.parse(await input.text()));
+          return json(200, served);
+        }
+        if (path.endsWith(`/entries/${ENTRY_ID}`)) return json(200, served);
+        if (path.endsWith('/versions')) return json(200, [stepped]);
+        return json(404, { code: 'not_found', detail: 'not found', errors: [] });
+      }),
+    );
+    const user = renderPage();
+    const form = await openEditor(user);
+    served = { ...e, revision: 2, updated_at: '2026-10-23T09:00:00Z' };
+    await act(() => queryClient.invalidateQueries());
+    expect(
+      await within(form).findByText('These times changed since you opened them'),
+    ).toBeInTheDocument();
+    expect(within(form).getByRole('button', { name: 'Reload times' })).toBeInTheDocument();
+    expect(within(form).getByRole('button', { name: 'Save times' })).toBeDisabled();
+    expect(patches).toHaveLength(0);
+  });
+});
+
+const counted: TopicVersionOut = {
+  ...version,
+  timer: null,
+  questions: [
+    {
+      type: 'int',
+      key: 'loads',
+      label: 'Loads',
+      required: false,
+      help_text: null,
+      min: null,
+      max: null,
+      unit: null,
+    },
+  ] as TopicVersionOut['questions'],
+};
+
+describe('EntryEditPage when the entry changes elsewhere', () => {
+  function serve(loads: number) {
+    let current: EntryOut = {
+      ...entry(null),
+      answers: [{ key: 'loads', type: 'int', value: loads }] as EntryOut['answers'],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: Request) => {
+        const path = new URL(input.url).pathname;
+        if (path.endsWith(`/entries/${ENTRY_ID}`)) return Promise.resolve(json(200, current));
+        if (path.endsWith('/versions')) return Promise.resolve(json(200, [counted]));
+        return Promise.resolve(json(404, { code: 'not_found', detail: 'not found', errors: [] }));
+      }),
+    );
+    return (next: number) => {
+      current = {
+        ...current,
+        revision: current.revision + 1,
+        updated_at: '2026-10-23T09:00:00Z',
+        answers: [{ key: 'loads', type: 'int', value: next }] as EntryOut['answers'],
+      };
+      return act(() => queryClient.invalidateQueries());
+    };
+  }
+  const loads = () => screen.getByRole<HTMLInputElement>('textbox', { name: /loads/i });
+
+  it('a clean form takes the new answer', async () => {
+    const change = serve(2);
+    renderPage();
+    await waitFor(() => {
+      expect(loads().value).toBe('2');
+    });
+    await change(3);
+    await waitFor(() => {
+      expect(loads().value).toBe('3');
+    });
+    expect(screen.queryByText('This entry changed elsewhere')).toBeNull();
+  });
+
+  it('a dirty form keeps the edits and says so, until Reload', async () => {
+    const change = serve(2);
+    const user = renderPage();
+    await waitFor(() => {
+      expect(loads().value).toBe('2');
+    });
+    await user.clear(loads());
+    await user.type(loads(), '7');
+    await change(3);
+    expect(await screen.findByText('This entry changed elsewhere')).toBeInTheDocument();
+    expect(loads().value).toBe('7');
+    await user.click(screen.getByRole('button', { name: 'Reload' }));
+    await waitFor(() => {
+      expect(loads().value).toBe('3');
+    });
+    expect(screen.queryByText('This entry changed elsewhere')).toBeNull();
   });
 });
