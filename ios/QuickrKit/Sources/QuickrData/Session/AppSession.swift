@@ -457,18 +457,27 @@ public final class AppSession {
     //
     // The run screen and tile write through `runWrites()`: one `run.event` per tap, then a flush.
 
-    /// The bound store's run façade for `origin`, stamping this device's APNs token as `device`.
-    /// `liveActivity` says whether this device shows the run's Live Activity locally (§10.3).
-    public func runWrites(origin: OutboxOrigin = .app, liveActivity: @escaping @Sendable () -> Bool = { false })
-        throws -> RunWrites
-    {
+    /// Whether this device shows a run it starts now in a Live Activity of its own (timers.md
+    /// §10.3): every event's `device.live_activity`. The app sets it (`LiveActivities`).
+    @ObservationIgnored public var liveActivityShown: @Sendable () async -> Bool = { false }
+
+    /// The bound store's run façade for `origin` (`runWrites(store:origin:)`).
+    public func runWrites(origin: OutboxOrigin = .app) throws -> RunWrites {
         guard let store else { throw SessionError.noStore }
+        return runWrites(store: store, origin: origin)
+    }
+
+    /// `store`'s run façade for `origin`, stamping this device's APNs token as `device`, with
+    /// `liveActivityShown`. An intent launched in the background writes through the active store
+    /// before the session binds it.
+    public func runWrites(store: LocalStore, origin: OutboxOrigin = .app) -> RunWrites {
         let registry = partitions.registry.repository
+        let liveActivity = liveActivityShown
         return RunWrites(
             store: store, origin: origin,
             device: {
                 guard let token = try? await registry.apnsToken() else { return nil }
-                return RunEventInDTO.Device(apnsToken: token, liveActivity: liveActivity())
+                return RunEventInDTO.Device(apnsToken: token, liveActivity: await liveActivity())
             })
     }
 

@@ -22,6 +22,11 @@ struct SettingsView: View {
                 NotificationExplainer(permission: permission)
                     .padding(.vertical, 4)
                 if permission.status == .allowed, let push = environment.push { PushDeviceRow(push: push) }
+                Toggle("Live Activities", isOn: liveActivities)
+                    .font(.qr(.body))
+                    .accessibilityIdentifier("settings.liveActivities")
+            } footer: {
+                Text("A timed topic’s run on the Lock Screen and in the Dynamic Island.")
             }
             AppSyncSection()
             if let reset { ResetSection(flow: reset) }
@@ -58,6 +63,11 @@ struct SettingsView: View {
         .sheet(isPresented: $editingToken, onDismiss: reloadToken) {
             AccessTokenEditor(credentials: environment.credentials, target: tokenTarget, current: token)
         }
+    }
+
+    /// Off ends every Live Activity now and stops new ones (timers.md §10.3).
+    private var liveActivities: Binding<Bool> {
+        Binding(get: { environment.settings.liveActivities }, set: { environment.setLiveActivities($0) })
     }
 
     // MARK: - Server

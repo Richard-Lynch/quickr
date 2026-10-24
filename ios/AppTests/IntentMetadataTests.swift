@@ -43,6 +43,8 @@ import Testing
         #expect(
             metadata.actions.isSuperset(of: [
                 "LogEntryIntent", "SelectTopicIntent", "RepeatLastEntryIntent", "OpenRecordIntent", "WhatsDueIntent",
+                // The Live Activity's buttons: drawn by the widget, run in the app's process (timers.md §10.3).
+                "RunActivityButtonIntent",
             ]))
         #expect(!metadata.hasPackageData)
     }

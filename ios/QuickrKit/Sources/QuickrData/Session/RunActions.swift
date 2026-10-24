@@ -78,6 +78,11 @@ public final class RunActions {
         return false
     }
 
+    /// A tap from a surface that writes on its own (a Live Activity button, timers.md §10.3): true,
+    /// starting a cooldown, unless it falls inside the topic's, shared with the app's controls.
+    /// Its Pause becomes Resume under the finger, so a double tap must not undo itself.
+    public func admits(topicId: UUID) -> Bool { !coolingDown(topicId.wireString) }
+
     /// Start (idle tile or screen): a run pinned to `version`, the topic's current one. Nil when
     /// ignored (cooldown) or the write failed.
     @discardableResult

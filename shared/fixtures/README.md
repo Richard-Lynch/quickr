@@ -527,9 +527,12 @@ chart models are checked against.
 
 ## `live-activity-vectors.json`
 
-- `cases[]`: `{name, event, steps, payload, bytes}`: the exact APNs body the server sends for a
-  run whose events are folded as in `run-fold-vectors.json`
-  ([timers.md](../../docs/specs/timers.md) §10.3, §10.4). `payload.aps["content-state"]` is
+- `cases[]`: `{name, event, steps, run, payload, bytes}`: the exact APNs body the server sends
+  for a run whose events are folded as in `run-fold-vectors.json`
+  ([timers.md](../../docs/specs/timers.md) §10.3, §10.4). `run` is that run: its `events` (in
+  `run-fold-vectors.json`'s event shape), the server's `status` when it isn't the fold's
+  (`finishing`), and its `revision`; the app builds the same content state from it for its
+  local updates. `payload.aps["content-state"]` is
   `RunActivityState`; a `start`'s `attributes` are `RunActivityAttributes`. `bytes` is the
   encoded size (at most `meta.max_bytes`). `meta.headers` are the request headers, and
   `meta.apple` the documentation every `aps` key was checked against.
