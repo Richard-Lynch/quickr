@@ -23,7 +23,7 @@ import {
 import { NavigationRoute, registerRoute } from 'workbox-routing';
 import { NetworkFirst } from 'workbox-strategies';
 
-import { API_PREFIX, CHANNEL_HEADERS, SW_API_CACHE } from './api/constants';
+import { API_PREFIX, CHANNEL_HEADERS, FROM_CACHE_HEADER, SW_API_CACHE } from './api/constants';
 import { OUTBOX_KINDS, OUTBOX_SYNC_TAG } from './lib/outbox/kinds';
 import { createOutbox } from './lib/outbox/outbox';
 import { SERVER_TIME_HEADER } from './lib/runs/clock';
@@ -76,10 +76,18 @@ const NO_CACHE = [
 ];
 
 /**
- * A cached copy doesn't keep the server time: answered from the cache offline, it would be
- * an old time with a short round trip, a bad offset sample (timers.md §5.1).
+ * A cached copy doesn't keep the server time, and an answer from the cache is marked:
+ * offline, it would be an old time with a short round trip, a bad offset sample
+ * (timers.md §5.1).
  */
 const dropServerTime: WorkboxPlugin = {
+  cachedResponseWillBeUsed: ({ cachedResponse }) => {
+    if (!cachedResponse) return Promise.resolve(cachedResponse);
+    const headers = new Headers(cachedResponse.headers);
+    headers.set(FROM_CACHE_HEADER, '1');
+    const { status, statusText } = cachedResponse;
+    return Promise.resolve(new Response(cachedResponse.body, { status, statusText, headers }));
+  },
   cacheWillUpdate: ({ response }) => {
     if (!response.headers.has(SERVER_TIME_HEADER)) return Promise.resolve(response);
     const headers = new Headers(response.headers);

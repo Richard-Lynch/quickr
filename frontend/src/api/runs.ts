@@ -2,14 +2,15 @@
  * The PWA's run data (timers.md §7.3): the server's open and finishing runs are one cached
  * `listRuns` answer, refreshed by polling (`lib/runs/useRuns.ts`) and patched with every
  * `run.event` response this device gets (`outboxEffects.ts`). The local view folds the
- * queued taps over it (`lib/runs/localView.ts`).
+ * acked and queued taps over it (`lib/runs/localView.ts`, `lib/runs/acked.ts`).
  */
-import type { QueryClient } from '@tanstack/react-query';
+import { queryOptions, type QueryClient } from '@tanstack/react-query';
 
-import type { RunOut } from '../client';
+import { listRuns, type RunOut } from '../client';
 import { listRunsQueryKey } from '../client/@tanstack/react-query.gen';
 import { getOutboxSnapshot, outbox } from '../lib/outbox/client';
 import type { RunTapDeps } from '../lib/runs/actions';
+import { ackedItems, getAckedSnapshot, pruneAcked } from '../lib/runs/acked';
 import { localRuns, openRunTopics, type LocalRun } from '../lib/runs/localView';
 
 /** The one `listRuns` query: open and finishing runs of every topic. */
@@ -18,31 +19,72 @@ export const runsQueryKey = () => listRunsQueryKey();
 /** `listRuns` lists open and finishing runs only; any other status leaves the cache. */
 const LISTED: ReadonlySet<RunOut['status']> = new Set(['running', 'paused', 'finishing']);
 
+const same = (a: RunOut, b: RunOut) => a.id.toLowerCase() === b.id.toLowerCase();
+
+/** When each run was last put in the cache from a response (device ms), by lowercase id. */
+const upsertedAt = new Map<string, number>();
+
 export function cachedServerRuns(qc: QueryClient): RunOut[] {
   return qc.getQueryData<RunOut[]>(runsQueryKey()) ?? [];
 }
 
 /**
- * Put a run from a `run.event` response into the cache (§7.3: "it uses the response
- * directly"): replace the cached copy unless that one is newer, drop it once it closed, and
- * drop runs merged into it (`aliases`). A `listRuns` refetch already in flight is
- * cancelled, so a list read before this event can't bring back an older state.
+ * A `listRuns` answer merged into the cache it lands on: a cached copy with a higher
+ * revision wins, and a run a response put in the cache after the fetch began stays even if
+ * the (older) list lacks it.
  */
-export async function upsertServerRun(qc: QueryClient, run: RunOut): Promise<void> {
-  await qc.cancelQueries({ queryKey: runsQueryKey(), exact: true });
+export function mergeListed(
+  cached: readonly RunOut[],
+  fetched: readonly RunOut[],
+  fetchStartedAt: number,
+): RunOut[] {
+  const out = fetched.map((f) => {
+    const c = cached.find((r) => same(r, f));
+    return c && c.revision > f.revision ? c : f;
+  });
+  for (const c of cached) {
+    const late = (upsertedAt.get(c.id.toLowerCase()) ?? -Infinity) >= fetchStartedAt;
+    if (late && !out.some((r) => same(r, c))) out.push(c);
+  }
+  return out;
+}
+
+/**
+ * The runs query: `listRuns`, merged into the cache by {@link mergeListed}. A successful
+ * answer also prunes the acked-runs record of what it covers.
+ */
+export function runsQueryOptions(qc: QueryClient) {
+  return queryOptions({
+    queryKey: runsQueryKey(),
+    queryFn: async ({ signal }) => {
+      const startedAt = Date.now();
+      const { data } = await listRuns({ signal, throwOnError: true });
+      await pruneAcked(startedAt);
+      return mergeListed(cachedServerRuns(qc), data, startedAt);
+    },
+  });
+}
+
+/**
+ * Put a run from a `run.event` response into the cache, synchronously (§7.3: "it uses the
+ * response directly"): replace the cached copy unless that one is newer, drop it once it
+ * closed, and drop runs merged into it (`aliases`). A list fetched earlier that lands
+ * later can't undo it ({@link mergeListed}).
+ */
+export function upsertServerRun(qc: QueryClient, run: RunOut, now: number = Date.now()): void {
+  upsertedAt.set(run.id.toLowerCase(), now);
   qc.setQueryData<RunOut[]>(runsQueryKey(), (old = []) => {
     const merged = new Set(run.aliases.map((a) => a.toLowerCase()));
-    const same = (r: RunOut) => r.id.toLowerCase() === run.id.toLowerCase();
-    const cached = old.find(same);
+    const cached = old.find((r) => same(r, run));
     if (cached && cached.revision > run.revision) return old;
-    const rest = old.filter((r) => !same(r) && !merged.has(r.id.toLowerCase()));
+    const rest = old.filter((r) => !same(r, run) && !merged.has(r.id.toLowerCase()));
     return LISTED.has(run.status) ? [...rest, run] : rest;
   });
 }
 
-/** The local view from the cache and the outbox snapshot, outside React. */
+/** The local view from the cache, the outbox and the acked record, outside React. */
 export function localRunsNow(qc: QueryClient): LocalRun[] {
-  return localRuns(cachedServerRuns(qc), getOutboxSnapshot().items);
+  return localRuns(cachedServerRuns(qc), getOutboxSnapshot().items, getAckedSnapshot());
 }
 
 /** Topics with an open run right now, for the badge's `dueCount`. */
@@ -52,5 +94,10 @@ export function openRunTopicsNow(qc: QueryClient): ReadonlySet<string> {
 
 /** What `startRun` and `tapRun` need, on the page's outbox and query cache. */
 export function runTapDeps(qc: QueryClient): RunTapDeps {
-  return { outbox, serverRuns: () => cachedServerRuns(qc) };
+  return {
+    outbox,
+    serverRuns: () => cachedServerRuns(qc),
+    acked: ackedItems,
+    refresh: () => qc.query({ ...runsQueryOptions(qc), staleTime: 0 }).then(() => undefined),
+  };
 }

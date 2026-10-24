@@ -12,6 +12,8 @@
  */
 import { API_PREFIX } from '../../api/constants';
 import type { EntryCreate, RunEventIn } from '../../client/types.gen';
+import { recordAcked } from '../runs/acked';
+import { parseInstant } from '../runs/instant';
 import type { TimerStep } from '../runs/types';
 import type { OutboxItem, OutboxKind } from './types';
 
@@ -98,19 +100,54 @@ export interface RunEventPayload {
 const runEvent: OutboxKind<RunEventPayload> = {
   /**
    * 409 `run_deleted`: the run's topic was deleted; nothing can come of it (timers.md §8.1).
-   * 409 `run_open` on a finish: this device's stop isn't in yet; keep the answers and send
-   * them again (§3.6). Everything else, a 404 included, is the default classification.
+   * Everything else, a 404 included, is the default classification. That includes 409
+   * `run_open` on a finish: it is sent only once this device's stop is in ({@link
+   * waitsFor}), so the run has no stop the server knows of (none was tapped here, or it
+   * failed or was discarded). It fails with its answers kept, for the user to fix.
    */
-  classify(status, body, item) {
-    if (status !== 409) return undefined;
-    const code = problemCode(body);
-    if (code === 'run_deleted') return 'retired';
-    if (code === 'run_open' && item.payload.event.type === 'finish') return 'retry';
-    return undefined;
+  classify(status, body) {
+    return status === 409 && problemCode(body) === 'run_deleted' ? 'retired' : undefined;
   },
-  /** The one ordering rule (§8.2): an event waits for its run's start, nothing else. */
-  waitsFor(item) {
+  /**
+   * The ordering rule (§8.2): an event waits for its run's start, pending or failed. A
+   * finish also waits for its run's pending stops, so it doesn't reach the server before
+   * them (a failed stop doesn't hold it: the finish goes, and fails on `run_open`).
+   */
+  waitsFor(item, queue) {
+    const { event, run_id: runId } = item.payload;
+    if (event.type === 'start') return [];
+    if (event.type !== 'finish') return [runId];
+    const stops = queue.filter(
+      (i) =>
+        isRunEvent(i) &&
+        i.payload.run_id === runId &&
+        i.payload.event.type === 'stop' &&
+        i.status === 'pending',
+    );
+    return [runId, ...stops.map((i) => i.id)];
+  },
+  /** A run's events can't be sent without its start (§8.1): they go when it is discarded. */
+  discardedWith(item) {
     return item.payload.event.type === 'start' ? [] : [item.payload.run_id];
+  },
+  /**
+   * Taps within one millisecond go out in tap order: their `at`s are clamped (§5.1). As
+   * zero-padded epoch ms: wire strings don't sort (`…00Z` comes after `…00.001000Z`).
+   */
+  orderKey(item) {
+    try {
+      return String(parseInstant(item.payload.event.at)).padStart(16, '0');
+    } catch {
+      return '';
+    }
+  },
+  /** Only a discard can coalesce (K6); no other tap waits for a flush in progress. */
+  coalesces(item) {
+    return item.payload.event.type === 'discard';
+  },
+  /** Keep the event in the local view until `listRuns` has it (`lib/runs/acked.ts`). */
+  onAck(item) {
+    return recordAcked(item);
   },
   /**
    * K6 (§8.1): a discard of a run the server never saw (its start and every event still

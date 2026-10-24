@@ -50,10 +50,10 @@ describe('run.event kind', () => {
     });
   });
 
-  it('retires on run_deleted, retries a finish refused with run_open, and defers the rest', () => {
+  it('retires on run_deleted, and leaves the rest to the default (a finish on run_open fails)', () => {
     expect(kind.classify?.(409, problem('run_deleted'), next)).toBe('retired');
-    expect(kind.classify?.(409, problem('run_open'), finish)).toBe('retry');
-    // Only a finish keeps its answers this way; a stop is never refused with run_open.
+    // Sent only after this device's stop is in: run_open means no stop is coming.
+    expect(kind.classify?.(409, problem('run_open'), finish)).toBeUndefined();
     expect(kind.classify?.(409, problem('run_open'), next)).toBeUndefined();
     for (const code of ['topic_not_timed', 'topic_archived', 'id_conflict', 'event_conflict']) {
       expect(kind.classify?.(409, problem(code), start)).toBeUndefined();
@@ -63,10 +63,33 @@ describe('run.event kind', () => {
     expect(kind.classify?.(200, { event: { effect: 'void' } }, next)).toBeUndefined();
   });
 
-  it('makes an event wait for its run start only', () => {
-    expect(kind.waitsFor?.(start)).toEqual([]);
-    expect(kind.waitsFor?.(next)).toEqual(['r1']);
-    expect(kind.waitsFor?.(finish)).toEqual(['r1']);
+  it('makes an event wait for its run start, and a finish for its pending stops too', () => {
+    const stop = runItem('stop', { id: 's1', run: 'r1', at: T0 + 1500 });
+    const otherStop = runItem('stop', { id: 's9', run: 'r9', at: T0 + 1500 });
+    const queue = [start, next, stop, otherStop];
+    expect(kind.waitsFor?.(start, queue)).toEqual([]);
+    expect(kind.waitsFor?.(next, queue)).toEqual(['r1']);
+    expect(kind.waitsFor?.(stop, queue)).toEqual(['r1']);
+    expect(kind.waitsFor?.(finish, queue)).toEqual(['r1', 's1']);
+    // A failed stop doesn't hold the finish back.
+    expect(kind.waitsFor?.(finish, [start, { ...stop, status: 'failed' }])).toEqual(['r1']);
+  });
+
+  it("is discarded with its run's start only", () => {
+    expect(kind.discardedWith?.(start)).toEqual([]);
+    expect(kind.discardedWith?.(next)).toEqual(['r1']);
+    expect(kind.discardedWith?.(finish)).toEqual(['r1']);
+  });
+
+  it('orders same-millisecond taps by their at, and only a discard coalesces', () => {
+    expect(kind.orderKey?.(next)).toBe(String(T0 + 1000).padStart(16, '0'));
+    // Sorts by time, which the wire strings don't.
+    const at0 = runItem('lap', { id: 'x', run: 'r1', at: T0 });
+    const at1 = runItem('lap', { id: 'y', run: 'r1', at: T0 + 1 });
+    expect((kind.orderKey?.(at0) ?? '') < (kind.orderKey?.(at1) ?? '')).toBe(true);
+    expect(at0.payload.event.at > at1.payload.event.at).toBe(true);
+    expect(kind.coalesces?.(next)).toBe(false);
+    expect(kind.coalesces?.(runItem('discard', { id: 'd1', run: 'r1', at: T0 }))).toBe(true);
   });
 
   describe('K6', () => {

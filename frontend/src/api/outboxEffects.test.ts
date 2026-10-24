@@ -12,7 +12,7 @@ import type { Outbox, OutboxListener } from '../lib/outbox/outbox';
 import type { OutboxEvent, OutboxItem } from '../lib/outbox/types';
 import { T0, ev, runItem, serverRun } from '../test/runs';
 import { connectOutboxEffects } from './outboxEffects';
-import { cachedServerRuns, runsQueryKey, upsertServerRun } from './runs';
+import { cachedServerRuns, mergeListed, runsQueryKey, upsertServerRun } from './runs';
 
 const topic = {
   id: 't1',
@@ -129,6 +129,14 @@ describe('run.event effects', () => {
     expect(count()).toBe(2);
   });
 
+  it("doesn't un-count a failed stop again when it is discarded", () => {
+    const { emit, count } = setup();
+    emit({ type: 'enqueued', item: stop(true) });
+    emit({ type: 'failed', item: { ...stop(true), status: 'failed' } });
+    emit({ type: 'discarded', item: { ...stop(true), status: 'failed' } });
+    expect(count()).toBe(2);
+  });
+
   it('un-counts a pending stop that was discarded (K6) or retired', () => {
     const { emit, count } = setup();
     emit({ type: 'enqueued', item: stop(true) });
@@ -174,16 +182,32 @@ describe('run.event effects', () => {
 });
 
 describe('upsertServerRun', () => {
-  it('keeps the newer copy, drops closed runs and merged aliases', async () => {
+  it('keeps the newer copy, drops closed runs and merged aliases', () => {
     const qc = new QueryClient();
     const r1 = serverRun('r1', [ev('r1', 'start', T0)], { revision: 3 });
     const r2 = serverRun('r2', [ev('r2', 'start', T0)], { revision: 1 });
     qc.setQueryData(runsQueryKey(), [r1, r2]);
-    await upsertServerRun(qc, { ...r1, revision: 2, status: 'paused' });
+    upsertServerRun(qc, { ...r1, revision: 2, status: 'paused' });
     expect(cachedServerRuns(qc)).toEqual([r1, r2]);
-    await upsertServerRun(qc, { ...r1, revision: 4, aliases: ['r2'] });
+    upsertServerRun(qc, { ...r1, revision: 4, aliases: ['r2'] });
     expect(cachedServerRuns(qc).map((r) => [r.id, r.revision])).toEqual([['r1', 4]]);
-    await upsertServerRun(qc, { ...r1, revision: 5, status: 'discarded' });
+    upsertServerRun(qc, { ...r1, revision: 5, status: 'discarded' });
     expect(cachedServerRuns(qc)).toEqual([]);
+  });
+});
+
+describe('mergeListed', () => {
+  const r1 = serverRun('r1', [ev('r1', 'start', T0)], { revision: 3 });
+
+  it("keeps a cached copy that is newer than the list's", () => {
+    expect(mergeListed([r1], [{ ...r1, revision: 2 }], 0)).toEqual([r1]);
+    expect(mergeListed([r1], [{ ...r1, revision: 4 }], 0)[0]?.revision).toBe(4);
+  });
+
+  it('keeps a run put in the cache after the fetch began, and drops others the list lacks', () => {
+    const qc = new QueryClient();
+    upsertServerRun(qc, r1, 1000);
+    expect(mergeListed(cachedServerRuns(qc), [], 900)).toEqual([r1]);
+    expect(mergeListed(cachedServerRuns(qc), [], 1001)).toEqual([]);
   });
 });

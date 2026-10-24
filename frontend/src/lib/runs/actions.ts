@@ -2,7 +2,7 @@
  * Enqueueing run taps (timers.md §5.1, §8.2, §8.3).
  *
  * Every tap is one `run.event` outbox item. Its `at` is device now + the server offset,
- * truncated and clamped to just after the run's latest `at` in the local view, so a
+ * read at the tap (before waiting for an earlier one), truncated, and clamped to just after the run's latest `at` in the local view, so a
  * device's own taps stay in order. Its `seg`, `step` and `pause_id` come from the local
  * view, which already includes every earlier queued tap.
  *
@@ -16,7 +16,7 @@ import { RUN_EVENT, isRunEvent, type RunEventPayload } from '../outbox/kinds';
 import type { Outbox } from '../outbox/outbox';
 import type { OutboxItem } from '../outbox/types';
 import { uuid } from '../uuid';
-import { stampRunEvent } from './clock';
+import { clampToRun, latestAt, serverNow } from './clock';
 import { formatInstant, parseInstant } from './instant';
 import { isOpen, localRuns, openPauseId, openRunOf, runById, type LocalRun } from './localView';
 import { serverOffset } from './serverClock';
@@ -25,10 +25,15 @@ import type { RunEventType, TimerStep } from './types';
 /** Web Lock name for run taps; the service worker's Start action takes it too. */
 export const RUN_TAP_LOCK = 'quickr-run-tap';
 
-/** The run's topic and version, as the tapping screen knows them. */
+/**
+ * The run's topic and **the run's own version** (the one it is pinned to, not
+ * necessarily the topic's current one), as the tapping screen knows them. For a start, the
+ * version the run will be pinned to.
+ */
 export interface RunContext {
   topic: RunEventPayload['topic'];
   version: number;
+  /** That version's steps. */
   steps: TimerStep[];
   /** The version has a required question: a stop without answers leaves it finishing. */
   requires_answers: boolean;
@@ -38,6 +43,13 @@ export interface RunTapDeps {
   outbox: Outbox;
   /** The server's runs as last known (the cached `listRuns` answer). Read inside the lock. */
   serverRuns: () => readonly RunOut[];
+  /** The acked-runs record (`acked.ts`), read inside the lock; none by default. */
+  acked?: () => Promise<readonly OutboxItem<RunEventPayload>[]>;
+  /**
+   * Fetch `listRuns` once more, so `serverRuns` is current. A tap whose run isn't in the
+   * view tries again after it before giving up.
+   */
+  refresh?: () => Promise<void>;
   /** Device time, epoch ms. */
   now?: () => number;
   /** The server-time offset (`serverClock.ts`). */
@@ -60,11 +72,23 @@ function serialised<T>(fn: () => Promise<T>): Promise<T> {
 
 async function view(deps: RunTapDeps): Promise<{ runs: LocalRun[]; items: OutboxItem[] }> {
   const items = await deps.outbox.list();
-  return { runs: localRuns(deps.serverRuns(), items), items };
+  const acked = (await deps.acked?.()) ?? [];
+  return { runs: localRuns(deps.serverRuns(), items, acked), items };
 }
 
-/** The `at` for a new event of `run`: stamped, then after every `at` it has here (§5.1). */
-function stamp(deps: RunTapDeps, run: LocalRun | null, items: readonly OutboxItem[]): string {
+/**
+ * The tap's own time: device now + offset, truncated, read when the user tapped, before
+ * waiting for an earlier tap (§5.1 item 3).
+ */
+function tapTime(deps: RunTapDeps): number {
+  return serverNow((deps.now ?? Date.now)(), (deps.offset ?? serverOffset)());
+}
+
+/**
+ * The `at` for a new event of `run`: the tap's time, clamped to just after every `at` the
+ * run has here (§5.1 item 4).
+ */
+function stamp(tapAt: number, run: LocalRun | null, items: readonly OutboxItem[]): string {
   const ats = run ? run.events.map((e) => e.at) : [];
   if (run) {
     // Failed items too: they may be retried, and must stay in tap order.
@@ -74,8 +98,7 @@ function stamp(deps: RunTapDeps, run: LocalRun | null, items: readonly OutboxIte
         ats.push(parseInstant(i.payload.event.at));
     }
   }
-  const at = stampRunEvent((deps.now ?? Date.now)(), (deps.offset ?? serverOffset)(), ats);
-  return formatInstant(at);
+  return formatInstant(clampToRun(tapAt, latestAt(ats)));
 }
 
 function payloadOf(
@@ -112,6 +135,7 @@ export function startRun(
   ctx: RunContext,
   opts: { id?: string; source?: string; meta?: Record<string, string> } = {},
 ): Promise<StartResult> {
+  const tapAt = tapTime(deps);
   return serialised(async () => {
     const { runs, items } = await view(deps);
     const open = openRunOf(runs, ctx.topic.id);
@@ -119,7 +143,7 @@ export function startRun(
     const runId = (opts.id ?? uuid()).toLowerCase();
     const event: RunEventPayload['event'] = {
       type: 'start',
-      at: stamp(deps, null, items),
+      at: stamp(tapAt, null, items),
       topic_id: ctx.topic.id,
       version: ctx.version,
       ...(opts.source !== undefined ? { source: opts.source } : {}),
@@ -170,7 +194,8 @@ function makesEntry(run: LocalRun, ctx: RunContext, type: TapType, body: TapBody
 
 /**
  * Enqueue one tap on the run `runId` routes to (its id or an alias). Returns the item, or
- * null when the run isn't in the local view or its state has no target for the tap. A
+ * null when the run isn't in the local view (after one `refresh`) or its state has no
+ * target for the tap. Throws when `ctx` is for another version than the run's. A
  * discard of a run the server never saw drops the run's items instead (K6): the item is
  * returned but not stored.
  */
@@ -181,16 +206,26 @@ export function tapRun(
   type: TapType,
   body: TapBody = {},
 ): Promise<OutboxItem<RunEventPayload> | null> {
+  const tapAt = tapTime(deps);
   return serialised(async () => {
-    const { runs, items } = await view(deps);
-    const run = runById(runs, runId);
+    let { runs, items } = await view(deps);
+    let run = runById(runs, runId);
+    if (!run && deps.refresh) {
+      // The cache may not have caught up with an ack yet: look once more.
+      await deps.refresh();
+      ({ runs, items } = await view(deps));
+      run = runById(runs, runId);
+    }
     if (!run) return null;
+    if (run.version !== ctx.version) {
+      throw new Error(`run ${run.id} is pinned to version ${run.version}, not ${ctx.version}`);
+    }
     const target = targetOf(run, type);
     if (target === null) return null;
     const carries = type === 'stop' || type === 'finish';
     const event: RunEventPayload['event'] = {
       type,
-      at: stamp(deps, run, items),
+      at: stamp(tapAt, run, items),
       ...target,
       ...(carries && body.answers != null ? { answers: body.answers } : {}),
       ...(carries && body.notes != null ? { notes: body.notes } : {}),

@@ -62,7 +62,7 @@ const lc = (id: string) => id.toLowerCase();
 function outboxOrder(a: QueuedRunEvent, b: QueuedRunEvent): number {
   return (
     a.created_at.localeCompare(b.created_at) ||
-    a.payload.event.at.localeCompare(b.payload.event.at) ||
+    parseInstant(a.payload.event.at) - parseInstant(b.payload.event.at) ||
     a.id.localeCompare(b.id)
   );
 }
@@ -94,17 +94,18 @@ const applied = (state: RunState, id: string) => state.effects[lc(id)]?.effect =
 
 /**
  * Whether the run's stop leaves it `finishing` (§3.5): the server says so, or the stop is
- * queued here, carries no answers, and the version has a required question.
+ * this device's (queued or just acked), carries no answers, and the version has a
+ * required question.
  */
 function stopLeavesFinishing(
   server: RunOut | null,
   state: RunState,
-  queued: readonly QueuedRunEvent[],
+  mine: readonly QueuedRunEvent[],
   requiresAnswers: boolean,
 ): boolean {
   if (server?.status === 'finishing') return true;
   if (server?.status === 'stopped') return false;
-  const stop = queued.find((i) => i.payload.event.type === 'stop' && applied(state, i.id));
+  const stop = mine.find((i) => i.payload.event.type === 'stop' && applied(state, i.id));
   if (!stop) return false;
   return stop.payload.event.answers == null && requiresAnswers;
 }
@@ -112,14 +113,14 @@ function stopLeavesFinishing(
 function statusOf(
   server: RunOut | null,
   state: RunState,
-  queued: readonly QueuedRunEvent[],
+  mine: readonly QueuedRunEvent[],
   requiresAnswers: boolean,
 ): RunStatus {
   if (state.status !== 'stopped') return state.status;
-  if (!stopLeavesFinishing(server, state, queued, requiresAnswers)) return 'stopped';
+  if (!stopLeavesFinishing(server, state, mine, requiresAnswers)) return 'stopped';
   // A finishing run's discard and finish are decided outside the fold (§3.6, §3.7).
-  if (queued.some((i) => i.payload.event.type === 'discard')) return 'discarded';
-  if (queued.some((i) => i.payload.event.type === 'finish')) return 'stopped';
+  if (mine.some((i) => i.payload.event.type === 'discard')) return 'discarded';
+  if (mine.some((i) => i.payload.event.type === 'finish')) return 'stopped';
   return 'finishing';
 }
 
@@ -127,13 +128,18 @@ function buildRun(
   id: string,
   server: RunOut | null,
   queued: readonly QueuedRunEvent[],
+  acked: readonly QueuedRunEvent[],
 ): LocalRun | null {
-  const events = [...(server?.events.map(serverEvent) ?? []), ...queued.map(queuedEvent)];
-  // The latest tap knows the run's version best.
-  const meta = queued.at(-1)?.payload;
+  // This device's events: acked ones (sent before anything still queued), then queued.
+  const mine = [...acked, ...queued];
+  const events = [...(server?.events.map(serverEvent) ?? []), ...mine.map(queuedEvent)];
+  // Fold over the run's pinned version only (a payload made for another version can't
+  // fold this run); the latest tap knows it best.
+  const fitting = server ? mine.filter((i) => i.payload.version === server.version) : mine;
+  const meta = fitting.at(-1)?.payload;
   const steps = meta?.steps ?? null;
   let state: RunState;
-  if (queued.length === 0 && server) {
+  if (mine.length === 0 && server) {
     state = stateFromWire(server.state);
   } else if (steps) {
     try {
@@ -144,6 +150,8 @@ function buildRun(
       console.error('[runs] could not fold the local view', err);
       state = stateFromWire(server.state);
     }
+  } else if (server) {
+    state = stateFromWire(server.state);
   } else {
     return null;
   }
@@ -151,7 +159,7 @@ function buildRun(
   if (topicId === undefined) return null;
   const aliases = new Set([
     ...(server?.aliases.map(lc) ?? []),
-    ...queued.map((i) => lc(i.payload.run_id)),
+    ...mine.map((i) => lc(i.payload.run_id)),
   ]);
   aliases.delete(id);
   return {
@@ -159,7 +167,7 @@ function buildRun(
     topic_id: topicId,
     topic: meta?.topic ?? null,
     version: server?.version ?? meta?.version ?? 0,
-    status: statusOf(server, state, queued, meta?.requires_answers ?? false),
+    status: statusOf(server, state, mine, meta?.requires_answers ?? false),
     state,
     events,
     aliases: [...aliases],
@@ -172,31 +180,47 @@ function buildRun(
 
 /**
  * Every run in the local view: each server run (open or finishing, from `listRuns` and
- * this device's own responses) with its queued items, then each run that only a queued
- * start knows. Queued items of a run that is in neither (it closed, and the server will
- * decide their late merge, §4.4) make no run.
+ * this device's own responses) with its queued items, then each run that only this
+ * device's start knows (queued, or acked but not yet in `listRuns`). `acked` are the
+ * acked-runs record's items (`acked.ts`): folded in like queued ones, but never
+ * projected as optimistic entries. Items of a run that is in neither (it closed, and the
+ * server will decide their late merge, §4.4) make no run.
  */
-export function localRuns(serverRuns: readonly RunOut[], items: readonly OutboxItem[]): LocalRun[] {
+export function localRuns(
+  serverRuns: readonly RunOut[],
+  items: readonly OutboxItem[],
+  acked: readonly OutboxItem<RunEventPayload>[] = [],
+): LocalRun[] {
   const target = new Map<string, string>();
   for (const r of serverRuns) {
     target.set(lc(r.id), lc(r.id));
     for (const a of r.aliases) target.set(lc(a), lc(r.id));
   }
-  const queued = new Map<string, QueuedRunEvent[]>();
+  const group = (list: readonly QueuedRunEvent[]) => {
+    const out = new Map<string, QueuedRunEvent[]>();
+    for (const item of [...list].sort(outboxOrder)) {
+      const key = target.get(lc(item.payload.run_id)) ?? lc(item.payload.run_id);
+      out.set(key, [...(out.get(key) ?? []), item]);
+    }
+    return out;
+  };
   const active = items.filter(isRunEvent).filter((i) => i.status === 'pending');
-  for (const item of active.sort(outboxOrder)) {
-    const key = target.get(lc(item.payload.run_id)) ?? lc(item.payload.run_id);
-    queued.set(key, [...(queued.get(key) ?? []), item]);
-  }
+  const inQueue = new Set(items.map((i) => i.id));
+  const queued = group(active);
+  const sent = group(acked.filter((i) => !inQueue.has(i.id)));
   const out: LocalRun[] = [];
   for (const r of serverRuns) {
-    const run = buildRun(lc(r.id), r, queued.get(lc(r.id)) ?? []);
-    queued.delete(lc(r.id));
+    const id = lc(r.id);
+    const run = buildRun(id, r, queued.get(id) ?? [], sent.get(id) ?? []);
+    queued.delete(id);
+    sent.delete(id);
     if (run) out.push(run);
   }
-  for (const [id, mine] of queued) {
-    if (!mine.some((i) => lc(i.id) === id && i.payload.event.type === 'start')) continue;
-    const run = buildRun(id, null, mine);
+  for (const id of new Set([...queued.keys(), ...sent.keys()])) {
+    const q = queued.get(id) ?? [];
+    const a = sent.get(id) ?? [];
+    if (![...a, ...q].some((i) => lc(i.id) === id && i.payload.event.type === 'start')) continue;
+    const run = buildRun(id, null, q, a);
     if (run) out.push(run);
   }
   return out;

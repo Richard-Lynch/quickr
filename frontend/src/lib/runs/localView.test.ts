@@ -185,3 +185,45 @@ describe('runsPollInterval (timers.md §7.3)', () => {
     expect(runsPollInterval([finishing], [], false)).toBe(false);
   });
 });
+
+describe('review fixes', () => {
+  it("folds a server run over its pinned version's steps only (M2)", () => {
+    const server = serverRun('r1', [start]);
+    const otherVersion = runItem('next', { id: 'n1', run: 'r1', at: T0 + S, seg: 0 });
+    otherVersion.payload = { ...otherVersion.payload, version: 2, steps: [] };
+    const [run] = localRuns([server], [otherVersion]);
+    // No payload for version 1: the server's state stands.
+    expect(run?.state.open).toMatchObject({ index: 0, step: 'shower' });
+    expect(run?.steps).toBeNull();
+  });
+
+  it('a stop with answers on a required-question version makes the entry (M28)', () => {
+    const stop = runItem('stop', {
+      id: 's1',
+      run: 'r1',
+      at: T0 + 90 * S,
+      requires_answers: true,
+      answers: { mood: 2 },
+      makes_entry: true,
+    });
+    const runs = localRuns([serverRun('r1', [start])], [stop]);
+    expect(runs[0]?.status).toBe('stopped');
+    expect(optimisticEntries(runs)[0]?.answers).toEqual({ mood: 2 });
+  });
+
+  it('keeps an acked run in the view until listRuns has it, with no optimistic entry (M1)', () => {
+    const ackedStart = runItem('start', { id: 'r1', run: 'r1', at: T0 });
+    const ackedStop = runItem('stop', { id: 's1', run: 'r1', at: T0 + S, makes_entry: true });
+    const open = localRuns([], [], [ackedStart]);
+    expect(open[0]).toMatchObject({ id: 'r1', status: 'running', queued: [] });
+    const queuedNext = runItem('next', { id: 'n1', run: 'r1', at: T0 + S, seg: 0 });
+    expect(localRuns([], [queuedNext], [ackedStart])[0]?.state.open?.index).toBe(1);
+    const closed = localRuns([], [], [ackedStart, ackedStop]);
+    expect(closed[0]?.status).toBe('stopped');
+    expect(optimisticEntries(closed)).toEqual([]);
+    // Once the server has it, its events count once.
+    const both = localRuns([serverRun('r1', [start])], [], [ackedStart]);
+    expect(both[0]?.events.map((e) => e.id)).toEqual(['r1', 'r1']);
+    expect(both[0]?.state.open?.index).toBe(0);
+  });
+});

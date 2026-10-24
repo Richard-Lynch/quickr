@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { RunOut } from '../../client';
 import { CTX, T0, ev, serverRun } from '../../test/runs';
@@ -7,13 +7,23 @@ import { createOutbox } from '../outbox/outbox';
 import { memoryOutboxStore } from '../outbox/store';
 import type { OutboxItem } from '../outbox/types';
 import { startRun, tapRun, type RunTapDeps } from './actions';
+import { ackedItems, memoryAckedStore, setAckedStore } from './acked';
 import { parseInstant } from './instant';
 
-function setup(server: RunOut[] = [], clock = { now: T0, offset: 0 }) {
+beforeEach(() => {
+  setAckedStore(memoryAckedStore());
+});
+
+function setup(
+  server: RunOut[] = [],
+  clock = { now: T0, offset: 0 },
+  fetch: typeof globalThis.fetch = () => Promise.reject(new Error('offline')),
+) {
   const outbox = createOutbox({
     kinds: OUTBOX_KINDS,
     store: memoryOutboxStore(),
     channelName: null,
+    fetch,
   });
   const deps: RunTapDeps = {
     outbox,
@@ -155,5 +165,104 @@ describe('tapRun', () => {
     await tapRun(deps, runId, CTX, 'next');
     await tapRun(deps, runId, CTX, 'discard');
     expect(await queued()).toEqual([]);
+  });
+});
+
+describe('review fixes', () => {
+  it('stamps each tap when it was made, even behind a hanging send (H1)', async () => {
+    let release: (r: Response) => void = () => undefined;
+    const hanging = new Promise<Response>((r) => {
+      release = r;
+    });
+    const { deps, outbox, clock, events } = setup([], { now: T0, offset: 0 }, () => hanging);
+    const { runId } = await startRun(deps, CTX);
+    const flushing = outbox.flush();
+    clock.now = T0 + 1000;
+    const lap1 = tapRun(deps, runId, CTX, 'next');
+    clock.now = T0 + 2000;
+    const lap2 = tapRun(deps, runId, CTX, 'lap');
+    clock.now = T0 + 15_000;
+    await Promise.all([lap1, lap2]);
+    expect((await events()).map(atOf)).toEqual([T0, T0 + 1000, T0 + 2000]);
+    release(new Response('{}', { status: 503 }));
+    await flushing;
+  });
+
+  it('clamps after failed items of the run too (they may be retried)', async () => {
+    const json = (status: number, body: unknown) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    const respond = (_: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(init?.body as string) as { type: string };
+      return Promise.resolve(
+        body.type === 'pause'
+          ? json(422, { code: 'invalid_request', detail: 'no', errors: [] })
+          : json(200, {}),
+      );
+    };
+    const { deps, outbox, queued } = setup([], { now: T0, offset: 0 }, respond);
+    deps.acked = ackedItems; // the start, once acked
+    const { runId } = await startRun(deps, CTX);
+    await tapRun(deps, runId, CTX, 'pause');
+    await outbox.flush();
+    expect((await queued()).map((i) => [i.payload.event.type, i.status])).toEqual([
+      ['pause', 'failed'],
+    ]);
+    // Same device time: after the start (T0) and the failed pause (T0 + 1).
+    const lap = await tapRun(deps, runId, CTX, 'lap');
+    expect(lap && atOf(lap.payload.event)).toBe(T0 + 2);
+  });
+
+  it("a finish of a stopped run doesn't make the entry; of a finishing one it does", async () => {
+    const stopped = serverRun('r1', [ev('r1', 'start', T0), ev('s1', 'stop', T0 + 5000)], {
+      status: 'stopped',
+    });
+    const a = setup([stopped]);
+    const onStopped = await tapRun(a.deps, 'r1', CTX, 'finish', { answers: { mood: 1 } });
+    expect(onStopped?.payload.makes_entry).toBe(false);
+    const finishing = { ...stopped, status: 'finishing' as const };
+    const b = setup([finishing]);
+    const onFinishing = await tapRun(b.deps, 'r1', CTX, 'finish', { answers: { mood: 1 } });
+    expect(onFinishing?.payload.makes_entry).toBe(true);
+  });
+
+  it('a stop with answers makes the entry even with a required question', async () => {
+    const required = { ...CTX, requires_answers: true };
+    const { deps } = setup();
+    const { runId } = await startRun(deps, required);
+    const stop = await tapRun(deps, runId, required, 'stop', { answers: { mood: 2 } });
+    expect(stop?.payload).toMatchObject({ makes_entry: true, event: { answers: { mood: 2 } } });
+  });
+
+  it('refuses a context for another version than the run is pinned to (M2)', async () => {
+    const { deps } = setup([serverRun('r1', [ev('r1', 'start', T0)])]);
+    await expect(tapRun(deps, 'r1', { ...CTX, version: 2 }, 'lap')).rejects.toThrow(/version 1/);
+  });
+
+  it('looks once more after a listRuns fetch when the run is missing (M1)', async () => {
+    const server: RunOut[] = [];
+    const { deps } = setup(server);
+    let fetched = 0;
+    deps.refresh = () => {
+      fetched += 1;
+      server.push(serverRun('r1', [ev('r1', 'start', T0)]));
+      return Promise.resolve();
+    };
+    const lap = await tapRun(deps, 'r1', CTX, 'lap');
+    expect(fetched).toBe(1);
+    expect(lap?.payload.event).toMatchObject({ type: 'lap', seg: 0 });
+  });
+
+  it('a run only the acked record knows is still there: no second start (M1)', async () => {
+    const { deps, queued } = setup();
+    const { runId } = await startRun(deps, CTX);
+    const [start] = await queued();
+    if (!start) throw new Error('no start');
+    // Acked: gone from the queue, not in listRuns yet.
+    await deps.outbox.discard(start.id);
+    deps.acked = () => Promise.resolve([start]);
+    expect(await startRun(deps, CTX)).toEqual({ runId, started: false });
   });
 });

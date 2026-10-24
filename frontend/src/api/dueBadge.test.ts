@@ -1,10 +1,14 @@
+import 'fake-indexeddb/auto';
+
 import { QueryClient } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { TopicPage, TopicSummary } from '../client';
 import { listTopicsQueryKey } from '../client/@tanstack/react-query.gen';
 import { setAppBadge } from '../lib/badge';
-import { T0, ev, serverRun } from '../test/runs';
+import { outbox, refreshOutboxSnapshot } from '../lib/outbox/client';
+import { RUN_EVENT } from '../lib/outbox/kinds';
+import { T0, ev, runItem, serverRun } from '../test/runs';
 import { connectDueBadge } from './dueBadge';
 import { runsQueryKey } from './runs';
 
@@ -55,6 +59,21 @@ describe('the badge with runs (timers.md §11.1)', () => {
     });
     qc.setQueryData(runsQueryKey(), [finishing]);
     expect(vi.mocked(setAppBadge).mock.lastCall).toEqual([2]);
+    stop();
+  });
+
+  it('follows the outbox: a queued start stops its topic counting at once', async () => {
+    const qc = new QueryClient();
+    const page: TopicPage = { items: [due('topic-1')], total: 1, limit: 50, offset: 0 };
+    qc.setQueryData(listTopicsQueryKey(), page);
+    const stop = connectDueBadge(qc);
+    expect(vi.mocked(setAppBadge).mock.lastCall).toEqual([1]);
+    const start = runItem('start', { id: 'r1', run: 'r1', at: T0 });
+    await outbox.enqueue(RUN_EVENT, start.payload, { id: 'r1' });
+    await refreshOutboxSnapshot();
+    expect(vi.mocked(setAppBadge).mock.lastCall).toEqual([0]);
+    await outbox.clear();
+    await refreshOutboxSnapshot();
     stop();
   });
 });

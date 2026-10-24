@@ -1,7 +1,8 @@
 /** The `run.event` kind in a real outbox: start ordering, K6, classification (timers.md §8). */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { T0, runItem } from '../../test/runs';
+import { ackedItems, memoryAckedStore, setAckedStore } from '../runs/acked';
 import { ENTRY_CREATE, OUTBOX_KINDS, RUN_EVENT, type RunEventPayload } from './kinds';
 import { createOutbox } from './outbox';
 import { memoryOutboxStore } from './store';
@@ -12,6 +13,10 @@ const json = (status: number, body: unknown) =>
 const problem = (status: number, code: string) => json(status, { code, detail: code, errors: [] });
 const ok = (id: string) =>
   json(200, { event: { id, effect: 'applied', reason: null }, run: {}, entry: null });
+
+beforeEach(() => {
+  setAckedStore(memoryAckedStore());
+});
 
 type Responder = (body: { id: string; type: string }) => Response | Error;
 
@@ -185,21 +190,104 @@ describe('classification', () => {
     expect(await ids2()).toEqual(['n1:failed', 's1:failed']);
   });
 
-  it('keeps a finish refused with run_open, answers and all, and sends it again', async () => {
-    let stopped = false;
+  it('fails a finish refused with run_open, answers kept, instead of retrying forever', async () => {
     const finish = runItem('finish', { id: 'f1', run: 'r1', at: T0 + 2500, answers: { mood: 4 } });
-    const { outbox, queue, ids, t } = setup((b) =>
-      b.id === 'f1' && !stopped ? problem(409, 'run_open') : ok(b.id),
-    );
+    const { outbox, queue, ids } = setup(() => problem(409, 'run_open'));
     await queue(finish);
     await outbox.flush();
+    expect(await ids()).toEqual(['f1:failed']);
     const kept = await outbox.get('f1');
-    expect(kept).toMatchObject({ status: 'pending', attempts: 1 });
     expect((kept?.payload as RunEventPayload).event.answers).toEqual({ mood: 4 });
-    stopped = true;
-    t.now += 60_000;
+  });
+});
+
+describe('finish after stop (L1)', () => {
+  const finish = runItem('finish', { id: 'f1', run: 'r1', at: T0 + 2500, answers: { mood: 4 } });
+
+  it("waits for its run's pending stop", async () => {
+    let up = false;
+    const { outbox, sent, queue, ids } = setup((b) =>
+      b.id === 's1' && !up ? problem(503, 'down') : ok(b.id),
+    );
+    await queue(stop, finish);
     await outbox.flush();
-    expect(await ids()).toEqual([]);
+    expect(sent).toEqual(['s1']);
+    expect(await ids()).toEqual(['s1:pending', 'f1:pending']);
+    up = true;
+    await outbox.flush({ force: true });
+    expect(sent).toEqual(['s1', 's1', 'f1']);
+  });
+
+  it('goes (and fails on run_open) once its stop failed', async () => {
+    const { outbox, sent, queue, ids } = setup((b) =>
+      b.id === 's1' ? problem(422, 'before_start') : problem(409, 'run_open'),
+    );
+    await queue(stop, finish);
+    await outbox.flush();
+    expect(sent).toEqual(['s1', 'f1']);
+    expect(await ids()).toEqual(['s1:failed', 'f1:failed']);
+  });
+
+  it("isn't discarded with its stop", async () => {
+    const { outbox, queue, ids } = setup(() => new Error('offline'));
+    await queue(stop, finish);
+    await outbox.discard('s1');
+    expect(await ids()).toEqual(['f1:pending']);
+  });
+});
+
+describe('enqueue and flush (H1, L2)', () => {
+  it("doesn't wait for a flush in progress, except for a discard", async () => {
+    let release: (r: Response) => void = () => undefined;
+    const hanging = new Promise<Response>((r) => {
+      release = r;
+    });
+    // The start's request hangs.
+    const o = createOutbox({
+      kinds: OUTBOX_KINDS,
+      store: memoryOutboxStore(),
+      fetch: () => hanging,
+      channelName: null,
+    });
+    await o.enqueue(RUN_EVENT, start.payload, { id: 'r1' });
+    const flushing = o.flush();
+    await new Promise((r) => setTimeout(r, 0));
+    // The pass holds the lock on the start's request; a lap is stored at once.
+    await o.enqueue(RUN_EVENT, next.payload, { id: 'n1' });
+    expect((await o.list()).map((i) => i.id).sort()).toEqual(['n1', 'r1']);
+    let discarded = false;
+    const discard = runItem('discard', { id: 'd1', run: 'r1', at: T0 + 3000 });
+    const pendingDiscard = o.enqueue(RUN_EVENT, discard.payload, { id: 'd1' }).then(() => {
+      discarded = true;
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(discarded).toBe(false);
+    release(ok('r1'));
+    await flushing;
+    await pendingDiscard;
+    expect(discarded).toBe(true);
+  });
+
+  it('sends taps of one millisecond in the order of their at', async () => {
+    const { outbox, sent, queue } = setup((b) => ok(b.id));
+    // Same created_at; ids that sort the other way round.
+    const a = runItem('next', { id: 'zz', run: 'r1', at: T0 + 1, seg: 0, created: T0 });
+    const b = runItem('lap', { id: 'aa', run: 'r1', at: T0 + 2, seg: 1, created: T0 });
+    await queue(a, b);
+    await outbox.flush();
+    expect(sent).toEqual(['zz', 'aa']);
+  });
+
+  it('records an acked event before it leaves the queue', async () => {
+    const seen: string[] = [];
+    const { outbox, queue } = setup((b) => ok(b.id));
+    outbox.subscribe((e) => {
+      if (e.type === 'sent') void ackedItems().then((a) => seen.push(...a.map((i) => i.id)));
+    });
+    await queue(next);
+    await outbox.flush();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(seen).toEqual(['n1']);
   });
 });
 

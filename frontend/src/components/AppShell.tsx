@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { isRouteErrorResponse, Link, Outlet, useNavigate, useRouteError } from 'react-router';
 
 import { errorMessage } from '../api/errors';
+import { useRuns } from '../lib/runs/useRuns';
 import { SyncIndicator } from './pwa/Sync';
 import { ButtonLink, IconButton } from './ui/Button';
 import { EmptyState } from './ui/Card';
@@ -46,6 +47,9 @@ export function Logo({ className }: { className?: string | undefined }) {
 }
 
 export function AppShell() {
+  // App-wide, so the runs are read and polled (§7.3) on every screen, and the badge's
+  // dueCount always knows the open runs.
+  useRuns();
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
       <Outlet />

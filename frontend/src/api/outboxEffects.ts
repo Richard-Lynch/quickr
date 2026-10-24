@@ -126,7 +126,7 @@ const runEvent: KindEffects<RunEventPayload> = {
       return;
     }
     const { run, entry } = parsed.data;
-    void upsertServerRun(qc, run);
+    upsertServerRun(qc, run);
     if (entry) {
       prependEntry(qc, item.payload.topic, entry);
       qc.setQueryData(getEntryQueryKey({ path: { entry_id: entry.id } }), entry);

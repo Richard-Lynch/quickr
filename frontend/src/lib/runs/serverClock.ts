@@ -6,6 +6,7 @@
  * `/api/v1` response, errors included, is a sample. The pure rules live in `clock.ts`.
  * The service worker has no `localStorage`: there the offset lives in memory only.
  */
+import { FROM_CACHE_HEADER } from '../../api/constants';
 import { INITIAL_OFFSET_MS, SERVER_TIME_HEADER, nextOffset, parseServerTime } from './clock';
 
 export const SERVER_OFFSET_KEY = 'quickr.serverOffsetMs';
@@ -57,14 +58,23 @@ export function recordServerTime(header: string | null, tSend: number, tRecv: nu
 }
 
 /**
- * `fetch` that records each response's server time. `base` is read at call time, so a
- * stubbed `globalThis.fetch` (tests) is used, and `window.fetch` keeps its receiver.
+ * Whether a response came from a cache, so its server time is old: the service worker's
+ * (it marks them, and strips the time from what it stores) or an HTTP cache (`Age`).
+ */
+export function isCachedResponse(res: Response): boolean {
+  return res.headers.has(FROM_CACHE_HEADER) || res.headers.has('Age');
+}
+
+/**
+ * `fetch` that records each fresh response's server time. `base` is read at call time, so
+ * a stubbed `globalThis.fetch` (tests) is used, and `window.fetch` keeps its receiver.
  */
 export function timedFetch(base?: typeof fetch): typeof fetch {
   return async (input, init) => {
     const tSend = Date.now();
     const res = await (base ?? globalThis.fetch)(input, init);
-    recordServerTime(res.headers.get(SERVER_TIME_HEADER), tSend, Date.now());
+    const tRecv = Date.now();
+    if (!isCachedResponse(res)) recordServerTime(res.headers.get(SERVER_TIME_HEADER), tSend, tRecv);
     return res;
   };
 }

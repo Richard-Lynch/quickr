@@ -7,14 +7,14 @@
  * (the response patches the cache, `api/outboxEffects.ts`).
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 
-import { runTapDeps } from '../../api/runs';
+import { runTapDeps, runsQueryOptions } from '../../api/runs';
 import type { RunOut } from '../../client';
-import { listRunsOptions } from '../../client/@tanstack/react-query.gen';
 import type { OutboxItem } from '../outbox/types';
 import { useOutbox } from '../outbox/useOutbox';
 import type { RunTapDeps } from './actions';
+import { getAckedSnapshot, subscribeAcked } from './acked';
 import { isOpen, localRuns, openRunTopics, type LocalRun } from './localView';
 
 export const RUNS_POLL_MS = 10_000;
@@ -51,15 +51,16 @@ export function runsPollInterval(
 export function useRuns(opts: { timedPageVisible?: boolean } = {}): UseRuns {
   const qc = useQueryClient();
   const { items } = useOutbox();
+  const acked = useSyncExternalStore(subscribeAcked, getAckedSnapshot, getAckedSnapshot);
   const timedPageVisible = opts.timedPageVisible === true;
   const query = useQuery({
-    ...listRunsOptions(),
+    ...runsQueryOptions(qc),
     refetchOnWindowFocus: 'always',
     // Re-evaluated after each fetch and on every render (new `items`).
     refetchInterval: (q) => runsPollInterval(q.state.data ?? NO_RUNS, items, timedPageVisible),
   });
   const serverRuns = query.data ?? NO_RUNS;
-  const runs = useMemo(() => localRuns(serverRuns, items), [serverRuns, items]);
+  const runs = useMemo(() => localRuns(serverRuns, items, acked), [serverRuns, items, acked]);
   const openTopics = useMemo(() => openRunTopics(runs), [runs]);
   const deps = useMemo(() => runTapDeps(qc), [qc]);
   return { runs, openTopics, loaded: query.data !== undefined, deps };

@@ -68,10 +68,6 @@ export const OUTBOX_LOCK = 'quickr-outbox';
 type AttemptResult =
   { outcome: 'ok'; data: unknown } | { outcome: Exclude<Outcome, 'ok'>; error: OutboxError };
 
-function byCreated(a: OutboxItem, b: OutboxItem): number {
-  return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
-}
-
 export function createOutbox(opts: OutboxOptions): Outbox {
   const store = opts.store ?? idbOutboxStore();
   const doFetch: typeof fetch = opts.fetch ?? ((input, init) => globalThis.fetch(input, init));
@@ -121,15 +117,20 @@ export function createOutbox(opts: OutboxOptions): Outbox {
     return run.then(() => undefined);
   }
 
-  /** The ids `item` waits for (`OutboxKind.waitsFor`), never itself. */
-  function dependencies(item: OutboxItem): readonly string[] {
-    const deps = opts.kinds[item.kind]?.waitsFor?.(item) ?? [];
-    return deps.filter((d) => d !== item.id);
+  /** Whether an item it waits for (`OutboxKind.waitsFor`) is still in `queue`. */
+  function isBlocked(item: OutboxItem, queue: readonly OutboxItem[]): boolean {
+    const deps = opts.kinds[item.kind]?.waitsFor?.(item, queue) ?? [];
+    return deps.some((d) => d !== item.id && queue.some((i) => i.id === d));
   }
 
-  /** Whether an item it waits for is still queued (pending or failed). */
-  function isBlocked(item: OutboxItem, queued: ReadonlySet<string>): boolean {
-    return dependencies(item).some((d) => queued.has(d));
+  /** Enqueue order: `created_at`, then the kind's tie-break (`orderKey`), then the id. */
+  function byCreated(a: OutboxItem, b: OutboxItem): number {
+    const key = (i: OutboxItem) => opts.kinds[i.kind]?.orderKey?.(i) ?? '';
+    return (
+      a.created_at.localeCompare(b.created_at) ||
+      key(a).localeCompare(key(b)) ||
+      a.id.localeCompare(b.id)
+    );
   }
 
   async function list(): Promise<OutboxItem[]> {
@@ -238,13 +239,15 @@ export function createOutbox(opts: OutboxOptions): Outbox {
       if (item?.status !== 'pending') continue;
       // Waits for an item still queued (e.g. its run's start): not attempted, no backoff.
       // An earlier item of this pass that was just sent is gone from the store by now.
-      const deps = dependencies(item);
-      if (deps.length && (await Promise.all(deps.map((d) => store.get(d)))).some(Boolean)) {
-        continue;
-      }
+      if (opts.kinds[item.kind]?.waitsFor && isBlocked(item, await store.all())) continue;
 
       const res = await attempt(item);
       if (res.outcome === 'ok') {
+        try {
+          await opts.kinds[item.kind]?.onAck?.(item, res.data);
+        } catch (err) {
+          console.error('[outbox] ack hook failed', err);
+        }
         await store.delete(item.id);
         total.sent++;
         emit({ type: 'sent', item, data: res.data });
@@ -374,7 +377,7 @@ export function createOutbox(opts: OutboxOptions): Outbox {
         next_attempt_at: now(),
         last_error: null,
       };
-      if (!k.coalesce) {
+      if (!k.coalesce || k.coalesces?.(item) === false) {
         await store.put(item);
         emit({ type: 'enqueued', item });
         return item;
@@ -432,9 +435,10 @@ export function createOutbox(opts: OutboxOptions): Outbox {
       if (!item) return undefined;
       await store.delete(id);
       emit({ type: 'discarded', item });
-      // Items that waited for it can never be sent (e.g. a run's events without its start).
+      // Items that can never be sent without it (e.g. a run's events without its start).
       for (const other of await list()) {
-        if (!dependencies(other).includes(id)) continue;
+        const owners = opts.kinds[other.kind]?.discardedWith?.(other) ?? [];
+        if (other.id === id || !owners.includes(id)) continue;
         await store.delete(other.id);
         emit({ type: 'discarded', item: other });
       }
@@ -449,8 +453,7 @@ export function createOutbox(opts: OutboxOptions): Outbox {
     async nextDueAt() {
       // Blocked items aren't due: the item they wait for has its own deadline (or failed).
       const all = await store.all();
-      const queued = new Set(all.map((i) => i.id));
-      const pending = all.filter((i) => i.status === 'pending' && !isBlocked(i, queued));
+      const pending = all.filter((i) => i.status === 'pending' && !isBlocked(i, all));
       return pending.length ? Math.min(...pending.map((i) => i.next_attempt_at)) : null;
     },
     async clear() {

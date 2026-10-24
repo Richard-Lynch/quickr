@@ -13,6 +13,7 @@ import type { TopicPage, TopicSummary } from '../client';
 import { setAppBadge } from '../lib/badge';
 import { dueCount } from '../lib/home';
 import { subscribeOutboxSnapshot } from '../lib/outbox/client';
+import { subscribeAcked } from '../lib/runs/acked';
 import { keyMeta } from './cache';
 import { openRunTopicsNow } from './runs';
 
@@ -49,12 +50,14 @@ export function connectDueBadge(qc: QueryClient): () => void {
     }
   });
   const unsubscribeOutbox = subscribeOutboxSnapshot(update);
+  const unsubscribeAcked = subscribeAcked(update);
   // Slots fall due while the app is open, without any data change.
   const timer = window.setInterval(update, 60_000);
   update();
   return () => {
     unsubscribe();
     unsubscribeOutbox();
+    unsubscribeAcked();
     window.clearInterval(timer);
   };
 }
