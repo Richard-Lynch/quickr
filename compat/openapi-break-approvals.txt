@@ -17,3 +17,9 @@
 # T-DB: publishTopicVersion requires `timer` (docs/specs/timers.md §2.1).
 # timers milestone, no old builds supported (T-UNGATE)
 POST /api/v1/topics/{ref}/versions added the new required request property `timer`
+
+# T-FEED: listChanges carries `run` items and `run` deletions (docs/specs/timers.md §7.1).
+# timers milestone, no old builds supported (T-UNGATE)
+GET /api/v1/changes added the new `run` enum value to the `deleted/items/kind` response property for the response status `200`
+# timers milestone, no old builds supported (T-UNGATE)
+GET /api/v1/changes added `#/components/schemas/FeedRun` to the `items/items/` response property `oneOf` list for the response status `200`
