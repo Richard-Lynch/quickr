@@ -244,11 +244,18 @@ import Testing
 
     /// G1 for requests (PLAN §6a rule 12): every mutation and every operation with a body has at
     /// least one golden, and every golden names a known operation.
+    /// Operations the app doesn't send yet; each one gets its goldens with the WP that sends it.
+    /// `recordRunEvent`: the `run.event` outbox kind (timers-plan.md, I-OUTBOX). The backend's
+    /// `test_request_goldens.py` lists the same ones.
+    static let noGoldenYet: Set<String> = ["recordRunEvent"]
+
     @Test func everyMutationAndBodiedOperationHasAGolden() {
         let covered = Set(Self.cases.map(\.operationId))
         for endpoint in Endpoints.all where endpoint.isMutation || endpoint.hasRequestBody {
+            guard !Self.noGoldenYet.contains(endpoint.operationId) else { continue }
             #expect(covered.contains(endpoint.operationId), "no request golden for \(endpoint.operationId)")
         }
+        #expect(covered.isDisjoint(with: Self.noGoldenYet), "a stale exclusion: the golden exists now")
         for operationId in covered {
             #expect(Endpoints.named(operationId) != nil, "unknown operation \(operationId)")
         }

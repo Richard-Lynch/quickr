@@ -307,6 +307,32 @@ public struct APIClient: Sendable {
         try await send(Endpoints.deleteEntry, path: ["entry_id": id.wireString], options: options)
     }
 
+    // MARK: Runs
+
+    /// One tap on a run (timers.md §3.2). `runId` may be an alias. A nil `body.source` becomes
+    /// the client's `origin.source`.
+    public func recordRunEvent(runId: UUID, _ body: RunEventInDTO, options: RequestOptions = .init()) async throws
+        -> APIResponse<RunEventResultDTO>
+    {
+        var body = body
+        if body.source == nil { body.source = origin.source }
+        return try await send(
+            Endpoints.recordRunEvent, path: ["run_id": runId.wireString], body: body, options: options)
+    }
+
+    public func getRun(id: UUID, options: RequestOptions = .init()) async throws -> APIResponse<RunDTO> {
+        try await send(Endpoints.getRun, path: ["run_id": id.wireString], options: options)
+    }
+
+    /// `statuses`: `open` and/or `finishing` (the server's default is both).
+    public func listRuns(statuses: [String] = [], topic: String? = nil, options: RequestOptions = .init())
+        async throws -> APIResponse<[RunDTO]>
+    {
+        var items = statuses.map { URLQueryItem(name: "status", value: $0) }
+        if let topic { items.append(URLQueryItem(name: "topic", value: topic)) }
+        return try await send(Endpoints.listRuns, query: items, options: options)
+    }
+
     // MARK: Feed
 
     /// One feed page (sync-protocol.md §1.1): 30 s timeout unless `options` says otherwise.

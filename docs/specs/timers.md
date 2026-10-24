@@ -366,6 +366,7 @@ answers is void (`already_closed`).
 | `finishing`                           | The answers are validated against the run's version, required questions enforced (422 on failure, nothing stored). The entry is created as in §3.5; the run becomes `stopped`.                        |
 | `stopped`                             | The answers and notes are applied to the existing entry as a PATCH would apply them (answers merge by key), validated with required questions enforced on the result. The entry's revision increases. |
 | `discarded`, or the entry was deleted | Void (`already_closed` or `entry_deleted`)                                                                                                                                                            |
+| `running` or `paused`                 | 409 `run_open`, nothing stored: the client keeps the answers and sends them again once its stop is in                                                                                                 |
 
 **Why it works this way.** The Live Activity, widgets, the Action button and
 Siri can't ask questions, but their Stop must end the clock at the tap. So
@@ -422,6 +423,7 @@ TimingEdit = {
 | 409    | `id_conflict`         | `start` with an entry's id; `createEntry` with the id of an open or finishing run or of an alias. (`createEntry` with a stopped run's id is the existing idempotent replay of its entry.) |
 | 422    | `before_start`        | A stop with `at` before the run's `started_at` (§3.5)                                                                                                                                     |
 | 409    | `event_conflict`      | An event id was reused with different content                                                                                                                                             |
+| 409    | `run_open`            | A `finish` on a run that hasn't stopped yet (§3.6); nothing is stored                                                                                                                     |
 | 409    | `run_deleted`         | The run's topic was deleted                                                                                                                                                               |
 | 422    | `run_too_long`        | A stop or edit that would make the run longer than 7 days (§5)                                                                                                                            |
 | 422    | `run_too_many_events` | Over 1,000 events                                                                                                                                                                         |
@@ -508,7 +510,8 @@ fold(steps, events_in_arrival_order):
 - **An edited run is never folded again.** Its timing is the edit (§3.8). An
   event that arrives after the edit is stored as void (`run_edited`) and the
   run's state and entry are left as they are; events that arrived before the
-  edit keep their recorded effects.
+  edit keep their recorded effects. A `finish`, or a `stop` with answers, still
+  applies its answers (§4.4).
 - **Skip names its step and resume names its pause**, so a double-tapped skip
   can't skip two steps, and an offline resume of an earlier pause can't end a
   later one (both `stale`).
@@ -551,17 +554,17 @@ For a stopped run, `segments`, `skipped` and `pauses` are exactly the entry's
 A run is often closed on one device while another still has queued taps. The
 rules:
 
-| Late event (arrives after the close)                                                                         | Effect                                                                                                                                                                           |
-| ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `next`, `lap`, `skip`, `pause`, `resume` with `at ≤ ended_at`, run stopped and not edited, entry not deleted | **Merged.** The fold runs again with it. The entry's `timing` is replaced, `captured_at` stays `ended_at`, and the entry's revision increases (it is logged as an entry upsert). |
-| The same, with `at > ended_at`                                                                               | Void, `after_stop`                                                                                                                                                               |
-| Any event arriving after an **edit**                                                                         | Void, `run_edited`, with no refold. The user's edit wins.                                                                                                                        |
-| Any event on a run whose entry was **deleted**                                                               | Void, `entry_deleted`                                                                                                                                                            |
-| Any event on a **discarded** run                                                                             | Void, `already_closed`                                                                                                                                                           |
-| Any event on a `finishing` run with `at ≤ ended_at`                                                          | Merged into the run (no entry yet)                                                                                                                                               |
-| `stop` without answers                                                                                       | Void, `already_closed`. With answers: applied as a `finish` (§3.5).                                                                                                              |
-| `discard` on a `finishing` run                                                                               | Applied: the run is discarded (§3.7)                                                                                                                                             |
-| `discard` on a stopped run                                                                                   | Void, `already_closed`                                                                                                                                                           |
+| Late event (arrives after the close)                                                                                                           | Effect                                                                                                                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `next`, `lap`, `skip`, `pause`, `resume` with `at ≤ ended_at`, run stopped and not edited, entry not deleted                                   | **Merged.** The fold runs again with it. The entry's `timing` is replaced, `captured_at` stays `ended_at`, and the entry's revision increases (it is logged as an entry upsert). |
+| The same, with `at > ended_at`                                                                                                                 | Void, `after_stop`                                                                                                                                                               |
+| Any event arriving after an **edit**, except `finish` and a `stop` with answers (they carry answers, not times, and apply as a `finish`, §3.6) | Void, `run_edited`, with no refold. The user's edit wins.                                                                                                                        |
+| Any event on a run whose entry was **deleted**                                                                                                 | Void, `entry_deleted`                                                                                                                                                            |
+| Any event on a **discarded** run                                                                                                               | Void, `already_closed`                                                                                                                                                           |
+| Any event on a `finishing` run with `at ≤ ended_at`                                                                                            | Merged into the run (no entry yet)                                                                                                                                               |
+| `stop` without answers                                                                                                                         | Void, `already_closed`. With answers: applied as a `finish` (§3.5).                                                                                                              |
+| `discard` on a `finishing` run                                                                                                                 | Applied: the run is discarded (§3.7)                                                                                                                                             |
+| `discard` on a stopped run                                                                                                                     | Void, `already_closed`                                                                                                                                                           |
 
 A merge can turn an earlier applied event void (for example, a late Next at
 08:04 makes the 08:05 Next stale). The fold is re-run from all events, so this

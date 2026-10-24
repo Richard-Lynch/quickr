@@ -1,0 +1,27 @@
+{
+  "body": {
+    "code": "topic_not_timed",
+    "detail": "version 1 of topic 'water' is not timed",
+    "errors": [
+      {
+        "loc": [
+          "version"
+        ],
+        "message": "not a timed version of the topic"
+      }
+    ]
+  },
+  "operation_id": "recordRunEvent",
+  "request": {
+    "body": {
+      "at": "2026-03-04T11:30:00Z",
+      "id": "0a000000-0000-4000-8000-000000000005",
+      "topic_id": "00000000-0000-4000-8000-000000000003",
+      "type": "start",
+      "version": 1
+    },
+    "method": "POST",
+    "path": "/api/v1/runs/0a000000-0000-4000-8000-000000000005/events"
+  },
+  "status": 409
+}

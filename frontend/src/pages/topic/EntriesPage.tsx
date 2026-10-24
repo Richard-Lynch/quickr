@@ -76,6 +76,7 @@ function pendingAsEntry(item: OutboxItem<EntryCreatePayload>, topic: TopicDetail
     notes: b.notes ?? '',
     meta: b.meta ?? {},
     answers,
+    timing: null, // createEntry makes untimed entries
   };
 }
 

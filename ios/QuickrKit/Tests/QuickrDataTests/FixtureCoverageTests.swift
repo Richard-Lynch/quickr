@@ -39,7 +39,8 @@ import Testing
 
     /// Every key of every response object is required in `openapi.json` (nullable ones too), so
     /// a response missing any one of them must fail to decode, never default to nil (sync §2.2).
-    /// Free-form maps (`meta`, `option_counts`, `json_schema`, `/health`) have no required keys.
+    /// Free-form maps (`meta`, `option_counts`, `json_schema`, a run's `effects`, `/health`) have no
+    /// required keys.
     @Test(arguments: try Fixtures.apiNames().filter { $0 != "health" })
     func responseMissingAnyKeyFailsToDecode(name: String) throws {
         let fixture = try Fixtures.api(name)
@@ -70,7 +71,7 @@ import Testing
         #expect(topic?.schedule == nil && topic?.due == nil && topic?.archivedAt == nil)
     }
 
-    private static let freeFormMaps: Set<String> = ["meta", "option_counts", "json_schema"]
+    private static let freeFormMaps: Set<String> = ["meta", "option_counts", "json_schema", "effects"]
 
     /// Every copy of `value` with exactly one object key removed, with the removed key's path.
     static func withOneKeyRemoved(_ value: Any, path: String) -> [(String, Any)] {

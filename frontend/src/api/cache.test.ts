@@ -52,6 +52,7 @@ const entry = (id: string, value = 1): EntryOut => ({
   notes: '',
   meta: {},
   answers: [{ key: 'hours', type: 'int', value }],
+  timing: null,
 });
 
 function seed() {

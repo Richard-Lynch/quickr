@@ -1,0 +1,90 @@
+{
+  "body": {
+    "entry": null,
+    "event": {
+      "effect": "void",
+      "id": "0a000000-0000-4000-8000-000000000002",
+      "reason": "merged"
+    },
+    "run": {
+      "aliases": [
+        "0a000000-0000-4000-8000-000000000002"
+      ],
+      "edited": false,
+      "ended_at": null,
+      "events": [
+        {
+          "arrival": 1,
+          "at": "2026-03-04T11:00:00Z",
+          "effect": "applied",
+          "id": "0a000000-0000-4000-8000-000000000001",
+          "pause_id": null,
+          "reason": null,
+          "seg": null,
+          "source": "api",
+          "step": null,
+          "type": "start"
+        },
+        {
+          "arrival": 2,
+          "at": "2026-03-04T10:59:58.250000Z",
+          "effect": "void",
+          "id": "0a000000-0000-4000-8000-000000000002",
+          "pause_id": null,
+          "reason": "merged",
+          "seg": null,
+          "source": "widget",
+          "step": null,
+          "type": "start"
+        }
+      ],
+      "id": "0a000000-0000-4000-8000-000000000001",
+      "revision": 2,
+      "started_at": "2026-03-04T11:00:00Z",
+      "state": {
+        "effects": {
+          "0a000000-0000-4000-8000-000000000001": {
+            "effect": "applied",
+            "reason": null
+          },
+          "0a000000-0000-4000-8000-000000000002": {
+            "effect": "void",
+            "reason": "merged"
+          }
+        },
+        "ended_at": null,
+        "next_step": "drink",
+        "open": {
+          "index": 0,
+          "kind": "step",
+          "label": "Pour",
+          "started_at": "2026-03-04T11:00:00Z",
+          "step": "pour"
+        },
+        "paused_since": null,
+        "pauses": [],
+        "segments": [],
+        "skipped": [],
+        "started_at": "2026-03-04T11:00:00Z",
+        "status": "running"
+      },
+      "status": "running",
+      "topic_id": "00000000-0000-4000-8000-000000000001",
+      "version": 2
+    }
+  },
+  "operation_id": "recordRunEvent",
+  "request": {
+    "body": {
+      "at": "2026-03-04T10:59:58.250Z",
+      "id": "0a000000-0000-4000-8000-000000000002",
+      "source": "widget",
+      "topic_id": "00000000-0000-4000-8000-000000000001",
+      "type": "start",
+      "version": 2
+    },
+    "method": "POST",
+    "path": "/api/v1/runs/0a000000-0000-4000-8000-000000000002/events"
+  },
+  "status": 201
+}

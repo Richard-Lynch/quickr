@@ -693,7 +693,7 @@ private struct FakeServerTransport: Transport {
             "answers": FakeServer.echo(answers), "captured_at": body["captured_at"] as? String ?? now,
             "channel": "ios", "created_at": now, "updated_at": now, "meta": [String: String](),
             "notes": body["notes"] as? String ?? "", "revision": 1, "source": body["source"] as? String ?? "ios",
-            "version": body["version"] as? Int ?? 1,
+            "version": body["version"] as? Int ?? 1, "timing": NSNull(),  // createEntry makes untimed entries
         ]
         let json = (try? JSONSerialization.data(withJSONObject: entry)) ?? Data()
         return HTTPResponse(status: 201, headers: headers, body: json)

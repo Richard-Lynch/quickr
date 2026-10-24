@@ -47,11 +47,28 @@ public enum ProblemCode: Sendable, Hashable, RawRepresentable {
     /// `X-QuickR-Expect-Epoch` didn't match; nothing executed (F10).
     case epochMismatch
     case internalError
+    /// A run `start` against a version without a timer (timers.md §3.9).
+    case topicNotTimed
+    /// Runs and entries share one id space: the id is taken by the other kind.
+    case idConflict
+    /// A `stop` before the run's start; nothing was stored.
+    case beforeStart
+    /// A run event id reused with different content.
+    case eventConflict
+    /// A `finish` on a run that hasn't stopped: nothing stored; keep the answers, send the stop first.
+    case runOpen
+    /// The run's topic was deleted.
+    case runDeleted
+    /// A `stop` more than 7 days after the start.
+    case runTooLong
+    /// The run already has 1,000 events.
+    case runTooManyEvents
     case unknown(String)
 
     public static let known: [ProblemCode] = [
         .badRequest, .notFound, .conflict, .invalidRequest, .invalidAnswers, .incompatibleVersion, .topicArchived,
-        .entryDeleted, .staleRevision, .serverMismatch, .epochMismatch, .internalError,
+        .entryDeleted, .staleRevision, .serverMismatch, .epochMismatch, .internalError, .topicNotTimed, .idConflict,
+        .beforeStart, .eventConflict, .runOpen, .runDeleted, .runTooLong, .runTooManyEvents,
     ]
 
     public init(rawValue: String) {
@@ -72,6 +89,14 @@ public enum ProblemCode: Sendable, Hashable, RawRepresentable {
         case .serverMismatch: "server_mismatch"
         case .epochMismatch: "epoch_mismatch"
         case .internalError: "internal_error"
+        case .topicNotTimed: "topic_not_timed"
+        case .idConflict: "id_conflict"
+        case .beforeStart: "before_start"
+        case .eventConflict: "event_conflict"
+        case .runOpen: "run_open"
+        case .runDeleted: "run_deleted"
+        case .runTooLong: "run_too_long"
+        case .runTooManyEvents: "run_too_many_events"
         case .unknown(let raw): raw
         }
     }

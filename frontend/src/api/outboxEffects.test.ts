@@ -45,6 +45,7 @@ const entry = (id: string): EntryOut => ({
   notes: '',
   meta: {},
   answers: [],
+  timing: null,
 });
 
 const item: OutboxItem<EntryCreatePayload> = {

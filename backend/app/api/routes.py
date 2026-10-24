@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Path, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, Query, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import AwareDatetime, TypeAdapter
 from sqlalchemy import text
@@ -35,6 +35,10 @@ from app.schemas.api import (
     PushTestResult,
     QuestionSeries,
     QuestionTypeInfo,
+    RunEventIn,
+    RunEventResult,
+    RunListStatus,
+    RunOut,
     StatusFilter,
     TopicCreate,
     TopicDetail,
@@ -50,6 +54,7 @@ from app.schemas.questions import DoubleQuestion, EnumQuestion, IntQuestion, Str
 from app.services import changes as changes_svc
 from app.services import entries as entry_svc
 from app.services import push as push_svc
+from app.services import runs as run_svc
 from app.services import stats as stats_svc
 from app.services import topics as topic_svc
 from app.services.feed import FeedIdentity
@@ -314,6 +319,56 @@ async def delete_entry(db: Db, entry_id: UUID) -> Response:
     entry can never be created afterwards (a later create gets 409 entry_deleted)."""
     await entry_svc.delete_entry(db, entry_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- runs -------------------------------------------------------------------
+
+
+@router.post(
+    "/runs/{run_id}/events",
+    tags=["runs"],
+    operation_id="recordRunEvent",
+    dependencies=[ExpectIdentity],
+    responses={201: {"model": RunEventResult, "description": "The call created the run (or merged it)."}},
+)
+async def record_run_event(
+    db: Db,
+    run_id: UUID,
+    body: RunEventIn,
+    response: Response,
+    background: BackgroundTasks,
+    channel: ChannelHeader = None,
+) -> RunEventResult:
+    """Record one tap on a run: start, next, lap, skip, pause, resume, stop, finish or discard.
+
+    Idempotent by event id. An event the fold voids (a double tap, a lap after the stop) is
+    stored and answered with 200 and ``effect: "void"``. ``run_id`` may be an alias: the
+    event applies to the run it was merged into, and ``run.id`` says which.
+    """
+    recorded = await run_svc.record_event(db, run_id, body, channel or Channel.api)
+    if recorded.created:
+        response.status_code = status.HTTP_201_CREATED
+    background.add_task(run_svc.after_run_event, recorded.result.run.id, body.device)
+    return recorded.result
+
+
+@router.get("/runs", tags=["runs"], operation_id="listRuns")
+async def list_runs(
+    db: Db,
+    status_: Annotated[
+        list[RunListStatus],
+        Query(alias="status", description="open (running or paused) and/or finishing; default both."),
+    ] = ["open", "finishing"],  # noqa: B006  # FastAPI copies query defaults
+    topic: Annotated[str | None, Query(max_length=64, description="Only this topic (UUID or slug).")] = None,
+) -> list[RunOut]:
+    """Open and finishing runs, oldest start first. Closed runs are entries."""
+    return await run_svc.list_runs(db, status_, topic)
+
+
+@router.get("/runs/{run_id}", tags=["runs"], operation_id="getRun")
+async def get_run(db: Db, run_id: UUID) -> RunOut:
+    """One run in any status, with its events and their effects. An alias returns its run."""
+    return await run_svc.get_run(db, run_id)
 
 
 # --- sync -------------------------------------------------------------------

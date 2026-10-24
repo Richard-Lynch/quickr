@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import threading
+import time
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -75,6 +77,56 @@ async def test_headers_on_unhandled_errors(
     assert r.headers["x-quickr-server-id"] == server_id
 
 
+def _epoch_ms() -> int:
+    return time.time_ns() // 1_000_000
+
+
+async def test_server_time_on_every_response(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T17 (timers.md §5.1): integer epoch milliseconds on every /api/v1 response, errors,
+    /health and a database outage included, read as the response starts."""
+    from app.services import topics as topic_svc
+
+    async def boom(*_: Any, **__: Any) -> None:
+        raise RuntimeError("boom")
+
+    async def down(_: Any) -> None:
+        raise ConnectionRefusedError("connection refused")
+
+    await make_topic(client)
+    before = _epoch_ms()
+    responses = [
+        await client.get("/health"),
+        await client.get("/topics/nope"),  # 404
+        await client.post("/topics", json={}),  # 422
+        await client.delete("/topics/sleep-log"),  # 409
+        await client.get("/topics/sleep-log/entries.csv"),  # streamed, with its own identity headers
+        await client.get("/changes"),  # its own identity headers
+        await client.get("http://test/api/v1"),  # no route
+    ]
+    with monkeypatch.context() as m:
+        m.setattr(topic_svc, "list_topics", boom)
+        responses.append(await client.get("/topics"))  # 500
+    with monkeypatch.context() as m:
+        m.setattr("app.api.identity.feed_identity", down)
+        responses.append(await client.get("/limits"))  # no identity headers
+    after = _epoch_ms()
+    assert [r.status_code for r in responses] == [200, 404, 422, 409, 200, 200, 404, 500, 200]
+    for r in responses:
+        value = r.headers["x-quickr-server-time"]
+        assert value.isdigit(), value
+        assert before <= int(value) <= after
+    assert "x-quickr-server-time" not in (await client.get("http://test/api/v10/health")).headers
+
+
+async def test_server_time_is_exposed_to_browsers(client: httpx.AsyncClient) -> None:
+    r = await client.get("/health", headers={"Origin": "http://localhost:5180"})
+    exposed = {h.strip().lower() for h in r.headers["access-control-expose-headers"].split(",")}
+    assert "x-quickr-server-time" in exposed
+    assert abs(int(r.headers["x-quickr-server-time"]) - datetime.now(UTC).timestamp() * 1000) < 1000
+
+
 async def test_headers_follow_an_epoch_rotation(client: httpx.AsyncClient) -> None:
     from app.services.feed import rotate_epoch
 
@@ -94,6 +146,8 @@ async def _state() -> dict[str, Any]:
         "entries": "SELECT id, notes, revision FROM entries",
         "log": "SELECT seq FROM change_log",
         "tombstones": "SELECT id FROM deleted_ids",
+        "runs": "SELECT id, status, revision FROM runs",
+        "run_events": "SELECT id FROM run_events",
         "push": "SELECT endpoint, failure_count, last_success_at FROM push_subscriptions",
         "apns": "SELECT token, environment, app_version, updated_at, failure_count, last_success_at"
         " FROM apns_devices",
@@ -111,7 +165,8 @@ async def _fixture(client: httpx.AsyncClient) -> dict[str, str]:
     await client.post("/topics/old/archive")
     await client.post("/push/subscriptions", json=PUSH_SUB)
     await client.post("/push/apns/devices", json=APNS_DEVICE)
-    return {"entry": entry["id"]}
+    timed = await client.post("/topics", json={"name": "Timed", "questions": [], "timer": {"steps": []}})
+    return {"entry": entry["id"], "timed": timed.json()["id"]}
 
 
 def _mutations(ids: dict[str, str]) -> list[tuple[str, str, dict[str, Any] | None]]:
@@ -133,10 +188,19 @@ def _mutations(ids: dict[str, str]) -> list[tuple[str, str, dict[str, Any] | Non
         ("POST", "/push/apns/devices", {**APNS_DEVICE, "token": token(2)}),
         ("POST", "/push/apns/devices/delete", {"token": token(1)}),
         ("POST", "/push/apns/devices/test", {"token": token(1)}),
+        ("POST", f"/runs/{RUN_ID}/events", _start(ids["timed"])),
     ]
 
 
-MUTATIONS = range(15)
+RUN_ID = str(uuid4())
+
+
+def _start(topic_id: str) -> dict[str, Any]:
+    at = datetime.now(UTC).isoformat()
+    return {"id": RUN_ID, "type": "start", "at": at, "topic_id": topic_id, "version": 1}
+
+
+MUTATIONS = range(16)
 
 
 @pytest.mark.parametrize("which", MUTATIONS)

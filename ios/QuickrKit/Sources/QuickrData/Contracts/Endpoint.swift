@@ -107,6 +107,14 @@ public enum Endpoints {
         "updateEntry", .patch, "/api/v1/entries/{entry_id}")
     public static let deleteEntry = Endpoint<EmptyBody, EmptyBody>("deleteEntry", .delete, "/api/v1/entries/{entry_id}")
 
+    /// Every tap on a run of a timed topic (timers.md §3.2).
+    public static let recordRunEvent = Endpoint<RunEventInDTO, RunEventResultDTO>(
+        "recordRunEvent", .post, "/api/v1/runs/{run_id}/events")
+    /// An alias returns the run it was merged into.
+    public static let getRun = Endpoint<EmptyBody, RunDTO>("getRun", .get, "/api/v1/runs/{run_id}")
+    /// Query `status` (`open`, `finishing`; repeatable) and `topic`.
+    public static let listRuns = Endpoint<EmptyBody, [RunDTO]>("listRuns", .get, "/api/v1/runs")
+
     /// Query `after` and `limit` (sync-protocol.md §1.1).
     public static let listChanges = Endpoint<EmptyBody, ChangePageDTO>("listChanges", .get, "/api/v1/changes")
 
@@ -136,7 +144,8 @@ public enum Endpoints {
         getTopic.erased, updateTopic.erased, deleteTopic.erased, archiveTopic.erased, unarchiveTopic.erased,
         listTopicVersions.erased, publishTopicVersion.erased, checkTopicVersion.erased, listEntries.erased,
         createEntry.erased, exportEntriesCsv.erased, getEntry.erased, updateEntry.erased, deleteEntry.erased,
-        listChanges.erased, getTopicStats.erased, getQuestionSeries.erased, getPushConfig.erased,
+        recordRunEvent.erased, getRun.erased, listRuns.erased, listChanges.erased, getTopicStats.erased,
+        getQuestionSeries.erased, getPushConfig.erased,
         createPushSubscription.erased, deletePushSubscription.erased, sendTestPush.erased,
         registerApnsDevice.erased, deleteApnsDevice.erased, sendApnsTestPush.erased,
     ]

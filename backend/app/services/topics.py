@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import Conflict, DomainError, IncompatibleVersion, NotFound, StaleRevision
-from app.models import DeletedId, Entry, FeedKind, FeedOp, Topic, TopicStatus, TopicVersion
+from app.models import DeletedId, Entry, FeedKind, FeedOp, Run, RunAlias, Topic, TopicStatus, TopicVersion
 from app.schemas.api import (
     CompatibilityReport,
     DueStatus,
@@ -372,18 +372,27 @@ async def set_archived(
 
 @writer
 async def delete_topic(db: AsyncSession, ref: str) -> None:
-    """Delete an archived topic. Its versions and entries are tombstoned (before the
-    foreign-key cascade removes them) and the feed gets one topic deletion, which clients
-    apply to every child."""
+    """Delete an archived topic. Its versions, entries, runs and run aliases are tombstoned
+    (before the foreign-key cascade removes them; a closed run's id already is) and the feed
+    gets one topic deletion, which clients apply to every child."""
     topic = await resolve_topic(db, ref)
     if topic.status != TopicStatus.archived:
         raise Conflict("archive the topic before deleting it")
-    for model, kind in ((Entry, FeedKind.entry), (TopicVersion, FeedKind.version)):
-        children = select(model.id, literal(kind, DeletedId.__table__.c.kind.type), model.topic_id).where(
+    tables = ((Entry, FeedKind.entry), (TopicVersion, FeedKind.version), (Run, FeedKind.run))
+    children = [
+        select(model.id, literal(kind, DeletedId.__table__.c.kind.type), model.topic_id).where(
             model.topic_id == topic.id
         )
+        for model, kind in tables
+    ]
+    children.append(
+        select(RunAlias.id, literal(FeedKind.run, DeletedId.__table__.c.kind.type), Run.topic_id)
+        .join(Run, Run.id == RunAlias.run_id)
+        .where(Run.topic_id == topic.id)
+    )
+    for rows in children:
         await db.execute(
-            insert(DeletedId).from_select(["id", "kind", "topic_id"], children).on_conflict_do_nothing()
+            insert(DeletedId).from_select(["id", "kind", "topic_id"], rows).on_conflict_do_nothing()
         )
     await tombstone(db, FeedKind.topic, topic.id, topic.id)
     await log_change(db, FeedKind.topic, FeedOp.delete, topic.id, topic.id)

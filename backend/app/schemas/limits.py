@@ -10,6 +10,8 @@ TIME_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 
 MAX_QUESTIONS = 100
 MAX_STEPS = 30
+MAX_RUN_EVENTS = 1_000  # per run, void events included (timers.md §5)
+RUN_START_MAX_AGE_DAYS = 7  # a start's `at` is at most this old
 MAX_ENUM_OPTIONS = 200
 MAX_STR_LENGTH = 10_000
 MAX_LABEL_LENGTH = 200

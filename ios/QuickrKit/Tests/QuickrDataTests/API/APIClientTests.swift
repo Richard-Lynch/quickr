@@ -43,6 +43,13 @@ import Testing
         "getEntry": { try await $0.getEntry(id: entryId).erased },
         "updateEntry": { try await $0.updateEntry(id: entryId, EntryUpdateDTO(notes: "Edited later.")).erased },
         "deleteEntry": { try await $0.deleteEntry(id: entryId).erased },
+        "recordRunEvent": {
+            let body = try WireCoding.decoder().decode(
+                RunEventInDTO.self, from: Data(#"{"id": "x", "type": "pause", "at": "2026-03-04T11:00:00Z"}"#.utf8))
+            return try await $0.recordRunEvent(runId: entryId, body).erased
+        },
+        "getRun": { try await $0.getRun(id: entryId).erased },
+        "listRuns": { try await $0.listRuns(statuses: ["finishing"]).erased },
         "listChanges": { try await $0.listChanges(after: 0).erased },
         "getTopicStats": { try await $0.getTopicStats(ref: "everything").erased },
         "getQuestionSeries": {
