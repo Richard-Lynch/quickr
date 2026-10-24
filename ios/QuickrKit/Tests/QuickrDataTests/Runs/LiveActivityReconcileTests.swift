@@ -352,6 +352,18 @@ import Testing
         #expect(deleted == ["start01"])
     }
 
+    @Test("R8 · M3: while off, a deleted push-to-start token isn't deleted again at every pass")
+    func offDeletesOnce() async throws {
+        let rig = try await Rig.make()
+        await rig.activities.setEnabled(false)
+        await rig.activities.reconcile()
+        await rig.activities.tokensChanged()
+        await rig.activities.reconcile()
+        await rig.settle()
+        let deleted = rig.api.deleted
+        #expect(deleted == ["start01"])
+    }
+
     @Test("R8 · M3: a delete that fails is kept and retried, across launches")
     func owedDeletesAreDurable() async throws {
         let api = FakeTokenAPI()
@@ -541,6 +553,52 @@ import Testing
         #expect(followed == open.id.wireString)
     }
 
+    @Test("R8 · before the store's bootstrap, an empty view ends nothing")
+    func bootstrapGuard() async throws {
+        let rig = try await Rig.make()
+        let server = try rig.h.seedServerRun()
+        await rig.center.seed(rig.attributes, try rig.viewState(server.id.wireString), staleDate: Self.now)
+        // A store being rebuilt: no runs yet, bootstrap not complete.
+        try rig.h.write { db in
+            try ServerLayer.applyDeletion(db, kind: .run, id: server.id, topicId: rig.h.topic.id, seq: nil)
+            try db.execute(sql: "UPDATE sync_state SET bootstrap_complete = 0")
+        }
+        let snapshot = try await RunActivitySnapshot.read(rig.h.store)
+        #expect(snapshot == nil)
+        await rig.activities.reconcile()
+        let activity = try #require(await rig.center.all().first)
+        #expect(activity.phase == .active)
+        let ends = await rig.center.ends
+        #expect(ends == 0)
+    }
+
+    @Test("R8 · token passes hold the store resumed")
+    func tokenPassesHoldTheStore() async throws {
+        let counter = HoldCounter()
+        let h = try OutboxHarness()
+        try h.timed()
+        let api = FakeTokenAPI()
+        let tokens = LiveActivityTokens(
+            .init(
+                register: { try await api.register($0) }, unregister: { try api.unregister($0) },
+                deviceToken: { "dev1" }, environment: { .sandbox }, serverId: { api.serverId }))
+        await tokens.pushToStart("start01")
+        let store = h.store
+        let activities = LiveActivities(
+            center: FakeActivityCenter(), tokens: tokens, enabled: true,
+            snapshot: { (try? await RunActivitySnapshot.read(store)) ?? nil }, now: { Self.now },
+            hold: {
+                counter.take()
+                return { counter.release() }
+            })
+        await activities.tokensChanged()
+        await activities.tokensSettled()
+        let taken = counter.taken
+        #expect(taken == 2, "the snapshot's read and the pass")
+        let held = counter.held
+        #expect(held == 0, "every hold released")
+    }
+
     // MARK: - Unknown steps, ids
 
     @Test("R8 · a request without the steps offers Next, not Lap, and is updated once they're stored")
@@ -652,6 +710,20 @@ actor FakeActivityCenter: RunActivityCenter {
         list[i].phase = .ended
         list[i].dismissal = dismissal
     }
+}
+
+/// Counts store holds.
+final class HoldCounter: Sendable {
+    private let state = Mutex((taken: 0, held: 0))
+    var taken: Int { state.withLock { $0.taken } }
+    var held: Int { state.withLock { $0.held } }
+    func take() {
+        state.withLock {
+            $0.taken += 1
+            $0.held += 1
+        }
+    }
+    func release() { state.withLock { $0.held -= 1 } }
 }
 
 /// registerLiveActivity and deleteLiveActivity, recorded; also the active server's id and the
