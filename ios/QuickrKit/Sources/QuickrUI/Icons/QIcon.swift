@@ -1,7 +1,7 @@
 #if os(iOS)
 import SwiftUI
 
-/// The PWA's 30 stroke icons (`frontend/src/components/ui/Icon.tsx`). Most map to an SF Symbol;
+/// The PWA's stroke icons (`frontend/src/components/ui/Icon.tsx`). Most map to an SF Symbol;
 /// the rest are ported as paths on the PWA's 24-unit grid.
 ///
 /// `QIcon.plus.view(size: 20)` draws one; `systemName` feeds `Label` and toolbar APIs.
@@ -9,6 +9,8 @@ public enum QIcon: String, CaseIterable, Sendable {
     case plus, x, check, search, chevronLeft, chevronRight, chevronDown, up, down, trash, edit
     case archive, restore, record, list, chart, layers, download, settings, home, dots, eye
     case alert, info, clock, grip, cloudOff, sync, bell, share, plusSquare, phone
+    // The run controls (timers.md §11).
+    case play, pause, stop, skip, flag, timer
 
     /// The SF Symbol it maps to, or nil when it is drawn as a path.
     public var systemName: String? {
@@ -43,6 +45,12 @@ public enum QIcon: String, CaseIterable, Sendable {
         case .share: "square.and.arrow.up"
         case .plusSquare: "plus.square"
         case .phone: "iphone"
+        case .play: "play"
+        case .pause: "pause"
+        case .stop: "stop"
+        case .skip: "forward.end"
+        case .flag: "flag"
+        case .timer: "timer"
         case .grip: nil
         }
     }

@@ -97,3 +97,38 @@ public struct EntryOverride: Sendable, Hashable {
 
     public var isEmpty: Bool { answerKeys.isEmpty && !capturedAt && !notes && !source }
 }
+
+/// A refused `finish` (or a `stop` that carried answers), ready for the run's answers form in fix
+/// mode (timers.md §8.1: a 422 offers Fix): the answers and notes that were sent, and why the
+/// server refused them. Only those can change (`Outbox.fixRunEvent`).
+public struct RunFixDraft: Sendable, Hashable {
+    public var itemId: String
+    /// For the compare-and-set of `Outbox.fixRunEvent`.
+    public var rowVersion: Int
+    public var topic: TopicRef
+    /// The run the event was sent to (its own id, or one merged into another run).
+    public var runId: String
+    public var type: RunEventType
+    public var answers: [String: AnswerValue]
+    public var notes: String?
+    public var problem: Problem?
+    public var message: String?
+}
+
+extension OutboxItem {
+    /// The draft for fixing this refused run event: a failed `finish`, or `stop` with answers,
+    /// refused with a 422 (what `Outbox.fixRunEvent` accepts). `questions` are the run's
+    /// version's, to type the stored answers. Nil for anything else.
+    public func runFixDraft(questions: [Question]) -> RunFixDraft? {
+        let fixable: Set<OutboxFailureReason> = [.rejected, .topicArchived, .futureTime]
+        guard kind == .runEvent, state == .failed, !maybeDelivered, failureReason.map(fixable.contains) ?? false,
+            lastError?.status == 422, let payload = try? runEventPayload(), let type = payload.type,
+            type == .finish || (type == .stop && payload.event.answers != nil)
+        else { return nil }
+        let failure = failureDetails
+        let answers = (payload.event.answers ?? [:]).compactMapValues { $0?.value }.normalized(for: questions)
+        return RunFixDraft(
+            itemId: id, rowVersion: rowVersion, topic: payload.topic, runId: payload.runId, type: type,
+            answers: answers, notes: payload.event.notes, problem: failure?.problem, message: failure?.message)
+    }
+}

@@ -21,12 +21,99 @@ struct TopicTile: View {
     let onOpen: () -> Void
     /// The Log block: the record screen.
     let onRecord: () -> Void
+    /// The run the home model has for the topic: its open run, else its finishing one.
+    var run: LocalRun?
 
     @Environment(AppEnvironment.self) private var environment
+    /// Counts the Starts this tile made, for the haptic.
+    @State private var starts = 0
 
     private let text = TopicText()
 
     var body: some View {
+        let state = RunTileState(timed: topic.topic.timer != nil, run: run?.status)
+        if state.isTimed {
+            timedTile(state)
+        } else {
+            plainTile
+        }
+    }
+
+    /// A timed topic (timers.md §11.1, §11.2): never a one-tap log or quick answers. Idle shows
+    /// Start; an open run "Running · 4:12" and Next or Stop, in place of the due badge and accent;
+    /// a finishing one "Add details", keeping its due state.
+    private func timedTile(_ state: RunTileState) -> some View {
+        let topic = topic.topic
+        let due = DueView(due: TopicListing.due(of: topic, at: serverNow) ?? topic.due, now: serverNow)
+        let open: Bool = if case .open = state { true } else { false }
+        // With a run, the tile opens its run screen (§11.2); idle, the topic.
+        let link = TopicLinkRef(id: topic.id)
+        return TileView(
+            title: topic.name, isDue: !open && (due.tone == .due || due.tone == .overdue),
+            onOpen: state == .idle ? onOpen : { environment.router.open(.run(link)) }, action: runAction(state)
+        ) {
+            VStack(alignment: .leading, spacing: 4) {
+                if let run, state != .idle {
+                    RunStatusLine(run: run)
+                    if state == .finishing, due.kind != .none { DueBadge(due) }
+                } else {
+                    meta(due, last: nil)
+                }
+            }
+        } quick: {
+            EmptyView()
+        }
+        .accessibilityIdentifier("tile.\(topic.slug)")
+        .qrHaptic(.logged, trigger: starts)
+    }
+
+    /// The block: Start, the run's primary button, or Add details. None for an archived topic
+    /// with no run (a start would be refused).
+    private func runAction(_ state: RunTileState) -> TileAction? {
+        let topic = topic.topic
+        let ref = TopicRef(id: topic.id, slug: topic.slug, name: topic.name)
+        let link = TopicLinkRef(id: topic.id)
+        let actions = environment.runActions
+        let id = "tile.\(topic.slug).run"
+        switch state {
+        case .untimed:
+            return nil
+        case .idle:
+            guard topic.status != .archived else { return nil }
+            return TileAction(
+                icon: .play, title: "Start", label: "Start \(topic.name)", identifier: id, disabled: actions.busy
+            ) {
+                Task {
+                    if await actions.start(topic: ref, version: topic.currentVersion) != nil { starts += 1 }
+                }
+            }
+        case .finishing:
+            guard let run, let runId = UUID(uuidString: run.id) else { return nil }
+            return TileAction(
+                icon: .edit, title: "Add details", label: "Add details to \(topic.name)", identifier: id, loud: false
+            ) {
+                environment.router.open(.runDetails(link, runId: runId))
+            }
+        case .open:
+            guard let run else { return nil }
+            let primary = RunPresentation.primary(run.state, steps: run.steps)
+            let expect = RunTapExpect(run)
+            return TileAction(
+                icon: primary.isNext ? .chevronRight : .stop, title: primary.isNext ? "Next" : "Stop",
+                label: "\(primary.title) · \(topic.name)", identifier: id, loud: true, disabled: actions.busy
+            ) {
+                Task {
+                    if primary.isNext {
+                        await actions.tap(.next, run: run, expect: expect)
+                    } else if let outcome = await actions.stop(run: run, topicName: topic.name, expect: expect) {
+                        showStopOutcome(outcome, ref: link, in: environment)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var plainTile: some View {
         // From the app-wide cache, so a tile the lazy list rebuilds has its model and last value
         // at once (QuickLogModels); the task below keeps them current.
         let model = quickTopic.map(environment.quickLogModels.model(for:))

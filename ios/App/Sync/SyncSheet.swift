@@ -52,6 +52,13 @@ struct SyncSheet: View {
             Section {
                 header(model)
             }
+            if !environment.runNotices.notices.isEmpty {
+                Section("Notices") {
+                    ForEach(Array(environment.runNotices.notices.enumerated()), id: \.element.id) { index, notice in
+                        RunNoticeRowView(notice: notice, index: index, perform: perform)
+                    }
+                }
+            }
             if !model.rows.isEmpty {
                 Section {
                     // Keyed by store too: a row's state (a pending discard) never carries over to
@@ -123,6 +130,40 @@ struct SyncSheet: View {
                     ?? String(describing: error)
             }
         }
+    }
+}
+
+/// A §11.4 run notice (timers.md) that arrived while the app wasn't on screen: its text, when,
+/// and Dismiss.
+private struct RunNoticeRowView: View {
+    let notice: RunNotice
+    let index: Int
+    let perform: (@escaping () async throws -> Void) -> Void
+    @Environment(AppEnvironment.self) private var environment
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                QIcon.info.view(size: 16)
+                    .foregroundStyle(Color.qr.info)
+                    .frame(width: 28, height: 28)
+                    .background(Color.qr.infoSoft, in: Circle())
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(notice.text()).font(.qr(.subheadline))
+                    Text(notice.createdAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.qr(.caption))
+                        .foregroundStyle(Color.qr.inkSoft)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("sync.notice.\(index)")
+            Button("Dismiss") { perform { try await environment.runNotices.dismiss(notice) } }
+                .buttonStyle(.qr(.secondary, size: .small))
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .accessibilityIdentifier("sync.notice.\(index).dismiss")
+        }
+        .padding(.vertical, 4)
     }
 }
 

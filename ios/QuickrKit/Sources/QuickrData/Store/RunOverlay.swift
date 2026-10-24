@@ -30,6 +30,9 @@ public struct LocalRun: Sendable, Hashable, Identifiable {
     /// Whether the pinned version has a required question (a stop without answers then leaves the
     /// run finishing, §3.5); nil when the version isn't stored.
     public var requiresAnswers: Bool?
+    /// Whether the pinned version has any question (Stop then opens the answers form, §11.2);
+    /// nil when the version isn't stored.
+    public var hasQuestions: Bool?
 
     public var isOpen: Bool { status.isOpen }
 
@@ -139,6 +142,13 @@ public enum RunOverlay {
         try localRuns(db, topicId: topicId).first(where: \.isOpen)
     }
 
+    /// The topics with an open local run (running or paused), queued starts included: what the due
+    /// count leaves out (timers.md §11.1). A finishing run isn't open, so its topic keeps its due
+    /// state.
+    public static func openRunTopics(_ db: Database) throws -> TopicListing.OpenRunTopics {
+        Set(try localRuns(db).filter(\.isOpen).map(\.topicId))
+    }
+
     // MARK: - Building one run
 
     private static func build(
@@ -175,7 +185,7 @@ public enum RunOverlay {
             id: id, topicId: topicId, topic: mine.last?.1.topic, version: version,
             status: status(server: server, state: state, mine: mine.map(\.1), requiresAnswers: info.requiresAnswers),
             state: state, events: events, aliases: aliases.sorted(), server: server, queued: queued,
-            steps: info.steps, requiresAnswers: info.requiresAnswers)
+            steps: info.steps, requiresAnswers: info.requiresAnswers, hasQuestions: info.hasQuestions)
     }
 
     private static func queuedEvent(_ item: OutboxItem, _ payload: RunEventPayload) -> RunEvent? {
@@ -276,6 +286,7 @@ private final class VersionBook {
     struct Info {
         var steps: [TopicTimer.Step]?
         var requiresAnswers: Bool?
+        var hasQuestions: Bool?
     }
 
     private let db: Database
@@ -283,7 +294,7 @@ private final class VersionBook {
 
     init(_ db: Database) { self.db = db }
 
-    /// A stored version's steps (none for an untimed one) and required flag; both nil when the
+    /// A stored version's steps (none for an untimed one) and question flags; all nil when the
     /// version isn't stored.
     func info(_ topicId: String, _ version: Int) throws -> Info {
         let key = "\(topicId)#\(version)"
@@ -295,8 +306,9 @@ private final class VersionBook {
         if let row {
             let timer = try (row["timer_json"] as String?).map { try StoreJSON.decode(TopicTimer.self, $0) }
             info.steps = timer?.steps ?? []
-            info.requiresAnswers = try StoreJSON.decode([QuestionDTO].self, row["questions_json"]).toDomain()
-                .contains(where: \.required)
+            let questions = try StoreJSON.decode([QuestionDTO].self, row["questions_json"]).toDomain()
+            info.requiresAnswers = questions.contains(where: \.required)
+            info.hasQuestions = !questions.isEmpty
         }
         cache[key] = info
         return info

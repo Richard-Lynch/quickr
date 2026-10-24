@@ -202,8 +202,7 @@ public struct TopicWidgetView: View {
             AccessoryWidgetBackground()
             VStack(spacing: 0) {
                 Image(
-                    systemName: DueView.isDueNow(topic.due(at: date), now: topic.serverTime(date))
-                        ? "bell.fill" : "checkmark"
+                    systemName: topic.countsAsDue(at: date) ? "bell.fill" : "checkmark"
                 )
                 .font(.system(size: 14, weight: .semibold))
                 .widgetAccentable()
@@ -241,7 +240,8 @@ public struct DueListWidgetView: View {
         self.style = style
     }
 
-    private var dueNow: [WidgetTopic] { topics.filter { DueView.isDueNow($0.due(at: date), now: $0.serverTime(date)) } }
+    /// The due count's own rule (`TopicListing.countsAsDue`): a topic with an open run isn't due.
+    private var dueNow: [WidgetTopic] { topics.filter { $0.countsAsDue(at: date) } }
 
     /// Due and scheduled topics, in the list's order; plain ones only fill a large widget.
     private var rows: [WidgetTopic] {

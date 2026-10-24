@@ -89,6 +89,16 @@ import Testing
         }
     }
 
+    /// Store v5 (timers.md §11.4): the run notices, kept until toasted or dismissed.
+    @Test func storeV5AddsRunNotices() throws {
+        let queue = try TestDatabase.store()
+        try queue.read { (db: Database) throws in
+            let names = try columns(db, "run_notice")
+            #expect(
+                names == ["id", "run_id", "topic_id", "topic_name", "tap", "reason", "stopped_at", "created_at"])
+        }
+    }
+
     @Test func registryMigratorCreatesTheSpecTables() throws {
         let queue = try TestDatabase.registry()
         try queue.read { (db: Database) throws in

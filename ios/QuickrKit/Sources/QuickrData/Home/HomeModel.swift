@@ -52,6 +52,12 @@ public final class HomeModel {
     public private(set) var sections = TopicListing.Sections<Row>()
     /// Active topics due now, whatever the search or filter: the app badge.
     public private(set) var badgeCount = 0
+    /// The run each timed topic's tile shows, by topic id: its open run, else its latest finishing
+    /// one (timers.md §11.1, §11.2). From the local view, so queued taps show at once.
+    public private(set) var runs: [UUID: LocalRun] = [:]
+    /// The topics with an open run (running or paused): left out of "Due now" and the badge. A
+    /// finishing run isn't open, so its topic keeps its due state.
+    public private(set) var openRuns: TopicListing.OpenRunTopics = TopicListing.noOpenRuns
     /// Topics read from the store at least once since the last bind.
     public private(set) var loaded = false
     /// The latest observation failure, cleared by a successful read.
@@ -119,6 +125,8 @@ public final class HomeModel {
         generation += 1
         let generation = generation
         topics = []
+        runs = [:]
+        openRuns = TopicListing.noOpenRuns
         bootstrapped = false
         clock = .device
         loaded = false
@@ -133,6 +141,7 @@ public final class HomeModel {
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.observeTopics(store, generation) }
             group.addTask { await self.observeSyncState(store, generation) }
+            group.addTask { await self.observeRuns(store, generation) }
         }
     }
 
@@ -154,6 +163,33 @@ public final class HomeModel {
         } catch {
             if isCurrent(observation) { loadError = String(describing: error) }
         }
+    }
+
+    private func observeRuns(_ store: LocalStore, _ observation: Int) async {
+        do {
+            for try await runs in store.observeLocalRuns(refresh: session.refresh.stream()) {
+                guard isCurrent(observation) else { return }
+                let shown = Self.shownRuns(runs)
+                let open = Set(runs.filter(\.isOpen).map(\.topicId))
+                guard shown != self.runs || open != openRuns else { continue }
+                self.runs = shown
+                openRuns = open
+                relist()
+            }
+        } catch {
+            // As above: the topics' observation reports store failures.
+        }
+    }
+
+    /// The run each topic's tile shows: its open run, else its latest finishing one (the local
+    /// view lists runs by the server's order, then this device's queued starts; the last wins).
+    static func shownRuns(_ runs: [LocalRun]) -> [UUID: LocalRun] {
+        var shown: [UUID: LocalRun] = [:]
+        for run in runs where run.isOpen || run.status == .finishing {
+            if shown[run.topicId]?.isOpen == true { continue }
+            shown[run.topicId] = run
+        }
+        return shown
     }
 
     private func observeSyncState(_ store: LocalStore, _ observation: Int) async {
@@ -209,7 +245,7 @@ public final class HomeModel {
         let now = serverNow
         rows = TopicListing.list(
             topics, topic: \.topic, now: now, status: status, sort: sort, query: query)
-        sections = TopicListing.sections(rows, now: now, openRuns: TopicListing.noOpenRuns)
-        badgeCount = TopicListing.dueCount(topics.map(\.topic), now: now, openRuns: TopicListing.noOpenRuns)
+        sections = TopicListing.sections(rows, now: now, openRuns: openRuns)
+        badgeCount = TopicListing.dueCount(topics.map(\.topic), now: now, openRuns: openRuns)
     }
 }

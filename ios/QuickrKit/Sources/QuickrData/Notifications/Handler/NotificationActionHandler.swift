@@ -372,7 +372,7 @@ public struct NotificationActionHandler: Sendable {
             let state = try Row.fetchOne(db, sql: "SELECT * FROM sync_state WHERE id = 1").map(SyncState.init(row:))
             let now = (state?.serverClock ?? .device).now(at: wall)
             return TopicListing.dueCount(
-                try StoreView.topics(db).map(\.topic), now: now, openRuns: TopicListing.noOpenRuns)
+                try StoreView.topics(db).map(\.topic), now: now, openRuns: try RunOverlay.openRunTopics(db))
         }
     }
 

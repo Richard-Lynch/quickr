@@ -88,6 +88,11 @@ public struct GRDBRunRepository: RunRepository {
     public func openRun(topicId: UUID) async throws -> LocalRun? {
         try await reader.read { db in try RunOverlay.openRun(db, topicId: topicId.wireString) }
     }
+
+    /// The topics with an open local run (`RunOverlay.openRunTopics`): the due count's exclusions.
+    public func openRunTopics() async throws -> TopicListing.OpenRunTopics {
+        try await reader.read { db in try RunOverlay.openRunTopics(db) }
+    }
 }
 
 /// Queries over `outbox_item`. Production writes go through `Outbox`; `appendRawForTesting` is

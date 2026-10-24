@@ -46,6 +46,7 @@ public struct LocalStore: Sendable {
     public var versions: GRDBTopicVersionRepository { GRDBTopicVersionRepository(reader: writer) }
     public var entries: GRDBEntryRepository { GRDBEntryRepository(reader: writer) }
     public var runs: GRDBRunRepository { GRDBRunRepository(reader: writer) }
+    public var runNotices: GRDBRunNoticeRepository { GRDBRunNoticeRepository(writer: writer) }
     public var outbox: GRDBOutboxRepository { GRDBOutboxRepository(writer: writer, wallClock: wallClock) }
     public var syncState: GRDBSyncStateRepository { GRDBSyncStateRepository(reader: writer) }
     public var leases: Leases { Leases(writer: writer, clock: leaseClock, wallClock: wallClock) }

@@ -25,6 +25,12 @@ final class AppEnvironment {
     let widgets = WidgetReloader()
     /// Every screen's toasts, hosted once at the root so a toast outlives navigation.
     let toasts = ToastCenter()
+    /// The §11.4 run notices: toasted while on screen, otherwise listed in the sync sheet.
+    let runNotices: RunNoticeCenter
+    /// The run surfaces' taps, with their shared cooldown (timers.md §11.1).
+    let runActions: RunActions
+    /// The one clock behind every running timer on screen.
+    let runTicker = RunTicker()
     /// How far above the bottom toasts sit: a screen with a sticky bar (Record's Save) raises them
     /// above it, like the PWA's.
     var toastBottomInset: CGFloat = 8
@@ -83,9 +89,13 @@ final class AppEnvironment {
         self.makePush = makePush
         self.prepare = prepare
         entryToasts = EntryToasts(center: toasts, writer: entryWriter)
+        runNotices = RunNoticeCenter(toasts: toasts)
+        var weakSession: () -> AppSession? = { nil }
+        runActions = RunActions(writer: { weakSession().map(RunActions.Writer.init(session:)) })
         quickLogModels = QuickLogModels(writer: entryWriter, toasts: entryToasts, drafts: quickLogDrafts)
         if prepare == nil { openSession() }
         entryWriter.session = { [weak self] in self?.session }
+        weakSession = { [weak self] in self?.session }
     }
 
     /// The live session over the App Group's files, sending through URLSession with the
@@ -251,6 +261,9 @@ final class AppEnvironment {
             backgroundSinceActive = false
         }
         lastScenePhase = phase
+        // Before the session check: a notice recorded on screen is toasted whenever it arrives.
+        if phase == .active { runNotices.didBecomeActive() }
+        if phase == .background { runNotices.didEnterBackground() }
         guard let session else { return }
         switch phase {
         case .active:

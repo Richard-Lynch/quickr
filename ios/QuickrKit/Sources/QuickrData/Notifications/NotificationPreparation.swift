@@ -144,7 +144,12 @@ public struct NotificationPreparation: Sendable {
     /// L6 and the badge (§8), from the active store's view at `now + skew`. A read that fails leaves
     /// both alone.
     private func prepareFromActiveStore(_ store: LocalStore, q: QuickrNotificationInfo, out: inout Prepared) async {
-        guard let topics = try? await store.writer.read({ db in try StoreView.dueTopics(db) }) else { return }
+        // The topics and their open runs in one read, so the badge counts one state of the store.
+        guard
+            let (topics, openRuns) = try? await store.writer.read({ db in
+                (try StoreView.dueTopics(db), try RunOverlay.openRunTopics(db))
+            })
+        else { return }
         let clock = (try? await store.syncState.syncState())?.serverClock ?? .device
         let now = clock.now(at: now())
         if let topicId = q.topicId, let dueSince = q.dueSince.flatMap(Self.date),
@@ -155,7 +160,7 @@ public struct NotificationPreparation: Sendable {
             out.body = Self.alreadyLoggedBody
             out.categoryIdentifier = ""
         }
-        out.badge = TopicListing.dueCount(topics.map(\.topic), now: now, openRuns: TopicListing.noOpenRuns)
+        out.badge = TopicListing.dueCount(topics.map(\.topic), now: now, openRuns: openRuns)
     }
 
     /// The reminder's ids and descriptor keep the contract (§2.1, §2.3, §4.2), so its category's

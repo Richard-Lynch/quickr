@@ -136,6 +136,7 @@ struct EditView: View {
 
     var body: some View {
         FormView(model: model.form) {
+            EntryTimingSection(timing: model.entry.timing)
             EntryDetailsSection(model: model, idPrefix: "edit")
             deleteSection
         }
