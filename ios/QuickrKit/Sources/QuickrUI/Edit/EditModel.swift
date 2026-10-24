@@ -342,6 +342,14 @@ public final class EditModel: EntryDetailsEditing {
 
     private func reload(_ latest: Entry) {
         let fresh = FormModel(questions: form.questions, mode: .edit(answers: latest.answers))
+        var latest = latest
+        // Times saved here after `latest` was seen (an Edit times save) are newer: keep them, and
+        // the revision the next save is based on.
+        if latest.revision < entry.revision {
+            latest.timing = entry.timing
+            latest.capturedAt = entry.capturedAt
+            latest.revision = entry.revision
+        }
         entry = latest
         form = fresh
         baseline = fresh.inputs

@@ -218,6 +218,42 @@ private let utc = TimingEditClock(timeZone: TimeZone(identifier: "UTC")!)
         #expect(!m.hasUnsavedChanges)
     }
 
+    @Test func reloadingAnOlderChangeKeepsTimesSavedSince() async throws {
+        let m = editModel()
+        _ = m.form.change("mood", to: .text("5"))
+        var elsewhere = timedEntry
+        elsewhere.answers = ["mood": .int(1)]
+        m.entryChanged(elsewhere)  // revision 3: answers changed elsewhere, then
+        _ = try editor(m)
+        await m.saveTiming()  // times saved here: revision 4
+        m.reloadChangedEntry()
+        let revision: Int = m.entry.revision
+        #expect(revision == 4)
+        let first: Int? = m.entry.timing?.segments.first?.activeMs
+        #expect(first == 240_000)
+        let input = m.form.input(for: "mood")
+        #expect(input == .text("1"))
+        _ = m.form.change("mood", to: .text("2"))
+        #expect(await m.save() == .leave)
+        let base: Int? = entryWriter.updates.first?.baseRevision
+        #expect(base == 4, "not the older revision: that save would get a 409")
+    }
+
+    @Test func aRevisionSeenWhileSavingMakesAFailedSaveStale() async throws {
+        let m = editModel()
+        let editor = try editor(m)
+        writer.saveResult = .failed("offline-ish")
+        editor.entryChanged(revision: 4)
+        await m.saveTiming()
+        #expect(editor.isStale)
+        var newer = timedEntry
+        newer.revision = 3
+        writer.latest = newer
+        writer.saveResult = nil
+        await editor.reload()  // the server still says 3, but 4 was seen: stale
+        #expect(editor.isStale)
+    }
+
     @Test func aCleanFormTakesAChangeElsewhere() {
         let m = editModel()
         var elsewhere = timedEntry

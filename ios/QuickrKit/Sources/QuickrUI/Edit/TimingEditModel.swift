@@ -64,10 +64,9 @@ public final class TimingEditModel {
         draft = TimingDraft(timing: timing, clock: clock)
     }
 
-    /// The entry's revision changed elsewhere while the sheet is open (or the save's own answer
-    /// arrived first: a save in flight ignores it).
+    /// The entry's revision changed while the sheet is open. Recorded even while a save is out:
+    /// if the save succeeds the sheet closes, and if it fails the draft is stale.
     public func entryChanged(revision: Int) {
-        guard !isSaving else { return }
         latestRevision = Swift.max(latestRevision, revision)
     }
 
@@ -150,7 +149,8 @@ public final class TimingEditModel {
     /// A fresh draft of `timing` at `revision`: no errors, nothing stale.
     func open(_ timing: Timing, revision: Int) {
         self.revision = revision
-        latestRevision = revision
+        // A newer revision seen meanwhile still makes the reloaded times stale.
+        latestRevision = Swift.max(latestRevision, revision)
         conflict = false
         submitted = false
         serverErrors = [:]
