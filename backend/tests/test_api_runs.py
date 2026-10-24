@@ -358,9 +358,16 @@ async def test_concurrent_next_same_segment(client: httpx.AsyncClient) -> None:
 
     results = await _racing(next_at(60), next_at(61))
     assert [r.status_code for r in results] == [200, 200]
-    effects = sorted((r.json()["event"]["effect"], r.json()["event"]["reason"]) for r in results)
-    assert effects == [("applied", None), ("void", "stale")]
+    early, late = (r.json()["event"]["id"] for r in results)
+    # The lock decides which arrives first; time order decides which applies. If the 61 s tap
+    # arrives first it applies, and the 60 s tap then makes it stale: each response carries
+    # the effects as of its own write, so only the later response (and the run) has the final
+    # word on both.
+    final = {early: {"effect": "applied", "reason": None}, late: {"effect": "void", "reason": "stale"}}
+    last = max((r.json()["run"] for r in results), key=lambda run: run["revision"])
+    assert {k: last["state"]["effects"][k] for k in final} == final
     state = (await run.get())["state"]
+    assert {k: state["effects"][k] for k in final} == final
     assert state["open"]["index"] == 1  # one advance
     assert [s["step"] for s in state["segments"]] == ["shower"]
     assert state["segments"][0]["ended_at"] == "2026-10-23T08:01:00Z"  # the earlier tap by time
