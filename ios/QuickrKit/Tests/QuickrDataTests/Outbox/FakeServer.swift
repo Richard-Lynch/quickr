@@ -244,6 +244,7 @@ final class FakeServer: Transport {
         switch (request.method, parts[2], parts.count > 4 ? parts[4] : nil) {
         case (.post, "topics", "entries"): return createEntry(topicId: id, request, &state)
         case (.post, "runs", "events"): return recordRunEvent(id, request, &state)
+        case (.get, "runs", nil): return getRun(id, state)
         case (.get, "entries", nil):
             guard let entry = state.entries[id] else { return problem(404, "not_found") }
             return ok(200, entry)

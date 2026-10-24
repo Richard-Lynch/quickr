@@ -207,6 +207,9 @@ public enum OutboxFailureReason: String, Sendable, Hashable, CaseIterable, Codab
     case topicArchived = "topic_archived"
     case topicMissing = "topic_missing"
     case futureTime = "future_time"
+    /// A run's tap whose run never existed: its id is an entry another device logged for the same
+    /// reminder (timers.md §10.2). Nothing can come of it; dismiss it.
+    case loggedElsewhere = "logged_elsewhere"
 }
 
 /// The process that enqueued an item; decides `source` for creates (outbox.md §4).
