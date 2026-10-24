@@ -468,6 +468,7 @@ async def runs(client: httpx.AsyncClient, rec: Recorder) -> None:
     def post(run_id: str) -> str:
         return f"/runs/{run_id}/events"
 
+    runs_from = (await client.get("/changes?after=0&limit=500")).json()["head"]
     await rec("recordRunEvent", "POST", post(R1), start(R1, everything, "2026-03-04T11:00:00Z"), status=201)
     # A second device's start for the same topic: merged into R1, whose start time is kept.
     await rec(
@@ -506,6 +507,8 @@ async def runs(client: httpx.AsyncClient, rec: Recorder) -> None:
         status=200,
         variant="finishing",
     )
+    # The feed since the first start: one run item, finishing (timers.md §7.1).
+    await rec("listChanges", "GET", f"/changes?after={runs_from}", status=200, variant="run")
     await rec("getRun", "GET", f"/runs/{R2}", status=200)  # an alias resolves
     await rec("listRuns", "GET", "/runs", status=200, params={"status": "finishing"})
     await rec(
@@ -545,6 +548,8 @@ async def runs(client: httpx.AsyncClient, rec: Recorder) -> None:
         status=200,
         variant="discard_finishing",
     )
+    # The same span once every run has closed: their entries, and one run deletion each.
+    await rec("listChanges", "GET", f"/changes?after={runs_from}", status=200, variant="run_deletion")
 
     # --- problems ---
     await rec(
