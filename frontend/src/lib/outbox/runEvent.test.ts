@@ -1,7 +1,8 @@
 /** The `run.event` kind in a real outbox: start ordering, K6, classification (timers.md §8). */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { T0, runItem } from '../../test/runs';
+import { fakeQuickrServer } from '../../test/fakeQuickrServer';
+import { T0, TOPIC, runItem } from '../../test/runs';
 import { ackedItems, memoryAckedStore, setAckedStore } from '../runs/acked';
 import { ENTRY_CREATE, OUTBOX_KINDS, RUN_EVENT, type RunEventPayload } from './kinds';
 import { createOutbox } from './outbox';
@@ -233,6 +234,111 @@ describe('finish after stop (L1)', () => {
     await queue(stop, finish);
     await outbox.discard('s1');
     expect(await ids()).toEqual(['f1:pending']);
+  });
+});
+
+describe("start after another run's stop (§8.1)", () => {
+  const r2 = runItem('start', { id: 'r2', run: 'r2', at: T0 });
+  const s2 = runItem('stop', { id: 's2', run: 'r2', at: T0 + 2000 });
+  const r3 = runItem('start', { id: 'r3', run: 'r3', at: T0 + 3000 });
+
+  /** An outbox on the stateful fake: it merges a start into the topic's open run. */
+  function onServer() {
+    const t = { now: T0 };
+    const server = fakeQuickrServer('srv', [TOPIC.id]);
+    const store = memoryOutboxStore();
+    const outbox = createOutbox({
+      kinds: OUTBOX_KINDS,
+      store,
+      fetch: server.fetch,
+      now: () => t.now,
+      random: () => 0.5,
+      channelName: null,
+    });
+    const queue = async (...items: OutboxItem<RunEventPayload>[]) => {
+      for (const i of items) {
+        t.now = Date.parse(i.created_at);
+        // A failed item is put as it is: enqueue makes a pending one.
+        if (i.status === 'failed') await store.put(i);
+        else await outbox.enqueue(RUN_EVENT, i.payload, { id: i.id });
+      }
+    };
+    const sent = () =>
+      server.requests.map((r) => {
+        const b = r.body as { id: string; type: string };
+        return `${b.type}:${b.id}`;
+      });
+    return { server, outbox, queue, sent, t };
+  }
+
+  it('waits for the retrying stop, so the new run is created, not merged', async () => {
+    const { server, outbox, queue, sent } = onServer();
+    await queue(r2);
+    await outbox.flush(); // R2 started and acked
+    server.unavailable.add('s2');
+    await queue(s2);
+    await outbox.flush(); // 503: the stop backs off
+    await queue(r3); // the local view has R2 stopped: a new run
+    await outbox.flush({ force: true });
+    // The stop was retried (503 again); the start wasn't attempted.
+    expect(sent()).toEqual(['start:r2', 'stop:s2', 'stop:s2']);
+    expect((await outbox.list()).map((i) => `${i.id}:${i.attempts}`)).toEqual(['s2:2', 'r3:0']);
+    expect(await outbox.nextDueAt()).toBe((await outbox.get('s2'))?.next_attempt_at);
+    server.unavailable.delete('s2');
+    await outbox.flush({ force: true });
+    expect(sent()).toEqual(['start:r2', 'stop:s2', 'stop:s2', 'stop:s2', 'start:r3']);
+    expect(await outbox.list()).toEqual([]);
+    expect(server.runs.get('r2')?.status).toBe('stopped');
+    expect(server.runs.get('r2')?.aliases).toBeUndefined();
+    expect(server.runs.get('r3')?.status).toBe('running');
+  });
+
+  it('waits for a pending discard of another run too', async () => {
+    const { server, outbox, queue, sent } = onServer();
+    const d2 = runItem('discard', { id: 'd2', run: 'r2', at: T0 + 2000 });
+    await queue(r2);
+    await outbox.flush();
+    server.unavailable.add('d2');
+    await queue(d2, r3);
+    await outbox.flush({ force: true });
+    expect(sent()).toEqual(['start:r2', 'discard:d2']);
+    server.unavailable.delete('d2');
+    await outbox.flush({ force: true });
+    expect(sent()).toEqual(['start:r2', 'discard:d2', 'discard:d2', 'start:r3']);
+    expect(server.runs.get('r3')?.status).toBe('running');
+  });
+
+  it("isn't held by a failed stop: it goes, and the server merges it into the run still open", async () => {
+    const { server, outbox, queue, sent } = onServer();
+    await queue(r2);
+    await outbox.flush();
+    await queue(runItem('stop', { id: 's2', run: 'r2', at: T0 + 2000, status: 'failed' }), r3);
+    await outbox.flush();
+    expect(sent()).toEqual(['start:r2', 'start:r3']);
+    // The failed stop stays for the user (retry or discard), as any failed item.
+    expect((await outbox.list()).map((i) => `${i.id}:${i.status}`)).toEqual(['s2:failed']);
+    expect(server.runs.get('r2')?.aliases?.has('r3')).toBe(true);
+  });
+
+  it("isn't held by the stop of a run whose start failed", async () => {
+    const { outbox, queue, sent } = onServer();
+    await queue(
+      runItem('start', { id: 'r2', run: 'r2', at: T0, status: 'failed' }),
+      s2, // held by its failed start
+      r3,
+    );
+    await outbox.flush();
+    expect(sent()).toEqual(['start:r3']);
+  });
+
+  it("isn't held by a later stop, the run's own, or another topic's", () => {
+    const kind = OUTBOX_KINDS[RUN_EVENT];
+    const later = runItem('stop', { id: 's9', run: 'r9', at: T0 + 4000 });
+    const own = runItem('stop', { id: 's3', run: 'r3', at: T0 + 2000 });
+    const elsewhere = runItem('stop', { id: 's8', run: 'r8', at: T0 + 2000 });
+    elsewhere.payload = { ...elsewhere.payload, topic: { ...TOPIC, id: 'topic-2' } };
+    expect(kind?.waitsFor?.(r3, [later, own, elsewhere, r3])).toEqual([]);
+    expect(kind?.waitsFor?.(r3, [s2, r3])).toEqual(['s2']);
   });
 });
 

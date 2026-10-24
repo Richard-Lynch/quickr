@@ -6,7 +6,9 @@
  * `type: start` only): idempotent by event id and `at`, 409 `event_conflict` for the same id
  * with another `at`, 409 `run_deleted` for a run in `deletedRuns`, 409 `id_conflict` for an
  * entry's id, 409 `topic_not_timed` for a topic marked `untimed`; a start for a topic with an
- * open run is merged into it (201, the start `void`, `merged`; its id becomes an alias).
+ * open run is merged into it (201, the start `void`, `merged`; its id becomes an alias). A
+ * `stop` closes its run (or the run its id was merged into); a `discard` deletes it. An event
+ * whose id is in `unavailable` gets a 503.
  * Every response carries the identity headers. Requests are recorded.
  */
 export interface FakeEntry {
@@ -34,6 +36,8 @@ export interface FakeQuickrServer {
   deleted: Set<string>;
   runs: Map<string, FakeRun>;
   deletedRuns: Set<string>;
+  /** Event ids answered 503 `unavailable` while they are in the set. */
+  unavailable: Set<string>;
   offline: boolean;
   requests: { method: string; url: string; headers: Record<string, string>; body: unknown }[];
   fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -47,6 +51,7 @@ export function fakeQuickrServer(serverId: string, topicIds: string[]): FakeQuic
     deleted: new Set(),
     runs: new Map(),
     deletedRuns: new Set(),
+    unavailable: new Set(),
     offline: false,
     requests: [],
     fetch: (input, init) => Promise.resolve(handle(server, input, init)),
@@ -107,7 +112,7 @@ function handle(server: FakeQuickrServer, input: RequestInfo | URL, init?: Reque
 function runEvent(server: FakeQuickrServer, runId: string, body: unknown): Response {
   const event = body as { id: string; type: string; at: string; topic_id: string; version: number };
   const result = (r: FakeRun, effect: 'applied' | 'void', reason: string | null = null) => ({
-    event: { id: runId, effect, reason },
+    event: { id: event.id, effect, reason },
     run: {
       id: r.id,
       topic_id: r.topic_id,
@@ -116,8 +121,20 @@ function runEvent(server: FakeQuickrServer, runId: string, body: unknown): Respo
     },
     entry: null,
   });
+  if (server.unavailable.has(event.id))
+    return respond(server, 503, problem('unavailable', 'Try again later'));
   if (server.deletedRuns.has(runId))
     return respond(server, 409, problem('run_deleted', 'Run deleted'));
+  if (event.type === 'stop' || event.type === 'discard') {
+    const target =
+      server.runs.get(runId) ?? [...server.runs.values()].find((r) => r.aliases?.has(runId));
+    if (!target) return respond(server, 404, problem('not_found', 'Not found'));
+    if (event.type === 'discard') {
+      server.runs.delete(target.id);
+      server.deletedRuns.add(target.id);
+    } else target.status = 'stopped';
+    return respond(server, 200, result(target, 'applied'));
+  }
   if (event.type !== 'start' || event.id !== runId)
     return respond(server, 404, problem('not_found', 'Not found'));
   const existing = server.runs.get(runId);

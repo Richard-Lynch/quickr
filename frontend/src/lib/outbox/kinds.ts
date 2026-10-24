@@ -119,10 +119,31 @@ const runEvent: OutboxKind<RunEventPayload> = {
    * The ordering rule (§8.2): an event waits for its run's start, pending or failed. A
    * finish also waits for its run's pending stops, so it doesn't reach the server before
    * them (a failed stop doesn't hold it: the finish goes, and fails on `run_open`).
+   *
+   * A start waits for the pending stops and discards of the topic's other runs enqueued
+   * before it (§8.1): the local view has that run closed, but the server, still having it
+   * open, would merge the new run into it. A failed one doesn't hold it: the start goes,
+   * and the server merges it if the run is still open there. So does a close of a run whose
+   * start failed.
    */
   waitsFor(item, queue) {
     const { event, run_id: runId } = item.payload;
-    if (event.type === 'start') return [];
+    if (event.type === 'start') {
+      // A run whose start failed isn't open on the server: its close (held by that start
+      // until it is retried or discarded) doesn't hold another run's start.
+      const failedStart = (id: string) => queue.some((i) => i.id === id && i.status === 'failed');
+      const closes = queue.filter(
+        (i) =>
+          isRunEvent(i) &&
+          i.payload.topic.id === item.payload.topic.id &&
+          i.payload.run_id !== runId &&
+          (i.payload.event.type === 'stop' || i.payload.event.type === 'discard') &&
+          i.status === 'pending' &&
+          !failedStart(i.payload.run_id) &&
+          enqueuedBefore(i, item),
+      );
+      return closes.map((i) => i.id);
+    }
     if (event.type !== 'finish') return [runId];
     const stops = queue.filter(
       (i) =>
@@ -180,6 +201,16 @@ const runEvent: OutboxKind<RunEventPayload> = {
     };
   },
 };
+
+/** Whether `a` was enqueued before `b`, as the outbox orders them (`created_at`, the `at`, the id). */
+function enqueuedBefore(a: OutboxItem<RunEventPayload>, b: OutboxItem<RunEventPayload>): boolean {
+  const key = (i: OutboxItem<RunEventPayload>) => runEvent.orderKey?.(i) ?? '';
+  return (
+    (a.created_at.localeCompare(b.created_at) ||
+      key(a).localeCompare(key(b)) ||
+      a.id.localeCompare(b.id)) < 0
+  );
+}
 
 export const OUTBOX_KINDS: Readonly<Record<string, OutboxKind>> = {
   [ENTRY_CREATE]: entryCreate,
