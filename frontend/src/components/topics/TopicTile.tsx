@@ -13,7 +13,10 @@ import { inputHints } from '../../lib/answerSchema';
 import { initialNumber, parseQuickNumber, quickLogFor, type QuickLog } from '../../lib/quickLog';
 import { dueView, type DueView } from '../../lib/schedule';
 import type { NumericQuestion } from '../../lib/questions';
+import { isOpen, type LocalRun } from '../../lib/runs/localView';
 import { NumberInput } from '../answers/AnswerField';
+import { timerOf, useTopicVersions } from '../runs/context';
+import { RunStatus, RunTileAction } from '../runs/RunTile';
 import { Badge } from '../ui/Card';
 import { cn } from '../ui/cn';
 import { Icon } from '../ui/Icon';
@@ -52,10 +55,23 @@ export function DueBadge({ view, className }: { view: DueView; className?: strin
   );
 }
 
-export function TopicTile({ topic: t, now }: { topic: TopicSummary; now: Date }) {
+export function TopicTile({
+  topic: t,
+  now,
+  run,
+}: {
+  topic: TopicSummary;
+  now: Date;
+  /** The topic's open or finishing run in the local view, if any. */
+  run?: LocalRun | undefined;
+}) {
   const archived = t.status === 'archived';
+  // Timed topics (timers.md §11.1) start a run instead of logging; their questions are
+  // answered at Stop. A run makes the tile timed even before the versions are known.
+  const versions = useTopicVersions(t.id, !archived);
+  const timed = Boolean(timerOf(versions.data, t.current_version)) || run !== undefined;
   // A topic with no questions logs with one tap: the tile and its Log button log it at once.
-  const single = !archived && t.question_count === 0;
+  const single = !archived && !timed && t.question_count === 0;
   const logSingle = useSingleLog(t);
   const detail = useQuery({
     ...getTopicOptions({ path: { ref: t.slug } }),
@@ -67,7 +83,7 @@ export function TopicTile({ topic: t, now }: { topic: TopicSummary; now: Date })
     detail.data?.current_version === t.current_version ? detail.data.questions : null;
   const found = !archived && questions ? quickLogFor(questions) : null;
   // A single topic logs from the tile itself (`single` above); chips and numbers answer a question.
-  const quick = found && found.kind !== 'single' ? found : null;
+  const quick = found && found.kind !== 'single' && !timed ? found : null;
   // Quick tiles show (and number tiles start from) the last answer.
   const last = useQuery({
     ...lastEntryOptions(t.slug),
@@ -79,7 +95,9 @@ export function TopicTile({ topic: t, now }: { topic: TopicSummary; now: Date })
     : undefined;
   const lastText = quick && lastAnswer ? formatAnswer(quick.question, lastAnswer) : null;
   const due = dueView(t.due, now);
-  const isDue = due.tone === 'due' || due.tone === 'overdue';
+  // An open run stands in for the due state; a finishing one doesn't (timers.md §11.1).
+  const running = run !== undefined && isOpen(run);
+  const isDue = !running && (due.tone === 'due' || due.tone === 'overdue');
   const base = `/t/${t.slug}`;
 
   return (
@@ -119,13 +137,14 @@ export function TopicTile({ topic: t, now }: { topic: TopicSummary; now: Date })
             )}
           </h2>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8rem] text-muted">
-            <DueBadge view={due} />
+            {run ? <RunStatus run={run} /> : null}
+            {running ? null : <DueBadge view={due} />}
             {archived ? (
               <Badge tone="warn">
                 <Icon name="archive" className="size-3.5" /> Archived
               </Badge>
             ) : null}
-            <span>
+            <span className={running ? 'hidden' : undefined}>
               {t.entry_count === 0 ? (
                 'No entries yet'
               ) : lastText ? (
@@ -159,6 +178,14 @@ export function TopicTile({ topic: t, now }: { topic: TopicSummary; now: Date })
           <Icon name={logSingle.logged ? 'check' : 'plus'} className="size-6" strokeWidth={2.6} />
           Log
         </button>
+      ) : timed && (!archived || run) ? (
+        <RunTileAction
+          topic={{ id: t.id, slug: t.slug, name: t.name }}
+          run={run}
+          versions={versions.data}
+          currentVersion={t.current_version}
+          loud={isDue}
+        />
       ) : !archived ? (
         <Link
           to={`${base}/record`}

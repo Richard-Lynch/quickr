@@ -18,6 +18,7 @@ import {
   type RunEventPayload,
 } from '../lib/outbox/kinds';
 import type { Outbox } from '../lib/outbox/outbox';
+import { noticeFor, pushRunNotice } from '../lib/runs/notices';
 import { dueAfterLogging } from '../lib/schedule';
 import type { OutboxEvent, OutboxItem } from '../lib/outbox/types';
 import { patchEntries, patchTopics, prependEntry, topicIs } from './cache';
@@ -127,6 +128,9 @@ const runEvent: KindEffects<RunEventPayload> = {
     }
     const { run, entry } = parsed.data;
     upsertServerRun(qc, run);
+    // A void tap the user should hear about (§11.4).
+    const notice = noticeFor(item, parsed.data);
+    if (notice) pushRunNotice(notice);
     if (entry) {
       prependEntry(qc, item.payload.topic, entry);
       qc.setQueryData(getEntryQueryKey({ path: { entry_id: entry.id } }), entry);

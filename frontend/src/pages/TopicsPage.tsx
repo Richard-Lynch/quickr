@@ -18,6 +18,7 @@ import { Skeleton } from '../components/ui/Spinner';
 import { useDebounced, useNow } from '../lib/hooks';
 import { plural } from '../lib/format';
 import { dueCount, splitByDue } from '../lib/home';
+import { isOpen, type LocalRun } from '../lib/runs/localView';
 import { useRuns } from '../lib/runs/useRuns';
 
 type Query = NonNullable<ListTopicsData['query']>;
@@ -86,7 +87,15 @@ export function TopicsPage() {
   const total = query.data?.pages[0]?.total ?? 0;
   const filtered = q !== '' || status !== 'active';
   const sectioned = sort === 'due' && !filtered;
-  const { openTopics } = useRuns();
+  const { openTopics, runs } = useRuns();
+  // Each timed tile's open or finishing run (one per topic, §5).
+  const tileRuns = useMemo(
+    () =>
+      new Map(
+        runs.filter((r) => isOpen(r) || r.status === 'finishing').map((r) => [r.topic_id, r]),
+      ),
+    [runs],
+  );
   const sections = useMemo(() => splitByDue(items, now, openTopics), [items, now, openTopics]);
   const dueTotal = useMemo(() => dueCount(items, now, openTopics), [items, now, openTopics]);
 
@@ -172,7 +181,7 @@ export function TopicsPage() {
                   </p>
                 }
               >
-                <TileList topics={sections.due} now={now} />
+                <TileList topics={sections.due} now={now} runs={tileRuns} />
               </Section>
             ) : null}
 
@@ -253,7 +262,7 @@ export function TopicsPage() {
               <>
                 {sections.upcoming.length > 0 ? (
                   <Section title="Coming up" count={sections.upcoming.length}>
-                    <TileList topics={sections.upcoming} now={now} />
+                    <TileList topics={sections.upcoming} now={now} runs={tileRuns} />
                   </Section>
                 ) : null}
                 {sections.other.length > 0 ? (
@@ -261,12 +270,12 @@ export function TopicsPage() {
                     title={sections.upcoming.length > 0 ? 'Unscheduled' : 'All'}
                     count={sections.other.length}
                   >
-                    <TileList topics={sections.other} now={now} />
+                    <TileList topics={sections.other} now={now} runs={tileRuns} />
                   </Section>
                 ) : null}
               </>
             ) : (
-              <TileList topics={items} now={now} />
+              <TileList topics={items} now={now} runs={tileRuns} />
             )}
           </>
         )}
@@ -320,7 +329,15 @@ function Section({
   );
 }
 
-function TileList({ topics, now }: { topics: readonly TopicSummary[]; now: Date }) {
+function TileList({
+  topics,
+  now,
+  runs,
+}: {
+  topics: readonly TopicSummary[];
+  now: Date;
+  runs: ReadonlyMap<string, LocalRun>;
+}) {
   return (
     <ul className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
       {topics.map((t, i) => (
@@ -329,7 +346,7 @@ function TileList({ topics, now }: { topics: readonly TopicSummary[]; now: Date 
           className="animate-rise"
           style={{ animationDelay: `${Math.min(i, 8) * 30}ms` }}
         >
-          <TopicTile topic={t} now={now} />
+          <TopicTile topic={t} now={now} run={runs.get(t.id)} />
         </li>
       ))}
     </ul>

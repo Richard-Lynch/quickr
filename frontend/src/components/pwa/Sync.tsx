@@ -5,6 +5,8 @@ import { isEntryCreate, isRunEvent } from '../../lib/outbox/kinds';
 import type { OutboxItem } from '../../lib/outbox/types';
 import { useOutbox } from '../../lib/outbox/useOutbox';
 import { formatDateTime, formatRelative } from '../../lib/dates';
+import { dismissRunNotice } from '../../lib/runs/notices';
+import { useRunNotices } from '../runs/RunNotices';
 import { plural } from '../../lib/format';
 import { Button } from '../ui/Button';
 import { Banner } from '../ui/Card';
@@ -31,10 +33,18 @@ export function describeOutboxItem(item: OutboxItem): ItemView {
   }
   if (isRunEvent(item)) {
     const { topic, event } = item.payload;
+    const base = `/t/${topic.slug}/record`;
     return {
-      title: `${event.type.charAt(0).toUpperCase()}${event.type.slice(1)} · ${topic.name}`,
+      title: `${event.type === 'finish' ? 'Details' : `${event.type.charAt(0).toUpperCase()}${event.type.slice(1)}`} · ${topic.name}`,
       when: formatDateTime(event.at),
-      fixUrl: null,
+      // Answers (a finish, or a stop with answers) are fixed in the answers form; a failed
+      // Stop on the run panel, where the run is open again and can be stopped or discarded.
+      fixUrl:
+        event.type === 'finish' || (event.type === 'stop' && event.answers != null)
+          ? `${base}?fix=${encodeURIComponent(item.id)}`
+          : event.type === 'stop'
+            ? base
+            : null,
     };
   }
   return { title: item.kind, when: formatDateTime(item.created_at), fixUrl: null };
@@ -176,6 +186,7 @@ export function OutboxPanel({ onNavigate }: { onNavigate?: () => void }) {
           </Button>
         ) : null}
       </div>
+      <NoticeList />
       {items.length > 0 ? (
         <ul className="flex flex-col gap-2">
           {items.map((i) => (
@@ -187,22 +198,53 @@ export function OutboxPanel({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+/** §11.4 notices that arrived while the app wasn't on screen. */
+function NoticeList() {
+  const notices = useRunNotices();
+  if (notices.length === 0) return null;
+  return (
+    <ul className="flex flex-col gap-2" aria-label="Notices">
+      {notices.map((n) => (
+        <li
+          key={n.id}
+          className="flex items-start gap-3 rounded-2xl border border-info/25 bg-info-soft/60 px-4 py-3"
+        >
+          <Icon name="info" className="mt-0.5 size-5 text-info" />
+          <p className="min-w-0 flex-1 text-sm">{n.text}</p>
+          <Button size="sm" variant="ghost" onClick={() => dismissRunNotice(n.id)}>
+            Dismiss
+          </Button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /**
  * Header pill: "Offline", "2 waiting to sync" or "1 failed". Hidden when all is well.
  * Tapping opens the sync sheet.
  */
 export function SyncIndicator() {
   const { online, pendingCount, failedCount, loaded } = useOutbox();
+  const notices = useRunNotices().length;
   const [open, setOpen] = useState(false);
-  if (!loaded || (online && pendingCount === 0 && failedCount === 0)) return null;
+  if (!loaded || (online && pendingCount === 0 && failedCount === 0 && notices === 0)) return null;
 
   const failed = failedCount > 0;
   const label = failed
     ? `${failedCount} failed to sync`
     : pendingCount > 0
       ? `${pendingCount} waiting to sync`
-      : 'Offline';
-  const short = failed ? `${failedCount} failed` : pendingCount > 0 ? `${pendingCount}` : 'Offline';
+      : online
+        ? plural(notices, 'notice')
+        : 'Offline';
+  const short = failed
+    ? `${failedCount} failed`
+    : pendingCount > 0
+      ? `${pendingCount}`
+      : online
+        ? String(notices)
+        : 'Offline';
 
   return (
     <>
@@ -220,8 +262,11 @@ export function SyncIndicator() {
         )}
       >
         <Icon
-          name={failed ? 'alert' : !online ? 'cloudOff' : 'sync'}
-          className={cn('size-4', online && !failed && 'animate-spin [animation-duration:2.5s]')}
+          name={failed ? 'alert' : !online ? 'cloudOff' : pendingCount > 0 ? 'sync' : 'info'}
+          className={cn(
+            'size-4',
+            online && !failed && pendingCount > 0 && 'animate-spin [animation-duration:2.5s]',
+          )}
         />
         <span className="sm:hidden">{short}</span>
         <span className="max-sm:hidden">

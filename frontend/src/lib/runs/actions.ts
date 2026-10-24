@@ -58,6 +58,19 @@ export interface RunTapDeps {
 
 export type TapType = Exclude<RunEventType, 'start'>;
 
+/** `tapRun` was given the context of another version than the run's own. */
+export class RunVersionMismatch extends Error {
+  readonly runId: string;
+  readonly runVersion: number;
+
+  constructor(runId: string, runVersion: number, ctxVersion: number) {
+    super(`run ${runId} is pinned to version ${String(runVersion)}, not ${String(ctxVersion)}`);
+    this.name = 'RunVersionMismatch';
+    this.runId = runId;
+    this.runVersion = runVersion;
+  }
+}
+
 /** What a stop or finish carries (§3.5, §3.6). */
 export type TapBody = Pick<RunEventIn, 'answers' | 'notes' | 'meta'>;
 
@@ -195,7 +208,9 @@ function makesEntry(run: LocalRun, ctx: RunContext, type: TapType, body: TapBody
 /**
  * Enqueue one tap on the run `runId` routes to (its id or an alias). Returns the item, or
  * null when the run isn't in the local view (after one `refresh`) or its state has no
- * target for the tap. Throws when `ctx` is for another version than the run's. A
+ * target for the tap. A finish of a run that isn't in the view is still enqueued: a
+ * stopped run drops out of `listRuns`, and the server applies or voids the finish. Throws
+ * {@link RunVersionMismatch} when `ctx` is for another version than the run's. A
  * discard of a run the server never saw drops the run's items instead (K6): the item is
  * returned but not stored.
  */
@@ -216,10 +231,21 @@ export function tapRun(
       ({ runs, items } = await view(deps));
       run = runById(runs, runId);
     }
-    if (!run) return null;
-    if (run.version !== ctx.version) {
-      throw new Error(`run ${run.id} is pinned to version ${run.version}, not ${ctx.version}`);
+    if (!run) {
+      // A stopped run leaves the view once `listRuns` no longer lists it, but its answers
+      // can still come (§3.6): the server decides a finish, so send it to the run id.
+      if (type !== 'finish') return null;
+      const event: RunEventPayload['event'] = {
+        type,
+        // A finish isn't folded: its `at` needs no clamp.
+        at: stamp(tapAt, null, items),
+        ...(body.answers != null ? { answers: body.answers } : {}),
+        ...(body.notes != null ? { notes: body.notes } : {}),
+        ...(body.meta != null ? { meta: body.meta } : {}),
+      };
+      return deps.outbox.enqueue(RUN_EVENT, payloadOf(ctx, runId, false, event));
     }
+    if (run.version !== ctx.version) throw new RunVersionMismatch(run.id, run.version, ctx.version);
     const target = targetOf(run, type);
     if (target === null) return null;
     const carries = type === 'stop' || type === 'finish';
