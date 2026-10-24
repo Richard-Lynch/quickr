@@ -127,7 +127,11 @@ enum FakeTiming {
         if path == entryPath, request.method == .patch {
             guard let body = request.body.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
                 let edit = edit(body["timing"])
-            else { return problem(422, "invalid_request", "timing is required") }
+            else {
+                return problem(
+                    422, "invalid_request", "invalid timing: a step segment names its step, a lap names none",
+                    loc: ["body", "timing"])
+            }
             if body["captured_at"] != nil {
                 return problem(422, "invalid_request", "timing and captured_at together", loc: ["body", "captured_at"])
             }
@@ -175,9 +179,13 @@ enum FakeTiming {
         else { return nil }
         var out: [TimingDraft.Edit.Segment] = []
         for s in segments {
-            guard let end = (s["ended_at"] as? String).flatMap(RunInstant.parse) else { return nil }
+            guard let end = (s["ended_at"] as? String).flatMap(RunInstant.parse),
+                let kind = (s["kind"] as? String).flatMap(RunSegmentKind.init(rawValue:))
+            else { return nil }
             let step = s["step"] as? String
-            out.append(.init(kind: step == nil ? .lap : .step, step: step, endedAt: end))
+            // The backend's rule: a step segment names its step, a lap names none.
+            guard (kind == .step) == (step != nil) else { return nil }
+            out.append(.init(kind: kind, step: step, endedAt: end))
         }
         let pauses = (t["pauses"] as? [[String: Any]] ?? []).compactMap { p -> RunPause? in
             guard let a = (p["start"] as? String).flatMap(RunInstant.parse),

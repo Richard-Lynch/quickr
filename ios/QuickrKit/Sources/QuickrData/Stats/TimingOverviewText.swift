@@ -27,6 +27,22 @@ public struct TimingOverviewText: Sendable, Hashable {
     public struct Point: Sendable, Hashable {
         public var endedAt: Date
         public var activeMs: Int
+        /// Each step segment's key and its active time.
+        public var steps: [String: Int]
+    }
+
+    /// Each step's mean time per run in one bucket (the PWA's `stepsByBucket`): a run that didn't
+    /// time the step counts as 0, so the stack's height is the mean time per run spent in steps.
+    public struct StepBucket: Sendable, Hashable {
+        public var start: Date
+        public var count: Int
+        /// By step key, in the steps' order; keys no run in the bucket timed are left out.
+        public var meanMs: [StepMean]
+    }
+
+    public struct StepMean: Sendable, Hashable {
+        public var key: String
+        public var ms: Int
     }
 
     /// Every run in one chart bucket (the PWA's `totalsByBucket`): the floored mean, min and max
@@ -55,21 +71,9 @@ public struct TimingOverviewText: Sendable, Hashable {
     /// The runs by the bucket they ended in (`calendar`'s zone): local midnight, the Monday, or
     /// the 1st, oldest first.
     public func totals(by bucket: QuestionSeries.Bucket, calendar: Calendar) -> [BucketPoint] {
-        var calendar = calendar
-        calendar.firstWeekday = 2
-        var groups: [Date: [Int]] = [:]
-        for point in points {
-            let day = calendar.startOfDay(for: point.endedAt)
-            let start: Date
-            switch bucket {
-            case .day: start = day
-            case .week: start = calendar.dateInterval(of: .weekOfYear, for: day)?.start ?? day
-            case .month: start = calendar.dateInterval(of: .month, for: day)?.start ?? day
-            }
-            groups[start, default: []].append(point.activeMs)
-        }
+        let groups = grouped(by: bucket, calendar: calendar)
         return groups.keys.sorted().map { start in
-            let ms = groups[start] ?? []
+            let ms = (groups[start] ?? []).map(\.activeMs)
             // Durations are non-negative, so integer division is the floor.
             return BucketPoint(
                 start: start, count: ms.count, meanMs: ms.reduce(0, +) / Swift.max(1, ms.count),
@@ -95,7 +99,9 @@ public struct TimingOverviewText: Sendable, Hashable {
         completeNote =
             "Best, median and mean over complete runs: \(timing.completeRuns.formatted()) of \(Self.plural(timing.runs, "run"))"
         points = timing.series.compactMap { point in
-            RunInstant.parse(point.capturedAt).map { Point(endedAt: RunInstant.date($0), activeMs: point.activeMs) }
+            RunInstant.parse(point.capturedAt).map {
+                Point(endedAt: RunInstant.date($0), activeMs: point.activeMs, steps: point.steps)
+            }
         }
         let longest = timing.steps.compactMap(\.medianMs).max() ?? 0
         func share(_ ms: Int?) -> Double {
@@ -112,6 +118,41 @@ public struct TimingOverviewText: Sendable, Hashable {
         lapMedian = Self.duration(timing.laps.medianMs)
         runsWithPauses = timing.paused.runsWithPauses.formatted()
         pausedMedian = Self.duration(timing.paused.medianMs)
+    }
+
+    /// The time per step per bucket, stacked (`stepsByBucket`), in the steps' order.
+    public func stepTotals(by bucket: QuestionSeries.Bucket, calendar: Calendar) -> [StepBucket] {
+        let groups = grouped(by: bucket, calendar: calendar)
+        let order = steps.map(\.key)
+        return groups.keys.sorted().map { start in
+            let runs = groups[start] ?? []
+            let seen = Set(runs.flatMap(\.steps.keys))
+            let keys = order.filter(seen.contains) + seen.subtracting(order).sorted()
+            // Durations are non-negative, so integer division is the floor.
+            let means = keys.map { key in
+                StepMean(key: key, ms: runs.reduce(0) { $0 + ($1.steps[key] ?? 0) } / Swift.max(1, runs.count))
+            }
+            return StepBucket(start: start, count: runs.count, meanMs: means)
+        }
+    }
+
+    /// The runs by the bucket they ended in, in `calendar`'s zone: local midnight, the Monday, or
+    /// the 1st (the PWA's `bucketStart`).
+    private func grouped(by bucket: QuestionSeries.Bucket, calendar: Calendar) -> [Date: [Point]] {
+        var calendar = calendar
+        calendar.firstWeekday = 2
+        var groups: [Date: [Point]] = [:]
+        for point in points {
+            let day = calendar.startOfDay(for: point.endedAt)
+            let start: Date
+            switch bucket {
+            case .day: start = day
+            case .week: start = calendar.dateInterval(of: .weekOfYear, for: day)?.start ?? day
+            case .month: start = calendar.dateInterval(of: .month, for: day)?.start ?? day
+            }
+            groups[start, default: []].append(point)
+        }
+        return groups
     }
 
     /// The section's state: hidden for an untimed topic without runs; "No runs in this range"

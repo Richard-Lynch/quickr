@@ -56,6 +56,10 @@ final class SessionTopicWriter: TopicWriter, VersionWriter, EntryTimingWriting {
         await perform { await $0.latest(topicId: topicId) }
     }
 
+    func versions(topicId: UUID) async -> TopicWriteOutcome<[TopicVersion]> {
+        await perform { await $0.versions(topicId: topicId) }
+    }
+
     /// Edit times: online only (timers.md §3.8), see `TopicWrites.updateEntryTiming`.
     func saveTiming(_ edit: TimingDraft.Edit, entryId: UUID, expectedRevision: Int) async -> TopicWriteOutcome<Entry> {
         await perform { await $0.updateEntryTiming(entryId: entryId, edit, expectedRevision: expectedRevision) }

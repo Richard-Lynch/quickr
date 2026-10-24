@@ -292,17 +292,24 @@ public final class EditModel: EntryDetailsEditing {
     /// Why Edit times isn't offered, if it isn't: the server must have the entry, and saving is
     /// online.
     public var timingEditUnavailable: String? {
-        guard isTimed else { return nil }
+        guard let timing = entry.timing else { return nil }
         if localOnly || timingWriter == nil { return "Edit times once this run has synced." }
+        // Its steps' labels and choices come from its version's row.
+        if timerSteps.isEmpty && timing.segments.contains(where: { $0.kind == .step }) {
+            return "Edit times once its version has synced."
+        }
         return nil
     }
 
     /// "Edit times": the sheet over the times as they are now, at the entry's revision.
     public func openTimingEditor() {
         guard let timing = entry.timing, timingEditUnavailable == nil, let timingWriter else { return }
-        timingEditor = TimingEditModel(
+        let editor = TimingEditModel(
             entryId: entry.id, timing: timing, revision: entry.revision, steps: timerSteps, writer: timingWriter,
             clock: timingClock, now: now)
+        // A change seen elsewhere and not reloaded yet: these times may be behind it.
+        if let changedElsewhere { editor.entryChanged(revision: changedElsewhere.revision) }
+        timingEditor = editor
     }
 
     /// "Save times": saved, the sheet closes and the entry shows its new times. Unsaved answer and
@@ -319,7 +326,8 @@ public final class EditModel: EntryDetailsEditing {
     /// answers, notes or source changed too: a clean form takes them, a dirty one keeps its
     /// edits and says so (``changedElsewhere``), with Reload.
     public func entryChanged(_ latest: Entry) {
-        guard latest.id == entry.id, !isFixing, !saved, !isDeleted else { return }
+        // An older revision (a pull behind a save here) never takes back what's newer.
+        guard latest.id == entry.id, latest.revision >= entry.revision, !isFixing, !saved, !isDeleted else { return }
         timingEditor?.entryChanged(revision: latest.revision)
         let sameForm = latest.answers == entry.answers && latest.notes == entry.notes && latest.source == entry.source
         if sameForm {

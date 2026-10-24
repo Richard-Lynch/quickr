@@ -91,7 +91,15 @@ private struct TimingCards: View {
             Card {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Steps").font(.qr(.section)).accessibilityAddTraits(.isHeader)
-                    ForEach(text.steps) { step in StepBar(step: step) }
+                    ForEach(text.steps) { step in StepBar(step: step, color: color(step.key)) }
+                    let perStep = text.stepTotals(by: bucket, calendar: .autoupdatingCurrent)
+                    if !perStep.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Time per step, per \(bucket.rawValue)").font(.qr(.caption)).foregroundStyle(
+                                .qr.inkSoft)
+                            StepStackChart(points: perStep, text: text, bucket: bucket, color: color)
+                        }
+                    }
                 }
             }
             .accessibilityElement(children: .contain)
@@ -105,6 +113,11 @@ private struct TimingCards: View {
                 tile("Paused (median)", text.pausedMedian, id: "pausedMedian")
             }
         }
+    }
+
+    /// A step's series colour, as the question cards colour an option.
+    private func color(_ key: String) -> Color {
+        optionColor(key, in: text.steps.map { EnumOption(value: $0.key, label: $0.label) })
     }
 
     private func tile(_ label: String, _ value: String, id: String) -> some View {
@@ -121,6 +134,7 @@ private struct TimingCards: View {
 /// A step's median as a bar, its best as a mark on it; retired steps flagged.
 private struct StepBar: View {
     let step: TimingOverviewText.Step
+    let color: Color
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -133,7 +147,7 @@ private struct StepBar: View {
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.qr.sunken)
-                    Capsule().fill(Color.qr.accent).frame(width: proxy.size.width * step.share)
+                    Capsule().fill(color).frame(width: proxy.size.width * step.share)
                     Rectangle().fill(Color.qr.ink).frame(width: 2)
                         .offset(x: Swift.max(0, proxy.size.width * step.bestShare - 1))
                 }
@@ -192,5 +206,50 @@ private struct RunTimeLine: View {
         .frame(height: 160)
         .accessibilityLabel(TimingOverviewText.lineTitle(bucket))
         .accessibilityIdentifier("overview.timing.line")
+    }
+}
+
+/// Each step's mean time per run per bucket, stacked (the PWA's `StackedBars` with `measure="time"`).
+private struct StepStackChart: View {
+    let points: [TimingOverviewText.StepBucket]
+    let text: TimingOverviewText
+    let bucket: QuestionSeries.Bucket
+    let color: (String) -> Color
+
+    private func label(_ key: String) -> String { text.steps.first { $0.key == key }?.label ?? key }
+
+    var body: some View {
+        let keys = text.steps.map(\.key)
+        Chart {
+            ForEach(points, id: \.start) { point in
+                ForEach(point.meanMs, id: \.key) { segment in
+                    BarMark(x: .value("Bucket", point.start, unit: unit), y: .value("Time", segment.ms))
+                        .foregroundStyle(by: .value("Step", segment.key))
+                        .accessibilityLabel(ChartFormat.bucket(point.start, bucket))
+                        .accessibilityValue("\(label(segment.key)) \(DurationFormat.format(segment.ms))")
+                }
+            }
+        }
+        .chartForegroundStyleScale(domain: keys, range: keys.map(color))
+        .chartLegend(.hidden)
+        .chartYAxis {
+            AxisMarks(position: .leading) { value in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 1, dash: [2, 4])).foregroundStyle(Color.qr.line)
+                AxisValueLabel {
+                    if let ms = value.as(Int.self) { Text(DurationFormat.format(ms)).font(.qr(.monoCaption)) }
+                }
+            }
+        }
+        .frame(height: 160)
+        .accessibilityLabel("Time per step, per \(bucket.rawValue)")
+        .accessibilityIdentifier("overview.timing.perStep")
+    }
+
+    private var unit: Calendar.Component {
+        switch bucket {
+        case .day: .day
+        case .week: .weekOfYear
+        case .month: .month
+        }
     }
 }

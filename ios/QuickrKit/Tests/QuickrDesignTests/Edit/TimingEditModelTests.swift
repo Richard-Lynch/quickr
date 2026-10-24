@@ -254,6 +254,36 @@ private let utc = TimingEditClock(timeZone: TimeZone(identifier: "UTC")!)
         #expect(editor.isStale)
     }
 
+    @Test func anOlderRevisionNeverTakesBackSavedTimes() async throws {
+        let m = editModel()
+        _ = try editor(m)
+        await m.saveTiming()  // revision 4
+        m.entryChanged(timedEntry)  // a pull behind it: revision 3, the same answers
+        let revision: Int = m.entry.revision
+        #expect(revision == 4)
+        let first: Int? = m.entry.timing?.segments.first?.activeMs
+        #expect(first == 240_000)
+    }
+
+    @Test func editTimesOpensStaleBehindAPendingChangeElsewhere() throws {
+        let m = editModel()
+        _ = m.form.change("mood", to: .text("5"))
+        var elsewhere = timedEntry
+        elsewhere.revision = 4
+        elsewhere.answers = ["mood": .int(1)]
+        m.entryChanged(elsewhere)
+        let editor = try editor(m)
+        #expect(editor.isStale)
+    }
+
+    @Test func editTimesWaitsForTheVersionsSteps() {
+        let m = EditModel(
+            topic: topic, entry: timedEntry, questions: [question], localOnly: false, writer: entryWriter,
+            toasts: EntryToasts(center: center, writer: RecordFakeWriter()), scope: EntryScope("server-A/1"),
+            timerSteps: [], timingWriter: writer, timingClock: utc, now: { now })
+        #expect(m.timingEditUnavailable == "Edit times once its version has synced.")
+    }
+
     @Test func aCleanFormTakesAChangeElsewhere() {
         let m = editModel()
         var elsewhere = timedEntry

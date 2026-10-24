@@ -116,10 +116,14 @@ public final class EditQuestionsModel: BuilderEditing {
 
     /// `history` with a newer version's steps: their labels are the latest, their keys used.
     static func history(_ history: [HistoricStep], then timer: TopicTimer?) -> [HistoricStep] {
+        Self.history(history, then: (timer?.steps ?? []).map { HistoricStep(key: $0.key, label: $0.label) })
+    }
+
+    /// `history` with `newer`'s keys and labels on top.
+    static func history(_ history: [HistoricStep], then newer: [HistoricStep]) -> [HistoricStep] {
         var out = history
-        for step in timer?.steps ?? [] {
-            let latest = HistoricStep(key: step.key, label: step.label)
-            if let i = out.firstIndex(where: { $0.key == step.key }) { out[i] = latest } else { out.append(latest) }
+        for latest in newer {
+            if let i = out.firstIndex(where: { $0.key == latest.key }) { out[i] = latest } else { out.append(latest) }
         }
         return out
     }
@@ -260,6 +264,10 @@ public final class EditQuestionsModel: BuilderEditing {
         reload = token
         isReloading = true
         let outcome = await writer.latestTopic(topicId: base.id)
+        // Every version's steps: versions published meanwhile may have added and retired keys
+        // (timers.md §2.1). Without them, the history so far plus the latest version's.
+        var versions: [TopicVersion]?
+        if case .done = outcome, case .done(let all) = await writer.versions(topicId: base.id) { versions = all }
         // "Keep my draft" meanwhile: the answer isn't wanted any more.
         guard reload == token else { return }
         reload = nil
@@ -273,15 +281,17 @@ public final class EditQuestionsModel: BuilderEditing {
             return
         }
         showsConflict = false
-        rebase(on: fresh)
+        rebase(on: fresh, versions: versions)
         toasts.show(
             Toast("Loaded v\(fresh.currentVersion)", message: "Your unsaved edits were discarded.", tone: .info))
     }
 
-    /// The server's topic carries its current version's timer, and its steps join the history.
-    private func rebase(on topic: Topic) {
+    /// The server's topic carries its current version's timer; `versions` (when they could be
+    /// read) and that timer extend the history.
+    private func rebase(on topic: Topic, versions: [TopicVersion]?) {
         base = topic
         baseTimer = topic.timer
+        stepHistory = Self.history(stepHistory, then: versions.map(StepKeys.history) ?? [])
         stepHistory = Self.history(stepHistory, then: topic.timer)
         submitted = false
         let draft = Self.draft(for: topic, timer: topic.timer)

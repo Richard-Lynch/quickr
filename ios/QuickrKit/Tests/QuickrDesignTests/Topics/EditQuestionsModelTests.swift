@@ -84,6 +84,11 @@ final class FakeVersionWriter: VersionWriter {
         return .done(server)
     }
 
+    /// The server's versions ("Load latest version" reads their step keys).
+    var versionsResult: TopicWriteOutcome<[TopicVersion]> = .offline
+
+    func versions(topicId: UUID) async -> TopicWriteOutcome<[TopicVersion]> { versionsResult }
+
     func latestTopic(topicId: UUID) async -> TopicWriteOutcome<Topic> {
         calls.append(.latest)
         await latestGate?.wait()
@@ -521,6 +526,35 @@ final class FakeVersionWriter: VersionWriter {
         await checking.value
         #expect(model.review == nil)
         #expect(model.visibleBanner == EditQuestionsModel.changedWhileChecking)
+    }
+
+    /// "Load latest version" reads every version's steps: a key retired in a version published
+    /// meanwhile is still taken back by its label, never reused for another step.
+    @Test func loadingTheLatestVersionExtendsTheHistoryFromEveryVersion() async {
+        writer.checkResult = .rejected(EditQuestionsModelTests.conflict)
+        await model.reviewChanges()
+        var latest = EditQuestionsModelTests.topic
+        latest.currentVersion = 4
+        latest.timer = TopicTimer(steps: [.init(key: "shower", label: "Shower")])
+        writer.latestResult = .done(latest)
+        let v3 = TopicVersion(
+            version: 3, questions: [], timer: TopicTimer(steps: [.init(key: "wash", label: "Rinse")]),
+            createdAt: .distantPast)
+        let v4 = TopicVersion(version: 4, questions: [], timer: latest.timer, createdAt: .distantPast)
+        writer.versionsResult = .done([v4, v3])
+        await model.reloadLatest()
+        let base: Int = model.base.currentVersion
+        #expect(base == 4)
+        let id = model.addStep()!
+        model.setStepLabel(id, "rinse")
+        let retired: String? = model.draft.steps.last?.key
+        #expect(retired == "wash", "v3's retired step, taken back")
+        model.setStepLabel(id, "Old prep")
+        let older: String? = model.draft.steps.last?.key
+        #expect(older == "prep", "the history from before the reload is kept")
+        model.setStepLabel(id, "Dress")
+        let dress: String? = model.draft.steps.last?.key
+        #expect(dress == "dress", "dress is retired (not in v4) and free: taken back")
     }
 
     @Test func aServerStepErrorLandsOnTheStep() async {

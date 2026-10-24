@@ -212,7 +212,7 @@ struct TimingEditorSheet: View {
                         "Skipped \(step.label)",
                         isOn: Binding(
                             get: { editor.draft.skipped.contains(step.key) },
-                            set: { editor.draft.setSkipped(step.key, $0) }))
+                            set: { editor.draft.setSkipped(step.key, $0, steps: editor.steps) }))
                     if let at { errorText("skipped.\(at)") }
                 }
             }

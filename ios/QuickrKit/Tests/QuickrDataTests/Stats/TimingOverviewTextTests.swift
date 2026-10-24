@@ -73,6 +73,25 @@ import Testing
         #expect(monthCounts == [4])
     }
 
+    /// `stepsByBucket`: each step's mean per run in the bucket, a run without the step as 0.
+    @Test func timePerStepStacksByBucket() throws {
+        let series = [
+            #"{"entry_id": "0a000000-0000-4000-8000-000000000001", "captured_at": "2026-03-02T09:00:00Z", "started_at": "2026-03-02T08:00:00Z", "active_ms": 300, "paused_ms": 0, "complete": true, "steps": {"dress": 100, "shower": 200}}"#,
+            #"{"entry_id": "0a000000-0000-4000-8000-000000000002", "captured_at": "2026-03-02T19:00:00Z", "started_at": "2026-03-02T18:00:00Z", "active_ms": 101, "paused_ms": 0, "complete": false, "steps": {"shower": 101}}"#,
+        ].joined(separator: ",")
+        let head = Self.three.components(separatedBy: #""series":"#)[0]
+        let text = TimingOverviewText(try Self.decode(head + #""series": [\#(series)]}"#))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let days = text.stepTotals(by: .day, calendar: calendar)
+        #expect(days.count == 1)
+        let day = try #require(days.first)
+        let keys: [String] = day.meanMs.map(\.key)
+        let means: [Int] = day.meanMs.map(\.ms)
+        #expect(keys == ["shower", "dress"], "in the steps' order")
+        #expect(means == [150, 50], "floor(301 / 2); dress 100 and 0")
+    }
+
     @Test func stepsShowMedianBestRetiredAndSkipped() throws {
         let text = TimingOverviewText(try Self.decode(Self.three))
         let labels = text.steps.map(\.label)

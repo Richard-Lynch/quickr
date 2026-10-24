@@ -241,6 +241,12 @@ public struct TopicWrites: Sendable {
             apply: { db, entry in _ = try ServerLayer.upsert(db, entry: entry) })
     }
 
+    /// `GET /topics/{ref}/versions`: every version, for the step keys they have used (the editor's
+    /// history after "Load latest version"). A read: nothing is applied; the pull brings the rows.
+    public func versions(topicId: UUID) async -> Outcome<[TopicVersion]> {
+        await send({ try await client.listTopicVersions(ref: topicId.wireString, options: options).outcome })
+    }
+
     /// `POST /topics/{ref}/archive` sent now, for a delete (see ``delete(topicId:)``).
     func archive(topicId: UUID) async -> Outcome<Topic> {
         await send(

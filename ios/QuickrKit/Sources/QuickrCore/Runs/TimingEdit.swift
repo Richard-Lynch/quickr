@@ -130,10 +130,13 @@ public struct TimingDraft: Sendable, Hashable {
         if let step { skipped.removeAll { $0 == step } }
     }
 
-    /// Ticks or clears "Skipped" for a step without a segment.
-    public mutating func setSkipped(_ key: String, _ isSkipped: Bool) {
+    /// Ticks or clears "Skipped" for a step without a segment. The list stays in step order, as a
+    /// save sends it, so the server's `skipped.N` errors land on the right step.
+    public mutating func setSkipped(_ key: String, _ isSkipped: Bool, steps: [TopicTimer.Step]) {
         skipped.removeAll { $0 == key }
         if isSkipped { skipped.append(key) }
+        let order = steps.map(\.key)
+        skipped.sort { (order.firstIndex(of: $0) ?? order.count) < (order.firstIndex(of: $1) ?? order.count) }
     }
 
     // MARK: Checks

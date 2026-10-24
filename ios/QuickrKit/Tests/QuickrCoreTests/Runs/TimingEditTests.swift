@@ -108,6 +108,19 @@ import Testing
         #expect(Self.check(gone).errors == ["segments.0.step": "'bath' is not a step of the run's version"])
     }
 
+    @Test func skippedStaysInStepOrder() {
+        var noSkips = Self.timing
+        noSkips.skipped = []
+        noSkips.segments = [noSkips.segments[1]]  // a lap only
+        noSkips.segments[0].startedAt = noSkips.startedAt
+        var d = Self.draft(noSkips)
+        d.setSkipped("coffee", true, steps: Self.steps)
+        d.setSkipped("shower", true, steps: Self.steps)
+        #expect(d.skipped == ["shower", "coffee"], "as a save sends it, so skipped.N errors match")
+        d.setSkipped("shower", false, steps: Self.steps)
+        #expect(d.skipped == ["coffee"])
+    }
+
     @Test func timingASkippedStepTakesItOffTheSkippedList() {
         var d = Self.draft()
         d.setSegmentStep(1, "coffee")
@@ -264,5 +277,30 @@ import Testing
                 == "There is no 01:30:00 that day (the clocks went forward): it reads as 02:30:00.")
         #expect(d.localTimeNote("2026-10-24 01:30:00") == nil)
         #expect(d.localTimeNote("") == nil)
+    }
+}
+
+/// `StepKeys.history` (`stepHistory`): every key any version used, with the label of the latest
+/// version that has it, whatever order the versions come in.
+@Suite struct StepHistoryTests {
+    static func version(_ n: Int, _ steps: [(String, String)]?) -> TopicVersion {
+        TopicVersion(
+            version: n, questions: [], timer: steps.map { TopicTimer(steps: $0.map { .init(key: $0.0, label: $0.1) }) },
+            createdAt: .distantPast)
+    }
+
+    @Test func latestLabelPerKeyInAnyOrder() {
+        let versions = [
+            Self.version(3, [("shower", "Bath"), ("dress", "Dress")]),
+            Self.version(1, [("prep", "Old prep"), ("shower", "Shower")]),
+            Self.version(2, nil),
+        ]
+        let history = StepKeys.history(versions)
+        let keys: [String] = history.map(\.key)
+        let labels: [String] = history.map(\.label)
+        #expect(keys == ["prep", "shower", "dress"])
+        #expect(labels == ["Old prep", "Bath", "Dress"])
+        let reversed = StepKeys.history(versions.reversed())
+        #expect(reversed == history)
     }
 }
