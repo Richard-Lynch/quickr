@@ -18,9 +18,11 @@ import { OUTBOX_KINDS, type RunEventPayload } from '../lib/outbox/kinds';
 import { createOutbox } from '../lib/outbox/outbox';
 import { idbOutboxStore } from '../lib/outbox/store';
 import type { OutboxItem } from '../lib/outbox/types';
+import { ACKED_MAX_AGE_MS, recordAcked } from '../lib/runs/acked';
 import { parseInstant } from '../lib/runs/instant';
 import { persistServerOffset } from '../lib/runs/serverClock';
 import { fakeQuickrServer, type FakeQuickrServer } from './fakeQuickrServer';
+import { runItem } from './runs';
 
 vi.mock('workbox-core', () => ({ clientsClaim: vi.fn() }));
 vi.mock('workbox-precaching', () => ({
@@ -328,6 +330,20 @@ describe('service worker: a timed reminder’s Start (timers.md §10.2)', () => 
     await click(await push(timed), 'log|t|');
     const [item] = (await appOutbox().list()) as OutboxItem<RunEventPayload>[];
     expect(item?.payload).toMatchObject({ steps: null, requires_answers: null });
+  });
+
+  it('reads the acked record as of now: a stale ack doesn’t make the Start known', async () => {
+    const id = runId ?? '';
+    const acked = runItem('start', { id, run: id, at: Date.now() });
+    await recordAcked(acked, Date.now() - ACKED_MAX_AGE_MS - 60_000);
+    await click(await push(timed), 'log|t|');
+    expect(server.requests).toHaveLength(1); // stale: started (no page pruned it)
+
+    server.requests.length = 0;
+    server.runs.clear();
+    await recordAcked(acked, Date.now()); // fresh: this device started it
+    await click(await push(timed), 'log|t|');
+    expect(server.requests).toEqual([]);
   });
 
   it('racing clicks and a re-delivered push start one run; offline, the app sends it later', async () => {

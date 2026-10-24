@@ -154,6 +154,16 @@ function buildRun(
     }
   } else if (server) {
     state = stateFromWire(server.state);
+  } else if (mine.some((i) => i.payload.event.type === 'start')) {
+    // This device's start that didn't know the steps (a reminder's, nothing cached, §10.2):
+    // fold over none, so the run shows its clock and can be stopped offline. `steps` stays
+    // null: there is no step list yet.
+    try {
+      state = fold(id, [], events);
+    } catch (err) {
+      console.error('[runs] could not fold the local view', err);
+      return null;
+    }
   } else {
     return null;
   }

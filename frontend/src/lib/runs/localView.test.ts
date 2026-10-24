@@ -25,8 +25,12 @@ describe('local run view (timers.md §8.3)', () => {
   it('a start that doesn’t know its steps (a reminder’s, nothing cached) takes a later tap’s', () => {
     const blind = runItem('start', { id: 'r1', run: 'r1', at: T0 });
     blind.payload = { ...blind.payload, steps: null, requires_answers: null };
-    // Alone, with no server run: nothing to fold over, so no local run (the server's decides).
-    expect(localRuns([], [blind])).toEqual([]);
+    // Alone, with no server run: a running run folded over no steps, with no step list.
+    const [alone] = localRuns([], [blind]);
+    expect(alone).toMatchObject({ id: 'r1', status: 'running', steps: null });
+    expect(alone?.state.open).toMatchObject({ index: 0, kind: 'lap' });
+    // A stray tap with no start of this device's makes no run.
+    expect(localRuns([], [runItem('next', { id: 'n0', run: 'r9', at: T0, seg: 0 })])).toEqual([]);
     const next = runItem('next', { id: 'n1', run: 'r1', at: T0 + 60 * S, seg: 0 });
     const [run] = localRuns([], [blind, next]);
     expect(run?.steps).toEqual(STEPS);

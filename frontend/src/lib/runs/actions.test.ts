@@ -266,3 +266,65 @@ describe('review fixes', () => {
     expect(await startRun(deps, CTX)).toEqual({ runId, started: false });
   });
 });
+
+describe('a reminder’s Start (timers.md §10.2)', () => {
+  /** A Start with nothing cached: the version's steps and questions are unknown. */
+  const BLIND = { ...CTX, steps: null, requires_answers: null };
+
+  it('a page Start after a reminder Start that knew no steps enqueues nothing', async () => {
+    const { deps, queued } = setup();
+    await startRun(deps, BLIND, { id: 'slot-1', reminder: true });
+    expect(await startRun(deps, CTX)).toEqual({ runId: 'slot-1', started: false });
+    expect((await queued()).map((i) => i.id)).toEqual(['slot-1']);
+  });
+
+  it('a run started with no steps can be stopped offline', async () => {
+    const { deps, events } = setup();
+    await startRun(deps, BLIND, { id: 'slot-1', reminder: true });
+    expect(await tapRun(deps, 'slot-1', CTX, 'stop')).not.toBeNull();
+    expect((await events()).map((e) => e.type)).toEqual(['start', 'stop']);
+  });
+
+  it('a pending stop closes the run: the next slot’s Start is a new run', async () => {
+    const { deps, clock, queued } = setup();
+    await startRun(deps, BLIND, { id: 'slot-1', reminder: true });
+    clock.now += 60_000;
+    await tapRun(deps, 'slot-1', CTX, 'stop'); // in the app, offline
+    clock.now += 60_000;
+    expect(await startRun(deps, BLIND, { id: 'slot-2', reminder: true })).toEqual({
+      runId: 'slot-2',
+      started: true,
+    });
+    expect(
+      (await queued()).filter((i) => i.payload.event.type === 'start').map((i) => i.id),
+    ).toEqual(['slot-1', 'slot-2']);
+  });
+
+  it('a pending discard closes it too', async () => {
+    const { deps, outbox, clock } = setup();
+    await startRun(deps, BLIND, { id: 'slot-1', reminder: true });
+    await outbox.flush({ force: true }); // attempted (offline): K6 no longer drops it
+    clock.now += 60_000;
+    expect((await tapRun(deps, 'slot-1', CTX, 'discard'))?.payload.event.type).toBe('discard');
+    expect((await startRun(deps, BLIND, { id: 'slot-2', reminder: true })).started).toBe(true);
+  });
+
+  it('a failed start doesn’t block a new Start, but is never replaced', async () => {
+    const refuse = () =>
+      Promise.resolve(
+        new Response(JSON.stringify({ code: 'topic_archived', detail: 'archived', errors: [] }), {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    const { deps, outbox, clock, queued } = setup([], { now: T0, offset: 0 }, refuse);
+    await startRun(deps, BLIND, { id: 'slot-1', reminder: true });
+    await outbox.flush({ force: true });
+    const [failed] = await queued();
+    expect(failed?.status).toBe('failed');
+    clock.now += 60_000;
+    expect((await startRun(deps, BLIND, { id: 'slot-1', reminder: true })).started).toBe(false);
+    expect((await queued())[0]).toEqual(failed);
+    expect((await startRun(deps, BLIND, { id: 'slot-2', reminder: true })).started).toBe(true);
+  });
+});

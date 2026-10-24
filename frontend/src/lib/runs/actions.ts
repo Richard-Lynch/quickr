@@ -187,9 +187,10 @@ export function startRun(
     if (opts.id !== undefined && (items.some(known) || acked.some(known) || runById(runs, runId))) {
       return { runId, started: false };
     }
+    // The page also checks the pending items: a run only they open may not fold (§8.3).
     const open = opts.reminder
       ? pendingOpenRun(items, ctx.topic.id)
-      : (openRunOf(runs, ctx.topic.id)?.id ?? null);
+      : (openRunOf(runs, ctx.topic.id)?.id ?? pendingOpenRun(items, ctx.topic.id));
     if (open !== null) return { runId: open, started: false };
     const event: RunEventPayload['event'] = {
       type: 'start',
