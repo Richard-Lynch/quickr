@@ -332,7 +332,10 @@ Every WP:
 - **Scope:** the home tile states, the run screen, Stop and the answers sheet
   sending `finish`, Discard, notices, the "Running" and "Add details" home
   states, and the `quickr://t/{topic_id}/run` link (§11.1, §11.2, §11.4). The
-  app badge, the NSE badge and the widgets switch to `dueCount` (R11).
+  app badge, the NSE badge and the widgets switch to `dueCount` (R11). The
+  widgets' due filter (`WidgetViews.swift`) and Siri's due list
+  (`TopicIntents.swift`) route through `TopicListing.countsAsDue` once open runs
+  are wired.
 - **Areas:** `ios/App/Home/`, `ios/App/Runs/` (new), `ios/App/Navigation/`,
   `QuickrUI/`, `ios/NotificationService/` (the badge call only), `ios/Widgets/`
   (the due count only).

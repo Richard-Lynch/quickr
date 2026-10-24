@@ -244,8 +244,8 @@ public struct Run: Sendable, Hashable, Identifiable {
         self.aliases = aliases
     }
 
-    /// The events in arrival order, as the fold takes them (§4.1).
-    public var foldEvents: [RunEvent] { events.map(\.event) }
+    /// The events in arrival order, as the fold takes them (§4.1), whatever order they're held in.
+    public var foldEvents: [RunEvent] { events.sorted { $0.arrival < $1.arrival }.map(\.event) }
 }
 
 /// The response of recordRunEvent: the event's effect, the run, and the entry once it is stopped.
