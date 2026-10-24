@@ -28,8 +28,11 @@ import { upsertServerRun } from './runs';
 export interface KindEffects<P> {
   /** Optimistic patch (the item is already durable in IndexedDB). */
   onEnqueue?(qc: QueryClient, item: OutboxItem<P>): void;
-  /** Server confirmed: reconcile with its response, then refetch what depends on it. */
-  onSent?(qc: QueryClient, item: OutboxItem<P>, data: unknown): void;
+  /**
+   * Server confirmed: reconcile with its response, then refetch what depends on it.
+   * `verified`: acked by the kind's `verify` after a refusal (e.g. a start known elsewhere).
+   */
+  onSent?(qc: QueryClient, item: OutboxItem<P>, data: unknown, verified: boolean): void;
   /** Terminal failure: roll back the optimistic patch (the item stays for fix/discard). */
   onFailed?(qc: QueryClient, item: OutboxItem<P>): void;
   /** Removed without being sent. `item.status` is its status before removal. */
@@ -120,7 +123,7 @@ const runEvent: KindEffects<RunEventPayload> = {
   onEnqueue(qc, item) {
     bumpRun(qc, item, 1);
   },
-  onSent(qc, item, data) {
+  onSent(qc, item, data, verified) {
     const parsed = zRunEventResult.safeParse(data);
     if (!parsed.success) {
       void invalidateOperations(qc, ['listRuns']);
@@ -128,6 +131,9 @@ const runEvent: KindEffects<RunEventPayload> = {
     }
     const { run, entry } = parsed.data;
     upsertServerRun(qc, run);
+    // A start the server had already (§8.1): the run is the server's, maybe stopped with
+    // its entry; pull the rest, after the upsert (setting the data clears an invalidation).
+    if (verified) void invalidateOperations(qc, ['listRuns']);
     // A void tap the user should hear about (§11.4).
     const notice = noticeFor(item, parsed.data);
     if (notice) pushRunNotice(notice);
@@ -135,7 +141,7 @@ const runEvent: KindEffects<RunEventPayload> = {
       prependEntry(qc, item.payload.topic, entry);
       qc.setQueryData(getEntryQueryKey({ path: { entry_id: entry.id } }), entry);
     }
-    if (entry || item.payload.makes_entry) void invalidateEntryData(qc);
+    if (entry || item.payload.makes_entry || verified) void invalidateEntryData(qc);
   },
   onFailed(qc, item) {
     bumpRun(qc, item, -1);
@@ -171,7 +177,7 @@ export function connectOutboxEffects(qc: QueryClient, outbox: Outbox): () => voi
     if (!fx) return;
     try {
       if (e.type === 'enqueued') fx.onEnqueue?.(qc, e.item);
-      else if (e.type === 'sent') fx.onSent?.(qc, e.item, e.data);
+      else if (e.type === 'sent') fx.onSent?.(qc, e.item, e.data, e.verified === true);
       else if (e.type === 'failed') fx.onFailed?.(qc, e.item);
       else if (e.type === 'discarded') fx.onDiscard?.(qc, e.item);
       else if (e.type === 'retired') fx.onRetired?.(qc, e.item);

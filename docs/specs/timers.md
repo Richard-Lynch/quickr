@@ -769,7 +769,12 @@ The IndexedDB outbox (`frontend/src/lib/outbox`) has only `entry.create` today
 later ones (`outbox.ts` `pass`). It gains the `run.event` kind with **one**
 ordering rule, "wait for this run's start" (and §8.1's start-after-stop), plus K6 and the classification
 above. PWA entry edits stay online mutations; no other ordering is added. Its
-base classification stays byte-compatible with iOS.
+base classification stays byte-compatible with iOS. A start refused with 409
+`event_conflict` or `id_conflict` is checked as on iOS (§8.1: `getRun`, then
+`getEntry`; the start's topic only), in the `run.event` kind's `verify`. When
+the id is an entry of the start's topic, the run's other queued taps fail too,
+as "Already logged elsewhere", rather than one by one on 404. A transient
+error on a read retries the start; any other 4xx but 404 fails it.
 
 ### 8.3 The local view of a run
 

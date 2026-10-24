@@ -2,13 +2,16 @@
  * A small stateful quickR server behind `fetch`, for outbox and push-action tests: creates
  * entries (idempotent by id), reserves deleted ids (`entry_deleted`), refuses archived (409
  * `topic_archived`) and missing topics (404), and checks the F10 precondition
- * `X-QuickR-Expect-Server-Id` (409 `server_mismatch`). Run starts (`POST /runs/{id}/events`,
- * `type: start` only): idempotent by event id and `at`, 409 `event_conflict` for the same id
- * with another `at`, 409 `run_deleted` for a run in `deletedRuns`, 409 `id_conflict` for an
- * entry's id, 409 `topic_not_timed` for a topic marked `untimed`; a start for a topic with an
- * open run is merged into it (201, the start `void`, `merged`; its id becomes an alias). A
- * `stop` closes its run (or the run its id was merged into); a `discard` deletes it. An event
- * whose id is in `unavailable` gets a 503.
+ * `X-QuickR-Expect-Server-Id` (409 `server_mismatch`). Run events (`POST /runs/{id}/events`):
+ * idempotent by event id, and as the backend's `_replay` a replay must match the stored
+ * event's `at`, topic, `seg`, `step` and `pause_id` (else 409 `event_conflict`); 409
+ * `run_deleted` for a run in `deletedRuns`, 409 `id_conflict` for a start with an entry's
+ * id, 409 `topic_not_timed` for a topic marked `untimed`; a start for a topic with an open
+ * run is merged into it (201, the start `void`, `merged`; its id becomes an alias). A `stop`
+ * closes its run (or the run its id was merged into); a `discard` deletes it; any other tap
+ * on a known run is applied. An event whose id is in `unavailable` gets a 503.
+ * `GET /runs/{id}` (an alias resolves) and `GET /entries/{id}` read them back; a read of an
+ * id in `unavailableReads` gets a 503.
  * Every response carries the identity headers. Requests are recorded.
  */
 export interface FakeEntry {
@@ -18,15 +21,28 @@ export interface FakeEntry {
   source: string;
 }
 
+/** What a replay of an event must match (the backend's `_replay`). */
+export interface FakeEvent {
+  type: string;
+  at: string;
+  topic_id?: string | null;
+  seg?: number | null;
+  step?: string | null;
+  pause_id?: string | null;
+}
+
 export interface FakeRun {
   id: string;
   topic_id: string;
   version: number;
+  /** Its start's `at` (the start's id is the run's). */
   at: string;
   source: string;
   status?: 'running' | 'stopped';
-  /** Starts merged into this run (their ids, with their `at`). */
-  aliases?: Map<string, string>;
+  /** Starts merged into this run (their ids, with what they sent). */
+  aliases?: Map<string, FakeEvent>;
+  /** Its other events (taps after the start), by id. */
+  events?: Map<string, FakeEvent>;
 }
 
 export interface FakeQuickrServer {
@@ -38,6 +54,8 @@ export interface FakeQuickrServer {
   deletedRuns: Set<string>;
   /** Event ids answered 503 `unavailable` while they are in the set. */
   unavailable: Set<string>;
+  /** Run or entry ids whose `GET` is answered 503 while they are in the set. */
+  unavailableReads: Set<string>;
   offline: boolean;
   requests: { method: string; url: string; headers: Record<string, string>; body: unknown }[];
   fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -52,6 +70,7 @@ export function fakeQuickrServer(serverId: string, topicIds: string[]): FakeQuic
     runs: new Map(),
     deletedRuns: new Set(),
     unavailable: new Set(),
+    unavailableReads: new Set(),
     offline: false,
     requests: [],
     fetch: (input, init) => Promise.resolve(handle(server, input, init)),
@@ -85,6 +104,9 @@ function handle(server: FakeQuickrServer, input: RequestInfo | URL, init?: Reque
     return respond(server, 409, problem('server_mismatch', 'Expected another server'));
   }
   const path = new URL(url, 'https://q.test').pathname;
+  const read = /^\/api\/v1\/(runs|entries)\/([^/]+)$/.exec(path);
+  if (method === 'GET' && read)
+    return get(server, read[1] ?? '', decodeURIComponent(read[2] ?? ''));
   const run = /^\/api\/v1\/runs\/([^/]+)\/events$/.exec(path);
   if (method === 'POST' && run) return runEvent(server, decodeURIComponent(run[1] ?? ''), body);
   const m = /^\/api\/v1\/topics\/([^/]+)\/entries$/.exec(path);
@@ -109,68 +131,123 @@ function handle(server: FakeQuickrServer, input: RequestInfo | URL, init?: Reque
   return respond(server, 201, entry);
 }
 
+/** A `GET /runs/{id}` (an alias resolves) or `GET /entries/{id}`. */
+function get(server: FakeQuickrServer, what: string, id: string): Response {
+  if (server.unavailableReads.has(id))
+    return respond(server, 503, problem('unavailable', 'Try again later'));
+  if (what === 'entries') {
+    const entry = server.entries.get(id);
+    return entry
+      ? respond(server, 200, entry)
+      : respond(server, 404, problem('not_found', 'Not found'));
+  }
+  const run = resolveRun(server, id);
+  return run
+    ? respond(server, 200, runOut(run))
+    : respond(server, 404, problem('not_found', 'Not found'));
+}
+
+function resolveRun(server: FakeQuickrServer, id: string): FakeRun | undefined {
+  return server.runs.get(id) ?? [...server.runs.values()].find((r) => r.aliases?.has(id));
+}
+
+/** Enough of a `RunOut` for the clients: its id, topic, status, aliases and effects. */
+function runOut(r: FakeRun) {
+  const effects: Record<string, { effect: string; reason: string | null }> = {
+    [r.id]: { effect: 'applied', reason: null },
+  };
+  for (const id of r.aliases?.keys() ?? []) effects[id] = { effect: 'void', reason: 'merged' };
+  for (const id of r.events?.keys() ?? []) effects[id] = { effect: 'applied', reason: null };
+  return {
+    id: r.id,
+    topic_id: r.topic_id,
+    version: r.version,
+    status: r.status ?? 'running',
+    aliases: [...(r.aliases?.keys() ?? [])],
+    state: { effects },
+  };
+}
+
+/** Whether `event` replays `stored`, as the backend's `_replay` compares them. */
+function sameEvent(stored: FakeEvent, event: FakeEvent): boolean {
+  return (
+    stored.type === event.type &&
+    stored.at === event.at &&
+    (stored.topic_id ?? null) === (event.topic_id ?? null) &&
+    (stored.seg ?? null) === (event.seg ?? null) &&
+    (stored.step ?? null) === (event.step ?? null) &&
+    (stored.pause_id ?? null) === (event.pause_id ?? null)
+  );
+}
+
 function runEvent(server: FakeQuickrServer, runId: string, body: unknown): Response {
-  const event = body as { id: string; type: string; at: string; topic_id: string; version: number };
+  const event = body as FakeEvent & { id: string; version: number; source?: string };
+  const sent: FakeEvent = {
+    type: event.type,
+    at: event.at,
+    topic_id: event.topic_id ?? null,
+    seg: event.seg ?? null,
+    step: event.step ?? null,
+    pause_id: event.pause_id ?? null,
+  };
   const result = (r: FakeRun, effect: 'applied' | 'void', reason: string | null = null) => ({
     event: { id: event.id, effect, reason },
-    run: {
-      id: r.id,
-      topic_id: r.topic_id,
-      status: r.status ?? 'running',
-      aliases: [...(r.aliases?.keys() ?? [])],
-    },
+    run: runOut(r),
     entry: null,
   });
+  const conflict = () => respond(server, 409, problem('event_conflict', 'Event id reused'));
   if (server.unavailable.has(event.id))
     return respond(server, 503, problem('unavailable', 'Try again later'));
   if (server.deletedRuns.has(runId))
     return respond(server, 409, problem('run_deleted', 'Run deleted'));
-  if (event.type === 'stop' || event.type === 'discard') {
-    const target =
-      server.runs.get(runId) ?? [...server.runs.values()].find((r) => r.aliases?.has(runId));
+  if (event.type !== 'start') {
+    const target = resolveRun(server, runId);
     if (!target) return respond(server, 404, problem('not_found', 'Not found'));
+    const stored = target.events?.get(event.id);
+    if (stored)
+      return sameEvent(stored, sent) ? respond(server, 200, result(target, 'applied')) : conflict();
     if (event.type === 'discard') {
       server.runs.delete(target.id);
       server.deletedRuns.add(target.id);
-    } else target.status = 'stopped';
+    } else if (event.type === 'stop') target.status = 'stopped';
+    (target.events ??= new Map()).set(event.id, sent);
     return respond(server, 200, result(target, 'applied'));
   }
-  if (event.type !== 'start' || event.id !== runId)
-    return respond(server, 404, problem('not_found', 'Not found'));
+  if (event.id !== runId) return respond(server, 404, problem('not_found', 'Not found'));
   const existing = server.runs.get(runId);
   if (existing) {
-    return existing.at === event.at
-      ? respond(server, 200, result(existing, 'applied'))
-      : respond(server, 409, problem('event_conflict', 'Event id reused'));
+    const start: FakeEvent = { type: 'start', at: existing.at, topic_id: existing.topic_id };
+    return sameEvent(start, sent) ? respond(server, 200, result(existing, 'applied')) : conflict();
   }
   for (const r of server.runs.values()) {
-    const at = r.aliases?.get(runId);
-    if (at !== undefined) {
-      return at === event.at
+    const stored = r.aliases?.get(runId);
+    if (stored !== undefined) {
+      return sameEvent(stored, sent)
         ? respond(server, 200, result(r, 'void', 'merged'))
-        : respond(server, 409, problem('event_conflict', 'Event id reused'));
+        : conflict();
     }
   }
   if (server.entries.has(runId))
     return respond(server, 409, problem('id_conflict', 'An entry’s id'));
-  const topic = server.topics.get(event.topic_id);
+  const topicId = event.topic_id ?? '';
+  const topic = server.topics.get(topicId);
   if (!topic) return respond(server, 404, problem('not_found', 'Topic not found'));
   if (topic.status === 'archived')
     return respond(server, 409, problem('topic_archived', 'Topic is archived'));
   if (topic.untimed) return respond(server, 409, problem('topic_not_timed', 'Not a timed version'));
   const open = [...server.runs.values()].find(
-    (r) => r.topic_id === event.topic_id && (r.status ?? 'running') === 'running',
+    (r) => r.topic_id === topicId && (r.status ?? 'running') === 'running',
   );
   if (open) {
-    (open.aliases ??= new Map()).set(runId, event.at);
+    (open.aliases ??= new Map()).set(runId, sent);
     return respond(server, 201, result(open, 'void', 'merged'));
   }
   const created: FakeRun = {
     id: runId,
-    topic_id: event.topic_id,
+    topic_id: topicId,
     version: event.version,
     at: event.at,
-    source: (body as { source?: string }).source ?? 'api',
+    source: event.source ?? 'api',
     status: 'running',
   };
   server.runs.set(runId, created);

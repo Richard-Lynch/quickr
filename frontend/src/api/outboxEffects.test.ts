@@ -182,6 +182,26 @@ describe('run.event effects', () => {
   });
 });
 
+describe('a start acked by verify (§8.1)', () => {
+  it('pulls the runs: the run is the server’s, started elsewhere', async () => {
+    const R1 = '00000000-0000-4000-8000-000000000001';
+    const T1 = '00000000-0000-4000-8000-0000000000aa';
+    const run = serverRun(R1, [ev(R1, 'start', T0)], { topic_id: T1 });
+    const data = { event: { id: R1, effect: 'applied', reason: null }, run, entry: null };
+    const start = runItem('start', { id: R1, run: R1, at: T0 });
+    for (const verified of [false, true]) {
+      const { qc, emit } = setup();
+      qc.setQueryData(runsQueryKey(), []);
+      emit({ type: 'sent', item: start, data, ...(verified ? { verified } : {}) });
+      await flushPromises();
+      expect(qc.getQueryState(runsQueryKey())?.isInvalidated).toBe(verified);
+      const entriesKey = listEntriesInfiniteQueryKey({ path: { ref: 'sleep' } });
+      expect(qc.getQueryState(entriesKey)?.isInvalidated).toBe(verified);
+      expect(cachedServerRuns(qc).map((r) => r.id)).toEqual([R1]);
+    }
+  });
+});
+
 describe('upsertServerRun', () => {
   it('keeps the newer copy, drops closed runs and merged aliases', () => {
     const qc = new QueryClient();

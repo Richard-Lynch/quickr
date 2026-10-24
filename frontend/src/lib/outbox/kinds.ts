@@ -11,11 +11,12 @@
  *  3. enqueue it with `useOutbox().enqueue(kind, payload)`.
  */
 import { API_PREFIX } from '../../api/constants';
-import type { EntryCreate, RunEventIn } from '../../client/types.gen';
+import type { EntryCreate, RunEventIn, RunEventResult, RunOut } from '../../client/types.gen';
 import { recordAcked } from '../runs/acked';
 import { parseInstant } from '../runs/instant';
 import type { TimerStep } from '../runs/types';
-import type { OutboxItem, OutboxKind } from './types';
+import { classifyStatus, errorMessageFor } from './classify';
+import type { OutboxError, OutboxItem, OutboxKind } from './types';
 
 /** Background Sync tag registered by the page and handled in `sw.ts`. */
 export const OUTBOX_SYNC_TAG = 'quickr-outbox';
@@ -173,8 +174,55 @@ const runEvent: OutboxKind<RunEventPayload> = {
   coalesces(item) {
     return item.payload.event.type === 'discard';
   },
-  /** Keep the event in the local view until `listRuns` has it (`lib/runs/acked.ts`). */
-  onAck(item) {
+  /**
+   * A start refused with 409 `event_conflict` or `id_conflict`: the server already has its
+   * id, e.g. the same reminder started on another device first (timers.md §8.1, §10.2). Read
+   * the run with that id (an alias resolves), and for `id_conflict` the entry with it too:
+   * - a run of the start's topic: started elsewhere. Ack with that run, as a merged start
+   *   would be (its id an alias when the run is another's); the run's queued taps go to it.
+   * - an entry of the start's topic: already logged. Retire the start, and fail the run's
+   *   other taps (nothing to send them to) with that reason, not one by one on 404.
+   * - nothing, or another topic's: the refusal stands (`failed/rejected`).
+   * A read that can be retried retries the start (it didn't execute); another 4xx fails it.
+   */
+  async verify(item, refusal, { read, queue }) {
+    const { event, run_id: runId, topic } = item.payload;
+    const code = problemCode(refusal.body);
+    if (event.type !== 'start' || refusal.status !== 409) return undefined;
+    if (code !== 'event_conflict' && code !== 'id_conflict') return undefined;
+    const id = encodeURIComponent(runId);
+    const reads = [`${API_PREFIX}/runs/${id}`];
+    if (code === 'id_conflict') reads.push(`${API_PREFIX}/entries/${id}`);
+    const { headers } = runEvent.toRequest(item);
+    for (const [i, url] of reads.entries()) {
+      const res = await read(url, headers);
+      if (res.status === 404) continue;
+      const error: OutboxError = {
+        message: errorMessageFor(res.status, res.body),
+        status: res.status,
+        ...(res.body !== undefined ? { body: res.body } : {}),
+      };
+      const outcome = res.status === null ? 'retry' : classifyStatus(res.status);
+      if (outcome !== 'ok') return { outcome, error };
+      if (!ofTopic(res.body, topic.id)) continue;
+      if (i === 0) return { outcome: 'ok', data: knownStart(item, res.body as RunOut) };
+      // Listed after the reads, so the outbox can skip a tap changed meanwhile.
+      const taps = (await queue()).filter((q) => isRunEvent(q) && q.payload.run_id === runId);
+      return {
+        outcome: 'retired',
+        error: { ...refusal, message: ALREADY_LOGGED },
+        fail: { items: taps, error: { ...refusal, message: ALREADY_LOGGED } },
+      };
+    }
+    return undefined;
+  },
+  /**
+   * Keep the event in the local view until `listRuns` has it (`lib/runs/acked.ts`). Not a
+   * start whose run the server has closed already (a start known elsewhere, §8.1): on its
+   * own it would fold to an open run, holding off the next Start and the topic's due state.
+   */
+  onAck(item, data) {
+    if (item.payload.event.type === 'start' && closedRun(data)) return Promise.resolve();
     return recordAcked(item);
   },
   /**
@@ -201,6 +249,44 @@ const runEvent: OutboxKind<RunEventPayload> = {
     };
   },
 };
+
+/** Why a start's run's taps fail once its id turns out to be an entry of its topic. */
+export const ALREADY_LOGGED = 'Already logged elsewhere';
+
+/** Whether `data` is a `RunEventResult` whose run is closed (`stopped`, `discarded`). */
+function closedRun(data: unknown): boolean {
+  if (typeof data !== 'object' || data === null || !('run' in data)) return false;
+  const run = data.run;
+  if (typeof run !== 'object' || run === null || !('status' in run)) return false;
+  return run.status === 'stopped' || run.status === 'discarded';
+}
+
+/** Whether `body` is a run or entry (a `topic_id`) of the topic `topicId`. */
+function ofTopic(body: unknown, topicId: string): boolean {
+  if (typeof body !== 'object' || body === null || !('topic_id' in body)) return false;
+  return typeof body.topic_id === 'string' && body.topic_id.toLowerCase() === topicId.toLowerCase();
+}
+
+/**
+ * The `RunEventResult` a start the server already has would get: its effect in the run's
+ * state (void `merged` when the run doesn't list it), and the start's id among the
+ * aliases when the run is another's.
+ */
+function knownStart(item: OutboxItem<RunEventPayload>, run: RunOut): RunEventResult {
+  const runId = item.payload.run_id.toLowerCase();
+  const id = item.id.toLowerCase();
+  const effect = Object.entries(run.state.effects).find(([k]) => k.toLowerCase() === id)?.[1] ?? {
+    effect: 'void',
+    reason: 'merged',
+  };
+  const aliases = run.aliases.map((a) => a.toLowerCase());
+  const alias = run.id.toLowerCase() !== runId && !aliases.includes(runId);
+  return {
+    event: { id: item.id, ...effect },
+    run: alias ? { ...run, aliases: [...run.aliases, runId] } : run,
+    entry: null,
+  };
+}
 
 /** Whether `a` was enqueued before `b`, as the outbox orders them (`created_at`, the `at`, the id). */
 function enqueuedBefore(a: OutboxItem<RunEventPayload>, b: OutboxItem<RunEventPayload>): boolean {
