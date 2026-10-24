@@ -549,9 +549,9 @@ public struct Outbox: Sendable {
     /// run, and its alias, go into the server layer), and a pull brings the rest (its entry). With
     /// `id_conflict` the id may be an entry's instead: one of the start's topic means this
     /// reminder was already logged and the run never existed (`loggedElsewhere`: the start and the
-    /// run's other items go, answers failing `logged_elsewhere`), and a pull is asked for.
-    /// Anything else (no such run or entry, another topic's, or a terminal refusal of the read)
-    /// fails the start `rejected` with the refusal kept. In the run case the run's other queued
+    /// run's other items fail `logged_elsewhere`), and a pull is asked for. Anything else (no such
+    /// run or entry, or another topic's) fails the start `rejected` with the refusal kept; a
+    /// terminal refusal of the read fails it with the read's error. In the run case the run's other queued
     /// taps aren't touched: they go to the server's run. The pull is asked for only when the ack
     /// applied.
     private func checkStart(
@@ -592,8 +592,9 @@ public struct Outbox: Sendable {
             case .epochMismatch:
                 resolution = .restore(.epoch)
             case .terminal, .entryDeleted, .staleRevision:
-                // The read itself is refused for good: the start's refusal stands.
-                return try await finish(claim, rejected, error: refused.outboxError, stopsPass: false, &run)
+                // The read itself is refused for good: the start fails with the read's error.
+                return try await finish(
+                    claim, rejected, error: response.outboxError ?? refused.outboxError, stopsPass: false, &run)
             default:
                 // The start didn't execute (409); check again on the next attempt.
                 resolution = .retry(maybeDelivered: false)
