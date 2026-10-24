@@ -41,7 +41,13 @@ final class PushLifecycle {
                 ].compactMap(\.self).joined(separator: " "),
                 // The name the user gave the device (iOS 16+: the model unless entitled). Never a
                 // serial number or a MAC.
-                deviceName: UIDevice.current.name))
+                deviceName: UIDevice.current.name,
+                // The bound store keeps its server's offset samples (timers.md §5.1).
+                serverOffset: { [weak session] serverId in
+                    await MainActor.run {
+                        session?.store.flatMap { $0.serverId == serverId ? StoreServerOffset(store: $0) : nil }
+                    }
+                }))
         registration.recoverActiveEpoch = { [weak self] in await self?.rebuild() }
         RemoteNotificationTokens.shared.receiver = self
     }

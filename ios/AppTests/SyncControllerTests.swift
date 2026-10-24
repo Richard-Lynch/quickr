@@ -70,7 +70,8 @@ import Testing
             await scheduler.started.dropFirst(flushes).contains(OutboxFlushReason.networkAvailable.policy)
         }
         try await eventually("sent") { environment.sync.pill(status: session.syncStatus) == .hidden }
-        #expect(environment.sync.items.isEmpty)
+        // As above (issue #28): the items come on their own observation, which can lag the pill.
+        try await eventually("the sheet is empty") { environment.sync.items.isEmpty }
         await session.shutdown()
     }
 
