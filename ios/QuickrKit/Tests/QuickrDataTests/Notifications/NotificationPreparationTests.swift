@@ -139,6 +139,18 @@ import Testing
         #expect(w.fake.withState { $0.categories.map(\.id) } == [Self.waterCategory.id])
     }
 
+    /// T-PUSH: a timed reminder (`{"type": "timed"}`) stays a plain reminder until the app handles
+    /// its Start (I-NOTIF): no category is registered or set, and the badge is still the due count.
+    @Test func aTimedReminderRegistersNoCategoryYet() async throws {
+        let w = try await World()
+        var timed = Self.reminder()
+        timed.quickLog = .timed
+        let prepared = await w.prepare(timed)
+        #expect(prepared.categoryIdentifier == "quickr.t.x.server", "the push's own, untouched")
+        #expect(prepared.badge == 2)
+        #expect(try w.table.isEmpty)
+    }
+
     /// The due count is at `now + skew`: Stretch falls due 30 minutes from now on this clock, but
     /// the server's is 31 minutes ahead.
     @Test func theDueCountUsesTheServersClock() async throws {

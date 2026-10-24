@@ -7,14 +7,15 @@ docs/ios/specs/notifications.md §2.3 (the descriptor) and §4 (actions and cate
 
 - :func:`descriptor` builds the ``quick_log`` descriptor of a topic version from its
   questions (eligibility is :func:`app.services.quicklog.quick_log_for`), how often each
-  enum option was answered, and the latest answer. Labels and units are truncated to
+  enum option was answered, and the latest answer. A timed version's is ``{"type": "timed"}``
+  whatever its questions (docs/specs/timers.md §10.1). Labels and units are truncated to
   ``MAX_LABEL_LENGTH`` here, so every channel and the category hash see the same text.
 - :func:`actions` renders a descriptor as the ordered notification actions, and
   :func:`category_id` hashes them into the immutable category id.
 - :func:`action_entry_id` is the id every client gives the entry a reminder action logs
-  (§7.4), so one reminder logs once across the iOS app and the PWA. The server never
-  calls it; it is here so ``shared/fixtures/action-entry-id-vectors.json`` comes from
-  the reference implementation.
+  (§7.4), so one reminder logs once across the iOS app and the PWA. A timed reminder's
+  Start uses it as the run id (timers.md §10.2). The server never calls it; it is here so
+  ``shared/fixtures/action-entry-id-vectors.json`` comes from the reference implementation.
 """
 
 from __future__ import annotations
@@ -29,7 +30,14 @@ from decimal import Decimal
 from typing import Literal
 
 from app.errors import InvalidAnswers
-from app.schemas.api import QuickLogDescriptor, QuickLogEnum, QuickLogNumber, QuickLogOption, QuickLogSingle
+from app.schemas.api import (
+    QuickLogDescriptor,
+    QuickLogEnum,
+    QuickLogNumber,
+    QuickLogOption,
+    QuickLogSingle,
+    QuickLogTimed,
+)
 from app.schemas.questions import DoubleQuestion, IntQuestion
 from app.services.answers import validate_answers
 from app.services.quicklog import AnyQuestion, QuickLogChips, quick_log_for
@@ -41,6 +49,7 @@ MOST_USED_OPTIONS = 3  # above it: the most-used ones, then "More…"
 MORE_TITLE = "More…"
 OTHER_VALUE_TITLE = "Other value…"
 SINGLE_TITLE = "Log it"
+START_TITLE = "Start"
 TEXT_INPUT_BUTTON_TITLE = "Log"
 ACTION_SCHEME = "q1"
 CATEGORY_HASH_PREFIX = "quickr-cat-v1"
@@ -48,7 +57,7 @@ ACTION_ENTRY_ID_PREFIX = "quickr-action-entry-v1"
 _RECORD_SEPARATOR = "\u001e"
 _UNIT_SEPARATOR = "\u001f"
 
-type ActionKind = Literal["log", "input", "open"]
+type ActionKind = Literal["log", "input", "open", "start"]
 
 
 def truncate(text: str, limit: int) -> str:
@@ -65,14 +74,17 @@ def canonical_instant(at: datetime) -> str:
 
 
 def descriptor(
-    questions: Sequence[AnyQuestion], *, counts: Mapping[str, int], last: object
+    questions: Sequence[AnyQuestion], *, counts: Mapping[str, int], last: object, timed: bool = False
 ) -> QuickLogDescriptor | None:
     """The ``quick_log`` descriptor, or None when the version isn't quick-loggable.
 
     ``counts`` maps an enum option value to the number of the topic's entries that chose
     it (any version); ``last`` is the latest entry's answer for the key, as JSON carries it
-    (None when there is none).
+    (None when there is none). A ``timed`` version (one with a timer) always gets the timed
+    descriptor: its reminder starts a run, and the questions wait for Stop.
     """
+    if timed:
+        return QuickLogTimed()
     quick = quick_log_for(questions)
     if quick is None:
         return None
@@ -144,7 +156,8 @@ class Action:
     """One notification action, as the category registers it.
 
     ``log`` logs from the background, ``input`` asks for a number first, ``open`` (the
-    "More…" action) opens the app on the record screen.
+    "More…" action) opens the app on the record screen, ``start`` starts a timed topic's run
+    from the background.
     """
 
     kind: ActionKind
@@ -159,11 +172,12 @@ def action_identifier(
     topic_id: str,
     version: int,
     key: str,
-    k: Literal["o", "n", "i", "m", "s"],
+    k: Literal["o", "n", "i", "m", "s", "t"],
     value: str = "",
 ) -> str:
     """``q1|{server_id}|{topic_id}|{version}|{key}|{k}|{value}`` (§4.2). A single topic's one
-    action has an empty key and value: ``q1|{server_id}|{topic_id}|{version}||s|``."""
+    action has an empty key and value: ``q1|{server_id}|{topic_id}|{version}||s|``, and so has a
+    timed topic's Start: ``q1|{server_id}|{topic_id}|{version}||t|``."""
     return "|".join((ACTION_SCHEME, server_id, topic_id, str(version), key, k, value))
 
 
@@ -172,6 +186,9 @@ def actions(server_id: str, topic_id: str, version: int, quick_log: QuickLogDesc
     if isinstance(quick_log, QuickLogSingle):
         # One "Log it": an entry with no answers. No question, so no key, value or "More…".
         return [Action("log", action_identifier(server_id, topic_id, version, "", "s"), SINGLE_TITLE)]
+    if isinstance(quick_log, QuickLogTimed):
+        # One "Start", hashed with its own kind (timers.md §10.1). No key or value either.
+        return [Action("start", action_identifier(server_id, topic_id, version, "", "t"), START_TITLE)]
 
     def ident(k: Literal["o", "n", "i", "m"], value: str = "") -> str:
         return action_identifier(server_id, topic_id, version, quick_log.key, k, value)

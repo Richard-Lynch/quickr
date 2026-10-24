@@ -8,7 +8,8 @@
  * - update flow: waits until the page asks it to SKIP_WAITING (no surprise reloads)
  * - Background Sync: flushes the IndexedDB outbox where supported (Chromium)
  * - Web Push: shows notifications, routes clicks into the app; quick-log reminders offer
- *   Chromium actions that log through the outbox (lib/pushActions.ts)
+ *   Chromium actions that log through the outbox (lib/pushActions.ts), and a timed topic's
+ *   reminder a Start that starts its run (timers.md §10.2)
  */
 import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 import { clientsClaim } from 'workbox-core';
@@ -26,14 +27,17 @@ import { NetworkFirst } from 'workbox-strategies';
 import { API_PREFIX, CHANNEL_HEADERS, FROM_CACHE_HEADER, SW_API_CACHE } from './api/constants';
 import { OUTBOX_KINDS, OUTBOX_SYNC_TAG } from './lib/outbox/kinds';
 import { createOutbox } from './lib/outbox/outbox';
+import { ackedItems } from './lib/runs/acked';
 import { SERVER_TIME_HEADER } from './lib/runs/clock';
-import { timedFetch } from './lib/runs/serverClock';
+import { loadServerOffset, timedFetch } from './lib/runs/serverClock';
 import {
   handleReminderAction,
   notificationData,
   pushActions,
   type ActionFeedback,
   type CachedTopicState,
+  startVersionOf,
+  type StartVersion,
 } from './lib/pushActions';
 import { parsePushPayload, safeInAppPath, type NavigateMessage } from './lib/pushPayload';
 
@@ -214,6 +218,10 @@ async function onAction(action: string, data: unknown, open: () => Promise<void>
       data,
       locks: (self.navigator as { locks?: LockManager }).locks,
       topicState: cachedTopicState,
+      // A Start (timers.md §10.2): stamped with the page's latest offset (no localStorage here).
+      acked: ackedItems,
+      offset: loadServerOffset,
+      startVersion: cachedStartVersion,
       queued: () =>
         (self.registration as { sync?: { register(tag: string): Promise<void> } }).sync?.register(
           OUTBOX_SYNC_TAG,
@@ -234,6 +242,26 @@ async function onAction(action: string, data: unknown, open: () => Promise<void>
       ...(typeof topicId === 'string' ? { tag: `quickr.err.${topicId}` } : {}),
     });
   }
+}
+
+/**
+ * The steps and required-question flag of a topic version, from the API cache's
+ * `listTopicVersions` answer (the app's last GET of it), or undefined when it has none. A
+ * Start folds over them locally until the server answers; without them, over no steps.
+ */
+async function cachedStartVersion(
+  topicId: string,
+  slug: string | null,
+  version: number,
+): Promise<StartVersion | undefined> {
+  const cache = await caches.open(SW_API_CACHE);
+  for (const ref of [slug, topicId]) {
+    if (!ref) continue;
+    const hit = await cache.match(`${API_PREFIX}/topics/${encodeURIComponent(ref)}/versions`);
+    const found = startVersionOf(await hit?.json().catch(() => null), version);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 /**

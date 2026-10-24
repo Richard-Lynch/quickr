@@ -9,7 +9,13 @@ import { describe, expect, it, vi } from 'vitest';
 import idRaw from '../../../shared/fixtures/action-entry-id-vectors.json?raw';
 import raw from '../../../shared/fixtures/notification-vectors.json?raw';
 import { uuid } from './uuid';
-import { ENTRY_CREATE, OUTBOX_KINDS, type EntryCreatePayload } from './outbox/kinds';
+import {
+  ENTRY_CREATE,
+  OUTBOX_KINDS,
+  RUN_EVENT,
+  type EntryCreatePayload,
+  type RunEventPayload,
+} from './outbox/kinds';
 import { createOutbox } from './outbox/outbox';
 import { idbOutboxStore, memoryOutboxStore } from './outbox/store';
 import { fakeQuickrServer } from '../test/fakeQuickrServer';
@@ -17,16 +23,23 @@ import {
   actionEntryId,
   answerLabel,
   handleReminderAction,
+  isStartAction,
   logFromAction,
   notificationData,
   PWA_NOTIFICATION_SOURCE,
   pushActions,
   resolveAction,
+  START_ACTION,
+  startVersionOf,
 } from './pushActions';
 import { formatQuickLogNumber, parsePushPayload, type PushPayload } from './pushPayload';
+import { ackedItems, memoryAckedStore, setAckedStore } from './runs/acked';
+import { tapRun } from './runs/actions';
+import { formatInstant } from './runs/instant';
+import type { OutboxItem } from './outbox/types';
 
 interface VectorAction {
-  kind: 'log' | 'input' | 'open';
+  kind: 'log' | 'input' | 'open' | 'start';
   identifier: string;
   title: string;
 }
@@ -117,14 +130,14 @@ describe('formatQuickLogNumber (§4.4 fmt)', () => {
 });
 
 describe('pushActions', () => {
-  // The log actions of every vector case, in order, as the PWA renders them (§10): no input
-  // action, no "More…".
+  // The log and start actions of every vector case, in order, as the PWA renders them (§10):
+  // no input action, no "More…".
   it.each(
     vectors.cases.filter((c) => c.expected.quick_log !== null).map((c) => [c.name, c] as const),
   )('matches the shared vectors: %s', (_name, c) => {
     const p = reminder(c.expected.quick_log, { topic_id: c.topic_id, version: c.version });
     const expected = c.expected.actions
-      .filter((a) => a.kind === 'log')
+      .filter((a) => a.kind === 'log' || a.kind === 'start')
       .map((a) => {
         const parts = a.identifier.split('|');
         return { action: `log|${parts[5]}|${parts.slice(6).join('|')}`, title: a.title };
@@ -551,5 +564,233 @@ describe('a single topic (no questions)', () => {
       now,
     });
     expect(feedback).toEqual({ kind: 'none' });
+  });
+});
+
+describe('a timed topic (timers.md §10.1, §10.2)', () => {
+  const timedLog = { type: 'timed' };
+  const data = notificationData(reminder(timedLog));
+  const now = () => Date.parse('2026-10-17T08:05:00Z');
+  /** The action entry id vector of this reminder's (server, topic, slot). */
+  const vectorId = idVectors.cases.find((c) => c.name === 'canonical')?.expected;
+
+  function rig() {
+    setAckedStore(memoryAckedStore());
+    const server = fakeQuickrServer(SERVER, [TOPIC]);
+    const outbox = createOutbox({
+      kinds: OUTBOX_KINDS,
+      store: memoryOutboxStore(),
+      fetch: server.fetch,
+      channelName: null,
+      random: () => 0.5,
+    });
+    const queued = vi.fn(() => Promise.resolve());
+    const click = (extra: Record<string, unknown> = {}) =>
+      handleReminderAction({
+        outbox,
+        action: START_ACTION,
+        data,
+        now,
+        queued,
+        acked: ackedItems,
+        sendTimeoutMs: 2000,
+        ...extra,
+      });
+    const runEvents = async () =>
+      (await outbox.list()).filter((i) => i.kind === RUN_EVENT) as OutboxItem<RunEventPayload>[];
+    return { server, outbox, queued, click, runEvents };
+  }
+
+  it('offers one Start, and only where actions are supported', () => {
+    expect(pushActions(reminder(timedLog), 2)).toEqual([{ action: 'log|t|', title: 'Start' }]);
+    expect(pushActions(reminder(timedLog), 0)).toEqual([]);
+    expect(reminder(timedLog).quickr?.quick_log).toEqual({ type: 'timed' });
+  });
+
+  it('accepts only its own action; a Start is no answer', () => {
+    const q = reminder(timedLog).quickr;
+    expect(isStartAction('log|t|', q)).toBe(true);
+    expect(isStartAction('log|t|x', q)).toBe(false);
+    expect(isStartAction('log|t|', reminder(enumLog).quickr)).toBe(false);
+    expect(isStartAction('log|t|', reminder({ type: 'single' }).quickr)).toBe(false);
+    expect(resolveAction('log|t|', q)).toBeNull();
+    expect(resolveAction('log|s|', q)).toBeNull();
+    expect(resolveAction('log|o|good', q)).toBeNull();
+    if (!q) throw new Error('not actionable');
+    expect(answerLabel(q, undefined)).toBe('it');
+  });
+
+  it('two racing clicks enqueue one start, whose id is the action entry id vector', async () => {
+    const { server, click, runEvents } = rig();
+    server.offline = true;
+    const feedback = await Promise.all([click(), click()]);
+    expect(feedback).toEqual([{ kind: 'none' }, { kind: 'none' }]);
+    const items = await runEvents();
+    expect(items).toHaveLength(1);
+    const [start] = items;
+    expect(vectorId).toBeDefined();
+    expect(start?.id).toBe(vectorId);
+    expect(start?.payload).toMatchObject({
+      run_id: vectorId,
+      topic: { id: TOPIC, slug: 'mood', name: 'Mood' },
+      version: 3,
+      steps: [],
+      requires_answers: false,
+      makes_entry: false,
+      expect_server_id: SERVER,
+      event: {
+        type: 'start',
+        topic_id: TOPIC,
+        version: 3,
+        source: PWA_NOTIFICATION_SOURCE,
+        at: formatInstant(now()),
+      },
+    });
+    expect((await click()).kind).toBe('none'); // a re-delivered push: still one
+    expect(await runEvents()).toHaveLength(1);
+  });
+
+  it('stamps the start with the server-time offset it is given', async () => {
+    const { server, click, runEvents } = rig();
+    server.offline = true;
+    await click({ offset: () => Promise.resolve(7250) });
+    expect((await runEvents())[0]?.payload.event.at).toBe(formatInstant(now() + 7250));
+  });
+
+  it('carries the version’s steps and required-question flag when the cache knows them', async () => {
+    const { server, click, runEvents } = rig();
+    server.offline = true;
+    const steps = [{ key: 'shower', label: 'Shower' }];
+    const startVersion = vi.fn(() => Promise.resolve({ steps, requires_answers: true }));
+    await click({ startVersion });
+    expect(startVersion).toHaveBeenCalledWith(TOPIC, 'mood', 3);
+    expect((await runEvents())[0]?.payload).toMatchObject({ steps, requires_answers: true });
+  });
+
+  it('sends the start to the reminder’s server; a second click after it went writes nothing', async () => {
+    const { server, outbox, click, runEvents } = rig();
+    expect(await click()).toEqual({ kind: 'none' });
+    expect([...server.runs.keys()]).toEqual([vectorId]);
+    expect(server.runs.get(vectorId ?? '')?.source).toBe(PWA_NOTIFICATION_SOURCE);
+    const [request] = server.requests;
+    expect(request?.url).toBe(`/api/v1/runs/${vectorId}/events`);
+    expect(request?.headers['x-quickr-expect-server-id']).toBe(SERVER);
+    expect(await outbox.list()).toEqual([]);
+    // Acked (the acked record has it): the same reminder doesn't start it again.
+    expect(await click()).toEqual({ kind: 'none' });
+    expect(server.requests).toHaveLength(1);
+    expect(await runEvents()).toEqual([]);
+  });
+
+  it('a run this device already stopped is not started again by the same reminder', async () => {
+    const { server, outbox, click, runEvents } = rig();
+    server.offline = true;
+    await click();
+    const ctx = { topic: { id: TOPIC, slug: 'mood', name: 'Mood' }, version: 3 };
+    const deps = { outbox, serverRuns: () => [], now };
+    const stop = await tapRun(
+      deps,
+      vectorId ?? '',
+      { ...ctx, steps: [], requires_answers: false },
+      'stop',
+    );
+    expect(stop?.payload.event.type).toBe('stop');
+    const before = await runEvents();
+    expect(await click()).toEqual({ kind: 'none' }); // a re-delivered push
+    expect(await runEvents()).toEqual(before);
+  });
+
+  it('a start the server already has from another device is dropped silently', async () => {
+    const { server, outbox, click } = rig();
+    const id = vectorId ?? '';
+    server.runs.set(id, { id, topic_id: TOPIC, version: 3, at: 'elsewhere', source: 'ios' });
+    expect(await click()).toEqual({ kind: 'none' });
+    expect(server.runs.get(id)?.source).toBe('ios');
+    expect(await outbox.list()).toEqual([]);
+  });
+
+  it('a topic with a run open here starts nothing more', async () => {
+    const { server, outbox, click, runEvents } = rig();
+    server.offline = true;
+    const q = data.quickr;
+    if (!q) throw new Error('not actionable');
+    const other = { ...data, quickr: { ...q, due_since: '2026-10-17T07:00:00Z' } };
+    await click({ data: other }); // another slot's start, still queued: an open run
+    await click();
+    expect((await runEvents()).map((i) => i.id)).toEqual([
+      await actionEntryId(SERVER, TOPIC, '2026-10-17T07:00:00Z'),
+    ]);
+    expect(await outbox.list()).toHaveLength(1);
+  });
+
+  it('says why it was refused, and refuses a topic the cache shows archived', async () => {
+    const mismatch = rig();
+    mismatch.server.serverId = '0b9e0000-0000-4000-8000-0000000000bb';
+    expect(await mismatch.click()).toEqual({
+      kind: 'notify',
+      title: 'Couldn’t start Mood',
+      body: 'This reminder came from another quickR server, so nothing was started.',
+    });
+    expect(await mismatch.outbox.list()).toEqual([]);
+
+    const archived = rig();
+    archived.server.topics.set(TOPIC, { status: 'archived' });
+    expect((await archived.click()).kind).toBe('notify');
+    expect((await archived.outbox.list()).map((i) => i.status)).toEqual(['failed']);
+
+    const deleted = rig();
+    deleted.server.deletedRuns.add(vectorId ?? '');
+    expect(await deleted.click()).toEqual({
+      kind: 'notify',
+      title: 'Couldn’t start Mood',
+      body: 'The topic was deleted.',
+    });
+
+    const cached = rig();
+    const topicState = () => Promise.resolve('archived' as const);
+    expect(await cached.click({ topicState })).toMatchObject({ title: 'Couldn’t start Mood' });
+    expect(cached.server.requests).toEqual([]);
+    expect(await cached.outbox.list()).toEqual([]);
+  });
+
+  it('offline: queued, and Background Sync is asked for', async () => {
+    const { server, queued, click, runEvents } = rig();
+    server.offline = true;
+    expect(await click()).toEqual({ kind: 'none' });
+    expect(queued).toHaveBeenCalledOnce();
+    expect((await runEvents()).map((i) => i.status)).toEqual(['pending']);
+  });
+
+  it('opens the app when the outbox can’t be written', async () => {
+    const { outbox, click } = rig();
+    const broken = { ...outbox, list: () => Promise.reject(new Error('storage')) };
+    expect(await click({ outbox: broken })).toEqual({ kind: 'open' });
+  });
+});
+
+describe('startVersionOf (a cached listTopicVersions answer)', () => {
+  const versions = [
+    { version: 1, questions: [], timer: null },
+    {
+      version: 2,
+      questions: [{ key: 'note', type: 'str', required: false }],
+      timer: { steps: [{ key: 'a', label: 'A' }] },
+    },
+    { version: 3, questions: [{ key: 'mood', type: 'int', required: true }], timer: { steps: [] } },
+  ];
+
+  it('finds the version’s steps and whether a question is required', () => {
+    expect(startVersionOf(versions, 2)).toEqual({
+      steps: [{ key: 'a', label: 'A' }],
+      requires_answers: false,
+    });
+    expect(startVersionOf(versions, 3)).toEqual({ steps: [], requires_answers: true });
+  });
+
+  it('knows nothing of an untimed, missing or malformed version', () => {
+    expect(startVersionOf(versions, 1)).toBeUndefined();
+    expect(startVersionOf(versions, 9)).toBeUndefined();
+    expect(startVersionOf({ items: versions }, 2)).toBeUndefined();
+    expect(startVersionOf([{ version: 2, timer: { steps: [{ key: 1 }] } }], 2)).toBeUndefined();
   });
 });

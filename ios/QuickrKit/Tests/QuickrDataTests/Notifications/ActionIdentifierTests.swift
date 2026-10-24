@@ -82,6 +82,28 @@ import Testing
         #expect(NotificationPreparation.isWellFormed(Self.info(.single)))
     }
 
+    /// T-PUSH: a timed topic's `{"type": "timed"}` descriptor reads and writes as JSON, renders one
+    /// "Start" (`…||t|`, kind `start`) whatever the questions, and its identifier parses. The handler
+    /// doesn't act on it yet (I-NOTIF, timers.md §10.2), so it doesn't match a reminder.
+    @Test func aTimedTopicsCategoryAndDescriptor() throws {
+        let category = try #require(
+            NotificationCategory(serverId: Self.server, topicId: Self.topic, version: 3, questions: [], timed: true))
+        #expect(category.descriptor == .timed)
+        #expect(category.actions.map(\.kind) == ["start"])
+        #expect(category.actions.map(\.title) == ["Start"])
+        #expect(category.actions.map(\.identifier) == ["q1|\(Self.server)|\(Self.topic)|3||t|"])
+        #expect(category.actions.compactMap(\.spec).isEmpty, "Start is registered by I-NOTIF")
+        let json = try JSONEncoder().encode(QuickLogDescriptor.timed)
+        #expect(String(decoding: json, as: UTF8.self) == #"{"type":"timed"}"#)
+        #expect(try JSONDecoder().decode(QuickLogDescriptor.self, from: Data(#"{"type":"timed"}"#.utf8)) == .timed)
+        let parsed = try #require(ActionIdentifier("q1|\(Self.server)|\(Self.topic)|3||t|"))
+        #expect(parsed.kind == .start && parsed.key.isEmpty && parsed.value.isEmpty)
+        #expect(ActionIdentifier("q1|\(Self.server)|\(Self.topic)|3|mood|t|") == nil)
+        #expect(ActionIdentifier("q1|\(Self.server)|\(Self.topic)|3||t|x") == nil)
+        #expect(!parsed.matches(Self.info(.timed)))
+        #expect(NotificationPreparation.isWellFormed(Self.info(.timed)))
+    }
+
     /// A quick_log type this build doesn't know (a newer server's) is a plain reminder: the payload
     /// still reads (slot, url, a well-formed reminder), with no descriptor, so no actions. Before,
     /// the whole `quickr` object failed to decode. A known type that's malformed still fails.

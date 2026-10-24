@@ -106,7 +106,9 @@ public struct NotificationPreparation: Sendable {
             return out
         }
 
-        if let descriptor = q.quickLog, let topicId = q.topicId, let version = q.version {
+        // A timed reminder's Start isn't registered until the app handles it (I-NOTIF, timers.md
+        // §10.2): until then it shows as a plain reminder, as before.
+        if let descriptor = q.quickLog, descriptor != .timed, let topicId = q.topicId, let version = q.version {
             let category = NotificationCategory(
                 serverId: q.serverId, topicId: topicId, version: version, descriptor: descriptor)
             if category.id != incoming.categoryIdentifier {
@@ -166,8 +168,10 @@ public struct NotificationPreparation: Sendable {
         else { return false }
         guard let descriptor = q.quickLog else { return q.version.map { $0 >= 1 } ?? true }
         guard let version = q.version, version >= 1 else { return false }
-        // A single topic's descriptor has no key (its action's is empty); every other one has one.
-        guard descriptor == .single || ActionIdentifier.isKey(descriptor.key) else { return false }
+        // A single or timed topic's descriptor has no key (its action's is empty); every other one has one.
+        guard descriptor == .single || descriptor == .timed || ActionIdentifier.isKey(descriptor.key) else {
+            return false
+        }
         func fits(_ text: String?) -> Bool { (text?.unicodeScalars.count ?? 0) <= NotificationCategory.maxLabelLength }
         switch descriptor {
         case .choice(let choice):
@@ -183,6 +187,8 @@ public struct NotificationPreparation: Sendable {
                 && (number.decimals.map { (0...10).contains($0) } ?? true)
                 && inOrder([number.min, number.lastValue, number.max], type: number.type)
         case .single:
+            return true
+        case .timed:
             return true
         }
     }

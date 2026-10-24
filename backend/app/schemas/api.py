@@ -893,7 +893,15 @@ class QuickLogSingle(StrictModel):
     type: Literal["single"] = "single"
 
 
-type QuickLogDescriptor = QuickLogEnum | QuickLogNumber | QuickLogSingle
+class QuickLogTimed(StrictModel):
+    """A timed topic: its reminder starts a run with one action, "Start" (docs/specs/timers.md
+    §10.1). Its questions are answered at Stop, so none is offered here.
+    """
+
+    type: Literal["timed"] = "timed"
+
+
+type QuickLogDescriptor = QuickLogEnum | QuickLogNumber | QuickLogSingle | QuickLogTimed
 
 
 class PushPayload(StrictModel):
@@ -915,7 +923,7 @@ class PushPayload(StrictModel):
     topic_id: str | None = None
     version: int | None = None
     due_since: str | None = None  # canonical: UTC, whole seconds, "Z"
-    quick_log: QuickLogEnum | QuickLogNumber | QuickLogSingle | None = None
+    quick_log: QuickLogEnum | QuickLogNumber | QuickLogSingle | QuickLogTimed | None = None
 
 
 ApnsToken = Annotated[

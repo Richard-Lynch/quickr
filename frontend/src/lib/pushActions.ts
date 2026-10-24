@@ -6,6 +6,8 @@
  * - An enum offers its first `Notification.maxActions` options, `{action: "log|o|" + value}`.
  * - A number with a last value offers `{action: "log|n|" + fmt(last), title: "Log …"}`.
  * - A single topic (no questions) offers `{action: "log|s|", title: "Log it"}`: no answers.
+ * - A timed topic offers `{action: "log|t|", title: "Start"}`, which starts a run
+ *   (timers.md §10.1, §10.2): see {@link handleReminderAction}.
  * - No text input, no "More…" (the body opens the record screen).
  *
  * A click is validated against the notification's own data, then enqueues an `entry.create`
@@ -14,11 +16,18 @@
  * re-delivered push, two racing clicks or the same reminder actioned on the iPhone never log
  * twice: an item already queued is left alone, and one already sent is replayed idempotently
  * by the server (a POST with a live id returns that entry).
+ *
+ * A Start enqueues a `run.event` start instead, whose run id (and event id) is the same action
+ * entry id: one reminder starts one run, on any device, and the run's entry has the id the
+ * reminder would have logged (timers.md §10.2).
  */
 import { ENTRY_CREATE, problemCode, type EntryCreatePayload } from './outbox/kinds';
 import type { Outbox } from './outbox/outbox';
 import type { OutboxItem } from './outbox/types';
 import { formatQuickLogNumber, type PushPayload, type PushQuickr } from './pushPayload';
+import { startRun, type RunTapDeps, type StartResult } from './runs/actions';
+import { serverOffset } from './runs/serverClock';
+import type { TimerStep } from './runs/types';
 
 /** The namespace of the shared action entry id (notifications.md §7.4). */
 export const ACTION_ENTRY_ID_PREFIX = 'quickr-action-entry-v1';
@@ -28,6 +37,9 @@ export const PWA_NOTIFICATION_SOURCE = 'pwa.notification';
 
 /** Web Lock serialising action handling (check-then-enqueue), across clicks and contexts. */
 export const PUSH_ACTION_LOCK = 'quickr-push-action';
+
+/** A timed reminder's one action (timers.md §10.1): `k = t`, no key or value. */
+export const START_ACTION = 'log|t|';
 
 /** `NotificationAction` (not in every TS lib: lib.webworker dropped it). */
 export interface PushAction {
@@ -53,6 +65,7 @@ export function pushActions(p: PushPayload, maxActions: number): PushAction[] {
   const q = p.quickr?.quick_log;
   if (!q || maxActions <= 0) return [];
   if (q.type === 'single') return [{ action: 'log|s|', title: 'Log it' }];
+  if (q.type === 'timed') return [{ action: START_ACTION, title: 'Start' }];
   if (q.type === 'enum') {
     return q.options
       .slice(0, maxActions)
@@ -75,7 +88,7 @@ export function resolveAction(
   if (!q || !m) return null;
   const [, kind, value = ''] = m;
   if (kind === 's') return q.type === 'single' && value === '' ? { key: null, value: null } : null;
-  if (q.type === 'single') return null;
+  if (q.type === 'single' || q.type === 'timed') return null; // a Start is no answer: isStartAction
   if (kind === 'o') {
     return q.type === 'enum' && q.options.some((o) => o.value === value)
       ? { key: q.key, value }
@@ -85,6 +98,11 @@ export function resolveAction(
   return formatQuickLogNumber(q.type, q.last_value) === value
     ? { key: q.key, value: q.last_value }
     : null;
+}
+
+/** Whether `action` is the Start of the timed reminder `quickr` (validated, §10.2). */
+export function isStartAction(action: string, quickr: PushQuickr | null | undefined): boolean {
+  return action === START_ACTION && quickr?.quick_log.type === 'timed';
 }
 
 /**
@@ -178,7 +196,67 @@ export type ActionFeedback =
 /** The topic's state as far as the service worker knows it (from cached API responses). */
 export type CachedTopicState = 'active' | 'archived' | undefined;
 
+/** What a Start needs of the reminder's version beyond the push: the run's local view folds
+ *  over its steps, and a required question makes a stop leave it finishing (§8.3). */
+export interface StartVersion {
+  steps: TimerStep[];
+  requires_answers: boolean;
+}
+
 const NONE: ActionFeedback = { kind: 'none' };
+
+/**
+ * `version`'s {@link StartVersion} in a `listTopicVersions` answer (an array of versions with
+ * `questions` and `timer`), or undefined when it isn't there or isn't timed. A question counts
+ * as required unless it says `required: false` (the server's default).
+ */
+export function startVersionOf(body: unknown, version: number): StartVersion | undefined {
+  if (!Array.isArray(body)) return undefined;
+  for (const raw of body as unknown[]) {
+    const v = raw as { version?: unknown; questions?: unknown; timer?: unknown } | null;
+    if (v?.version !== version) continue;
+    const steps = (v.timer as { steps?: unknown } | null)?.steps;
+    if (!Array.isArray(steps)) return undefined;
+    const valid = steps.flatMap((step: unknown) => {
+      const st = step as { key?: unknown; label?: unknown } | null;
+      return typeof st?.key === 'string' && typeof st.label === 'string'
+        ? [{ key: st.key, label: st.label }]
+        : [];
+    });
+    if (valid.length !== steps.length) return undefined;
+    const questions = Array.isArray(v.questions) ? (v.questions as unknown[]) : [];
+    return {
+      steps: valid,
+      requires_answers: questions.some(
+        (q) => (q as { required?: unknown } | null)?.required !== false,
+      ),
+    };
+  }
+  return undefined;
+}
+
+export interface ReminderActionOptions {
+  /** The whole outbox: a Start reads the queue (`startRun`). */
+  outbox: Outbox;
+  action: string;
+  data: unknown;
+  now?: () => number;
+  locks?: LockManagerLike | undefined;
+  topicState?: (topicId: string, slug: string | null) => Promise<CachedTopicState>;
+  /** Called when the item is still queued (offline): register Background Sync. */
+  queued?: () => Promise<void>;
+  sendTimeoutMs?: number;
+  /** A Start: the acked run events (`lib/runs/acked.ts`), read inside the tap lock. */
+  acked?: RunTapDeps['acked'];
+  /** A Start: the server-time offset to stamp it with (the SW loads the page's first). */
+  offset?: () => Promise<number>;
+  /** A Start: the reminder version's steps and required-question flag, when known. */
+  startVersion?: (
+    topicId: string,
+    slug: string | null,
+    version: number,
+  ) => Promise<StartVersion | undefined>;
+}
 
 /**
  * A click on a reminder action, end to end (notifications.md §10): validate, refuse an
@@ -188,20 +266,13 @@ const NONE: ActionFeedback = { kind: 'none' };
  * - an invalid action, or the outbox can't be written (storage, lock): open the app;
  * - the server refused it, or the slot's entry already holds another choice (the first
  *   choice wins, §7.4): a notification saying so, which opens the record screen.
+ *
+ * A timed reminder's Start goes through {@link handleStartAction} instead.
  */
-export async function handleReminderAction(opts: {
-  outbox: Pick<Outbox, 'get' | 'enqueue' | 'sendNow' | 'discard'>;
-  action: string;
-  data: unknown;
-  now?: () => number;
-  locks?: LockManagerLike | undefined;
-  topicState?: (topicId: string, slug: string | null) => Promise<CachedTopicState>;
-  /** Called when the entry is still queued (offline): register Background Sync. */
-  queued?: () => Promise<void>;
-  sendTimeoutMs?: number;
-}): Promise<ActionFeedback> {
+export async function handleReminderAction(opts: ReminderActionOptions): Promise<ActionFeedback> {
   const data = readData(opts.data);
   const q = data.quickr ?? null;
+  if (q && isStartAction(opts.action, q)) return handleStartAction(opts, data, q);
   const answer = resolveAction(opts.action, q);
   if (!q || !answer) return { kind: 'open' };
   const topic = data.title || 'this topic';
@@ -261,20 +332,103 @@ export async function handleReminderAction(opts: {
   }
 }
 
-/** A failed create: say why; one meant for another server is dropped (it never can succeed). */
+/**
+ * A timed reminder's Start (timers.md §10.2), as {@link handleReminderAction} does a log:
+ * refuse a topic the cache shows archived; enqueue a `run.event` start whose run id and event
+ * id are the action entry id, stamped with the server-time offset, under the run-tap Web Lock
+ * (`startRun`), so racing clicks, a re-delivered push and the page's own taps start one run;
+ * send it now; and say why when it is refused. A run this device already has with that id,
+ * or an open run of the topic, means it was started: nothing is written. So does
+ * `event_conflict`: the server has the start already, from another device (its item goes).
+ */
+async function handleStartAction(
+  opts: ReminderActionOptions,
+  data: Partial<NotificationData>,
+  q: PushQuickr,
+): Promise<ActionFeedback> {
+  const topic = data.title || 'this topic';
+  const slug = data.topic_slug ?? null;
+  let state: CachedTopicState;
+  try {
+    state = await opts.topicState?.(q.topic_id, slug);
+  } catch {
+    state = undefined;
+  }
+  if (state === 'archived') {
+    return {
+      kind: 'notify',
+      title: `Couldn’t start ${topic}`,
+      body: 'The topic is archived. Open quickR to log.',
+    };
+  }
+
+  let result: StartResult;
+  try {
+    const id = await actionEntryId(q.server_id, q.topic_id, q.due_since);
+    const version = await opts.startVersion?.(q.topic_id, slug, q.version).catch(() => undefined);
+    const offset = (await opts.offset?.()) ?? serverOffset();
+    const deps: RunTapDeps = {
+      outbox: opts.outbox,
+      // The service worker keeps no runs list (it never caches /runs): its own items and
+      // acked events are what it knows; the server merges a second start (§4.5).
+      serverRuns: () => [],
+      ...(opts.acked ? { acked: opts.acked } : {}),
+      ...(opts.now ? { now: opts.now } : {}),
+      offset: () => offset,
+    };
+    result = await startRun(
+      deps,
+      {
+        topic: { id: q.topic_id, slug: slug ?? '', name: data.title ?? '' },
+        version: q.version,
+        steps: version?.steps ?? [],
+        requires_answers: version?.requires_answers ?? false,
+      },
+      { id, source: PWA_NOTIFICATION_SOURCE, expectServerId: q.server_id },
+    );
+  } catch {
+    return { kind: 'open' };
+  }
+  if (!result.started) return NONE;
+
+  const sent = await opts.outbox.sendNow(result.runId, opts.sendTimeoutMs ?? 8_000);
+  switch (sent.status) {
+    case 'sent':
+    case 'discarded':
+      return NONE;
+    case 'queued':
+      try {
+        await opts.queued?.();
+      } catch {
+        // no Background Sync: the app sends it on its next start
+      }
+      return NONE;
+    case 'retired': // run_deleted: the topic was deleted
+      return { kind: 'notify', title: `Couldn’t start ${topic}`, body: 'The topic was deleted.' };
+    case 'failed':
+      if (problemCode(sent.item.last_error?.body) === 'event_conflict') {
+        await opts.outbox.discard(sent.item.id).catch(() => undefined);
+        return NONE;
+      }
+      return refused(sent.item, topic, opts.outbox, 'start');
+  }
+}
+
+/** A failed item: say why; one meant for another server is dropped (it never can succeed). */
 async function refused(
   item: OutboxItem,
   topic: string,
   outbox: Pick<Outbox, 'discard'>,
+  verb: 'log' | 'start' = 'log',
 ): Promise<ActionFeedback> {
   const code = problemCode(item.last_error?.body);
-  const title = `Couldn’t log ${topic}`;
+  const title = `Couldn’t ${verb} ${topic}`;
   if (code === 'server_mismatch') {
     await outbox.discard(item.id).catch(() => undefined);
     return {
       kind: 'notify',
       title,
-      body: 'This reminder came from another quickR server, so nothing was logged.',
+      body: `This reminder came from another quickR server, so nothing was ${verb === 'log' ? 'logged' : 'started'}.`,
     };
   }
   if (code === 'topic_archived') {
@@ -298,7 +452,7 @@ function alreadyLogged(q: PushQuickr, value: unknown): ActionFeedback {
 /** How an answer reads on the reminder's buttons: the option label, or the number and unit. */
 export function answerLabel(q: PushQuickr, value: unknown): string {
   const log = q.quick_log;
-  if (log.type === 'single') return 'it';
+  if (log.type === 'single' || log.type === 'timed') return 'it';
   if (log.type === 'enum') {
     return log.options.find((o) => o.value === value)?.label ?? String(value);
   }

@@ -70,10 +70,12 @@ function serialised<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-async function view(deps: RunTapDeps): Promise<{ runs: LocalRun[]; items: OutboxItem[] }> {
+async function view(
+  deps: RunTapDeps,
+): Promise<{ runs: LocalRun[]; items: OutboxItem[]; acked: readonly OutboxItem[] }> {
   const items = await deps.outbox.list();
   const acked = (await deps.acked?.()) ?? [];
-  return { runs: localRuns(deps.serverRuns(), items, acked), items };
+  return { runs: localRuns(deps.serverRuns(), items, acked), items, acked };
 }
 
 /**
@@ -128,19 +130,31 @@ export interface StartResult {
 /**
  * Start a run of `ctx.topic`, unless the local view already has an open run for it: then
  * the tap routes to that run and nothing is enqueued (§4.5). `id` is the run id (a
- * reminder's Start derives it from the slot, §10.1); a new one by default.
+ * reminder's Start derives it from the slot, §10.2); a new one by default. A given `id`
+ * this device already knows (an item, an acked event or a run with it) was already
+ * started: nothing is enqueued either.
  */
 export function startRun(
   deps: RunTapDeps,
   ctx: RunContext,
-  opts: { id?: string; source?: string; meta?: Record<string, string> } = {},
+  opts: {
+    id?: string;
+    source?: string;
+    meta?: Record<string, string>;
+    /** A reminder's Start: the server it came from (`RunEventPayload.expect_server_id`). */
+    expectServerId?: string;
+  } = {},
 ): Promise<StartResult> {
   const tapAt = tapTime(deps);
   return serialised(async () => {
-    const { runs, items } = await view(deps);
+    const { runs, items, acked } = await view(deps);
     const open = openRunOf(runs, ctx.topic.id);
     if (open) return { runId: open.id, started: false };
     const runId = (opts.id ?? uuid()).toLowerCase();
+    const known = (i: OutboxItem) => i.id.toLowerCase() === runId;
+    if (opts.id !== undefined && (items.some(known) || acked.some(known) || runById(runs, runId))) {
+      return { runId, started: false };
+    }
     const event: RunEventPayload['event'] = {
       type: 'start',
       at: stamp(tapAt, null, items),
@@ -149,7 +163,11 @@ export function startRun(
       ...(opts.source !== undefined ? { source: opts.source } : {}),
       ...(opts.meta !== undefined ? { meta: opts.meta } : {}),
     };
-    await deps.outbox.enqueue(RUN_EVENT, payloadOf(ctx, runId, false, event), { id: runId });
+    const payload: RunEventPayload = {
+      ...payloadOf(ctx, runId, false, event),
+      ...(opts.expectServerId !== undefined ? { expect_server_id: opts.expectServerId } : {}),
+    };
+    await deps.outbox.enqueue(RUN_EVENT, payload, { id: runId });
     return { runId, started: true };
   });
 }

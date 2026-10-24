@@ -14,7 +14,7 @@ public struct NotificationCategory: Sendable, Hashable {
 
     /// One action of the category, in the vectors' (and `actions_json`'s) shape.
     public struct Action: Codable, Sendable, Hashable {
-        /// `log`, `input` or `open`
+        /// `log`, `input`, `open` or `start`
         public var kind: String
         /// `q1|…` (§4.2)
         public var identifier: String
@@ -40,7 +40,8 @@ public struct NotificationCategory: Sendable, Hashable {
             case textInputPlaceholder = "text_input_placeholder"
         }
 
-        /// As registered with the system: nil for a kind this build doesn't know.
+        /// As registered with the system: nil for a kind this build doesn't know. (`start` is
+        /// registered once the app handles it: I-NOTIF, timers.md §10.2.)
         public var spec: NotificationActionSpec? {
             switch kind {
             case "log": NotificationActionSpec(id: identifier, title: title, kind: .log)
@@ -68,11 +69,13 @@ public struct NotificationCategory: Sendable, Hashable {
     ///   - counts: answers per option value of the quick-log question, over the topic's entries
     ///     (only used to pick the 3 shown options of a 5–6 option enum).
     ///   - last: the latest answer to the quick-log question, by `captured_at` then entry id.
+    ///   - timed: the version has a timer: its reminder offers "Start", whatever its questions.
     public init?(
         serverId: String, topicId: String, version: Int, questions: [Question], counts: [String: Int] = [:],
-        last: AnswerValue? = nil
+        last: AnswerValue? = nil, timed: Bool = false
     ) {
-        guard let descriptor = Self.descriptor(questions: questions, counts: counts, last: last) else { return nil }
+        guard let descriptor = Self.descriptor(questions: questions, counts: counts, last: last, timed: timed)
+        else { return nil }
         self.init(serverId: serverId, topicId: topicId, version: version, descriptor: descriptor)
     }
 
@@ -96,10 +99,12 @@ public struct NotificationCategory: Sendable, Hashable {
 
     // MARK: - Descriptor (§2.3)
 
-    /// The server's `quick_log` descriptor for a topic's questions; nil when not quick-loggable.
-    public static func descriptor(questions: [Question], counts: [String: Int], last: AnswerValue?)
-        -> QuickLogDescriptor?
-    {
+    /// The server's `quick_log` descriptor for a topic's questions; nil when not quick-loggable. A
+    /// timed version's is `.timed` whatever its questions (they are answered at Stop).
+    public static func descriptor(
+        questions: [Question], counts: [String: Int], last: AnswerValue?, timed: Bool = false
+    ) -> QuickLogDescriptor? {
+        if timed { return .timed }
         guard let quick = QuickLog(questions: questions) else { return nil }
         switch quick {
         case .chips(let question, let options):
@@ -218,6 +223,9 @@ public struct NotificationCategory: Sendable, Hashable {
         case .single:
             // No question: one action, logging the entry with no answers.
             return [Action(kind: "log", identifier: id("", .single), title: "Log it")]
+        case .timed:
+            // One "Start", hashed with its own kind (timers.md §10.1); no key or value either.
+            return [Action(kind: "start", identifier: id("", .start), title: "Start")]
         }
     }
 
@@ -251,6 +259,8 @@ public struct ActionIdentifier: Sendable, Hashable, CustomStringConvertible {
         case more = "m"
         /// A single topic's "Log it": no question, so an empty key and value.
         case single = "s"
+        /// A timed topic's "Start" (timers.md §10.1): an empty key and value too.
+        case start = "t"
     }
 
     public var serverId: String
@@ -258,7 +268,8 @@ public struct ActionIdentifier: Sendable, Hashable, CustomStringConvertible {
     public var version: Int
     public var key: String
     public var kind: Kind
-    /// `o`: the option value; `n`: `fmt(last_value)`; `i`, `m`, `s`: empty. The key is empty for `s`.
+    /// `o`: the option value; `n`: `fmt(last_value)`; `i`, `m`, `s`, `t`: empty. The key is empty
+    /// for `s` and `t`.
     public var value: String
 
     public init(serverId: String, topicId: String, version: Int, key: String, kind: Kind, value: String = "") {
@@ -282,13 +293,13 @@ public struct ActionIdentifier: Sendable, Hashable, CustomStringConvertible {
         guard parts.count == 7, parts[0] == "q1", Self.isCanonicalUUID(parts[1]), Self.isCanonicalUUID(parts[2]),
             let version = Self.decimal(parts[3]), let kind = Kind(rawValue: parts[5])
         else { return nil }
-        // A question's key, except a single topic's (it has none).
-        guard kind == .single ? parts[4].isEmpty : Self.isKey(parts[4]) else { return nil }
+        // A question's key, except a single or timed topic's (they have none).
+        guard kind == .single || kind == .start ? parts[4].isEmpty : Self.isKey(parts[4]) else { return nil }
         let value = parts[6]
         switch kind {
         case .option: guard !value.isEmpty else { return nil }
         case .number: guard NumberFormat.isCanonical(value) else { return nil }
-        case .input, .more, .single: guard value.isEmpty else { return nil }
+        case .input, .more, .single, .start: guard value.isEmpty else { return nil }
         }
         self.init(serverId: parts[1], topicId: parts[2], version: version, key: parts[4], kind: kind, value: value)
     }

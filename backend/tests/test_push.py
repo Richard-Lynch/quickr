@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -589,3 +589,81 @@ async def test_a_single_topics_reminder_offers_log_it(client: httpx.AsyncClient,
     assert payload["quickr"]["quick_log"] == {"type": "single"}
     rendered = notification.actions("s", r.json()["id"], 1, single) if single else []
     assert payload["aps"]["category"] == notification.category_id(r.json()["id"], rendered)
+
+
+# --- timed topics (docs/specs/timers.md §10.1) -------------------------------------------
+
+
+async def _run_event(client: httpx.AsyncClient, run_id: str, kind: str, **fields: Any) -> dict[str, Any]:
+    at = (datetime.now(UTC) - timedelta(seconds=30)).isoformat()
+    body = {"id": str(uuid4()), "type": kind, "at": at, **fields}
+    r = await client.post(f"/runs/{run_id}/events", json=body)
+    assert r.status_code in (200, 201), r.text
+    out: dict[str, Any] = r.json()
+    return out
+
+
+async def _last_notified(slug: str) -> datetime | None:
+    async with get_sessionmaker()() as db:
+        return await db.scalar(select(Topic.last_notified_due_since).where(Topic.slug == slug))
+
+
+async def test_t12_an_open_run_holds_the_reminder_without_marking_it(
+    client: httpx.AsyncClient, outbox: list[Sent]
+) -> None:
+    # T12: no reminder while a run is open (running or paused), and the slot stays unmarked;
+    # after a discard the same slot's reminder goes out, with the timed descriptor.
+    await client.post("/push/subscriptions", json=sub(1))
+    interval = {"kind": "interval", "every_minutes": 60, "timezone": "UTC"}
+    r = await client.post(
+        "/topics", json={"name": "Routine", "questions": [], "timer": {"steps": []}, "schedule": interval}
+    )
+    assert r.status_code == 201, r.text
+    topic = r.json()
+    await backdate_schedule("routine", datetime.now(UTC) - timedelta(days=1))
+    run_id = str(uuid4())
+    start = {"id": run_id, "topic_id": topic["id"], "version": topic["current_version"]}
+    await _run_event(client, run_id, "start", **start)
+
+    assert await _tick(datetime.now(UTC)) == 0
+    assert outbox == []
+    assert await _last_notified("routine") is None
+    await _run_event(client, run_id, "pause")
+    assert await _tick(datetime.now(UTC)) == 0
+    assert outbox == []
+    assert await _last_notified("routine") is None
+
+    await _run_event(client, run_id, "discard")
+    assert await _tick(datetime.now(UTC)) == 1
+    assert [s.payload["topic_slug"] for s in outbox] == ["routine"]
+    assert outbox[0].payload["quick_log"] == {"type": "timed"}
+    assert await _last_notified("routine") is not None
+
+
+async def test_t12_a_finishing_run_doesnt_hold_the_reminder(
+    client: httpx.AsyncClient, outbox: list[Sent]
+) -> None:
+    # T12: a stop without the required answers leaves the run finishing, with no entry: the
+    # topic is still due, and its reminder goes out. An untimed topic beside it is unaffected.
+    await client.post("/push/subscriptions", json=sub(1))
+    interval = {"kind": "interval", "every_minutes": 60, "timezone": "UTC"}
+    r = await client.post(
+        "/topics",
+        json={"name": "Workout", "questions": QUESTIONS, "timer": {"steps": []}, "schedule": interval},
+    )
+    assert r.status_code == 201, r.text
+    topic = r.json()
+    await make_topic(client, "Water", QUESTIONS, schedule=interval)
+    for slug in ("workout", "water"):
+        await backdate_schedule(slug, datetime.now(UTC) - timedelta(days=1))
+    run_id = str(uuid4())
+    await _run_event(
+        client, run_id, "start", id=run_id, topic_id=topic["id"], version=topic["current_version"]
+    )
+    stopped = await _run_event(client, run_id, "stop")
+    assert stopped["run"]["status"] == "finishing"
+
+    assert await _tick(datetime.now(UTC)) == 2
+    by_slug = {s.payload["topic_slug"]: s.payload["quick_log"] for s in outbox}
+    assert by_slug["workout"] == {"type": "timed"}
+    assert by_slug["water"]["type"] == "int"

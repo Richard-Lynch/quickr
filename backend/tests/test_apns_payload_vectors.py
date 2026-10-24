@@ -11,6 +11,7 @@ file must match.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -24,7 +25,7 @@ from app.services.push.base import Notification
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
 
 PATH = FIXTURES_DIR / "apns-payload-vectors.json"
-GENERATOR_VERSION = 2
+GENERATOR_VERSION = 3
 
 SERVER_ID = "0b9e0000-0000-4000-8000-0000000000aa"
 
@@ -142,6 +143,21 @@ CASES: dict[str, tuple[int, str, str, str, int, str, list[dict[str, Any]], dict[
 }
 
 
+# Timed topics (timers.md §10.1): name -> (topic number, slug, title, version, due_since,
+# questions, timer). quick_log is {"type": "timed"}, its category the one "Start".
+TIMED_CASES: dict[str, tuple[int, str, str, int, str, list[dict[str, Any]], dict[str, Any]]] = {
+    "timed": (
+        11,
+        "morning",
+        "Morning routine",
+        2,
+        "2026-10-21T07:00:00Z",
+        [MINUTES],
+        {"steps": [{"key": "shower", "label": "Shower"}, {"key": "breakfast", "label": "Breakfast"}]},
+    ),
+}
+
+
 def topic_id(n: int) -> UUID:
     return UUID(f"00000000-0000-4000-8000-{n:012d}")
 
@@ -157,9 +173,10 @@ def case(
     raw: list[dict[str, Any]],
     counts: dict[str, int],
     last: Any,
+    timer: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     questions = [question_adapter.validate_python(q) for q in raw]
-    quick_log = notification.descriptor(questions, counts=counts, last=last)
+    quick_log = notification.descriptor(questions, counts=counts, last=last, timed=timer is not None)
     payload = apns.render(
         Notification(
             kind="due",
@@ -185,6 +202,7 @@ def case(
         "version": version,
         "due_since": due_since,
         "questions": [q.model_dump(mode="json") for q in questions],
+        "timer": timer,
         "counts": counts,
         "last": last,
         "expected": payload,
@@ -199,7 +217,8 @@ def build() -> dict[str, Any]:
             "semantics": [
                 "expected: apns.render of a due Notification built as the scheduler builds it: "
                 "title = the topic name, url = /t/{slug}/record, the descriptor from "
-                "notification.descriptor(questions, counts, last) (notification-vectors.json).",
+                "notification.descriptor(questions, counts, last) (notification-vectors.json); "
+                "timed (timer != null) whatever the questions.",
                 "aps.alert.title is cut to 120 Unicode scalars with '…'; aps.alert.body is body + "
                 "the descriptor's body suffix; aps.category is the category id (absent without a "
                 "quick_log); aps.thread-id is topic-{topic_id}.",
@@ -208,7 +227,13 @@ def build() -> dict[str, Any]:
                 "quickr.due_since is canonical: UTC, whole seconds, Z.",
             ],
         },
-        "cases": [case(name, *spec) for name, spec in CASES.items()],
+        "cases": [
+            *(case(name, *spec) for name, spec in CASES.items()),
+            *(
+                case(name, n, slug, title, "Time to log", version, due_since, qs, {}, None, timer)
+                for name, (n, slug, title, version, due_since, qs, timer) in TIMED_CASES.items()
+            ),
+        ],
     }
 
 
@@ -229,5 +254,8 @@ def test_vectors_cover_the_payload() -> None:
     title = cases["title-cut"]["aps"]["alert"]["title"]
     assert len(title) == apns.MAX_TITLE_LENGTH
     assert title.endswith("…")
+    assert cases["timed"]["quickr"]["quick_log"] == {"type": "timed"}
+    assert cases["timed"]["aps"]["category"].startswith("quickr.t.")
+    assert len(json.dumps(cases["timed"]).encode()) <= apns.MAX_PAYLOAD_BYTES
     # A last value is part of the actions, so it changes the category.
     assert cases["int-last"]["aps"]["category"] != cases["int-no-last"]["aps"]["category"]

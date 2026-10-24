@@ -95,6 +95,11 @@ export interface RunEventPayload {
   makes_entry: boolean;
   /** Body for `POST /runs/{run_id}/events` minus `id`: the item id *is* the event id. */
   event: Omit<RunEventIn, 'id'>;
+  /**
+   * The server a reminder's Start came from (`X-QuickR-Expect-Server-Id`, as for
+   * `entry.create`): another server refuses it with 409 `server_mismatch`.
+   */
+  expect_server_id?: string;
 }
 
 const runEvent: OutboxKind<RunEventPayload> = {
@@ -167,6 +172,9 @@ const runEvent: OutboxKind<RunEventPayload> = {
       url: `${API_PREFIX}/runs/${encodeURIComponent(item.payload.run_id)}/events`,
       // Idempotent by event id: a retry after a lost response is a replay (§3.2).
       body: { ...item.payload.event, id: item.id } satisfies RunEventIn,
+      ...(item.payload.expect_server_id
+        ? { headers: { [EXPECT_SERVER_ID_HEADER]: item.payload.expect_server_id } }
+        : {}),
     };
   },
 };
