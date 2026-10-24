@@ -195,7 +195,8 @@ final class FakeFeedServer: @unchecked Sendable {
         locked {
             for (runId, run) in state.runs where run["topic_id"] as? String == id {
                 state.runs[runId] = nil
-                for alias in [runId] + (run["aliases"] as? [String] ?? []) {
+                let aliases: [String] = run["aliases"] as? [String] ?? []
+                for alias in [runId] + aliases {
                     state.deleted["run:\(alias)"] = ("run", alias, id)
                 }
             }

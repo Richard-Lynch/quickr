@@ -77,7 +77,8 @@ import Testing
         #expect(try await store.runs.runs() == expected)
         #expect(try await store.runs.runs(topicId: Self.everything) == expected)
         #expect(try await store.runs.runs(topicId: UUID(uuidString: FakeFeedServer.water)!).isEmpty)
-        #expect(try await store.runs.run(id: UUID(uuidString: Self.aliasA)!)?.id.wireString == Self.runA)
+        let byAlias: Run? = try await store.runs.run(id: UUID(uuidString: Self.aliasA)!)
+        #expect(byAlias?.id.wireString == Self.runA)
         #expect(try await store.ids("run_alias") == [Self.aliasA])
 
         // A later revision (a pause) replaces it.
@@ -214,7 +215,9 @@ import Testing
         let seqs = snapshot.log.map(\.seq)
         let afters = [0] + stride(from: 1, to: seqs.count, by: 2).map { seqs[$0] }
         let lastAfter = try #require(afters.last { $0 < env.server.head })
-        #expect(snapshot.runsClosedAt[Self.runA] == seqs[seqs.firstIndex(of: lastAfter)! + 1])
+        let closedAt: Int? = snapshot.runsClosedAt[Self.runA]
+        let firstOfLastPage: Int = seqs[seqs.firstIndex(of: lastAfter)! + 1]
+        #expect(closedAt == firstOfLastPage)
         #expect(try await store.state().cursor != lastAfter, "the gate parks a staged page, not the live one")
         env.gate.arm { $0 == lastAfter }
         let syncing = Task { await coordinator.sync(reason: .activation) }

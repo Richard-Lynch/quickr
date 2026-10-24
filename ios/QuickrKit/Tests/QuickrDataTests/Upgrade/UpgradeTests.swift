@@ -477,8 +477,13 @@ import Testing
                 #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)") == 0, "\(table)")
             }
             #expect(try Int.fetchOne(db, sql: "SELECT cursor FROM stage_state") == 0)
-            let state = try Row.fetchOne(db, sql: "SELECT rebuilding, epoch, cursor FROM sync_state")
-            #expect(state?["rebuilding"] == "E2" && state?["epoch"] == "E1" && state?["cursor"] == 30)
+            let state = try #require(try Row.fetchOne(db, sql: "SELECT rebuilding, epoch, cursor FROM sync_state"))
+            let rebuilding: String? = state["rebuilding"]
+            let epoch: String? = state["epoch"]
+            let cursor: Int = state["cursor"]
+            #expect(rebuilding == "E2")
+            #expect(epoch == "E1")
+            #expect(cursor == 30)
             for prefix in ["", "stage_"] {
                 try db.execute(
                     sql: "INSERT INTO \(prefix)tombstone (kind, id, topic_id, seq) VALUES ('run', 'r1', 't1', 6)")
@@ -552,7 +557,8 @@ import Testing
         #expect(state.rebuilding == state.epoch && state.epoch != nil && state.cursor == head)
         #expect(state.bootstrapComplete)
         #expect(try await store.runs.runs().isEmpty)
-        #expect(try await store.entries.entry(id: entryId)?.entry.timing == nil)
+        let timingBefore: Timing? = try await store.entries.entry(id: entryId)?.entry.timing
+        #expect(timingBefore == nil)
 
         let relaunched = env.coordinator(owner: "app:B", partitions: partitions)
         #expect(await relaunched.sync(reason: .activation) == .synced)

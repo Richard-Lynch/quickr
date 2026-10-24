@@ -110,8 +110,11 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
             Issue.record("expected a run item")
             return
         }
-        #expect(seq == 30 && page.items.count == 1)
-        #expect(run.status == .finishing && run.revision == 8 && run.events.count == 8)
+        #expect(seq == 30)
+        #expect(page.items.count == 1)
+        #expect(run.status == .finishing)
+        #expect(run.revision == 8)
+        #expect(run.events.count == 8)
         #expect(run.aliases == [UUID(uuidString: "0a000000-0000-4000-8000-000000000002")!])
 
         let closed = try Fixtures.api("listChanges.run_deletion")
@@ -123,7 +126,10 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
             Issue.record("expected the stopped run's entry")
             return
         }
-        #expect(entry.id == closedPage.deleted.first?.id && entry.timing?.activeMs == 300_000)
+        let firstDeleted: UUID? = closedPage.deleted.first?.id
+        let activeMs: Int? = entry.timing?.activeMs
+        #expect(entry.id == firstDeleted)
+        #expect(activeMs == 300_000)
     }
 
     /// The store keeps a run as its wire shape: domain → `RunDTO` → domain is the identity, for every
