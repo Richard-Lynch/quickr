@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 
-import { isEntryCreate } from '../../lib/outbox/kinds';
+import { isEntryCreate, isRunEvent } from '../../lib/outbox/kinds';
 import type { OutboxItem } from '../../lib/outbox/types';
 import { useOutbox } from '../../lib/outbox/useOutbox';
 import { formatDateTime, formatRelative } from '../../lib/dates';
@@ -27,6 +27,14 @@ export function describeOutboxItem(item: OutboxItem): ItemView {
       title: `Entry · ${topic.name}`,
       when: formatDateTime(body.captured_at ?? item.created_at),
       fixUrl: `/t/${topic.slug}/record?fix=${encodeURIComponent(item.id)}`,
+    };
+  }
+  if (isRunEvent(item)) {
+    const { topic, event } = item.payload;
+    return {
+      title: `${event.type.charAt(0).toUpperCase()}${event.type.slice(1)} · ${topic.name}`,
+      when: formatDateTime(event.at),
+      fixUrl: null,
     };
   }
   return { title: item.kind, when: formatDateTime(item.created_at), fixUrl: null };

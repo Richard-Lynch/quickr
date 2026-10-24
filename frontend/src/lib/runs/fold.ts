@@ -387,6 +387,28 @@ export function stateToWire(state: RunState): RunStateWire {
   };
 }
 
+/**
+ * The API's `RunState` in integer milliseconds. A `finishing` run is `stopped` to the
+ * fold (the server decides `finishing`, §3.5).
+ */
+export function stateFromWire(state: RunStateWire): RunState {
+  return {
+    ...state,
+    status: state.status === 'finishing' ? 'stopped' : state.status,
+    started_at: parseInstant(state.started_at),
+    ended_at: state.ended_at === null ? null : parseInstant(state.ended_at),
+    open:
+      state.open === null
+        ? null
+        : { ...state.open, started_at: parseInstant(state.open.started_at) },
+    paused_since: state.paused_since === null ? null : parseInstant(state.paused_since),
+    segments: state.segments.map(segmentFromWire),
+    skipped: [...state.skipped],
+    pauses: state.pauses.map(pauseFromWire),
+    effects: { ...state.effects },
+  };
+}
+
 export function timingToWire(t: Timing): TimingWire {
   return {
     ...t,

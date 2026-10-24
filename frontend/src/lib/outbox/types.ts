@@ -61,7 +61,44 @@ export interface OutboxKind<P = unknown> {
    * Override the default status classification (e.g. treat 404 on DELETE as done).
    * `body` is the parsed JSON response, when there is one (usually a `Problem`).
    */
-  classify?(status: number, body: unknown): Outcome | undefined;
+  classify?(status: number, body: unknown, item: OutboxItem<P>): Outcome | undefined;
+  /**
+   * Ids of items this one must wait for: while any of them is still queued, a flush skips
+   * this item without attempting it, and it isn't due. `queue` is every queued item, so
+   * the rule can depend on their status (`run.event`: an event waits for its run's start,
+   * pending or failed; a finish also waits for its run's pending stops).
+   */
+  waitsFor?(item: OutboxItem<P>, queue: readonly OutboxItem[]): readonly string[];
+  /**
+   * Ids whose discard discards this item too: it can never be sent without them
+   * (`run.event`: every event of a run is discarded with its start).
+   */
+  discardedWith?(item: OutboxItem<P>): readonly string[];
+  /**
+   * A tie-break for items enqueued in the same millisecond, before the id (`run.event`:
+   * its clamped `at`, so a device's own taps go out in the order they were made).
+   */
+  orderKey?(item: OutboxItem<P>): string;
+  /**
+   * Whether {@link coalesce} can act on this item. Only such an enqueue takes the flush
+   * lock (and so waits for a pass in progress); every other one is stored at once.
+   */
+  coalesces?(item: OutboxItem<P>): boolean;
+  /**
+   * Coalescing at enqueue time, run under the flush lock while no attempt is in flight.
+   * `queue` is every queued item, oldest first. Returns the ids of queued items to drop
+   * (each is discarded) and whether to store the new item at all; `undefined` keeps
+   * everything.
+   */
+  coalesce?(
+    item: OutboxItem<P>,
+    queue: readonly OutboxItem[],
+  ): { drop: readonly string[]; store: boolean } | undefined;
+  /**
+   * Runs after a successful send, before the item leaves the queue (awaited), so a record
+   * of it (`run.event`: the acked-runs record) exists before anyone sees it gone.
+   */
+  onAck?(item: OutboxItem<P>, data: unknown): Promise<void>;
 }
 
 export type OutboxEvent =

@@ -17,7 +17,8 @@ import { Segmented } from '../components/ui/Segmented';
 import { Skeleton } from '../components/ui/Spinner';
 import { useDebounced, useNow } from '../lib/hooks';
 import { plural } from '../lib/format';
-import { NO_OPEN_RUNS, dueCount, splitByDue } from '../lib/home';
+import { dueCount, splitByDue } from '../lib/home';
+import { useRuns } from '../lib/runs/useRuns';
 
 type Query = NonNullable<ListTopicsData['query']>;
 type StatusFilter = NonNullable<Query['status']>;
@@ -85,9 +86,9 @@ export function TopicsPage() {
   const total = query.data?.pages[0]?.total ?? 0;
   const filtered = q !== '' || status !== 'active';
   const sectioned = sort === 'due' && !filtered;
-  // No run data in the PWA yet: no topic has an open run.
-  const sections = useMemo(() => splitByDue(items, now, NO_OPEN_RUNS), [items, now]);
-  const dueTotal = useMemo(() => dueCount(items, now, NO_OPEN_RUNS), [items, now]);
+  const { openTopics } = useRuns();
+  const sections = useMemo(() => splitByDue(items, now, openTopics), [items, now, openTopics]);
+  const dueTotal = useMemo(() => dueCount(items, now, openTopics), [items, now, openTopics]);
 
   return (
     <>

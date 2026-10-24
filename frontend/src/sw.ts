@@ -23,9 +23,11 @@ import {
 import { NavigationRoute, registerRoute } from 'workbox-routing';
 import { NetworkFirst } from 'workbox-strategies';
 
-import { API_PREFIX, CHANNEL_HEADERS, SW_API_CACHE } from './api/constants';
+import { API_PREFIX, CHANNEL_HEADERS, FROM_CACHE_HEADER, SW_API_CACHE } from './api/constants';
 import { OUTBOX_KINDS, OUTBOX_SYNC_TAG } from './lib/outbox/kinds';
 import { createOutbox } from './lib/outbox/outbox';
+import { SERVER_TIME_HEADER } from './lib/runs/clock';
+import { timedFetch } from './lib/runs/serverClock';
 import {
   handleReminderAction,
   notificationData,
@@ -71,7 +73,32 @@ const NO_CACHE = [
   /\.csv$/,
   new RegExp(`^${API_PREFIX}/push/`),
   new RegExp(`^${API_PREFIX}/health$`),
+  // Runs change by the second: a stale list would reopen stopped runs. The persisted
+  // query cache covers offline (timers.md §7.3).
+  new RegExp(`^${API_PREFIX}/runs(/|$)`),
 ];
+
+/**
+ * A cached copy doesn't keep the server time, and an answer from the cache is marked:
+ * offline, it would be an old time with a short round trip, a bad offset sample
+ * (timers.md §5.1).
+ */
+const dropServerTime: WorkboxPlugin = {
+  cachedResponseWillBeUsed: ({ cachedResponse }) => {
+    if (!cachedResponse) return Promise.resolve(cachedResponse);
+    const headers = new Headers(cachedResponse.headers);
+    headers.set(FROM_CACHE_HEADER, '1');
+    const { status, statusText } = cachedResponse;
+    return Promise.resolve(new Response(cachedResponse.body, { status, statusText, headers }));
+  },
+  cacheWillUpdate: ({ response }) => {
+    if (!response.headers.has(SERVER_TIME_HEADER)) return Promise.resolve(response);
+    const headers = new Headers(response.headers);
+    headers.delete(SERVER_TIME_HEADER);
+    const { status, statusText } = response;
+    return Promise.resolve(new Response(response.body, { status, statusText, headers }));
+  },
+};
 
 registerRoute(
   ({ url, request, sameOrigin }) =>
@@ -85,6 +112,7 @@ registerRoute(
     plugins: [
       // (workbox's plugin classes predate exactOptionalPropertyTypes)
       new CacheableResponsePlugin({ statuses: [200] }) as WorkboxPlugin,
+      dropServerTime,
       new ExpirationPlugin({
         maxEntries: 300,
         maxAgeSeconds: 7 * 24 * 60 * 60,
@@ -97,7 +125,7 @@ registerRoute(
 
 // ---- Background Sync: flush the outbox -------------------------------------------
 
-const outbox = createOutbox({ kinds: OUTBOX_KINDS, headers: CHANNEL_HEADERS });
+const outbox = createOutbox({ kinds: OUTBOX_KINDS, headers: CHANNEL_HEADERS, fetch: timedFetch() });
 
 self.addEventListener('sync', (event) => {
   const e = event as SyncEvent;

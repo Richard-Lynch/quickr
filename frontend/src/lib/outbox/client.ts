@@ -10,11 +10,17 @@
  *    flushes the same IndexedDB queue even after the tab is closed.
  */
 import { CHANNEL_HEADERS } from '../../api/constants';
-import { OUTBOX_KINDS, OUTBOX_SYNC_TAG } from './kinds';
+import { refreshAckedSnapshot } from '../runs/acked';
+import { timedFetch } from '../runs/serverClock';
+import { OUTBOX_KINDS, OUTBOX_SYNC_TAG, isRunEvent } from './kinds';
 import { createOutbox, type Outbox } from './outbox';
 import type { OutboxItem } from './types';
 
-export const outbox: Outbox = createOutbox({ kinds: OUTBOX_KINDS, headers: CHANNEL_HEADERS });
+export const outbox: Outbox = createOutbox({
+  kinds: OUTBOX_KINDS,
+  headers: CHANNEL_HEADERS,
+  fetch: timedFetch(),
+});
 
 /** Longest wait between checks while items are pending. */
 const MAX_POLL_MS = 60_000;
@@ -130,6 +136,8 @@ export function startOutbox(): () => void {
 
   const unsubscribe = outbox.subscribe((e) => {
     void refreshOutboxSnapshot();
+    // The acked-runs record was written before the item left the queue (here or in the SW).
+    if (e.type === 'sent' && isRunEvent(e.item)) void refreshAckedSnapshot();
     if (e.type === 'enqueued' || e.type === 'updated' || e.type === 'retrying') void schedule();
     // Offline or flaky: let the SW finish the job even if the app gets closed.
     if (e.type === 'retrying' || (e.type === 'enqueued' && !isOnline())) {
@@ -148,6 +156,7 @@ export function startOutbox(): () => void {
   window.addEventListener('pageshow', onPageShow);
 
   void refreshOutboxSnapshot();
+  void refreshAckedSnapshot();
   void kickOutbox(true);
 
   return () => {
