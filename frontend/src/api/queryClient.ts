@@ -41,7 +41,8 @@ export type OperationId =
   | 'listEntries'
   | 'getEntry'
   | 'getTopicStats'
-  | 'getQuestionSeries';
+  | 'getQuestionSeries'
+  | 'listRuns';
 
 /** Invalidate every cached query for the given generated operations. */
 export function invalidateOperations(qc: QueryClient, ids: readonly OperationId[]): Promise<void> {

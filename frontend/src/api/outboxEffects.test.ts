@@ -10,7 +10,9 @@ import {
 import { ENTRY_CREATE, type EntryCreatePayload } from '../lib/outbox/kinds';
 import type { Outbox, OutboxListener } from '../lib/outbox/outbox';
 import type { OutboxEvent, OutboxItem } from '../lib/outbox/types';
+import { T0, ev, runItem, serverRun } from '../test/runs';
 import { connectOutboxEffects } from './outboxEffects';
+import { cachedServerRuns, runsQueryKey, upsertServerRun } from './runs';
 
 const topic = {
   id: 't1',
@@ -89,6 +91,8 @@ function setup() {
   return { qc, emit, count, ids };
 }
 
+const flushPromises = () => new Promise((r) => setTimeout(r, 0));
+
 describe('entry.create effects', () => {
   it('rolls back the optimistic entry when the server retires it (entry_deleted)', () => {
     const { qc, emit, count, ids } = setup();
@@ -105,5 +109,81 @@ describe('entry.create effects', () => {
     expect(count()).toBe(2);
     expect(ids()).toEqual(['e0']);
     expect(qc.getQueryData(getEntryQueryKey({ path: { entry_id: 'e1' } }))).toBeUndefined();
+  });
+});
+
+describe('run.event effects', () => {
+  const runTopic = { id: 't1', slug: 'sleep', name: 'Sleep' };
+  const stop = (makes_entry: boolean) => {
+    const i = runItem('stop', { id: 's1', run: 'r1', at: T0 + 5000, makes_entry });
+    return { ...i, payload: { ...i.payload, topic: runTopic } };
+  };
+
+  it('counts a stop that makes the entry at once, and rolls it back on failure', () => {
+    const { emit, count } = setup();
+    emit({ type: 'enqueued', item: stop(true) });
+    expect(count()).toBe(3);
+    emit({ type: 'failed', item: { ...stop(true), status: 'failed' } });
+    expect(count()).toBe(2);
+    emit({ type: 'enqueued', item: stop(false) });
+    expect(count()).toBe(2);
+  });
+
+  it('un-counts a pending stop that was discarded (K6) or retired', () => {
+    const { emit, count } = setup();
+    emit({ type: 'enqueued', item: stop(true) });
+    emit({ type: 'discarded', item: stop(true) });
+    expect(count()).toBe(2);
+    emit({ type: 'enqueued', item: stop(true) });
+    emit({ type: 'retired', item: stop(true), error: { message: 'gone', status: 409 } });
+    expect(count()).toBe(2);
+  });
+
+  it("puts the response's run in the runs cache, and its entry in the entry caches", async () => {
+    // The response is parsed (zRunEventResult): real UUIDs.
+    const R1 = '00000000-0000-4000-8000-000000000001';
+    const S1 = '00000000-0000-4000-8000-000000000002';
+    const T1 = '00000000-0000-4000-8000-0000000000aa';
+    const { qc, emit, ids } = setup();
+    const run = serverRun(R1, [ev(R1, 'start', T0)], { topic_id: T1 });
+    emit({
+      type: 'sent',
+      item: runItem('start', { id: R1, run: R1, at: T0 }),
+      data: { event: { id: R1, effect: 'applied', reason: null }, run, entry: null },
+    });
+    await flushPromises();
+    expect(cachedServerRuns(qc).map((r) => r.id)).toEqual([R1]);
+
+    const stopped = serverRun(R1, [ev(R1, 'start', T0), ev(S1, 'stop', T0 + 5000)], {
+      topic_id: T1,
+    });
+    emit({
+      type: 'sent',
+      item: stop(true),
+      data: {
+        event: { id: S1, effect: 'applied', reason: null },
+        run: stopped,
+        entry: { ...entry(R1), topic_id: T1 },
+      },
+    });
+    await flushPromises();
+    expect(cachedServerRuns(qc)).toEqual([]);
+    expect(ids()).toEqual([R1, 'e0']);
+    expect(qc.getQueryData(getEntryQueryKey({ path: { entry_id: R1 } }))).toMatchObject({ id: R1 });
+  });
+});
+
+describe('upsertServerRun', () => {
+  it('keeps the newer copy, drops closed runs and merged aliases', async () => {
+    const qc = new QueryClient();
+    const r1 = serverRun('r1', [ev('r1', 'start', T0)], { revision: 3 });
+    const r2 = serverRun('r2', [ev('r2', 'start', T0)], { revision: 1 });
+    qc.setQueryData(runsQueryKey(), [r1, r2]);
+    await upsertServerRun(qc, { ...r1, revision: 2, status: 'paused' });
+    expect(cachedServerRuns(qc)).toEqual([r1, r2]);
+    await upsertServerRun(qc, { ...r1, revision: 4, aliases: ['r2'] });
+    expect(cachedServerRuns(qc).map((r) => [r.id, r.revision])).toEqual([['r1', 4]]);
+    await upsertServerRun(qc, { ...r1, revision: 5, status: 'discarded' });
+    expect(cachedServerRuns(qc)).toEqual([]);
   });
 });

@@ -11,13 +11,15 @@
  *  3. enqueue it with `useOutbox().enqueue(kind, payload)`.
  */
 import { API_PREFIX } from '../../api/constants';
-import type { EntryCreate } from '../../client/types.gen';
+import type { EntryCreate, RunEventIn } from '../../client/types.gen';
+import type { TimerStep } from '../runs/types';
 import type { OutboxItem, OutboxKind } from './types';
 
 /** Background Sync tag registered by the page and handled in `sw.ts`. */
 export const OUTBOX_SYNC_TAG = 'quickr-outbox';
 
 export const ENTRY_CREATE = 'entry.create';
+export const RUN_EVENT = 'run.event';
 
 /** The F10 identity precondition (docs/ios/specs/sync-protocol.md §1.3). */
 export const EXPECT_SERVER_ID_HEADER = 'X-QuickR-Expect-Server-Id';
@@ -71,10 +73,76 @@ const entryCreate: OutboxKind<EntryCreatePayload> = {
   },
 };
 
+export interface RunEventPayload {
+  /** Enough of the topic to label the item and its notices. */
+  topic: { id: string; slug: string; name: string };
+  /** The run the event is for (lowercase): its start's id, or an id the server answered. */
+  run_id: string;
+  /**
+   * The run's version, its steps, and whether it has a required question, as the device
+   * knew them at the tap: the local view folds queued events over these steps
+   * (timers.md §8.3), and a stop without answers leaves such a run finishing (§3.5).
+   */
+  version: number;
+  steps: TimerStep[];
+  requires_answers: boolean;
+  /**
+   * The tap makes the run's entry: a stop that won't leave the run finishing, or a finish
+   * of a finishing run. Its entry is projected optimistically until the server answers.
+   */
+  makes_entry: boolean;
+  /** Body for `POST /runs/{run_id}/events` minus `id`: the item id *is* the event id. */
+  event: Omit<RunEventIn, 'id'>;
+}
+
+const runEvent: OutboxKind<RunEventPayload> = {
+  /**
+   * 409 `run_deleted`: the run's topic was deleted; nothing can come of it (timers.md §8.1).
+   * 409 `run_open` on a finish: this device's stop isn't in yet; keep the answers and send
+   * them again (§3.6). Everything else, a 404 included, is the default classification.
+   */
+  classify(status, body, item) {
+    if (status !== 409) return undefined;
+    const code = problemCode(body);
+    if (code === 'run_deleted') return 'retired';
+    if (code === 'run_open' && item.payload.event.type === 'finish') return 'retry';
+    return undefined;
+  },
+  /** The one ordering rule (§8.2): an event waits for its run's start, nothing else. */
+  waitsFor(item) {
+    return item.payload.event.type === 'start' ? [] : [item.payload.run_id];
+  },
+  /**
+   * K6 (§8.1): a discard of a run the server never saw (its start and every event still
+   * pending and never attempted) drops all of them, and the discard isn't stored.
+   */
+  coalesce(item, queue) {
+    if (item.payload.event.type !== 'discard') return undefined;
+    const runId = item.payload.run_id;
+    const ofRun = queue.filter((i) => isRunEvent(i) && i.payload.run_id === runId);
+    const unsent = ofRun.every((i) => i.status === 'pending' && i.attempts === 0);
+    if (!unsent || !ofRun.some((i) => i.id === runId)) return undefined;
+    return { drop: ofRun.map((i) => i.id), store: false };
+  },
+  toRequest(item) {
+    return {
+      method: 'POST',
+      url: `${API_PREFIX}/runs/${encodeURIComponent(item.payload.run_id)}/events`,
+      // Idempotent by event id: a retry after a lost response is a replay (§3.2).
+      body: { ...item.payload.event, id: item.id } satisfies RunEventIn,
+    };
+  },
+};
+
 export const OUTBOX_KINDS: Readonly<Record<string, OutboxKind>> = {
   [ENTRY_CREATE]: entryCreate,
+  [RUN_EVENT]: runEvent,
 };
 
 export function isEntryCreate(item: OutboxItem): item is OutboxItem<EntryCreatePayload> {
   return item.kind === ENTRY_CREATE;
+}
+
+export function isRunEvent(item: OutboxItem): item is OutboxItem<RunEventPayload> {
+  return item.kind === RUN_EVENT;
 }

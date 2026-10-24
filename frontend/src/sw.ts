@@ -26,6 +26,8 @@ import { NetworkFirst } from 'workbox-strategies';
 import { API_PREFIX, CHANNEL_HEADERS, SW_API_CACHE } from './api/constants';
 import { OUTBOX_KINDS, OUTBOX_SYNC_TAG } from './lib/outbox/kinds';
 import { createOutbox } from './lib/outbox/outbox';
+import { SERVER_TIME_HEADER } from './lib/runs/clock';
+import { timedFetch } from './lib/runs/serverClock';
 import {
   handleReminderAction,
   notificationData,
@@ -73,6 +75,20 @@ const NO_CACHE = [
   new RegExp(`^${API_PREFIX}/health$`),
 ];
 
+/**
+ * A cached copy doesn't keep the server time: answered from the cache offline, it would be
+ * an old time with a short round trip, a bad offset sample (timers.md §5.1).
+ */
+const dropServerTime: WorkboxPlugin = {
+  cacheWillUpdate: ({ response }) => {
+    if (!response.headers.has(SERVER_TIME_HEADER)) return Promise.resolve(response);
+    const headers = new Headers(response.headers);
+    headers.delete(SERVER_TIME_HEADER);
+    const { status, statusText } = response;
+    return Promise.resolve(new Response(response.body, { status, statusText, headers }));
+  },
+};
+
 registerRoute(
   ({ url, request, sameOrigin }) =>
     sameOrigin &&
@@ -85,6 +101,7 @@ registerRoute(
     plugins: [
       // (workbox's plugin classes predate exactOptionalPropertyTypes)
       new CacheableResponsePlugin({ statuses: [200] }) as WorkboxPlugin,
+      dropServerTime,
       new ExpirationPlugin({
         maxEntries: 300,
         maxAgeSeconds: 7 * 24 * 60 * 60,
@@ -97,7 +114,7 @@ registerRoute(
 
 // ---- Background Sync: flush the outbox -------------------------------------------
 
-const outbox = createOutbox({ kinds: OUTBOX_KINDS, headers: CHANNEL_HEADERS });
+const outbox = createOutbox({ kinds: OUTBOX_KINDS, headers: CHANNEL_HEADERS, fetch: timedFetch() });
 
 self.addEventListener('sync', (event) => {
   const e = event as SyncEvent;

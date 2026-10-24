@@ -10,11 +10,16 @@
  *    flushes the same IndexedDB queue even after the tab is closed.
  */
 import { CHANNEL_HEADERS } from '../../api/constants';
+import { timedFetch } from '../runs/serverClock';
 import { OUTBOX_KINDS, OUTBOX_SYNC_TAG } from './kinds';
 import { createOutbox, type Outbox } from './outbox';
 import type { OutboxItem } from './types';
 
-export const outbox: Outbox = createOutbox({ kinds: OUTBOX_KINDS, headers: CHANNEL_HEADERS });
+export const outbox: Outbox = createOutbox({
+  kinds: OUTBOX_KINDS,
+  headers: CHANNEL_HEADERS,
+  fetch: timedFetch(),
+});
 
 /** Longest wait between checks while items are pending. */
 const MAX_POLL_MS = 60_000;

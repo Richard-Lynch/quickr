@@ -4,13 +4,17 @@
  * Fed from the query cache: whenever an unfiltered topic list (`listTopics` without a
  * search, active topics) changes — fetched, refetched, patched optimistically after a
  * log — the due count is recomputed and pushed to the Badging API. 0 clears the badge.
+ * Topics with an open run don't count (timers.md §11.1), so the cached runs and the
+ * outbox (a queued start opens a run at once) recompute it too.
  */
 import type { InfiniteData, Query, QueryClient } from '@tanstack/react-query';
 
 import type { TopicPage, TopicSummary } from '../client';
 import { setAppBadge } from '../lib/badge';
-import { NO_OPEN_RUNS, dueCount } from '../lib/home';
+import { dueCount } from '../lib/home';
+import { subscribeOutboxSnapshot } from '../lib/outbox/client';
 import { keyMeta } from './cache';
+import { openRunTopicsNow } from './runs';
 
 function topicsOf(data: unknown): TopicSummary[] | null {
   if (typeof data !== 'object' || data === null) return null;
@@ -32,8 +36,7 @@ export function connectDueBadge(qc: QueryClient): () => void {
       for (const t of topicsOf(q.state.data) ?? []) byId.set(t.id, t);
     }
     if (byId.size === 0 && last === null) return;
-    // No run data in the PWA yet: no topic has an open run.
-    const n = dueCount([...byId.values()], new Date(), NO_OPEN_RUNS);
+    const n = dueCount([...byId.values()], new Date(), openRunTopicsNow(qc));
     if (n === last) return;
     last = n;
     void setAppBadge(n);
@@ -41,14 +44,17 @@ export function connectDueBadge(qc: QueryClient): () => void {
   const unsubscribe = qc.getQueryCache().subscribe((e) => {
     if (e.type === 'updated' || e.type === 'added' || e.type === 'removed') {
       const { queryKey } = e.query as Query;
-      if (keyMeta(queryKey)?._id === 'listTopics') update();
+      const op = keyMeta(queryKey)?._id;
+      if (op === 'listTopics' || op === 'listRuns') update();
     }
   });
+  const unsubscribeOutbox = subscribeOutboxSnapshot(update);
   // Slots fall due while the app is open, without any data change.
   const timer = window.setInterval(update, 60_000);
   update();
   return () => {
     unsubscribe();
+    unsubscribeOutbox();
     window.clearInterval(timer);
   };
 }

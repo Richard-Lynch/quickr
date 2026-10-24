@@ -61,7 +61,23 @@ export interface OutboxKind<P = unknown> {
    * Override the default status classification (e.g. treat 404 on DELETE as done).
    * `body` is the parsed JSON response, when there is one (usually a `Problem`).
    */
-  classify?(status: number, body: unknown): Outcome | undefined;
+  classify?(status: number, body: unknown, item: OutboxItem<P>): Outcome | undefined;
+  /**
+   * Ids of items this one must wait for: while any of them is still queued (pending or
+   * failed), a flush skips this item without attempting it, and discarding one of them
+   * discards this item too. (`run.event`: an event waits for its run's start.)
+   */
+  waitsFor?(item: OutboxItem<P>): readonly string[];
+  /**
+   * Coalescing at enqueue time, run under the flush lock while no attempt is in flight.
+   * `queue` is every queued item, oldest first. Returns the ids of queued items to drop
+   * (each is discarded) and whether to store the new item at all; `undefined` keeps
+   * everything.
+   */
+  coalesce?(
+    item: OutboxItem<P>,
+    queue: readonly OutboxItem[],
+  ): { drop: readonly string[]; store: boolean } | undefined;
 }
 
 export type OutboxEvent =
