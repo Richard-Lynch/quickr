@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 
-import { isEntryCreate, isRunEvent } from '../../lib/outbox/kinds';
+import { isEntryCreate, isRunEvent, problemCode } from '../../lib/outbox/kinds';
 import type { OutboxItem } from '../../lib/outbox/types';
 import { useOutbox } from '../../lib/outbox/useOutbox';
 import { formatDateTime, formatRelative } from '../../lib/dates';
@@ -39,9 +39,10 @@ export function describeOutboxItem(item: OutboxItem): ItemView {
       when: formatDateTime(event.at),
       // Answers (a finish, or a stop with answers) are fixed in the answers form; a failed
       // Stop on the run panel, where the run is open again and can be stopped or discarded.
-      // A 404: the run is gone elsewhere (§8.1 `deleted_elsewhere`); there's nothing to fix.
+      // A 404: the run is gone elsewhere (§8.1 `deleted_elsewhere`); an `id_conflict`: its
+      // start's reminder was logged elsewhere (`ALREADY_LOGGED`). There's nothing to fix.
       fixUrl:
-        item.last_error?.status === 404
+        item.last_error?.status === 404 || problemCode(item.last_error?.body) === 'id_conflict'
           ? null
           : event.type === 'finish' || (event.type === 'stop' && event.answers != null)
             ? `${base}?fix=${encodeURIComponent(item.id)}`

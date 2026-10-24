@@ -7,9 +7,11 @@ import type {
   OutboxEvent,
   OutboxItem,
   OutboxKind,
+  OutboxRead,
   OutboxRequest,
   Outcome,
   SendNowResult,
+  Verdict,
 } from './types';
 
 export interface OutboxOptions {
@@ -137,24 +139,15 @@ export function createOutbox(opts: OutboxOptions): Outbox {
     return (await store.all()).sort(byCreated);
   }
 
-  async function attempt(item: OutboxItem): Promise<AttemptResult> {
-    const kind = opts.kinds[item.kind];
-    if (!kind) {
-      return {
-        outcome: 'terminal',
-        error: { message: `Unknown outbox item kind "${item.kind}"`, status: null },
-      };
-    }
-    let req: OutboxRequest;
-    try {
-      req = kind.toRequest(item);
-    } catch (err) {
-      return {
-        outcome: 'terminal',
-        error: { message: err instanceof Error ? err.message : 'Invalid item', status: null },
-      };
-    }
+  type Sent =
+    | { kind: 'network' }
+    | { kind: 'redirect'; status: number | null }
+    | { kind: 'response'; status: number; text: string; json: unknown; parsed: boolean };
 
+  /** One request, with the outbox's headers, timeout and fetch options. */
+  async function send(
+    req: Omit<OutboxRequest, 'method'> & { method: OutboxRequest['method'] | 'GET' },
+  ): Promise<Sent> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => {
       ctrl.abort();
@@ -177,19 +170,13 @@ export function createOutbox(opts: OutboxOptions): Outbox {
         signal: ctrl.signal,
       });
     } catch {
-      return { outcome: 'retry', error: { message: 'Could not reach the server', status: null } };
+      return { kind: 'network' };
     } finally {
       clearTimeout(timer);
     }
 
     if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
-      return {
-        outcome: 'retry',
-        error: {
-          message: 'The server redirected the request (sign-in required?)',
-          status: res.status || null,
-        },
-      };
+      return { kind: 'redirect', status: res.status || null };
     }
 
     let text = '';
@@ -208,14 +195,57 @@ export function createOutbox(opts: OutboxOptions): Outbox {
         // not JSON
       }
     }
+    return { kind: 'response', status: res.status, text, json, parsed };
+  }
 
-    const outcome = kind.classify?.(res.status, json, item) ?? classifyStatus(res.status);
+  /** A kind's `verify` read: no usable answer (network, redirect, not JSON) is a null status. */
+  async function read(url: string): Promise<OutboxRead> {
+    const res = await send({ method: 'GET', url });
+    if (res.kind !== 'response' || (res.text && !res.parsed))
+      return { status: null, body: undefined };
+    return { status: res.status, body: res.json };
+  }
+
+  async function attempt(item: OutboxItem): Promise<AttemptResult> {
+    const kind = opts.kinds[item.kind];
+    if (!kind) {
+      return {
+        outcome: 'terminal',
+        error: { message: `Unknown outbox item kind "${item.kind}"`, status: null },
+      };
+    }
+    let req: OutboxRequest;
+    try {
+      req = kind.toRequest(item);
+    } catch (err) {
+      return {
+        outcome: 'terminal',
+        error: { message: err instanceof Error ? err.message : 'Invalid item', status: null },
+      };
+    }
+
+    const res = await send(req);
+    if (res.kind === 'network') {
+      return { outcome: 'retry', error: { message: 'Could not reach the server', status: null } };
+    }
+    if (res.kind === 'redirect') {
+      return {
+        outcome: 'retry',
+        error: {
+          message: 'The server redirected the request (sign-in required?)',
+          status: res.status,
+        },
+      };
+    }
+
+    const { status, text, json, parsed } = res;
+    const outcome = kind.classify?.(status, json, item) ?? classifyStatus(status);
     if (outcome === 'ok') {
       // A 200 HTML page (captive portal, proxy) is not a confirmation.
       if (text && !parsed) {
         return {
           outcome: 'retry',
-          error: { message: 'Unexpected response from the server', status: res.status },
+          error: { message: 'Unexpected response from the server', status },
         };
       }
       return { outcome: 'ok', data: json };
@@ -223,10 +253,49 @@ export function createOutbox(opts: OutboxOptions): Outbox {
     return {
       outcome,
       error: {
-        message: errorMessageFor(res.status, json),
-        status: res.status,
+        message: errorMessageFor(status, json),
+        status,
         ...(parsed ? { body: json } : {}),
       },
+    };
+  }
+
+  /**
+   * A terminal refusal, looked at again by the kind's `verify`: the outcome to apply, and
+   * whether an ack came from it. Other items it fails are failed here (unless edited meanwhile).
+   */
+  async function verified(
+    item: OutboxItem,
+    res: AttemptResult,
+    total: Omit<FlushResult, 'remaining'>,
+  ): Promise<{ res: AttemptResult; verified: boolean }> {
+    const kind = opts.kinds[item.kind];
+    if (res.outcome !== 'terminal' || !kind?.verify) return { res, verified: false };
+    let verdict: Verdict | undefined;
+    try {
+      verdict = await kind.verify(item, res.error, { read, queue: await list() });
+    } catch (err) {
+      console.error('[outbox] verify failed', err);
+    }
+    if (!verdict) return { res, verified: false };
+    if (verdict.outcome === 'ok')
+      return { res: { outcome: 'ok', data: verdict.data }, verified: true };
+    for (const id of verdict.fail?.ids ?? []) {
+      const other = await store.get(id);
+      if (!other || other.id === item.id || other.status === 'failed') continue;
+      const next: OutboxItem = {
+        ...other,
+        status: 'failed',
+        last_error: verdict.fail?.error ?? null,
+        updated_at: iso(),
+      };
+      await store.put(next);
+      total.failed++;
+      emit({ type: 'failed', item: next });
+    }
+    return {
+      res: { outcome: verdict.outcome, error: verdict.error ?? res.error },
+      verified: false,
     };
   }
 
@@ -241,7 +310,7 @@ export function createOutbox(opts: OutboxOptions): Outbox {
       // An earlier item of this pass that was just sent is gone from the store by now.
       if (opts.kinds[item.kind]?.waitsFor && isBlocked(item, await store.all())) continue;
 
-      const res = await attempt(item);
+      const { res, verified: ackedByVerify } = await verified(item, await attempt(item), total);
       if (res.outcome === 'ok') {
         try {
           await opts.kinds[item.kind]?.onAck?.(item, res.data);
@@ -250,7 +319,7 @@ export function createOutbox(opts: OutboxOptions): Outbox {
         }
         await store.delete(item.id);
         total.sent++;
-        emit({ type: 'sent', item, data: res.data });
+        emit({ type: 'sent', item, data: res.data, ...(ackedByVerify ? { verified: true } : {}) });
         continue;
       }
 

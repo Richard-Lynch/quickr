@@ -794,6 +794,20 @@ describe('a timed topic (timers.md §10.1, §10.2)', () => {
     expect(await outbox.list()).toEqual([]);
   });
 
+  it('the same id as another topic’s run or entry is refused, not dropped', async () => {
+    const id = vectorId ?? '';
+    const run = rig();
+    run.server.topics.set('topic-other', { status: 'active' });
+    run.server.runs.set(id, { id, topic_id: 'topic-other', version: 1, at: 'x', source: 'ios' });
+    expect(await run.click()).toMatchObject({ kind: 'notify', title: 'Couldn’t start Mood' });
+    expect((await run.runEvents()).map((i) => i.status)).toEqual(['failed']);
+
+    const entry = rig();
+    entry.server.entries.set(id, { id, topic_id: 'topic-other', answers: [], source: 'ios' });
+    expect(await entry.click()).toMatchObject({ kind: 'notify', title: 'Couldn’t start Mood' });
+    expect((await entry.runEvents()).map((i) => i.status)).toEqual(['failed']);
+  });
+
   it('a topic with a run open here starts nothing more', async () => {
     const { server, outbox, click, runEvents } = rig();
     server.offline = true;
