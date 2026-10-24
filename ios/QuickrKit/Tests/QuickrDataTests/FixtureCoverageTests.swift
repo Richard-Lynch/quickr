@@ -63,12 +63,22 @@ import Testing
     @Test func requiredNullableKeysAcceptNull() throws {
         let body = try #require(try Fixtures.api("getTopic").body)
         var object = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
-        for key in ["schedule", "schedule_updated_at", "archived_at", "last_captured_at", "due"] {
+        let timed = try #require(try Endpoints.getTopic.erased.decodeResponse(body) as? Topic)
+        #expect(timed.timer?.steps.map(\.key) == ["pour", "drink"])
+        for key in ["schedule", "schedule_updated_at", "archived_at", "last_captured_at", "due", "timer"] {
             object[key] = NSNull()
         }
         let data = try JSONSerialization.data(withJSONObject: object)
         let topic = try Endpoints.getTopic.erased.decodeResponse(data) as? Topic
-        #expect(topic?.schedule == nil && topic?.due == nil && topic?.archivedAt == nil)
+        #expect(topic?.schedule == nil && topic?.due == nil && topic?.archivedAt == nil && topic?.timer == nil)
+    }
+
+    /// A summary carries its current version's timer (timers.md §2.1); null when untimed.
+    @Test func topicSummaryCarriesTheTimer() throws {
+        let body = try #require(try Fixtures.api("listTopics").body)
+        let page = try #require(try Endpoints.listTopics.erased.decodeResponse(body) as? Page<TopicSummary>)
+        #expect(page.items.map(\.slug) == ["water", "everything"])
+        #expect(page.items.map { $0.timer?.steps.map(\.key) } == [nil, ["pour", "drink"]])
     }
 
     private static let freeFormMaps: Set<String> = ["meta", "option_counts", "json_schema", "effects"]

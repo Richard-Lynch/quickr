@@ -8574,6 +8574,17 @@
             ],
             "description": "Null when the topic has no schedule."
           },
+          "timer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The current version's timer; null when the topic is not timed."
+          },
           "questions": {
             "items": {
               "oneOf": [
@@ -8623,6 +8634,7 @@
           "schedule",
           "schedule_updated_at",
           "due",
+          "timer",
           "questions"
         ],
         "title": "TopicDetail"
@@ -8870,6 +8882,17 @@
               }
             ],
             "description": "Null when the topic has no schedule."
+          },
+          "timer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The current version's timer; null when the topic is not timed."
           }
         },
         "additionalProperties": false,
@@ -8890,7 +8913,8 @@
           "archived_at",
           "schedule",
           "schedule_updated_at",
-          "due"
+          "due",
+          "timer"
         ],
         "title": "TopicSummary"
       },

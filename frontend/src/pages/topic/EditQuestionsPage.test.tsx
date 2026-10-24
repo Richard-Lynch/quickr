@@ -29,6 +29,7 @@ const topic: TopicDetail = {
   schedule: null,
   schedule_updated_at: null,
   due: null,
+  timer: null,
   questions: [
     { ...question, help_text: null, min: null, max: null, unit: null },
   ] as TopicDetail['questions'],

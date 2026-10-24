@@ -465,7 +465,7 @@ private struct WireTopic: Encodable {
     init(_ topic: Topic) { self.topic = topic }
 
     enum Keys: String, CodingKey {
-        case id, slug, name, description, status, revision, schedule, due, questions
+        case id, slug, name, description, status, revision, schedule, due, timer, questions
         case currentVersion = "current_version"
         case questionCount = "question_count"
         case entryCount = "entry_count"
@@ -494,6 +494,7 @@ private struct WireTopic: Encodable {
         try c.encode(topic.schedule.map(ScheduleDTO.init), forKey: .schedule)
         try c.encode(topic.scheduleUpdatedAt, forKey: .scheduleUpdatedAt)
         try c.encodeNil(forKey: .due)
+        try c.encode(topic.timer, forKey: .timer)
         try c.encode(topic.questions.map(QuestionDTO.init), forKey: .questions)
     }
 }

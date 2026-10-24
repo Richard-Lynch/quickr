@@ -23,13 +23,17 @@ public struct Topic: Sendable, Hashable, Identifiable {
     public var schedule: Schedule?
     public var scheduleUpdatedAt: Date?
     public var due: DueStatus?
+    /// The current version's timer; nil when the topic isn't timed (timers.md §2.1). The store
+    /// doesn't keep it on the topic row yet, so a topic read from the store has nil here; the
+    /// current `TopicVersion` there has it.
+    public var timer: TopicTimer?
     public var questions: [Question]
 
     public init(
         id: UUID, slug: String, name: String, description: String = "", status: TopicStatus = .active,
         currentVersion: Int, revision: Int, questionCount: Int, entryCount: Int = 0, lastCapturedAt: Date? = nil,
         createdAt: Date, updatedAt: Date, archivedAt: Date? = nil, schedule: Schedule? = nil,
-        scheduleUpdatedAt: Date? = nil, due: DueStatus? = nil, questions: [Question]
+        scheduleUpdatedAt: Date? = nil, due: DueStatus? = nil, timer: TopicTimer? = nil, questions: [Question]
     ) {
         self.id = id
         self.slug = slug
@@ -47,6 +51,7 @@ public struct Topic: Sendable, Hashable, Identifiable {
         self.schedule = schedule
         self.scheduleUpdatedAt = scheduleUpdatedAt
         self.due = due
+        self.timer = timer
         self.questions = questions
     }
 }
@@ -69,11 +74,14 @@ public struct TopicSummary: Sendable, Hashable, Identifiable {
     public var schedule: Schedule?
     public var scheduleUpdatedAt: Date?
     public var due: DueStatus?
+    /// The current version's timer; nil when the topic isn't timed (timers.md §2.1).
+    public var timer: TopicTimer?
 
     public init(
         id: UUID, slug: String, name: String, description: String, status: TopicStatus, currentVersion: Int,
         revision: Int, questionCount: Int, entryCount: Int, lastCapturedAt: Date?, createdAt: Date,
-        updatedAt: Date, archivedAt: Date?, schedule: Schedule?, scheduleUpdatedAt: Date?, due: DueStatus?
+        updatedAt: Date, archivedAt: Date?, schedule: Schedule?, scheduleUpdatedAt: Date?, due: DueStatus?,
+        timer: TopicTimer?
     ) {
         self.id = id
         self.slug = slug
@@ -91,6 +99,7 @@ public struct TopicSummary: Sendable, Hashable, Identifiable {
         self.schedule = schedule
         self.scheduleUpdatedAt = scheduleUpdatedAt
         self.due = due
+        self.timer = timer
     }
 }
 

@@ -2546,6 +2546,10 @@ export type TopicDetail = {
      */
     due: DueStatus | null;
     /**
+     * The current version's timer; null when the topic is not timed.
+     */
+    timer: Timer | null;
+    /**
      * Questions
      */
     questions: Array<IntQuestionOutput | DoubleQuestionOutput | StrQuestionOutput | EnumQuestionOutput>;
@@ -2683,6 +2687,10 @@ export type TopicSummary = {
      * Null when the topic has no schedule.
      */
     due: DueStatus | null;
+    /**
+     * The current version's timer; null when the topic is not timed.
+     */
+    timer: Timer | null;
 };
 
 /**

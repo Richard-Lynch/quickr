@@ -218,6 +218,7 @@ final class FakeServerState: Sendable {
         topic["current_version"] = number
         topic["questions"] = questions
         topic["question_count"] = questions.count
+        topic["timer"] = timer ?? NSNull()
         topic["revision"] = (topic["revision"] as? Int ?? 1) + 1
         topic["updated_at"] = now
         let version: [String: Any] = [
@@ -350,7 +351,7 @@ enum FakeServer {
          "current_version": 1, "description": "", "due": null, "entry_count": 0, "id": "\#(id.wireString)",
          "last_captured_at": null, "name": "\#(name)", "question_count": \#(count), "questions": \#(questions),
          "revision": 1, "schedule": null, "schedule_updated_at": null, "slug": "\#(slug)", "status": "active",
-         "updated_at": "2026-01-01T00:00:00Z"}}
+         "timer": null, "updated_at": "2026-01-01T00:00:00Z"}}
         """#
     }
 
@@ -530,7 +531,7 @@ private struct FakeServerTransport: Transport {
                 "entry_count": 0, "last_captured_at": NSNull(), "created_at": now, "updated_at": now,
                 "archived_at": NSNull(), "schedule": schedule,
                 "schedule_updated_at": schedule is NSNull ? NSNull() : now as Any, "due": NSNull(),
-                "questions": questions,
+                "timer": body["timer"] ?? NSNull(), "questions": questions,
             ]
             state.put(topic)
             // Its v1, in the feed like the backend's: an entry's screen loads its version's questions.

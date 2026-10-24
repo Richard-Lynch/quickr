@@ -7,7 +7,9 @@ from typing import Any
 
 import httpx
 import pytest
+from sqlalchemy import event
 
+from app.db import get_engine
 from tests.helpers import make_topic, record, sleep_questions
 
 
@@ -312,3 +314,55 @@ async def test_request_validation_uses_problem_envelope(client: httpx.AsyncClien
     r = await client.get("/topics", params={"limit": 0})
     assert r.status_code == 422
     assert r.json()["errors"][0]["loc"] == ["query", "limit"]
+
+
+async def test_summary_and_detail_carry_the_current_versions_timer(client: httpx.AsyncClient) -> None:
+    """``timer`` on TopicSummary and TopicDetail is the current version's (timers.md §2.1)."""
+    steps = {"steps": [{"key": "pour", "label": "Pour"}, {"key": "drink", "label": "Drink"}]}
+    timed = await make_topic(client, "Coffee", timer=steps)
+    plain = await make_topic(client, "Plain")
+    assert timed["timer"] == steps
+    assert plain["timer"] is None
+
+    def timers(page: dict[str, Any]) -> dict[str, Any]:
+        return {t["slug"]: t["timer"] for t in page["items"]}
+
+    assert timers((await client.get("/topics")).json()) == {"coffee": steps, "plain": None}
+    assert (await client.patch("/topics/coffee", json={"description": "x"})).json()["timer"] == steps
+    assert (await client.post("/topics/coffee/archive")).json()["timer"] == steps
+    assert (
+        timers((await client.get("/topics", params={"status": "all", "sort": "name"})).json())["coffee"]
+        == steps
+    )
+    assert (await client.post("/topics/coffee/unarchive")).json()["timer"] == steps
+
+    # A version without a timer makes the topic untimed; the next one with a timer, timed again.
+    body = {"questions": timed["questions"], "base_version": 1, "timer": None}
+    published = (await client.post("/topics/coffee/versions", json=body)).json()
+    assert published["current_version"] == 2
+    assert published["timer"] is None
+    assert (await client.get("/topics/coffee")).json()["timer"] is None
+    one_step = {"steps": [{"key": "brew", "label": "Brew"}]}
+    body = {"questions": timed["questions"], "base_version": 2, "timer": one_step}
+    assert (await client.post("/topics/coffee/versions", json=body)).json()["timer"] == one_step
+    assert timers((await client.get("/topics")).json()) == {"coffee": one_step, "plain": None}
+
+
+async def test_list_topics_loads_timers_without_a_query_per_topic(client: httpx.AsyncClient) -> None:
+    steps = {"steps": [{"key": "go", "label": "Go"}]}
+    for i in range(4):
+        await make_topic(client, f"Timed {i}", timer=steps)
+    statements: list[str] = []
+    engine = get_engine().sync_engine
+
+    def count(conn: Any, cursor: Any, statement: str, *_: Any) -> None:
+        if "topic_versions" in statement:
+            statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", count)
+    try:
+        page = (await client.get("/topics", params={"sort": "name"})).json()
+    finally:
+        event.remove(engine, "before_cursor_execute", count)
+    assert [t["timer"] for t in page["items"]] == [steps] * 4
+    assert len(statements) == 1  # the page's one joined select
