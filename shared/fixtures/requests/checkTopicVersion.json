@@ -48,7 +48,8 @@
           "required": true,
           "type": "enum"
         }
-      ]
+      ],
+      "timer": null
     },
     "headers": {
       "accept": "application/json",

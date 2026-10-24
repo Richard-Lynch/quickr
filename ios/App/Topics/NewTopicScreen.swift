@@ -84,6 +84,7 @@ struct NewTopicView: View {
                 }
                 topicSection
                 QuestionsSections(model: model, id: "newTopic")
+                TimerSections(model: model, id: "newTopic")
                 scheduleSection
             } else {
                 BuilderPreviewSections(model: model, title: model.draft.name, id: "newTopic")

@@ -441,9 +441,10 @@ import Testing
         let writes = TopicWrites(
             scope: scope, store: store, transport: recorder, credentials: StaticAccessCredentials(nil),
             requestSync: { _ in })
-        let questions = try #require(try await store.versions.version(topicId: everything, number: 2)).questions
+        let v2 = try #require(try await store.versions.version(topicId: everything, number: 2))
+        let draft = TopicDraft.editing(name: "x", slug: "x", description: "", questions: v2.questions, timer: v2.timer)
         _ = await writes.publishVersion(
-            topicId: everything, TopicDraft.Version(questions: questions), baseVersion: 2, changeNote: "")
+            topicId: everything, try draft.validatedForVersion().get(), baseVersion: 2, changeNote: "")
         let body = try #require(recorder.requests.last?.body)
         #expect(
             try WireCoding.decoder().decode(SyncTimerTests.SentTimer.self, from: body).timer

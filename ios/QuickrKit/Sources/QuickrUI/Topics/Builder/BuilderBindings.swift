@@ -50,6 +50,18 @@ extension BuilderEditing {
             set: { _ = self.draft.setOptionValue(id, option: option, $0) })
     }
 
+    /// A step's label; a new step's key follows it, with the topic's step history.
+    public func stepLabelBinding(_ id: DraftStep.ID) -> Binding<String> {
+        Binding(
+            get: { self.draft.stepIndex(of: id).map { self.draft.steps[$0].label } ?? "" },
+            set: { self.setStepLabel(id, $0) })
+    }
+
+    /// The Timed switch. Off keeps the steps (unsent), so switching it back on restores them.
+    public var timedBinding: Binding<Bool> {
+        Binding(get: { self.draft.timed }, set: { self.draft.timed = $0 })
+    }
+
     /// The "Add an option…" text of a question.
     public func newOptionBinding(_ id: DraftQuestion.ID) -> Binding<String> {
         Binding(get: { self.newOptionLabels[id] ?? "" }, set: { self.newOptionLabels[id] = $0 })

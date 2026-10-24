@@ -97,6 +97,7 @@ EXPECTED: dict[str, int] = {
     "createEntry.notification": 201,
     "updateEntry": 200,
     "updateEntry.captured_at": 200,
+    "updateEntry.timing": 200,  # Edit times on the finished run's entry
     "deleteEntry": 204,
     "createPushSubscription": 201,
     "deletePushSubscription": 204,
@@ -253,6 +254,13 @@ def run_until(name: str) -> Setup:
     return setup
 
 
+async def finished(client: httpx.AsyncClient) -> None:
+    """The run, every tap sent: its entry exists (timers.md §3.8 edits its times)."""
+    await timed(client)
+    for tap, status in RUN_TAPS:
+        await ok(client, tap, status)
+
+
 async def subscription(client: httpx.AsyncClient) -> None:
     await ok(client, "createPushSubscription", 201)
 
@@ -274,6 +282,7 @@ SETUP: dict[str, Setup] = {
     "checkTopicVersion": topic,
     "createEntry": topic,
     "updateEntry": entry,
+    "updateEntry.timing": finished,
     "deleteEntry": entry,
     "createPushSubscription": nothing,
     "deletePushSubscription": subscription,

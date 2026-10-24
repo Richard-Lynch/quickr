@@ -37,6 +37,8 @@ public final class OverviewModel {
     }
 
     public private(set) var stats: Load<TopicStats> = .loading
+    /// getTopicTiming for the same filters (timers.md §9.2): zero runs for an untimed topic.
+    public private(set) var timing: Load<TopicTimingDTO> = .loading
     /// By question key; only int, double and enum questions have one.
     public private(set) var series: [String: Load<QuestionSeries>] = [:]
     /// Every source the topic's entries have (unfiltered), for the source filter.
@@ -95,6 +97,7 @@ public final class OverviewModel {
         // screen stays.
         // A cancelled task's reads fail, so its results would read as errors.
         let before = (stats: stats, series: series)
+        let timingBefore = timing
         let scope = loader.scope
         // Another store bound meanwhile (a server switch, a reset): this answer belongs to the old
         // one and isn't published either.
@@ -103,6 +106,7 @@ public final class OverviewModel {
             guard generation == mine else { return true }
             guard Task.isCancelled || self.loader()?.scope != scope else { return false }
             restore(before)
+            if Self.isPending(timing) { timing = timingBefore }
             return true
         }
         // After every await: a newer load may own the screen by now (a write here would overwrite
@@ -114,10 +118,21 @@ public final class OverviewModel {
         } else if !reload {
             stats = .loading
         }
+        let cachedTiming = await loader.cachedTiming(topicId: topicId, query: query)
+        guard !abandoned() else { return }
+        if let (cachedTiming, fetchedAt) = cachedTiming {
+            timing = .loaded(cachedTiming, .updating(fetchedAt))
+        } else if !reload {
+            timing = .loading
+        }
         async let sourcesResult = loader.stats(topicId: topicId, ref: ref, query: Self.allTime)
+        async let timingResult = loader.timing(topicId: topicId, ref: ref, query: query)
         let result = await loader.stats(topicId: topicId, ref: ref, query: query)
         guard !abandoned() else { return }
         stats = Self.load(result)
+        let timed = await timingResult
+        guard !abandoned() else { return }
+        timing = Self.load(timed)
         let all = await sourcesResult.value
         guard !abandoned() else { return }
         if let all { sources = all.sources.map(\.value) }

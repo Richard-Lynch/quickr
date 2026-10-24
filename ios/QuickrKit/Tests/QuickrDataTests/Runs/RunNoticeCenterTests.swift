@@ -40,7 +40,10 @@ import Testing
     ) async throws {
         let task = Task { await center.observe(h.store) }
         defer { task.cancel() }
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        // Generous, within the suite's 2-minute limit: on CI's ~3-core runner every suite runs at
+        // once and the main actor this observes on is starved for tens of seconds (a run whose
+        // suites took ~30 s each timed out here at 10 s).
+        let deadline = ContinuousClock.now.advanced(by: .seconds(60))
         while !until() {
             guard ContinuousClock.now < deadline else {
                 Issue.record("timed out")

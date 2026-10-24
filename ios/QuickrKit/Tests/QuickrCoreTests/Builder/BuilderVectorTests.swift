@@ -16,6 +16,24 @@ import Testing
         #expect(BuilderVectors.shared.questions.count > 100)
         #expect(BuilderVectors.shared.compat.count > 30)
         #expect(BuilderVectors.shared.slugs.count > 10)
+        #expect(BuilderVectors.shared.timers.count > 20)
+    }
+
+    /// The builder accepts exactly the timers the server's `Timer` accepts, and flags (at least)
+    /// each step field it names; keys are unique, labels needn't be (timers.md §2.1).
+    @Test(arguments: BuilderVectors.shared.timers)
+    func timer(_ vector: BuilderVectors.TimerCase) {
+        let steps = vector.timer.steps.map { DraftStep(key: $0.key, label: $0.label) }
+        let draft = TopicDraft(questions: [], timed: true, steps: steps)
+        let client: Set<String>
+        switch draft.validatedTimer() {
+        case .success: client = []
+        case .failure(let issues): client = Set(issues.issues.map(\.field.path))
+        }
+        #expect(client.isEmpty == vector.errors.isEmpty, "\(vector.name): client \(client), server \(vector.errors)")
+        for loc in vector.errors {
+            #expect(client.contains(loc), "\(vector.name): server rejects \(loc); client flags \(client)")
+        }
     }
 
     @Test(arguments: BuilderVectors.shared.questions)
@@ -101,6 +119,24 @@ struct BuilderVectors: Decodable {
     var compat: [CompatCase]
     var slugs: [SlugCase]
     var casefold: [CaseFold]
+    var timers: [TimerCase]
+
+    struct TimerCase: Decodable, Sendable, CustomTestStringConvertible {
+        var name: String
+        var timer: TopicTimer
+        var errors: [String]
+        var testDescription: String { name }
+
+        enum CodingKeys: String, CodingKey { case name, timer, expected }
+        struct Expected: Decodable { var errors: [String] }
+
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            name = try c.decode(String.self, forKey: .name)
+            timer = try c.decode(TopicTimer.self, forKey: .timer)
+            errors = try c.decode(Expected.self, forKey: .expected).errors
+        }
+    }
 
     /// `[code point, [folded code points]]`.
     struct CaseFold: Decodable {

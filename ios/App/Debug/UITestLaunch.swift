@@ -124,7 +124,8 @@ final class FakeServerState: Sendable {
         var topics: [String: Data] = FakeServer.seedTopics()
         /// Feed items after the seeded page (seq 7, 8, …): the topic and version rows of the
         /// versions published here, and the entries runs made, as the change feed lists them.
-        var feed: [String] = []
+        /// `-QuickrSeedTimedTopic` starts it with Morning's finished run (`FakeTiming`).
+        var feed: [String] = FakeTiming.seedFeed()
         var publishElsewhere = false
         /// The runs started here (`FakeRuns`, UITestRuns.swift).
         var runs = FakeRunBook()
@@ -252,6 +253,15 @@ final class FakeServerState: Sendable {
                 guard let data = try? JSONSerialization.data(withJSONObject: item) else { continue }
                 state.feed.append(String(decoding: data, as: UTF8.self))
             }
+        }
+    }
+
+    /// One more feed item, `{kind, seq, <key>: object}` (an entry `FakeTiming` changed).
+    fileprivate func appendItem(kind: String, key: String, _ object: Any) {
+        state.withLock { state in
+            let item: [String: Any] = ["kind": kind, "seq": state.nextSeq, key: object]
+            guard let data = try? JSONSerialization.data(withJSONObject: item) else { return }
+            state.feed.append(String(decoding: data, as: UTF8.self))
         }
     }
 
@@ -510,6 +520,9 @@ private struct FakeServerTransport: Transport {
             "Content-Type": "application/json", RunClock.serverTimeHeader: String(RunInstant.milliseconds(Date())),
         ]
         let path = request.url.path()
+        if let response = FakeTiming.route(request, headers: headers, appendToFeed: state.appendItem) {
+            return response
+        }
         if request.method == .get, path == "/api/v1/changes" {
             try await state.waitIfFeedHeld()
             let after =
@@ -661,8 +674,15 @@ private struct FakeServerTransport: Transport {
             )
         }
         let inputs = (body["questions"] as? [[String: Any]]) ?? []
-        let report = CompatibilityCheck.report(
+        var report = CompatibilityCheck.report(
             history: [FakeServer.questions(topic["questions"] ?? [Any]())], proposed: FakeServer.questions(inputs))
+        // Like the backend's `_report`: with the draft's timer, a timer-only change is a change.
+        if let timer = body["timer"], report.changes.isEmpty,
+            !(timer as AnyObject).isEqual(topic["timer"] ?? NSNull())
+        {
+            report.issues.removeAll { $0.questionKey == nil }
+            report.ok = !report.issues.contains { $0.level == .error }
+        }
         if check {
             return json(
                 200,

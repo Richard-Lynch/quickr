@@ -142,7 +142,8 @@ import Testing
         },
         Case(name: "checkTopicVersion") { client in
             _ = try await client.checkTopicVersion(
-                ref: topicId.wireString, VersionDraftDTO(questions: Array(everythingV2.prefix(3)), baseVersion: 1))
+                ref: topicId.wireString,
+                VersionDraftDTO(questions: Array(everythingV2.prefix(3)), baseVersion: 1, timer: nil))
         },
         // Entries: the outbox's shapes (outbox.md §1)
         Case(name: "createEntry") { client in
@@ -182,6 +183,25 @@ import Testing
             _ = try await client.updateEntry(
                 id: entryIds[0],
                 EntryUpdateDTO(capturedAt: date("2026-03-01T09:00:00.000001Z"), meta: [:], expectedRevision: 1))
+        },
+        // Edit times on the finished run's entry (its id is the run's, timers.md §3.8): the first
+        // step ends earlier; the lap, the skip and the pause are kept to the millisecond.
+        Case(name: "updateEntry.timing") { client in
+            let edit = TimingDraft.Edit(
+                startedAt: RunInstant.parse("2026-03-05T08:00:00Z")!,
+                segments: [
+                    .init(kind: .step, step: "pour", endedAt: RunInstant.parse("2026-03-05T08:01:00Z")!),
+                    .init(kind: .lap, step: nil, endedAt: RunInstant.parse("2026-03-05T08:03:00.75Z")!),
+                    .init(kind: .lap, step: nil, endedAt: RunInstant.parse("2026-03-05T08:06:00Z")!),
+                ],
+                skipped: ["drink"],
+                pauses: [
+                    RunPause(
+                        start: RunInstant.parse("2026-03-05T08:04:00Z")!,
+                        end: RunInstant.parse("2026-03-05T08:05:15.125Z")!)
+                ])
+            _ = try await client.updateEntry(
+                id: runId, EntryUpdateDTO(timing: TimingEditDTO(edit), expectedRevision: 1))
         },
         Case(name: "deleteEntry") { client in
             _ = try await client.deleteEntry(id: entryIds[0])

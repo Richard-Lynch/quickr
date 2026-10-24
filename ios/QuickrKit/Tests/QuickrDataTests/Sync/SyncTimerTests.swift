@@ -43,7 +43,7 @@ import Testing
         }
         #expect(stored.count == 1)
 
-        // A publish based on v2 sends v2's timer, unchanged.
+        // A publish edited from v2 sends v2's timer, unchanged.
         let binding = AppSession.Binding(
             serverId: store.serverId, storeGen: store.storeGen, baseURL: SyncEnv.baseURL)
         let scope = try #require(await TopicWrites.scope(binding: binding, store: store))
@@ -51,9 +51,11 @@ import Testing
         let writes = TopicWrites(
             scope: scope, store: store, transport: recorder, credentials: StaticAccessCredentials(nil),
             requestSync: { _ in })
-        let questions = try #require(versions.last).questions
+        // The editor opens on v2 with its timer; an unedited timer is sent as it is.
+        let v2 = try #require(versions.last)
+        let draft = TopicDraft.editing(name: "x", slug: "x", description: "", questions: v2.questions, timer: v2.timer)
         let outcome = await writes.publishVersion(
-            topicId: Self.everything, TopicDraft.Version(questions: questions), baseVersion: 2, changeNote: "")
+            topicId: Self.everything, try draft.validatedForVersion().get(), baseVersion: 2, changeNote: "")
         #expect(outcome.isOffline, "\(outcome)")
         let body = try #require(recorder.requests.last?.body)
         let sent = try WireCoding.decoder().decode(SentTimer.self, from: body)
