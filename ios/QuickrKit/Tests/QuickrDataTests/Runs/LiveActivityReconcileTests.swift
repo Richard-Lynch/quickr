@@ -119,10 +119,31 @@ import Testing
         #expect(activity.state.seg == 1)
         let updates = await rig.center.updates
         #expect(updates == 1)
+        // Each local update marks it stale 4 hours ahead, as the request did.
+        let staleDate: Date? = activity.staleDate
+        #expect(staleDate == Self.now.addingTimeInterval(4 * 3600))
         // The same view again: nothing to do.
         await rig.activities.reconcile()
         let again = await rig.center.updates
         #expect(again == 1)
+    }
+
+    @Test("R8 · M29: the same content at another revision isn't an update")
+    func revisionAloneIsNoUpdate() async throws {
+        let rig = try await Rig.make()
+        let server = try rig.h.seedServerRun()
+        var shown = try rig.viewState(server.id.wireString)
+        shown.revision = 0  // a queued tap's local state kept the server's older revision
+        await rig.center.seed(rig.attributes, shown, staleDate: Self.now)
+        await rig.activities.reconcile()
+        let updates = await rig.center.updates
+        #expect(updates == 0)
+        let a = try rig.viewState(server.id.wireString)
+        var b = a
+        b.revision += 5
+        #expect(a.showsSame(as: b))
+        b.seg += 1
+        #expect(!a.showsSame(as: b))
     }
 
     @Test("R8 · a push ahead of this device's view isn't reverted")
