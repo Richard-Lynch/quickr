@@ -128,14 +128,19 @@ public struct RunWidgetIntent: LiveActivityIntent {
         self.scope = scope.id
     }
 
-    public func perform() async throws -> some IntentResult {
+    /// What it asks the app for; nil when it isn't configured (it then does nothing).
+    public var request: RunIntentRequest? {
         guard let action = action.flatMap(RunIntentAction.init(rawValue:)),
             let topic = topicId.flatMap({ UUID(uuidString: $0) }),
             let scope
-        else { return .result() }
+        else { return nil }
         let shown = runId.flatMap { id in seg.map { RunIntentRequest.Shown(runId: id, seg: $0) } }
-        _ = try await RunIntents.perform(
-            RunIntentRequest(action: action, topicId: topic, origin: .widget, scope: EntryScope(scope), shown: shown))
+        return RunIntentRequest(action: action, topicId: topic, origin: .widget, scope: EntryScope(scope), shown: shown)
+    }
+
+    public func perform() async throws -> some IntentResult {
+        guard let request else { return .result() }
+        _ = try await RunIntents.perform(request)
         return .result()
     }
 }
@@ -160,10 +165,12 @@ public struct AdvanceRunIntent: LiveActivityIntent {
         self.action = action
     }
 
+    /// What it asks the app for.
+    public var request: RunIntentRequest { RunIntentRequest(action: action.action, topicId: topic.id, origin: .siri) }
+
     public func perform() async throws -> some IntentResult & ProvidesDialog {
         do {
-            let result = try await RunIntents.perform(
-                RunIntentRequest(action: action.action, topicId: topic.id, origin: .siri))
+            let result = try await RunIntents.perform(request)
             return .result(dialog: RunIntentDialog.make(result.outcome))
         } catch {
             guard let message = RunIntents.message(for: error) else { throw error }

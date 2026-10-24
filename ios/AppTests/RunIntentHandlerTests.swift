@@ -84,22 +84,26 @@ import Testing
         #expect(events.isEmpty)
     }
 
-    @Test func theIntentsReachTheRegisteredHandler() async throws {
+    /// The intents' requests, through this environment's handler. Not through the process-wide
+    /// registry (`RunIntents.register`): every environment's `start()` registers itself there, so a
+    /// suite running beside this one would take the intent to its own (since removed) store.
+    @Test func theIntentsAskForWhatTheyShow() async throws {
         let (location, topic) = try await Self.seeded()
         defer { TestStores.remove(location) }
         let environment = LiveActivityTapTests.environment(location, transport: RecordingTransport())
         defer { Task { await environment.session?.shutdown() } }
-        environment.registerRunIntents()
-        let entity = TopicEntity(topic)
-        _ = try await AdvanceRunIntent(topic: entity).perform()
+        let advance = AdvanceRunIntent(topic: TopicEntity(topic))
+        _ = try await environment.handleRunIntent(advance.request)
         try await Task.sleep(for: .milliseconds(500))
         let store = try #require(try await environment.session?.partitions.openActiveStore(role: .app)?.store)
         let widget = RunWidgetIntent(action: .auto, topicId: topic.id, scope: store.scope)
-        _ = try await widget.perform()
+        _ = try await environment.handleRunIntent(try #require(widget.request))
         let events = try await LiveActivityTapTests.runEvents(location)
         #expect(events == ["start", "next"])
         let origins = try await Self.origins(location)
         #expect(origins == [.siri, .widget])
+        let unconfigured: RunIntentRequest? = RunWidgetIntent().request
+        #expect(unconfigured == nil, "an unconfigured Control does nothing")
     }
 
     static func origins(_ location: StoreLocation) async throws -> Set<OutboxOrigin> {
