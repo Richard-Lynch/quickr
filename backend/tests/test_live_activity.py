@@ -553,3 +553,39 @@ async def test_a_failing_job_does_not_stop_the_next(
 def test_encode_refuses_a_payload_over_4_kb() -> None:
     with pytest.raises(PushFailed):
         la.encode({"aps": {"alert": "x" * MAX_PAYLOAD_BYTES}})
+
+
+async def test_the_sweep_keeps_a_token_registered_by_alias_for_a_newer_open_run(
+    client: httpx.AsyncClient, fake_apns: FakeApns
+) -> None:
+    topic = await timed(
+        client,
+        "Asked",
+        steps=STEPS,
+        questions=[{"key": "mood", "label": "Mood", "type": "int", "min": 0, "max": 9}],
+    )
+    old = Driver(client, topic)
+    await old.start()
+    await old.tap("stop", 60)  # finishing
+    newer, loser = Driver(client, topic), Driver(client, topic)
+    await newer.start(100)
+    await loser.start(105, status=201)  # merged into the newer run: an alias
+    kept = await update_token(client, 1, PHONE_B, topic["id"], loser.id)
+    await old.tap("discard", 120)  # the finishing run ends: the sweep runs
+    assert to(fake_apns, kept) == []  # the old run's end isn't the newer run's
+    assert set(await tokens()) == {kept}
+
+
+async def test_an_unexpected_send_failure_is_logged_without_the_token(
+    client: httpx.AsyncClient, fake_apns: FakeApns, caplog: pytest.LogCaptureFixture
+) -> None:
+    topic = await routine(client)
+    run = Driver(client, topic)
+    await run.start()
+    b = await update_token(client, 2, PHONE_B, topic["id"], run.id)
+    fake_apns.raises[b] = RuntimeError(f"no route for {b}")
+    await run.tap("next", 60, seg=0)
+    [record] = [r for r in caplog.records if "unexpectedly" in r.getMessage()]
+    assert "RuntimeError: no route for <token>" in record.getMessage()
+    assert b not in caplog.text
+    assert set(await tokens()) == {b}  # not gone: kept
