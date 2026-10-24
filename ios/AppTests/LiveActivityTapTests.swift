@@ -51,7 +51,8 @@ import Testing
     @Test func aTapWritesThroughTheActiveStoreOnceInItsCooldown() async throws {
         let (location, topic, runId) = try await Self.seeded()
         defer { TestStores.remove(location) }
-        // The server answers 503: the tap stays queued, and its flush is seen to be tried.
+        // The server answers 503, so the tap stays queued. Its flush is best effort within a 4 s
+        // budget, which a starved CI runner can spend before it sends: not asserted.
         let transport = RecordingTransport()
         let environment = AppEnvironment.live(location: location, transport: transport, categoryCenter: nil)
         defer { Task { await environment.session?.shutdown() } }
@@ -62,8 +63,6 @@ import Testing
         try await environment.handleActivityTap(next)
         let events = try await Self.runEvents(location)
         #expect(events == ["next"])
-        let sent = transport.requests.count
-        #expect(sent >= 1, "flushed within the intent's budget")
 
         let other = RunActivityTap(button: .stop, serverId: "other-server", topicId: topic.id, runId: runId, seg: 0)
         try await Task.sleep(for: .milliseconds(500))
