@@ -13,7 +13,9 @@ Here each golden is checked against the server:
 - it carries ``X-QuickR-Channel: ios`` and, on a mutation, both precondition headers;
 - replayed through the app, with the placeholder identity it is rejected by the F10
   precondition (409 ``server_mismatch``) before any effect, and with the real identity
-  and ids substituted it gets the status in ``EXPECTED``.
+  and ids substituted it gets the status in ``EXPECTED``. Each golden's setup (``SETUP``)
+  builds the state it needs from other goldens; the run goldens replay one run's taps in
+  order, on a server clock frozen just after them (``RUN_NOW``).
 
 ``test_every_mutation_has_a_golden`` is G1 for requests: every non-GET operation in the
 app has at least one golden.
@@ -28,6 +30,7 @@ import json
 import os
 import re
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +45,7 @@ from app.schemas.api import (
     EntryUpdate,
     PushSubscriptionDelete,
     PushSubscriptionIn,
+    RunEventIn,
     TopicCreate,
     TopicUpdate,
     VersionCreate,
@@ -58,6 +62,8 @@ SERVER_ID = "11111111-1111-4111-8111-111111111111"
 EPOCH = "22222222-2222-4222-8222-222222222222"
 TOPIC_ID = "33333333-3333-4333-8333-333333333333"
 ENTRY_1 = "44444444-4444-4444-8444-000000000001"
+# The server clock for the run goldens: just after their taps, so a start isn't too old.
+RUN_NOW = datetime(2026, 3, 5, 9, 0, tzinfo=UTC)
 
 REQUEST_MODELS: dict[str, type[BaseModel]] = {
     "createTopic": TopicCreate,
@@ -71,6 +77,7 @@ REQUEST_MODELS: dict[str, type[BaseModel]] = {
     "registerApnsDevice": ApnsDeviceIn,
     "deleteApnsDevice": ApnsDeviceRef,
     "sendApnsTestPush": ApnsDeviceRef,
+    "recordRunEvent": RunEventIn,
 }
 
 # The status each golden gets from a server in the state its setup builds.
@@ -97,6 +104,15 @@ EXPECTED: dict[str, int] = {
     "registerApnsDevice": 201,
     "deleteApnsDevice": 204,
     "sendApnsTestPush": 200,
+    "recordRunEvent.start": 201,
+    "recordRunEvent.next": 200,
+    "recordRunEvent.skip": 200,
+    "recordRunEvent.lap": 200,
+    "recordRunEvent.pause": 200,
+    "recordRunEvent.resume": 200,
+    "recordRunEvent.stop": 200,  # no answers, and v2 has required questions: finishing
+    "recordRunEvent.finish": 200,  # the finishing run's entry is created
+    "recordRunEvent.discard": 200,  # an open run
 }
 
 
@@ -133,7 +149,6 @@ def test_goldens_exist_and_have_expectations() -> None:
 
 # Mutations the Swift client doesn't send yet. Each one says when it will.
 NO_GOLDEN_YET = {
-    "recordRunEvent": "the iOS run.event outbox kind writes its goldens (timers-plan.md, I-OUTBOX)",
     "registerLiveActivity": "the iOS Live Activity writes its goldens (timers-plan.md, I-LA)",
     "deleteLiveActivity": "the iOS Live Activity writes its goldens (timers-plan.md, I-LA)",
 }
@@ -208,6 +223,36 @@ async def nothing(client: httpx.AsyncClient) -> None:
     pass
 
 
+async def timed(client: httpx.AsyncClient) -> None:
+    """The topic, with v2 published: a timer with steps pour and drink."""
+    await topic(client)
+    await ok(client, "publishTopicVersion", 201)
+
+
+# A run's taps in order: each golden's setup sends every tap before it.
+RUN_TAPS = [
+    ("recordRunEvent.start", 201),
+    ("recordRunEvent.next", 200),
+    ("recordRunEvent.skip", 200),
+    ("recordRunEvent.lap", 200),
+    ("recordRunEvent.pause", 200),
+    ("recordRunEvent.resume", 200),
+    ("recordRunEvent.stop", 200),
+    ("recordRunEvent.finish", 200),
+]
+
+
+def run_until(name: str) -> Setup:
+    """The timed topic and its run, with every tap before ``name``."""
+
+    async def setup(client: httpx.AsyncClient) -> None:
+        await timed(client)
+        for tap, status in RUN_TAPS[: [t for t, _ in RUN_TAPS].index(name)]:
+            await ok(client, tap, status)
+
+    return setup
+
+
 async def subscription(client: httpx.AsyncClient) -> None:
     await ok(client, "createPushSubscription", 201)
 
@@ -216,7 +261,10 @@ async def device(client: httpx.AsyncClient) -> None:
     await ok(client, "registerApnsDevice", 201)
 
 
+# By golden name, else by operation.
 SETUP: dict[str, Setup] = {
+    **{name: run_until(name) for name, _ in RUN_TAPS},
+    "recordRunEvent.discard": run_until("recordRunEvent.next"),  # an open run
     "createTopic": nothing,
     "updateTopic": topic,
     "archiveTopic": topic,
@@ -237,20 +285,24 @@ SETUP: dict[str, Setup] = {
 
 
 class Substituting(httpx.AsyncBaseTransport):
-    """Swaps the golden placeholders in paths and precondition headers for real values."""
+    """Swaps the golden placeholders in paths, precondition headers and bodies for real values."""
 
     def __init__(self, inner: httpx.AsyncBaseTransport) -> None:
         self.inner = inner
         self.values: dict[str, str] = {}
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        url = str(request.url)
+        url, body = str(request.url), request.content
         for placeholder, real in self.values.items():
             url = url.replace(placeholder, real)
+            body = body.replace(placeholder.encode(), real.encode())
             for header in ("x-quickr-expect-server-id", "x-quickr-expect-epoch"):
                 if request.headers.get(header) == placeholder:
                     request.headers[header] = real
         request.url = httpx.URL(url)
+        if body != request.content:
+            request.headers.pop("content-length")  # httpx sets it for the new body
+            request = httpx.Request(request.method, request.url, headers=request.headers, content=body)
         response = await self.inner.handle_async_request(request)
         if (
             request.method == "POST"
@@ -269,6 +321,7 @@ async def replay(
     from app.main import app
 
     monkeypatch.setattr("app.services.push.web.deliver", lambda *_: None)
+    monkeypatch.setattr("app.services.runs.now", lambda: RUN_NOW)
     transport = Substituting(httpx.ASGITransport(app=app))
     client = httpx.AsyncClient(transport=transport, base_url=f"http://test{PREFIX}")
     health = await client.get("/health")
@@ -284,7 +337,7 @@ async def test_golden_replays(name: str, replay: tuple[httpx.AsyncClient, Substi
     client, transport = replay
     golden = load(name)
     op = golden["operation_id"]
-    await SETUP[op](client)
+    await SETUP[name if name in SETUP else op](client)
     request = golden["request"]
     mutation = "x-quickr-expect-server-id" in request["headers"]
 
@@ -300,6 +353,8 @@ async def test_golden_replays(name: str, replay: tuple[httpx.AsyncClient, Substi
     r = await send(client, request)
     assert r.status_code == EXPECTED[name], f"{name}: {r.status_code} {r.text}"
     assert r.headers["X-QuickR-Server-Id"] == transport.values[SERVER_ID]
+    if op == "recordRunEvent":
+        assert r.json()["event"]["effect"] == "applied", r.text  # each tap is a real one
     if op in ("createEntry", "updateEntry") and r.status_code < 300:
         assert r.json()["channel"] == "ios"
         if op == "createEntry":

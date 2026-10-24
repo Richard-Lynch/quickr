@@ -35,7 +35,10 @@ public enum OutboxResolution: Sendable, Hashable {
     /// Mismatched or missing headers on a response that may have executed: `uncertain`.
     case mismatchUncertain(OutboxMismatch)
 
-    public static func resolve(_ kind: OutboxKind, _ outcome: APIOutcome<OutboxSuccess>) -> OutboxResolution {
+    /// `runEvent` is a `run.event` item's event type (a start's 404 differs from the others').
+    public static func resolve(
+        _ kind: OutboxKind, _ outcome: APIOutcome<OutboxSuccess>, runEvent: RunEventType? = nil
+    ) -> OutboxResolution {
         switch outcome {
         case .identityMismatch(let evidence):
             return evidence.mayHaveExecuted ? .mismatchUncertain(.identity) : .restore(.identity)
@@ -52,7 +55,7 @@ public enum OutboxResolution: Sendable, Hashable {
             case .entryCreate, .entryUpdate: return .entityGone
             // A delete whose id is already reserved is done.
             case .entryDelete: return .ack(.empty)
-            case .topicArchive, .topicUnarchive: return .fail(.rejected, pull: false)
+            case .topicArchive, .topicUnarchive, .runEvent: return .fail(.rejected, pull: false)
             }
         case .notFound:
             switch kind {
@@ -61,14 +64,21 @@ public enum OutboxResolution: Sendable, Hashable {
             case .entryDelete: return .ack(.empty)
             case .topicArchive: return .retire(pull: true)
             case .topicUnarchive: return .fail(.deletedElsewhere, pull: true)
+            // timers.md §8.1: the run is gone (a start's 404 is its topic's, as for a create).
+            case .runEvent:
+                return runEvent == .start ? .fail(.topicMissing, pull: true) : .fail(.deletedElsewhere, pull: true)
             }
         case .staleRevision:
             switch kind {
             case .entryUpdate, .topicArchive, .topicUnarchive: return .rebase
-            // Creates and deletes never send `expected_revision`; the server can't say this.
-            case .entryCreate, .entryDelete: return .fail(.rejected, pull: false)
+            // Creates, deletes and run events never send `expected_revision`; the server can't say this.
+            case .entryCreate, .entryDelete, .runEvent: return .fail(.rejected, pull: false)
             }
         case .terminal(let status, let problem):
+            // timers.md §8.1: the run's topic was deleted; nothing can come of the event. Every other
+            // refusal (`topic_not_timed`, `topic_archived`, `id_conflict`, `event_conflict`, a
+            // finish's `run_open`, any 422) fails it with its payload kept.
+            if kind == .runEvent, status == 409, problem?.code == .runDeleted { return .retire(pull: true) }
             if kind == .entryCreate, status == 409, problem?.code == .topicArchived {
                 return .fail(.topicArchived, pull: false)
             }

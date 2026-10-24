@@ -508,7 +508,10 @@ public actor SyncCoordinator {
             (page, timing) = prefetched
         } else {
             let expecting = state.epoch.map { ServerIdentity(serverId: state.serverId, epoch: $0) }
-            guard let (response, fetchTiming) = try await fetch(state, after: state.cursor, expecting: expecting) else {
+            guard
+                let (response, fetchTiming) = try await fetch(
+                    store, state, after: state.cursor, expecting: expecting)
+            else {
                 return .stop(.failed(.storage("bad base_url \(state.baseURL)")))
             }
             switch response.outcome {
@@ -565,7 +568,7 @@ public actor SyncCoordinator {
         broadcaster.update { $0.activity = .rebuilding(cursor: stageCursor, head: max(stageCursor, $0.headSeen)) }
         guard
             let (response, timing) = try await fetch(
-                state, after: stageCursor, expecting: ServerIdentity(serverId: state.serverId, epoch: target))
+                store, state, after: stageCursor, expecting: ServerIdentity(serverId: state.serverId, epoch: target))
         else { return .stop(.failed(.storage("bad base_url \(state.baseURL)"))) }
         let page: ChangePage
         switch response.outcome {
@@ -681,13 +684,16 @@ public actor SyncCoordinator {
         return .stop(.failed(.protocolError("epoch mismatch without an epoch header")))
     }
 
-    private func fetch(_ state: SyncState, after cursor: Int, expecting: ServerIdentity?) async throws -> (
-        APIResponse<ChangePage>, FeedTiming
-    )? {
+    /// One page of `store`'s feed. The response's server time is also `store`'s run-event offset
+    /// sample (timers.md §5.1).
+    private func fetch(_ store: LocalStore, _ state: SyncState, after cursor: Int, expecting: ServerIdentity?)
+        async throws -> (APIResponse<ChangePage>, FeedTiming)?
+    {
         guard let url = URL(string: state.baseURL) else { return nil }
         let wall = partitions.wallClock
         let sentAt = wall.now()
-        let response = try await makeFeed(url).listChanges(
+        let feed = makeFeed(url).recordingServerOffset(StoreServerOffset(store: store))
+        let response = try await feed.listChanges(
             after: cursor, limit: configuration.pageLimit, options: RequestOptions(expecting: expecting))
         return (response, FeedTiming(sentAt: sentAt, receivedAt: wall.now()))
     }

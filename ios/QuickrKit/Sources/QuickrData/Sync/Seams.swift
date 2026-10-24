@@ -13,9 +13,22 @@ import QuickrCore
 /// bootstrap from `after=0` (which adopts whatever the page reports, §2.2).
 public protocol FeedFetcher: Sendable {
     func listChanges(after cursor: Int, limit: Int, options: RequestOptions) async throws -> APIResponse<ChangePage>
+    /// The same feed, handing its responses' offset samples to `recorder` (timers.md §5.1).
+    func recordingServerOffset(_ recorder: any ServerOffsetRecorder) -> any FeedFetcher
 }
 
-extension APIClient: FeedFetcher {}
+extension FeedFetcher {
+    /// A feed that keeps no samples (test fakes).
+    public func recordingServerOffset(_ recorder: any ServerOffsetRecorder) -> any FeedFetcher { self }
+}
+
+extension APIClient: FeedFetcher {
+    public func recordingServerOffset(_ recorder: any ServerOffsetRecorder) -> any FeedFetcher {
+        var client = self
+        client.serverOffset = recorder
+        return client
+    }
+}
 
 /// Builds the feed for a server's base URL (the store's `base_url`, or the URL typed during
 /// onboarding).

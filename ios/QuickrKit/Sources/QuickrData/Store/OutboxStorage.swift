@@ -103,6 +103,7 @@ extension OutboxPayload {
         case .entryCreate: itemId.wireString
         case .entryUpdate(let entryId, _, _), .entryDelete(let entryId, _): entryId
         case .topicArchive(let topicId), .topicUnarchive(let topicId): topicId
+        case .runEvent(let payload): payload.runId
         }
     }
 
@@ -111,6 +112,7 @@ extension OutboxPayload {
         case .entryCreate(let topic, _): topic.id
         case .entryUpdate(_, let topicId, _), .entryDelete(_, let topicId): topicId
         case .topicArchive(let topicId), .topicUnarchive(let topicId): topicId
+        case .runEvent(let payload): payload.topic.id
         }
     }
 }
@@ -140,6 +142,12 @@ extension OutboxItem {
 
     /// The decoded payload.
     public func payload() throws -> OutboxPayload { try OutboxPayload.decode(kind: kind, json: payloadJSON) }
+
+    /// A `run.event` item's payload; nil for any other kind.
+    public func runEventPayload() throws -> RunEventPayload? {
+        guard kind == .runEvent, case .runEvent(let payload) = try payload() else { return nil }
+        return payload
+    }
 }
 
 extension LeaseInstant {

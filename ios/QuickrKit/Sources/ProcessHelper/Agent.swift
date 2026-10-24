@@ -87,6 +87,22 @@ actor Agent {
             return try describe(await outbox().archiveTopic(id: try uuid(args["topicId"]), origin: origin()))
         case "unarchive":
             return try describe(await outbox().unarchiveTopic(id: try uuid(args["topicId"]), origin: origin()))
+        case "runStart":
+            // runStart {topicId, slug, name, version}: `RunWrites.start` (timers.md §8.1).
+            let topic = TopicRef(
+                id: try uuid(args["topicId"]), slug: args["slug"] ?? "mood", name: args["name"] ?? "Mood")
+            let result = try await runWrites().start(topic: topic, version: Int(args["version"] ?? "1") ?? 1)
+            return ["runId": result.runId, "started": String(result.started)]
+        case "runTap":
+            // runTap {type, runId, seg?}: one tap through `RunWrites`; `seg` is the segment the
+            // surface showed (a widget's or Live Activity's content state).
+            guard let type = RunTapType(rawValue: try required(args["type"])) else {
+                throw HelperError(description: "unknown tap \(args["type"] ?? "")")
+            }
+            let target: RunTapTarget =
+                args["seg"].flatMap(Int.init).map { .shown(seg: $0, step: nil, pauseId: nil) } ?? .current
+            let result = try await runWrites().tap(type, runId: try required(args["runId"]), target: target)
+            return result.map(describe) ?? ["result": "none"]
         case "releaseHolds":
             return ["released": String(try await outbox().releaseHolds(all: args["all"] == "true"))]
         case "flush":
@@ -243,6 +259,8 @@ actor Agent {
             // As an extension would (§5.6 step 3): the app's coordinator listens.
             onSignal: { _ in notifier.post(.syncRequested) }, random: { 0.5 }, shutdownGrace: .milliseconds(500))
     }
+
+    private func runWrites() throws -> RunWrites { RunWrites(store: try requireStore(), origin: origin()) }
 
     private func coordinatorInstance() -> SyncCoordinator {
         if let coordinator { return coordinator }

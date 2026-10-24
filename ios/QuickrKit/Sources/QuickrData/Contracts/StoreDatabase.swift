@@ -53,6 +53,6 @@ extension SyncState {
             lastPullAt: (row["last_pull_at"] as Double?).map(Date.init(timeIntervalSince1970:)),
             skewMilliseconds: row["skew_ms"],
             skewMeasuredAt: (row["skew_measured_at"] as Double?).map(Date.init(timeIntervalSince1970:)),
-            bootstrapComplete: row["bootstrap_complete"])
+            bootstrapComplete: row["bootstrap_complete"], serverOffsetMs: row["server_offset_ms"])
     }
 }

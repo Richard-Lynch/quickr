@@ -453,6 +453,44 @@ public final class AppSession {
         await scheduler?.requestFlush(reason: .enqueue)
     }
 
+    // MARK: - Runs (timers.md §8.1, §8.3)
+    //
+    // The run screen and tile write through `runWrites()`: one `run.event` per tap, then a flush.
+
+    /// The bound store's run façade for `origin`, stamping this device's APNs token as `device`.
+    /// `liveActivity` says whether this device shows the run's Live Activity locally (§10.3).
+    public func runWrites(origin: OutboxOrigin = .app, liveActivity: @escaping @Sendable () -> Bool = { false })
+        throws -> RunWrites
+    {
+        guard let store else { throw SessionError.noStore }
+        let registry = partitions.registry.repository
+        return RunWrites(
+            store: store, origin: origin,
+            device: {
+                guard let token = try? await registry.apnsToken() else { return nil }
+                return RunEventInDTO.Device(apnsToken: token, liveActivity: liveActivity())
+            })
+    }
+
+    /// Starts a run (or routes to the topic's open one) and asks for a flush.
+    @discardableResult
+    public func startRun(topic: TopicRef, version: Int) async throws -> RunStartResult {
+        let result = try await runWrites().start(topic: topic, version: version)
+        if result.started { await scheduler?.requestFlush(reason: .enqueue) }
+        return result
+    }
+
+    /// One tap on a run (`RunWrites.tap`) and a flush.
+    @discardableResult
+    public func tapRun(
+        _ type: RunTapType, runId: String, target: RunTapTarget = .current, answers: [String: AnswerValue]? = nil,
+        notes: String? = nil
+    ) async throws -> OutboxEnqueueResult? {
+        let result = try await runWrites().tap(type, runId: runId, target: target, answers: answers, notes: notes)
+        if result != nil { await scheduler?.requestFlush(reason: .enqueue) }
+        return result
+    }
+
     private func requireOutbox() throws -> Outbox {
         guard let outbox else { throw SessionError.noStore }
         return outbox
@@ -507,7 +545,7 @@ public final class AppSession {
             }
             let sender = APIClient(
                 baseURL: baseURL, transport: configuration.transport, identity: StaticServerIdentity(nil),
-                credentials: configuration.credentials, origin: .app)
+                credentials: configuration.credentials, origin: .app, serverOffset: StoreServerOffset(store: store))
             let outbox = Outbox(
                 store: store, sender: sender, owner: owner, onSignal: coordinator.outboxSignalHandler)
             let scheduler = OutboxFlushScheduler(outbox: outbox)

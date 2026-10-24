@@ -95,6 +95,8 @@ public struct SyncSheetModel: Sendable, Hashable {
     static func title(_ item: OutboxItem, topics: [String: SyncTopicInfo]) -> String {
         var name = topics[item.topicId]?.name
         if name == nil, case .entryCreate(let topic, _)? = try? item.payload() { name = topic.name }
+        let event = try? item.runEventPayload()
+        if name == nil, let event { name = event.topic.name }
         let topic = name ?? "a topic"
         return switch item.kind {
         case .entryCreate: "Entry · \(topic)"
@@ -102,6 +104,7 @@ public struct SyncSheetModel: Sendable, Hashable {
         case .entryDelete: "Delete · \(topic)"
         case .topicArchive: "Archive · \(topic)"
         case .topicUnarchive: "Unarchive · \(topic)"
+        case .runEvent: "\(event?.event.type.capitalized ?? "Timer") · \(topic)"
         }
     }
 

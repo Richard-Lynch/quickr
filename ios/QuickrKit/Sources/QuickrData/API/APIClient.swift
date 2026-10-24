@@ -45,6 +45,15 @@ public struct StaticAccessCredentials: AccessCredentialsProvider {
     public func accessCredentials(for baseURL: URL) async throws -> AccessCredentials? { credentials }
 }
 
+/// Where the run-event offset goes (timers.md §5.1 item 2): every response's
+/// `X-QuickR-Server-Time`, errors included, as one sample. `StoreServerOffset` keeps it in the
+/// store's `sync_state.server_offset_ms`.
+public protocol ServerOffsetRecorder: Sendable {
+    /// One qualifying sample: `server_time − (t_send + t_recv) / 2`, from a response whose round
+    /// trip took at most 5 s. The latest one wins.
+    func record(offsetMs: Int) async
+}
+
 /// Per-call options.
 public struct RequestOptions: Sendable, Hashable {
     /// The identity a mutation must target, instead of the provider's current one. The outbox
@@ -129,16 +138,25 @@ public struct APIClient: Sendable {
     public var identity: any ServerIdentityProvider
     public var credentials: any AccessCredentialsProvider
     public var origin: OutboxOrigin
+    /// Gets an offset sample from every response that carries `X-QuickR-Server-Time` (§5.1); nil
+    /// keeps none.
+    public var serverOffset: (any ServerOffsetRecorder)?
+    /// The device clock, epoch milliseconds, read just before a request and just after its answer.
+    public var deviceNow: @Sendable () -> Int
 
     public init(
         baseURL: URL, transport: any Transport, identity: any ServerIdentityProvider,
-        credentials: any AccessCredentialsProvider = StaticAccessCredentials(nil), origin: OutboxOrigin = .app
+        credentials: any AccessCredentialsProvider = StaticAccessCredentials(nil), origin: OutboxOrigin = .app,
+        serverOffset: (any ServerOffsetRecorder)? = nil,
+        deviceNow: @escaping @Sendable () -> Int = { RunInstant.milliseconds(Date()) }
     ) {
         self.baseURL = baseURL
         self.transport = transport
         self.identity = identity
         self.credentials = credentials
         self.origin = origin
+        self.serverOffset = serverOffset
+        self.deviceNow = deviceNow
     }
 
     // MARK: Meta
@@ -441,8 +459,11 @@ public struct APIClient: Sendable {
         let request = try await build(
             endpoint, path: parameters, query: query, body: body, options: options, expected: expected)
         let result: Result<HTTPResponse, TransportError>
+        let sent = deviceNow()
         do {
-            result = .success(try await transport.send(request))
+            let response = try await transport.send(request)
+            await recordOffset(response, expected: expected, sent: sent, received: deviceNow())
+            result = .success(response)
         } catch let error as TransportError {
             result = .failure(error)
         } catch {
@@ -455,6 +476,22 @@ public struct APIClient: Sendable {
             }
             return try Response.decode(response.body, using: WireCoding.decoder()).toDomain()
         }
+    }
+
+    /// Hands `response`'s offset sample to `serverOffset` when it qualifies (§5.1 item 2): from a
+    /// response with both identity headers, naming the expected server and epoch when there is one
+    /// (another server's clock is no sample of this one's).
+    private func recordOffset(_ response: HTTPResponse, expected: ServerIdentity?, sent: Int, received: Int) async {
+        guard let observed = ObservedIdentity(response: response.headers).complete,
+            expected.map({
+                $0.serverId.lowercased() == observed.serverId.lowercased()
+                    && $0.epoch.lowercased() == observed.epoch.lowercased()
+            }) ?? true
+        else { return }
+        guard let serverOffset, let serverTime = RunClock.parseServerTime(response.headers[RunClock.serverTimeHeader]),
+            let sample = RunClock.offsetSample(serverTime: serverTime, sent: sent, received: received)
+        else { return }
+        await serverOffset.record(offsetMs: sample)
     }
 
     /// The request `send` would make, without sending it. Throws only `APIClientError`.

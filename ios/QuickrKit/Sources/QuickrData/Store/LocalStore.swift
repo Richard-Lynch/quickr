@@ -118,6 +118,17 @@ public struct LocalStore: Sendable {
         return StoreObservation.values(in: writer, refresh: refresh) { db in try StoreView.runs(db, topicId: topicId) }
     }
 
+    /// The local view of runs (`RunOverlay.localRuns`), re-emitted on every change: what every
+    /// surface shows, queued taps included.
+    public func observeLocalRuns(topicId: UUID? = nil, refresh: AsyncStream<Void>? = nil)
+        -> AsyncThrowingStream<[LocalRun], any Error>
+    {
+        let topicId = topicId?.wireString
+        return StoreObservation.values(in: writer, refresh: refresh) { db in
+            try RunOverlay.localRuns(db, topicId: topicId)
+        }
+    }
+
     public func observeOutbox(refresh: AsyncStream<Void>? = nil) -> AsyncThrowingStream<[OutboxItem], any Error> {
         StoreObservation.values(in: writer, refresh: refresh) { db in try OutboxStorage.items(db) }
     }

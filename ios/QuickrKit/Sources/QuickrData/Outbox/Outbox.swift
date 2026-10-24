@@ -43,6 +43,9 @@ public struct OutboxFlushReport: Sendable, Hashable {
     public var retried = 0
     /// Retired, cancelled (S8) or restored after a precondition 409.
     public var settled = 0
+    /// Acked run events the server voided for a reason the user is told about (timers.md §8.1,
+    /// §11.4), in ack order.
+    public var runVoids: [RunVoid] = []
     /// When `flush` started, and when it was done: the lease released (or never taken), before
     /// signals are delivered. What the budget bounds (§10), measured by the flush itself, so a
     /// caller resumed late doesn't stretch it.
@@ -55,6 +58,41 @@ public struct OutboxFlushReport: Sendable, Hashable {
     public var elapsed: Duration? {
         guard let startedAt, let endedAt else { return nil }
         return endedAt - startedAt
+    }
+}
+
+/// A run event of this device that the server voided with a reason worth a notice (timers.md
+/// §11.4): `after_stop`, `run_edited`, `entry_deleted` or `already_closed`. Double taps (`stale`,
+/// `merged`, `already_paused`, `not_paused`) are silent and never reported.
+public struct RunVoid: Sendable, Hashable {
+    public static let noticed: Set<VoidReason> = [.afterStop, .runEdited, .entryDeleted, .alreadyClosed]
+
+    public var eventId: String
+    public var runId: String
+    public var topic: TopicRef
+    public var type: RunEventType
+    public var reason: VoidReason
+    /// The origin of the tap (which process made it).
+    public var origin: OutboxOrigin
+
+    init?(_ item: OutboxItem, _ result: RunEventResult) {
+        guard let reason = result.effect.reason, Self.noticed.contains(reason),
+            let payload = try? item.runEventPayload(), let type = payload.type
+        else { return nil }
+        self.init(
+            eventId: item.id, runId: payload.runId, topic: payload.topic, type: type, reason: reason,
+            origin: item.origin)
+    }
+
+    public init(
+        eventId: String, runId: String, topic: TopicRef, type: RunEventType, reason: VoidReason, origin: OutboxOrigin
+    ) {
+        self.eventId = eventId
+        self.runId = runId
+        self.topic = topic
+        self.type = type
+        self.reason = reason
+        self.origin = origin
     }
 }
 
@@ -80,7 +118,7 @@ public struct OutboxSummary: Sendable, Hashable {
 
     static func read(_ db: Database, now: LeaseInstant) throws -> OutboxSummary {
         var summary = OutboxSummary()
-        var scope = OutboxScope()
+        var scope = OutboxScope(aliases: try OutboxScope.aliases(db))
         for item in try OutboxStorage.items(db) {
             defer { scope.add(item) }
             switch item.state {
@@ -417,7 +455,8 @@ public struct Outbox: Sendable {
                 return Task.isCancelled ? .cancelled : .budgetExhausted
             }
             run.report.requests += 1
-            let resolution = OutboxResolution.resolve(item.kind, response.outcome)
+            let resolution = OutboxResolution.resolve(
+                item.kind, response.outcome, runEvent: (try? item.runEventPayload())?.type)
             guard resolution == .rebase else {
                 return try await finish(
                     claim, resolution, error: response.outboxError, stopsPass: response.outcome.stopsPass, &run)
@@ -494,7 +533,11 @@ public struct Outbox: Sendable {
         }
         switch applied {
         case .fenced: return .superseded
-        case .acked: run.report.acked += 1
+        case .acked:
+            run.report.acked += 1
+            if case .ack(.runEvent(let result)) = resolution, let void = RunVoid(claim.item, result) {
+                run.report.runVoids.append(void)
+            }
         case .failed: run.report.failed += 1
         case .retried: run.report.retried += 1
         case .retired, .restored, .cancelled: run.report.settled += 1

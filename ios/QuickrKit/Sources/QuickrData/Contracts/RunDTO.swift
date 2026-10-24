@@ -360,10 +360,35 @@ public struct RunEventInDTO: Codable, Sendable, Hashable {
         public var apnsToken: String
         public var liveActivity: Bool
 
+        public init(apnsToken: String, liveActivity: Bool) {
+            self.apnsToken = apnsToken
+            self.liveActivity = liveActivity
+        }
+
         enum CodingKeys: String, CodingKey {
             case apnsToken = "apns_token"
             case liveActivity = "live_activity"
         }
+    }
+
+    public init(
+        id: String, type: String, at: String, seg: Int? = nil, step: String? = nil, pauseId: String? = nil,
+        topicId: String? = nil, version: Int? = nil, answers: [String: WireAnswer?]? = nil, notes: String? = nil,
+        meta: [String: String]? = nil, source: String? = nil, device: Device? = nil
+    ) {
+        self.id = id
+        self.type = type
+        self.at = at
+        self.seg = seg
+        self.step = step
+        self.pauseId = pauseId
+        self.topicId = topicId
+        self.version = version
+        self.answers = answers
+        self.notes = notes
+        self.meta = meta
+        self.source = source
+        self.device = device
     }
 
     enum CodingKeys: String, CodingKey {

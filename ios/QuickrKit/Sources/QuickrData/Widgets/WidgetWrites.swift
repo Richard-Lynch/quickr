@@ -50,7 +50,7 @@ public enum WidgetWrites {
             }
             let sender = APIClient(
                 baseURL: url, transport: transport, identity: StaticServerIdentity(nil), credentials: credentials,
-                origin: .widget)
+                origin: .widget, serverOffset: StoreServerOffset(store: store))
             let policy = OutboxFlushPolicy.extensionFlush(budget: flushBudget)
             let report = try await Outbox(store: store, sender: sender, owner: owner).flush(
                 force: policy.force, budget: policy.budget, leaseWait: policy.leaseWait)

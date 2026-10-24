@@ -72,6 +72,22 @@ public struct GRDBRunRepository: RunRepository {
     public func run(id: UUID) async throws -> Run? {
         try await reader.read { db in try StoreView.run(db, id: id.wireString) }
     }
+
+    /// The local view of a topic's runs, or of every topic's (timers.md §8.3): queued taps folded
+    /// in, finishing and just-closed runs included (check `status`).
+    public func localRuns(topicId: UUID? = nil) async throws -> [LocalRun] {
+        try await reader.read { db in try RunOverlay.localRuns(db, topicId: topicId?.wireString) }
+    }
+
+    /// The local run `id` (its own id or an alias) routes to.
+    public func localRun(id: UUID) async throws -> LocalRun? {
+        try await reader.read { db in try RunOverlay.localRun(db, id: id.wireString) }
+    }
+
+    /// The topic's open local run (running or paused), if any.
+    public func openRun(topicId: UUID) async throws -> LocalRun? {
+        try await reader.read { db in try RunOverlay.openRun(db, topicId: topicId.wireString) }
+    }
 }
 
 /// Queries over `outbox_item`. Production writes go through `Outbox`; `appendRawForTesting` is

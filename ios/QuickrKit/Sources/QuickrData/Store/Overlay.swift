@@ -101,7 +101,7 @@ public struct EntryOverlay: Sendable, Hashable {
                 hidden = true
                 undoable = item.state == .held
                 pending = true
-            case .topicArchive, .topicUnarchive:
+            case .topicArchive, .topicUnarchive, .runEvent:
                 return
             }
             if isFailed { failed = item }

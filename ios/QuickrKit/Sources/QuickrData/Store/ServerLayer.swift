@@ -98,6 +98,33 @@ public enum ServerLayer {
         return .applied
     }
 
+    /// A `RunEventResult` (timers.md §8.1 "Ack"), in the live layer: the entry, when present, and
+    /// the run under the guards. `sentTo` differs from the run's id after a merge (§4.5): it is
+    /// recorded as an alias, so the local view re-keys this device's queued events to the run. A
+    /// closed run (stopped or discarded) is applied as the run deletion the feed would bring, so
+    /// the device never shows it open again. Returns the run's upsert outcome (nil for a deletion).
+    @discardableResult
+    public static func apply(_ db: Database, runEvent result: RunEventResult, sentTo: UUID) throws -> UpsertOutcome? {
+        let run = result.run
+        if let entry = result.entry { _ = try upsert(db, entry: entry) }
+        let closed = run.status == .stopped || run.status == .discarded
+        // The open run first: its upsert replaces the run's alias rows with its `aliases`.
+        let outcome = closed ? nil : try upsert(db, run: run)
+        let topicId = run.topicId.wireString
+        let alias = sentTo.wireString
+        if sentTo != run.id, try !isTombstoned(db, kind: .run, id: alias),
+            try !isTombstoned(db, kind: .topic, id: topicId)
+        {
+            try db.execute(
+                sql: "INSERT OR REPLACE INTO run_alias (id, run_id, topic_id) VALUES (?, ?, ?)",
+                arguments: [alias, run.id.wireString, topicId])
+        }
+        guard closed else { return outcome }
+        // Tombstones the run and its aliases, `sentTo` included.
+        try applyDeletion(db, kind: .run, id: run.id, topicId: run.topicId, seq: nil)
+        return nil
+    }
+
     /// Versions are immutable: insert if absent, otherwise ignore.
     public static func insert(
         _ db: Database, version: TopicVersion, id: UUID, topicId: UUID, into layer: Layer = .live
@@ -195,7 +222,7 @@ public enum ServerLayer {
 
     /// The live server-layer revision of an entity, nil if there's no row.
     public static func revision(_ db: Database, entityKind: OutboxEntityKind, id: String) throws -> Int? {
-        try revision(db, table: entityKind == .entry ? "entry" : "topic", id: id)
+        try revision(db, table: entityKind.rawValue, id: id)
     }
 
     private static func revision(_ db: Database, table: String, id: String) throws -> Int? {

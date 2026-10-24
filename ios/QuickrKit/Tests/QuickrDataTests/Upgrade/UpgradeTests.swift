@@ -91,18 +91,20 @@ import Testing
                 """)
     }
 
-    /// The store's columns that "nothing lost" compares: v2's `timer_json` and v3's `timing_json`
-    /// are new, and v2 and v3 set `sync_state.rebuilding` (checked on their own).
+    /// The store's columns that "nothing lost" compares: v2's `timer_json`, v3's `timing_json` and
+    /// v4's `sync_state.server_offset_ms` are new, and v2 and v3 set `sync_state.rebuilding`
+    /// (checked on their own).
     static func storeV1Columns(_ db: Database, tables: [String]) throws -> [String: [String]] {
-        let added: [String: String] = [
-            "topic_version": "timer_json", "stage_topic_version": "timer_json", "entry": "timing_json",
-            "stage_entry": "timing_json", "sync_state": "rebuilding",
+        let added: [String: Set<String>] = [
+            "topic_version": ["timer_json"], "stage_topic_version": ["timer_json"], "entry": ["timing_json"],
+            "stage_entry": ["timing_json"], "sync_state": ["rebuilding", "server_offset_ms"],
         ]
         var columns: [String: [String]] = [:]
         for table in tables {
             let rows: [Row] = try Row.fetchAll(db, sql: "PRAGMA table_info(\(table))")
             let names: [String] = rows.map { (row: Row) -> String in row["name"] }
-            columns[table] = names.filter { (name: String) -> Bool in name != added[table] }
+            let skipped: Set<String> = added[table] ?? []
+            columns[table] = names.filter { (name: String) -> Bool in !skipped.contains(name) }
         }
         return columns
     }

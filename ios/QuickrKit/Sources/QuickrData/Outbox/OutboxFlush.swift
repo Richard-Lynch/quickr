@@ -6,18 +6,65 @@ import QuickrCore
 /// An `entry.*` item waits for every earlier item of its entity and every earlier `topic.*` item
 /// of its topic; a `topic.*` item waits for every earlier item of its topic. `held` and `failed`
 /// items count.
+///
+/// A `run.event` (timers.md §8.1) waits only for its run's start item and for earlier `topic.*`
+/// items of its topic: events are idempotent and folded by time, so they don't wait for each other,
+/// and a failed non-start event blocks nothing. A failed start blocks its run until it is retried
+/// or discarded. Two more waits:
+/// - A `finish` waits for its run's earlier active `stop`s, so the answers never reach the server
+///   before the stop they follow (a failed stop doesn't hold it: the finish goes, and fails on
+///   `run_open` with its answers kept).
+/// - A `start` waits for the earlier active `stop`s and `discard`s of the topic's other runs, so it
+///   can't overtake a retrying stop and be merged into the run still open on the server (§4.5). A
+///   failed one doesn't hold it (the server merges if it must), nor does one of a run whose own
+///   start failed (that run never existed on the server).
+///
+/// Run ids are resolved through `run_alias` first: an event sent to a merged id is its target's.
 struct OutboxScope {
     private var firstOfEntity: [String: OutboxItem] = [:]
     private var firstTopicItem: [String: OutboxItem] = [:]
     private var firstOfTopic: [String: OutboxItem] = [:]
+    /// Merged run id → the run it joined (`run_alias`).
+    private let aliases: [String: String]
+    /// By run id: the run's start item.
+    private var startOfRun: [String: OutboxItem] = [:]
+    /// By run id: the run's first active `stop` item.
+    private var activeStopOfRun: [String: OutboxItem] = [:]
+    /// By topic id: the active `stop`s and `discard`s that can hold another run's start, with
+    /// their run ids, in `seq` order.
+    private var activeEndsOfTopic: [String: [(run: String, item: OutboxItem)]] = [:]
+
+    init(aliases: [String: String] = [:]) { self.aliases = aliases }
+
+    /// `run_alias`, for `init(aliases:)`.
+    static func aliases(_ db: Database) throws -> [String: String] {
+        var result: [String: String] = [:]
+        for row in try Row.fetchAll(db, sql: "SELECT id, run_id FROM run_alias") { result[row["id"]] = row["run_id"] }
+        return result
+    }
+
+    private func run(_ item: OutboxItem) -> String { aliases[item.entityId] ?? item.entityId }
 
     /// The earliest unresolved item in `item`'s scope seen so far, if any.
     func earliest(before item: OutboxItem) -> OutboxItem? {
         switch item.entityKind {
         case .entry:
-            [firstOfEntity[item.entityId], firstTopicItem[item.topicId]].compactMap { $0 }.min { $0.seq < $1.seq }
+            return [firstOfEntity[item.entityId], firstTopicItem[item.topicId]].compactMap { $0 }
+                .min { $0.seq < $1.seq }
         case .topic:
-            firstOfTopic[item.topicId]
+            return firstOfTopic[item.topicId]
+        case .run:
+            let run = run(item)
+            var blockers = [firstTopicItem[item.topicId], startOfRun[run]]
+            switch (try? item.runEventPayload())?.type {
+            case .finish:
+                blockers.append(activeStopOfRun[run])
+            case .start:
+                blockers.append(activeEndsOfTopic[item.topicId]?.first { $0.run != run }?.item)
+            default:
+                break
+            }
+            return blockers.compactMap { $0 }.min { $0.seq < $1.seq }
         }
     }
 
@@ -25,6 +72,14 @@ struct OutboxScope {
         if item.entityKind == .entry, firstOfEntity[item.entityId] == nil { firstOfEntity[item.entityId] = item }
         if item.entityKind == .topic, firstTopicItem[item.topicId] == nil { firstTopicItem[item.topicId] = item }
         if firstOfTopic[item.topicId] == nil { firstOfTopic[item.topicId] = item }
+        guard item.entityKind == .run, let type = (try? item.runEventPayload())?.type else { return }
+        let run = run(item)
+        if type == .start, item.id == item.entityId, startOfRun[run] == nil { startOfRun[run] = item }
+        guard item.state.isActive else { return }
+        if type == .stop, activeStopOfRun[run] == nil { activeStopOfRun[run] = item }
+        if type == .stop || type == .discard, startOfRun[run]?.state != .failed {
+            activeEndsOfTopic[item.topicId, default: []].append((run, item))
+        }
     }
 }
 
@@ -94,7 +149,7 @@ enum OutboxFlush {
         // An entity whose delete is held waits for the hold: its release may drop or cancel
         // everything queued before it (§8.3, §9.2), and Undo restores it unchanged.
         let held = Set(items.filter { $0.state == .held }.map(\.entityId))
-        var scope = OutboxScope()
+        var scope = OutboxScope(aliases: try OutboxScope.aliases(db))
         for var item in items {
             defer { scope.add(item) }
             guard item.state == .pending || item.state == .uncertain, !skipping.contains(item.id),
@@ -175,6 +230,12 @@ enum OutboxFlush {
             operation = .archiveTopic(topicId: topicId, expectedRevision: item.baseRevision)
         case .topicUnarchive(let topicId):
             operation = .unarchiveTopic(topicId: topicId, expectedRevision: item.baseRevision)
+        case .runEvent(let payload):
+            var body = payload.event
+            body.id = item.id
+            // As for a create (§4): `source` is the enqueuing process's.
+            body.source = item.origin.source
+            operation = .recordRunEvent(runId: try .wire(payload.runId, "outbox.run_id"), body: body)
         }
         return OutboxRequest(operation: operation, expecting: expecting, timeout: timeout)
     }
@@ -271,7 +332,7 @@ enum OutboxFlush {
         case .topic(let topic):
             _ = try ServerLayer.upsert(db, topic: topic)
             revision = topic.revision
-        case .empty:
+        case .runEvent, .empty:
             return .fenced(.claim)
         }
         try db.execute(
@@ -316,6 +377,7 @@ enum OutboxFlush {
         switch success {
         case .entry(let entry): .entry(entry)
         case .topic(let topic): .topic(topic)
+        case .runEvent(let result): .runEvent(result, runId: try .wire(item.entityId, "outbox.entity_id"))
         case .empty:
             .entryDeleted(
                 id: try .wire(item.entityId, "outbox.entity_id"), topicId: try .wire(item.topicId, "outbox.topic_id"))
