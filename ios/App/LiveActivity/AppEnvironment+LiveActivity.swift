@@ -76,7 +76,10 @@ extension AppEnvironment {
     /// outbox.md §10: a forced flush within the intent's 4 s budget, by its own owner (it may run
     /// beside the session's scheduler, which is paused while the app is in the background).
     private func flushAfterActivityTap(_ store: LocalStore, session: AppSession) async {
-        guard let state = try? await store.syncState.syncState(), let url = URL(string: state.baseURL) else { return }
+        guard let state = try? await store.syncState.syncState(), let url = URL(string: state.baseURL) else {
+            lastActivityTapFlush = "no server address"
+            return
+        }
         let configuration = session.configuration
         let sender = APIClient(
             baseURL: url, transport: configuration.transport, identity: StaticServerIdentity(nil),
@@ -85,7 +88,11 @@ extension AppEnvironment {
             store: store, sender: sender, owner: LeaseClaim.owner(kind: "app", launchId: UUID()),
             onSignal: session.coordinator.outboxSignalHandler)
         let budget = activityTapFlushBudget
-        _ = try? await outbox.flush(force: true, budget: budget, leaseWait: budget)
+        do {
+            lastActivityTapFlush = "\(try await outbox.flush(force: true, budget: budget, leaseWait: budget).ending)"
+        } catch {
+            lastActivityTapFlush = "error: \(error)"
+        }
     }
 
     /// I-NOTIF's seam (timers.md §10.2): whether a reminder's Start will show its run here, asked

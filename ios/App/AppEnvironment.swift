@@ -37,6 +37,8 @@ final class AppEnvironment {
     let activityTokens: LiveActivityTokens
     /// A Live Activity button's flush (outbox.md §10: the intent's 4 s); tests raise it.
     var activityTapFlushBudget: Duration = .seconds(4)
+    /// How the last button's flush ended (tests and diagnostics).
+    @ObservationIgnored var lastActivityTapFlush: String?
     /// How far above the bottom toasts sit: a screen with a sticky bar (Record's Save) raises them
     /// above it, like the PWA's.
     var toastBottomInset: CGFloat = 8

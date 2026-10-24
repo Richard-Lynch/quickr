@@ -38,6 +38,16 @@ import Testing
         return (location, topic, runId.wireString)
     }
 
+    /// A live environment over `location` with its own defaults suite and an in-memory Keychain
+    /// (CI's simulator has no usable Keychain: the request would fail before the transport).
+    static func environment(
+        _ location: StoreLocation, transport: any Transport, activityCenter: (any RunActivityCenter)? = nil
+    ) -> AppEnvironment {
+        AppEnvironment.live(
+            location: location, defaults: UserDefaults(suiteName: "la-tests-\(UUID().uuidString)")!,
+            keychain: InMemoryKeychain(), transport: transport, categoryCenter: nil, activityCenter: activityCenter)
+    }
+
     static func runEvents(_ location: StoreLocation) async throws -> [String] {
         let partitions = try StorePartitions.open(at: location, notifier: nil)
         let store = try #require(try await partitions.openActiveStore(role: .app)?.store)
@@ -54,7 +64,7 @@ import Testing
         // The server answers 503, so the tap stays queued. Its flush is awaited by the tap, within
         // a budget raised from the intent's 4 s so a slow runner can't spend it before sending.
         let transport = RecordingTransport()
-        let environment = AppEnvironment.live(location: location, transport: transport, categoryCenter: nil)
+        let environment = Self.environment(location, transport: transport)
         environment.activityTapFlushBudget = .seconds(60)
         defer { Task { await environment.session?.shutdown() } }
         #expect(environment.session?.store == nil, "launched for the intent: nothing bound yet")
@@ -67,7 +77,7 @@ import Testing
         let events = try await Self.runEvents(location)
         #expect(events == ["next"])
         let sent = transport.requests.count
-        #expect(sent >= 1, "flushed before the tap returned")
+        #expect(sent >= 1, "flushed before the tap returned: \(environment.lastActivityTapFlush ?? "no flush")")
 
         let other = RunActivityTap(button: .stop, serverId: "other-server", topicId: topic.id, runId: runId, seg: 0)
         try await Task.sleep(for: .milliseconds(500))
@@ -79,8 +89,7 @@ import Testing
     @Test func theButtonIntentReachesTheRegisteredHandler() async throws {
         let (location, topic, runId) = try await Self.seeded()
         defer { TestStores.remove(location) }
-        let environment = AppEnvironment.live(
-            location: location, transport: RecordingTransport(), categoryCenter: nil)
+        let environment = Self.environment(location, transport: RecordingTransport())
         defer { Task { await environment.session?.shutdown() } }
         environment.registerLiveActivityTaps()
         let attributes = RunActivityContent.attributes(serverId: "test-server", topicId: topic.id, topicName: "Coffee")
@@ -100,8 +109,7 @@ import Testing
         let (location, topic, runId) = try await Self.seeded()
         defer { TestStores.remove(location) }
         let center = AppActivityCenter()
-        let environment = AppEnvironment.live(
-            location: location, transport: RecordingTransport(), categoryCenter: nil, activityCenter: center)
+        let environment = Self.environment(location, transport: RecordingTransport(), activityCenter: center)
         defer { Task { await environment.session?.shutdown() } }
         await environment.start()
         let start = NotificationRunStart(
