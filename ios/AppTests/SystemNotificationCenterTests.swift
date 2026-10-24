@@ -45,7 +45,7 @@ import UserNotifications
         let (location, chips, number) = try await Self.seeded()
         defer { TestStores.remove(location) }
         UNUserNotificationCenter.current().setNotificationCategories([])
-        let environment = AppEnvironment.live(location: location)
+        let environment = AppEnvironment.live(location: location, categoryCenter: SystemNotificationCenter())
         await environment.start()
         let session = try #require(environment.session)
         await session.categoryRefreshSettled()
@@ -61,7 +61,9 @@ import UserNotifications
             try await Task.sleep(for: .milliseconds(100))
         }
         for row in expected {
-            let category = try #require(registered.first { $0.identifier == row.category.id }, "\(row.category.id)")
+            let category = try #require(
+                registered.first { $0.identifier == row.category.id },
+                "\(row.category.id) not in the system's \(registered.map(\.identifier).sorted())")
             #expect(category.actions.map(\.identifier) == row.category.actions.map(\.identifier))
             #expect(category.actions.map(\.title) == row.category.actions.map(\.title))
         }

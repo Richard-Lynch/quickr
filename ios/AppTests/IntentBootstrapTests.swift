@@ -37,7 +37,7 @@ import Testing
     @Test func appBootstrapServesTheTopicQuery() async throws {
         let location = try await TestStores.seededLocation()
         defer { TestStores.remove(location) }
-        _ = AppEnvironment.bootstrap(location: location)
+        _ = AppEnvironment.bootstrap(location: location, categoryCenter: nil)
         let query = TopicEntityQuery()
         #expect(try await query.suggestedEntities().map(\.name) == ["Coffee", "Mood"])
         #expect(try await query.allEntities().map(\.name) == ["Coffee", "Mood"])

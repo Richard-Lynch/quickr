@@ -55,7 +55,7 @@ import Testing
     @Test func deleteInAStaleScopeIsRefusedAndLeavesTheNewStore() async throws {
         let seeded = try await TestStores.seededLocation()
         defer { TestStores.remove(seeded) }
-        let environment = AppEnvironment.live(location: seeded)
+        let environment = AppEnvironment.live(location: seeded, categoryCenter: nil)
         await environment.start()
         let session = try #require(environment.session)
         defer { Task { await session.shutdown() } }
@@ -102,7 +102,7 @@ import Testing
     @Test func updateInAStaleScopeIsRefusedAndQueuesInItsOwn() async throws {
         let seeded = try await TestStores.seededLocation()
         defer { TestStores.remove(seeded) }
-        let environment = AppEnvironment.live(location: seeded)
+        let environment = AppEnvironment.live(location: seeded, categoryCenter: nil)
         await environment.start()
         let session = try #require(environment.session)
         defer { Task { await session.shutdown() } }
@@ -140,7 +140,7 @@ import Testing
     @Test func aRefusedEditIsFixedInPlace() async throws {
         let seeded = try await TestStores.seededLocation()
         defer { TestStores.remove(seeded) }
-        let environment = AppEnvironment.live(location: seeded)
+        let environment = AppEnvironment.live(location: seeded, categoryCenter: nil)
         await environment.start()
         let session = try #require(environment.session)
         defer { Task { await session.shutdown() } }
