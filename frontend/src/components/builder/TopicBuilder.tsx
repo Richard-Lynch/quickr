@@ -5,6 +5,7 @@ import type { TopicDraft } from '../../lib/builder';
 import { Segmented } from '../ui/Segmented';
 import { FormPreview } from './FormPreview';
 import { QuestionsEditor } from './QuestionsEditor';
+import { TimerEditor } from './TimerEditor';
 
 interface Props<TOut> {
   form: UseFormReturn<TopicDraft, unknown, TOut>;
@@ -54,6 +55,7 @@ export function TopicBuilder<TOut>({
           >
             {header}
             <QuestionsEditor defaultExpanded={defaultExpanded} />
+            <TimerEditor />
             {footer}
           </div>
           <aside

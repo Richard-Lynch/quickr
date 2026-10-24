@@ -22,7 +22,7 @@ result.
 | `stats-chart-vectors.json`     | `frontend/src/components/charts/stats.vectors.test.ts` (the PWA's chart code)                     | vitest drift check; Swift chart models and Overview summaries (M6)                                                                            |
 | `builder-vectors.json`         | `backend/tests/test_builder_vectors.py` (`schemas/questions.py`, `services/compat.py`, `slugify`) | pytest drift check; Swift `BuilderVectorTests`                                                                                                |
 | `schedule-vectors.json`        | `frontend/src/lib/schedule.vectors.test.ts` (`schedule.ts`, vitest)                               | vitest drift check; Swift schedule editor (TOPIC, M2)                                                                                         |
-| `builder-ui-vectors.json`      | `frontend/src/lib/builderUi.vectors.test.ts` (`builder.ts`, `questionSummary.ts`, vitest)         | vitest drift check; Swift builder screens and versions list (BUILDER-UI, M6)                                                                  |
+| `builder-ui-vectors.json`      | `frontend/src/lib/builderUi.vectors.test.ts` (`builder.ts`, `questionSummary.ts`, vitest)         | vitest drift check; Swift builder screens and versions list (BUILDER-UI, M6; timed cases I-MANAGE)                                            |
 | `run-fold-vectors.json`        | `backend/tests/test_run_fold_vectors.py` (`services/run_fold.py`)                                 | pytest drift check; vitest `runFold.vectors.test.ts` (`lib/runs/fold.ts`, F-CORE); Swift `RunFoldVectorTests`                                 |
 | `timing-stats-vectors.json`    | `backend/tests/test_timing_stats_vectors.py` (`services/timing_stats.py`)                         | pytest drift check; `getTopicTiming` (T-STATS); vitest `timingStats.vectors.test.ts` (`lib/runs/stats.ts`, F-CORE); Swift timing chart models |
 | `duration-format-vectors.json` | `backend/tests/test_duration_vectors.py` (`run_fold.fmt_duration`)                                | pytest drift check; vitest `format.vectors.test.ts` (`lib/runs/format.ts` `fmtDuration`, F-CORE); Swift `fmtDuration` (I-CORE)                |
@@ -281,6 +281,23 @@ locked}], multiple, min_selected, max_selected, publishedMultiple}`, every
   preview's best-effort question; `index` numbers the placeholders).
 - `constraint_text[]`: `{question, expected}` (`constraintText`: the versions
   list's line under each question).
+
+Timed topics (timers.md §2.1). A step draft is `{key, label, locked}` (the
+PWA's `DraftStep` without its `uid`); `locked` marks a step of the base
+version, whose key never changes.
+
+- `new_step[]`: `{label, taken, expected}` (`newDraftStep`: the key derived from
+  the label, unique among `taken`; `step` when the label has no usable
+  characters; `''` for a blank label).
+- `from_timer[]`: `{timer, expected: {timed, steps}}` (`draftFromTimer`: the
+  steps a published timer opens as).
+- `step_label[]`: `{name, step, label, taken, expected}` (`withStepLabel`: a
+  locked step keeps its key, a new one re-derives it).
+- `timer_output[]`: `{name, timed, steps, expected: {timer, issues}}`
+  (`timerFromDraft`: the `timer` a publish sends, or the issues at paths
+  relative to the steps list, with `timer` null).
+- `timer_changes[]`: `{name, base, next, expected}` (`timerChanges`: the review
+  sheet's timing lines).
 
 ## `entries-vectors.json`
 

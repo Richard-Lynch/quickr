@@ -1,10 +1,16 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router';
 
-import { applyFieldErrors, isConflict, mapApiError, type FieldError } from '../../api/errors';
+import {
+  applyFieldErrors,
+  errorMessage,
+  isConflict,
+  mapApiError,
+  type FieldError,
+} from '../../api/errors';
 import { useLimits } from '../../api/limits';
 import { invalidateTopicData } from '../../api/queryClient';
 import {
@@ -14,7 +20,7 @@ import {
   listTopicVersionsOptions,
   publishTopicVersionMutation,
 } from '../../client/@tanstack/react-query.gen';
-import type { CompatibilityReport, TopicDetail } from '../../client';
+import type { CompatibilityReport, Timer, TopicDetail } from '../../client';
 import { Page, StickyActions, TopBar } from '../../components/AppShell';
 import { CompatReport } from '../../components/builder/CompatReport';
 import { builderFieldFor } from '../../components/builder/serverErrors';
@@ -24,10 +30,12 @@ import { Banner, VersionTag } from '../../components/ui/Card';
 import { Field, Textarea } from '../../components/ui/Field';
 import { Icon } from '../../components/ui/Icon';
 import { Sheet } from '../../components/ui/Sheet';
+import { PageSpinner } from '../../components/ui/Spinner';
 import { useToast } from '../../components/ui/Toast';
 import {
   draftFromTopic,
   makeVersionDraftSchema,
+  timerChanges,
   type TopicDraft,
   type VersionDraftOutput,
 } from '../../lib/builder';
@@ -41,10 +49,48 @@ export function EditQuestionsPage() {
   const topic = useTopic();
   // Remount the editor when the base changes (after "reload latest").
   const [base, setBase] = useState<TopicDetail>(topic);
-  return <Editor key={base.current_version} base={base} onRebase={setBase} />;
+  // TopicDetail doesn't carry the timer: the base version's comes from the version list.
+  const versions = useQuery({
+    ...listTopicVersionsOptions({ path: { ref: base.slug } }),
+    staleTime: 0,
+  });
+  const version = versions.data?.find((v) => v.version === base.current_version);
+  if (versions.isPending || (!version && versions.isFetching)) {
+    return (
+      <>
+        <TopBar back={`/t/${base.slug}`} title="Edit questions" />
+        <PageSpinner />
+      </>
+    );
+  }
+  if (!version) {
+    return (
+      <>
+        <TopBar back={`/t/${base.slug}`} title="Edit questions" />
+        <Page>
+          <Banner title="Could not load this topic’s version">
+            {versions.isError
+              ? errorMessage(versions.error)
+              : `Version ${String(base.current_version)} wasn’t found.`}
+          </Banner>
+        </Page>
+      </>
+    );
+  }
+  return (
+    <Editor key={base.current_version} base={base} baseTimer={version.timer} onRebase={setBase} />
+  );
 }
 
-function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDetail) => void }) {
+function Editor({
+  base,
+  baseTimer,
+  onRebase,
+}: {
+  base: TopicDetail;
+  baseTimer: Timer | null;
+  onRebase: (t: TopicDetail) => void;
+}) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -52,7 +98,7 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
   const schema = useMemo(() => makeVersionDraftSchema(limits), [limits]);
   const form = useForm<TopicDraft, unknown, VersionDraftOutput>({
     resolver: zodResolver(schema),
-    defaultValues: draftFromTopic(base),
+    defaultValues: draftFromTopic(base, baseTimer),
     mode: 'onSubmit',
     reValidateMode: 'onChange',
   });
@@ -99,7 +145,11 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
       try {
         const report = await check.mutateAsync({
           path: { ref: base.slug },
-          body: { questions: draft.questions, base_version: base.current_version },
+          body: {
+            questions: draft.questions,
+            base_version: base.current_version,
+            timer: draft.timer,
+          },
         });
         // Light up questions with blocking issues.
         const drafts = form.getValues('questions');
@@ -117,17 +167,6 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
     () => setBanner({ message: CLIENT_INVALID, extra: [] }),
   );
 
-  /** The base version's timer: publishing requires one, and this editor keeps it as it is. */
-  const baseTimer = async () => {
-    const versions = await qc.query({
-      ...listTopicVersionsOptions({ path: { ref: base.slug } }),
-      staleTime: 0,
-    });
-    const version = versions.find((v) => v.version === base.current_version);
-    if (!version) throw new Error(`Version ${String(base.current_version)} wasn’t found`);
-    return version.timer;
-  };
-
   const onPublish = async () => {
     if (!review) return;
     const note = form.getValues('change_note').trim();
@@ -138,7 +177,7 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
           questions: review.draft.questions,
           base_version: base.current_version,
           change_note: note,
-          timer: await baseTimer(),
+          timer: review.draft.timer,
         },
       });
       qc.setQueryData(getTopicQueryKey({ path: { ref: updated.slug } }), updated);
@@ -261,6 +300,7 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
         {review ? (
           <div className="flex flex-col gap-5">
             <CompatReport report={review.report} labelFor={labelFor} />
+            <TimerChanges changes={timerChanges(baseTimer, review.draft.timer)} />
             {review.report.ok ? (
               <Field
                 label="Change note"
@@ -317,5 +357,24 @@ function Editor({ base, onRebase }: { base: TopicDetail; onRebase: (t: TopicDeta
       </Sheet>
       {guard.dialog}
     </>
+  );
+}
+
+/** The timer's changes (the compatibility report covers questions only). */
+function TimerChanges({ changes }: { changes: string[] }) {
+  if (changes.length === 0) return null;
+  return (
+    <section aria-label="Timing changes" className="flex flex-col gap-1.5">
+      <h3 className="text-sm font-semibold text-ink-soft">Timing</h3>
+      <ul className="flex flex-col gap-1 text-sm">
+        {changes.map((c) => (
+          <li key={c} className="flex items-center gap-2">
+            <Icon name="clock" className="size-4 text-muted" />
+            {c}
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-muted">Past runs keep the steps they were timed with.</p>
+    </section>
   );
 }

@@ -7,6 +7,7 @@ import { useDeleteEntryWithUndo, useUpdateEntry } from '../../api/mutations';
 import { getEntryOptions, listTopicVersionsOptions } from '../../client/@tanstack/react-query.gen';
 import { Page, TopBar } from '../../components/AppShell';
 import { EntryForm, type EntryFormValues } from '../../components/answers/EntryForm';
+import { TimingSection } from '../../components/runs/TimingSection';
 import { Button } from '../../components/ui/Button';
 import { ChannelBadge } from '../../components/ChannelBadge';
 import { Banner, VersionTag } from '../../components/ui/Card';
@@ -89,6 +90,10 @@ export function EntryEditPage() {
           <Banner tone="info" title={`Logged against version ${s.version}`}>
             Validated with that version’s questions so historic answers stay consistent.
           </Banner>
+        ) : null}
+
+        {s.timing ? (
+          <TimingSection entry={{ ...s, timing: s.timing }} steps={version.timer?.steps ?? []} />
         ) : null}
 
         <EntryForm

@@ -11,10 +11,22 @@ interface Props {
   options: readonly { value: string; label: string }[];
   colorFor: (value: string) => string;
   label: string;
+  /** How a segment's value reads in the tooltip (default: the count). */
+  format?: (v: number) => string;
+  /** What a bar measures, for its accessible name (default "answers"). */
+  measure?: string;
 }
 
 /** Counts per option per bucket, stacked, with a legend and per-column tooltip. */
-export function StackedBars({ points, bucket, options, colorFor, label }: Props) {
+export function StackedBars({
+  points,
+  bucket,
+  options,
+  colorFor,
+  label,
+  format,
+  measure = 'answers',
+}: Props) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [active, setActive] = useState<number | null>(null);
   const { height, pad, gap } = BARS_LAYOUT;
@@ -34,7 +46,7 @@ export function StackedBars({ points, bucket, options, colorFor, label }: Props)
         width={width}
         height={height}
         role="img"
-        aria-label={`${label}: answers per ${bucket}`}
+        aria-label={`${label}: ${measure} per ${bucket}`}
         className="block touch-pan-y"
         onPointerLeave={() => setActive(null)}
       >
@@ -110,7 +122,11 @@ export function StackedBars({ points, bucket, options, colorFor, label }: Props)
               <p key={o.value} className="flex items-center gap-1.5">
                 <span className="size-2 rounded-full" style={{ background: colorFor(o.value) }} />
                 <span className="flex-1 truncate">{o.label}</span>
-                <span className="font-mono tabular">{shown.option_counts[o.value]}</span>
+                <span className="font-mono tabular">
+                  {format
+                    ? format(shown.option_counts[o.value] ?? 0)
+                    : shown.option_counts[o.value]}
+                </span>
               </p>
             ))}
         </div>

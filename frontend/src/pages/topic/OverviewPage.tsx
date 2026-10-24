@@ -5,6 +5,7 @@ import { errorMessage } from '../../api/errors';
 import {
   getQuestionSeriesOptions,
   getTopicStatsOptions,
+  getTopicTimingOptions,
 } from '../../client/@tanstack/react-query.gen';
 import type { EnumStats, NumericStats, StrStats, TopicStats } from '../../client';
 import { defaultBucket, enumView } from '../../components/charts/chartModels';
@@ -14,6 +15,7 @@ import { Histogram } from '../../components/charts/Histogram';
 import { LineChart } from '../../components/charts/LineChart';
 import { StackedBars } from '../../components/charts/StackedBars';
 import { FilterBar } from '../../components/FilterBar';
+import { TimingOverview } from '../../components/runs/TimingOverview';
 import { ButtonLink } from '../../components/ui/Button';
 import { Badge, Banner, Card, EmptyState } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
@@ -41,6 +43,10 @@ export function OverviewPage() {
     getTopicStatsOptions({ path: { ref: topic.slug }, query: filterQuery(filters) }),
   );
   const allStats = useQuery(getTopicStatsOptions({ path: { ref: topic.slug } }));
+  // Timed topics: the Timing section (an untimed topic answers with zero runs).
+  const timing = useQuery(
+    getTopicTimingOptions({ path: { ref: topic.slug }, query: filterQuery(filters) }),
+  );
   const byKey = useMemo(() => new Map(topic.questions.map((q) => [q.key, q])), [topic.questions]);
 
   return (
@@ -90,6 +96,11 @@ export function OverviewPage() {
       ) : (
         <>
           <Summary stats={stats.data} />
+          {timing.isError ? (
+            <Banner title="Could not load timing">{errorMessage(timing.error)}</Banner>
+          ) : timing.data && timing.data.runs > 0 ? (
+            <TimingOverview timing={timing.data} bucket={bucket} />
+          ) : null}
           <div className="grid gap-3 md:grid-cols-2">
             {stats.data.questions.map((qs, i) => (
               <div
