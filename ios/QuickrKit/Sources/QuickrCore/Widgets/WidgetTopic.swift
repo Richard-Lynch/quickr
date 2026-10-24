@@ -57,6 +57,12 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     /// show it against `serverTime(date)` too (`DueView(due:now:)`).
     public func due(at date: Date) -> DueStatus? { TopicListing.due(of: topic, at: serverTime(date)) }
 
+    /// The due pill at device time `date`: none while the topic has an open run, which shows
+    /// "Running" instead of its due state (timers.md §11.1).
+    public func dueView(at date: Date) -> DueView {
+        hasOpenRun ? DueView(tone: .none, kind: .none) : DueView(due: due(at: date), now: serverTime(date))
+    }
+
     /// Whether it counts as due at device time `date`: `TopicListing.countsAsDue`, the one rule
     /// behind every due count (active, due now, no open run).
     public func countsAsDue(at date: Date) -> Bool {

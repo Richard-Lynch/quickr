@@ -28,6 +28,17 @@ import Testing
         #expect(segment == 20_000)
     }
 
+    @Test("A paused clock read with a stale now (before the pause) shows the pause's time, never less")
+    func stalePausedNow() throws {
+        let state = try fold([
+            RunEvent(id: "n1", type: .next, at: 10_000, seg: 0), RunEvent(id: "p1", type: .pause, at: 20_000),
+        ])
+        let total = RunPresentation.activeMs(state, now: 15_000)
+        #expect(total == 20_000)
+        let segment = RunPresentation.segmentMs(state, now: 15_000)
+        #expect(segment == 10_000)
+    }
+
     @Test("A stopped run's active time ends at its stop; its segment reads 0")
     func stoppedClocks() throws {
         let state = try fold([RunEvent(id: "s", type: .stop, at: 7_500)])

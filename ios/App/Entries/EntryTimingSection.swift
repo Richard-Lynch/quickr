@@ -10,6 +10,9 @@ import SwiftUI
 /// `onEdit`, when given, adds an "Edit times" button (`entry.timing.edit`).
 struct EntryTimingSection: View {
     let timing: Timing?
+    /// The steps' labels by key, for the skipped ones (a step skipped has no segment to name it);
+    /// a key not here reads as itself.
+    var stepLabels: [String: String] = [:]
     var onEdit: (() -> Void)?
 
     var body: some View {
@@ -39,7 +42,7 @@ struct EntryTimingSection: View {
                 }
                 .qrCard()
                 ForEach(Array(timing.skipped.enumerated()), id: \.offset) { index, step in
-                    Text("Skipped: \(step)")
+                    Text("Skipped: \(stepLabels[step] ?? step)")
                         .font(.qr(.footnote))
                         .foregroundStyle(.qr.muted)
                         .accessibilityIdentifier("entry.timing.skipped.\(index)")

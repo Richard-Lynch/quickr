@@ -18,8 +18,11 @@ public enum RunPresentation {
         return all.reduce(0) { sum, pause in sum + max(0, min(pause.end, to) - max(pause.start, from)) }
     }
 
-    /// The run's active time so far: wall time minus paused time, up to `now` or its end.
+    /// The run's active time so far: wall time minus paused time, up to `now` or its end. A
+    /// `now` read before the open pause began (a clock that hasn't ticked since) counts as the
+    /// pause's start, so a paused clock never runs backwards.
     public static func activeMs(_ state: RunState, now: Int) -> Int {
+        let now = max(now, state.pausedSince ?? now)
         let end = state.endedAt ?? max(now, state.startedAt)
         let paused = paused(within: state.startedAt, end, pauses: state.pauses, pausedSince: state.pausedSince)
         return end - state.startedAt - paused
@@ -28,6 +31,7 @@ public enum RunPresentation {
     /// The open segment's active time so far; 0 once the run has closed.
     public static func segmentMs(_ state: RunState, now: Int) -> Int {
         guard let open = state.open else { return 0 }
+        let now = max(now, state.pausedSince ?? now)
         let to = max(now, open.startedAt)
         return to - open.startedAt
             - paused(within: open.startedAt, to, pauses: state.pauses, pausedSince: state.pausedSince)

@@ -105,7 +105,7 @@ final class RunUITests: XCTestCase {
         XCTAssertTrue(waitForLabel(element(app, "entry.timing.segment.1"), containing: "Dress"))
         XCTAssertTrue(waitForLabel(element(app, "entry.timing.segment.2"), containing: "Teeth"))
         XCTAssertFalse(element(app, "entry.timing.segment.3").exists)
-        XCTAssertTrue(waitForLabel(element(app, "entry.timing.skipped.0"), containing: "breakfast"))
+        XCTAssertTrue(waitForLabel(element(app, "entry.timing.skipped.0"), containing: "Breakfast"))
         XCTAssertFalse(element(app, "entry.timing.skipped.1").exists)
         XCTAssertTrue(element(app, "entry.timing.pause.0").exists)
         XCTAssertFalse(element(app, "entry.timing.pause.1").exists)

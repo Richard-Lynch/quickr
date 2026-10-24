@@ -18,7 +18,11 @@ private struct RunTicking: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onAppear { hold(active) }
+            .onAppear {
+                // A paused or closed clock shows a fresh "now" too, not the last tick's.
+                environment.runTicker.refresh()
+                hold(active)
+            }
             .onDisappear { hold(false) }
             .onChange(of: active) { _, active in hold(active) }
     }
@@ -34,12 +38,18 @@ private struct RunTicking: ViewModifier {
 struct RunDuration: View {
     let ms: Int
     var font: Font = .qr(.monoCaption)
+    /// A running clock: VoiceOver is told it changes often.
+    var ticking = false
 
     var body: some View {
         Text(DurationFormat.format(ms))
             .font(font)
             .monospacedDigit()
+            // One line: a big clock shrinks at large text sizes rather than wrap its digits.
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
             .accessibilityLabel(RunPresentation.spoken(ms))
+            .accessibilityAddTraits(ticking ? .updatesFrequently : [])
     }
 }
 
@@ -62,15 +72,19 @@ struct RunStatusLine: View {
                         icon: paused ? .pause : .timer, tone: paused ? .warn : .accent
                     )
                     .monospacedDigit()
+                    .accessibilityAddTraits(paused ? [] : .updatesFrequently)
                     .accessibilityLabel(
                         "\(paused ? "Paused" : "Running"), \(RunPresentation.spoken(RunPresentation.activeMs(run.state, now: now)))"
                     )
                     if let open = run.state.open {
                         HStack(spacing: 4) {
                             Text(open.label).fontWeight(.semibold).foregroundStyle(.qr.inkSoft)
-                            RunDuration(ms: RunPresentation.segmentMs(run.state, now: now), font: .qr(.footnote))
+                            RunDuration(
+                                ms: RunPresentation.segmentMs(run.state, now: now), font: .qr(.footnote),
+                                ticking: !paused)
                         }
                         .lineLimit(1)
+                        .accessibilityElement(children: .combine)
                     }
                 }
             }

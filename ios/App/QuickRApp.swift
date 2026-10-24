@@ -48,5 +48,7 @@ struct QuickRApp: App {
                 .task { await environment.start() }
         }
         .onChange(of: scenePhase) { _, phase in environment.scenePhaseChanged(phase) }
+        // Already active at launch counts too (a notice from the first flush is toasted).
+        .onChange(of: scenePhase, initial: true) { _, phase in environment.runScenePhaseChanged(phase) }
     }
 }

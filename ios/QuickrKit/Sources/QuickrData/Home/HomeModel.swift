@@ -170,7 +170,7 @@ public final class HomeModel {
             for try await runs in store.observeLocalRuns(refresh: session.refresh.stream()) {
                 guard isCurrent(observation) else { return }
                 let shown = Self.shownRuns(runs)
-                let open = Set(runs.filter(\.isOpen).map(\.topicId))
+                let open = RunOverlay.openRunTopics(runs)
                 guard shown != self.runs || open != openRuns else { continue }
                 self.runs = shown
                 openRuns = open

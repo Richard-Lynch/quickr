@@ -81,7 +81,8 @@ struct TopicTile: View {
         case .idle:
             guard topic.status != .archived else { return nil }
             return TileAction(
-                icon: .play, title: "Start", label: "Start \(topic.name)", identifier: id, disabled: actions.busy
+                icon: .play, title: "Start", label: "Start \(topic.name)", identifier: id,
+                disabled: actions.isBusy(topic.id)
             ) {
                 Task {
                     if await actions.start(topic: ref, version: topic.currentVersion) != nil { starts += 1 }
@@ -100,7 +101,8 @@ struct TopicTile: View {
             let expect = RunTapExpect(run)
             return TileAction(
                 icon: primary.isNext ? .chevronRight : .stop, title: primary.isNext ? "Next" : "Stop",
-                label: "\(primary.title) · \(topic.name)", identifier: id, loud: true, disabled: actions.busy
+                label: "\(primary.title) · \(topic.name)", identifier: id, loud: true,
+                disabled: actions.isBusy(topic.id)
             ) {
                 Task {
                     if primary.isNext {

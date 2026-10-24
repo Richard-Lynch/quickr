@@ -132,7 +132,9 @@ extension HomeModelTests {
         let waterStatus: RunStatus? = model.runs[water.id]?.status
         #expect(waterStatus == .finishing)
 
-        try await RunWrites(store: w.store, origin: .app).start(topic: RunSeed.ref(water), version: 1)
+        // Through the session's own store, whose writes the model observes.
+        let sessionStore = try #require(await MainActor.run { w.session.store })
+        try await RunWrites(store: sessionStore, origin: .app).start(topic: RunSeed.ref(water), version: 1)
         try await eventually("the queued start is seen") { await MainActor.run { model.badgeCount == 0 } }
         let dueAfter: [String] = Self.names(model.sections.due)
         #expect(dueAfter.isEmpty)

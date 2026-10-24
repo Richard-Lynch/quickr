@@ -186,7 +186,9 @@ struct RunPanel: View {
                     if primary.isNext { tap(.next, run) } else { stop(run) }
                 } label: {
                     Label(primary.title, systemImage: primary.isNext ? "chevron.right" : "stop")
-                        .lineLimit(1)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
+                        .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.qr(.primary, size: .large))
@@ -209,7 +211,7 @@ struct RunPanel: View {
                 .accessibilityIdentifier("run.start")
             }
         }
-        .disabled(environment.runActions.busy)
+        .disabled(environment.runActions.isBusy(topic.id))
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(Color.qr.paper)
@@ -270,7 +272,7 @@ private struct OpenRunView: View {
         let segment = RunPresentation.segmentMs(run.state, now: now)
         let skip = RunPresentation.skipTarget(run.state, steps: run.steps)
         let expect = RunTapExpect(run)
-        let busy = environment.runActions.busy
+        let busy = environment.runActions.isBusy(run.topicId)
         VStack(alignment: .leading, spacing: 20) {
             HStack {
                 QuickrBadge(
@@ -283,14 +285,14 @@ private struct OpenRunView: View {
                 }
             }
             VStack(spacing: 6) {
-                RunDuration(ms: total, font: .qr(.sansSemiBold, size: 60, relativeTo: .largeTitle))
+                RunDuration(ms: total, font: .qr(.sansSemiBold, size: 60, relativeTo: .largeTitle), ticking: !paused)
                     .foregroundStyle(paused ? Color.qr.muted : .qr.ink)
                     .accessibilityLabel("Total \(RunPresentation.spoken(total))")
                     .accessibilityIdentifier("run.total")
                 if let open = run.state.open {
                     HStack(spacing: 8) {
                         Text(open.label).font(.qr(.callout)).foregroundStyle(.qr.ink)
-                        RunDuration(ms: segment, font: .qr(.callout)).foregroundStyle(.qr.muted)
+                        RunDuration(ms: segment, font: .qr(.callout), ticking: !paused).foregroundStyle(.qr.muted)
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("run.segment")
@@ -298,28 +300,37 @@ private struct OpenRunView: View {
             }
             .frame(maxWidth: .infinity)
             StepList(rows: RunPresentation.rows(run.state, steps: run.steps), liveMs: segment)
-            HStack(spacing: 8) {
-                control("Lap", icon: "flag", id: "run.lap", label: "Lap") {
-                    tap(.lap, expect)
-                }
-                .disabled(busy || run.state.open == nil)
-                control(
-                    skip.map { "Skip \($0.label)" } ?? "Skip", icon: "forward.end", id: "run.skip",
-                    label: skipLabel(skip)
-                ) {
-                    tap(.skip, expect)
-                }
-                .disabled(busy || skip == nil)
-                control(
-                    paused ? "Resume" : "Pause", icon: paused ? "play" : "pause",
-                    id: paused ? "run.resume" : "run.pause", label: paused ? "Resume" : "Pause"
-                ) {
-                    tap(paused ? .resume : .pause, expect)
-                }
-                .disabled(busy)
+            // Side by side; stacked when the labels don't fit (large text, a long step name).
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { controls(skip: skip, expect: expect, busy: busy, paused: paused) }
+                VStack(spacing: 8) { controls(skip: skip, expect: expect, busy: busy, paused: paused) }
             }
         }
         .runTicking(!paused)
+    }
+
+    @ViewBuilder
+    private func controls(
+        skip: RunPresentation.SkipTarget?, expect: RunTapExpect, busy: Bool, paused: Bool
+    ) -> some View {
+        control("Lap", icon: "flag", id: "run.lap", label: "Lap") {
+            tap(.lap, expect)
+        }
+        .disabled(busy || run.state.open == nil)
+        control(
+            skip.map { "Skip \($0.label)" } ?? "Skip", icon: "forward.end", id: "run.skip",
+            label: skipLabel(skip)
+        ) {
+            tap(.skip, expect)
+        }
+        .disabled(busy || skip == nil)
+        control(
+            paused ? "Resume" : "Pause", icon: paused ? "play" : "pause",
+            id: paused ? "run.resume" : "run.pause", label: paused ? "Resume" : "Pause"
+        ) {
+            tap(paused ? .resume : .pause, expect)
+        }
+        .disabled(busy)
     }
 
     /// "Skip Breakfast (step 3)".
@@ -333,7 +344,7 @@ private struct OpenRunView: View {
         _ title: String, icon: String, id: String, label: String, action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Label(title, systemImage: icon).lineLimit(2).minimumScaleFactor(0.8).frame(maxWidth: .infinity)
+            Label(title, systemImage: icon).lineLimit(1).frame(maxWidth: .infinity)
         }
         .buttonStyle(.qr(.secondary))
         .accessibilityLabel(label)

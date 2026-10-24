@@ -146,7 +146,12 @@ public enum RunOverlay {
     /// count leaves out (timers.md §11.1). A finishing run isn't open, so its topic keeps its due
     /// state.
     public static func openRunTopics(_ db: Database) throws -> TopicListing.OpenRunTopics {
-        Set(try localRuns(db).filter(\.isOpen).map(\.topicId))
+        openRunTopics(try localRuns(db))
+    }
+
+    /// The same set from runs already read (`observeLocalRuns`): the one rule.
+    public static func openRunTopics(_ runs: [LocalRun]) -> TopicListing.OpenRunTopics {
+        Set(runs.filter(\.isOpen).map(\.topicId))
     }
 
     // MARK: - Building one run

@@ -44,8 +44,8 @@ public final class RunActions {
         }
     }
 
-    /// A tap is being written.
-    public private(set) var busy = false
+    /// The topics (lowercase ids) with a tap being written.
+    public private(set) var busyTopics: Set<String> = []
     /// The last tap that failed to be written (not one the server refused later), until the next.
     public private(set) var lastFailure: String?
 
@@ -66,6 +66,9 @@ public final class RunActions {
         self.now = now
     }
 
+    /// A tap on `topicId`'s controls is being written: its controls wait, other topics' don't.
+    public func isBusy(_ topicId: UUID) -> Bool { busyTopics.contains(topicId.wireString) }
+
     /// Whether a tap on `topicId`'s controls now is inside its cooldown; if not, it starts one.
     func coolingDown(_ topicId: String) -> Bool {
         let topicId = topicId.lowercased()
@@ -80,7 +83,7 @@ public final class RunActions {
     @discardableResult
     public func start(topic: TopicRef, version: Int) async -> RunStartResult? {
         guard !coolingDown(topic.id), let writer = writer() else { return nil }
-        return await guarded { try await writer.start(topic, version) }
+        return await guarded(topic.id) { try await writer.start(topic, version) }
     }
 
     /// One tap on `run`'s controls (Next, Lap, Skip, Pause, Resume). `expect` is what the control
@@ -88,7 +91,7 @@ public final class RunActions {
     @discardableResult
     public func tap(_ type: RunTapType, run: LocalRun, expect: RunTapExpect) async -> OutboxEnqueueResult? {
         guard !coolingDown(run.topicId.wireString), let writer = writer() else { return nil }
-        return await guarded { try await writer.tap(type, run.id, .expect(expect)) } ?? nil
+        return await guarded(run.topicId.wireString) { try await writer.tap(type, run.id, .expect(expect)) } ?? nil
     }
 
     /// Stop: ends the clock at the tap, without answers (§3.6). Then the answers form if the
@@ -96,7 +99,9 @@ public final class RunActions {
     /// nothing was enqueued.
     public func stop(run: LocalRun, topicName: String, expect: RunTapExpect) async -> StopOutcome? {
         guard !coolingDown(run.topicId.wireString), let writer = writer() else { return nil }
-        guard let result = await guarded({ try await writer.tap(.stop, run.id, .expect(expect)) }) ?? nil,
+        guard
+            let result = await guarded(run.topicId.wireString, { try await writer.tap(.stop, run.id, .expect(expect)) })
+                ?? nil,
             case .appended(let item) = result
         else { return nil }
         if run.hasQuestions != false { return .details(runId: run.id) }
@@ -109,13 +114,14 @@ public final class RunActions {
     @discardableResult
     public func discard(run: LocalRun) async -> Bool {
         guard let writer = writer() else { return false }
-        let result = await guarded { try await writer.tap(.discard, run.id, .current) } ?? nil
+        let result = await guarded(run.topicId.wireString) { try await writer.tap(.discard, run.id, .current) } ?? nil
         return result != nil
     }
 
-    private func guarded<T: Sendable>(_ body: () async throws -> T) async -> T? {
-        busy = true
-        defer { busy = false }
+    private func guarded<T: Sendable>(_ topicId: String, _ body: () async throws -> T) async -> T? {
+        let topicId = topicId.lowercased()
+        busyTopics.insert(topicId)
+        defer { busyTopics.remove(topicId) }
         do {
             let value = try await body()
             lastFailure = nil

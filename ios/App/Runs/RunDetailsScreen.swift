@@ -93,6 +93,7 @@ private struct RunDetailsView: View {
     @Bindable var model: RunDetailsModel
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
+    @State private var confirmingLeave = false
 
     var body: some View {
         FormView(model: model.form) {
@@ -136,7 +137,34 @@ private struct RunDetailsView: View {
         .qrPaperBackground()
         .navigationTitle("Details · \(model.topicName)")
         .navigationBarTitleDisplayMode(.inline)
+        // As on the record screen: the system back while nothing is typed; once something is, a
+        // guarded back that asks first. The run stays "Add details" either way.
+        .navigationBarBackButtonHidden(model.hasUnsavedChanges)
+        .toolbar {
+            if model.hasUnsavedChanges {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: leave) {
+                        Label("Back", systemImage: "chevron.left")
+                    }
+                    .accessibilityIdentifier("runDetails.back")
+                }
+            }
+        }
+        .accessibilityAction(.escape, leave)
+        .alert("Leave without saving?", isPresented: $confirmingLeave) {
+            Button("Leave", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) {}
+        } message: {
+            Text("Your answers haven’t been saved. The run stays on home as “Add details”.")
+        }
         .onDisappear { environment.toastBottomInset = 8 }
+    }
+}
+
+extension RunDetailsView {
+    /// Back: straight away when nothing was typed, else asks first.
+    fileprivate func leave() {
+        if model.hasUnsavedChanges { confirmingLeave = true } else { dismiss() }
     }
 }
 

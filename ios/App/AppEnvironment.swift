@@ -89,7 +89,10 @@ final class AppEnvironment {
         self.makePush = makePush
         self.prepare = prepare
         entryToasts = EntryToasts(center: toasts, writer: entryWriter)
-        runNotices = RunNoticeCenter(toasts: toasts)
+        let toastCenter = toasts
+        runNotices = RunNoticeCenter(toast: { text in
+            toastCenter.show(Toast(text, tone: .info, duration: RunNoticeCenter.toastDuration))
+        })
         var weakSession: () -> AppSession? = { nil }
         runActions = RunActions(writer: { weakSession().map(RunActions.Writer.init(session:)) })
         quickLogModels = QuickLogModels(writer: entryWriter, toasts: entryToasts, drafts: quickLogDrafts)
@@ -254,6 +257,20 @@ final class AppEnvironment {
     /// The `scenePhase` hooks (outbox.md §10, sync-protocol.md §9): on `.active`, resume, rebind,
     /// flush and pull; on `.background`, flush inside a background task whose expiration handler
     /// cancels the flush, then suspend the database (0xDEAD10CC).
+    /// The run surfaces' part of `scenePhase`, from the first phase on (`initial: true`): a notice
+    /// recorded on screen is toasted, and the run clocks read the time again on return.
+    func runScenePhaseChanged(_ phase: ScenePhase) {
+        switch phase {
+        case .active:
+            runNotices.didBecomeActive()
+            runTicker.refresh()
+        case .background:
+            runNotices.didEnterBackground()
+        default:
+            break
+        }
+    }
+
     func scenePhaseChanged(_ phase: ScenePhase) {
         if phase == .background { backgroundSinceActive = true }
         if phase == .active, backgroundSinceActive {
@@ -261,9 +278,6 @@ final class AppEnvironment {
             backgroundSinceActive = false
         }
         lastScenePhase = phase
-        // Before the session check: a notice recorded on screen is toasted whenever it arrives.
-        if phase == .active { runNotices.didBecomeActive() }
-        if phase == .background { runNotices.didEnterBackground() }
         guard let session else { return }
         switch phase {
         case .active:

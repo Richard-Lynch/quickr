@@ -68,7 +68,10 @@ public final class RunTicker {
 
     /// Follows the bound store's server offset until cancelled (the root's `.task(id: binding)`).
     public func observe(_ session: AppSession) async {
-        guard let store = session.store else { return }
+        guard let store = session.store else {
+            offsetMs = 0
+            return
+        }
         do {
             for try await state in store.observeSyncState(refresh: session.refresh.stream()) {
                 offsetMs = state?.serverOffsetMs ?? 0

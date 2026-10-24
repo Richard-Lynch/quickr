@@ -96,7 +96,7 @@ public struct TopicWidgetView: View {
                     Spacer(minLength: 4)
                     if topic.queued > 0 { QueuedMark(count: topic.queued, compact: style.family == .systemSmall) }
                 }
-                DueBadge(DueView(due: topic.due(at: date), now: topic.serverTime(date)))
+                DueBadge(topic.dueView(at: date))
                     .lineLimit(1)
                     .widgetAccentable()
                 lastLine(topic)
@@ -220,7 +220,7 @@ public struct TopicWidgetView: View {
     }
 
     private func dueLabel(_ topic: WidgetTopic) -> String? {
-        let view = DueView(due: topic.due(at: date), now: topic.serverTime(date))
+        let view = topic.dueView(at: date)
         return view.kind == .none ? nil : view.label()
     }
 }
@@ -280,7 +280,7 @@ public struct DueListWidgetView: View {
                     .widgetAccentable()
                 ForEach(rows) { topic in
                     Text(
-                        "\(topic.topic.name) · \(DueView(due: topic.due(at: date), now: topic.serverTime(date)).label())"
+                        "\(topic.topic.name) · \(topic.hasOpenRun ? "Running" : topic.dueView(at: date).label())"
                     )
                     .font(.caption)
                     .lineLimit(1)
@@ -327,7 +327,7 @@ public struct DueListWidgetView: View {
                             .minimumScaleFactor(0.8)
                         Spacer(minLength: 4)
                         if topic.queued > 0 { QueuedMark(count: topic.queued, compact: true) }
-                        DueBadge(DueView(due: topic.due(at: date), now: topic.serverTime(date)))
+                        DueBadge(topic.dueView(at: date))
                             .lineLimit(1)
                             .fixedSize()
                             .widgetAccentable()

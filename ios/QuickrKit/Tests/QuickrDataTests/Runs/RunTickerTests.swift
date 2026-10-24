@@ -55,4 +55,14 @@ import Testing
         let after = time.sleeps.count
         #expect(after <= count + 1, "no tick loop runs once released")
     }
+
+    @Test func refreshReadsTheClockWithoutTicking() {
+        let now = Mutex(5_000)
+        let ticker = RunTicker(clock: { now.withLock { $0 } }, sleep: { _ in })
+        now.withLock { $0 = 9_000 }
+        ticker.refresh()
+        let read = ticker.deviceNow
+        #expect(read == 9_000)
+        #expect(ticker.isTicking == false)
+    }
 }
