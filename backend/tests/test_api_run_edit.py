@@ -375,3 +375,62 @@ async def test_a_second_edit_replaces_the_first(client: httpx.AsyncClient) -> No
     first = await patch(client, entry, {"timing": edit()})
     second = await patch(client, first, {"timing": edit(0, [("shower", 20), ("breakfast", 70)])})
     assert (second["captured_at"], second["timing"]["active_ms"]) == ("2026-10-23T08:01:10Z", 70_000)
+
+
+async def test_late_stop_with_answers_before_the_start_still_lands(client: httpx.AsyncClient) -> None:
+    """An edited run decides a stop's effect before its time is checked: answers aren't times."""
+    run, entry = await stopped_run(client)
+    edited = await patch(client, entry, {"timing": edit(30, [("shower", 50), ("breakfast", 120)])})
+    late = await run.tap("stop", -5, answers={"note": "from the other phone"})
+    assert late["event"]["effect"] == "applied"
+    assert late["entry"]["answers"] == [{"key": "note", "type": "str", "value": "from the other phone"}]
+    assert late["entry"]["timing"] == edited["timing"]
+
+
+# --- boundaries -------------------------------------------------------------------------------------
+
+
+async def test_the_runs_version_decides_the_steps(client: httpx.AsyncClient) -> None:
+    """A publish after the run doesn't change which step keys its edit may use."""
+    run = Driver(client, await timed(client, steps=STEPS, questions=OPTIONAL))
+    await run.start()
+    r = await client.post(
+        f"/topics/{run.topic['id']}/versions",
+        json={
+            "questions": OPTIONAL,
+            "base_version": 1,
+            "timer": {"steps": [{"key": "coffee", "label": "Coffee"}]},
+        },
+    )
+    assert r.status_code == 201, r.text
+    entry = (await run.tap("stop", 100))["entry"]
+    problem = await patch(client, entry, {"timing": edit(0, [("coffee", 100)])}, status=422)
+    assert problem["errors"][0]["loc"] == ["timing", "segments", 0, "step"]
+    edited = await patch(client, entry, {"timing": edit(0, [("shower", 40), ("breakfast", 100)])})
+    assert edited["timing"]["complete"] is True
+
+
+async def test_exactly_seven_days_is_allowed(client: httpx.AsyncClient) -> None:
+    _, entry = await stopped_run(client)
+    week = edit(-7 * DAY + 100, [("shower", 0), ("breakfast", 100)])
+    edited = await patch(client, entry, {"timing": week})
+    assert edited["timing"]["active_ms"] == run_fold.MAX_RUN_MS
+    over = edit(-7 * DAY + 99.999, [("shower", 0), ("breakfast", 100)])
+    problem = await patch(client, edited, {"timing": over}, status=422)
+    assert problem["code"] == "run_too_long"
+
+
+async def test_a_pause_may_end_at_the_runs_end(client: httpx.AsyncClient) -> None:
+    _, entry = await stopped_run(client)
+    edited = await patch(client, entry, {"timing": edit(pauses=[(100, 120)])})
+    assert edited["timing"]["segments"][-1]["paused_ms"] == 20_000
+    assert edited["timing"]["active_ms"] == 100_000
+
+
+async def test_laps_may_come_before_steps(client: httpx.AsyncClient) -> None:
+    _, entry = await stopped_run(client)
+    edited = await patch(
+        client, entry, {"timing": edit(0, [(None, 10), ("shower", 60), (None, 70), ("breakfast", 100)])}
+    )
+    assert [s["label"] for s in edited["timing"]["segments"]] == ["Lap 1", "Shower", "Lap 2", "Breakfast"]
+    assert edited["timing"]["complete"] is True

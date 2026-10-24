@@ -216,10 +216,9 @@ async def record_event(db: AsyncSession, run_id: UUID, body: RunEventIn, channel
     if await db.get(RunEvent, body.id) is not None:
         return Recorded(await _replay(db, run, body, at), created=False)
     await _check_capacity(db, run)
-    if body.type == "stop":
-        _check_stop_at(run, at)
-
     effect = _decide(run, body)
+    if body.type == "stop" and effect is None:  # a decided stop is never folded: its time can't hurt
+        _check_stop_at(run, at)
     event = _new_event(run.id, body, at, channel, decided=effect)
     db.add(event)
     await db.flush()

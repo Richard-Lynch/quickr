@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 from zoneinfo import available_timezones
 
@@ -482,6 +482,11 @@ class TimingEdit(StrictModel):
     )
 
 
+def _not_nullable(schema: dict[str, Any]) -> None:
+    """Drop ``null`` from an optional field's schema: absent is allowed, ``null`` is refused."""
+    schema.update(next(s for s in schema.pop("anyOf") if s.get("type") != "null"))
+
+
 class EntryUpdate(StrictModel):
     """Partial update. ``answers`` merges into existing answers; a null value clears an answer."""
 
@@ -491,18 +496,26 @@ class EntryUpdate(StrictModel):
     notes: Notes | None = None
     meta: Meta | None = None
     expected_revision: ExpectedRevision = None
+    # Optional but not nullable: an entry can't stop being timed (timers.md §3.8). The schema
+    # leaves out `null`, and the before-validator refuses it.
     timing: TimingEdit | None = Field(
         default=None,
+        json_schema_extra=_not_nullable,
         description="A timed entry's new run times (timers.md §3.8); requires expected_revision and "
-        "excludes captured_at. null is refused: an entry can't stop being timed.",
+        "excludes captured_at.",
     )
+
+    @field_validator("timing", mode="before")
+    @classmethod
+    def _timing_not_null(cls, v: object) -> object:
+        if v is None:
+            raise PydanticCustomError("timing_null", "an entry's timing can't be removed")
+        return v
 
     @model_validator(mode="after")
     def _timing_rules(self) -> Self:
         if "timing" not in self.model_fields_set:
             return self
-        if self.timing is None:
-            raise field_error("timing", "an entry's timing can't be removed")
         if self.captured_at is not None:
             raise field_error("captured_at", "not with timing: captured_at is the end of the edited timing")
         if self.expected_revision is None:

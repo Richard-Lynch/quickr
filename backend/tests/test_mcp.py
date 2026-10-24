@@ -473,3 +473,44 @@ async def test_timing_switched_off_mid_run(mcp_client: Client[Any]) -> None:
     assert (stopped["entry"]["version"], stopped["entry"]["timing"]["segments"][0]["label"]) == (1, "Shower")
     with pytest.raises(ToolError, match="not timed"):
         await mcp_client.call_tool("start_run", {"ref": "routine"})
+
+
+async def test_run_action_resumes_the_latest_pause(mcp_client: Client[Any]) -> None:
+    await call(mcp_client, "create_topic", name="Tea", questions=[], timer={"steps": []})
+    run_id = (await call(mcp_client, "start_run", ref="tea"))["run"]["id"]
+    for _ in range(2):
+        pause = await call(mcp_client, "run_action", run_id=run_id, action="pause")
+        resume = await call(mcp_client, "run_action", run_id=run_id, action="resume")
+        assert resume["event"]["effect"] == "applied"
+        assert resume["run"]["events"][-1]["pause_id"] == pause["event"]["id"]
+    assert len(resume["run"]["state"]["pauses"]) == 2
+
+
+async def test_run_action_skip_during_a_lap_skips_the_next_step(mcp_client: Client[Any]) -> None:
+    await call(mcp_client, "create_topic", name="Routine", questions=[], timer=ROUTINE)
+    run_id = (await call(mcp_client, "start_run", ref="routine"))["run"]["id"]
+    lap = await call(mcp_client, "run_action", run_id=run_id, action="lap")
+    assert (lap["run"]["state"]["open"]["kind"], lap["run"]["state"]["next_step"]) == ("lap", "breakfast")
+    skip = await call(mcp_client, "run_action", run_id=run_id, action="skip")
+    assert skip["event"]["effect"] == "applied"
+    assert (skip["run"]["events"][-1]["step"], skip["run"]["state"]["skipped"]) == (
+        "breakfast",
+        ["breakfast"],
+    )
+
+
+async def test_run_action_stamps_after_the_latest_tap(
+    mcp_client: Client[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the clock standing still, taps without `at` still get strictly later times (§5.1)."""
+    frozen_clock(monkeypatch, datetime(2026, 5, 1, 12, tzinfo=UTC))
+    await call(mcp_client, "create_topic", name="Tea", questions=[], timer={"steps": []})
+    run_id = (await call(mcp_client, "start_run", ref="tea"))["run"]["id"]
+    await call(mcp_client, "run_action", run_id=run_id, action="lap")
+    lap = await call(mcp_client, "run_action", run_id=run_id, action="lap")
+    assert [e["at"] for e in lap["run"]["events"]] == [
+        "2026-05-01T12:00:00Z",
+        "2026-05-01T12:00:00.001000Z",
+        "2026-05-01T12:00:00.002000Z",
+    ]
+    assert [e["effect"] for e in lap["run"]["events"]] == ["applied"] * 3

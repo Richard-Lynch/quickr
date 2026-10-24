@@ -97,6 +97,7 @@ export function EntryEditPage() {
           defaultValues={prepared.defaults}
           allowArchived={prepared.allowArchived}
           submitLabel="Save changes"
+          capturedAtLocked={s.timing !== null}
           secondaryAction={({ allowNavigation }) => (
             <Button
               variant="quiet-danger"
@@ -121,7 +122,8 @@ export function EntryEditPage() {
               body: {
                 // every key of the version: null clears a previously-set answer
                 answers: v.answers,
-                captured_at: v.captured_at,
+                // A timed entry's captured_at is its run's end: the server refuses a change.
+                ...(s.timing ? {} : { captured_at: v.captured_at }),
                 source: v.source,
                 notes: v.notes,
               },

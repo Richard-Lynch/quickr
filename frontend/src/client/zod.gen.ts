@@ -806,7 +806,7 @@ export const zEntryUpdate = z.object({
     notes: z.string().max(5000).nullish(),
     meta: z.record(z.string(), z.string().max(500)).nullish(),
     expected_revision: z.int().gte(1).nullish(),
-    timing: zTimingEdit.nullish()
+    timing: zTimingEdit.optional()
 });
 
 /**

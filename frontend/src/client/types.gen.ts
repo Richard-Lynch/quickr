@@ -574,9 +574,9 @@ export type EntryUpdate = {
      */
     expected_revision?: number | null;
     /**
-     * A timed entry's new run times (timers.md §3.8); requires expected_revision and excludes captured_at. null is refused: an entry can't stop being timed.
+     * A timed entry's new run times (timers.md §3.8); requires expected_revision and excludes captured_at.
      */
-    timing?: TimingEdit | null;
+    timing?: TimingEdit;
 };
 
 /**

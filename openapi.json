@@ -4928,15 +4928,8 @@
             "description": "Optional optimistic-concurrency guard: the revision this change was based on. When it no longer matches, the change is rejected with 409 stale_revision."
           },
           "timing": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TimingEdit"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "A timed entry's new run times (timers.md \u00a73.8); requires expected_revision and excludes captured_at. null is refused: an entry can't stop being timed."
+            "$ref": "#/components/schemas/TimingEdit",
+            "description": "A timed entry's new run times (timers.md \u00a73.8); requires expected_revision and excludes captured_at."
           }
         },
         "additionalProperties": false,
