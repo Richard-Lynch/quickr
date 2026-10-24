@@ -82,9 +82,9 @@ import Testing
         #expect(NotificationPreparation.isWellFormed(Self.info(.single)))
     }
 
-    /// T-PUSH: a timed topic's `{"type": "timed"}` descriptor reads and writes as JSON, renders one
-    /// "Start" (`…||t|`, kind `start`) whatever the questions, and its identifier parses. The handler
-    /// doesn't act on it yet (I-NOTIF, timers.md §10.2), so it doesn't match a reminder.
+    /// A timed topic's `{"type": "timed"}` descriptor reads and writes as JSON, renders one "Start"
+    /// (`…||t|`, kind `start`) whatever the questions, registers as a background button, and its
+    /// identifier parses and matches a timed reminder only (timers.md §10.1, §10.2; N3).
     @Test func aTimedTopicsCategoryAndDescriptor() throws {
         let category = try #require(
             NotificationCategory(serverId: Self.server, topicId: Self.topic, version: 3, questions: [], timed: true))
@@ -92,7 +92,9 @@ import Testing
         #expect(category.actions.map(\.kind) == ["start"])
         #expect(category.actions.map(\.title) == ["Start"])
         #expect(category.actions.map(\.identifier) == ["q1|\(Self.server)|\(Self.topic)|3||t|"])
-        #expect(category.actions.compactMap(\.spec).isEmpty, "Start is registered by I-NOTIF")
+        let spec: NotificationActionSpec? = category.spec.actions.first
+        #expect(spec?.kind == .log, "no .foreground")
+        #expect(spec?.title == "Start")
         let json = try JSONEncoder().encode(QuickLogDescriptor.timed)
         #expect(String(decoding: json, as: UTF8.self) == #"{"type":"timed"}"#)
         #expect(try JSONDecoder().decode(QuickLogDescriptor.self, from: Data(#"{"type":"timed"}"#.utf8)) == .timed)
@@ -100,7 +102,11 @@ import Testing
         #expect(parsed.kind == .start && parsed.key.isEmpty && parsed.value.isEmpty)
         #expect(ActionIdentifier("q1|\(Self.server)|\(Self.topic)|3|mood|t|") == nil)
         #expect(ActionIdentifier("q1|\(Self.server)|\(Self.topic)|3||t|x") == nil)
-        #expect(!parsed.matches(Self.info(.timed)))
+        #expect(parsed.matches(Self.info(.timed)))
+        #expect(!parsed.matches(Self.info(.timed, version: 4)), "another version")
+        #expect(!parsed.matches(Self.info(.single)), "k = t needs a timed reminder")
+        let single = try #require(ActionIdentifier("q1|\(Self.server)|\(Self.topic)|3||s|"))
+        #expect(!single.matches(Self.info(.timed)), "and a timed reminder offers only Start")
         #expect(NotificationPreparation.isWellFormed(Self.info(.timed)))
     }
 

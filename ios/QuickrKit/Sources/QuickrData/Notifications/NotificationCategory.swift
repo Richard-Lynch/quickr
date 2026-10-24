@@ -40,11 +40,11 @@ public struct NotificationCategory: Sendable, Hashable {
             case textInputPlaceholder = "text_input_placeholder"
         }
 
-        /// As registered with the system: nil for a kind this build doesn't know. (`start` is
-        /// registered once the app handles it: I-NOTIF, timers.md §10.2.)
+        /// As registered with the system: nil for a kind this build doesn't know. A `start` is a
+        /// background button like a `log` (no `.foreground`, timers.md §10.1).
         public var spec: NotificationActionSpec? {
             switch kind {
-            case "log": NotificationActionSpec(id: identifier, title: title, kind: .log)
+            case "log", "start": NotificationActionSpec(id: identifier, title: title, kind: .log)
             case "open": NotificationActionSpec(id: identifier, title: title, kind: .open)
             case "input":
                 NotificationActionSpec(
@@ -314,7 +314,7 @@ public struct ActionIdentifier: Sendable, Hashable, CustomStringConvertible {
         case (.option, .choice(let choice)): return choice.options.contains { $0.value == value }
         case (.more, .choice(let choice)): return choice.totalOptions > choice.options.count
         case (.number, .number(let number)): return number.lastValue.map(NumberFormat.fmt) == value
-        case (.input, .number), (.single, .single): return true
+        case (.input, .number), (.single, .single), (.start, .timed): return true
         default: return false
         }
     }

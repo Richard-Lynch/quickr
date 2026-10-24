@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import QuickrCore
+import Synchronization
 
 /// A response to one of quickR's notifications, reduced to what the handler reads (the app maps
 /// `UNNotificationResponse` to it).
@@ -44,6 +45,13 @@ public enum NotificationActionOutcome: Sendable, Hashable {
     /// The reminder was logged before (the first answer wins): nothing was written. Still flushed
     /// like a new entry (`flush`), so a queued first answer goes out now.
     case alreadyLogged(entryId: UUID, OutboxCreateOnceResult.Duplicate, flush: OutboxFlushReport.Ending?)
+    /// A timed reminder's Start (timers.md §10.2) enqueued the start of run `runId` (the reminder's
+    /// action entry id) in `serverId`'s store; `flush` as for `logged`.
+    case started(runId: String, serverId: String, flush: OutboxFlushReport.Ending?)
+    /// The Start wrote nothing: this reminder was already started (its run id is queued or known
+    /// here), or the topic has an open run here, `runId`, which the tap routes to (§4.5). Still
+    /// flushed, so a queued start goes out now.
+    case alreadyStarted(runId: String, flush: OutboxFlushReport.Ending?)
     /// Nothing was written; the failure notification says why.
     case refused(NotificationActionFailure)
     /// The typed number didn't validate: nothing was written; the tap-to-fix notification is up.
@@ -88,6 +96,26 @@ public enum NotificationActionFailure: Sendable, Hashable {
     }
 }
 
+/// A timed reminder's Start, as the local Live Activity request sees it (timers.md §10.2, §10.3).
+public struct NotificationRunStart: Sendable, Hashable {
+    public var serverId: String
+    public var topic: TopicRef
+    /// The reminder's action entry id: the run id and the start event's id.
+    public var runId: UUID
+    public var version: Int
+    /// The tap, on the device clock: the start event's `at` is stamped from it too (§5.1), so the
+    /// activity's start time and the run's agree.
+    public var startedAt: Date
+
+    public init(serverId: String, topic: TopicRef, runId: UUID, version: Int, startedAt: Date) {
+        self.serverId = serverId
+        self.topic = topic
+        self.runId = runId
+        self.version = version
+        self.startedAt = startedAt
+    }
+}
+
 /// The notification action handler (notifications.md §7.1), in the app process: validates the
 /// action against its reminder, writes the entry into that reminder's server's store in one
 /// transaction (with the shared action entry id, so a reminder logs once), clears the reminder,
@@ -99,6 +127,8 @@ public enum NotificationActionFailure: Sendable, Hashable {
 public struct NotificationActionHandler: Sendable {
     /// §7.1 step 10 / outbox.md §10: a forced flush, polling the lease within the same budget.
     public static let flushBudget: Duration = .seconds(5)
+    /// How long a Start waits for the local Live Activity request (timers.md §10.2).
+    public static let liveActivityBudget: Duration = .seconds(1)
 
     let partitions: StorePartitions
     let center: any NotificationCenterProtocol
@@ -115,6 +145,15 @@ public struct NotificationActionHandler: Sendable {
     let flushBudget: Duration
     /// Decides, together with acting, that a store is the active one (steps 8 and 10).
     let gate: any ActiveStoreGate
+    /// timers.md §10.2: asks for a started run's Live Activity locally, before the start is
+    /// written; returns whether it is shown (the start's `device.live_activity`). iOS refuses while
+    /// the app is in the background: the server's push-to-start shows it once the start arrives.
+    /// It must return promptly: it is given ``liveActivityBudget``, after which the start is
+    /// written as not shown (and the request is cancelled). Not asked without an APNs token (the
+    /// server couldn't tell this device's activity apart). I-LA SEAM: until the app passes I-LA's
+    /// local start, none is requested (false).
+    let startLiveActivity: @Sendable (NotificationRunStart) async -> Bool
+    let liveActivityBudget: Duration
     /// Tests: runs at each `TestPoint`, to retire the store or switch servers there.
     var testHook: (@Sendable (TestPoint) async -> Void)?
 
@@ -133,7 +172,9 @@ public struct NotificationActionHandler: Sendable {
         isProtectedDataAvailable: @escaping @Sendable () async -> Bool = { true },
         onSignal: @escaping @Sendable (OutboxSignal) -> Void = { _ in },
         reloadWidgets: @escaping @Sendable () -> Void = {}, flushBudget: Duration = Self.flushBudget,
-        gate: (any ActiveStoreGate)? = nil
+        gate: (any ActiveStoreGate)? = nil,
+        startLiveActivity: @escaping @Sendable (NotificationRunStart) async -> Bool = { _ in false },
+        liveActivityBudget: Duration = Self.liveActivityBudget
     ) {
         self.partitions = partitions
         self.center = center
@@ -145,6 +186,8 @@ public struct NotificationActionHandler: Sendable {
         self.reloadWidgets = reloadWidgets
         self.flushBudget = flushBudget
         self.gate = gate ?? RegistryActiveGate(registry: partitions.registry)
+        self.startLiveActivity = startLiveActivity
+        self.liveActivityBudget = liveActivityBudget
     }
 
     /// `url` (`/t/{slug}/record`, maybe with a query) with its topic named by `topicId`: a slug
@@ -202,6 +245,10 @@ public struct NotificationActionHandler: Sendable {
             .wireString
         let satisfied = try? await store.writer.read { db -> Bool in
             if let last = try StoreView.topic(db, id: slot.topicId)?.topic.lastCapturedAt, last >= due { return true }
+            // A Start already used the id (a queued start, the run or its entry), or the topic is
+            // being timed (timers.md §10.1: the server sends no reminder then either).
+            if try RunWrites.isKnown(db, runId: entryId) { return true }
+            if try RunOverlay.openRun(db, topicId: slot.topicId) != nil { return true }
             return try !OutboxStorage.items(db, entityKind: .entry, entityId: entryId).isEmpty
                 || ServerLayer.isTombstoned(db, kind: .entry, id: entryId)
                 || ServerLayer.revision(db, entityKind: .entry, id: entryId) != nil
@@ -227,6 +274,8 @@ public struct NotificationActionHandler: Sendable {
     private func act(_ identifier: String, _ response: NotificationActionResponse, _ q: QuickrNotificationInfo)
         async -> NotificationActionOutcome
     {
+        // The tap, read once: an entry's `captured_at`, a start's `at` and its activity's start.
+        let tapAt = wallClock.now()
         guard let topicId = q.topicId else { return .none }  // nothing to point a message at
         let topicName = response.title.isEmpty ? "This topic" : response.title
         // 1. Validate against userInfo.
@@ -234,6 +283,8 @@ public struct NotificationActionHandler: Sendable {
             let dueSince = q.dueSince, let version = q.version, let quickLog = q.quickLog
         else { return await fail(.invalid, topicId: topicId, topic: topicName, q) }
         let answers: [String: AnswerValue]
+        // A timed topic's Start writes a run start, not an entry (timers.md §10.2).
+        var starts = false
         switch (action.kind, quickLog) {
         case (.more, _):
             // A `.foreground` action: the app opens on the record screen, nothing preselected.
@@ -243,6 +294,9 @@ public struct NotificationActionHandler: Sendable {
             answers = [action.key: .string(action.value)]
         case (.single, .single):
             answers = [:]  // "Log it": a single topic has no questions
+        case (.start, .timed):
+            answers = [:]
+            starts = true
         case (.number, .number(let number)):
             guard let last = number.lastValue else {
                 return await fail(.invalid, topicId: topicId, topic: topicName, q)
@@ -289,6 +343,15 @@ public struct NotificationActionHandler: Sendable {
                 return await fail(.topicArchived, topicId: topicId, topic: topic?.topic.name ?? topicName, q)
             }
             view = topic
+            // A Start needs the reminder's version to be timed; one not synced yet is trusted.
+            if starts {
+                let timed = try await store.writer.read { db in
+                    try Bool.fetchOne(
+                        db, sql: "SELECT timer_json IS NOT NULL FROM topic_version WHERE topic_id = ? AND version = ?",
+                        arguments: [topicId, version])
+                }
+                if timed == false { return await fail(.invalid, topicId: topicId, topic: topicName, q) }
+            }
         } catch {
             return await fail(.storeUnavailable, topicId: topicId, topic: topicName, q)
         }
@@ -301,29 +364,108 @@ public struct NotificationActionHandler: Sendable {
         }
         let ref = TopicRef(
             id: topicUUID, slug: view?.topic.slug ?? q.topicSlug ?? "", name: view?.topic.name ?? response.title)
-        let body = EntryCreateDTO(
-            id: nil, answers: answers, source: nil, capturedAt: wallClock.now(), notes: "", meta: [:],
-            version: version)
-        let result: OutboxCreateOnceResult
-        do {
-            result = try await createOnce(&store, entryId: entryId, topic: ref, body: body)
-        } catch {
-            return await fail(.storeUnavailable, topicId: topicId, topic: topicName, q)
+        // Whether something new was committed, and the outcome once flushed.
+        let wrote: Bool
+        let outcome: @Sendable (OutboxFlushReport.Ending?) -> NotificationActionOutcome
+        if starts {
+            // timers.md §10.2: the entry id is the run id and the start's event id, on the
+            // reminder's version; a run already known by it means this reminder was started.
+            let start = NotificationRunStart(
+                serverId: action.serverId, topic: ref, runId: entryId, version: version, startedAt: tapAt)
+            let result: RunStartResult
+            do {
+                result = try await startOnce(&store, start)
+            } catch {
+                return await fail(.storeUnavailable, topicId: topicId, topic: topicName, q)
+            }
+            wrote = result.started
+            let serverId = action.serverId
+            outcome = { flushed in
+                result.started
+                    ? .started(runId: result.runId, serverId: serverId, flush: flushed)
+                    : .alreadyStarted(runId: result.runId, flush: flushed)
+            }
+        } else {
+            let body = EntryCreateDTO(
+                id: nil, answers: answers, source: nil, capturedAt: tapAt, notes: "", meta: [:],
+                version: version)
+            let result: OutboxCreateOnceResult
+            do {
+                result = try await createOnce(&store, entryId: entryId, topic: ref, body: body)
+            } catch {
+                return await fail(.storeUnavailable, topicId: topicId, topic: topicName, q)
+            }
+            if case .created = result { wrote = true } else { wrote = false }
+            let serverId = action.serverId
+            outcome = { flushed in
+                switch result {
+                case .created: .logged(entryId: entryId, serverId: serverId, flush: flushed)
+                case .duplicate(let duplicate): .alreadyLogged(entryId: entryId, duplicate, flush: flushed)
+                }
+            }
         }
         // 6. The commit posted db-changed through the store's pool.
 
         // 7. Clear this topic's delivered reminders and the pending local ones now satisfied (L4).
         await clearReminders(serverId: action.serverId, topicId: topicId, store: store)
-        // 8. The badge only reflects the active store (§8).
+        // 8. The badge only reflects the active store (§8); an open run takes its topic out of it.
         await updateBadge(wrote: store)
-        // 9. A new entry changes the topic's due state and last value.
-        if case .created = result { reloadWidgets() }
+        // 9. A new entry changes the topic's due state and last value; a new run, its tile.
+        if wrote { reloadWidgets() }
         // 10. Flush the active store only, forced, within the budget; a duplicate too (its first
-        // answer may still be queued).
-        let flushed = await flush(store)
-        switch result {
-        case .created: return .logged(entryId: entryId, serverId: action.serverId, flush: flushed)
-        case .duplicate(let duplicate): return .alreadyLogged(entryId: entryId, duplicate, flush: flushed)
+        // answer, or start, may still be queued).
+        return outcome(await flush(store))
+    }
+
+    /// Step 5 for a Start (timers.md §10.2): the start through the run façade, stamped at the tap
+    /// with this device's token and whether the run's Live Activity is shown here. That is asked
+    /// for first (with a token, in the active store, within ``liveActivityBudget``), unless the
+    /// store already knows the run id or has an open run for the topic (then the write enqueues
+    /// nothing). A store retired meanwhile is reopened and the whole step redone once there; an
+    /// activity already asked for isn't asked for again.
+    private func startOnce(_ store: inout LocalStore, _ start: NotificationRunStart) async throws
+        -> RunStartResult
+    {
+        let token = try? await partitions.registry.repository.apnsToken()
+        let tapAt = RunInstant.milliseconds(start.startedAt)
+        var asked: Bool?
+        func attempt(_ store: LocalStore) async throws -> RunStartResult {
+            let runId = start.runId.wireString
+            let topicId = start.topic.id
+            let isNew = try await store.writer.read { db -> Bool in
+                let known = try RunWrites.isKnown(db, runId: runId)
+                let open = try RunOverlay.openRun(db, topicId: topicId)
+                return !known && open == nil
+            }
+            var shown = false
+            if token != nil, isNew, await gate.activeScope() == store.scope {
+                if asked == nil { asked = await requestLiveActivity(start) }
+                shown = asked ?? false
+            }
+            let device = token.map { RunEventInDTO.Device(apnsToken: $0, liveActivity: shown) }
+            return try await RunWrites(store: store, origin: .notification, device: { device }, now: { tapAt })
+                .start(topic: start.topic, version: start.version, id: start.runId)
+        }
+        do {
+            return try await attempt(store)
+        } catch StoreError.retired {
+            store = try await partitions.openStore(serverId: store.serverId, role: .app).store
+            return try await attempt(store)
+        }
+    }
+
+    /// ``startLiveActivity``, given at most ``liveActivityBudget``: a request still running then
+    /// is cancelled and counts as not shown, so a hung request never holds the start back.
+    private func requestLiveActivity(_ start: NotificationRunStart) async -> Bool {
+        let (request, budget) = (startLiveActivity, liveActivityBudget)
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let answer = FirstAnswer(continuation)
+            let work = Task { answer.give(await request(start)) }
+            Task {
+                try? await Task.sleep(for: budget)
+                answer.give(false)
+                work.cancel()
+            }
         }
     }
 
@@ -432,5 +574,20 @@ public struct NotificationActionHandler: Sendable {
                 kind: "fix", serverId: q.serverId, topicId: topicId, topicSlug: q.topicSlug, url: q.url,
                 prefill: [key: raw]))
         try? await center.add(request)
+    }
+}
+
+/// Resumes a continuation with the first answer given; later ones are dropped.
+private final class FirstAnswer: Sendable {
+    private let continuation: Mutex<CheckedContinuation<Bool, Never>?>
+
+    init(_ continuation: CheckedContinuation<Bool, Never>) { self.continuation = Mutex(continuation) }
+
+    func give(_ value: Bool) {
+        let first = continuation.withLock { pending in
+            defer { pending = nil }
+            return pending
+        }
+        first?.resume(returning: value)
     }
 }

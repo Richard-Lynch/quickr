@@ -12,13 +12,14 @@ import UserNotifications
 @MainActor @Suite(.serialized, .timeLimit(.minutes(5))) struct SystemNotificationCenterTests {
     static let server = "test-server"
 
-    /// A store whose active server has a quick-loggable chips topic and a number topic.
-    static func seeded() async throws -> (StoreLocation, chips: UUID, number: UUID) {
+    /// A store whose active server has a quick-loggable chips topic, a number topic and a timed
+    /// topic (timers.md §10.1: its reminder offers Start).
+    static func seeded() async throws -> (StoreLocation, chips: UUID, number: UUID, timed: UUID) {
         let location = TestStores.emptyLocation()
         let partitions = try StorePartitions.open(at: location, notifier: nil)
         let store = try await partitions.createStore(serverId: server, baseURL: "https://quickr.example")
         try await partitions.registry.setActive(server)
-        let (chips, number) = (UUID(), UUID())
+        let (chips, number, timed) = (UUID(), UUID(), UUID())
         let t0 = Date(timeIntervalSince1970: 1_767_225_600)
         func topic(_ id: UUID, _ slug: String, _ question: Question) -> Topic {
             Topic(
@@ -29,11 +30,16 @@ import UserNotifications
             key: "severity", label: "Severity",
             kind: .choice(.init(options: ["none", "mild", "severe"].map { .init(value: $0, label: $0.capitalized) })))
         let glasses = Question(key: "glasses", label: "Glasses", kind: .int(.init(min: 0, max: 20, unit: "glasses")))
-        let topics = [topic(chips, "headache", severity), topic(number, "water", glasses)]
+        let topics = [
+            topic(chips, "headache", severity), topic(number, "water", glasses), topic(timed, "walk", glasses),
+        ]
+        let timer = TopicTimer(steps: [.init(key: "out", label: "Out")])
+        let walkVersion = TopicVersion(version: 1, questions: [glasses], timer: timer, createdAt: t0)
         try await store.writer.write { db in
             for topic in topics { _ = try ServerLayer.upsert(db, topic: topic) }
+            _ = try ServerLayer.insert(db, version: walkVersion, id: UUID(), topicId: timed)
         }
-        return (location, chips, number)
+        return (location, chips, number, timed)
     }
 
     /// Holds `SystemCategoriesLock`: it sets and reads the process-wide category set.
@@ -42,7 +48,7 @@ import UserNotifications
     }
 
     private func registersTheStoresCategories() async throws {
-        let (location, chips, number) = try await Self.seeded()
+        let (location, chips, number, timed) = try await Self.seeded()
         defer { TestStores.remove(location) }
         UNUserNotificationCenter.current().setNotificationCategories([])
         let environment = AppEnvironment.live(location: location, categoryCenter: SystemNotificationCenter())
@@ -51,7 +57,7 @@ import UserNotifications
         await session.categoryRefreshSettled()
 
         let expected = try await NotificationCategories.rows(in: try #require(session.store), now: Date())
-        #expect(Set(expected.map(\.topicId)) == [chips.wireString, number.wireString])
+        #expect(Set(expected.map(\.topicId)) == [chips.wireString, number.wireString, timed.wireString])
         // The system applies the set asynchronously: poll, bounded. 15 s: CI's simulators have
         // taken over 5 s to apply it.
         var registered: Set<UNNotificationCategory> = []
@@ -73,6 +79,14 @@ import UserNotifications
         let input = try #require(water.actions.first as? UNTextInputNotificationAction)
         #expect(input.textInputButtonTitle == "Log" && input.textInputPlaceholder == "Value in glasses")
         #expect(!input.options.contains(.foreground))
+        // The timed topic: one "Start", whatever its question, in the background too (I-NOTIF).
+        let walk = try #require(registered.first { $0.identifier.contains(timed.wireString) })
+        let start = try #require(walk.actions.first)
+        #expect(walk.actions.count == 1)
+        #expect(start.title == "Start")
+        #expect(start.identifier.hasSuffix("||t|"))
+        #expect(!start.options.contains(.foreground))
+        #expect(!(start is UNTextInputNotificationAction))
         await session.shutdown()
     }
 

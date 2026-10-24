@@ -238,6 +238,30 @@ import Testing
         #expect(w.registrations.last?.contains(expectedWater.id) == true)
     }
 
+    /// I-NOTIF (timers.md §10.1): a timed topic's current category is its Start, whatever its
+    /// questions (a text question alone isn't quick-loggable), registered as a background button.
+    @Test func refreshRegistersATimedTopicsStart() async throws {
+        let w = World()
+        let s = try TestStore()
+        var walk = Make.topic(name: "Walk")
+        walk.questions = [Question(key: "note", label: "Note", kind: .string(.init()))]
+        let timer = TopicTimer(steps: [.init(key: "out", label: "Out")])
+        let version = TopicVersion(version: 1, questions: walk.questions, timer: timer, createdAt: Make.t0)
+        try s.write { [walk] db in
+            _ = try ServerLayer.upsert(db, topic: walk)
+            _ = try ServerLayer.insert(db, version: version, id: UUID(), topicId: walk.id)
+        }
+        let ids = try await w.categories.refresh(from: s.store)
+        let expected = NotificationCategory(
+            serverId: "server-1", topicId: walk.id.wireString, version: 1, descriptor: .timed)
+        #expect(ids == [expected.id])
+        let registered: [NotificationCategorySpec] = w.center.withState { $0.categories }
+        let actions: [NotificationActionSpec] = registered.first { $0.id == expected.id }?.actions ?? []
+        #expect(actions.map(\.title) == ["Start"])
+        #expect(actions.map(\.id) == ["q1|server-1|\(walk.id.wireString)|1||t|"])
+        #expect(actions.allSatisfy { $0.kind == .log }, "no .foreground")
+    }
+
     // MARK: - The cap and its priority (§5.2)
 
     /// Over the cap, the most recently wanted rows are registered, never more than the cap; with
