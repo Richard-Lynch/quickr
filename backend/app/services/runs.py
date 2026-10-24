@@ -33,17 +33,17 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import (
     BeforeStart,
-    Conflict,
     EventConflict,
     IdConflict,
     InvalidRequest,
     NotFound,
     RunDeleted,
+    RunOpen,
     RunTooLong,
     RunTooManyEvents,
     TopicArchived,
@@ -152,11 +152,22 @@ async def run_out(db: AsyncSession, run: Run) -> RunOut:
     )
 
 
+async def _snapshot(db: AsyncSession) -> None:
+    """Run the rest of this read in one REPEATABLE READ snapshot, so a run row and its events
+    always agree even when a write commits between the two queries. End it with a rollback."""
+    await db.rollback()  # whatever the session had open; the snapshot starts with the next statement
+    await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+
+
 async def get_run(db: AsyncSession, run_id: UUID) -> RunOut:
-    run = await _resolve(db, run_id)
-    if run is None:
-        raise NotFound(f"run '{run_id}' not found")
-    return await run_out(db, run)
+    await _snapshot(db)
+    try:
+        run = await _resolve(db, run_id)
+        if run is None:
+            raise NotFound(f"run '{run_id}' not found")
+        return await run_out(db, run)
+    finally:
+        await db.rollback()  # ends the snapshot
 
 
 async def list_runs(
@@ -165,10 +176,14 @@ async def list_runs(
     """Open (``running``, ``paused``) and/or ``finishing`` runs, oldest start first."""
     wanted = [s for name in set(statuses) for s in (OPEN if name == "open" else (RunStatus.finishing,))]
     stmt = select(Run).where(Run.status.in_(wanted))
-    if topic_ref is not None:
-        stmt = stmt.where(Run.topic_id == (await resolve_topic(db, topic_ref)).id)
-    runs = (await db.execute(stmt.order_by(Run.started_at, Run.id))).scalars().all()
-    return [await run_out(db, r) for r in runs]
+    await _snapshot(db)
+    try:
+        if topic_ref is not None:
+            stmt = stmt.where(Run.topic_id == (await resolve_topic(db, topic_ref)).id)
+        runs = (await db.execute(stmt.order_by(Run.started_at, Run.id))).scalars().all()
+        return [await run_out(db, r) for r in runs]
+    finally:
+        await db.rollback()  # ends the snapshot
 
 
 async def _result(db: AsyncSession, run: Run, event_id: UUID) -> RunEventResult:
@@ -380,7 +395,7 @@ def _decide(run: Run, body: RunEventIn) -> Effect | None:
         # The edit owns the times; answers are not times, so a finish still lands.
         return APPLIED if _carries_answers(body) else ("void", "run_edited")
     if body.type == "finish" and status in OPEN:
-        raise Conflict("the run hasn't stopped yet: send its stop first")
+        raise RunOpen("the run hasn't stopped yet: send its stop first, then the answers")
     if _carries_answers(body) and status in (RunStatus.finishing, RunStatus.stopped):
         return APPLIED  # a second stop with answers is applied as a finish (§3.5)
     if body.type == "discard" and status == RunStatus.finishing:
@@ -403,10 +418,13 @@ async def _apply_decided(
         version = await db.get_one(TopicVersion, run.topic_version_id)
         state = _fold(run, version, await _events(db, run.id))
         await _create_entry(db, run, version, state, body)
-    else:  # stopped: patch the entry's answers and notes, as a PATCH would
+    else:  # stopped: patch the entry's answers, notes and meta (both maps merge by key)
         assert run.entry_id is not None
+        meta = None
+        if body.meta is not None:
+            meta = {**(await db.get_one(Entry, run.entry_id, populate_existing=True)).meta, **body.meta}
         await entry_svc.update_entry(
-            db, run.entry_id, EntryUpdate(answers=body.answers or {}, notes=body.notes)
+            db, run.entry_id, EntryUpdate(answers=body.answers or {}, notes=body.notes, meta=meta)
         )
 
 
@@ -496,6 +514,7 @@ async def _create_entry(
     typed = validate_answers(parse_questions(version.questions), body.answers or {})
     timing = run_fold.project_timing(state, _steps(version))
     assert state.ended_at is not None
+    run_fold.check_timing(timing, captured_at=state.ended_at)  # T1 to T5: a guard on the fold
     stop = await _terminal_stop(db, run)
     db.add(
         Entry(
@@ -540,7 +559,9 @@ async def _merge_into_entry(
     db: AsyncSession, run: Run, version: TopicVersion, state: run_fold.RunState
 ) -> None:
     """A late event on a stopped run (§4.4): when it changes the times, the entry gets them."""
-    timing = run_fold.timing_json(run_fold.project_timing(state, _steps(version)))
+    projected = run_fold.project_timing(state, _steps(version))
+    run_fold.check_timing(projected, captured_at=state.ended_at)  # T1 to T5: a guard on the fold
+    timing = run_fold.timing_json(projected)
     entry = await db.get_one(Entry, run.id, populate_existing=True)
     if entry.timing == timing:
         return

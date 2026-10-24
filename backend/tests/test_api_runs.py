@@ -19,7 +19,8 @@ import pytest
 from sqlalchemy import func, select, text, update
 
 from app.db import get_sessionmaker
-from app.models import ChangeLog, DeletedId, FeedKind, Run, RunEvent
+from app.models import ChangeLog, Channel, DeletedId, FeedKind, Run, RunEvent
+from app.schemas.api import RunEventIn
 from app.services import run_fold
 from app.services import runs as run_svc
 from app.services.feed import FEED_LOCK_ID
@@ -562,7 +563,7 @@ async def test_stop_before_the_start_is_refused(
 async def test_finish_before_the_stop_is_refused(client: httpx.AsyncClient) -> None:
     run = Driver(client, await timed(client, questions=REQUIRED))
     await run.start()
-    assert (await run.tap("finish", 5, status=409, answers={"mood": 1}))["code"] == "conflict"
+    assert (await run.tap("finish", 5, status=409, answers={"mood": 1}))["code"] == "run_open"
     assert await event_count() == 1
 
 
@@ -868,3 +869,95 @@ async def test_list_runs(client: httpx.AsyncClient) -> None:
     assert (await client.get("/runs", params={"topic": "nope"})).status_code == 404
     listed = (await client.get("/runs", params={"topic": "a", "status": "open"})).json()
     assert listed == [await paused.get()]
+
+
+# --- review follow-ups -----------------------------------------------------------------------
+
+
+async def test_replays_differing_in_step_or_pause_id_conflict(client: httpx.AsyncClient) -> None:
+    run = Driver(client, await timed(client, steps=STEPS))
+    await run.start()
+    skip = {"id": str(uuid4()), "type": "skip", "at": at(10), "seg": 0, "step": "shower"}
+    await run.post(skip)
+    r = await client.post(f"/runs/{run.id}/events", json={**skip, "step": "breakfast"})
+    assert (r.status_code, r.json()["code"]) == (409, "event_conflict")
+    pause = await run.tap("pause", 20)
+    resume = {"id": str(uuid4()), "type": "resume", "at": at(30), "pause_id": pause["event"]["id"]}
+    await run.post(resume)
+    r = await client.post(f"/runs/{run.id}/events", json={**resume, "pause_id": str(uuid4())})
+    assert (r.status_code, r.json()["code"]) == (409, "event_conflict")
+
+
+async def test_stop_with_empty_answers_enforces_required(client: httpx.AsyncClient) -> None:
+    """Answers present (even empty) are validated like createEntry's: no `finishing` fallback."""
+    run = Driver(client, await timed(client, questions=REQUIRED))
+    await run.start()
+    r = await run.tap("stop", 30, status=422, answers={})
+    assert r["errors"] == [{"loc": ["answers", "mood"], "message": "required"}]
+    assert (await run.get())["status"] == "running"
+
+
+async def test_create_entry_with_a_deleted_topics_run_id(client: httpx.AsyncClient) -> None:
+    gone = await timed(client, "Gone")
+    run = Driver(client, gone)
+    await run.start()
+    await client.post(f"/topics/{gone['id']}/archive")
+    assert (await client.delete(f"/topics/{gone['id']}")).status_code == 204
+    other = await timed(client, "Other")
+    r = await client.post(f"/topics/{other['id']}/entries", json={"id": run.id, "answers": {}})
+    assert (r.status_code, r.json()["code"]) == (409, "id_conflict")
+
+
+async def test_second_stop_with_answers_on_a_finishing_run(client: httpx.AsyncClient) -> None:
+    run = Driver(client, await timed(client, questions=REQUIRED))
+    await run.start()
+    await run.tap("stop", 30, meta={"via": "widget"})  # finishing
+    before = await head()
+    second = await run.tap("stop", 45, answers={"mood": 5})
+    assert second["event"]["effect"] == "applied"
+    assert second["run"]["status"] == "stopped"
+    entry = second["entry"]
+    assert entry["captured_at"] == "2026-10-23T08:00:30Z"  # the first stop's time
+    assert (entry["answers"], entry["meta"]) == (
+        [{"key": "mood", "type": "int", "value": 5}],
+        {"via": "widget"},
+    )
+    assert await log_rows(before) == [("entry", "upsert", run.id), ("run", "delete", run.id)]
+
+
+async def test_finish_on_a_stopped_entry_merges_meta(client: httpx.AsyncClient) -> None:
+    run = Driver(client, await timed(client, questions=OPTIONAL))
+    await run.start()
+    await run.tap("stop", 30, meta={"via": "widget", "n": "1"})
+    finished = await run.tap("finish", 40, answers={}, meta={"n": "2", "form": "sheet"})
+    assert finished["entry"]["meta"] == {"via": "widget", "n": "2", "form": "sheet"}
+    again = await run.tap("stop", 50, answers={"note": "x"}, meta={"late": "yes"})
+    assert again["entry"]["meta"] == {"via": "widget", "n": "2", "form": "sheet", "late": "yes"}
+    plain = await run.tap("finish", 60, answers={"note": "y"})  # no meta: kept as it is
+    assert plain["entry"]["meta"] == again["entry"]["meta"]
+
+
+@pytest.mark.parametrize("read", ["get", "list"])
+async def test_reads_see_one_snapshot(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, read: str
+) -> None:
+    """A tap that commits between reading the run row and reading its events doesn't show up
+    half: the events and the state agree (no KeyError, no 500)."""
+    run = Driver(client, await timed(client))
+    await run.start()
+    real = run_svc._events
+    late = {"id": str(uuid4()), "type": "pause", "at": at(5)}
+
+    async def events_after_a_commit(db: Any, run_id: UUID) -> Any:
+        monkeypatch.setattr(run_svc, "_events", real)
+        async with get_sessionmaker()() as other:
+            await run_svc.record_event(other, run_id, RunEventIn.model_validate(late), Channel.api)
+        return await real(db, run_id)
+
+    monkeypatch.setattr(run_svc, "_events", events_after_a_commit)
+    r = await (client.get(f"/runs/{run.id}") if read == "get" else client.get("/runs"))
+    assert r.status_code == 200, r.text
+    out = r.json() if read == "get" else r.json()[0]
+    assert [e["type"] for e in out["events"]] == ["start"]  # the snapshot from before the tap
+    assert set(out["state"]["effects"]) == {run.id}
+    assert [e["type"] for e in (await run.get())["events"]] == ["start", "pause"]

@@ -108,6 +108,12 @@ class RunDeleted(Conflict):
     code = "run_deleted"
 
 
+class RunOpen(Conflict):
+    """A ``finish`` reached a run that hasn't stopped: nothing stored; send the stop first."""
+
+    code = "run_open"
+
+
 class BeforeStart(DomainError):
     """A ``stop`` with ``at`` before the run's ``started_at``: it would make a negative segment."""
 

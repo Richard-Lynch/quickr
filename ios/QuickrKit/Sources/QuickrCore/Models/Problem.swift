@@ -55,6 +55,8 @@ public enum ProblemCode: Sendable, Hashable, RawRepresentable {
     case beforeStart
     /// A run event id reused with different content.
     case eventConflict
+    /// A `finish` on a run that hasn't stopped: nothing stored; keep the answers, send the stop first.
+    case runOpen
     /// The run's topic was deleted.
     case runDeleted
     /// A `stop` more than 7 days after the start.
@@ -66,7 +68,7 @@ public enum ProblemCode: Sendable, Hashable, RawRepresentable {
     public static let known: [ProblemCode] = [
         .badRequest, .notFound, .conflict, .invalidRequest, .invalidAnswers, .incompatibleVersion, .topicArchived,
         .entryDeleted, .staleRevision, .serverMismatch, .epochMismatch, .internalError, .topicNotTimed, .idConflict,
-        .beforeStart, .eventConflict, .runDeleted, .runTooLong, .runTooManyEvents,
+        .beforeStart, .eventConflict, .runOpen, .runDeleted, .runTooLong, .runTooManyEvents,
     ]
 
     public init(rawValue: String) {
@@ -91,6 +93,7 @@ public enum ProblemCode: Sendable, Hashable, RawRepresentable {
         case .idConflict: "id_conflict"
         case .beforeStart: "before_start"
         case .eventConflict: "event_conflict"
+        case .runOpen: "run_open"
         case .runDeleted: "run_deleted"
         case .runTooLong: "run_too_long"
         case .runTooManyEvents: "run_too_many_events"
