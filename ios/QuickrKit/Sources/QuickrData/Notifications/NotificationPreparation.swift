@@ -153,7 +153,7 @@ public struct NotificationPreparation: Sendable {
             out.body = Self.alreadyLoggedBody
             out.categoryIdentifier = ""
         }
-        out.badge = TopicListing.badgeCount(topics.map(\.topic), now: now)
+        out.badge = TopicListing.dueCount(topics.map(\.topic), now: now, openRuns: TopicListing.noOpenRuns)
     }
 
     /// The reminder's ids and descriptor keep the contract (§2.1, §2.3, §4.2), so its category's

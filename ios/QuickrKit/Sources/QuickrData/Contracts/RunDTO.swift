@@ -1,9 +1,9 @@
 import Foundation
+import QuickrCore
 
-// Runs of timed topics (docs/specs/timers.md §3). The decoders only, so every recorded response
-// decodes (G1); the domain models and the fold port come with I-CORE, so each DTO is its own
-// domain value for now. Instants stay wire strings: the fold parses them to integer epoch
-// milliseconds and never goes through `Date` (timers.md §2.3).
+// Runs of timed topics (docs/specs/timers.md §3), mapped to QuickrCore's run models. Instants
+// are parsed to integer epoch milliseconds (`RunInstant`) and never go through `Date`
+// (timers.md §2.3); an instant, type, status or effect outside the contract fails the mapping.
 
 /// One segment of a finished run (`TimingSegment`).
 public struct TimingSegmentDTO: Codable, Sendable, Hashable {
@@ -134,7 +134,15 @@ public struct RunDTO: Codable, Sendable, Hashable, WireResponse {
         case endedAt = "ended_at"
     }
 
-    public func toDomain() -> RunDTO { self }
+    public func toDomain() throws -> Run {
+        Run(
+            id: try .wire(id, "run.id"), topicId: try .wire(topicId, "run.topic_id"), version: version,
+            status: try RunWire.status(status, "run.status"), revision: revision,
+            startedAt: try RunWire.instant(startedAt, "run.started_at"),
+            endedAt: try endedAt.map { try RunWire.instant($0, "run.ended_at") }, edited: edited,
+            events: try events.map { try $0.toDomain() }, state: try state.toDomain(),
+            aliases: try aliases.map { try .wire($0, "run.aliases") })
+    }
 }
 
 /// `RunEventResult`: the response of recordRunEvent.
@@ -149,9 +157,100 @@ public struct RunEventResultDTO: Codable, Sendable, Hashable, WireResponse {
     public var run: RunDTO
     @RequiredKey public var entry: EntryDTO?
 
-    public func toDomain() throws -> RunEventResultDTO {
-        _ = try entry?.toDomain()  // the entry's own contract (ids, answers) still holds
-        return self
+    public func toDomain() throws -> RunEventResult {
+        RunEventResult(
+            eventId: event.id, effect: try RunWire.effect(event.effect, event.reason, "event"), run: try run.toDomain(),
+            entry: try entry?.toDomain())
+    }
+}
+
+// MARK: - Domain mapping
+
+/// Parsing of the run wire values, failing with `ContractError`.
+enum RunWire {
+    static func instant(_ text: String, _ field: String) throws -> Int {
+        guard let ms = RunInstant.parse(text) else { throw ContractError.invalid("\(field): not an instant: \(text)") }
+        return ms
+    }
+
+    static func status(_ text: String, _ field: String) throws -> RunStatus {
+        guard let status = RunStatus(rawValue: text) else { throw ContractError.invalid("\(field): \(text)") }
+        return status
+    }
+
+    static func kind(_ text: String, step: String?, _ field: String) throws -> RunSegmentKind {
+        guard let kind = RunSegmentKind(rawValue: text), (kind == .step) == (step != nil) else {
+            throw ContractError.invalid("\(field): kind \(text) with step \(step ?? "null")")
+        }
+        return kind
+    }
+
+    static func effect(_ effect: String, _ reason: String?, _ field: String) throws -> RunEffect {
+        switch (effect, reason) {
+        case ("applied", nil): return .applied
+        case ("void", let reason?):
+            guard let reason = VoidReason(rawValue: reason) else {
+                throw ContractError.invalid("\(field): unknown void reason \(reason)")
+            }
+            return .void(reason)
+        default: throw ContractError.invalid("\(field): effect \(effect) with reason \(reason ?? "null")")
+        }
+    }
+}
+
+extension TimingSegmentDTO {
+    public func toDomain() throws -> RunSegment {
+        RunSegment(
+            kind: try RunWire.kind(kind, step: step, "segment.kind"), step: step, label: label,
+            startedAt: try RunWire.instant(startedAt, "segment.started_at"),
+            endedAt: try RunWire.instant(endedAt, "segment.ended_at"), activeMs: activeMs, pausedMs: pausedMs)
+    }
+}
+
+extension TimingPauseDTO {
+    public func toDomain() throws -> RunPause {
+        RunPause(start: try RunWire.instant(start, "pause.start"), end: try RunWire.instant(end, "pause.end"))
+    }
+}
+
+extension TimingDTO {
+    public func toDomain() throws -> Timing {
+        Timing(
+            startedAt: try RunWire.instant(startedAt, "timing.started_at"),
+            endedAt: try RunWire.instant(endedAt, "timing.ended_at"), activeMs: activeMs, pausedMs: pausedMs,
+            complete: complete, edited: edited, segments: try segments.map { try $0.toDomain() }, skipped: skipped,
+            pauses: try pauses.map { try $0.toDomain() })
+    }
+}
+
+extension RunEventDTO {
+    public func toDomain() throws -> Run.StoredEvent {
+        guard let type = RunEventType(rawValue: type) else { throw ContractError.invalid("run event type \(type)") }
+        return Run.StoredEvent(
+            event: RunEvent(
+                id: id, type: type, at: try RunWire.instant(at, "run_event.at"), seg: seg, step: step, pauseId: pauseId),
+            arrival: arrival, effect: try RunWire.effect(effect, reason, "run_event \(id)"), source: source)
+    }
+}
+
+extension RunOpenSegmentDTO {
+    public func toDomain() throws -> RunOpenSegment {
+        RunOpenSegment(
+            index: index, kind: try RunWire.kind(kind, step: step, "open.kind"), step: step, label: label,
+            startedAt: try RunWire.instant(startedAt, "open.started_at"))
+    }
+}
+
+extension RunStateDTO {
+    public func toDomain() throws -> RunState {
+        RunState(
+            status: try RunWire.status(status, "state.status"),
+            startedAt: try RunWire.instant(startedAt, "state.started_at"),
+            endedAt: try endedAt.map { try RunWire.instant($0, "state.ended_at") }, open: try open?.toDomain(),
+            nextStep: nextStep, pausedSince: try pausedSince.map { try RunWire.instant($0, "state.paused_since") },
+            segments: try segments.map { try $0.toDomain() }, skipped: skipped,
+            pauses: try pauses.map { try $0.toDomain() },
+            effects: try effects.mapValues { try RunWire.effect($0.effect, $0.reason, "state.effects") })
     }
 }
 
