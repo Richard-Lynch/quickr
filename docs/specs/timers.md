@@ -880,7 +880,8 @@ RunActivityState {
   seg: Int, seg_started_at: Double,
   label: String, step_index: Int?, step_count: Int,       // "Step 2 of 5 · Shower"; labels ≤ 64 chars
   next_label: String?,                // what Next will start; null on the last step; ≤ 64 chars
-  paused_at: Double?, paused_ms_before_seg: Int, paused_ms_in_seg: Int
+  paused_at: Double?, paused_ms_before_seg: Int, paused_ms_in_seg: Int,
+  ended_at: Double?, active_ms: Int?  // `end` only: status is then finishing | stopped | discarded (null when discarded)
 }
 ```
 

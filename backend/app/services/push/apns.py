@@ -292,7 +292,6 @@ class ApnsSender:
 
         Raises :class:`PushGone` or :class:`PushFailed`.
         """
-        body = encode(n)
         headers = {
             "apns-topic": self.topic,
             "apns-push-type": "alert",
@@ -300,6 +299,31 @@ class ApnsSender:
             "apns-expiration": str(int(self._clock()) + ttl),
             "apns-collapse-id": n.tag,
         }
+        return await self._request(token, environment, encode(n), headers, n.tag)
+
+    def now(self) -> int:
+        """The sender's clock, in whole Unix seconds (a Live Activity payload's ``timestamp``)."""
+        return int(self._clock())
+
+    async def post_live_activity(
+        self, token: str, environment: ApnsEnvironment, body: bytes, *, expiration: int, what: str
+    ) -> str:
+        """Send a Live Activity payload (``push/live_activity.py``) to one activity or
+        push-to-start token: push type ``liveactivity`` on the ``<bundle>.push-type.liveactivity``
+        topic (Apple, "Starting and updating Live Activities with ActivityKit push notifications").
+        Returns Apple's ``apns-id``. Raises :class:`PushGone` or :class:`PushFailed`.
+        """
+        headers = {
+            "apns-topic": f"{self.topic}.push-type.liveactivity",
+            "apns-push-type": "liveactivity",
+            "apns-priority": "10",
+            "apns-expiration": str(expiration),
+        }
+        return await self._request(token, environment, body, headers, what)
+
+    async def _request(
+        self, token: str, environment: ApnsEnvironment, body: bytes, headers: dict[str, str], what: str
+    ) -> str:
         provider = self._tokens[environment]
         for attempt in (1, 2):
             jwt_token = provider.get()
@@ -314,7 +338,7 @@ class ApnsSender:
                 raise PushFailed(f"APNs {environment} {type(exc).__name__}: {redact(str(exc))}") from None
             if response.status_code == 200:
                 apns_id = str(response.headers.get("apns-id", ""))
-                log.info("APNs %s accepted %s (apns-id %s)", environment, n.tag, apns_id)
+                log.info("APNs %s accepted %s (apns-id %s)", environment, what, apns_id)
                 return apns_id
             reason = _reason(response)
             if (

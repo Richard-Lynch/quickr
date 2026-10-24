@@ -1,0 +1,12 @@
+{
+  "body": null,
+  "operation_id": "deleteLiveActivity",
+  "request": {
+    "body": {
+      "token": "6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b"
+    },
+    "method": "POST",
+    "path": "/api/v1/push/apns/live-activities/delete"
+  },
+  "status": 204
+}

@@ -3,8 +3,8 @@
 import { type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { archiveTopic, checkTopicVersion, createEntry, createPushSubscription, createTopic, deleteApnsDevice, deleteEntry, deletePushSubscription, deleteTopic, exportEntriesCsv, getEntry, getLimits, getPushConfig, getQuestionSeries, getRun, getTopic, getTopicStats, getTopicTiming, health, listChanges, listEntries, listQuestionTypes, listRuns, listTopics, listTopicVersions, type Options, publishTopicVersion, recordRunEvent, registerApnsDevice, sendApnsTestPush, sendTestPush, unarchiveTopic, updateEntry, updateTopic } from '../sdk.gen';
-import type { ArchiveTopicData, ArchiveTopicError, ArchiveTopicResponse, CheckTopicVersionData, CheckTopicVersionError, CheckTopicVersionResponse, CreateEntryData, CreateEntryError, CreateEntryResponse, CreatePushSubscriptionData, CreatePushSubscriptionError, CreatePushSubscriptionResponse, CreateTopicData, CreateTopicError, CreateTopicResponse, DeleteApnsDeviceData, DeleteApnsDeviceError, DeleteApnsDeviceResponse, DeleteEntryData, DeleteEntryError, DeleteEntryResponse, DeletePushSubscriptionData, DeletePushSubscriptionError, DeletePushSubscriptionResponse, DeleteTopicData, DeleteTopicError, DeleteTopicResponse, ExportEntriesCsvData, ExportEntriesCsvError, ExportEntriesCsvResponse, GetEntryData, GetEntryError, GetEntryResponse, GetLimitsData, GetLimitsError, GetLimitsResponse, GetPushConfigData, GetPushConfigError, GetPushConfigResponse, GetQuestionSeriesData, GetQuestionSeriesError, GetQuestionSeriesResponse, GetRunData, GetRunError, GetRunResponse, GetTopicData, GetTopicError, GetTopicResponse, GetTopicStatsData, GetTopicStatsError, GetTopicStatsResponse, GetTopicTimingData, GetTopicTimingError, GetTopicTimingResponse, HealthData, HealthError, HealthResponse, ListChangesData, ListChangesError, ListChangesResponse, ListEntriesData, ListEntriesError, ListEntriesResponse, ListQuestionTypesData, ListQuestionTypesError, ListQuestionTypesResponse, ListRunsData, ListRunsError, ListRunsResponse, ListTopicsData, ListTopicsError, ListTopicsResponse, ListTopicVersionsData, ListTopicVersionsError, ListTopicVersionsResponse, PublishTopicVersionData, PublishTopicVersionError, PublishTopicVersionResponse, RecordRunEventData, RecordRunEventError, RecordRunEventResponse, RegisterApnsDeviceData, RegisterApnsDeviceError, RegisterApnsDeviceResponse, SendApnsTestPushData, SendApnsTestPushError, SendApnsTestPushResponse, SendTestPushData, SendTestPushError, SendTestPushResponse, UnarchiveTopicData, UnarchiveTopicError, UnarchiveTopicResponse, UpdateEntryData, UpdateEntryError, UpdateEntryResponse, UpdateTopicData, UpdateTopicError, UpdateTopicResponse } from '../types.gen';
+import { archiveTopic, checkTopicVersion, createEntry, createPushSubscription, createTopic, deleteApnsDevice, deleteEntry, deleteLiveActivity, deletePushSubscription, deleteTopic, exportEntriesCsv, getEntry, getLimits, getPushConfig, getQuestionSeries, getRun, getTopic, getTopicStats, getTopicTiming, health, listChanges, listEntries, listQuestionTypes, listRuns, listTopics, listTopicVersions, type Options, publishTopicVersion, recordRunEvent, registerApnsDevice, registerLiveActivity, sendApnsTestPush, sendTestPush, unarchiveTopic, updateEntry, updateTopic } from '../sdk.gen';
+import type { ArchiveTopicData, ArchiveTopicError, ArchiveTopicResponse, CheckTopicVersionData, CheckTopicVersionError, CheckTopicVersionResponse, CreateEntryData, CreateEntryError, CreateEntryResponse, CreatePushSubscriptionData, CreatePushSubscriptionError, CreatePushSubscriptionResponse, CreateTopicData, CreateTopicError, CreateTopicResponse, DeleteApnsDeviceData, DeleteApnsDeviceError, DeleteApnsDeviceResponse, DeleteEntryData, DeleteEntryError, DeleteEntryResponse, DeleteLiveActivityData, DeleteLiveActivityError, DeleteLiveActivityResponse, DeletePushSubscriptionData, DeletePushSubscriptionError, DeletePushSubscriptionResponse, DeleteTopicData, DeleteTopicError, DeleteTopicResponse, ExportEntriesCsvData, ExportEntriesCsvError, ExportEntriesCsvResponse, GetEntryData, GetEntryError, GetEntryResponse, GetLimitsData, GetLimitsError, GetLimitsResponse, GetPushConfigData, GetPushConfigError, GetPushConfigResponse, GetQuestionSeriesData, GetQuestionSeriesError, GetQuestionSeriesResponse, GetRunData, GetRunError, GetRunResponse, GetTopicData, GetTopicError, GetTopicResponse, GetTopicStatsData, GetTopicStatsError, GetTopicStatsResponse, GetTopicTimingData, GetTopicTimingError, GetTopicTimingResponse, HealthData, HealthError, HealthResponse, ListChangesData, ListChangesError, ListChangesResponse, ListEntriesData, ListEntriesError, ListEntriesResponse, ListQuestionTypesData, ListQuestionTypesError, ListQuestionTypesResponse, ListRunsData, ListRunsError, ListRunsResponse, ListTopicsData, ListTopicsError, ListTopicsResponse, ListTopicVersionsData, ListTopicVersionsError, ListTopicVersionsResponse, PublishTopicVersionData, PublishTopicVersionError, PublishTopicVersionResponse, RecordRunEventData, RecordRunEventError, RecordRunEventResponse, RegisterApnsDeviceData, RegisterApnsDeviceError, RegisterApnsDeviceResponse, RegisterLiveActivityData, RegisterLiveActivityError, RegisterLiveActivityResponse, SendApnsTestPushData, SendApnsTestPushError, SendApnsTestPushResponse, SendTestPushData, SendTestPushError, SendTestPushResponse, UnarchiveTopicData, UnarchiveTopicError, UnarchiveTopicResponse, UpdateEntryData, UpdateEntryError, UpdateEntryResponse, UpdateTopicData, UpdateTopicError, UpdateTopicResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -758,6 +758,49 @@ export const deleteApnsDeviceMutation = (options?: Partial<Options<DeleteApnsDev
     const mutationOptions: UseMutationOptions<DeleteApnsDeviceResponse, DeleteApnsDeviceError, Options<DeleteApnsDeviceData>> = {
         mutationFn: async (fnOptions) => {
             const { data } = await deleteApnsDevice({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Register Live Activity
+ *
+ * Register (or refresh, keyed by token) a Live Activity push token: the device's push-to-start
+ * token (``kind: start``; it replaces the device's older ones), or one activity's update token
+ * (``kind: update``, with its topic and its open run; ``run_id`` may be an alias). An update
+ * token for a run that is closed or unknown is answered the same but not kept; a closed run's
+ * gets its ``end`` push. 422 ``invalid_request`` when the run belongs to another topic. Works
+ * whether or not APNs is enabled.
+ */
+export const registerLiveActivityMutation = (options?: Partial<Options<RegisterLiveActivityData>>): UseMutationOptions<RegisterLiveActivityResponse, RegisterLiveActivityError, Options<RegisterLiveActivityData>> => {
+    const mutationOptions: UseMutationOptions<RegisterLiveActivityResponse, RegisterLiveActivityError, Options<RegisterLiveActivityData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await registerLiveActivity({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Delete Live Activity
+ *
+ * Remove a Live Activity token (idempotent).
+ */
+export const deleteLiveActivityMutation = (options?: Partial<Options<DeleteLiveActivityData>>): UseMutationOptions<DeleteLiveActivityResponse, DeleteLiveActivityError, Options<DeleteLiveActivityData>> => {
+    const mutationOptions: UseMutationOptions<DeleteLiveActivityResponse, DeleteLiveActivityError, Options<DeleteLiveActivityData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await deleteLiveActivity({
                 ...options,
                 ...fnOptions,
                 throwOnError: true

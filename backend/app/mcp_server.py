@@ -346,7 +346,7 @@ TapAt = Annotated[
 
 async def _record(db: AsyncSession, run_id: UUID, body: RunEventIn) -> RunEventResult:
     recorded = await run_svc.record_event(db, run_id, body, Channel.mcp)
-    await run_svc.after_run_event(recorded.result.run.id, None)  # after the commit, as the route does
+    await run_svc.after_run_event(run_id, recorded, None)  # after the commit, as the route does
     return recorded.result
 
 

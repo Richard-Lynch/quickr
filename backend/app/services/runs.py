@@ -81,6 +81,7 @@ from app.services import entries as entry_svc
 from app.services import run_fold
 from app.services.answers import validate_answers
 from app.services.feed import is_deleted, log_change, tombstone, writer
+from app.services.push import live_activity
 from app.services.topics import parse_questions, resolve_topic
 
 OPEN = (RunStatus.running, RunStatus.paused)
@@ -102,6 +103,7 @@ def _ms(at: datetime) -> datetime:
 class Recorded:
     result: RunEventResult
     created: bool  # the call created the run (or merged its start): 201
+    replayed: bool = False  # the same event again: nothing changed
 
 
 # --- reads ------------------------------------------------------------------------------
@@ -207,14 +209,14 @@ async def record_event(db: AsyncSession, run_id: UUID, body: RunEventIn, channel
                 [FieldIssue(loc=["id"], message="must equal the run id in the path")],
             )
         if run is not None:
-            return Recorded(await _replay(db, run, body, at), created=False)
+            return Recorded(await _replay(db, run, body, at), created=False, replayed=True)
         return await _start(db, run_id, body, at, channel)
     if run is None:
         if await is_deleted(db, FeedKind.run, run_id):
             raise RunDeleted(f"run '{run_id}' was deleted with its topic")
         raise NotFound(f"run '{run_id}' not found")
     if await db.get(RunEvent, body.id) is not None:
-        return Recorded(await _replay(db, run, body, at), created=False)
+        return Recorded(await _replay(db, run, body, at), created=False, replayed=True)
     await _check_capacity(db, run)
     effect = _decide(run, body)
     if body.type == "stop" and effect is None:  # a decided stop is never folded: its time can't hurt
@@ -562,6 +564,13 @@ async def _merge_into_entry(
 # --- after the response -------------------------------------------------------------------
 
 
-async def after_run_event(run_id: UUID, device: RunDevice | None) -> None:
-    """Runs once the response is sent, outside the writer (§6): the Live Activity pushes
-    (T-LAPUSH) go here. Nothing yet."""
+async def after_run_event(path_id: UUID, recorded: Recorded, device: RunDevice | None) -> None:
+    """Runs once the response is sent (the route's background task; MCP awaits it after the
+    commit), outside the writer (§6): the Live Activity pushes (§10.3). Only an event that changed
+    the run pushes: not a replay, not a void event. ``path_id`` is the id the event was sent to;
+    a start whose run is another (merged) created nothing, so it owes no push-to-start."""
+    if recorded.replayed or recorded.result.event.effect != "applied":
+        return
+    run = recorded.result.run
+    created = recorded.created and run.id == path_id
+    await live_activity.notify(run.id, run.topic_id, device, created=created)

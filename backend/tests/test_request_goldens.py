@@ -134,6 +134,8 @@ def test_goldens_exist_and_have_expectations() -> None:
 # Mutations the Swift client doesn't send yet. Each one says when it will.
 NO_GOLDEN_YET = {
     "recordRunEvent": "the iOS run.event outbox kind writes its goldens (timers-plan.md, I-OUTBOX)",
+    "registerLiveActivity": "the iOS Live Activity writes its goldens (timers-plan.md, I-LA)",
+    "deleteLiveActivity": "the iOS Live Activity writes its goldens (timers-plan.md, I-LA)",
 }
 
 

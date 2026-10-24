@@ -26,6 +26,7 @@ result.
 | `run-fold-vectors.json`        | `backend/tests/test_run_fold_vectors.py` (`services/run_fold.py`)                                 | pytest drift check; vitest `runFold.vectors.test.ts` (`lib/runs/fold.ts`, F-CORE); Swift `RunFoldVectorTests`                                 |
 | `timing-stats-vectors.json`    | `backend/tests/test_timing_stats_vectors.py` (`services/timing_stats.py`)                         | pytest drift check; `getTopicTiming` (T-STATS); vitest `timingStats.vectors.test.ts` (`lib/runs/stats.ts`, F-CORE); Swift timing chart models |
 | `duration-format-vectors.json` | `backend/tests/test_duration_vectors.py` (`run_fold.fmt_duration`)                                | pytest drift check; vitest `format.vectors.test.ts` (`lib/runs/format.ts` `fmtDuration`, F-CORE); Swift `fmtDuration` (I-CORE)                |
+| `live-activity-vectors.json`   | `backend/tests/test_live_activity_vectors.py` (`services/push/live_activity.py`)                  | pytest drift check; Swift `LiveActivityVectorTests` (I-LA)                                                                                    |
 | `api/*.json`                   | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                                          | pytest drift check; Swift `QuickrData` decoding tests (M1)                                                                                    |
 
 ## Drift checks
@@ -497,6 +498,15 @@ chart models are checked against.
 - `cases[]`: `{name, ms, expected}`: `fmtDuration(ms)`
   ([timers.md](../../docs/specs/timers.md) §11.1): `m:ss` below one hour,
   `h:mm:ss` from it, truncated to whole seconds, negative as `0:00`.
+
+## `live-activity-vectors.json`
+
+- `cases[]`: `{name, event, steps, payload, bytes}`: the exact APNs body the server sends for a
+  run whose events are folded as in `run-fold-vectors.json`
+  ([timers.md](../../docs/specs/timers.md) §10.3, §10.4). `payload.aps["content-state"]` is
+  `RunActivityState`; a `start`'s `attributes` are `RunActivityAttributes`. `bytes` is the
+  encoded size (at most `meta.max_bytes`). `meta.headers` are the request headers, and
+  `meta.apple` the documentation every `aps` key was checked against.
 
 ## `provisioning/`
 

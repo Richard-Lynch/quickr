@@ -27,6 +27,9 @@ from app.schemas.api import (
     EntryPage,
     EntryUpdate,
     Limits,
+    LiveActivityIn,
+    LiveActivityOut,
+    LiveActivityRef,
     Problem,
     PushConfig,
     PushSubscriptionDelete,
@@ -60,6 +63,7 @@ from app.services import stats as stats_svc
 from app.services import timing as timing_svc
 from app.services import topics as topic_svc
 from app.services.feed import FeedIdentity
+from app.services.push import live_activity
 
 Db = Annotated[AsyncSession, Depends(get_db)]
 TopicRef = Annotated[str, Path(description="Topic UUID or slug.", examples=["sleep-log"])]
@@ -350,7 +354,7 @@ async def record_run_event(
     recorded = await run_svc.record_event(db, run_id, body, channel or Channel.api)
     if recorded.created:
         response.status_code = status.HTTP_201_CREATED
-    background.add_task(run_svc.after_run_event, recorded.result.run.id, body.device)
+    background.add_task(run_svc.after_run_event, run_id, recorded, body.device)
     return recorded.result
 
 
@@ -490,6 +494,41 @@ async def register_apns_device(db: Db, body: ApnsDeviceIn) -> ApnsDeviceOut:
 async def delete_apns_device(db: Db, body: ApnsDeviceRef) -> Response:
     """Remove a device by token (idempotent)."""
     await push_svc.unregister_device(db, body.token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/push/apns/live-activities",
+    tags=["push"],
+    operation_id="registerLiveActivity",
+    dependencies=[ExpectIdentity],
+    status_code=status.HTTP_201_CREATED,
+)
+async def register_live_activity(
+    db: Db, body: LiveActivityIn, background: BackgroundTasks
+) -> LiveActivityOut:
+    """Register (or refresh, keyed by token) a Live Activity push token: the device's push-to-start
+    token (``kind: start``; it replaces the device's older ones), or one activity's update token
+    (``kind: update``, with its topic and its open run; ``run_id`` may be an alias). An update
+    token for a run that is closed or unknown is answered the same but not kept; a closed run's
+    gets its ``end`` push. 422 ``invalid_request`` when the run belongs to another topic. Works
+    whether or not APNs is enabled."""
+    registered = await live_activity.register(db, body)
+    if registered.ended_run is not None:
+        background.add_task(live_activity.send_late_end, body, registered.ended_run)
+    return registered.out
+
+
+@router.post(
+    "/push/apns/live-activities/delete",
+    tags=["push"],
+    operation_id="deleteLiveActivity",
+    dependencies=[ExpectIdentity],
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_live_activity(db: Db, body: LiveActivityRef) -> Response:
+    """Remove a Live Activity token (idempotent)."""
+    await live_activity.unregister(db, body.token)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

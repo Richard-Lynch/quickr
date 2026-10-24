@@ -13,7 +13,18 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import Conflict, DomainError, IncompatibleVersion, NotFound, StaleRevision
-from app.models import DeletedId, Entry, FeedKind, FeedOp, Run, RunAlias, Topic, TopicStatus, TopicVersion
+from app.models import (
+    DeletedId,
+    Entry,
+    FeedKind,
+    FeedOp,
+    LiveActivityToken,
+    Run,
+    RunAlias,
+    Topic,
+    TopicStatus,
+    TopicVersion,
+)
 from app.schemas.api import (
     CompatibilityReport,
     DueStatus,
@@ -374,7 +385,8 @@ async def set_archived(
 async def delete_topic(db: AsyncSession, ref: str) -> None:
     """Delete an archived topic. Its versions, entries, runs and run aliases are tombstoned
     (before the foreign-key cascade removes them; a closed run's id already is) and the feed
-    gets one topic deletion, which clients apply to every child."""
+    gets one topic deletion, which clients apply to every child. Its Live Activity update
+    tokens go with it (timers.md §10.3)."""
     topic = await resolve_topic(db, ref)
     if topic.status != TopicStatus.archived:
         raise Conflict("archive the topic before deleting it")
@@ -396,6 +408,7 @@ async def delete_topic(db: AsyncSession, ref: str) -> None:
         )
     await tombstone(db, FeedKind.topic, topic.id, topic.id)
     await log_change(db, FeedKind.topic, FeedOp.delete, topic.id, topic.id)
+    await db.execute(delete(LiveActivityToken).where(LiveActivityToken.topic_id == topic.id))
     await db.execute(delete(Topic).where(Topic.id == topic.id))
 
 
