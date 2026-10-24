@@ -2,15 +2,35 @@ from __future__ import annotations
 
 import csv
 import io
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import Select, delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.errors import Conflict, EntryDeleted, IdConflict, NotFound, StaleRevision, TopicArchived
-from app.models import Answer, Channel, Entry, FeedKind, FeedOp, Run, RunAlias, Topic, TopicStatus
+from app.errors import (
+    Conflict,
+    EntryDeleted,
+    IdConflict,
+    InvalidRequest,
+    NotFound,
+    RunTooLong,
+    StaleRevision,
+    TopicArchived,
+)
+from app.models import (
+    Answer,
+    Channel,
+    Entry,
+    FeedKind,
+    FeedOp,
+    Run,
+    RunAlias,
+    Topic,
+    TopicStatus,
+    TopicVersion,
+)
 from app.schemas.api import (
     AnswerOut,
     DoubleAnswer,
@@ -26,7 +46,9 @@ from app.schemas.api import (
     IntAnswer,
     StrAnswer,
     Timing,
+    TimingEdit,
 )
+from app.services import run_fold
 from app.services.answers import TypedAnswer, validate_answers
 from app.services.feed import (
     FeedIdentity,
@@ -41,6 +63,7 @@ from app.services.topics import (
     all_questions_by_key,
     get_version,
     parse_questions,
+    parse_timer,
     resolve_topic,
 )
 
@@ -200,6 +223,20 @@ async def update_entry(db: AsyncSession, entry_id: UUID, body: EntryUpdate) -> E
             [FieldIssue(loc=["expected_revision"], message=f"current revision is {s.revision}")],
         )
     topic = (await db.execute(select(Topic).where(Topic.id == s.topic_id))).scalar_one()
+    timing: run_fold.Timing | None = None
+    if body.timing is not None:
+        if s.timing is None:
+            raise InvalidRequest(
+                "an untimed entry has no run times to edit",
+                [FieldIssue(loc=["timing"], message="the entry isn't timed")],
+            )
+        version = await db.get_one(TopicVersion, s.topic_version_id)
+        timing = edited_timing(body.timing, version_steps(version))
+    elif body.captured_at is not None and s.timing is not None:
+        raise InvalidRequest(
+            "a timed entry's captured_at is the end of its run: edit the run's times instead",
+            [FieldIssue(loc=["captured_at"], message="send timing instead")],
+        )
     if body.answers is not None:
         version = await get_version(db, topic, s.version)
         existing = {a.question_key: a for a in s.answers}
@@ -219,11 +256,91 @@ async def update_entry(db: AsyncSession, entry_id: UUID, body: EntryUpdate) -> E
         s.notes = body.notes
     if body.meta is not None:
         s.meta = body.meta
+    if timing is not None:
+        s.timing = run_fold.timing_json(timing)
+        s.captured_at = run_fold.from_ms(timing.ended_at)  # T1
+        # The edit owns the times: later events on the run are void (timers.md §4.4).
+        await db.execute(
+            update(Run)
+            .where(Run.entry_id == s.id)
+            .values(edited=True, revision=Run.revision + 1, updated_at=func.now())
+        )
     s.revision += 1
     s.updated_at = func.now()
     await log_change(db, FeedKind.entry, FeedOp.upsert, s.id, s.topic_id)
     await db.flush()
     return await get_entry(db, s.id)
+
+
+def version_steps(version: TopicVersion) -> list[run_fold.Step]:
+    """The steps a run on ``version`` is timed over."""
+    timer = parse_timer(version.timer)
+    return [] if timer is None else [run_fold.Step(s.key, s.label) for s in timer.steps]
+
+
+def edited_timing(edit: TimingEdit, steps: Sequence[run_fold.Step]) -> run_fold.Timing:
+    """The entry's ``Timing`` rebuilt from an edit (timers.md §3.8), or 422 at the first field
+    that breaks a rule: step keys of the run's version, each at most once (T4); segments of
+    non-negative length (T2); sorted, disjoint pauses within the run (T3); at most 7 days."""
+    by_key = {step.key: step for step in steps}
+    seen: set[str] = set()
+
+    def bad(loc: list[str | int], message: str) -> InvalidRequest:
+        return InvalidRequest(
+            f"invalid timing: {message}", [FieldIssue(loc=["timing", *loc], message=message)]
+        )
+
+    def claim(key: str, loc: list[str | int]) -> None:
+        if key not in by_key:
+            raise bad(loc, f"'{key}' is not a step of the run's version")
+        if key in seen:
+            raise bad(loc, f"step '{key}' appears more than once")
+        seen.add(key)
+
+    started_at = run_fold.to_ms(edit.started_at)
+    parts: list[tuple[run_fold.Step | None, int]] = []
+    previous = started_at
+    for i, seg in enumerate(edit.segments):
+        if (seg.kind == "step") != (seg.step is not None):
+            raise bad(["segments", i, "step"], "a step segment names its step, a lap names none")
+        if seg.step is not None:
+            claim(seg.step, ["segments", i, "step"])
+        ended_at = run_fold.to_ms(seg.ended_at)
+        if ended_at < previous:
+            raise bad(["segments", i, "ended_at"], "before the segment's start")
+        parts.append((None if seg.step is None else by_key[seg.step], ended_at))
+        previous = ended_at
+    for i, key in enumerate(edit.skipped):
+        claim(key, ["skipped", i])
+    if previous - started_at > run_fold.MAX_RUN_MS:
+        raise RunTooLong(
+            "a run is at most 7 days long",
+            [
+                FieldIssue(
+                    loc=["timing", "segments", len(parts) - 1, "ended_at"],
+                    message="more than 7 days after the start",
+                )
+            ],
+        )
+    pauses: list[run_fold.Pause] = []
+    floor = started_at
+    for i, p in enumerate(edit.pauses):
+        pause = run_fold.Pause(run_fold.to_ms(p.start), run_fold.to_ms(p.end))
+        if pause.start < floor:
+            raise bad(["pauses", i, "start"], "before the run's start or the previous pause's end")
+        if pause.end < pause.start:
+            raise bad(["pauses", i, "end"], "before the pause's start")
+        if pause.end > previous:
+            raise bad(["pauses", i, "end"], "after the run's end")
+        pauses.append(pause)
+        floor = pause.end
+    skipped = sorted(edit.skipped, key=list(by_key).index)  # in step order (§2.3)
+    timing = run_fold.make_timing(started_at, parts, skipped, pauses, steps=steps, edited=True)
+    try:
+        run_fold.check_timing(timing, captured_at=timing.ended_at)  # T1 to T5
+    except run_fold.TimingError as exc:  # a guard: the checks above cover every way an edit breaks them
+        raise bad([], str(exc)) from exc
+    return timing
 
 
 def _enum_values(a: Answer) -> list[str]:

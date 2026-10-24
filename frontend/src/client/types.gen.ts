@@ -573,6 +573,10 @@ export type EntryUpdate = {
      * Optional optimistic-concurrency guard: the revision this change was based on. When it no longer matches, the change is rejected with 409 stale_revision.
      */
     expected_revision?: number | null;
+    /**
+     * A timed entry's new run times (timers.md §3.8); requires expected_revision and excludes captured_at. null is refused: an entry can't stop being timed.
+     */
+    timing?: TimingEdit | null;
 };
 
 /**
@@ -1753,7 +1757,8 @@ export type RunOut = {
  * RunState
  *
  * The fold's output (timers.md §4.3). For a stopped run, ``segments``, ``skipped`` and
- * ``pauses`` are exactly its entry's ``timing``.
+ * ``pauses`` are exactly its entry's ``timing``, until the times are edited: an edited run
+ * (``RunOut.edited``) keeps its last fold, and its entry holds the edited times.
  */
 export type RunState = {
     /**
@@ -2062,6 +2067,80 @@ export type Timing = {
      * Pauses
      */
     pauses: Array<TimingPause>;
+};
+
+/**
+ * TimingEdit
+ *
+ * A stopped run's times, replaced as a whole (timers.md §3.8). The server rebuilds the
+ * entry's ``Timing`` from it: the last segment's ``ended_at`` becomes the run's end and the
+ * entry's ``captured_at``.
+ */
+export type TimingEdit = {
+    /**
+     * Started At
+     *
+     * Stored truncated to whole milliseconds; the captured_at bounds apply.
+     */
+    started_at: string;
+    /**
+     * Segments
+     *
+     * In time order.
+     */
+    segments: Array<TimingEditSegment>;
+    /**
+     * Skipped
+     *
+     * Skipped step keys, in step order.
+     */
+    skipped: Array<string>;
+    /**
+     * Pauses
+     *
+     * Sorted, not overlapping, within the run.
+     */
+    pauses: Array<TimingEditPause>;
+};
+
+/**
+ * TimingEditPause
+ */
+export type TimingEditPause = {
+    /**
+     * Start
+     *
+     * Stored truncated to whole milliseconds; the captured_at bounds apply.
+     */
+    start: string;
+    /**
+     * End
+     *
+     * Stored truncated to whole milliseconds; the captured_at bounds apply.
+     */
+    end: string;
+};
+
+/**
+ * TimingEditSegment
+ */
+export type TimingEditSegment = {
+    /**
+     * Kind
+     */
+    kind: 'step' | 'lap';
+    /**
+     * Step
+     *
+     * A step of the run's version; null for a lap.
+     */
+    step?: string | null;
+    /**
+     * Ended At
+     *
+     * Each segment starts where the previous one ended.
+     */
+    ended_at: string;
 };
 
 /**

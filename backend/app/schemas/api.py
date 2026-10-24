@@ -46,7 +46,9 @@ from app.schemas.limits import (
     MAX_PUSH_ENDPOINT_LENGTH,
     MAX_PUSH_KEY_LENGTH,
     MAX_QUESTIONS,
+    MAX_RUN_EVENTS,
     MAX_SOURCE_LENGTH,
+    MAX_STEPS,
     MAX_STR_LENGTH,
     MAX_TIMEZONE_LENGTH,
     MAX_TOPIC_NAME_LENGTH,
@@ -445,6 +447,41 @@ class EntryCreate(StrictModel):
     )
 
 
+EditInstant = Annotated[
+    AwareDatetime,
+    AfterValidator(check_captured_at),
+    Field(description="Stored truncated to whole milliseconds; the captured_at bounds apply."),
+]
+
+
+class TimingEditSegment(StrictModel):
+    kind: Literal["step", "lap"]
+    step: QuestionKey | None = Field(default=None, description="A step of the run's version; null for a lap.")
+    ended_at: EditInstant = Field(description="Each segment starts where the previous one ended.")
+
+
+class TimingEditPause(StrictModel):
+    start: EditInstant
+    end: EditInstant
+
+
+class TimingEdit(StrictModel):
+    """A stopped run's times, replaced as a whole (timers.md §3.8). The server rebuilds the
+    entry's ``Timing`` from it: the last segment's ``ended_at`` becomes the run's end and the
+    entry's ``captured_at``."""
+
+    started_at: EditInstant
+    segments: Annotated[list[TimingEditSegment], Field(min_length=1, max_length=MAX_RUN_EVENTS)] = Field(
+        description="In time order."
+    )
+    skipped: Annotated[list[QuestionKey], Field(max_length=MAX_STEPS)] = Field(
+        description="Skipped step keys, in step order."
+    )
+    pauses: Annotated[list[TimingEditPause], Field(max_length=MAX_RUN_EVENTS)] = Field(
+        description="Sorted, not overlapping, within the run."
+    )
+
+
 class EntryUpdate(StrictModel):
     """Partial update. ``answers`` merges into existing answers; a null value clears an answer."""
 
@@ -454,6 +491,23 @@ class EntryUpdate(StrictModel):
     notes: Notes | None = None
     meta: Meta | None = None
     expected_revision: ExpectedRevision = None
+    timing: TimingEdit | None = Field(
+        default=None,
+        description="A timed entry's new run times (timers.md §3.8); requires expected_revision and "
+        "excludes captured_at. null is refused: an entry can't stop being timed.",
+    )
+
+    @model_validator(mode="after")
+    def _timing_rules(self) -> Self:
+        if "timing" not in self.model_fields_set:
+            return self
+        if self.timing is None:
+            raise field_error("timing", "an entry's timing can't be removed")
+        if self.captured_at is not None:
+            raise field_error("captured_at", "not with timing: captured_at is the end of the edited timing")
+        if self.expected_revision is None:
+            raise field_error("expected_revision", "required with timing")
+        return self
 
 
 class TimingSegment(StrictModel):
@@ -1003,7 +1057,8 @@ class RunOpenSegment(StrictModel):
 
 class RunState(StrictModel):
     """The fold's output (timers.md §4.3). For a stopped run, ``segments``, ``skipped`` and
-    ``pauses`` are exactly its entry's ``timing``."""
+    ``pauses`` are exactly its entry's ``timing``, until the times are edited: an edited run
+    (``RunOut.edited``) keeps its last fold, and its entry holds the edited times."""
 
     status: RunStatusName
     started_at: datetime

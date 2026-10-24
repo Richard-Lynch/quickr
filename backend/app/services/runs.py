@@ -81,7 +81,7 @@ from app.services import entries as entry_svc
 from app.services import run_fold
 from app.services.answers import validate_answers
 from app.services.feed import is_deleted, log_change, tombstone, writer
-from app.services.topics import parse_questions, parse_timer, resolve_topic
+from app.services.topics import parse_questions, resolve_topic
 
 OPEN = (RunStatus.running, RunStatus.paused)
 type Effect = tuple[Literal["applied", "void"], str | None]
@@ -429,15 +429,10 @@ def _effect_json(effect: Effect) -> dict[str, Any]:
     return {"effect": effect[0], "reason": effect[1]}
 
 
-def _steps(version: TopicVersion) -> list[run_fold.Step]:
-    timer = parse_timer(version.timer)
-    return [] if timer is None else [run_fold.Step(s.key, s.label) for s in timer.steps]
-
-
 def _fold(run: Run, version: TopicVersion, events: Sequence[RunEvent]) -> run_fold.RunState:
     return run_fold.fold(
         str(run.id),
-        _steps(version),
+        entry_svc.version_steps(version),
         [
             run_fold.Event(
                 id=str(e.id),
@@ -506,7 +501,7 @@ async def _create_entry(
     """The run's entry (§3.5): checked as ``createEntry`` checks one, except that an archived
     topic doesn't block it. Then the run is closed."""
     typed = validate_answers(parse_questions(version.questions), body.answers or {})
-    timing = run_fold.project_timing(state, _steps(version))
+    timing = run_fold.project_timing(state, entry_svc.version_steps(version))
     assert state.ended_at is not None
     run_fold.check_timing(timing, captured_at=state.ended_at)  # T1 to T5: a guard on the fold
     stop = await _terminal_stop(db, run)
@@ -553,7 +548,7 @@ async def _merge_into_entry(
     db: AsyncSession, run: Run, version: TopicVersion, state: run_fold.RunState
 ) -> None:
     """A late event on a stopped run (§4.4): when it changes the times, the entry gets them."""
-    projected = run_fold.project_timing(state, _steps(version))
+    projected = run_fold.project_timing(state, entry_svc.version_steps(version))
     run_fold.check_timing(projected, captured_at=state.ended_at)  # T1 to T5: a guard on the fold
     timing = run_fold.timing_json(projected)
     entry = await db.get_one(Entry, run.id, populate_existing=True)

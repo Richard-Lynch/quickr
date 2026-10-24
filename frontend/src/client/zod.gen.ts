@@ -186,24 +186,6 @@ export const zEntryCreate = z.object({
 });
 
 /**
- * EntryUpdate
- *
- * Partial update. ``answers`` merges into existing answers; a null value clears an answer.
- */
-export const zEntryUpdate = z.object({
-    answers: z.record(z.string(), z.union([
-        z.number(),
-        z.string(),
-        z.array(z.string())
-    ]).nullable()).nullish(),
-    source: z.string().min(1).max(100).nullish(),
-    captured_at: z.iso.datetime({ offset: true }).nullish(),
-    notes: z.string().max(5000).nullish(),
-    meta: z.record(z.string(), z.string().max(500)).nullish(),
-    expected_revision: z.int().gte(1).nullish()
-});
-
-/**
  * EnumAnswer
  *
  * Answer to a single-select enum question.
@@ -778,6 +760,56 @@ export const zTimer = z.object({
 });
 
 /**
+ * TimingEditPause
+ */
+export const zTimingEditPause = z.object({
+    start: z.iso.datetime({ offset: true }),
+    end: z.iso.datetime({ offset: true })
+});
+
+/**
+ * TimingEditSegment
+ */
+export const zTimingEditSegment = z.object({
+    kind: z.enum(['step', 'lap']),
+    step: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/).nullish(),
+    ended_at: z.iso.datetime({ offset: true })
+});
+
+/**
+ * TimingEdit
+ *
+ * A stopped run's times, replaced as a whole (timers.md §3.8). The server rebuilds the
+ * entry's ``Timing`` from it: the last segment's ``ended_at`` becomes the run's end and the
+ * entry's ``captured_at``.
+ */
+export const zTimingEdit = z.object({
+    started_at: z.iso.datetime({ offset: true }),
+    segments: z.array(zTimingEditSegment).min(1).max(1000),
+    skipped: z.array(z.string().regex(/^[a-z][a-z0-9_]{0,62}$/)).max(30),
+    pauses: z.array(zTimingEditPause).max(1000)
+});
+
+/**
+ * EntryUpdate
+ *
+ * Partial update. ``answers`` merges into existing answers; a null value clears an answer.
+ */
+export const zEntryUpdate = z.object({
+    answers: z.record(z.string(), z.union([
+        z.number(),
+        z.string(),
+        z.array(z.string())
+    ]).nullable()).nullish(),
+    source: z.string().min(1).max(100).nullish(),
+    captured_at: z.iso.datetime({ offset: true }).nullish(),
+    notes: z.string().max(5000).nullish(),
+    meta: z.record(z.string(), z.string().max(500)).nullish(),
+    expected_revision: z.int().gte(1).nullish(),
+    timing: zTimingEdit.nullish()
+});
+
+/**
  * TimingLaps
  */
 export const zTimingLaps = z.object({
@@ -821,7 +853,8 @@ export const zTimingSegment = z.object({
  * RunState
  *
  * The fold's output (timers.md §4.3). For a stopped run, ``segments``, ``skipped`` and
- * ``pauses`` are exactly its entry's ``timing``.
+ * ``pauses`` are exactly its entry's ``timing``, until the times are edited: an edited run
+ * (``RunOut.edited``) keeps its last fold, and its entry holds the edited times.
  */
 export const zRunState = z.object({
     status: z.enum([
