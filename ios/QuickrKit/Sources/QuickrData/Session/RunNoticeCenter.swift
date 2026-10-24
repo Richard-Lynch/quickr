@@ -68,8 +68,9 @@ public final class RunNoticeCenter {
         let freshIds = Set(fresh.map(\.id))
         notices = all.filter { !freshIds.contains($0.id) }
         for notice in fresh {
-            toast(notice.text())
+            // Dropped before it shows: a toast is never left in the store to be listed again.
             try? await store.runNotices.dismiss(id: notice.id)
+            toast(notice.text())
         }
     }
 

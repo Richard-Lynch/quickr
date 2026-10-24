@@ -62,8 +62,7 @@ import Testing
         #expect(shown == ["Morning was already stopped."])
         let listed = center.notices.count
         #expect(listed == 0)
-        // Dropped from the store, so a later launch doesn't list it either.
-        try await Task.sleep(for: .milliseconds(50))
+        // Dropped from the store (before the toast), so a later launch doesn't list it either.
         let stored = try await h.store.runNotices.all().count
         #expect(stored == 0)
     }
