@@ -39,8 +39,9 @@ final class SyncController {
         self.sleeper = sleeper
     }
 
-    func pill(status: SyncStatus) -> SyncPillState {
-        .make(summary: summary, status: status, online: online)
+    /// `notices`: the §11.4 run notices waiting for the sheet (`RunNoticeCenter`).
+    func pill(status: SyncStatus, notices: Int = 0) -> SyncPillState {
+        .make(summary: summary, status: status, online: online, notices: notices)
     }
 
     func sheet(lastSyncAt: Date?) -> SyncSheetModel {

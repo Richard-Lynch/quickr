@@ -13,6 +13,11 @@ public enum Route: Hashable, Sendable {
     case topic(TopicLinkRef, TopicTab)
     /// `/t/:ref/record`, optionally `?fix=<outbox item id>`: log an entry, or fix a rejected one.
     case record(TopicLinkRef, fix: String? = nil)
+    /// `/t/:ref/run`: a timed topic's run screen (timers.md §11.2): its open run, or Start.
+    case run(TopicLinkRef)
+    /// `/t/:ref/record?finish=<run id>[&fix=<outbox item id>]`: the answers form of a run that
+    /// Stop ended (it sends `finish`, §3.6), or of a refused finish to fix.
+    case runDetails(TopicLinkRef, runId: UUID, fix: String? = nil)
     /// `/t/:ref/entries/:entryId`: edit one entry.
     case entry(TopicLinkRef, entryId: UUID)
     /// `/t/:ref/edit`: the question builder.
@@ -26,6 +31,8 @@ public enum Route: Hashable, Sendable {
         case .settings, .newTopic: self
         case .topic(_, let tab): .topic(ref, tab)
         case .record(_, let fix): .record(ref, fix: fix)
+        case .run: .run(ref)
+        case .runDetails(_, let runId, let fix): .runDetails(ref, runId: runId, fix: fix)
         case .entry(_, let entryId): .entry(ref, entryId: entryId)
         case .editQuestions: .editQuestions(ref)
         case .topicSettings: .topicSettings(ref)
@@ -37,7 +44,7 @@ public enum Route: Hashable, Sendable {
         switch self {
         case .settings, .newTopic: nil
         case .topic(let ref, _), .record(let ref, _), .entry(let ref, _), .editQuestions(let ref),
-            .topicSettings(let ref):
+            .topicSettings(let ref), .run(let ref), .runDetails(let ref, _, _):
             ref
         }
     }

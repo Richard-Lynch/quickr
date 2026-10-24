@@ -15,6 +15,8 @@ struct RecordScreen: View {
     private enum Load {
         case loading
         case ready(RecordModel)
+        /// A timed topic: the run screen, so it is never logged without its timer (timers.md §11.2).
+        case timed(Topic)
         case archived(Topic)
         case nothingToFix(Topic)
         case missing
@@ -36,6 +38,8 @@ struct RecordScreen: View {
                 .qrPaperBackground()
         case .ready(let model):
             RecordView(model: model, settings: environment.settings)
+        case .timed(let topic):
+            RunScreen(ref: TopicLinkRef(id: topic.id))
         case .archived(let topic):
             Notice(
                 title: topic.name, heading: "This topic is archived", text: "Unarchive it to log new entries.",
@@ -67,8 +71,12 @@ struct RecordScreen: View {
                 load = .missing
                 return
             }
-            guard topic.status != .archived else {
+            guard topic.status != .archived || (fix == nil && topic.timer != nil) else {
                 load = .archived(topic)
+                return
+            }
+            if fix == nil, topic.timer != nil {
+                load = .timed(topic)
                 return
             }
             let mode: RecordModel.Mode

@@ -21,6 +21,8 @@ public enum SyncPillState: Sendable, Hashable {
     /// Pulls keep failing for another reason (a response that breaks the feed, a refusal, the
     /// store).
     case syncError
+    /// Only §11.4 run notices are waiting (timers.md): the pill opens the sheet that lists them.
+    case notices(count: Int)
 
     /// Pull failures in a row before the pill says "Sync error" (a single blip retries quietly).
     public static let failuresBeforeError = 3
@@ -28,8 +30,10 @@ public enum SyncPillState: Sendable, Hashable {
     /// The pill for the outbox `summary` (nil before a store is open), the coordinator's
     /// `status`, and whether the device is `online`. Precedence: a different server, failed
     /// items, offline (no path, or the server unreachable), items waiting, the first pull,
-    /// repeated pull failures.
-    public static func make(summary: OutboxSummary?, status: SyncStatus, online: Bool) -> SyncPillState {
+    /// repeated pull failures, then `notices` (§11.4 run notices waiting for the sync sheet).
+    public static func make(summary: OutboxSummary?, status: SyncStatus, online: Bool, notices: Int = 0)
+        -> SyncPillState
+    {
         if status.identityMismatch { return .differentServer }
         let failed = summary?.failed ?? 0
         if failed > 0 { return .failed(count: failed) }
@@ -42,6 +46,7 @@ public enum SyncPillState: Sendable, Hashable {
             return .loadingHistory(progress: head > 0 ? min(1, Double(cursor) / Double(head)) : nil)
         }
         if status.lastFailure != nil, status.consecutiveFailures >= failuresBeforeError { return .syncError }
+        if notices > 0 { return .notices(count: notices) }
         return .hidden
     }
 
@@ -57,6 +62,7 @@ public enum SyncPillState: Sendable, Hashable {
         case .waiting(let count, _): "\(count) waiting to sync"
         case .loadingHistory: "Loading history"
         case .syncError: "Sync error"
+        case .notices(let count): count == 1 ? "1 notice" : "\(count) notices"
         }
     }
 

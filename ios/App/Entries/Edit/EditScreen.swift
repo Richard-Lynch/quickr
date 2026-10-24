@@ -136,6 +136,10 @@ struct EditView: View {
 
     var body: some View {
         FormView(model: model.form) {
+            EntryTimingSection(
+                timing: model.entry.timing,
+                stepLabels: Dictionary((model.topic.timer?.steps ?? []).map { ($0.key, $0.label) }) { first, _ in first
+                })
             EntryDetailsSection(model: model, idPrefix: "edit")
             deleteSection
         }

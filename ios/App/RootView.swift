@@ -104,6 +104,14 @@ struct RootView: View {
         .task(id: environment.session?.binding) {
             if let session = environment.session { await environment.sync.observe(session) }
         }
+        // The run clocks' server offset (timers.md §5.1).
+        .task(id: environment.session?.binding) {
+            if let session = environment.session { await environment.runTicker.observe(session) }
+        }
+        // The run notices too (timers.md §11.4).
+        .task(id: environment.session?.binding) {
+            if let session = environment.session { await environment.runNotices.observe(session) }
+        }
         // The widgets follow the active store too.
         .task(id: environment.session?.binding) {
             if let session = environment.session, let store = session.store {

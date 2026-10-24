@@ -74,6 +74,8 @@ public struct RunVoid: Sendable, Hashable {
     public var reason: VoidReason
     /// The origin of the tap (which process made it).
     public var origin: OutboxOrigin
+    /// The run's end (epoch ms), when the server says it stopped: `after_stop`'s "at {time}".
+    public var stoppedAt: Int?
 
     init?(_ item: OutboxItem, _ result: RunEventResult) {
         guard let reason = result.effect.reason, Self.noticed.contains(reason),
@@ -81,11 +83,12 @@ public struct RunVoid: Sendable, Hashable {
         else { return nil }
         self.init(
             eventId: item.id, runId: payload.runId, topic: payload.topic, type: type, reason: reason,
-            origin: item.origin)
+            origin: item.origin, stoppedAt: result.run.endedAt)
     }
 
     public init(
-        eventId: String, runId: String, topic: TopicRef, type: RunEventType, reason: VoidReason, origin: OutboxOrigin
+        eventId: String, runId: String, topic: TopicRef, type: RunEventType, reason: VoidReason, origin: OutboxOrigin,
+        stoppedAt: Int? = nil
     ) {
         self.eventId = eventId
         self.runId = runId
@@ -93,6 +96,7 @@ public struct RunVoid: Sendable, Hashable {
         self.type = type
         self.reason = reason
         self.origin = origin
+        self.stoppedAt = stoppedAt
     }
 }
 
@@ -295,6 +299,24 @@ public struct Outbox: Sendable {
         try await write { db, _, wall in
             try OutboxQueue.fix(
                 db, itemId: itemId, payload: payload, rowVersion: rowVersion, overriding: overriding, wall: wall)
+        }
+    }
+
+    /// Fix of a refused run event (timers.md §8.1): replaces a failed `finish`'s (or a `stop`
+    /// with answers') answers and notes, nothing else, and makes it pending again, in one
+    /// transaction (CAS on `rowVersion`, as `fix`). `OutboxError.notAllowed` for any other item;
+    /// `OutboxError.itemChanged` when it moved since it was read.
+    public func fixRunEvent(
+        itemId: String, rowVersion: Int, answers: [String: AnswerValue], notes: String?
+    ) async throws {
+        try await write { db, _, wall in
+            let item = try OutboxStorage.item(db, id: itemId)
+            guard let item, var payload = try item.runEventPayload() else {
+                throw OutboxError.notAllowed("Fix isn't available for this item")
+            }
+            payload.event.answers = answers.mapValues { WireAnswer($0) }
+            payload.event.notes = notes
+            try OutboxQueue.fix(db, itemId: itemId, payload: .runEvent(payload), rowVersion: rowVersion, wall: wall)
         }
     }
 
@@ -526,10 +548,16 @@ public struct Outbox: Sendable {
         _ run: inout FlushRun
     ) async throws -> OutboxFlushReport.Ending? {
         let (itemId, sender, jitter) = (claim.item.id, claim.sender, random())
+        let item = claim.item
         let applied = try await uncancellable { db, now, wall in
-            try OutboxFlush.apply(
+            let applied = try OutboxFlush.apply(
                 db, itemId: itemId, sender: sender, resolution: resolution, error: error, random: jitter, now: now,
                 wall: wall)
+            // The notice is kept with the ack (timers.md §11.4), whichever process flushed it.
+            if applied == .acked, case .ack(.runEvent(let result)) = resolution, let void = RunVoid(item, result) {
+                try RunNoticeStorage.record(db, void, wall: wall)
+            }
+            return applied
         }
         switch applied {
         case .fenced: return .superseded

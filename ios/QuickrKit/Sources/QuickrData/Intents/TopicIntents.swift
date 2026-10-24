@@ -93,15 +93,18 @@ public enum IntentDue {
         return try await store.writer.read { db in
             let state = try Row.fetchOne(db, sql: "SELECT * FROM sync_state WHERE id = 1").map(SyncState.init(row:))
             let now = (state?.serverClock ?? .device).now(at: wall)
-            return dueNow(try StoreView.dueTopics(db).map(\.topic), now: now)
+            return dueNow(
+                try StoreView.dueTopics(db).map(\.topic), now: now, openRuns: try RunOverlay.openRunTopics(db))
         }
     }
 
-    /// `topics` due at `now` (active, `DueView.isDueNow`), longest due first.
-    static func dueNow(_ topics: [Topic], now: Date) -> [Topic] {
+    /// `topics` due at `now` (`TopicListing.countsAsDue`: active, due now, no open run), longest
+    /// due first.
+    static func dueNow(_ topics: [Topic], now: Date, openRuns: TopicListing.OpenRunTopics) -> [Topic] {
         topics.compactMap { topic -> (Topic, Date)? in
-            guard topic.status == .active, let due = TopicListing.due(of: topic, at: now),
-                DueView.isDueNow(due, now: now)
+            guard let due = TopicListing.due(of: topic, at: now),
+                TopicListing.countsAsDue(
+                    TopicListing.Item(value: (), topic: topic, due: due), now: now, openRuns: openRuns)
             else { return nil }
             return (topic, due.dueSince ?? due.nextDueAt ?? now)
         }

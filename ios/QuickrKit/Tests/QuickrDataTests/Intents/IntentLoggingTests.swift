@@ -293,7 +293,7 @@ import Testing
             topic("Notes", every: nil, last: nil),
             topic("Old", every: 60, last: 600, status: .archived),
         ]
-        #expect(IntentDue.dueNow(topics, now: now).map(\.name) == ["Zinc", "Water"])
+        #expect(IntentDue.dueNow(topics, now: now, openRuns: TopicListing.noOpenRuns).map(\.name) == ["Zinc", "Water"])
         #expect(IntentText.dueSentence([]) == "Nothing is due.")
         #expect(IntentText.dueSentence(["Water"]) == "Water is due.")
         #expect(IntentText.dueSentence(["Meds", "Water", "Stretch"]) == "Meds, Water and Stretch are due.")

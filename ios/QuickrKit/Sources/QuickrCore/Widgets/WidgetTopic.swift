@@ -19,12 +19,15 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     /// Server time minus device time, in seconds: the store's measured skew (sync-protocol.md
     /// §10, `skew_ms`). Due state is the server's, at device time plus this.
     public var skew: TimeInterval
+    /// The topic has an open run (running or paused) in the store's local view: it isn't counted
+    /// as due (timers.md §11.1).
+    public var hasOpenRun: Bool
 
     public var id: UUID { topic.id }
 
     public init(
         topic: Topic, quick: QuickLog?, lastAnswer: AnswerValue?, queued: Int = 0, failed: Int = 0,
-        scope: EntryScope? = nil, skew: TimeInterval = 0
+        scope: EntryScope? = nil, skew: TimeInterval = 0, hasOpenRun: Bool = false
     ) {
         self.topic = topic
         self.quick = quick
@@ -33,6 +36,7 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
         self.failed = failed
         self.scope = scope
         self.skew = skew
+        self.hasOpenRun = hasOpenRun
     }
 
     /// What ✓ shows and logs for a number topic, the same value for both: the last one while the
@@ -52,6 +56,21 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     /// server's, at `serverTime(date)`. Its times are the server's ("Next 08:00" is 08:00), so
     /// show it against `serverTime(date)` too (`DueView(due:now:)`).
     public func due(at date: Date) -> DueStatus? { TopicListing.due(of: topic, at: serverTime(date)) }
+
+    /// The due pill at device time `date`: none while the topic has an open run, which shows
+    /// "Running" instead of its due state (timers.md §11.1).
+    public func dueView(at date: Date) -> DueView {
+        hasOpenRun ? DueView(tone: .none, kind: .none) : DueView(due: due(at: date), now: serverTime(date))
+    }
+
+    /// Whether it counts as due at device time `date`: `TopicListing.countsAsDue`, the one rule
+    /// behind every due count (active, due now, no open run).
+    public func countsAsDue(at date: Date) -> Bool {
+        let now = serverTime(date)
+        return TopicListing.countsAsDue(
+            TopicListing.Item(value: (), topic: topic, due: TopicListing.due(of: topic, at: now)), now: now,
+            openRuns: hasOpenRun ? [topic.id] : TopicListing.noOpenRuns)
+    }
 
     /// Device time `date` on the server's clock (`date + skew`), the "now" of due state.
     public func serverTime(_ date: Date) -> Date { ServerClock(skew: skew).now(at: date) }
