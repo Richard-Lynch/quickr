@@ -52,9 +52,10 @@ import UserNotifications
 
         let expected = try await NotificationCategories.rows(in: try #require(session.store), now: Date())
         #expect(Set(expected.map(\.topicId)) == [chips.wireString, number.wireString])
-        // The system applies the set asynchronously: poll, bounded.
+        // The system applies the set asynchronously: poll, bounded. 15 s: CI's simulators have
+        // taken over 5 s to apply it.
         var registered: Set<UNNotificationCategory> = []
-        for _ in 0..<50 {
+        for _ in 0..<150 {
             registered = await UNUserNotificationCenter.current().notificationCategories()
             if Set(expected.map(\.category.id)).isSubset(of: Set(registered.map(\.identifier))) { break }
             try await Task.sleep(for: .milliseconds(100))
