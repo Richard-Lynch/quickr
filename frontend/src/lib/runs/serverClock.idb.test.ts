@@ -50,6 +50,18 @@ describe('the server offset in IndexedDB', () => {
     expect(await (await context()).loadServerOffset()).toBe(400);
   });
 
+  it('ignores a stored offset of more than a day either way', async () => {
+    const page = await context();
+    await page.persistServerOffset(400);
+    vi.stubGlobal('localStorage', undefined);
+    const sw = await context();
+    expect(await sw.loadServerOffset()).toBe(400);
+    await page.persistServerOffset(24 * 60 * 60 * 1000 + 1);
+    expect(await sw.loadServerOffset()).toBe(400); // memory kept
+    await page.persistServerOffset(-(24 * 60 * 60 * 1000));
+    expect(await sw.loadServerOffset()).toBe(-(24 * 60 * 60 * 1000));
+  });
+
   it('the latest sample of any context wins', async () => {
     const page = await context();
     await page.persistServerOffset(400);

@@ -829,14 +829,16 @@ exclusive, `version`, `source`, `channel`); labels still come from every version
   action needs nothing more.
 - **Action.** One action, kind `start`, title "Start", identifier
   `q1|{server_id}|{topic_id}|{version}||t|` (the `k` value `t`, empty key and
-  value; notifications.md §4.2). No `.foreground`.
+  value; notifications.md §4.2). No `.foreground`. A Start on a reminder for a topic since
+  made untimed still starts a run, on the reminder's (timed) version.
 - **Category id.** The algorithm of notifications.md §4.3, with `kind = start`
   hashed like any other kind. New vectors are added to
   `notification-vectors.json`.
 - **The scheduler skips a timed topic that has an open run**, without marking
   the slot as sent. Someone timing it doesn't need a reminder. If the run is
   then discarded, the slot is still due and the reminder fires at the next tick;
-  that is intended. Finishing runs don't suppress reminders.
+  that is intended. Finishing runs don't suppress reminders. The skip applies to any
+  topic with an open run, timed or not (a topic made untimed while a run is open).
 - **Web Push** carries the same descriptor. Chromium shows one action,
   `{action: "log|t|", title: "Start"}`, following the `log|k|` convention of
   `frontend/src/lib/pushActions.ts`.

@@ -307,6 +307,29 @@ describe('service worker: a timed reminder’s Start (timers.md §10.2)', () => 
     expect(await appOutbox().list()).toEqual([]);
   });
 
+  it('without cached versions, a cached getTopic with the version’s timer gives the steps', async () => {
+    cacheStore.cache.put('/api/v1/topics/mood', {
+      id: TOPIC,
+      current_version: 3,
+      questions: [{ key: 'mood', type: 'int', required: true }],
+      timer: { steps: [{ key: 'warm', label: 'Warm up' }] },
+    });
+    server.offline = true;
+    await click(await push(timed), 'log|t|');
+    const [item] = (await appOutbox().list()) as OutboxItem<RunEventPayload>[];
+    expect(item?.payload).toMatchObject({
+      steps: [{ key: 'warm', label: 'Warm up' }],
+      requires_answers: true,
+    });
+  });
+
+  it('with nothing cached, the start’s steps and questions are unknown (null)', async () => {
+    server.offline = true;
+    await click(await push(timed), 'log|t|');
+    const [item] = (await appOutbox().list()) as OutboxItem<RunEventPayload>[];
+    expect(item?.payload).toMatchObject({ steps: null, requires_answers: null });
+  });
+
   it('racing clicks and a re-delivered push start one run; offline, the app sends it later', async () => {
     cacheStore.cache.put('/api/v1/topics/mood/versions', [
       { version: 3, questions: [], timer: { steps: [{ key: 'shower', label: 'Shower' }] } },

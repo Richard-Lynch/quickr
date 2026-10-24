@@ -137,7 +137,9 @@ function buildRun(
   // fold this run); the latest tap knows it best.
   const fitting = server ? mine.filter((i) => i.payload.version === server.version) : mine;
   const meta = fitting.at(-1)?.payload;
-  const steps = meta?.steps ?? null;
+  // A reminder's Start may not know the steps (null): another item's, else the server's.
+  const known = fitting.findLast((i) => i.payload.steps !== null)?.payload;
+  const steps = known?.steps ?? null;
   let state: RunState;
   if (mine.length === 0 && server) {
     state = stateFromWire(server.state);
@@ -167,14 +169,14 @@ function buildRun(
     topic_id: topicId,
     topic: meta?.topic ?? null,
     version: server?.version ?? meta?.version ?? 0,
-    status: statusOf(server, state, mine, meta?.requires_answers ?? false),
+    status: statusOf(server, state, mine, known?.requires_answers ?? false),
     state,
     events,
     aliases: [...aliases],
     server,
     queued,
     steps,
-    requires_answers: meta?.requires_answers ?? null,
+    requires_answers: known?.requires_answers ?? null,
   };
 }
 

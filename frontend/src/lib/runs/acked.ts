@@ -92,9 +92,16 @@ export async function pruneAcked(fetchStartedAt: number, now: number = Date.now(
   await refreshAckedSnapshot();
 }
 
-/** The acked items now, read afresh (for taps, inside their lock). */
-export async function ackedItems(): Promise<OutboxItem<RunEventPayload>[]> {
-  return (await store.all()).map((r) => r.item);
+/**
+ * The acked items now, read afresh (for taps, inside their lock). With `now`, those older
+ * than {@link ACKED_MAX_AGE_MS} are left out: the service worker's view, where nothing
+ * prunes the record (it fetches no `listRuns`), so a stale one must not keep a run known.
+ */
+export async function ackedItems(now?: number): Promise<OutboxItem<RunEventPayload>[]> {
+  const records = await store.all();
+  return records
+    .filter((r) => now === undefined || now - r.acked_at <= ACKED_MAX_AGE_MS)
+    .map((r) => r.item);
 }
 
 // ---- snapshot for the page (React and the badge) --------------------------------

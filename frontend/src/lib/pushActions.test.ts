@@ -31,6 +31,7 @@ import {
   resolveAction,
   START_ACTION,
   startVersionOf,
+  startVersionOfTopic,
 } from './pushActions';
 import { formatQuickLogNumber, parsePushPayload, type PushPayload } from './pushPayload';
 import { ackedItems, memoryAckedStore, setAckedStore } from './runs/acked';
@@ -570,11 +571,17 @@ describe('a single topic (no questions)', () => {
 describe('a timed topic (timers.md §10.1, §10.2)', () => {
   const timedLog = { type: 'timed' };
   const data = notificationData(reminder(timedLog));
-  const now = () => Date.parse('2026-10-17T08:05:00Z');
+  const T = Date.parse('2026-10-17T08:05:00Z');
+  const now = () => T;
   /** The action entry id vector of this reminder's (server, topic, slot). */
   const vectorId = idVectors.cases.find((c) => c.name === 'canonical')?.expected;
+  /** Another slot of the same topic: the next day's reminder. */
+  const nextDay = (d: typeof data) => {
+    if (!d.quickr) throw new Error('not actionable');
+    return { ...d, quickr: { ...d.quickr, due_since: '2026-10-18T08:00:00Z' } };
+  };
 
-  function rig() {
+  function rig(clock: () => number = now) {
     setAckedStore(memoryAckedStore());
     const server = fakeQuickrServer(SERVER, [TOPIC]);
     const outbox = createOutbox({
@@ -583,6 +590,7 @@ describe('a timed topic (timers.md §10.1, §10.2)', () => {
       fetch: server.fetch,
       channelName: null,
       random: () => 0.5,
+      now: clock,
     });
     const queued = vi.fn(() => Promise.resolve());
     const click = (extra: Record<string, unknown> = {}) =>
@@ -590,9 +598,9 @@ describe('a timed topic (timers.md §10.1, §10.2)', () => {
         outbox,
         action: START_ACTION,
         data,
-        now,
+        now: clock,
         queued,
-        acked: ackedItems,
+        acked: () => ackedItems(clock()),
         sendTimeoutMs: 2000,
         ...extra,
       });
@@ -634,8 +642,8 @@ describe('a timed topic (timers.md §10.1, §10.2)', () => {
       run_id: vectorId,
       topic: { id: TOPIC, slug: 'mood', name: 'Mood' },
       version: 3,
-      steps: [],
-      requires_answers: false,
+      steps: null, // nothing cached: unknown, not guessed
+      requires_answers: null,
       makes_entry: false,
       expect_server_id: SERVER,
       event: {
@@ -685,7 +693,7 @@ describe('a timed topic (timers.md §10.1, §10.2)', () => {
   it('a run this device already stopped is not started again by the same reminder', async () => {
     const { server, outbox, click, runEvents } = rig();
     server.offline = true;
-    await click();
+    await click({ startVersion: () => Promise.resolve({ steps: [], requires_answers: false }) });
     const ctx = { topic: { id: TOPIC, slug: 'mood', name: 'Mood' }, version: 3 };
     const deps = { outbox, serverRuns: () => [], now };
     const stop = await tapRun(
@@ -698,6 +706,46 @@ describe('a timed topic (timers.md §10.1, §10.2)', () => {
     const before = await runEvents();
     expect(await click()).toEqual({ kind: 'none' }); // a re-delivered push
     expect(await runEvents()).toEqual(before);
+  });
+
+  it('a failed start is never replaced by a later click on the same reminder', async () => {
+    let clock = T;
+    const { server, click, runEvents } = rig(() => clock);
+    server.topics.set(TOPIC, { status: 'archived' });
+    expect((await click()).kind).toBe('notify');
+    const [failed] = await runEvents();
+    expect(failed?.status).toBe('failed');
+    clock += 60_000;
+    expect(await click()).toEqual({ kind: 'none' });
+    const [after] = await runEvents();
+    expect(after?.payload.event.at).toBe(failed?.payload.event.at);
+    expect(after?.created_at).toBe(failed?.created_at);
+    expect(after?.status).toBe('failed');
+    expect(server.requests).toHaveLength(1);
+  });
+
+  it('a stale acked start (no page to prune it) doesn’t block the next day’s Start (H1)', async () => {
+    let clock = T;
+    const { server, outbox, click } = rig(() => clock);
+    expect(await click()).toEqual({ kind: 'none' }); // started, acked; no page open
+    clock += 24 * 60 * 60_000; // the next day, nothing local changed
+    expect(await click({ data: nextDay(data) })).toEqual({ kind: 'none' });
+    const nextId = await actionEntryId(SERVER, TOPIC, '2026-10-18T08:00:00Z');
+    expect(server.requests.map((r) => r.url)).toEqual([
+      `/api/v1/runs/${vectorId}/events`,
+      `/api/v1/runs/${nextId}/events`,
+    ]);
+    // The fake still has the first run open: the server merged the second start (§4.5).
+    expect(server.runs.get(vectorId ?? '')?.aliases?.has(nextId)).toBe(true);
+    expect(await outbox.list()).toEqual([]);
+  });
+
+  it('a fresh acked start of another slot doesn’t make an open run either: the server merges', async () => {
+    const { server, outbox, click } = rig();
+    await click();
+    expect(await click({ data: nextDay(data) })).toEqual({ kind: 'none' }); // 201, void
+    expect(server.requests).toHaveLength(2);
+    expect(await outbox.list()).toEqual([]);
   });
 
   it('a start the server already has from another device is dropped silently', async () => {
@@ -738,6 +786,24 @@ describe('a timed topic (timers.md §10.1, §10.2)', () => {
     expect((await archived.click()).kind).toBe('notify');
     expect((await archived.outbox.list()).map((i) => i.status)).toEqual(['failed']);
 
+    const logged = rig(); // the run was stopped elsewhere: its entry has the id
+    logged.server.entries.set(vectorId ?? '', {
+      id: vectorId ?? '',
+      topic_id: TOPIC,
+      answers: [],
+      source: 'ios',
+    });
+    expect(await logged.click()).toEqual({ kind: 'none' });
+    expect(await logged.outbox.list()).toEqual([]);
+
+    const untimed = rig();
+    untimed.server.topics.set(TOPIC, { status: 'active', untimed: true });
+    expect(await untimed.click()).toEqual({
+      kind: 'notify',
+      title: 'Couldn’t start Mood',
+      body: 'This version of the topic isn’t timed. Open quickR to log it.',
+    });
+
     const deleted = rig();
     deleted.server.deletedRuns.add(vectorId ?? '');
     expect(await deleted.click()).toEqual({
@@ -765,6 +831,29 @@ describe('a timed topic (timers.md §10.1, §10.2)', () => {
     const { outbox, click } = rig();
     const broken = { ...outbox, list: () => Promise.reject(new Error('storage')) };
     expect(await click({ outbox: broken })).toEqual({ kind: 'open' });
+  });
+});
+
+describe('startVersionOfTopic (a cached getTopic or listTopics answer)', () => {
+  const topic = {
+    id: TOPIC,
+    current_version: 3,
+    questions: [{ key: 'mood', type: 'int' }],
+    timer: { steps: [{ key: 'a', label: 'A' }] },
+  };
+
+  it('uses a topic whose current version it is, with its questions and timer', () => {
+    const expected = { steps: [{ key: 'a', label: 'A' }], requires_answers: true };
+    expect(startVersionOfTopic(topic, TOPIC, 3)).toEqual(expected);
+    expect(startVersionOfTopic({ items: [{ id: 'x' }, topic] }, TOPIC, 3)).toEqual(expected);
+  });
+
+  it('knows nothing of another version, another topic or a summary without them', () => {
+    expect(startVersionOfTopic(topic, TOPIC, 2)).toBeUndefined();
+    expect(startVersionOfTopic(topic, uuid(), 3)).toBeUndefined();
+    const summary = { id: TOPIC, current_version: 3 };
+    expect(startVersionOfTopic({ items: [summary] }, TOPIC, 3)).toBeUndefined();
+    expect(startVersionOfTopic({ ...topic, timer: null }, TOPIC, 3)).toBeUndefined();
   });
 });
 

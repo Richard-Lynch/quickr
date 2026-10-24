@@ -205,32 +205,51 @@ export interface StartVersion {
 
 const NONE: ActionFeedback = { kind: 'none' };
 
-/**
- * `version`'s {@link StartVersion} in a `listTopicVersions` answer (an array of versions with
- * `questions` and `timer`), or undefined when it isn't there or isn't timed. A question counts
- * as required unless it says `required: false` (the server's default).
- */
+/** A cached version's {@link StartVersion}: its timer's steps and whether a question is
+ *  required (unless it says `required: false`, the server's default). Undefined when it
+ *  isn't timed or is malformed. */
+function startVersionFrom(v: { questions?: unknown; timer?: unknown }): StartVersion | undefined {
+  const steps = (v.timer as { steps?: unknown } | null | undefined)?.steps;
+  if (!Array.isArray(steps) || !Array.isArray(v.questions)) return undefined;
+  const valid = steps.flatMap((step: unknown) => {
+    const st = step as { key?: unknown; label?: unknown } | null;
+    return typeof st?.key === 'string' && typeof st.label === 'string'
+      ? [{ key: st.key, label: st.label }]
+      : [];
+  });
+  if (valid.length !== steps.length) return undefined;
+  return {
+    steps: valid,
+    requires_answers: (v.questions as unknown[]).some(
+      (q) => (q as { required?: unknown } | null)?.required !== false,
+    ),
+  };
+}
+
+/** `version`'s {@link StartVersion} in a cached `listTopicVersions` answer (an array of
+ *  versions with `questions` and `timer`), or undefined. */
 export function startVersionOf(body: unknown, version: number): StartVersion | undefined {
   if (!Array.isArray(body)) return undefined;
-  for (const raw of body as unknown[]) {
-    const v = raw as { version?: unknown; questions?: unknown; timer?: unknown } | null;
-    if (v?.version !== version) continue;
-    const steps = (v.timer as { steps?: unknown } | null)?.steps;
-    if (!Array.isArray(steps)) return undefined;
-    const valid = steps.flatMap((step: unknown) => {
-      const st = step as { key?: unknown; label?: unknown } | null;
-      return typeof st?.key === 'string' && typeof st.label === 'string'
-        ? [{ key: st.key, label: st.label }]
-        : [];
-    });
-    if (valid.length !== steps.length) return undefined;
-    const questions = Array.isArray(v.questions) ? (v.questions as unknown[]) : [];
-    return {
-      steps: valid,
-      requires_answers: questions.some(
-        (q) => (q as { required?: unknown } | null)?.required !== false,
-      ),
-    };
+  const v = (body as unknown[]).find(
+    (raw) => (raw as { version?: unknown } | null)?.version === version,
+  ) as { questions?: unknown; timer?: unknown } | undefined;
+  return v ? startVersionFrom(v) : undefined;
+}
+
+/** The same from a cached `getTopic` (a topic) or `listTopics` (`{items}`) answer: only a
+ *  topic whose current version is `version` and that carries its questions and timer. */
+export function startVersionOfTopic(
+  body: unknown,
+  topicId: string,
+  version: number,
+): StartVersion | undefined {
+  const items = (body as { items?: unknown } | null)?.items;
+  const topics = Array.isArray(items) ? (items as unknown[]) : [body];
+  for (const raw of topics) {
+    const t = raw as { id?: unknown; current_version?: unknown } | null;
+    if (t?.id === topicId && t.current_version === version) {
+      return startVersionFrom(t as { questions?: unknown; timer?: unknown });
+    }
   }
   return undefined;
 }
@@ -339,7 +358,8 @@ export async function handleReminderAction(opts: ReminderActionOptions): Promise
  * (`startRun`), so racing clicks, a re-delivered push and the page's own taps start one run;
  * send it now; and say why when it is refused. A run this device already has with that id,
  * or an open run of the topic, means it was started: nothing is written. So does
- * `event_conflict`: the server has the start already, from another device (its item goes).
+ * `event_conflict` or `id_conflict`: the server has the start, or the entry its run became,
+ * from another device or an earlier Start (its item goes).
  */
 async function handleStartAction(
   opts: ReminderActionOptions,
@@ -381,10 +401,11 @@ async function handleStartAction(
       {
         topic: { id: q.topic_id, slug: slug ?? '', name: data.title ?? '' },
         version: q.version,
-        steps: version?.steps ?? [],
-        requires_answers: version?.requires_answers ?? false,
+        // Unknown (null) rather than guessed: the local view then defers to the server.
+        steps: version?.steps ?? null,
+        requires_answers: version?.requires_answers ?? null,
       },
-      { id, source: PWA_NOTIFICATION_SOURCE, expectServerId: q.server_id },
+      { id, source: PWA_NOTIFICATION_SOURCE, expectServerId: q.server_id, reminder: true },
     );
   } catch {
     return { kind: 'open' };
@@ -405,12 +426,23 @@ async function handleStartAction(
       return NONE;
     case 'retired': // run_deleted: the topic was deleted
       return { kind: 'notify', title: `Couldn’t start ${topic}`, body: 'The topic was deleted.' };
-    case 'failed':
-      if (problemCode(sent.item.last_error?.body) === 'event_conflict') {
+    case 'failed': {
+      const code = problemCode(sent.item.last_error?.body);
+      // The server has this id already: the start (event_conflict), or the entry its run
+      // became (id_conflict). This reminder was started, elsewhere or before.
+      if (code === 'event_conflict' || code === 'id_conflict') {
         await opts.outbox.discard(sent.item.id).catch(() => undefined);
         return NONE;
       }
+      if (code === 'topic_not_timed') {
+        return {
+          kind: 'notify',
+          title: `Couldn’t start ${topic}`,
+          body: 'This version of the topic isn’t timed. Open quickR to log it.',
+        };
+      }
       return refused(sent.item, topic, opts.outbox, 'start');
+    }
   }
 }
 

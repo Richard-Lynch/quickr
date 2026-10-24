@@ -37,6 +37,7 @@ import {
   type ActionFeedback,
   type CachedTopicState,
   startVersionOf,
+  startVersionOfTopic,
   type StartVersion,
 } from './lib/pushActions';
 import { parsePushPayload, safeInAppPath, type NavigateMessage } from './lib/pushPayload';
@@ -219,7 +220,7 @@ async function onAction(action: string, data: unknown, open: () => Promise<void>
       locks: (self.navigator as { locks?: LockManager }).locks,
       topicState: cachedTopicState,
       // A Start (timers.md §10.2): stamped with the page's latest offset (no localStorage here).
-      acked: ackedItems,
+      acked: () => ackedItems(Date.now()), // no page may have pruned it: fresh ones only
       offset: loadServerOffset,
       startVersion: cachedStartVersion,
       queued: () =>
@@ -245,9 +246,10 @@ async function onAction(action: string, data: unknown, open: () => Promise<void>
 }
 
 /**
- * The steps and required-question flag of a topic version, from the API cache's
- * `listTopicVersions` answer (the app's last GET of it), or undefined when it has none. A
- * Start folds over them locally until the server answers; without them, over no steps.
+ * The steps and required-question flag of a topic version, from the API cache: the app's
+ * last `listTopicVersions` answer, else a `getTopic` or `listTopics` answer whose current
+ * version it is and that carries its questions and timer. Undefined when none has them: the
+ * Start's metadata is then unknown, and the local view defers to the server.
  */
 async function cachedStartVersion(
   topicId: string,
@@ -255,10 +257,25 @@ async function cachedStartVersion(
   version: number,
 ): Promise<StartVersion | undefined> {
   const cache = await caches.open(SW_API_CACHE);
-  for (const ref of [slug, topicId]) {
-    if (!ref) continue;
-    const hit = await cache.match(`${API_PREFIX}/topics/${encodeURIComponent(ref)}/versions`);
+  const refs = [slug, topicId].flatMap((ref) => (ref ? [encodeURIComponent(ref)] : []));
+  for (const ref of refs) {
+    const hit = await cache.match(`${API_PREFIX}/topics/${ref}/versions`);
     const found = startVersionOf(await hit?.json().catch(() => null), version);
+    if (found) return found;
+  }
+  const topics: Response[] = [];
+  for (const ref of refs) {
+    const hit = await cache.match(`${API_PREFIX}/topics/${ref}`);
+    if (hit) topics.push(hit);
+  }
+  for (const request of await cache.keys()) {
+    if (new URL(request.url).pathname === `${API_PREFIX}/topics`) {
+      const hit = await cache.match(request);
+      if (hit) topics.push(hit);
+    }
+  }
+  for (const response of topics) {
+    const found = startVersionOfTopic(await response.json().catch(() => null), topicId, version);
     if (found) return found;
   }
   return undefined;

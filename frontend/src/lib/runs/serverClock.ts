@@ -27,6 +27,12 @@ let memory: number = INITIAL_OFFSET_MS;
 // ---- the IndexedDB copy (the service worker's view) ---------------------------------
 
 const IDB_NAME = 'quickr-server-clock';
+/**
+ * A stored offset beyond this is ignored: a server and device a day apart is a broken clock
+ * or a corrupt record, not a skew to stamp Starts with (the server would refuse such `at`s,
+ * §5).
+ */
+const MAX_STORED_OFFSET_MS = 24 * 60 * 60 * 1000;
 const IDB_KEY = 'offset_ms';
 let idb: UseStore | null = null;
 
@@ -60,7 +66,13 @@ export async function loadServerOffset(): Promise<number> {
   if (store) {
     try {
       const stored: unknown = await get(IDB_KEY, store);
-      if (typeof stored === 'number' && Number.isSafeInteger(stored)) memory = stored;
+      if (
+        typeof stored === 'number' &&
+        Number.isSafeInteger(stored) &&
+        Math.abs(stored) <= MAX_STORED_OFFSET_MS
+      ) {
+        memory = stored;
+      }
     } catch {
       // nothing readable: memory as it is
     }
