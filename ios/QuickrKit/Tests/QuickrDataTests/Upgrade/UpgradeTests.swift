@@ -88,16 +88,17 @@ import Testing
     /// The store's columns that "nothing lost" compares: v2's `timer_json` and v3's `timing_json`
     /// are new, and v2 and v3 set `sync_state.rebuilding` (checked on their own).
     static func storeV1Columns(_ db: Database, tables: [String]) throws -> [String: [String]] {
-        try Dictionary(
-            uniqueKeysWithValues: tables.map { table in
-                (
-                    table,
-                    try Row.fetchAll(db, sql: "PRAGMA table_info(\(table))").map { $0["name"] as String }
-                        .filter { !table.hasSuffix("topic_version") || $0 != "timer_json" }
-                        .filter { !table.hasSuffix("entry") || $0 != "timing_json" }
-                        .filter { table != "sync_state" || $0 != "rebuilding" }
-                )
-            })
+        let added: [String: String] = [
+            "topic_version": "timer_json", "stage_topic_version": "timer_json", "entry": "timing_json",
+            "stage_entry": "timing_json", "sync_state": "rebuilding",
+        ]
+        var columns: [String: [String]] = [:]
+        for table in tables {
+            let rows: [Row] = try Row.fetchAll(db, sql: "PRAGMA table_info(\(table))")
+            let names: [String] = rows.map { (row: Row) -> String in row["name"] }
+            columns[table] = names.filter { (name: String) -> Bool in name != added[table] }
+        }
+        return columns
     }
 
     static func migrations(_ db: Database) throws -> [String] {
@@ -473,12 +474,15 @@ import Testing
         #expect(await relaunched.sync(reason: .activation) == .synced)
         let after = try await store.state()
         #expect(after.rebuilding == nil && after.epoch == state.epoch && after.layerGen == state.layerGen + 1)
-        #expect(try await store.runs.runs() == [try SyncRunTests.domain(try SyncRunTests.otherRun())])
-        #expect(try await store.entries.entry(id: entryId)?.entry.timing == SyncRunTests.domainEntry(stopped).timing)
-        #expect(
-            try await store.writer.read { db in
-                try String.fetchAll(db, sql: "SELECT id FROM tombstone WHERE kind = 'run'")
-            } == [SyncRunTests.runA])
+        let expectedRuns: [Run] = [try SyncRunTests.domain(try SyncRunTests.otherRun())]
+        #expect(try await store.runs.runs() == expectedRuns)
+        let expectedTiming: Timing? = try SyncRunTests.domainEntry(stopped).timing
+        let storedTiming: Timing? = try await store.entries.entry(id: entryId)?.entry.timing
+        #expect(storedTiming == expectedTiming)
+        let runTombstones: [String] = try await store.writer.read { db in
+            try String.fetchAll(db, sql: "SELECT id FROM tombstone WHERE kind = 'run'")
+        }
+        #expect(runTombstones == [SyncRunTests.runA])
     }
 
     /// A store that never synced has nothing to re-pull: v2 and v3 leave `rebuilding` alone.

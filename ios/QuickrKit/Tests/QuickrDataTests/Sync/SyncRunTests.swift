@@ -68,8 +68,9 @@ import Testing
         var run = try Self.openRun()
         env.server.putRun(run)
         #expect(await coordinator.sync(reason: .requested) == .synced)
-        #expect(try await store.runs.runs() == [try Self.domain(run)])
-        #expect(try await store.runs.runs(topicId: Self.everything) == [try Self.domain(run)])
+        let expected: [Run] = [try Self.domain(run)]
+        #expect(try await store.runs.runs() == expected)
+        #expect(try await store.runs.runs(topicId: Self.everything) == expected)
         #expect(try await store.runs.runs(topicId: UUID(uuidString: FakeFeedServer.water)!).isEmpty)
         #expect(try await store.runs.run(id: UUID(uuidString: Self.aliasA)!)?.id.wireString == Self.runA)
         #expect(try await store.ids("run_alias") == [Self.aliasA])
@@ -79,7 +80,8 @@ import Testing
         env.server.putRun(run)
         #expect(await coordinator.sync(reason: .requested) == .synced)
         let stored = try #require(try await store.runs.run(id: UUID(uuidString: Self.runA)!))
-        #expect(stored == (try Self.domain(run)) && stored.revision == 4)
+        let replaced: Run = try Self.domain(run)
+        #expect(stored == replaced && stored.revision == 4)
     }
 
     /// A stop: the page carries the entry (with its timing) and the run's deletion. The run and its
@@ -146,7 +148,8 @@ import Testing
         let run = try Self.openRun()
         env.server.putRun(run)
         #expect(await coordinator.sync(reason: .requested) == .synced)
-        #expect(try await values.next() == [try Self.domain(run)])
+        let expected: [Run] = [try Self.domain(run)]
+        #expect(try await values.next() == expected)
 
         env.server.closeRun(Self.runA, entry: try Self.stoppedEntry())
         #expect(await coordinator.sync(reason: .requested) == .synced)
@@ -196,13 +199,15 @@ import Testing
         let state = try await store.state()
         #expect(state.epoch == SyncRebuildTests.e2 && state.rebuilding == nil && state.layerGen == 2)
         #expect(try await store.ids("run") == [Self.runB])
-        #expect(try await store.runs.runs() == [try Self.domain(try Self.otherRun())])
+        let expected: [Run] = [try Self.domain(try Self.otherRun())]
+        #expect(try await store.runs.runs() == expected)
         #expect(try await store.ids("run_alias") == [Self.aliasB])
         #expect(try await store.count("stage_run") == 0)
         #expect(try await store.count("stage_run_alias") == 0)
         #expect(try await Self.tombstones(store, kind: "run") == [Self.runA])
-        let viewed = try #require(try await store.entries.entry(id: try Self.domainEntry(entry).id)).entry
-        #expect(viewed.timing == (try Self.domainEntry(entry)).timing)
+        let stopped: Entry = try Self.domainEntry(entry)
+        let viewed = try #require(try await store.entries.entry(id: stopped.id)).entry
+        #expect(viewed.timing == stopped.timing)
     }
 
     /// The same guards in the staging tables: a topic deletion cascades to `stage_run` and
