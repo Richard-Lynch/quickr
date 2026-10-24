@@ -7,19 +7,24 @@ import SwiftUI
 ///
 /// Accessibility identifiers: `entry.timing`, `entry.timing.total`, and 0-based in order
 /// `entry.timing.segment.<i>`, `entry.timing.skipped.<i>` and `entry.timing.pause.<i>`.
-/// `onEdit`, when given, adds an "Edit times" button (`entry.timing.edit`).
+/// `onEdit`, when given, adds an "Edit times" button (`entry.timing.edit`); `editUnavailable` says
+/// why there's none. `showsStatus` adds the "edited" and "incomplete" badges (the edit screen).
 struct EntryTimingSection: View {
     let timing: Timing?
     /// The steps' labels by key, for the skipped ones (a step skipped has no segment to name it);
     /// a key not here reads as itself.
     var stepLabels: [String: String] = [:]
     var onEdit: (() -> Void)?
+    var showsStatus = false
+    var editUnavailable: String?
 
     var body: some View {
         if let timing {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text("Timing").font(.qr(.label)).foregroundStyle(.qr.inkSoft).accessibilityAddTraits(.isHeader)
+                    if showsStatus && timing.edited { QuickrBadge("edited", tone: .info) }
+                    if showsStatus && !timing.complete { QuickrBadge("incomplete", tone: .warn) }
                     Spacer()
                     RunDuration(ms: timing.activeMs, font: .qr(.callout))
                         .accessibilityLabel("Total \(RunPresentation.spoken(timing.activeMs))")
@@ -59,6 +64,9 @@ struct EntryTimingSection: View {
                     Button("Edit times", action: onEdit)
                         .buttonStyle(.qr(.secondary, size: .small))
                         .accessibilityIdentifier("entry.timing.edit")
+                } else if let editUnavailable {
+                    Text(editUnavailable).font(.qr(.footnote)).foregroundStyle(.qr.muted)
+                        .accessibilityIdentifier("entry.timing.editUnavailable")
                 }
             }
             .padding(.horizontal, 4)

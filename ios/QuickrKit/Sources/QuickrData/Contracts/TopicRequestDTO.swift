@@ -7,16 +7,19 @@ public struct TopicCreateDTO: Codable, Sendable, Hashable {
     public var description: String?
     public var questions: [QuestionInputDTO]
     public var schedule: ScheduleInputDTO?
+    /// Makes the topic timed (timers.md §2.1); left out (untimed) when nil.
+    public var timer: TopicTimer?
 
     public init(
         name: String, slug: String? = nil, description: String? = nil, questions: [Question],
-        schedule: Schedule? = nil
+        schedule: Schedule? = nil, timer: TopicTimer? = nil
     ) {
         self.name = name
         self.slug = slug
         self.description = description
         self.questions = questions.map(QuestionInputDTO.init)
         self.schedule = schedule.map(ScheduleInputDTO.init)
+        self.timer = timer
     }
 }
 
@@ -88,18 +91,29 @@ public struct VersionCreateDTO: Codable, Sendable, Hashable {
     }
 }
 
-/// `VersionDraft` (checkTopicVersion).
+/// `VersionDraft` (checkTopicVersion). `timer` is sent even when null: with it, a timer-only
+/// change is a change, as publishing treats it (timers.md §2.1).
 public struct VersionDraftDTO: Codable, Sendable, Hashable {
     public var questions: [QuestionInputDTO]
     public var baseVersion: Int?
+    /// Optional on the wire (a draft without it is checked as questions only), so it decodes when
+    /// absent; this client always sends it (``encode(to:)``).
+    public var timer: TopicTimer?
 
     enum CodingKeys: String, CodingKey {
-        case questions
+        case questions, timer
         case baseVersion = "base_version"
     }
 
-    public init(questions: [Question], baseVersion: Int?) {
+    public init(questions: [Question], baseVersion: Int?, timer: TopicTimer?) {
         self.questions = questions.map(QuestionInputDTO.init)
         self.baseVersion = baseVersion
+        self.timer = timer
+    }
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(questions, forKey: .questions)
+        try container.encodeIfPresent(baseVersion, forKey: .baseVersion)
+        try container.encode(timer, forKey: .timer)
     }
 }

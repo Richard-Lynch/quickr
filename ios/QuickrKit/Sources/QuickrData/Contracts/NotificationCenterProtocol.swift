@@ -61,7 +61,8 @@ public struct NotificationActionSpec: Sendable, Hashable, Identifiable {
     }
 
     public enum Kind: Sendable, Hashable {
-        /// Logs a fixed answer (`UNNotificationAction`, no options: it runs in the background).
+        /// Logs a fixed answer, or starts a timed topic's run (`UNNotificationAction`, no options: it
+        /// runs in the background).
         case log
         /// Asks for a number (`UNTextInputNotificationAction`).
         case input(buttonTitle: String, placeholder: String)

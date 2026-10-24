@@ -85,7 +85,20 @@ public final class EditModel: EntryDetailsEditing {
     public var notes: String
     /// Editable here (the PWA's edit page), unlike on the record screen.
     public var source: String
-    public var sourceIsEditable: Bool { true }
+    /// A timed entry edits only its notes (the PWA's `meta="notes"`): its time is its run's,
+    /// changed through Edit times, and its source is its start's (timers.md §11.1).
+    public var sourceIsEditable: Bool { !isTimed }
+    public var showsCapturedAt: Bool { !isTimed }
+    public var showsSource: Bool { !isTimed }
+    /// The entry is a finished run's (timers.md §2.3): `captured_at` is hidden and never sent.
+    public var isTimed: Bool { entry.timing != nil }
+    /// The run's version's steps (labels for skipped steps, and Edit times' choices).
+    public let timerSteps: [TopicTimer.Step]
+    /// The open Edit times sheet.
+    public var timingEditor: TimingEditModel?
+    /// The entry changed elsewhere while the answers or notes are being edited: what it says now.
+    /// Shown with Reload; the edits stay until then.
+    public private(set) var changedElsewhere: Entry?
     public private(set) var metaErrors: [EntryFormField: String] = [:]
     public var showsDetails = false
     public private(set) var isSaving = false
@@ -104,7 +117,10 @@ public final class EditModel: EntryDetailsEditing {
     @ObservationIgnored private let writer: any EntryEditing
     @ObservationIgnored private let toasts: EntryToasts
     @ObservationIgnored private let scope: EntryScope
-    @ObservationIgnored private let baseRevision: Int?
+    @ObservationIgnored private var baseRevision: Int?
+    @ObservationIgnored private let timingWriter: (any EntryTimingWriting)?
+    @ObservationIgnored private let localOnly: Bool
+    @ObservationIgnored private let timingClock: TimingEditClock
     @ObservationIgnored private let limits: Limits
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private var baseline: [String: AnswerInput]
@@ -121,10 +137,15 @@ public final class EditModel: EntryDetailsEditing {
     public init(
         topic: Topic, entry: Entry, questions: [Question], localOnly: Bool, syncProblem: String? = nil,
         fix: EditFix? = nil, writer: any EntryEditing, toasts: EntryToasts, scope: EntryScope,
-        limits: Limits = .serverDefaults,
+        timerSteps: [TopicTimer.Step] = [], timingWriter: (any EntryTimingWriting)? = nil,
+        timingClock: TimingEditClock = .current, limits: Limits = .serverDefaults,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.topic = topic
+        self.timerSteps = timerSteps
+        self.timingWriter = timingWriter
+        self.timingClock = timingClock
+        self.localOnly = localOnly
         fixBase = fix == nil ? nil : entry
         let entry = fix.map { entry.applying($0.patch) } ?? entry
         self.entry = entry
@@ -205,11 +226,13 @@ public final class EditModel: EntryDetailsEditing {
         }
         let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A timed entry's captured_at is its run's end, and its source the start's: never sent
+        // (the server refuses a captured_at without timing, timers.md §3.8).
         return EntryPatch(
             answers: changed.isEmpty ? nil : changed,
-            capturedAt: capturedAtEdited && capturedAt != entry.capturedAt ? capturedAt : nil,
+            capturedAt: !isTimed && capturedAtEdited && capturedAt != entry.capturedAt ? capturedAt : nil,
             notes: trimmedNotes != entry.notes ? trimmedNotes : nil,
-            source: trimmedSource != entry.source ? trimmedSource : nil)
+            source: !isTimed && trimmedSource != entry.source ? trimmedSource : nil)
     }
 
     /// A fix's patch: the refused edit's changes with the user's corrections on top.
@@ -264,6 +287,101 @@ public final class EditModel: EntryDetailsEditing {
         }
     }
 
+    // MARK: Edit times (timers.md §3.8)
+
+    /// Why Edit times isn't offered, if it isn't: the server must have the entry, and saving is
+    /// online.
+    public var timingEditUnavailable: String? {
+        guard let timing = entry.timing else { return nil }
+        if localOnly || timingWriter == nil { return "Edit times once this run has synced." }
+        // Its steps' labels and choices come from its version's row.
+        if timerSteps.isEmpty && timing.segments.contains(where: { $0.kind == .step }) {
+            return "Edit times once its version has synced."
+        }
+        return nil
+    }
+
+    /// "Edit times": the sheet over the times as they are now, at the entry's revision.
+    public func openTimingEditor() {
+        guard let timing = entry.timing, timingEditUnavailable == nil, let timingWriter else { return }
+        let editor = TimingEditModel(
+            entryId: entry.id, timing: timing, revision: entry.revision, steps: timerSteps, writer: timingWriter,
+            clock: timingClock, now: now)
+        // A change seen elsewhere and not reloaded yet: these times may be behind it.
+        if let changedElsewhere { editor.entryChanged(revision: changedElsewhere.revision) }
+        timingEditor = editor
+    }
+
+    /// "Save times": saved, the sheet closes and the entry shows its new times. Unsaved answer and
+    /// notes edits stay on the form, now based on the saved revision.
+    public func saveTiming() async {
+        guard let editor = timingEditor, let saved = await editor.save() else { return }
+        timingEditor = nil
+        adopt(times: saved)
+        _ = toasts.center.show(Toast("Times updated"))
+    }
+
+    /// The entry as the store shows it now (it changed: a sync, a save here or elsewhere). Its
+    /// times and revision are taken as they are; an open Edit times sheet goes stale. When the
+    /// answers, notes or source changed too: a clean form takes them, a dirty one keeps its
+    /// edits and says so (``changedElsewhere``), with Reload.
+    public func entryChanged(_ latest: Entry) {
+        // An older revision (a pull behind a save here) never takes back what's newer.
+        guard latest.id == entry.id, latest.revision >= entry.revision, !isFixing, !saved, !isDeleted else { return }
+        timingEditor?.entryChanged(revision: latest.revision)
+        let sameForm = latest.answers == entry.answers && latest.notes == entry.notes && latest.source == entry.source
+        if sameForm {
+            adopt(times: latest)
+            return
+        }
+        if hasUnsavedChanges {
+            changedElsewhere = latest
+        } else {
+            reload(latest)
+        }
+    }
+
+    /// "Reload" on "This entry changed elsewhere": the form shows the entry as it is now, and the
+    /// edits here are discarded.
+    public func reloadChangedEntry() {
+        guard let latest = changedElsewhere else { return }
+        reload(latest)
+    }
+
+    private func reload(_ latest: Entry) {
+        let fresh = FormModel(questions: form.questions, mode: .edit(answers: latest.answers))
+        var latest = latest
+        // Times saved here after `latest` was seen (an Edit times save) are newer: keep them, and
+        // the revision the next save is based on.
+        if latest.revision < entry.revision {
+            latest.timing = entry.timing
+            latest.capturedAt = entry.capturedAt
+            latest.revision = entry.revision
+        }
+        entry = latest
+        form = fresh
+        baseline = fresh.inputs
+        notes = latest.notes
+        source = latest.source
+        capturedAt = latest.capturedAt
+        capturedAtEdited = false
+        changedElsewhere = nil
+        if !localOnly { baseRevision = latest.revision }
+    }
+
+    /// `latest`'s times, captured at and revision, keeping the form as it is.
+    private func adopt(times latest: Entry) {
+        let edited = capturedAtEdited
+        entry.timing = latest.timing
+        entry.capturedAt = latest.capturedAt
+        entry.revision = latest.revision
+        if isTimed || !edited {
+            capturedAt = latest.capturedAt
+            capturedAtEdited = edited && !isTimed
+        }
+        if !localOnly { baseRevision = latest.revision }
+    }
+
     private func finish() -> Outcome {
         saved = true
         return .leave
@@ -298,6 +416,14 @@ public protocol EntryDetailsEditing: AnyObject, Observable {
     var sourceIsEditable: Bool { get }
     var metaErrors: [EntryFormField: String] { get }
     var showsDetails: Bool { get set }
+    /// A timed entry hides its captured at and source: they're its run's (timers.md §11.1).
+    var showsCapturedAt: Bool { get }
+    var showsSource: Bool { get }
+}
+
+extension EntryDetailsEditing {
+    public var showsCapturedAt: Bool { true }
+    public var showsSource: Bool { true }
 }
 
 extension RecordModel: EntryDetailsEditing {}

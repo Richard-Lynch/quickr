@@ -31,7 +31,9 @@ import Testing
             ).erased
         },
         "checkTopicVersion": {
-            try await $0.checkTopicVersion(ref: "everything", VersionDraftDTO(questions: [], baseVersion: 2)).erased
+            try await $0.checkTopicVersion(
+                ref: "everything", VersionDraftDTO(questions: [], baseVersion: 2, timer: nil)
+            ).erased
         },
         "listEntries": { try await $0.listEntries(ref: "everything").erased },
         "createEntry": {

@@ -42,6 +42,9 @@ public enum DraftField: Sendable, Hashable {
     /// The question list as a whole (none, too many).
     case questions
     case question(Int, QuestionField)
+    /// The timer's step list as a whole (too many).
+    case steps
+    case step(Int, StepField)
 
     /// The PWA's form path: `name`, `questions`, `questions.1.key`.
     public var path: String {
@@ -52,6 +55,8 @@ public enum DraftField: Sendable, Hashable {
         case .changeNote: "change_note"
         case .questions: "questions"
         case .question(let i, let field): "questions.\(i).\(field.path)"
+        case .steps: "steps"
+        case .step(let i, let field): "steps.\(i).\(field.rawValue)"
         }
     }
 }
@@ -199,15 +204,20 @@ extension TopicDraft {
         public var slug: String?
         public var description: String
         public var questions: [Question]
+        /// Nil: not timed.
+        public var timer: TopicTimer?
     }
 
     /// A validated next version (`makeVersionDraftSchema`).
     public struct Version: Sendable, Hashable {
         public var questions: [Question]
+        /// The version's timer; nil turns timing off (timers.md §2.1).
+        public var timer: TopicTimer?
         public var changeNote: String
 
-        public init(questions: [Question], changeNote: String = "") {
+        public init(questions: [Question], timer: TopicTimer? = nil, changeNote: String = "") {
             self.questions = questions
+            self.timer = timer
             self.changeNote = changeNote
         }
     }
@@ -220,7 +230,7 @@ extension TopicDraft {
     }
 
     /// Validates everything a new topic sends. Issues come in form order: name, slug,
-    /// description, the question list, then each question.
+    /// description, the question list, each question, then the steps.
     public func validatedForCreation(limits: Limits = .serverDefaults) -> Result<Creation, DraftIssues<DraftField>> {
         var issues: [DraftIssue<DraftField>] = []
         let name = validatedName(&issues, limits: limits)
@@ -230,21 +240,25 @@ extension TopicDraft {
         }
         let description = validatedDescription(&issues, limits: limits)
         let questions = validatedQuestions(&issues, limits: limits)
+        let timer = validatedTimer(&issues, limits: limits)
         if !issues.isEmpty { return .failure(DraftIssues(issues)) }
         return .success(
-            Creation(name: name, slug: slug.isEmpty ? nil : slug, description: description, questions: questions))
+            Creation(
+                name: name, slug: slug.isEmpty ? nil : slug, description: description, questions: questions,
+                timer: timer))
     }
 
-    /// Validates the questions and change note of a new version.
+    /// Validates the questions, the steps and the change note of a new version.
     public func validatedForVersion(limits: Limits = .serverDefaults) -> Result<Version, DraftIssues<DraftField>> {
         var issues: [DraftIssue<DraftField>] = []
         let questions = validatedQuestions(&issues, limits: limits)
+        let timer = validatedTimer(&issues, limits: limits)
         let note = BuilderText.strip(changeNote)
         if BuilderText.count(note) > limits.maxChangeNoteLength {
             issues.append(.init(field: .changeNote, message: "At most \(limits.maxChangeNoteLength) characters"))
         }
         if !issues.isEmpty { return .failure(DraftIssues(issues)) }
-        return .success(Version(questions: questions, changeNote: note))
+        return .success(Version(questions: questions, timer: timer, changeNote: note))
     }
 
     /// Validates the topic's name, slug and description (topic settings).
@@ -298,6 +312,28 @@ extension TopicDraft {
             }
         }
         return out
+    }
+
+    /// Validates the questions and the steps (what "Review changes" checks), without the change
+    /// note, which the review checks before publishing.
+    public func validatedQuestionsAndTimer(limits: Limits = .serverDefaults) -> Result<
+        Version, DraftIssues<DraftField>
+    > {
+        var issues: [DraftIssue<DraftField>] = []
+        let questions = validatedQuestions(&issues, limits: limits)
+        let timer = validatedTimer(&issues, limits: limits)
+        return issues.isEmpty
+            ? .success(Version(questions: questions, timer: timer, changeNote: changeNote))
+            : .failure(DraftIssues(issues))
+    }
+
+    private func validatedTimer(_ issues: inout [DraftIssue<DraftField>], limits: Limits) -> TopicTimer? {
+        switch validatedTimer(limits: limits) {
+        case .success(let timer): return timer
+        case .failure(let e):
+            issues += e.issues
+            return nil
+        }
     }
 
     private func validatedName(_ issues: inout [DraftIssue<DraftField>], limits: Limits) -> String {

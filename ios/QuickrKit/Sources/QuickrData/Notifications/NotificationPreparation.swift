@@ -106,9 +106,8 @@ public struct NotificationPreparation: Sendable {
             return out
         }
 
-        // A timed reminder's Start isn't registered until the app handles it (I-NOTIF, timers.md
-        // §10.2): until then it shows as a plain reminder, as before.
-        if let descriptor = q.quickLog, descriptor != .timed, let topicId = q.topicId, let version = q.version {
+        // A timed reminder's category (its Start, timers.md §10.1) is registered like any other.
+        if let descriptor = q.quickLog, let topicId = q.topicId, let version = q.version {
             let category = NotificationCategory(
                 serverId: q.serverId, topicId: topicId, version: version, descriptor: descriptor)
             if category.id != incoming.categoryIdentifier {
