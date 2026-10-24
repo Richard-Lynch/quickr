@@ -33,7 +33,11 @@ def main() -> int:
             signal.signal(signum, signal.SIG_DFL)
 
     child = subprocess.Popen(
-        sys.argv[1:], stdout=slave, stderr=slave, close_fds=True, preexec_fn=default_signals,
+        sys.argv[1:],
+        stdout=slave,
+        stderr=slave,
+        close_fds=True,
+        preexec_fn=default_signals,
         start_new_session=True,
     )
     os.close(slave)
@@ -41,7 +45,9 @@ def main() -> int:
     def signal_group(signum):
         try:
             os.killpg(child.pid, signum)
-        except ProcessLookupError:
+        # macOS answers EPERM, not ESRCH, when every member of the group has exited but isn't
+        # reaped yet: the group is gone either way.
+        except (ProcessLookupError, PermissionError):
             pass
 
     def forward(signum, _frame):
