@@ -118,9 +118,12 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         #expect(run.aliases == [UUID(uuidString: "0a000000-0000-4000-8000-000000000002")!])
 
         let closed = try Fixtures.api("listChanges.run_deletion")
-        let closedPage = try ChangePageDTO.decode(try #require(closed.body), using: WireCoding.decoder()).toDomain()
+        let closedWire = try ChangePageDTO.decode(try #require(closed.body), using: WireCoding.decoder())
+        let closedPage = try closedWire.toDomain()
         #expect(closedPage.deleted.map(\.kind) == [.run, .run, .run])
-        #expect(closedPage.deleted.map(\.seq) == [32, 36, 39])
+        let wireSeqs: [Int] = closedWire.deleted.map(\.seq)
+        let seqs: [Int] = closedPage.deleted.map(\.seq)
+        #expect(seqs == wireSeqs)
         #expect(closedPage.items.count == 2)
         guard case .entry(_, let entry) = try #require(closedPage.items.first) else {
             Issue.record("expected the stopped run's entry")
