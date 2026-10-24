@@ -21,6 +21,8 @@ extension AppEnvironment {
             case .open: "open"
             case .logged: "logged"
             case .alreadyLogged: "already logged"
+            case .started: "started"
+            case .alreadyStarted: "already started"
             case .refused(let failure): "refused: \(failure)"
             case .needsFix: "needs fix"
             }
@@ -67,6 +69,9 @@ extension AppEnvironment {
             onSignal: session.coordinator.outboxSignalHandler,
             reloadWidgets: { WidgetCenter.shared.reloadAllTimelines() },
             // The badge and the flush follow the session's binding, decided where it changes.
-            gate: SessionActiveGate(session: session))
+            gate: SessionActiveGate(session: session),
+            // I-LA SEAM (timers.md §10.2): a Start asks for the run's Live Activity here once I-LA's
+            // local start lands; until then none is requested, and the server's push-to-start shows it.
+            startLiveActivity: { _ in false })
     }
 }
