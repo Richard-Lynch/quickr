@@ -66,8 +66,8 @@ describe('a single topic tile', () => {
       renderTile(vitamins);
       await userEvent.click(
         where === 'the tile'
-          ? screen.getByTestId('tile-log')
-          : screen.getByRole('button', { name: 'Log Vitamins now' }),
+          ? await screen.findByTestId('tile-log')
+          : await screen.findByRole('button', { name: 'Log Vitamins now' }),
       );
       await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Logged Vitamins'));
       expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
@@ -78,12 +78,13 @@ describe('a single topic tile', () => {
     },
   );
 
-  it('offers screen readers one Log control, not two', () => {
+  it('offers screen readers one Log control, not two', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() => Promise.reject(new TypeError('offline'))),
     );
     renderTile(vitamins);
+    await screen.findByRole('button', { name: 'Log Vitamins now' });
     expect(screen.getAllByRole('button', { name: /^Log Vitamins/ })).toHaveLength(1);
   });
 
@@ -93,21 +94,34 @@ describe('a single topic tile', () => {
       vi.fn(() => Promise.reject(new TypeError('offline'))),
     );
     renderTile(vitamins);
+    await screen.findByRole('button', { name: 'Log Vitamins now' });
     await userEvent.click(screen.getByRole('link', { name: 'Vitamins' }));
     expect(screen.getByText('Topic page')).toBeInTheDocument();
     expect(await outbox.list()).toEqual([]);
   });
 
-  it('a topic with questions keeps its Log link to the record screen', () => {
+  it('a topic with questions keeps its Log link to the record screen', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() => Promise.reject(new TypeError('offline'))),
     );
     renderTile({ ...vitamins, question_count: 2 });
-    expect(screen.getByRole('link', { name: 'Log Vitamins' })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: 'Log Vitamins' })).toHaveAttribute(
       'href',
       '/t/vitamins/record',
     );
     expect(screen.queryByRole('button', { name: 'Log Vitamins now' })).toBeNull();
+  });
+
+  it('waits, neutral, until it knows whether the topic is timed (no one-tap log yet)', async () => {
+    // The versions never come: the action stays a placeholder.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>(() => undefined)),
+    );
+    renderTile(vitamins);
+    expect(await screen.findByTestId('tile-action-pending')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Log Vitamins now' })).toBeNull();
+    expect(screen.queryByTestId('tile-log')).toBeNull();
   });
 });

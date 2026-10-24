@@ -4,6 +4,8 @@ import { isRouteErrorResponse, Link, Outlet, useNavigate, useRouteError } from '
 import { errorMessage } from '../api/errors';
 import { useRuns } from '../lib/runs/useRuns';
 import { SyncIndicator } from './pwa/Sync';
+import { RunningBar } from './runs/RunningBar';
+import { RunNotices } from './runs/RunNotices';
 import { ButtonLink, IconButton } from './ui/Button';
 import { EmptyState } from './ui/Card';
 import { cn } from './ui/cn';
@@ -53,6 +55,7 @@ export function AppShell() {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
       <Outlet />
+      <RunNotices />
     </div>
   );
 }
@@ -73,7 +76,7 @@ export function canGoBack(): boolean {
 }
 
 /**
- * Compact sticky top bar. `back` renders a back button (phones navigate
+ * Compact sticky top bar, with the running bar under it. `back` renders a back button (phones navigate
  * mostly by thumb + back; installed iOS apps have no browser back button at all),
  * `actions` sit on the right next to the sync/offline indicator.
  * `back={true}` pops history when there is any, else goes to the topic list.
@@ -91,36 +94,40 @@ export function TopBar({
 }) {
   const navigate = useNavigate();
   return (
-    <header
-      className={cn(
-        'sticky top-0 z-30 flex h-[calc(3.5rem+env(safe-area-inset-top))] items-center gap-1 border-b border-line/70 bg-paper/85 px-2 pt-[env(safe-area-inset-top)] backdrop-blur-md select-none sm:h-[calc(4rem+env(safe-area-inset-top))] sm:px-4',
-        className,
-      )}
-    >
-      {back ? (
-        <IconButton
-          label="Back"
-          onClick={() => {
-            if (back !== true) void navigate(back);
-            else if (canGoBack()) void navigate(-1);
-            else void navigate('/');
-          }}
-        >
-          <Icon name="chevronLeft" />
-        </IconButton>
-      ) : (
-        <div className="px-2">
-          <Logo />
+    <>
+      <header
+        className={cn(
+          'sticky top-0 z-30 flex h-[calc(3.5rem+env(safe-area-inset-top))] items-center gap-1 border-b border-line/70 bg-paper/85 px-2 pt-[env(safe-area-inset-top)] backdrop-blur-md select-none sm:h-[calc(4rem+env(safe-area-inset-top))] sm:px-4',
+          className,
+        )}
+      >
+        {back ? (
+          <IconButton
+            label="Back"
+            onClick={() => {
+              if (back !== true) void navigate(back);
+              else if (canGoBack()) void navigate(-1);
+              else void navigate('/');
+            }}
+          >
+            <Icon name="chevronLeft" />
+          </IconButton>
+        ) : (
+          <div className="px-2">
+            <Logo />
+          </div>
+        )}
+        <div className="min-w-0 flex-1 truncate font-display text-lg font-semibold tracking-tight">
+          {title}
         </div>
-      )}
-      <div className="min-w-0 flex-1 truncate font-display text-lg font-semibold tracking-tight">
-        {title}
-      </div>
-      <div className="flex items-center gap-1">
-        <SyncIndicator />
-        {actions}
-      </div>
-    </header>
+        <div className="flex items-center gap-1">
+          <SyncIndicator />
+          {actions}
+        </div>
+      </header>
+      {/* Every open run, above the content (timers.md §11.5). */}
+      <RunningBar />
+    </>
   );
 }
 

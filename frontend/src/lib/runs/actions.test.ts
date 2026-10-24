@@ -6,7 +6,7 @@ import { OUTBOX_KINDS, type RunEventPayload } from '../outbox/kinds';
 import { createOutbox } from '../outbox/outbox';
 import { memoryOutboxStore } from '../outbox/store';
 import type { OutboxItem } from '../outbox/types';
-import { startRun, tapRun, type RunTapDeps } from './actions';
+import { RunVersionMismatch, startRun, tapRun, type RunTapDeps } from './actions';
 import { ackedItems, memoryAckedStore, setAckedStore } from './acked';
 import { parseInstant } from './instant';
 
@@ -137,6 +137,30 @@ describe('tapRun', () => {
     expect(await tapRun(deps, runId, CTX, 'resume')).toBeNull(); // not paused
     expect(await tapRun(deps, runId, CTX, 'finish')).toBeNull(); // not stopped
     expect(await queued()).toHaveLength(1);
+  });
+
+  it('a finish of a run no longer in the view still goes to the run id (§3.6)', async () => {
+    // A stopped run drops out of listRuns; its answers can still come from the form.
+    const { deps, queued } = setup();
+    const item = await tapRun(deps, 'R9', CTX, 'finish', { answers: { mood: 3 }, notes: 'ok' });
+    expect(item?.payload).toMatchObject({
+      run_id: 'r9',
+      makes_entry: false,
+      event: { type: 'finish', answers: { mood: 3 }, notes: 'ok' },
+    });
+    expect(await queued()).toHaveLength(1);
+    // Other taps of an unknown run still do nothing.
+    expect(await tapRun(deps, 'R9', CTX, 'stop')).toBeNull();
+    expect(await queued()).toHaveLength(1);
+  });
+
+  it('a context for another version throws RunVersionMismatch', async () => {
+    const { deps } = setup([serverRun('r1', [ev('r1', 'start', T0)])]);
+    const err: unknown = await tapRun(deps, 'r1', { ...CTX, version: 2 }, 'lap').catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(RunVersionMismatch);
+    expect(err).toMatchObject({ runId: 'r1', runVersion: 1 });
   });
 
   it('a stop makes the entry unless a required question is unanswered', async () => {

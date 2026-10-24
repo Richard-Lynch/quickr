@@ -33,10 +33,13 @@ export const RUN_TAP_LOCK = 'quickr-run-tap';
 export interface RunContext {
   topic: RunEventPayload['topic'];
   version: number;
-  /** That version's steps. */
-  steps: TimerStep[];
-  /** The version has a required question: a stop without answers leaves it finishing. */
-  requires_answers: boolean;
+  /** That version's steps; null when this device doesn't know them yet (no step list). */
+  steps: TimerStep[] | null;
+  /**
+   * The version has a required question: a stop without answers leaves it finishing. Null
+   * when not known: a stop then projects no entry (the server decides, §3.5).
+   */
+  requires_answers: boolean | null;
 }
 
 /** A start's context: a reminder's Start may not know the version's steps and questions. */
@@ -63,6 +66,49 @@ export interface RunTapDeps {
 }
 
 export type TapType = Exclude<RunEventType, 'start'>;
+
+/** `tapRun` was given the context of another version than the run's own. */
+export class RunVersionMismatch extends Error {
+  readonly runId: string;
+  readonly runVersion: number;
+
+  constructor(runId: string, runVersion: number, ctxVersion: number) {
+    super(`run ${runId} is pinned to version ${String(runVersion)}, not ${String(ctxVersion)}`);
+    this.name = 'RunVersionMismatch';
+    this.runId = runId;
+    this.runVersion = runVersion;
+  }
+}
+
+/**
+ * What the user saw when they tapped: the open segment, the step a Skip named, and whether
+ * the run was paused (and by which pause). A tap whose target has moved since (a double
+ * tap, read after the first was queued) is dropped here, as the fold would void it
+ * (`stale`, `already_paused`, `not_paused`, §4.2). Stop, discard and finish don't use it:
+ * their repeats are void (`already_closed`) or idempotent.
+ */
+export interface TapExpect {
+  seg: number | null;
+  step: string | null;
+  paused: boolean;
+  pauseId: string | null;
+}
+
+function moved(run: LocalRun, type: TapType, target: Partial<RunEventIn>, e: TapExpect): boolean {
+  switch (type) {
+    case 'next':
+    case 'lap':
+      return target.seg !== e.seg;
+    case 'skip':
+      return target.seg !== e.seg || target.step !== e.step;
+    case 'pause':
+      return e.paused || run.state.paused_since !== null;
+    case 'resume':
+      return !e.paused || target.pause_id !== e.pauseId;
+    default:
+      return false;
+  }
+}
 
 /** What a stop or finish carries (§3.5, §3.6). */
 export type TapBody = Pick<RunEventIn, 'answers' | 'notes' | 'meta'>;
@@ -243,14 +289,16 @@ function targetOf(run: LocalRun, type: TapType): Partial<RunEventIn> | null {
 /** Whether the tap makes the run's entry (`RunEventPayload.makes_entry`). */
 function makesEntry(run: LocalRun, ctx: RunContext, type: TapType, body: TapBody): boolean {
   if (type === 'finish') return run.status === 'finishing';
-  if (type === 'stop') return body.answers != null || !ctx.requires_answers;
+  if (type === 'stop') return body.answers != null || ctx.requires_answers === false;
   return false;
 }
 
 /**
  * Enqueue one tap on the run `runId` routes to (its id or an alias). Returns the item, or
  * null when the run isn't in the local view (after one `refresh`) or its state has no
- * target for the tap. Throws when `ctx` is for another version than the run's. A
+ * target for the tap, or (with `opts.expect`) the target moved since the user saw it. A finish of a run that isn't in the view is still enqueued: a
+ * stopped run drops out of `listRuns`, and the server applies or voids the finish. Throws
+ * {@link RunVersionMismatch} when `ctx` is for another version than the run's. A
  * discard of a run the server never saw drops the run's items instead (K6): the item is
  * returned but not stored.
  */
@@ -260,6 +308,7 @@ export function tapRun(
   ctx: RunContext,
   type: TapType,
   body: TapBody = {},
+  opts: { expect?: TapExpect } = {},
 ): Promise<OutboxItem<RunEventPayload> | null> {
   const tapAt = tapTime(deps);
   return serialised(async () => {
@@ -271,12 +320,24 @@ export function tapRun(
       ({ runs, items } = await view(deps));
       run = runById(runs, runId);
     }
-    if (!run) return null;
-    if (run.version !== ctx.version) {
-      throw new Error(`run ${run.id} is pinned to version ${run.version}, not ${ctx.version}`);
+    if (!run) {
+      // A stopped run leaves the view once `listRuns` no longer lists it, but its answers
+      // can still come (§3.6): the server decides a finish, so send it to the run id.
+      if (type !== 'finish') return null;
+      const event: RunEventPayload['event'] = {
+        type,
+        // A finish isn't folded: its `at` needs no clamp.
+        at: stamp(tapAt, null, items),
+        ...(body.answers != null ? { answers: body.answers } : {}),
+        ...(body.notes != null ? { notes: body.notes } : {}),
+        ...(body.meta != null ? { meta: body.meta } : {}),
+      };
+      return deps.outbox.enqueue(RUN_EVENT, payloadOf(ctx, runId, false, event));
     }
+    if (run.version !== ctx.version) throw new RunVersionMismatch(run.id, run.version, ctx.version);
     const target = targetOf(run, type);
     if (target === null) return null;
+    if (opts.expect && moved(run, type, target, opts.expect)) return null;
     const carries = type === 'stop' || type === 'finish';
     const event: RunEventPayload['event'] = {
       type,

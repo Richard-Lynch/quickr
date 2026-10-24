@@ -1002,6 +1002,9 @@ a "Live Activities" switch, on by default.
 - **"Auto" advance** (the Action button, a small widget, Siri "next"): idle →
   Start; a named step remains → Next; otherwise → Stop. The dishwasher is then
   one press to start and one to stop.
+- **Tap cooldown [pwa].** After a tap on a run's controls, other taps on that run
+  within 450 ms are ignored, Start → Next and a fast Lap, Lap included: the
+  buttons change under the finger, so a double tap would read as two actions.
 - **Home and badge.** A timed topic with an open run shows "Running · 4:12"
   instead of its due state, and is not counted as due. A finishing run shows
   "Add details". These sit above derived due state; the due port itself
@@ -1072,6 +1075,8 @@ taps that did what the user wanted.
   its timer and primary button. It links to the run panel.
 - **Run panel** on the topic's Record page: the same layout and controls as the
   iOS run screen. Stop sends `stop`, then shows the answers form as on iOS.
+  Idle, it also offers "Log without the timer" (`?untimed=1`): the ordinary
+  form, which makes an untimed entry (`createEntry`).
 - **Entry edit page:** the timing section and Edit times form.
 - **Overview page:** the Timing section, with the existing chart components
   (`LineChart`, `StackedBars`).

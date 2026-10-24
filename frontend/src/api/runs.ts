@@ -8,7 +8,7 @@ import { queryOptions, type QueryClient } from '@tanstack/react-query';
 
 import { listRuns, type RunOut } from '../client';
 import { listRunsQueryKey } from '../client/@tanstack/react-query.gen';
-import { getOutboxSnapshot, outbox } from '../lib/outbox/client';
+import { getOutboxSnapshot, isOnline, outbox } from '../lib/outbox/client';
 import { isCachedResponse } from '../lib/runs/serverClock';
 import type { RunTapDeps } from '../lib/runs/actions';
 import { ackedItems, getAckedSnapshot, pruneAcked } from '../lib/runs/acked';
@@ -108,12 +108,40 @@ export function openRunTopicsNow(qc: QueryClient): ReadonlySet<string> {
   return openRunTopics(localRunsNow(qc));
 }
 
+/** How long a tap waits for its one `listRuns` refresh before going on without it. */
+export const TAP_REFRESH_TIMEOUT_MS = 3_000;
+
+/**
+ * One `listRuns` fetch for a tap that missed its run, best effort: taps are serialised,
+ * so it must always settle. Skipped offline; no retries and no pausing for the network
+ * (the app's defaults would wait for it to come back); failures and timeouts are ignored.
+ */
+export function refreshRunsForTap(
+  qc: QueryClient,
+  timeoutMs: number = TAP_REFRESH_TIMEOUT_MS,
+): Promise<void> {
+  if (!isOnline()) return Promise.resolve();
+  const fetched = qc
+    .query({ ...runsQueryOptions(qc), staleTime: 0, retry: false, networkMode: 'always' })
+    .then(
+      () => undefined,
+      () => undefined,
+    );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, timeoutMs);
+  });
+  return Promise.race([fetched, timeout]).finally(() => {
+    clearTimeout(timer);
+  });
+}
+
 /** What `startRun` and `tapRun` need, on the page's outbox and query cache. */
-export function runTapDeps(qc: QueryClient): RunTapDeps {
+export function runTapDeps(qc: QueryClient, refreshTimeoutMs?: number): RunTapDeps {
   return {
     outbox,
     serverRuns: () => cachedServerRuns(qc),
     acked: ackedItems,
-    refresh: () => qc.query({ ...runsQueryOptions(qc), staleTime: 0 }).then(() => undefined),
+    refresh: () => refreshRunsForTap(qc, refreshTimeoutMs),
   };
 }
