@@ -548,9 +548,12 @@ public struct Outbox: Sendable {
     /// it was started elsewhere: the item is acked with that run, as a merged start would be (the
     /// run, and its alias, go into the server layer), and a pull brings the rest (its entry). With
     /// `id_conflict` the id may be an entry's instead: one of the start's topic means this
-    /// reminder was already logged; the item is retired and a pull asked for. Anything else (no
-    /// such run or entry, or another topic's) fails the start `rejected` with the refusal kept.
-    /// The run's other queued taps aren't touched: they go to the server's run.
+    /// reminder was already logged and the run never existed (`loggedElsewhere`: the start and the
+    /// run's other items go, answers failing `logged_elsewhere`), and a pull is asked for.
+    /// Anything else (no such run or entry, another topic's, or a terminal refusal of the read)
+    /// fails the start `rejected` with the refusal kept. In the run case the run's other queued
+    /// taps aren't touched: they go to the server's run. The pull is asked for only when the ack
+    /// applied.
     private func checkStart(
         _ claim: OutboxClaim, _ item: OutboxItem, refused: APIResponse<OutboxSuccess>, _ run: inout FlushRun
     ) async throws -> OutboxFlushReport.Ending? {
@@ -578,33 +581,42 @@ public struct Outbox: Sendable {
             let resolution: OutboxResolution
             switch response.outcome {
             case .success(.run(let server)) where server.topicId == topicId:
-                let effect = server.state.effects[itemId.lowercased()] ?? .void(.merged)
+                let effect = Self.startKnownEffect(server, startId: itemId)
                 resolution = .ack(.runEvent(RunEventResult(eventId: itemId, effect: effect, run: server, entry: nil)))
             case .success(.entry(let entry)) where entry.topicId == topicId:
-                resolution = .retire(pull: true)
+                resolution = .loggedElsewhere
             case .success, .notFound:
                 continue  // not this topic's, or not there: the next read, or the refusal stands
             case .identityMismatch:
                 resolution = .restore(.identity)
             case .epochMismatch:
                 resolution = .restore(.epoch)
+            case .terminal, .entryDeleted, .staleRevision:
+                // The read itself is refused for good: the start's refusal stands.
+                return try await finish(claim, rejected, error: refused.outboxError, stopsPass: false, &run)
             default:
                 // The start didn't execute (409); check again on the next attempt.
                 resolution = .retry(maybeDelivered: false)
             }
-            let ending = try await finish(
+            let acks: Bool = if case .ack = resolution { true } else { false }
+            return try await finish(
                 claim, resolution, error: response.outboxError ?? refused.outboxError,
-                stopsPass: response.outcome.stopsPass, &run)
-            if case .ack = resolution { run.signal(.pullRequested) }
-            return ending
+                stopsPass: response.outcome.stopsPass, pullOnAck: acks, &run)
         }
         return try await finish(claim, rejected, error: refused.outboxError, stopsPass: false, &run)
     }
 
+    /// The effect a start acked by `checkStart` gets: the server's for its id (applied for the run's
+    /// own start, `merged` for an alias), or `merged` when the run doesn't list it.
+    static func startKnownEffect(_ server: Run, startId: String) -> RunEffect {
+        server.state.effects[startId.lowercased()] ?? .void(.merged)
+    }
+
     /// The outcome transaction and the pass decision.
+    /// `pullOnAck`: ask for a pull when (and only when) the ack applied.
     private func finish(
         _ claim: OutboxClaim, _ resolution: OutboxResolution, error: OutboxErrorInfo?, stopsPass: Bool,
-        _ run: inout FlushRun
+        pullOnAck: Bool = false, _ run: inout FlushRun
     ) async throws -> OutboxFlushReport.Ending? {
         let (itemId, sender, jitter) = (claim.item.id, claim.sender, random())
         let item = claim.item
@@ -622,6 +634,7 @@ public struct Outbox: Sendable {
         case .fenced: return .superseded
         case .acked:
             run.report.acked += 1
+            if pullOnAck { run.signal(.pullRequested) }
             if case .ack(.runEvent(let result)) = resolution, let void = RunVoid(claim.item, result) {
                 run.report.runVoids.append(void)
             }
@@ -630,7 +643,7 @@ public struct Outbox: Sendable {
         case .retired, .restored, .cancelled: run.report.settled += 1
         }
         switch resolution {
-        case .retire(pull: true), .fail(_, pull: true): run.signal(.pullRequested)
+        case .retire(pull: true), .fail(_, pull: true), .loggedElsewhere: run.signal(.pullRequested)
         case .restore(let mismatch), .mismatchUncertain(let mismatch):
             run.signal(mismatch == .identity ? .identityMismatch : .epochSuspect)
             return .mismatch(mismatch)

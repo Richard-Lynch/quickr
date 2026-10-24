@@ -74,8 +74,12 @@ extension FakeServer {
 
         if var run = state.runs[target] {
             if let stored = run.bodies[eventId] {
-                // A replay, unless the content differs (as `_replay` compares type and `at`).
-                guard stored.type == body.type, RunInstant.parse(stored.at) == at else {
+                // A replay, unless the content differs (as `_replay` compares it).
+                let same =
+                    stored.type == body.type && RunInstant.parse(stored.at) == at && stored.seg == body.seg
+                    && stored.step == body.step && stored.pauseId?.lowercased() == body.pauseId?.lowercased()
+                    && (type != .start || body.topicId?.lowercased() == run.topicId.wireString)
+                guard same else {
                     return problem(409, "event_conflict", "already recorded with different content")
                 }
                 return result(run, eventId, status: 200, state)

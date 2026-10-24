@@ -35,6 +35,10 @@ public enum OutboxResolution: Sendable, Hashable {
     /// `Outbox` reads the run (or entry) with that id: one of the start's topic is "started
     /// elsewhere" and resolves the item; anything else fails it `rejected`, as before.
     case startKnown
+    /// `startKnown` found an entry of the start's topic with the start's id: the reminder was
+    /// already logged, so the run never existed. The start is retired with every other item of the
+    /// run (answers fail `logged_elsewhere` instead, so they aren't lost silently); a pull follows.
+    case loggedElsewhere
     /// 409 `server_mismatch` / `epoch_mismatch`: nothing executed; restore the pre-claim state.
     case restore(OutboxMismatch)
     /// Mismatched or missing headers on a response that may have executed: `uncertain`.
@@ -118,6 +122,7 @@ enum OutboxMessage {
     static let topicArchived = "Topic is archived. Unarchive it to sync this entry."
     static let conflict = "Changed on another device — review and retry"
     static let deletedElsewhere = "Deleted on another device"
+    static let loggedElsewhere = "Already logged on another device"
     static let entryDeleted = "This entry was deleted"
     static let topicMissing = "Topic not found"
 

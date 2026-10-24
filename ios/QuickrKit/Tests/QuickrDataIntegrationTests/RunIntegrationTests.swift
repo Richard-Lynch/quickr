@@ -175,7 +175,10 @@ extension IntegrationTests {
                 let pwa = try await it.a.pwaStart(reminder)
                 #expect(pwa.status == 201)
 
-                _ = await device.startHandler().handle(reminder.response)
+                let outcome = await device.startHandler().handle(reminder.response)
+                let started: NotificationActionOutcome = .started(
+                    runId: reminder.runId.wireString, serverId: it.config.serverId, flush: .drained)
+                #expect(outcome == started, "enqueued, sent, and acked as started elsewhere")
                 let runs = try await it.openRuns(topic)
                 #expect(runs == [reminder.runId], "one run, the PWA's")
 
@@ -197,7 +200,8 @@ extension IntegrationTests {
                         runId: reminder.runId.wireString, serverId: it.config.serverId, flush: .drained)
                     #expect(first == started)
 
-                    _ = await second.startHandler().handle(reminder.response)
+                    let again = await second.startHandler().handle(reminder.response)
+                    #expect(again == started, "enqueued, sent, and acked as started elsewhere")
                     let runs = try await it.openRuns(topic)
                     #expect(runs == [reminder.runId])
                     try await Self.expectJoined(it, second, secondStore, reminder.runId)
