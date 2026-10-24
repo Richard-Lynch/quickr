@@ -74,8 +74,9 @@ extension AppEnvironment {
     }
 
     /// outbox.md §10: a forced flush within the intent's 4 s budget, by its own owner (it may run
-    /// beside the session's scheduler, which is paused while the app is in the background).
-    private func flushAfterActivityTap(_ store: LocalStore, session: AppSession) async {
+    /// beside the session's scheduler, which is paused while the app is in the background). The
+    /// run intents' too.
+    func flushAfterActivityTap(_ store: LocalStore, session: AppSession) async {
         guard let state = try? await store.syncState.syncState(), let url = URL(string: state.baseURL) else {
             lastActivityTapFlush = "no server address"
             return

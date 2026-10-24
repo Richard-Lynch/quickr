@@ -205,8 +205,9 @@ public struct RunWrites: Sendable {
     }
 
     /// Auto (§11.1), in one transaction: no open run → Start; a named step remains after the open
-    /// segment → Next; otherwise → Stop. A finishing run isn't open, so Auto starts a new run then
-    /// (the finishing one keeps waiting for its answers).
+    /// segment, or the pinned version's steps aren't known here (a step may remain: the primary
+    /// button is a plain Next then) → Next; otherwise → Stop. A finishing run isn't open, so Auto
+    /// starts a new run then (the finishing one keeps waiting for its answers).
     @discardableResult
     public func auto(topic: TopicRef, version: Int) async throws -> RunAutoResult {
         let tapAt = now()
@@ -219,12 +220,18 @@ public struct RunWrites: Sendable {
                         db, topic: topic, version: version, id: nil, meta: nil, tapAt: tapAt, device: device,
                         origin: origin, now: now, wall: wall))
             }
-            let type: RunTapType = run.state.nextStep != nil ? .next : .stop
+            let type = Self.autoTap(run)
             let result = try Self.tap(
                 db, type, run: run, target: .current, body: Body(), tapAt: tapAt, device: device, origin: origin,
                 now: now, wall: wall)
             return .tapped(type, runId: run.id, result)
         }
+    }
+
+    /// Auto's tap on an open run: Next while a named step remains or the steps aren't known, else
+    /// Stop.
+    static func autoTap(_ run: LocalRun) -> RunTapType {
+        run.steps == nil || run.state.nextStep != nil ? .next : .stop
     }
 
     // MARK: - Transactions
@@ -235,7 +242,7 @@ public struct RunWrites: Sendable {
         var meta: [String: String]?
     }
 
-    private func write<T: Sendable>(
+    func write<T: Sendable>(
         _ body: @escaping @Sendable (Database, LeaseInstant, Date) throws -> T
     ) async throws -> T {
         let (clock, wallClock) = (store.leaseClock, store.wallClock)

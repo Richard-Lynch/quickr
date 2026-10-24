@@ -230,6 +230,7 @@ final class AppEnvironment {
                     return { await hold?.release() }
                 }))
         registerLiveActivityTaps()
+        registerRunIntents()
         // OpenRecordIntent, and repeat-last falling back to the record screen: the same hand-off as
         // a tap-to-fix notification's prefill.
         IntentNavigation.register { [weak self] request in

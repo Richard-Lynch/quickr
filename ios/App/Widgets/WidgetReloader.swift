@@ -5,7 +5,7 @@ import QuickrData
 import WidgetKit
 
 /// Keeps the Home and Lock Screen widgets and the Controls in step with the active store, within
-/// WidgetKit's reload budget: on any topic, outbox or sync-state change (a log, an edit, a sync, a
+/// WidgetKit's reload budget: on any topic, outbox, run or sync-state change (a log, an edit, a sync, a
 /// new clock skew, a server switch) it reads what the
 /// widgets show and reloads their timelines only when that changed (`WidgetFingerprint`). Changes
 /// that come in a burst (a sync applying many rows) are read once, `settle` after the last.
@@ -37,7 +37,9 @@ final class WidgetReloader {
         // The skew moves due state (sync-protocol.md §10): a pull that changes only it reloads too.
         // Only this process's pulls write it, so it needs no cross-process refresh.
         async let syncState: Void = follow(store.observeSyncState(), reader)
-        _ = await (topics, outbox, syncState)
+        // A run another device moved (a sync) changes the timed widgets too (timers.md §11.3).
+        async let runs: Void = follow(store.observeLocalRuns(refresh: refresh), reader)
+        _ = await (topics, outbox, syncState, runs)
         pending?.cancel()
     }
 
