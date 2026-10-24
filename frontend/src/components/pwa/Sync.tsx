@@ -39,12 +39,15 @@ export function describeOutboxItem(item: OutboxItem): ItemView {
       when: formatDateTime(event.at),
       // Answers (a finish, or a stop with answers) are fixed in the answers form; a failed
       // Stop on the run panel, where the run is open again and can be stopped or discarded.
+      // A 404: the run is gone elsewhere (§8.1 `deleted_elsewhere`); there's nothing to fix.
       fixUrl:
-        event.type === 'finish' || (event.type === 'stop' && event.answers != null)
-          ? `${base}?fix=${encodeURIComponent(item.id)}`
-          : event.type === 'stop'
-            ? base
-            : null,
+        item.last_error?.status === 404
+          ? null
+          : event.type === 'finish' || (event.type === 'stop' && event.answers != null)
+            ? `${base}?fix=${encodeURIComponent(item.id)}`
+            : event.type === 'stop'
+              ? base
+              : null,
     };
   }
   return { title: item.kind, when: formatDateTime(item.created_at), fixUrl: null };

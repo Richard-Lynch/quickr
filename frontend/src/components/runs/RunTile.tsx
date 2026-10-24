@@ -14,7 +14,7 @@ import { cn } from '../ui/cn';
 import { Icon } from '../ui/Icon';
 import { useToast } from '../ui/Toast';
 import { contextFor, useRunContext, useTopicVersions } from './context';
-import { activeMs, primaryAction, segmentMs, type PrimaryAction } from './model';
+import { activeMs, expectOf, primaryAction, segmentMs, type PrimaryAction } from './model';
 import { useServerNow } from './RunClock';
 import { useRunActions } from './useRunActions';
 
@@ -166,17 +166,19 @@ export function useRunPrimary(
   const versions = useTopicVersions(run?.topic_id ?? '', Boolean(run));
   const runCtx = useRunContext(run, topic);
   if (!run || !isOpen(run)) return null;
-  const primary = primaryAction(run, runCtx?.steps ?? run.steps ?? []);
+  const steps = runCtx?.steps ?? run.steps ?? [];
+  const primary = primaryAction(run, steps);
+  const expect = expectOf(run, steps);
   return {
     ...primary,
     disabled: runCtx === null || actions.busy,
     onTap: () => {
       if (!runCtx) return;
       if (primary.type === 'next') {
-        void actions.tap(run.id, runCtx, 'next');
+        void actions.tap(run.id, runCtx, 'next', {}, expect);
         return;
       }
-      void actions.tap(run.id, runCtx, 'stop').then((item) => {
+      void actions.tap(run.id, runCtx, 'stop', {}, expect).then((item) => {
         if (!item) return;
         if (hasQuestions(versions.data, run.version) !== false) {
           void navigate(finishUrl(topic.slug, run));

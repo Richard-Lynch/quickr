@@ -70,8 +70,11 @@ export function TopicTile({
   // answered at Stop. A run makes the tile timed even before the versions are known.
   const versions = useTopicVersions(t.id, !archived);
   const timed = Boolean(timerOf(versions.data, t.current_version)) || run !== undefined;
+  // Until then it may be either: the action waits, so a first load never one-tap logs an
+  // untimed entry of a timed topic, nor swaps Log for Start under the finger.
+  const unknown = !archived && run === undefined && versions.isPending;
   // A topic with no questions logs with one tap: the tile and its Log button log it at once.
-  const single = !archived && !timed && t.question_count === 0;
+  const single = !archived && !timed && !unknown && t.question_count === 0;
   const logSingle = useSingleLog(t);
   const detail = useQuery({
     ...getTopicOptions({ path: { ref: t.slug } }),
@@ -83,7 +86,7 @@ export function TopicTile({
     detail.data?.current_version === t.current_version ? detail.data.questions : null;
   const found = !archived && questions ? quickLogFor(questions) : null;
   // A single topic logs from the tile itself (`single` above); chips and numbers answer a question.
-  const quick = found && found.kind !== 'single' && !timed ? found : null;
+  const quick = found && found.kind !== 'single' && !timed && !unknown ? found : null;
   // Quick tiles show (and number tiles start from) the last answer.
   const last = useQuery({
     ...lastEntryOptions(t.slug),
@@ -178,6 +181,12 @@ export function TopicTile({
           <Icon name={logSingle.logged ? 'check' : 'plus'} className="size-6" strokeWidth={2.6} />
           Log
         </button>
+      ) : unknown ? (
+        <span
+          aria-hidden
+          data-testid="tile-action-pending"
+          className="relative z-10 w-[5.25rem] shrink-0 border-l border-line bg-sunken/40"
+        />
       ) : timed && (!archived || run) ? (
         <RunTileAction
           topic={{ id: t.id, slug: t.slug, name: t.name }}

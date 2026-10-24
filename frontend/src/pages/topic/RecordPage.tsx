@@ -266,8 +266,9 @@ function TimedRecord({
         ctx={runCtx}
         actions={actions}
         onStopped={(run, _item, totalMs) => {
-          const questions = questionsOf(topic, versions, run.version) ?? [];
-          if (questions.length > 0) {
+          // Questions not known yet: open the form, which waits for them (as the tile does).
+          const questions = questionsOf(topic, versions, run.version);
+          if (questions === null || questions.length > 0) {
             setParams({ finish: run.id, v: String(run.version) }, { replace: true });
             return;
           }

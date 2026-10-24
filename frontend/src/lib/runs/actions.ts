@@ -71,6 +71,36 @@ export class RunVersionMismatch extends Error {
   }
 }
 
+/**
+ * What the user saw when they tapped: the open segment, the step a Skip named, and whether
+ * the run was paused (and by which pause). A tap whose target has moved since (a double
+ * tap, read after the first was queued) is dropped here, as the fold would void it
+ * (`stale`, `already_paused`, `not_paused`, §4.2). Stop, discard and finish don't use it:
+ * their repeats are void (`already_closed`) or idempotent.
+ */
+export interface TapExpect {
+  seg: number | null;
+  step: string | null;
+  paused: boolean;
+  pauseId: string | null;
+}
+
+function moved(run: LocalRun, type: TapType, target: Partial<RunEventIn>, e: TapExpect): boolean {
+  switch (type) {
+    case 'next':
+    case 'lap':
+      return target.seg !== e.seg;
+    case 'skip':
+      return target.seg !== e.seg || target.step !== e.step;
+    case 'pause':
+      return e.paused || run.state.paused_since !== null;
+    case 'resume':
+      return !e.paused || target.pause_id !== e.pauseId;
+    default:
+      return false;
+  }
+}
+
 /** What a stop or finish carries (§3.5, §3.6). */
 export type TapBody = Pick<RunEventIn, 'answers' | 'notes' | 'meta'>;
 
@@ -208,7 +238,7 @@ function makesEntry(run: LocalRun, ctx: RunContext, type: TapType, body: TapBody
 /**
  * Enqueue one tap on the run `runId` routes to (its id or an alias). Returns the item, or
  * null when the run isn't in the local view (after one `refresh`) or its state has no
- * target for the tap. A finish of a run that isn't in the view is still enqueued: a
+ * target for the tap, or (with `opts.expect`) the target moved since the user saw it. A finish of a run that isn't in the view is still enqueued: a
  * stopped run drops out of `listRuns`, and the server applies or voids the finish. Throws
  * {@link RunVersionMismatch} when `ctx` is for another version than the run's. A
  * discard of a run the server never saw drops the run's items instead (K6): the item is
@@ -220,6 +250,7 @@ export function tapRun(
   ctx: RunContext,
   type: TapType,
   body: TapBody = {},
+  opts: { expect?: TapExpect } = {},
 ): Promise<OutboxItem<RunEventPayload> | null> {
   const tapAt = tapTime(deps);
   return serialised(async () => {
@@ -248,6 +279,7 @@ export function tapRun(
     if (run.version !== ctx.version) throw new RunVersionMismatch(run.id, run.version, ctx.version);
     const target = targetOf(run, type);
     if (target === null) return null;
+    if (opts.expect && moved(run, type, target, opts.expect)) return null;
     const carries = type === 'stop' || type === 'finish';
     const event: RunEventPayload['event'] = {
       type,

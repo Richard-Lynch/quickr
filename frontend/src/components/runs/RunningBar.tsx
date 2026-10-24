@@ -4,7 +4,7 @@
  * is on screen is left out.
  */
 import { useQuery } from '@tanstack/react-query';
-import { Link, useMatch } from 'react-router';
+import { Link, useMatch, useSearchParams } from 'react-router';
 
 import { getTopicOptions } from '../../client/@tanstack/react-query.gen';
 import { fmtDuration } from '../../lib/runs/format';
@@ -18,7 +18,10 @@ import { useRunPrimary } from './RunTile';
 
 export function RunningBar() {
   const { runs } = useRuns();
-  const onRecord = useMatch('/t/:ref/record')?.params.ref;
+  const [params] = useSearchParams();
+  // On a run's own panel the bar leaves it out; the untimed form isn't its panel.
+  const recordRef = useMatch('/t/:ref/record')?.params.ref;
+  const onRecord = params.has('untimed') ? undefined : recordRef;
   // The record page's topic (by slug or id), as its layout loaded it.
   const shownTopic = useQuery({
     ...getTopicOptions({ path: { ref: onRecord ?? '' } }),

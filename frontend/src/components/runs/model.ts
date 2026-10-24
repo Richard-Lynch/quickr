@@ -4,7 +4,13 @@
  *
  * Pure. Instants are epoch ms on the server's clock (`serverNow`), as the run's are.
  */
-import { optimisticEntries, type LocalRun, type OptimisticEntry } from '../../lib/runs/localView';
+import type { TapExpect } from '../../lib/runs/actions';
+import {
+  openPauseId,
+  optimisticEntries,
+  type LocalRun,
+  type OptimisticEntry,
+} from '../../lib/runs/localView';
 import type { Pause, RunState, TimerStep } from '../../lib/runs/types';
 
 /** The time inside [from, to] covered by `pauses` and the open pause (since `pausedSince`). */
@@ -114,4 +120,14 @@ export function pendingTimedEntries(
   return optimisticEntries(runs).filter(
     (e) => e.topic_id === topicId && !serverIds.has(e.id.toLowerCase()),
   );
+}
+
+/** What the run's controls show now, for `tapRun`'s `expect` (a double tap goes stale). */
+export function expectOf(run: LocalRun, steps: readonly TimerStep[]): TapExpect {
+  return {
+    seg: run.state.open?.index ?? null,
+    step: skipTarget(run, steps)?.key ?? null,
+    paused: run.status === 'paused',
+    pauseId: openPauseId(run),
+  };
 }

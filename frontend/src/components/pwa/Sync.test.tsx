@@ -31,4 +31,12 @@ describe('describeOutboxItem for run events', () => {
       describeOutboxItem(runItem('next', { id: 'n1', run: 'r1', at: T0, seg: 0 })).fixUrl,
     ).toBeNull();
   });
+
+  it('a finish the server answered 404 (deleted elsewhere) has no Fix', () => {
+    const item = {
+      ...runItem('finish', { id: 'f1', run: 'r1', at: T0, answers: { mood: 2 }, status: 'failed' }),
+      last_error: { message: 'Not found', status: 404 },
+    };
+    expect(describeOutboxItem(item).fixUrl).toBeNull();
+  });
 });

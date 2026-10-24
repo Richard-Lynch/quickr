@@ -102,6 +102,32 @@ describe('the home tile of a timed topic', () => {
   });
 });
 
+describe('a due timed topic', () => {
+  const due = () => {
+    const f = timedTopic();
+    const since = new Date(Date.now() - 3_600_000).toISOString();
+    f.topic.due = { is_due: true, due_since: since, next_due_at: null, last_entry_at: null };
+    return f;
+  };
+  // The tile moves between sections as the runs load: look it up afresh.
+  const current = () => screen.getByRole('article', { name: 'Morning' });
+
+  it('is loud and due while idle', async () => {
+    h = renderRunApp('/', due());
+    await screen.findByRole('button', { name: 'Start Morning' });
+    expect(current().className).toContain('border-accent/45');
+    expect(within(current()).getByText(/^(Due|Overdue)/)).toBeInTheDocument();
+  });
+
+  it('is neither loud nor due with an open run, and not counted', async () => {
+    h = renderRunApp('/', due(), (s) => seedRun(s));
+    await waitFor(() => expect(within(current()).getByText(/^Running/)).toBeInTheDocument());
+    expect(current().className).not.toContain('border-accent/45');
+    expect(within(current()).queryByText(/^(Due|Overdue)/)).toBeNull();
+    expect(screen.getByRole('heading', { name: /Due now/ })).toHaveTextContent('0');
+  });
+});
+
 describe('the running bar', () => {
   it('lists the open run with its timer and primary button, linking to its panel', async () => {
     h = renderRunApp('/t/morning', timedTopic(), (s) => seedRun(s));

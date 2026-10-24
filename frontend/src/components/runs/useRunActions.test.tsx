@@ -7,23 +7,23 @@ import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { runsQueryKey } from '../../api/runs';
+import { client } from '../../client/client.gen';
 import { outbox } from '../../lib/outbox/client';
 import { memoryAckedStore, setAckedStore } from '../../lib/runs/acked';
 import { CTX, T0, ev, serverRun } from '../../test/runs';
 import { ToastProvider } from '../ui/Toast';
-import { useRunActions } from './useRunActions';
+import { RUN_TAP_COOLDOWN_MS, setRunTapCooldown, useRunActions } from './useRunActions';
 
 afterEach(async () => {
+  setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
   await outbox.clear();
   vi.unstubAllGlobals();
 });
 
-function setup() {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(() => Promise.reject(new TypeError('offline'))),
-  );
+function setup(fetch: typeof globalThis.fetch = () => Promise.reject(new TypeError('offline'))) {
+  vi.stubGlobal('fetch', vi.fn(fetch));
   setAckedStore(memoryAckedStore());
+  setRunTapCooldown(0);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   qc.setQueryData(runsQueryKey(), [serverRun('r1', [ev('r1', 'start', T0)])]);
   const wrapper = ({ children }: { children: ReactNode }) => (
@@ -55,5 +55,33 @@ describe('useRunActions', () => {
     expect(items.map((i) => (i.payload as { event: { type: string } }).event.type)).toEqual([
       'lap',
     ]);
+  });
+});
+
+describe('finish', () => {
+  it('a 409 run_open reaches the form, and the new item is dropped', async () => {
+    client.setConfig({ baseUrl: 'http://quickr.test' });
+    const problem = { code: 'run_open', detail: 'The run is still open', errors: [] };
+    const { result } = setup(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(problem), {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    );
+    let thrown: unknown = null;
+    await act(async () => {
+      await result.current
+        .finish('gone-run', CTX, { answers: { mood: 2 } })
+        .catch((e: unknown) => (thrown = e));
+    });
+    client.setConfig({ baseUrl: '' });
+    expect(thrown).toMatchObject({ code: 'run_open' });
+    // (An earlier test's lap may still be retrying in the shared outbox.)
+    const mine = (await outbox.list()).filter(
+      (x) => (x.payload as { run_id?: string }).run_id === 'gone-run',
+    );
+    expect(mine).toEqual([]);
   });
 });

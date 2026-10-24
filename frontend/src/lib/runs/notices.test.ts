@@ -1,9 +1,18 @@
 /** The §11.4 notices for void taps. */
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { T0, ev, runItem, serverRun } from '../../test/runs';
 import type { VoidReason } from './types';
-import { noticeFor } from './notices';
+import {
+  dismissRunNotice,
+  getRunNotices,
+  loadRunNotices,
+  memoryNoticeStore,
+  noticeFor,
+  pushRunNotice,
+  setNoticeStore,
+  subscribeNoticeArrivals,
+} from './notices';
 
 const run = serverRun('r1', [ev('r1', 'start', T0), ev('x', 'stop', T0 + 300_000)]);
 const reply = (reason: VoidReason | null, effect: 'applied' | 'void' = 'void') => ({
@@ -42,5 +51,35 @@ describe('noticeFor', () => {
 
   it('an applied tap says nothing', () => {
     expect(noticeFor(tap('next'), reply(null, 'applied'))).toBeNull();
+  });
+});
+
+describe('the notices store', () => {
+  let store = memoryNoticeStore();
+  beforeEach(() => {
+    store = memoryNoticeStore();
+    setNoticeStore(store);
+  });
+
+  it('keeps a notice in storage until it is dismissed', async () => {
+    pushRunNotice({ id: 'n1', text: 'one' });
+    pushRunNotice({ id: 'n1', text: 'one' });
+    expect(getRunNotices()).toHaveLength(1);
+    expect(await store.all()).toEqual([{ id: 'n1', text: 'one' }]);
+    dismissRunNotice('n1');
+    expect(getRunNotices()).toEqual([]);
+    await Promise.resolve();
+    expect(await store.all()).toEqual([]);
+  });
+
+  it('loads stored notices for the sheet without announcing them again', async () => {
+    await store.put({ id: 'n2', text: 'from before' });
+    const heard: string[] = [];
+    const off = subscribeNoticeArrivals((n) => heard.push(n.id));
+    await loadRunNotices();
+    pushRunNotice({ id: 'n3', text: 'new' });
+    off();
+    expect(getRunNotices().map((n) => n.id)).toEqual(['n2', 'n3']);
+    expect(heard).toEqual(['n3']);
   });
 });

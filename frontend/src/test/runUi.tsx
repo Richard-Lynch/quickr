@@ -10,11 +10,12 @@ import { connectOutboxEffects } from '../api/outboxEffects';
 import { client } from '../client/client.gen';
 import type { RunEventIn, TopicDetail, TopicSummary, TopicVersionOut } from '../client';
 import { AppShell, TopBar } from '../components/AppShell';
+import { RUN_TAP_COOLDOWN_MS, setRunTapCooldown } from '../components/runs/useRunActions';
 import { ToastProvider } from '../components/ui/Toast';
 import { outbox, refreshOutboxSnapshot, startOutbox } from '../lib/outbox/client';
 import type { Question } from '../lib/questions';
 import { memoryAckedStore, setAckedStore } from '../lib/runs/acked';
-import { clearRunNotices } from '../lib/runs/notices';
+import { clearRunNotices, memoryNoticeStore, setNoticeStore } from '../lib/runs/notices';
 import { resetServerOffset } from '../lib/runs/serverClock';
 import type { TimerStep } from '../lib/runs/types';
 import { RecordPage } from '../pages/topic/RecordPage';
@@ -131,6 +132,9 @@ export function renderRunApp(
   // Node's Request needs an absolute URL.
   client.setConfig({ baseUrl: 'http://quickr.test' });
   setAckedStore(memoryAckedStore());
+  setNoticeStore(memoryNoticeStore());
+  // Tests tap as fast as they like; the cooldown's own tests turn it back on.
+  setRunTapCooldown(0);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const disconnect = connectOutboxEffects(qc, outbox);
   const stop = startOutbox();
@@ -192,6 +196,7 @@ export function renderRunApp(
       await refreshOutboxSnapshot();
       setAckedStore(memoryAckedStore());
       clearRunNotices();
+      setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
       resetServerOffset();
       client.setConfig({ baseUrl: '' });
       vi.unstubAllGlobals();

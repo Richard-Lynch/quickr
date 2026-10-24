@@ -21,6 +21,7 @@ import { Duration, useServerNow } from './RunClock';
 import {
   activeMs,
   checklist,
+  expectOf,
   laps,
   primaryAction,
   segmentMs,
@@ -55,8 +56,10 @@ export function RunPanel({
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const disabled = ctx === null || actions.busy;
 
+  // Captured at render: a second tap before the screen catches up targets what it saw.
+  const expect = expectOf(run, steps);
   const tap = (type: Parameters<RunActions['tap']>[2]) =>
-    ctx ? actions.tap(run.id, ctx, type) : Promise.resolve(null);
+    ctx ? actions.tap(run.id, ctx, type, {}, expect) : Promise.resolve(null);
   const stop = async () => {
     const item = await tap('stop');
     if (item) onStopped(run, item, activeMs(run.state, parseInstant(item.payload.event.at)));

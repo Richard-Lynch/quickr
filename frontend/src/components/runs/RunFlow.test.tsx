@@ -3,11 +3,14 @@
  * Next → Skip → Pause → Resume → Stop → answers → Save, checking every request, and a
  * void reply's notice (§11.4).
  */
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { HOW, renderRunApp, timedTopic, TOPIC_ID, type Harness } from '../../test/runUi';
+import { getRunNotices, pushRunNotice } from '../../lib/runs/notices';
+
+import { HOW, renderRunApp, STEPS3, timedTopic, TOPIC_ID, type Harness } from '../../test/runUi';
+import { RUN_TAP_COOLDOWN_MS, setRunTapCooldown } from './useRunActions';
 
 let h: Harness | null = null;
 
@@ -147,6 +150,30 @@ describe('void replies (§11.4)', () => {
     );
   });
 
+  it('a toasted notice is gone from the sheet; one that came while hidden is listed, then dismissed', async () => {
+    h = renderRunApp('/t/morning/record', timedTopic());
+    const user = userEvent.setup();
+    await screen.findByRole('button', { name: 'Start' });
+    act(() => {
+      pushRunNotice({ id: 'seen', text: 'Morning was already stopped.' });
+    });
+    expect(await screen.findByText('Morning was already stopped.')).toBeInTheDocument();
+    expect(getRunNotices()).toEqual([]);
+
+    const hidden = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    act(() => {
+      pushRunNotice({ id: 'unseen', text: 'Morning’s run was deleted.' });
+    });
+    hidden.mockRestore();
+    expect(screen.queryByText('Morning’s run was deleted.')).toBeNull();
+    await user.click(await screen.findByRole('button', { name: '1 notice' }));
+    const list = await screen.findByRole('list', { name: 'Notices' });
+    expect(within(list).getByText('Morning’s run was deleted.')).toBeInTheDocument();
+    await user.click(within(list).getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByText('Morning’s run was deleted.')).toBeNull();
+    expect(getRunNotices()).toEqual([]);
+  });
+
   it('a stale double tap is silent', async () => {
     h = renderRunApp('/t/morning/record', timedTopic());
     const user = userEvent.setup();
@@ -168,5 +195,97 @@ describe('void replies (§11.4)', () => {
     await sent(h, 2);
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByText(/already stopped|wasn’t added/)).toBeNull();
+  });
+});
+
+/**
+ * Two clicks before React re-renders, so both run the handler the first render made (a real
+ * double tap is ~80–120 ms, faster than the queued tap reaches the screen).
+ */
+function doubleTap(el: HTMLElement) {
+  act(() => {
+    el.click();
+    el.click();
+  });
+}
+
+/** Let any further sends happen. */
+const settle = () => new Promise((r) => setTimeout(r, 300));
+
+describe('double taps (review H1)', () => {
+  it('Next twice advances once', async () => {
+    h = renderRunApp('/t/morning/record', timedTopic());
+    await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
+    await sent(h, 1);
+    doubleTap(await screen.findByRole('button', { name: 'Next: Breakfast' }));
+    await sent(h, 2);
+    await settle();
+    expect(types(h)).toEqual(['start', 'next']);
+    expect(await screen.findByRole('button', { name: 'Next: Teeth' })).toBeInTheDocument();
+  });
+
+  it('"Next" on the step before the last never becomes a Stop', async () => {
+    h = renderRunApp('/t/morning/record', timedTopic({ steps: STEPS3.slice(0, 2) }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
+    await sent(h, 1);
+    doubleTap(await screen.findByRole('button', { name: 'Next: Breakfast' }));
+    await sent(h, 2);
+    await settle();
+    expect(types(h)).toEqual(['start', 'next']);
+  });
+
+  it('the cooldown ignores a Stop that replaced Next under the finger, then accepts one', async () => {
+    h = renderRunApp('/t/morning/record', timedTopic({ steps: STEPS3.slice(0, 2) }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
+    await sent(h, 1);
+    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    fireEvent.click(await screen.findByRole('button', { name: 'Next: Breakfast' }));
+    // The screen caught up: the same button now says Stop (the only Stop). A tap right away
+    // is ignored.
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /^Next/ })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    await sent(h, 2);
+    await settle();
+    expect(types(h)).toEqual(['start', 'next']);
+    await new Promise((r) => setTimeout(r, RUN_TAP_COOLDOWN_MS));
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    await sent(h, 3);
+    expect(types(h)).toEqual(['start', 'next', 'stop']);
+  });
+
+  it('Pause twice pauses once (no resume)', async () => {
+    h = renderRunApp('/t/morning/record', timedTopic());
+    await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
+    await sent(h, 1);
+    doubleTap(await screen.findByRole('button', { name: 'Pause' }));
+    await sent(h, 2);
+    await settle();
+    expect(types(h)).toEqual(['start', 'pause']);
+    expect(await screen.findByRole('button', { name: 'Resume' })).toBeInTheDocument();
+  });
+});
+
+describe('the panel’s controls', () => {
+  it('Skip is disabled with nothing to skip (no steps)', async () => {
+    h = renderRunApp('/t/morning/record', timedTopic({ steps: [], questions: [] }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
+    await sent(h, 1);
+    expect(await screen.findByRole('button', { name: 'Skip' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Lap' })).toBeEnabled();
+  });
+
+  it('a stopped run’s optional details form has no Discard', async () => {
+    h = renderRunApp('/t/morning/record', timedTopic({ questions: [{ ...HOW, required: false }] }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
+    await sent(h, 1);
+    // Wait out the start's ack before the stop, so the run is stopped, not finishing.
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+    await sent(h, 2);
+    expect(await screen.findByRole('heading', { name: 'Details' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Discard run' })).toBeNull();
+    expect(h.server.entries).toHaveLength(1);
   });
 });

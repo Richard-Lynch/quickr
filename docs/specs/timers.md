@@ -1070,6 +1070,8 @@ taps that did what the user wanted.
   its timer and primary button. It links to the run panel.
 - **Run panel** on the topic's Record page: the same layout and controls as the
   iOS run screen. Stop sends `stop`, then shows the answers form as on iOS.
+  Idle, it also offers "Log without the timer" (`?untimed=1`): the ordinary
+  form, which makes an untimed entry (`createEntry`).
 - **Entry edit page:** the timing section and Edit times form.
 - **Overview page:** the Timing section, with the existing chart components
   (`LineChart`, `StackedBars`).
