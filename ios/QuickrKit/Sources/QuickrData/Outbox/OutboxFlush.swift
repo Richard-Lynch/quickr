@@ -285,6 +285,13 @@ enum OutboxFlush {
             // Resolved by `rebase` before reaching here; a stray one is a plain retry.
             try retry(db, item, maybeDelivered: false, error: error, random: random, now: now, wall: wall)
             applied = .retried
+        case .startKnown:
+            // Resolved by `Outbox.checkStart` before reaching here; a stray one fails as before.
+            try OutboxQueue.fail(db, item.id, .rejected, error, wall: wall)
+            applied = .failed(.rejected)
+        case .loggedElsewhere:
+            try loggedElsewhere(db, item, wall: wall)
+            applied = .retired
         case .restore(let mismatch):
             try restore(db, item, wall: wall)
             try flag(db, mismatch)
@@ -332,7 +339,7 @@ enum OutboxFlush {
         case .topic(let topic):
             _ = try ServerLayer.upsert(db, topic: topic)
             revision = topic.revision
-        case .runEvent, .empty:
+        case .runEvent, .run, .empty:
             return .fenced(.claim)
         }
         try db.execute(
@@ -378,9 +385,28 @@ enum OutboxFlush {
         case .entry(let entry): .entry(entry)
         case .topic(let topic): .topic(topic)
         case .runEvent(let result): .runEvent(result, runId: try .wire(item.entityId, "outbox.entity_id"))
+        case .run: throw OutboxError.notAllowed("a run read is never acked as is")
         case .empty:
             .entryDeleted(
                 id: try .wire(item.entityId, "outbox.entity_id"), topicId: try .wire(item.topicId, "outbox.topic_id"))
+        }
+    }
+
+    /// `loggedElsewhere`: the start and every other item of its run, in this transaction. Taps
+    /// without answers are retired; a `finish`, or a `stop` with answers, fails `logged_elsewhere`.
+    private static func loggedElsewhere(_ db: Database, _ start: OutboxItem, wall: Date) throws {
+        try OutboxQueue.remove(db, start)
+        let info = OutboxErrorInfo(message: OutboxMessage.loggedElsewhere, status: 409)
+        for other in try OutboxStorage.items(db, entityKind: .run, entityId: start.entityId) where other.id != start.id
+        {
+            guard let event = try other.runEventPayload()?.event else { continue }
+            if event.type == RunEventType.finish.rawValue
+                || (event.type == RunEventType.stop.rawValue && event.answers != nil)
+            {
+                try OutboxQueue.fail(db, other.id, .loggedElsewhere, info, wall: wall)
+            } else {
+                try OutboxQueue.remove(db, other)
+            }
         }
     }
 

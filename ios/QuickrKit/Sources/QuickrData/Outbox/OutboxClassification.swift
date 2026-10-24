@@ -30,6 +30,15 @@ public enum OutboxResolution: Sendable, Hashable {
     case retry(maybeDelivered: Bool)
     /// §7.4: refetch, rebase and resend.
     case rebase
+    /// A start refused because the server already knows its id (409 `event_conflict` or
+    /// `id_conflict`, timers.md §10.2): the same reminder started on another device, or the PWA.
+    /// `Outbox` reads the run (or entry) with that id: one of the start's topic is "started
+    /// elsewhere" and resolves the item; anything else fails it `rejected`, as before.
+    case startKnown
+    /// `startKnown` found an entry of the start's topic with the start's id: the reminder was
+    /// already logged, so the run never existed. The start is retired with every other item of the
+    /// run (answers fail `logged_elsewhere` instead, so they aren't lost silently); a pull follows.
+    case loggedElsewhere
     /// 409 `server_mismatch` / `epoch_mismatch`: nothing executed; restore the pre-claim state.
     case restore(OutboxMismatch)
     /// Mismatched or missing headers on a response that may have executed: `uncertain`.
@@ -75,10 +84,16 @@ public enum OutboxResolution: Sendable, Hashable {
             case .entryCreate, .entryDelete, .runEvent: return .fail(.rejected, pull: false)
             }
         case .terminal(let status, let problem):
-            // timers.md §8.1: the run's topic was deleted; nothing can come of the event. Every other
-            // refusal (`topic_not_timed`, `topic_archived`, `id_conflict`, `event_conflict`, a
-            // finish's `run_open`, any 422) fails it with its payload kept.
+            // timers.md §8.1: the run's topic was deleted; nothing can come of the event. A start's
+            // known id is checked (`startKnown`). Every other refusal (`topic_not_timed`,
+            // `topic_archived`, a non-start's `event_conflict`, a finish's `run_open`, any 422)
+            // fails it with its payload kept.
             if kind == .runEvent, status == 409, problem?.code == .runDeleted { return .retire(pull: true) }
+            if kind == .runEvent, runEvent == .start, status == 409,
+                problem?.code == .eventConflict || problem?.code == .idConflict
+            {
+                return .startKnown
+            }
             if kind == .entryCreate, status == 409, problem?.code == .topicArchived {
                 return .fail(.topicArchived, pull: false)
             }
@@ -107,6 +122,7 @@ enum OutboxMessage {
     static let topicArchived = "Topic is archived. Unarchive it to sync this entry."
     static let conflict = "Changed on another device — review and retry"
     static let deletedElsewhere = "Deleted on another device"
+    static let loggedElsewhere = "Already logged on another device"
     static let entryDeleted = "This entry was deleted"
     static let topicMissing = "Topic not found"
 

@@ -357,9 +357,10 @@ export async function handleReminderAction(opts: ReminderActionOptions): Promise
  * id are the action entry id, stamped with the server-time offset, under the run-tap Web Lock
  * (`startRun`), so racing clicks, a re-delivered push and the page's own taps start one run;
  * send it now; and say why when it is refused. A run this device already has with that id,
- * or an open run of the topic, means it was started: nothing is written. So does
- * `event_conflict` or `id_conflict`: the server has the start, or the entry its run became,
- * from another device or an earlier Start (its item goes).
+ * or an open run of the topic, means it was started: nothing is written. So does a start the
+ * server already has in this topic, as a run or as the entry its run became, from another
+ * device or an earlier Start: the outbox acks or retires it (`run.event` `verify`). The same
+ * id in another topic fails the start, as any refusal does.
  */
 async function handleStartAction(
   opts: ReminderActionOptions,
@@ -424,16 +425,13 @@ async function handleStartAction(
         // no Background Sync: the app sends it on its next start
       }
       return NONE;
-    case 'retired': // run_deleted: the topic was deleted
+    case 'retired':
+      // id_conflict: the reminder's run is this topic's entry already (the outbox checked).
+      if (problemCode(sent.error.body) === 'id_conflict') return NONE;
+      // run_deleted: the topic was deleted
       return { kind: 'notify', title: `Couldn’t start ${topic}`, body: 'The topic was deleted.' };
     case 'failed': {
       const code = problemCode(sent.item.last_error?.body);
-      // The server has this id already: the start (event_conflict), or the entry its run
-      // became (id_conflict). This reminder was started, elsewhere or before.
-      if (code === 'event_conflict' || code === 'id_conflict') {
-        await opts.outbox.discard(sent.item.id).catch(() => undefined);
-        return NONE;
-      }
       if (code === 'topic_not_timed') {
         return {
           kind: 'notify',

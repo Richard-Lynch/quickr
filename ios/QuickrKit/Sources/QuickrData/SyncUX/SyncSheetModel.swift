@@ -114,7 +114,9 @@ public struct SyncSheetModel: Sendable, Hashable {
         _ item: OutboxItem, title: String, blockedBy: String?, online: Bool, now: LeaseInstant, scope: EntryScope
     ) -> SyncItemRow {
         let failed = item.state == .failed
-        let deletedElsewhere = failed && item.failureReason == .deletedElsewhere
+        // Nothing can come of these: dismissed, never retried.
+        let deletedElsewhere =
+            failed && (item.failureReason == .deletedElsewhere || item.failureReason == .loggedElsewhere)
         var when = item.createdAt
         if case .entryCreate(_, let body)? = try? item.payload(), let capturedAt = body.capturedAt { when = capturedAt }
         let (status, tone) = statusLine(item, blockedBy: blockedBy, online: online, now: now)
@@ -153,6 +155,7 @@ public struct SyncSheetModel: Sendable, Hashable {
         switch item.state {
         case .failed:
             if item.failureReason == .deletedElsewhere { return ("Deleted on another device", .failed) }
+            if item.failureReason == .loggedElsewhere { return (OutboxMessage.loggedElsewhere, .failed) }
             return ("Failed — \(item.lastError?.message ?? "rejected")", .failed)
         case .held:
             return ("Deleting — you can still undo", .held)

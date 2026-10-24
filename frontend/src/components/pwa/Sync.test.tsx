@@ -39,4 +39,16 @@ describe('describeOutboxItem for run events', () => {
     };
     expect(describeOutboxItem(item).fixUrl).toBeNull();
   });
+
+  it('a stop failed as already logged (its start’s id_conflict) has no Fix', () => {
+    const item = {
+      ...runItem('stop', { id: 's1', run: 'r1', at: T0, answers: { mood: 2 }, status: 'failed' }),
+      last_error: {
+        message: 'Already logged elsewhere',
+        status: 409,
+        body: { code: 'id_conflict' },
+      },
+    };
+    expect(describeOutboxItem(item).fixUrl).toBeNull();
+  });
 });

@@ -748,13 +748,14 @@ The PWA has no change feed. It reads `listRuns(status=open|finishing)`:
   applies to run events. Each is a distinct tap with its own timestamp.
 - **Classification (outbox.md §5.2), additions:**
 
-  | Response                                                                      | Outcome                                                                                                                                                                                   |
-  | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | 2xx that decodes as `RunEventResult`                                          | **Ack.** Upsert `run` (and `entry`, when present) under the guards. If `run.id ≠ run_id`, insert `run_alias(run_id → run.id)`. If `run.status` is closed, apply the run deletion locally. |
-  | 2xx with `effect: "void"`                                                     | Ack as above. If the reason is `after_stop`, `run_edited`, `entry_deleted` or `already_closed`, and the event was a user tap from this device, show the notice in §11.4.                  |
-  | 404 for a non-start event                                                     | `failed/deleted_elsewhere`, and trigger a pull                                                                                                                                            |
-  | 409 `run_deleted`                                                             | Retire, and trigger a pull                                                                                                                                                                |
-  | 409 `topic_not_timed`, `topic_archived`, `id_conflict`, `event_conflict`; 422 | `failed/rejected`. A 422 on `finish` or `stop` with answers offers Fix (the answers sheet).                                                                                               |
+  | Response                                                                      | Outcome                                                                                                                                                                                                                                                                                                                                                                                                               |
+  | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | 2xx that decodes as `RunEventResult`                                          | **Ack.** Upsert `run` (and `entry`, when present) under the guards. If `run.id ≠ run_id`, insert `run_alias(run_id → run.id)`. If `run.status` is closed, apply the run deletion locally.                                                                                                                                                                                                                             |
+  | 2xx with `effect: "void"`                                                     | Ack as above. If the reason is `after_stop`, `run_edited`, `entry_deleted` or `already_closed`, and the event was a user tap from this device, show the notice in §11.4.                                                                                                                                                                                                                                              |
+  | 404 for a non-start event                                                     | `failed/deleted_elsewhere`, and trigger a pull                                                                                                                                                                                                                                                                                                                                                                        |
+  | 409 `run_deleted`                                                             | Retire, and trigger a pull                                                                                                                                                                                                                                                                                                                                                                                            |
+  | 409 `topic_not_timed`, `topic_archived`, `id_conflict`, `event_conflict`; 422 | `failed/rejected`. A 422 on `finish` or `stop` with answers offers Fix (the answers sheet).                                                                                                                                                                                                                                                                                                                           |
+  | 409 `event_conflict` or `id_conflict` on a **start** **[ios]**                | Started elsewhere (§10.2) if `getRun` finds a run with that id in the start's topic: ack with the server's run and pull; the run's other taps stay queued and go to it. For `id_conflict`, an entry of the start's topic (`getEntry`) means it was logged: the start and the run's other items go (answers fail `logged_elsewhere`), then a pull. Otherwise, or on a terminal refusal of the read, `failed/rejected`. |
 
 - **Undo** for run events is not offered, except that discarding a never-sent
   run removes it without a trace (K6).
@@ -768,7 +769,12 @@ The IndexedDB outbox (`frontend/src/lib/outbox`) has only `entry.create` today
 later ones (`outbox.ts` `pass`). It gains the `run.event` kind with **one**
 ordering rule, "wait for this run's start" (and §8.1's start-after-stop), plus K6 and the classification
 above. PWA entry edits stay online mutations; no other ordering is added. Its
-base classification stays byte-compatible with iOS.
+base classification stays byte-compatible with iOS. A start refused with 409
+`event_conflict` or `id_conflict` is checked as on iOS (§8.1: `getRun`, then
+`getEntry`; the start's topic only), in the `run.event` kind's `verify`. When
+the id is an entry of the start's topic, the run's other queued taps fail too,
+as "Already logged elsewhere", rather than one by one on 404. A transient
+error on a read retries the start; any other 4xx but 404 fails it.
 
 ### 8.3 The local view of a run
 
@@ -871,6 +877,8 @@ The handler follows notifications.md §7.1 with these changes:
   reaches the server. The start's `device` field says which happened.
 - The PWA's service worker does the same with its outbox and Web Lock
   (notifications.md §10).
+- A device whose start was answered "started elsewhere" (§8.1) acts on the
+  server's run from then on, Stop and Discard included, like any run it pulled.
 
 ### 10.3 The Live Activity **[ios]** **[server]**
 

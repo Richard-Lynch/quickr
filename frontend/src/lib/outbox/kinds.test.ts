@@ -118,4 +118,50 @@ describe('run.event kind', () => {
       expect(kind.coalesce?.(next, [start])).toBeUndefined();
     });
   });
+
+  it('checks only a start’s 409 event_conflict or id_conflict, and reads the entry only for id_conflict', async () => {
+    const urls: string[] = [];
+    const read = (url: string) => {
+      urls.push(url);
+      return Promise.resolve({ status: 404, body: problem('not_found') });
+    };
+    const queue = () => Promise.resolve([]);
+    const refusal = (status: number, code: string) => ({
+      message: code,
+      status,
+      body: problem(code),
+    });
+    expect(
+      await kind.verify?.(start, refusal(422, 'event_conflict'), { read, queue }),
+    ).toBeUndefined();
+    expect(
+      await kind.verify?.(next, refusal(409, 'event_conflict'), { read, queue }),
+    ).toBeUndefined();
+    expect(await kind.verify?.(start, refusal(409, 'run_open'), { read, queue })).toBeUndefined();
+    expect(urls).toEqual([]);
+    expect(
+      await kind.verify?.(start, refusal(409, 'event_conflict'), { read, queue }),
+    ).toBeUndefined();
+    expect(urls).toEqual(['/api/v1/runs/r1']);
+    urls.length = 0;
+    expect(
+      await kind.verify?.(start, refusal(409, 'id_conflict'), { read, queue }),
+    ).toBeUndefined();
+    expect(urls).toEqual(['/api/v1/runs/r1', '/api/v1/entries/r1']);
+  });
+
+  it('looks the start’s effect up case-insensitively', async () => {
+    const run = {
+      id: 'r1',
+      topic_id: start.payload.topic.id,
+      aliases: [],
+      state: { effects: { R1: { effect: 'applied', reason: null } } },
+    };
+    const verdict = await kind.verify?.(
+      start,
+      { message: 'x', status: 409, body: problem('event_conflict') },
+      { read: () => Promise.resolve({ status: 200, body: run }), queue: () => Promise.resolve([]) },
+    );
+    expect(verdict).toMatchObject({ outcome: 'ok', data: { event: { effect: 'applied' } } });
+  });
 });

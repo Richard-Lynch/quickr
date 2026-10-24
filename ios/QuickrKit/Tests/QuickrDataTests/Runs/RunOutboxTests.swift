@@ -1,9 +1,10 @@
 import Foundation
 import GRDB
 import QuickrCore
-import QuickrData
 import QuickrTestSupport
 import Testing
+
+@testable import QuickrData
 
 /// R3 (timers.md §8.1): the `run.event` kind. It waits only for its run's start (and its topic's
 /// `topic.*` items); a failed Next doesn't block Stop; K6 drops a never-sent run at its discard;
@@ -160,12 +161,11 @@ import Testing
             "409 topic_archived", .terminal(status: 409, problem: problem("topic_archived")), true,
             .fail(.rejected, pull: false)
         ),
+        // A start whose id the server knows is checked (started elsewhere, timers.md §10.2).
+        ("409 id_conflict, a start", .terminal(status: 409, problem: problem("id_conflict")), true, .startKnown),
+        ("409 event_conflict, a start", .terminal(status: 409, problem: problem("event_conflict")), true, .startKnown),
         (
-            "409 id_conflict", .terminal(status: 409, problem: problem("id_conflict")), true,
-            .fail(.rejected, pull: false)
-        ),
-        (
-            "409 event_conflict", .terminal(status: 409, problem: problem("event_conflict")), false,
+            "409 event_conflict, not a start", .terminal(status: 409, problem: problem("event_conflict")), false,
             .fail(.rejected, pull: false)
         ),
         ("409 run_open", .terminal(status: 409, problem: problem("run_open")), false, .fail(.rejected, pull: false)),
@@ -183,6 +183,233 @@ import Testing
         let row = Self.rows[index]
         let resolution = OutboxResolution.resolve(.runEvent, row.outcome, runEvent: row.start ? .start : .next)
         #expect(resolution == row.expected, "\(row.name)")
+    }
+
+    // MARK: A start the server already has (timers.md §10.2)
+
+    /// Starts run `id` of `topic` on the fake server from "another device" (its own `at`).
+    static func startElsewhere(_ h: OutboxHarness, id: UUID, topicId: UUID, at seconds: Double = -30) async throws {
+        let body = RunEventInDTO(
+            id: id.wireString, type: "start", at: RunInstant.format(ms(seconds)), topicId: topicId.wireString,
+            version: 1, source: "pwa.notification")
+        try await elsewhere(h, runId: id, body, status: 201)
+    }
+
+    /// Stops run `id` on the fake server from "another device".
+    static func stopElsewhere(_ h: OutboxHarness, id: UUID, at seconds: Double) async throws {
+        let body = RunEventInDTO(id: UUID().wireString, type: "stop", at: RunInstant.format(ms(seconds)))
+        try await elsewhere(h, runId: id, body, status: 200)
+    }
+
+    static func elsewhere(_ h: OutboxHarness, runId: UUID, _ body: RunEventInDTO, status expected: Int) async throws {
+        let client = APIClient(baseURL: FakeServer.base, transport: h.server, identity: StaticServerIdentity(nil))
+        let response = try await client.recordRunEvent(
+            runId: runId, body, options: RequestOptions(expecting: ServerIdentity(serverId: "server-1", epoch: "E1")))
+        let status: Int? = response.status
+        #expect(status == expected)
+    }
+
+    /// `response` as the server answers it: with its identity headers.
+    static func fromServer(_ response: HTTPResponse) -> HTTPResponse {
+        var response = response
+        response.headers[QuickrHeader.serverId] = "server-1"
+        response.headers[QuickrHeader.epoch] = "E1"
+        return response
+    }
+
+    static func isRunRead(_ request: HTTPRequest) -> Bool {
+        request.method == .get && request.url.path.contains("/runs/")
+    }
+
+    @Test(
+        "R7 · a start already started elsewhere (event_conflict): acked with the server's run, pull; a Next follows it")
+    func startStartedElsewhere() async throws {
+        let h = try OutboxHarness()
+        try h.timed()
+        let id = UUID()
+        try await Self.startElsewhere(h, id: id, topicId: h.topic.id)
+
+        let writes = h.runs(.notification)
+        let started = try await writes.start(topic: h.ref, version: 1, id: id)
+        #expect(started.started, "this store hasn't pulled the other start")
+        _ = try await writes.next(runId: id.wireString)
+        let report = try await h.outbox().flushNow()
+        let acked: Int = report.acked
+        let failed: Int = report.failed
+        #expect(acked == 2)
+        #expect(failed == 0)
+        #expect(try h.runItems.isEmpty)
+        #expect(h.signals.contains(.pullRequested))
+
+        let server = try #require(h.server.run(id.wireString))
+        let types: [RunEventType] = server.events.map(\.event.type)
+        #expect(types == [.start, .next], "one start (the other device's); this store's Next")
+        let local = try #require(try h.localRun(id.wireString))
+        let open = try #require(local.state.open)
+        #expect(open.index == 1, "the server's run is in the server layer")
+    }
+
+    @Test("R7 · a start whose id is another topic's run: fails rejected, the refusal kept")
+    func startKnownForAnotherTopic() async throws {
+        let h = try OutboxHarness()
+        try h.timed()
+        let other = Make.topic(name: "Other")
+        h.server.put(other)
+        h.server.time(other.id, FakeTimer(steps: OutboxHarness.steps))
+        let id = UUID()
+        try await Self.startElsewhere(h, id: id, topicId: other.id)
+
+        try await h.runs().start(topic: h.ref, version: 1, id: id)
+        let report = try await h.outbox().flushNow()
+        let failed: Int = report.failed
+        #expect(failed == 1)
+        let item = try #require(try h.item(id))
+        let reason: OutboxFailureReason? = item.failureReason
+        #expect(reason == .rejected)
+        let error: String = item.lastErrorJSON ?? ""
+        #expect(error.contains("event_conflict"), "\(error)")
+    }
+
+    @Test(
+        "R7 · id_conflict: an entry of the start's topic settles the run's items (answers fail logged_elsewhere) and pulls; another topic's fails it"
+    )
+    func startIdIsAnEntry() async throws {
+        let h = try OutboxHarness()
+        try h.timed()
+        let mine = UUID()
+        let theirs = UUID()
+        h.server.put(Make.entry(id: mine, topicId: h.topic.id))
+        h.server.put(Make.entry(id: theirs, topicId: UUID()))
+
+        // A Next and a Stop with answers queued behind the start.
+        let writes = h.runs()
+        try await writes.start(topic: h.ref, version: 1, id: mine)
+        _ = try #require(try await writes.next(runId: mine.wireString))
+        _ = try #require(try await writes.stop(runId: mine.wireString, answers: ["mood": .int(3)]))
+        let report = try await h.outbox().flushNow()
+        let settled: Int = report.settled
+        let requests: Int = report.requests
+        #expect(settled == 1)
+        #expect(requests == 3, "the start, its run read and its entry read; the taps never go")
+        let left = try h.runItems
+        let leftTypes: [String] = try left.map { try h.payload($0).event.type }
+        #expect(leftTypes == ["stop"], "the Next went with the start; the answers stay, failed")
+        let reasons: [OutboxFailureReason?] = left.map(\.failureReason)
+        #expect(reasons == [.loggedElsewhere])
+        #expect(h.signals.contains(.pullRequested))
+
+        try await h.runs().start(topic: h.ref, version: 1, id: theirs)
+        let second = try await h.outbox().flushNow()
+        let failed: Int = second.failed
+        #expect(failed == 1)
+        let item = try #require(try h.item(theirs))
+        let reason: OutboxFailureReason? = item.failureReason
+        #expect(reason == .rejected)
+    }
+
+    @Test("R7 · a 503 on the run read: the start retries, then acks with the run")
+    func startKnownReadRetries() async throws {
+        let h = try OutboxHarness()
+        try h.timed()
+        let id = UUID()
+        try await Self.startElsewhere(h, id: id, topicId: h.topic.id)
+        h.server.inject(where: Self.isRunRead, .respond(Self.fromServer(FakeServer.problem(503, "unavailable"))))
+
+        try await h.runs().start(topic: h.ref, version: 1, id: id)
+        let first = try await h.outbox().flushNow()
+        let retried: Int = first.retried
+        #expect(retried == 1)
+        let waiting = try #require(try h.item(id))
+        let state: OutboxState = waiting.state
+        #expect(state == .pending)
+        #expect(!h.signals.contains(.pullRequested), "no ack, no pull")
+
+        let second = try await h.outbox().flushNow()
+        let acked: Int = second.acked
+        #expect(acked == 1)
+        #expect(try h.runItems.isEmpty)
+        #expect(h.signals.contains(.pullRequested))
+    }
+
+    @Test("R7 · a terminal refusal of the run read fails the start rejected, the start's 409 kept")
+    func startKnownReadRefused() async throws {
+        let h = try OutboxHarness()
+        try h.timed()
+        let id = UUID()
+        try await Self.startElsewhere(h, id: id, topicId: h.topic.id)
+        h.server.inject(where: Self.isRunRead, .respond(Self.fromServer(FakeServer.problem(400, "invalid_request"))))
+
+        try await h.runs().start(topic: h.ref, version: 1, id: id)
+        let report = try await h.outbox().flushNow()
+        let failed: Int = report.failed
+        #expect(failed == 1)
+        let item = try #require(try h.item(id))
+        let error: String = item.lastErrorJSON ?? ""
+        #expect(error.contains("event_conflict"), "\(error)")
+    }
+
+    @Test("R7 · the start's id is an alias of the topic's run: a run_alias row, and the Next goes to that run")
+    func startKnownAsAlias() async throws {
+        let h = try OutboxHarness()
+        try h.timed()
+        let first = UUID()
+        let alias = UUID()
+        try await Self.startElsewhere(h, id: first, topicId: h.topic.id, at: -40)
+        try await Self.startElsewhere(h, id: alias, topicId: h.topic.id, at: -30)  // merged into `first`
+
+        let writes = h.runs()
+        try await writes.start(topic: h.ref, version: 1, id: alias)
+        _ = try #require(try await writes.next(runId: alias.wireString))
+        let report = try await h.outbox().flushNow()
+        let acked: Int = report.acked
+        #expect(acked == 2)
+        let target: String? = try h.read { db in
+            try String.fetchOne(db, sql: "SELECT run_id FROM run_alias WHERE id = ?", arguments: [alias.wireString])
+        }
+        #expect(target == first.wireString)
+        let server = try #require(h.server.run(first.wireString))
+        let types: [RunEventType] = server.events.map(\.event.type)
+        #expect(types == [.start, .start, .next])
+        let local = try #require(try h.localRun(alias.wireString))
+        #expect(local.id == first.wireString, "the alias routes to the run")
+    }
+
+    @Test("R7 · the server's run is already closed: tombstoned here, and the queued taps void with notices")
+    func startKnownClosed() async throws {
+        let h = try OutboxHarness()
+        try h.timed()
+        let id = UUID()
+        try await Self.startElsewhere(h, id: id, topicId: h.topic.id, at: -40)
+        try await Self.stopElsewhere(h, id: id, at: -20)
+
+        let writes = h.runs()
+        try await writes.start(topic: h.ref, version: 1, id: id)
+        _ = try #require(try await writes.next(runId: id.wireString))
+        _ = try #require(try await writes.stop(runId: id.wireString))
+        let report = try await h.outbox().flushNow()
+        let acked: Int = report.acked
+        #expect(acked == 3)
+        let tombstoned: Bool = try h.read { db in try ServerLayer.isTombstoned(db, kind: .run, id: id.wireString) }
+        #expect(tombstoned)
+        let reasons: [VoidReason] = report.runVoids.map(\.reason)
+        #expect(reasons == [.afterStop, .alreadyClosed])
+        let notices: Int = try await h.store.runNotices.all().count
+        #expect(notices == 2)
+    }
+
+    @Test("R7 · the acked start's effect: the server's for its id, else merged")
+    func startKnownEffect() {
+        let id = UUID()
+        let state = RunState(
+            status: .running, startedAt: 0, endedAt: nil, open: nil, nextStep: nil, pausedSince: nil, segments: [],
+            skipped: [], pauses: [], effects: [id.wireString: .applied])
+        let run = Run(
+            id: id, topicId: UUID(), version: 1, status: .running, revision: 1, startedAt: 0, endedAt: nil,
+            edited: false, events: [], state: state, aliases: [])
+        let own: RunEffect = Outbox.startKnownEffect(run, startId: id.wireString.uppercased())
+        #expect(own == .applied)
+        let unlisted: RunEffect = Outbox.startKnownEffect(run, startId: UUID().wireString)
+        #expect(unlisted == .void(.merged))
     }
 
     @Test("R3 · a 404 fails a Next deleted_elsewhere and asks for a pull; run_deleted retires it")

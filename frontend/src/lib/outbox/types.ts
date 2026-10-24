@@ -100,12 +100,46 @@ export interface OutboxKind<P = unknown> {
    * of it (`run.event`: the acked-runs record) exists before anyone sees it gone.
    */
   onAck?(item: OutboxItem<P>, data: unknown): Promise<void>;
+  /**
+   * A second look at a terminal refusal before the item fails (`run.event`: a start the
+   * server already knows, timers.md §8.1). `read` GETs a same-origin path (with `headers`,
+   * e.g. the item's identity precondition); `queue` lists the queued items as they are now.
+   * Returns the outcome to apply instead, or `undefined` to fail the item with the refusal.
+   */
+  verify?(
+    item: OutboxItem<P>,
+    refusal: OutboxError,
+    ctx: {
+      read: (url: string, headers?: Readonly<Record<string, string>>) => Promise<OutboxRead>;
+      queue: () => Promise<readonly OutboxItem[]>;
+    },
+  ): Promise<Verdict | undefined>;
 }
+
+/** A `verify` read: `status` is null when there was no usable response (network, redirect). */
+export interface OutboxRead {
+  status: number | null;
+  body: unknown;
+}
+
+/**
+ * What `verify` decides. `ok` acks the item with `data`, as if the send had answered it;
+ * any other outcome is applied with `error` (the refusal when absent). `fail` also fails
+ * other queued items, with their own error, unless they changed since `queue` listed them (e.g. a run's taps once its start is retired).
+ */
+export type Verdict =
+  | { outcome: 'ok'; data: unknown }
+  | {
+      outcome: Exclude<Outcome, 'ok'>;
+      error?: OutboxError;
+      fail?: { items: readonly OutboxItem[]; error: OutboxError };
+    };
 
 export type OutboxEvent =
   | { type: 'enqueued'; item: OutboxItem }
   | { type: 'updated'; item: OutboxItem }
-  | { type: 'sent'; item: OutboxItem; data: unknown }
+  /** `verified`: acked by the kind's `verify`, not by the send (the server refused it). */
+  | { type: 'sent'; item: OutboxItem; data: unknown; verified?: boolean }
   | { type: 'retrying'; item: OutboxItem }
   | { type: 'failed'; item: OutboxItem }
   | { type: 'discarded'; item: OutboxItem }
