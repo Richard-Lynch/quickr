@@ -56,12 +56,14 @@ extension OutboxHarness {
     /// A server run of `T`, as the feed would have stored it: started at `Make.t0` by another
     /// device, with `events` after its start.
     @discardableResult
-    func seedServerRun(id: UUID = UUID(), steps: [TopicTimer.Step] = steps, events: [RunEvent] = []) throws -> Run {
+    func seedServerRun(
+        id: UUID = UUID(), version: Int = 1, steps: [TopicTimer.Step] = steps, events: [RunEvent] = []
+    ) throws -> Run {
         let start = RunEvent(id: id.wireString, type: .start, at: RunInstant.milliseconds(Make.t0))
         let all = [start] + events
         let state = try RunFold.fold(runId: id.wireString, steps: steps, events: all)
         let run = Run(
-            id: id, topicId: topic.id, version: 1, status: state.status, revision: all.count,
+            id: id, topicId: topic.id, version: version, status: state.status, revision: all.count,
             startedAt: state.startedAt, endedAt: state.endedAt, edited: false,
             events: all.enumerated().map { index, event in
                 Run.StoredEvent(

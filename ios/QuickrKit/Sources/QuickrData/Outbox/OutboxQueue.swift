@@ -389,10 +389,11 @@ enum OutboxQueue {
         }
     }
 
-    /// timers.md §8.1: a refused `finish`, or `stop` with answers, offers Fix (the answers sheet).
+    /// timers.md §8.1: a `finish`, or `stop` with answers, refused with a 422 offers Fix (the answers
+    /// sheet).
     /// The fix replaces only the answers, notes and meta: the same event (id, type, run and `at`).
     private static func isFixableRunEvent(_ item: OutboxItem, _ payload: OutboxPayload) throws -> Bool {
-        guard let old = try item.runEventPayload(), case .runEvent(let new) = payload,
+        guard let old = try item.runEventPayload(), case .runEvent(let new) = payload, item.lastError?.status == 422,
             old.type == .finish || (old.type == .stop && old.event.answers != nil)
         else { return false }
         var unchanged = new

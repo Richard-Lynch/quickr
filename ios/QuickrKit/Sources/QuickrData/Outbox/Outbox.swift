@@ -118,7 +118,7 @@ public struct OutboxSummary: Sendable, Hashable {
 
     static func read(_ db: Database, now: LeaseInstant) throws -> OutboxSummary {
         var summary = OutboxSummary()
-        var scope = OutboxScope()
+        var scope = OutboxScope(aliases: try OutboxScope.aliases(db))
         for item in try OutboxStorage.items(db) {
             defer { scope.add(item) }
             switch item.state {

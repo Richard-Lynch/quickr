@@ -11,6 +11,37 @@ import Testing
 /// `RunWrites` on their own connection to the shared store file, at the same wall-clock instant.
 extension MultiProcessTests {
     @Suite struct RunMP {
+        @Test("R4 · MP: the app and the widget start the same topic at one instant: one run, one start")
+        func twoStartsOneRun() async throws {
+            try await OutboxWorld.run { w in
+                let steps = [TopicTimer.Step(key: "wash", label: "Wash")]
+                w.server.time(w.topic.id, FakeTimer(steps: steps))
+                let version = TopicVersion(
+                    version: 1, questions: [], timer: TopicTimer(steps: steps), createdAt: Make.t0)
+                let topicId = w.topic.id
+                try await w.store.writer.write { db in
+                    _ = try ServerLayer.insert(db, version: version, id: UUID(), topicId: topicId)
+                }
+                let app = try await w.world.spawn("app:A")
+                let widget = try await w.world.spawn("widget:B", open: "extension")
+                let fromApp = try app.start("runStart", w.topicArgs)
+                let fromWidget = try widget.start("runStart", w.topicArgs)
+                let appReply = try await app.reply(fromApp).result
+                let widgetReply = try await widget.reply(fromWidget).result
+                let started = [appReply["started"], widgetReply["started"]].compactMap { $0 }.sorted()
+                #expect(started == ["false", "true"])
+                let appRun: String = try #require(appReply["runId"])
+                let widgetRun: String = try #require(widgetReply["runId"])
+                #expect(appRun == widgetRun, "the second tap routes to the first run")
+                let starts = w.items.filter { $0.kind == .runEvent }
+                #expect(starts.count == 1)
+                let report = try await widget.run("flush")
+                #expect(report["acked"] == "1")
+                let runs: Int = w.server.with { $0.runs.count }
+                #expect(runs == 1)
+            }
+        }
+
         @Test("R5 · MP: the widget's Next and the app's Next for one segment, at one instant: both queued, one applies")
         func twoNextsOneSegment() async throws {
             try await OutboxWorld.run { w in

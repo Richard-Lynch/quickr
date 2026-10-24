@@ -201,7 +201,7 @@ import Testing
         let other = try OutboxHarness()
         try other.timed()
         let gone = try other.seedServerRun()
-        other.server.with { $0.deletedRuns.insert(gone.id.wireString) }
+        other.server.with { _ = $0.deletedRuns.insert(gone.id.wireString) }
         _ = try await other.runs().pause(runId: gone.id.wireString)
         let report = try await other.outbox().flushNow()
         #expect(report.settled == 1)

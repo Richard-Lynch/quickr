@@ -50,7 +50,8 @@ public enum RunTapTarget: Sendable, Hashable {
 
 /// What a start did.
 public struct RunStartResult: Sendable, Hashable {
-    /// The run the tap went to: the new one, or the topic's open run.
+    /// The run the tap went to: the new one, or the topic's open run. For a given id that was
+    /// already known it is that id, which may now be an entry's (the run stopped) or an alias.
     public var runId: String
     /// The queued start; nil when nothing was enqueued: the topic already had an open run here
     /// (the tap routes to it, timers.md §4.5), or the given id was already known (a reminder
@@ -204,7 +205,8 @@ public struct RunWrites: Sendable {
     }
 
     /// Auto (§11.1), in one transaction: no open run → Start; a named step remains after the open
-    /// segment → Next; otherwise → Stop.
+    /// segment → Next; otherwise → Stop. A finishing run isn't open, so Auto starts a new run then
+    /// (the finishing one keeps waiting for its answers).
     @discardableResult
     public func auto(topic: TopicRef, version: Int) async throws -> RunAutoResult {
         let tapAt = now()
@@ -379,7 +381,7 @@ public struct RunWrites: Sendable {
             guard let open, let step = open.kind == .step ? open.step : run.state.nextStep else { return nil }
             return Fields(seg: open.index, step: step)
         case .pause:
-            return open == nil ? nil : Fields()
+            return open == nil || run.state.pausedSince != nil ? nil : Fields()
         case .resume:
             return run.openPauseId.map { Fields(pauseId: $0) }
         case .stop:

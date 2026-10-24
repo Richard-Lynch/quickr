@@ -95,7 +95,7 @@ public struct TopicWrites: Sendable {
         self.requestSync = requestSync
         client = APIClient(
             baseURL: scope.binding.baseURL, transport: transport, identity: StaticServerIdentity(scope.identity),
-            credentials: credentials, origin: .app)
+            credentials: credentials, origin: .app, serverOffset: StoreServerOffset(store: store))
     }
 
     /// The scope of a write starting now: the binding, its store's request context and identity.

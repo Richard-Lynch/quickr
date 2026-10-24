@@ -86,6 +86,8 @@ public enum RunOverlay {
         if servers.isEmpty, items.isEmpty { return [] }
 
         var target: [String: String] = [:]
+        // Run id → the merged ids stored for it (`run_alias`, the ack's included).
+        var stored: [String: [String]] = [:]
         for run in servers {
             let id = run.id.wireString
             target[id] = id
@@ -93,7 +95,10 @@ public enum RunOverlay {
         }
         for row in try Row.fetchAll(db, sql: "SELECT id, run_id FROM run_alias") {
             let runId: String = row["run_id"]
-            if target[runId] == runId { target[row["id"]] = runId }
+            if target[runId] == runId {
+                target[row["id"]] = runId
+                stored[runId, default: []].append(row["id"])
+            }
         }
         var groups: [String: [OutboxItem]] = [:]
         for item in items { groups[target[item.entityId] ?? item.entityId, default: []].append(item) }
@@ -105,7 +110,10 @@ public enum RunOverlay {
         var result: [LocalRun] = []
         for server in servers {
             let id = server.id.wireString
-            if let run = try build(db, id: id, server: server, queued: groups.removeValue(forKey: id) ?? [], book) {
+            if let run = try build(
+                db, id: id, server: server, queued: groups.removeValue(forKey: id) ?? [], aliases: stored[id] ?? [],
+                book)
+            {
                 result.append(run)
             }
         }
@@ -114,7 +122,7 @@ public enum RunOverlay {
             // the server's to merge (§4.4).
             guard let queued = groups[key], queued.contains(where: { $0.id == key }),
                 try !ServerLayer.isTombstoned(db, kind: .run, id: key),
-                let run = try build(db, id: key, server: nil, queued: queued, book)
+                let run = try build(db, id: key, server: nil, queued: queued, aliases: [], book)
             else { continue }
             result.append(run)
         }
@@ -134,7 +142,8 @@ public enum RunOverlay {
     // MARK: - Building one run
 
     private static func build(
-        _ db: Database, id: String, server: Run?, queued: [OutboxItem], _ book: VersionBook
+        _ db: Database, id: String, server: Run?, queued: [OutboxItem], aliases storedAliases: [String],
+        _ book: VersionBook
     ) throws -> LocalRun? {
         let mine = queued.compactMap { item in (try? item.runEventPayload()).map { (item, $0) } }
         let start = mine.first { $0.0.id == id && $0.1.type == .start }?.1
@@ -159,7 +168,7 @@ public enum RunOverlay {
             return nil
         }
 
-        var aliases = Set(server?.aliases.map(\.wireString) ?? [])
+        var aliases = Set((server?.aliases.map(\.wireString) ?? []) + storedAliases)
         for (_, payload) in mine { aliases.insert(payload.runId) }
         aliases.remove(id)
         return LocalRun(

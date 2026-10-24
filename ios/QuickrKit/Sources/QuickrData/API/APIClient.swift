@@ -462,7 +462,7 @@ public struct APIClient: Sendable {
         let sent = deviceNow()
         do {
             let response = try await transport.send(request)
-            await recordOffset(response, sent: sent, received: deviceNow())
+            await recordOffset(response, expected: expected, sent: sent, received: deviceNow())
             result = .success(response)
         } catch let error as TransportError {
             result = .failure(error)
@@ -478,8 +478,16 @@ public struct APIClient: Sendable {
         }
     }
 
-    /// Hands `response`'s offset sample to `serverOffset` when it qualifies (§5.1 item 2).
-    private func recordOffset(_ response: HTTPResponse, sent: Int, received: Int) async {
+    /// Hands `response`'s offset sample to `serverOffset` when it qualifies (§5.1 item 2): from a
+    /// response with both identity headers, naming the expected server and epoch when there is one
+    /// (another server's clock is no sample of this one's).
+    private func recordOffset(_ response: HTTPResponse, expected: ServerIdentity?, sent: Int, received: Int) async {
+        guard let observed = ObservedIdentity(response: response.headers).complete,
+            expected.map({
+                $0.serverId.lowercased() == observed.serverId.lowercased()
+                    && $0.epoch.lowercased() == observed.epoch.lowercased()
+            }) ?? true
+        else { return }
         guard let serverOffset, let serverTime = RunClock.parseServerTime(response.headers[RunClock.serverTimeHeader]),
             let sample = RunClock.offsetSample(serverTime: serverTime, sent: sent, received: received)
         else { return }
