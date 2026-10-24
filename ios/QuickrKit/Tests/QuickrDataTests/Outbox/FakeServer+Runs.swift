@@ -73,7 +73,13 @@ extension FakeServer {
             id: eventId, type: type, at: at, seg: body.seg, step: body.step, pauseId: body.pauseId?.lowercased())
 
         if var run = state.runs[target] {
-            if run.bodies[eventId] != nil { return result(run, eventId, status: 200, state) }  // a replay
+            if let stored = run.bodies[eventId] {
+                // A replay, unless the content differs (as `_replay` compares type and `at`).
+                guard stored.type == body.type, RunInstant.parse(stored.at) == at else {
+                    return problem(409, "event_conflict", "already recorded with different content")
+                }
+                return result(run, eventId, status: 200, state)
+            }
             guard type != .start else { return problem(409, "event_conflict", "a start of another run") }
             switch (type, run.status) {
             case (.finish, .running), (.finish, .paused):
@@ -105,6 +111,9 @@ extension FakeServer {
 
         guard type == .start else { return problem(404, "not_found", "run not found") }
         guard eventId == path else { return problem(422, "invalid_request", "a start's id is its run's") }
+        if state.entries[path] != nil || state.deleted.contains(path) {
+            return problem(409, "id_conflict", "the id of an entry")
+        }
         guard let topicId = body.topicId, let topic = state.topics[topicId] else {
             return problem(404, "not_found", "topic not found")
         }
@@ -132,6 +141,14 @@ extension FakeServer {
         run.refold()
         state.runs[path] = run
         return result(run, eventId, status: 201, state)
+    }
+
+    /// `GET /runs/{run_id}`: the run an id or alias resolves to, in any status.
+    static func getRun(_ pathId: String, _ state: State) -> HTTPResponse {
+        let path = pathId.lowercased()
+        guard let run = state.runs[state.runAliases[path] ?? path] else { return problem(404, "not_found", "no run") }
+        let body = try! WireCoding.encoder().encode(RunDTO(run.domain))
+        return HTTPResponse(status: 200, headers: ["Content-Type": "application/json"], body: body)
     }
 
     private static func result(_ run: FakeRun, _ eventId: String, status: Int, _ state: State) -> HTTPResponse {

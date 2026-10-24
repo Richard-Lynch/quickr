@@ -164,8 +164,8 @@ extension IntegrationTests {
 
         /// The handler can't know of the PWA's start before its next pull (a Start in the background,
         /// say): it enqueues the same run id with its own `at`, and the server answers
-        /// `event_conflict`. One run either way (R7); the device must also end up on that run, as the
-        /// PWA does when it gets the same answer (it drops its item).
+        /// `event_conflict`. The outbox reads the run, finds it is this topic's, and acks the start
+        /// with it ("started elsewhere"), as the PWA drops its item on the same answer.
         @Test("R7 · the reminder's Start in the PWA, then on iOS before a pull: one run, and iOS joins it")
         func r7PWAThenIOSUnpulled() async throws {
             let it = try await IT.start()
@@ -179,9 +179,7 @@ extension IntegrationTests {
                 let runs = try await it.openRuns(topic)
                 #expect(runs == [reminder.runId], "one run, the PWA's")
 
-                await withKnownIssue(Self.joinBug) {
-                    try await Self.expectJoined(it, device, store, reminder.runId)
-                }
+                try await Self.expectJoined(it, device, store, reminder.runId)
             }
         }
 
@@ -202,18 +200,10 @@ extension IntegrationTests {
                     _ = await second.startHandler().handle(reminder.response)
                     let runs = try await it.openRuns(topic)
                     #expect(runs == [reminder.runId])
-                    await withKnownIssue(Self.joinBug) {
-                        try await Self.expectJoined(it, second, secondStore, reminder.runId)
-                    }
+                    try await Self.expectJoined(it, second, secondStore, reminder.runId)
                 }
             }
         }
-
-        /// I-INT finding: the second Start's 409 `event_conflict` fails the item (rejected), and the
-        /// failed start then holds every later tap on the run (OutboxScope). The PWA drops its item
-        /// on the same answer. Remove the `withKnownIssue` once iOS does too.
-        static let joinBug: Comment =
-            "iOS fails a reminder Start the server already has (event_conflict) and blocks the run's taps"
 
         /// After a second Start of a reminder already started elsewhere, the device has no failed item,
         /// and its next tap on the run reaches the server.

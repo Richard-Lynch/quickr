@@ -17,6 +17,8 @@ public enum OutboxOperation: Sendable, Hashable {
     /// The §7.4 refetch. A read: no precondition headers, but the response is still checked.
     case getEntry(entryId: UUID)
     case getTopic(topicId: String)
+    /// The check of a start refused as a known id (timers.md §10.2): the run that id resolves to.
+    case getRun(runId: UUID)
 }
 
 public struct OutboxRequest: Sendable, Hashable {
@@ -40,6 +42,8 @@ public enum OutboxSuccess: Sendable, Hashable {
     case topic(Topic)
     /// A `RunEventResult` (timers.md §3.2), void effects included.
     case runEvent(RunEventResult)
+    /// A `getRun` read; never acked as is.
+    case run(Run)
     case empty
 }
 
@@ -80,6 +84,8 @@ extension APIClient: OutboxSender {
                 return try await getEntry(id: entryId, options: options).mapSuccess(OutboxSuccess.entry)
             case .getTopic(let topicId):
                 return try await getTopic(ref: topicId, options: options).mapSuccess(OutboxSuccess.topic)
+            case .getRun(let runId):
+                return try await getRun(id: runId, options: options).mapSuccess(OutboxSuccess.run)
             }
         } catch let error as APIClientError {
             return .refused(error, expecting: request.expecting)

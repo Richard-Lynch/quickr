@@ -285,6 +285,10 @@ enum OutboxFlush {
             // Resolved by `rebase` before reaching here; a stray one is a plain retry.
             try retry(db, item, maybeDelivered: false, error: error, random: random, now: now, wall: wall)
             applied = .retried
+        case .startKnown:
+            // Resolved by `Outbox.checkStart` before reaching here; a stray one fails as before.
+            try OutboxQueue.fail(db, item.id, .rejected, error, wall: wall)
+            applied = .failed(.rejected)
         case .restore(let mismatch):
             try restore(db, item, wall: wall)
             try flag(db, mismatch)
@@ -332,7 +336,7 @@ enum OutboxFlush {
         case .topic(let topic):
             _ = try ServerLayer.upsert(db, topic: topic)
             revision = topic.revision
-        case .runEvent, .empty:
+        case .runEvent, .run, .empty:
             return .fenced(.claim)
         }
         try db.execute(
@@ -378,6 +382,7 @@ enum OutboxFlush {
         case .entry(let entry): .entry(entry)
         case .topic(let topic): .topic(topic)
         case .runEvent(let result): .runEvent(result, runId: try .wire(item.entityId, "outbox.entity_id"))
+        case .run: throw OutboxError.notAllowed("a run read is never acked as is")
         case .empty:
             .entryDeleted(
                 id: try .wire(item.entityId, "outbox.entity_id"), topicId: try .wire(item.topicId, "outbox.topic_id"))
