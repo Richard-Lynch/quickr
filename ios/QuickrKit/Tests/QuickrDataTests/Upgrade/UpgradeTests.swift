@@ -85,8 +85,8 @@ import Testing
                 """)
     }
 
-    /// The store's columns that "nothing lost" compares: v2's `timer_json` is new, and v2 sets
-    /// `sync_state.rebuilding` (checked on its own).
+    /// The store's columns that "nothing lost" compares: v2's `timer_json` and v3's `timing_json`
+    /// are new, and v2 and v3 set `sync_state.rebuilding` (checked on their own).
     static func storeV1Columns(_ db: Database, tables: [String]) throws -> [String: [String]] {
         try Dictionary(
             uniqueKeysWithValues: tables.map { table in
@@ -94,6 +94,7 @@ import Testing
                     table,
                     try Row.fetchAll(db, sql: "PRAGMA table_info(\(table))").map { $0["name"] as String }
                         .filter { !table.hasSuffix("topic_version") || $0 != "timer_json" }
+                        .filter { !table.hasSuffix("entry") || $0 != "timing_json" }
                         .filter { table != "sync_state" || $0 != "rebuilding" }
                 )
             })
@@ -432,7 +433,55 @@ import Testing
                 == SyncTimerTests.fixtureTimer)
     }
 
-    /// A store that never synced has nothing to re-pull: v2 leaves `rebuilding` alone.
+    // MARK: - Store v3: runs
+
+    /// A timers server synced by a build before store v3 (T-FEED's): it decoded run items and
+    /// deletions, dropped them and moved its cursor past them, and stored entries without their
+    /// timing. The update's v3 migration starts a rebuild; the next sync re-pulls the server layer,
+    /// and the open run and the stopped run's timing arrive.
+    @Test func aStoreSyncedBeforeV3RebuildsAndGetsItsRuns() async throws {
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        let stopped = try SyncRunTests.stoppedEntry()
+        env.server.putRun(try SyncRunTests.openRun())
+        env.server.closeRun(SyncRunTests.runA, entry: stopped)
+        env.server.putRun(try SyncRunTests.otherRun())
+        let synced = try await env.connect(env.coordinator())
+        let head = env.server.head
+        #expect(try await synced.state().cursor == head)
+        // As the old build left it: v2's schema, no runs, no timing, its cursor at the head.
+        try await synced.writer.write { db in
+            for prefix in ["", "stage_"] {
+                try db.execute(sql: "DROP TABLE \(prefix)run")
+                try db.execute(sql: "DROP TABLE \(prefix)run_alias")
+                try db.execute(sql: "ALTER TABLE \(prefix)entry DROP COLUMN timing_json")
+                try db.execute(sql: "DELETE FROM \(prefix)tombstone WHERE kind = 'run'")
+            }
+            try db.execute(sql: "DELETE FROM grdb_migrations WHERE identifier = 'v3'")
+        }
+        let entryId = try SyncRunTests.domainEntry(stopped).id
+
+        // The updated app (a new process) opens it: v3 runs and asks for a rebuild of its epoch.
+        let partitions = try env.otherProcess()
+        let store = try #require(try await partitions.openActiveStore(role: .app)).store
+        let state = try await store.state()
+        #expect(state.rebuilding == state.epoch && state.epoch != nil && state.cursor == head)
+        #expect(try await store.runs.runs().isEmpty)
+        #expect(try await store.entries.entry(id: entryId)?.entry.timing == nil)
+
+        let relaunched = env.coordinator(owner: "app:B", partitions: partitions)
+        #expect(await relaunched.sync(reason: .activation) == .synced)
+        let after = try await store.state()
+        #expect(after.rebuilding == nil && after.epoch == state.epoch && after.layerGen == state.layerGen + 1)
+        #expect(try await store.runs.runs() == [try SyncRunTests.domain(try SyncRunTests.otherRun())])
+        #expect(try await store.entries.entry(id: entryId)?.entry.timing == SyncRunTests.domainEntry(stopped).timing)
+        #expect(
+            try await store.writer.read { db in
+                try String.fetchAll(db, sql: "SELECT id FROM tombstone WHERE kind = 'run'")
+            } == [SyncRunTests.runA])
+    }
+
+    /// A store that never synced has nothing to re-pull: v2 and v3 leave `rebuilding` alone.
     @Test func v2DoesNotRebuildAStoreWithNoEpoch() throws {
         let queue = try DatabaseQueue()
         try SharedDatabase.migrate(queue, [("v1", Self.frozen.storeV1)])

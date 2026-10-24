@@ -11,7 +11,8 @@ import Testing
 /// the current entities and `deleted_ids`, paged the way `services/changes.py` pages it
 /// (sync-protocol.md F1–F3, F8): a page covers `after < seq ≤ next` (`limit` counts log rows),
 /// each entity appears once in its latest state, a vanished entity is emitted as a deletion only
-/// if its id is in `deleted_ids`.
+/// if its id is in `deleted_ids`. A closed run is emitted as a deletion only on the page with its
+/// own delete row (timers.md §7.1).
 final class FakeFeedServer: @unchecked Sendable {
     struct Snapshot {
         var epoch: String
@@ -19,6 +20,10 @@ final class FakeFeedServer: @unchecked Sendable {
         var topics: [String: [String: Any]]
         var versions: [String: [String: Any]]
         var entries: [String: [String: Any]]
+        /// Open and finishing runs (`RunOut`).
+        var runs: [String: [String: Any]] = [:]
+        /// The seq of each closed run's delete row.
+        var runsClosedAt: [String: Int] = [:]
         var deleted: [String: (kind: String, id: String, topicId: String)]
     }
 
@@ -160,9 +165,40 @@ final class FakeFeedServer: @unchecked Sendable {
         }
     }
 
-    /// Children go into `deleted_ids` before the cascade; only the topic's own row is logged (F3).
+    /// A run created or changed while open or finishing: its new state and a new log row.
+    func putRun(_ run: [String: Any]) {
+        locked {
+            let id = run["id"] as? String ?? ""
+            state.runs[id] = run
+            state.log.append((nextSeq(), "run", id))
+        }
+    }
+
+    /// Stop or discard (timers.md §2.4): a stop's entry is logged first, then the run's delete.
+    func closeRun(_ id: String, entry: [String: Any]? = nil) {
+        locked {
+            guard let run = state.runs.removeValue(forKey: id) else { return }
+            if let entry, let entryId = entry["id"] as? String {
+                state.entries[entryId] = entry
+                state.log.append((nextSeq(), "entry", entryId))
+            }
+            let seq = nextSeq()
+            state.deleted["run:\(id)"] = ("run", id, run["topic_id"] as? String ?? "")
+            state.runsClosedAt[id] = seq
+            state.log.append((seq, "run", id))
+        }
+    }
+
+    /// Children go into `deleted_ids` before the cascade (runs and their aliases as kind `run`);
+    /// only the topic's own row is logged (F3).
     func deleteTopic(_ id: String) {
         locked {
+            for (runId, run) in state.runs where run["topic_id"] as? String == id {
+                state.runs[runId] = nil
+                for alias in [runId] + (run["aliases"] as? [String] ?? []) {
+                    state.deleted["run:\(alias)"] = ("run", alias, id)
+                }
+            }
             for (entryId, entry) in state.entries where entry["topic_id"] as? String == id {
                 state.entries[entryId] = nil
                 state.deleted["entry:\(entryId)"] = ("entry", entryId, id)
@@ -228,8 +264,8 @@ final class FakeFeedServer: @unchecked Sendable {
             let next = rows.last?.seq ?? after
             var latest: [String: Int] = [:]
             for row in rows { latest["\(row.kind):\(row.id)"] = row.seq }
-            var items: [String: [[String: Any]]] = ["topic": [], "version": [], "entry": []]
-            var deleted: [String: [[String: Any]]] = ["topic": [], "version": [], "entry": []]
+            var items: [String: [[String: Any]]] = ["topic": [], "version": [], "entry": [], "run": []]
+            var deleted: [String: [[String: Any]]] = ["topic": [], "version": [], "entry": [], "run": []]
             for (key, seq) in latest.sorted(by: { $0.value < $1.value }) {
                 let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
                 let (kind, id) = (parts[0], parts[1])
@@ -242,8 +278,11 @@ final class FakeFeedServer: @unchecked Sendable {
                     items["version"]!.append(item)
                 case "entry" where state.entries[id] != nil:
                     items["entry"]!.append(["kind": "entry", "seq": seq, "entry": state.entries[id]!])
+                case "run" where state.runs[id] != nil:
+                    items["run"]!.append(["kind": "run", "seq": seq, "run": state.runs[id]!])
                 default:
                     guard let gone = state.deleted[key] else { continue }
+                    if kind == "run", let closed = state.runsClosedAt[id], closed > next { continue }
                     deleted[kind]!.append([
                         "kind": kind, "seq": seq, "id": id, "topic_id": gone.topicId,
                         "deleted_at": "2026-06-01T12:00:00.123456Z",
@@ -253,8 +292,8 @@ final class FakeFeedServer: @unchecked Sendable {
             let body: [String: Any] = [
                 "server_id": serverIdValue, "epoch": state.epoch, "head": head, "next": next,
                 "has_more": head > next, "server_time": "2026-03-04T12:00:00Z",
-                "items": items["topic"]! + items["version"]! + items["entry"]!,
-                "deleted": deleted["entry"]! + deleted["version"]! + deleted["topic"]!,
+                "items": items["topic"]! + items["version"]! + items["entry"]! + items["run"]!,
+                "deleted": deleted["run"]! + deleted["entry"]! + deleted["version"]! + deleted["topic"]!,
             ]
             return HTTPResponse(
                 status: 200, headers: [QuickrHeader.serverId: serverIdValue, QuickrHeader.epoch: state.epoch],

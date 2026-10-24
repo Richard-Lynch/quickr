@@ -60,6 +60,20 @@ public struct GRDBEntryRepository: EntryRepository {
     }
 }
 
+public struct GRDBRunRepository: RunRepository {
+    private let reader: any DatabaseReader
+
+    public init(reader: any DatabaseReader) { self.reader = reader }
+
+    public func runs(topicId: UUID? = nil) async throws -> [Run] {
+        try await reader.read { db in try StoreView.runs(db, topicId: topicId?.wireString) }
+    }
+
+    public func run(id: UUID) async throws -> Run? {
+        try await reader.read { db in try StoreView.run(db, id: id.wireString) }
+    }
+}
+
 /// Queries over `outbox_item`. Production writes go through `Outbox`; `appendRawForTesting` is
 /// a test seam.
 public struct GRDBOutboxRepository: OutboxRepository {

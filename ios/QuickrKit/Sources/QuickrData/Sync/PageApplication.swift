@@ -252,7 +252,8 @@ public enum SyncTransactions {
         try db.execute(sql: "UPDATE stage_state SET cursor = 0 WHERE id = 1")
     }
 
-    /// §4.1 step 2: topics, then versions, then entries, each through the §4.2 guards.
+    /// §4.1 step 2: topics, then versions, then entries, then runs (timers.md §7.2), each through
+    /// the §4.2 guards.
     private static func applyUpserts(_ db: Database, _ items: [ChangeItem], layer: ServerLayer.Layer) throws {
         for item in items {
             if case .topic(_, let topic) = item { _ = try ServerLayer.upsert(db, topic: topic, into: layer) }
@@ -264,6 +265,9 @@ public enum SyncTransactions {
         }
         for item in items {
             if case .entry(_, let entry) = item { _ = try ServerLayer.upsert(db, entry: entry, into: layer) }
+        }
+        for item in items {
+            if case .run(_, let run) = item { _ = try ServerLayer.upsert(db, run: run, into: layer) }
         }
     }
 
@@ -287,6 +291,10 @@ public enum SyncTransactions {
             case .entry:
                 try OutboxSyncEffects.resolveDependents(db, kind: .entry, id: deletion.id.wireString, wall: wallNow)
             case .version:
+                break
+            case .run:
+                // Queued run events are kept and sent: a closed run still takes late merges and
+                // the server decides (timers.md §7.2).
                 break
             }
         }

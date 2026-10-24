@@ -433,7 +433,8 @@ public enum OutboxSyncEffects {
         switch kind {
         case .entry: items = try OutboxStorage.items(db, entityKind: .entry, entityId: id)
         case .topic: items = try OutboxStorage.items(db, topicId: id)
-        case .version: return
+        // A run's queued events are kept and sent (timers.md §7.2).
+        case .version, .run: return
         }
         let deletes = items.filter { $0.kind == .entryDelete }
         let gone = OutboxErrorInfo(message: OutboxMessage.deletedElsewhere)

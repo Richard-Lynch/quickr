@@ -84,6 +84,7 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
                 #expect(version.version >= 1)
                 #expect(topicId.uuidString.hasPrefix("00000000"))
             case .entry: entries += 1
+            case .run: Issue.record("a bootstrap fixture with no runs")
             }
         }
         #expect((topics, versions, entries) == (3, 4, 5))
@@ -101,24 +102,53 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         #expect(deletion.kind == .topic && deletion.id == deletion.topicId)
     }
 
-    /// Run items and deletions decode, then drop until the store keeps them (I-SYNC).
-    @Test func runPagesDecodeAndSkipRuns() throws {
+    /// Run items and deletions map to the domain (R2's decode half; timers.md §7.1).
+    @Test func runPagesMapRunItemsAndDeletions() throws {
         let fixture = try Fixtures.api("listChanges.run")
-        let wire = try ChangePageDTO.decode(try #require(fixture.body), using: WireCoding.decoder())
-        guard case .run(_, let run) = try #require(wire.items.first) else {
+        let page = try ChangePageDTO.decode(try #require(fixture.body), using: WireCoding.decoder()).toDomain()
+        guard case .run(let seq, let run) = try #require(page.items.first) else {
             Issue.record("expected a run item")
             return
         }
-        #expect(run.status == "finishing")
-        #expect(try wire.toDomain().items.isEmpty)
+        #expect(seq == 30 && page.items.count == 1)
+        #expect(run.status == .finishing && run.revision == 8 && run.events.count == 8)
+        #expect(run.aliases == [UUID(uuidString: "0a000000-0000-4000-8000-000000000002")!])
 
         let closed = try Fixtures.api("listChanges.run_deletion")
-        let closedWire = try ChangePageDTO.decode(try #require(closed.body), using: WireCoding.decoder())
-        #expect(closedWire.deleted.map(\.kind) == [.run, .run, .run])
-        let page = try closedWire.toDomain()
-        #expect(page.deleted.isEmpty)
-        #expect(page.items.count == 2)
-        #expect(page.next == closedWire.next)
+        let closedPage = try ChangePageDTO.decode(try #require(closed.body), using: WireCoding.decoder()).toDomain()
+        #expect(closedPage.deleted.map(\.kind) == [.run, .run, .run])
+        #expect(closedPage.deleted.map(\.seq) == [32, 36, 39])
+        #expect(closedPage.items.count == 2)
+        guard case .entry(_, let entry) = try #require(closedPage.items.first) else {
+            Issue.record("expected the stopped run's entry")
+            return
+        }
+        #expect(entry.id == closedPage.deleted.first?.id && entry.timing?.activeMs == 300_000)
+    }
+
+    /// The store keeps a run as its wire shape: domain → `RunDTO` → domain is the identity, for every
+    /// run the fixtures hold.
+    @Test func runsRoundTripThroughTheirWireShape() throws {
+        var runs: [Run] = []
+        for name in try Fixtures.apiNames() where name.hasPrefix("listChanges.") {
+            let page = try ChangePageDTO.decode(
+                try #require(try Fixtures.api(name).body), using: WireCoding.decoder()
+            ).toDomain()
+            for item in page.items { if case .run(_, let run) = item { runs.append(run) } }
+        }
+        for name in ["getRun", "recordRunEvent", "recordRunEvent.next", "recordRunEvent.merged"] {
+            let body = try #require(try Fixtures.api(name).body)
+            if name == "getRun" {
+                runs.append(try RunDTO.decode(body, using: WireCoding.decoder()).toDomain())
+            } else {
+                runs.append(try RunEventResultDTO.decode(body, using: WireCoding.decoder()).toDomain().run)
+            }
+        }
+        #expect(runs.count >= 5)
+        for run in runs {
+            let json = try WireCoding.encoder().encode(RunDTO(run))
+            #expect(try WireCoding.decoder().decode(RunDTO.self, from: json).toDomain() == run)
+        }
     }
 
     @Test func unknownFeedKindFailsThePage() throws {

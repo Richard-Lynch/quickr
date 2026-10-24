@@ -254,6 +254,90 @@ extension RunStateDTO {
     }
 }
 
+// MARK: - From the domain
+
+// The wire shapes of the domain values, for the store's JSON columns (`run.run_json`,
+// `entry.timing_json`): `toDomain()` reads them back unchanged (every instant is a whole
+// millisecond, which `RunInstant.format` writes exactly).
+
+extension RunWire {
+    /// `(effect, reason)` as the wire writes them.
+    static func wire(_ effect: RunEffect) -> (effect: String, reason: String?) {
+        switch effect {
+        case .applied: ("applied", nil)
+        case .void(let reason): ("void", reason.rawValue)
+        }
+    }
+}
+
+extension TimingSegmentDTO {
+    public init(_ segment: RunSegment) {
+        self.init(
+            kind: segment.kind.rawValue, step: segment.step, label: segment.label,
+            startedAt: RunInstant.format(segment.startedAt), endedAt: RunInstant.format(segment.endedAt),
+            activeMs: segment.activeMs, pausedMs: segment.pausedMs)
+    }
+}
+
+extension TimingPauseDTO {
+    public init(_ pause: RunPause) {
+        self.init(start: RunInstant.format(pause.start), end: RunInstant.format(pause.end))
+    }
+}
+
+extension TimingDTO {
+    public init(_ timing: Timing) {
+        self.init(
+            startedAt: RunInstant.format(timing.startedAt), endedAt: RunInstant.format(timing.endedAt),
+            activeMs: timing.activeMs, pausedMs: timing.pausedMs, complete: timing.complete, edited: timing.edited,
+            segments: timing.segments.map(TimingSegmentDTO.init), skipped: timing.skipped,
+            pauses: timing.pauses.map(TimingPauseDTO.init))
+    }
+}
+
+extension RunEventDTO {
+    public init(_ stored: Run.StoredEvent) {
+        let effect = RunWire.wire(stored.effect)
+        self.init(
+            id: stored.event.id, type: stored.event.type.rawValue, at: RunInstant.format(stored.event.at),
+            seg: stored.event.seg, step: stored.event.step, pauseId: stored.event.pauseId, arrival: stored.arrival,
+            effect: effect.effect, reason: effect.reason, source: stored.source)
+    }
+}
+
+extension RunOpenSegmentDTO {
+    public init(_ open: RunOpenSegment) {
+        self.init(
+            index: open.index, kind: open.kind.rawValue, step: open.step, label: open.label,
+            startedAt: RunInstant.format(open.startedAt))
+    }
+}
+
+extension RunStateDTO {
+    public init(_ state: RunState) {
+        self.init(
+            status: state.status.rawValue, startedAt: RunInstant.format(state.startedAt),
+            endedAt: state.endedAt.map(RunInstant.format), open: state.open.map(RunOpenSegmentDTO.init),
+            nextStep: state.nextStep, pausedSince: state.pausedSince.map(RunInstant.format),
+            segments: state.segments.map(TimingSegmentDTO.init), skipped: state.skipped,
+            pauses: state.pauses.map(TimingPauseDTO.init),
+            effects: state.effects.mapValues { effect in
+                let wire = RunWire.wire(effect)
+                return RunEventEffectDTO(effect: wire.effect, reason: wire.reason)
+            })
+    }
+}
+
+extension RunDTO {
+    public init(_ run: Run) {
+        self.init(
+            id: run.id.wireString, topicId: run.topicId.wireString, version: run.version, status: run.status.rawValue,
+            revision: run.revision, startedAt: RunInstant.format(run.startedAt),
+            endedAt: run.endedAt.map(RunInstant.format), edited: run.edited, events: run.events.map(RunEventDTO.init),
+            state: RunStateDTO(run.state), aliases: run.aliases.map(\.wireString))
+    }
+}
+
 // MARK: - Requests
 
 /// `RunEventIn` (recordRunEvent request). Only the fields its type uses are sent (timers.md §3.2).

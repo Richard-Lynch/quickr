@@ -33,6 +33,15 @@ public protocol EntryRepository: Sendable {
     func latestEntry(topicId: UUID) async throws -> ViewEntry?
 }
 
+/// The server layer's runs: open or finishing (timers.md §7.2). Writes are run events, through
+/// the outbox.
+public protocol RunRepository: Sendable {
+    /// A topic's runs, or every topic's when `topicId` is nil, oldest start first.
+    func runs(topicId: UUID?) async throws -> [Run]
+    /// The run with this id, or the run it was merged into when `id` is an alias (§4.5).
+    func run(id: UUID) async throws -> Run?
+}
+
 /// Reads of the outbox. Writes go through `Outbox` (OUTBOX), which applies the coalescing rules
 /// (outbox.md §8), the C0 visibility check and the K1–K5 undo semantics.
 public protocol OutboxRepository: Sendable {

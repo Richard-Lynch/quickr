@@ -20,13 +20,18 @@ import GRDB
 /// `grdb_migrations` exactly as `migrator()` does, so the two agree.
 public enum StoreSchema {
     /// The append-only migrations, in order: `(identifier, statements)`.
-    public static let migrations: [(identifier: String, statements: [String])] = [("v1", v1), ("v2", v2)]
+    public static let migrations: [(identifier: String, statements: [String])] = [
+        ("v1", v1), ("v2", v2), ("v3", v3),
+    ]
 
     public static func migrator() -> DatabaseMigrator { DatabaseMigrator(steps: migrations) }
 
-    /// Every table the v1 migration creates, by layer.
-    public static let serverLayerTables = ["topic", "topic_version", "entry", "tombstone"]
-    public static let stageTables = ["stage_topic", "stage_topic_version", "stage_entry", "stage_tombstone"]
+    /// The server layer's tables as v1 created them (v2 clears their staging copies).
+    static let v1ServerLayerTables = ["topic", "topic_version", "entry", "tombstone"]
+    /// Every server-layer table, each with a `stage_` copy. Migrations list their tables
+    /// literally, so adding one here never changes a shipped migration.
+    public static let serverLayerTables = v1ServerLayerTables + ["run", "run_alias"]
+    public static let stageTables = serverLayerTables.map { "stage_\($0)" }
     public static let tables =
         serverLayerTables + ["sync_state"] + stageTables
         + ["stage_state", "reset_veto", "outbox_item", "lease", "ui_draft", "stats_cache", "widget_state"]
@@ -104,7 +109,68 @@ public enum StoreSchema {
     /// already staging). A store with no epoch yet has nothing to re-pull.
     static let v2: [String] =
         ["", "stage_"].map { "ALTER TABLE \($0)topic_version ADD COLUMN timer_json TEXT" }
-        + serverLayerTables.map { "DELETE FROM stage_\($0)" }
+        + v1ServerLayerTables.map { "DELETE FROM stage_\($0)" }
+        + [
+            "UPDATE stage_state SET cursor = 0 WHERE id = 1",
+            "UPDATE sync_state SET rebuilding = COALESCE(rebuilding, epoch) WHERE id = 1 AND epoch IS NOT NULL",
+        ]
+
+    /// Runs (timers.md §7.2), in both layers:
+    /// - `run`: the open and finishing runs, one `RunOut` each (`run_json`, `RunDTO`), with the
+    ///   columns the guards and reads need. `started_at` is epoch milliseconds (run instants are
+    ///   whole milliseconds, §2.3).
+    /// - `run_alias(id, run_id)`: the ids merged into a run (§4.5), from its `aliases`, with the
+    ///   run's topic for the topic cascade.
+    /// - `entry.timing_json`: `EntryOut.timing` (`TimingDTO`); null for an untimed entry.
+    /// - `tombstone` accepts kind `run`, rebuilt because SQLite can't alter a CHECK; rows and
+    ///   column order are kept, so a swap still copies rows 1:1.
+    ///
+    /// Builds before v3 dropped run items and deletions and moved the cursor past them, and stored
+    /// entries without their timing. So, as v2 does, a store that has synced re-pulls its whole
+    /// server layer through the rebuild.
+    static let v3: [String] =
+        ["", "stage_"].flatMap { prefix in
+            [
+                "ALTER TABLE \(prefix)entry ADD COLUMN timing_json TEXT",
+                """
+                CREATE TABLE \(prefix)run (
+                  id         TEXT PRIMARY KEY NOT NULL,
+                  topic_id   TEXT NOT NULL,
+                  status     TEXT NOT NULL,
+                  revision   INTEGER NOT NULL,
+                  started_at INTEGER NOT NULL,
+                  run_json   TEXT NOT NULL
+                )
+                """,
+                "CREATE INDEX ix_\(prefix)run_topic ON \(prefix)run(topic_id)",
+                """
+                CREATE TABLE \(prefix)run_alias (
+                  id       TEXT PRIMARY KEY NOT NULL,
+                  run_id   TEXT NOT NULL,
+                  topic_id TEXT NOT NULL
+                )
+                """,
+                "CREATE INDEX ix_\(prefix)run_alias_run ON \(prefix)run_alias(run_id)",
+                "CREATE INDEX ix_\(prefix)run_alias_topic ON \(prefix)run_alias(topic_id)",
+                """
+                CREATE TABLE \(prefix)tombstone_v3 (
+                  kind     TEXT NOT NULL CHECK (kind IN ('entry', 'topic', 'version', 'run')),
+                  id       TEXT NOT NULL,
+                  topic_id TEXT NOT NULL,
+                  seq      INTEGER,
+                  PRIMARY KEY (kind, id)
+                )
+                """,
+                """
+                INSERT INTO \(prefix)tombstone_v3 (kind, id, topic_id, seq)
+                SELECT kind, id, topic_id, seq FROM \(prefix)tombstone
+                """,
+                "DROP TABLE \(prefix)tombstone",
+                "ALTER TABLE \(prefix)tombstone_v3 RENAME TO \(prefix)tombstone",
+                "CREATE INDEX ix_\(prefix)tombstone_topic ON \(prefix)tombstone(topic_id)",
+            ]
+        }
+        + (v1ServerLayerTables + ["run", "run_alias"]).map { "DELETE FROM stage_\($0)" }
         + [
             "UPDATE stage_state SET cursor = 0 WHERE id = 1",
             "UPDATE sync_state SET rebuilding = COALESCE(rebuilding, epoch) WHERE id = 1 AND epoch IS NOT NULL",

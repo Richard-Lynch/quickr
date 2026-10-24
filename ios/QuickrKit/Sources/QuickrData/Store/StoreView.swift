@@ -312,6 +312,36 @@ public enum StoreView {
         try versions(db, topicId: topicId).first { $0.version == number }
     }
 
+    // MARK: - Runs (timers.md §7.2)
+
+    /// The server layer's runs of a topic (or all), open or finishing, oldest start first. Like
+    /// entries, a run is hidden until its topic arrives. Queued `run.event` items are not folded in
+    /// here: that is the local view of a run (timers.md §8.3).
+    public static func runs(_ db: Database, topicId: String? = nil) throws -> [Run] {
+        let filter = topicId == nil ? "" : "WHERE r.topic_id = ?"
+        return try Row.fetchAll(
+            db,
+            sql: """
+                SELECT r.* FROM run AS r JOIN topic AS t ON t.id = r.topic_id \(filter)
+                ORDER BY r.started_at, r.id
+                """,
+            arguments: StatementArguments(topicId.map { [$0] } ?? [])
+        ).map(Run.init(serverRow:))
+    }
+
+    /// The stored run with this id, or the one it was merged into (an alias, timers.md §4.5); nil
+    /// when neither is stored or its topic isn't here.
+    public static func run(_ db: Database, id: String) throws -> Run? {
+        try Row.fetchOne(
+            db,
+            sql: """
+                SELECT r.* FROM run AS r JOIN topic AS t ON t.id = r.topic_id
+                WHERE r.id = ? OR r.id = (SELECT run_id FROM run_alias WHERE id = ?)
+                """,
+            arguments: [id, id]
+        ).map(Run.init(serverRow:))
+    }
+
     // MARK: - Overlay inputs
 
     /// The resolved overlays of every entry entity with outbox items (in one topic, or all),
