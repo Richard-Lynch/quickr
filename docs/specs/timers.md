@@ -403,6 +403,8 @@ TimingEdit = {
   result must satisfy T2–T5. Segments must have non-negative length, step keys
   must belong to the run's version, and the run must be at most 7 days long. A
   failure answers 422 with a field path.
+- Segments may come in any order, steps out of the version's order and laps before
+  steps included; lap labels are numbered in the edited order.
 - `expected_revision` is required with `timing`, as with every PATCH (outbox.md
   §7.3).
 - The edit sets `timing.edited = true` and `runs.edited = true`. From then on,
