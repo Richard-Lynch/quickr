@@ -45,6 +45,7 @@ public struct LocalStore: Sendable {
     public var topics: GRDBTopicRepository { GRDBTopicRepository(reader: writer) }
     public var versions: GRDBTopicVersionRepository { GRDBTopicVersionRepository(reader: writer) }
     public var entries: GRDBEntryRepository { GRDBEntryRepository(reader: writer) }
+    public var runs: GRDBRunRepository { GRDBRunRepository(reader: writer) }
     public var outbox: GRDBOutboxRepository { GRDBOutboxRepository(writer: writer, wallClock: wallClock) }
     public var syncState: GRDBSyncStateRepository { GRDBSyncStateRepository(reader: writer) }
     public var leases: Leases { Leases(writer: writer, clock: leaseClock, wallClock: wallClock) }
@@ -104,6 +105,17 @@ public struct LocalStore: Sendable {
         return StoreObservation.values(in: writer, refresh: refresh) { db in
             try StoreView.versions(db, topicId: topicId)
         }
+    }
+
+    /// The server layer's runs of a topic, or of every topic when `topicId` is nil, re-emitted on
+    /// every change (`StoreView.runs`). Both **open** (running, paused) **and finishing** runs: check
+    /// `status` (`RunStatus.isOpen`) for the topic's one open run. Queued run events aren't folded
+    /// in (timers.md §8.3).
+    public func observeRuns(topicId: UUID? = nil, refresh: AsyncStream<Void>? = nil)
+        -> AsyncThrowingStream<[Run], any Error>
+    {
+        let topicId = topicId?.wireString
+        return StoreObservation.values(in: writer, refresh: refresh) { db in try StoreView.runs(db, topicId: topicId) }
     }
 
     public func observeOutbox(refresh: AsyncStream<Void>? = nil) -> AsyncThrowingStream<[OutboxItem], any Error> {

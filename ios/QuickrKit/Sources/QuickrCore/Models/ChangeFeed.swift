@@ -34,10 +34,12 @@ public enum ChangeItem: Sendable, Hashable {
     case topic(seq: Int, topic: Topic)
     case version(seq: Int, id: UUID, topicId: UUID, version: TopicVersion)
     case entry(seq: Int, entry: Entry)
+    /// A run that is open or finishing in the page's snapshot (timers.md §7.1).
+    case run(seq: Int, run: Run)
 
     public var seq: Int {
         switch self {
-        case .topic(let seq, _), .version(let seq, _, _, _), .entry(let seq, _): seq
+        case .topic(let seq, _), .version(let seq, _, _, _), .entry(let seq, _), .run(let seq, _): seq
         }
     }
 }
@@ -62,5 +64,8 @@ public struct Deletion: Sendable, Hashable {
         case entry
         case topic
         case version
+        /// A run that closed (stopped or discarded) or was deleted: "no longer open" (timers.md
+        /// §2.4). A topic's deletion also lists its runs' aliases under this kind.
+        case run
     }
 }

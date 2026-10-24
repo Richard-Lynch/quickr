@@ -64,6 +64,21 @@ import Testing
         }
     }
 
+    /// Store v3 (timers.md §7.2): the run tables, `entry.timing_json`, and a tombstone kind `run`.
+    @Test func storeV3AddsRuns() throws {
+        let queue = try TestDatabase.store()
+        try queue.write { (db: Database) throws in
+            #expect(try columns(db, "run") == ["id", "topic_id", "status", "revision", "started_at", "run_json"])
+            #expect(try columns(db, "run_alias") == ["id", "run_id", "topic_id"])
+            #expect(try columns(db, "entry").last == "timing_json")
+            #expect(try columns(db, "tombstone") == ["kind", "id", "topic_id", "seq"])
+            #expect(try db.indexes(on: "tombstone").map(\.name).contains("ix_tombstone_topic"))
+            let insert = "INSERT INTO tombstone (kind, id, topic_id, seq) VALUES (?, ?, 't', 1)"
+            try db.execute(sql: insert, arguments: ["run", "r"])
+            #expect(throws: DatabaseError.self) { try db.execute(sql: insert, arguments: ["lap", "l"]) }
+        }
+    }
+
     @Test func registryMigratorCreatesTheSpecTables() throws {
         let queue = try TestDatabase.registry()
         try queue.read { (db: Database) throws in

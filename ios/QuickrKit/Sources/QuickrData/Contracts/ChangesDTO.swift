@@ -19,14 +19,10 @@ public struct ChangePageDTO: Codable, Sendable, Hashable, WireResponse {
         case serverTime = "server_time"
     }
 
-    /// Runs decode (so every row is checked) but are dropped here until the store keeps them
-    /// (I-SYNC, timers.md §7.2).
-    /// TODO(I-SYNC): the cursor moves past the dropped runs, so I-SYNC's store migration must
-    /// force a rebuild from `after=0` (reset the feed cursor), as T-DB's store v2 did.
     public func toDomain() throws -> ChangePage {
         ChangePage(
             serverId: serverId, epoch: epoch, head: head, next: next, hasMore: hasMore, serverTime: serverTime,
-            items: try items.compactMap { try $0.toDomain() }, deleted: try deleted.compactMap { try $0.toDomain() })
+            items: try items.map { try $0.toDomain() }, deleted: try deleted.map { try $0.toDomain() })
     }
 }
 
@@ -89,8 +85,7 @@ public enum FeedItemDTO: Codable, Sendable, Hashable {
         }
     }
 
-    /// The domain item, or nil for a run, which the store doesn't keep yet (I-SYNC).
-    public func toDomain() throws -> ChangeItem? {
+    public func toDomain() throws -> ChangeItem {
         switch self {
         case .topic(let seq, let topic):
             .topic(seq: seq, topic: try topic.toDomain())
@@ -100,13 +95,13 @@ public enum FeedItemDTO: Codable, Sendable, Hashable {
                 version: try version.toDomain())
         case .entry(let seq, let entry):
             .entry(seq: seq, entry: try entry.toDomain())
-        case .run:
-            nil
+        case .run(let seq, let run):
+            .run(seq: seq, run: try run.toDomain())
         }
     }
 }
 
-/// `DeletionKind`: the domain's kinds, and `run`, which the store doesn't keep yet (I-SYNC).
+/// `DeletionKind`.
 public enum FeedDeletionKindDTO: String, Codable, Sendable, Hashable {
     case entry, topic, version, run
 }
@@ -125,14 +120,13 @@ public struct FeedDeletionDTO: Codable, Sendable, Hashable {
         case deletedAt = "deleted_at"
     }
 
-    /// The domain deletion, or nil for a run's (I-SYNC).
-    public func toDomain() throws -> Deletion? {
+    public func toDomain() throws -> Deletion {
         let kind: Deletion.EntityKind
         switch self.kind {
         case .entry: kind = .entry
         case .topic: kind = .topic
         case .version: kind = .version
-        case .run: return nil
+        case .run: kind = .run
         }
         return Deletion(
             kind: kind, seq: seq, id: try .wire(id, "deletion.id"), topicId: try .wire(topicId, "deletion.topic_id"),

@@ -2,9 +2,10 @@ import Foundation
 import GRDB
 import QuickrCore
 
-/// Writes into the server layer (`topic`, `topic_version`, `entry`, `tombstone`) or its staging
-/// copy, under the §4.2 upsert guards (sync-protocol.md §4.2–§4.3). These run inside a transaction
-/// the caller holds and has already **fenced** (§5.5); they never check leases themselves.
+/// Writes into the server layer (`topic`, `topic_version`, `entry`, `run`, `run_alias`,
+/// `tombstone`) or its staging copy, under the §4.2 upsert guards (sync-protocol.md §4.2–§4.3).
+/// These run inside a transaction the caller holds and has already **fenced** (§5.5); they never
+/// check leases themselves.
 public enum ServerLayer {
     /// The live layer or the rebuild's staging copy (§7).
     public enum Layer: String, Sendable, Hashable {
@@ -55,18 +56,45 @@ public enum ServerLayer {
             return .tombstoned
         }
         if let stored = try revision(db, table: layer.table("entry"), id: id), stored > entry.revision { return .stale }
+        // `timing_json` (store v3) is written only for a timed entry; null is its default, so an
+        // untimed one is the same row a v1 file holds.
+        var values: [String: (any DatabaseValueConvertible)?] = [
+            "id": id, "topic_id": entry.topicId.wireString, "version": entry.version, "revision": entry.revision,
+            "source": entry.source, "channel": entry.channel.rawValue, "captured_at": entry.capturedAt.unixSeconds,
+            "created_at": entry.createdAt.unixSeconds, "updated_at": entry.updatedAt.unixSeconds,
+            "notes": entry.notes, "meta_json": try StoreJSON.encode(entry.meta),
+            "answers_json": try StoreJSON.encode(entry.answers.mapValues(WireAnswer.init)),
+        ]
+        if let timing = entry.timing { values["timing_json"] = try StoreJSON.encode(TimingDTO(timing)) }
+        try insert(db, values, into: layer.table("entry"), or: "REPLACE")
+        return .applied
+    }
+
+    /// An open or finishing run (timers.md §7.2), under the same guards as an entry. Its alias rows
+    /// are replaced by its `aliases`.
+    public static func upsert(_ db: Database, run: Run, into layer: Layer = .live) throws -> UpsertOutcome {
+        let id = run.id.wireString
+        let topicId = run.topicId.wireString
+        if try isTombstoned(db, kind: .run, id: id, layer: layer)
+            || isTombstoned(db, kind: .topic, id: topicId, layer: layer)
+        {
+            return .tombstoned
+        }
+        if let stored = try revision(db, table: layer.table("run"), id: id), stored > run.revision { return .stale }
         try db.execute(
             sql: """
-                INSERT OR REPLACE INTO \(layer.table("entry"))
-                  (id, topic_id, version, revision, source, channel, captured_at, created_at, updated_at, notes,
-                   meta_json, answers_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO \(layer.table("run")) (id, topic_id, status, revision, started_at, run_json)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
             arguments: [
-                id, entry.topicId.wireString, entry.version, entry.revision, entry.source, entry.channel.rawValue,
-                entry.capturedAt.unixSeconds, entry.createdAt.unixSeconds, entry.updatedAt.unixSeconds, entry.notes,
-                try StoreJSON.encode(entry.meta), try StoreJSON.encode(entry.answers.mapValues(WireAnswer.init)),
+                id, topicId, run.status.rawValue, run.revision, run.startedAt, try StoreJSON.encode(RunDTO(run)),
             ])
+        try db.execute(sql: "DELETE FROM \(layer.table("run_alias")) WHERE run_id = ?", arguments: [id])
+        for alias in run.aliases {
+            try db.execute(
+                sql: "INSERT OR REPLACE INTO \(layer.table("run_alias")) (id, run_id, topic_id) VALUES (?, ?, ?)",
+                arguments: [alias.wireString, id, topicId])
+        }
         return .applied
     }
 
@@ -87,21 +115,31 @@ public enum ServerLayer {
             "change_note": version.changeNote, "created_at": version.createdAt.unixSeconds,
         ]
         if let timer = version.timer { values["timer_json"] = try StoreJSON.encode(timer) }
+        try insert(db, values, into: layer.table("topic_version"), or: "IGNORE")
+        return db.changesCount > 0 ? .applied : .exists
+    }
+
+    /// `INSERT OR <conflict>` of the given columns only.
+    private static func insert(
+        _ db: Database, _ values: [String: (any DatabaseValueConvertible)?], into table: String, or conflict: String
+    ) throws {
         let columns = values.keys.sorted()
         try db.execute(
             sql: """
-                INSERT OR IGNORE INTO \(layer.table("topic_version")) (\(columns.joined(separator: ", ")))
+                INSERT OR \(conflict) INTO \(table) (\(columns.joined(separator: ", ")))
                 VALUES (\(columns.map { _ in "?" }.joined(separator: ", ")))
                 """,
             arguments: StatementArguments(columns.map { values[$0] ?? nil }))
-        return db.changesCount > 0 ? .applied : .exists
     }
 
     // MARK: - Tombstones (§4.3 steps 1, 2 and 4)
 
-    /// Inserts the tombstone (idempotent) and deletes the row. A topic tombstone also removes the
-    /// topic's versions and entries and tombstones them (the local cascade incremental pages rely
-    /// on, F3); in the live layer it also clears the topic's `ui_draft`, `stats_cache` and
+    /// Inserts the tombstone (idempotent) and deletes the row. A run's deletion also removes its
+    /// alias rows and tombstones their ids as kind `run`; its id may be an alias's (a topic's
+    /// deletion lists them), which goes too. A
+    /// topic tombstone also removes the topic's versions, entries, runs and aliases and tombstones
+    /// them, runs and aliases as kind `run` (the local cascade incremental pages rely on, F3;
+    /// timers.md §7.2); in the live layer it also clears the topic's `ui_draft`, `stats_cache` and
     /// `widget_state` rows. Dependent outbox items (step 3) are SYNC's.
     public static func applyDeletion(
         _ db: Database, kind: Deletion.EntityKind, id: UUID, topicId: UUID, seq: Int?, into layer: Layer = .live
@@ -114,8 +152,22 @@ public enum ServerLayer {
             try db.execute(sql: "DELETE FROM \(layer.table("entry")) WHERE id = ?", arguments: [id])
         case .version:
             try db.execute(sql: "DELETE FROM \(layer.table("topic_version")) WHERE id = ?", arguments: [id])
+        case .run:
+            try db.execute(sql: "DELETE FROM \(layer.table("run")) WHERE id = ?", arguments: [id])
+            // The aliases close with the run: tombstoned too, so nothing recreates one as a run.
+            try db.execute(
+                sql: """
+                    INSERT OR IGNORE INTO \(layer.table("tombstone")) (kind, id, topic_id, seq)
+                    SELECT 'run', id, topic_id, ? FROM \(layer.table("run_alias")) WHERE run_id = ?
+                    """,
+                arguments: [seq, id])
+            try db.execute(
+                sql: "DELETE FROM \(layer.table("run_alias")) WHERE run_id = ? OR id = ?", arguments: [id, id])
         case .topic:
-            for (child, table) in [(Deletion.EntityKind.entry, "entry"), (.version, "topic_version")] {
+            let children: [(Deletion.EntityKind, String)] = [
+                (.entry, "entry"), (.version, "topic_version"), (.run, "run"), (.run, "run_alias"),
+            ]
+            for (child, table) in children {
                 try db.execute(
                     sql: """
                         INSERT OR IGNORE INTO \(layer.table("tombstone")) (kind, id, topic_id, seq)
@@ -210,7 +262,15 @@ extension Entry {
             updatedAt: Date(unixSeconds: row["updated_at"]), notes: row["notes"],
             meta: try StoreJSON.decode([String: String].self, row["meta_json"]),
             answers: try StoreJSON.decode([String: WireAnswer].self, row["answers_json"]).mapValues(\.value)
-                .normalized(for: questions))
+                .normalized(for: questions),
+            timing: try (row["timing_json"] as String?).map { try StoreJSON.decode(TimingDTO.self, $0).toDomain() })
+    }
+}
+
+extension Run {
+    /// A `run` row.
+    init(serverRow row: Row) throws {
+        self = try StoreJSON.decode(RunDTO.self, row["run_json"]).toDomain()
     }
 }
 
