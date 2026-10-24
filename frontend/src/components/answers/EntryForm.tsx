@@ -92,6 +92,8 @@ interface EntryFormProps {
    * where the pick *is* the entry. Undo comes from the caller's toast.
    */
   submitOnPick?: string | undefined;
+  /** A timed entry: captured_at is its run's end, shown read-only (timers.md §3.8). */
+  capturedAtLocked?: boolean;
 }
 
 export interface SubmitHelpers {
@@ -114,6 +116,7 @@ export function EntryForm({
   prefill,
   focusFirstEmpty = false,
   submitOnPick,
+  capturedAtLocked = false,
 }: EntryFormProps) {
   const limits = useLimits();
   const schema = useMemo(
@@ -283,11 +286,16 @@ export function EntryForm({
           <Icon name="chevronDown" className="size-4 transition-transform group-open:rotate-180" />
         </summary>
         <div className="grid gap-4 px-4 pt-1 pb-4 sm:grid-cols-2">
-          <Field label="Captured at" error={errors.captured_at?.message}>
+          <Field
+            label="Captured at"
+            hint={capturedAtLocked ? 'The end of the timed run' : undefined}
+            error={errors.captured_at?.message}
+          >
             {({ id, describedBy, invalid }) => (
               <Input
                 id={id}
                 type="datetime-local"
+                readOnly={capturedAtLocked}
                 aria-describedby={describedBy}
                 aria-invalid={invalid || undefined}
                 {...form.register('captured_at')}

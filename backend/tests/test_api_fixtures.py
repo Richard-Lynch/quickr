@@ -527,6 +527,26 @@ async def runs(client: httpx.AsyncClient, rec: Recorder) -> None:
         status=200,
         variant="finish_stopped",
     )
+    # Editing the stopped run's times on its entry (§3.8): drink was skipped, now it is timed.
+    await rec(
+        "updateEntry",
+        "PATCH",
+        f"/entries/{R1}",
+        {
+            "expected_revision": 2,
+            "timing": {
+                "started_at": "2026-03-04T11:00:00Z",
+                "segments": [
+                    {"kind": "step", "step": "pour", "ended_at": "2026-03-04T11:02:00Z"},
+                    {"kind": "step", "step": "drink", "ended_at": "2026-03-04T11:05:30Z"},
+                ],
+                "skipped": [],
+                "pauses": [{"start": "2026-03-04T11:03:00Z", "end": "2026-03-04T11:03:30Z"}],
+            },
+        },
+        status=200,
+        variant="timing",
+    )
 
     # R1's entry: a run of 'everything' v2 with a skipped step and a pause.
     await rec("getTopicTiming", "GET", "/topics/everything/timing", status=200)

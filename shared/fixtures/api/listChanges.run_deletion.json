@@ -12,20 +12,20 @@
         "deleted_at": "2026-06-01T12:00:00.123456Z",
         "id": "0a000000-0000-4000-8000-000000000003",
         "kind": "run",
-        "seq": 36,
+        "seq": 37,
         "topic_id": "00000000-0000-4000-8000-000000000012"
       },
       {
         "deleted_at": "2026-06-01T12:00:00.123456Z",
         "id": "0a000000-0000-4000-8000-000000000004",
         "kind": "run",
-        "seq": 39,
+        "seq": 40,
         "topic_id": "00000000-0000-4000-8000-000000000001"
       }
     ],
     "epoch": "00000000-0000-4000-8000-000000000008",
     "has_more": false,
-    "head": 39,
+    "head": 40,
     "items": [
       {
         "entry": {
@@ -51,7 +51,7 @@
               "value": "Later."
             }
           ],
-          "captured_at": "2026-03-04T11:06:00Z",
+          "captured_at": "2026-03-04T11:05:30Z",
           "channel": "api",
           "created_at": "2026-06-01T12:00:00.123456Z",
           "id": "0a000000-0000-4000-8000-000000000001",
@@ -59,24 +59,24 @@
             "device": "iphone"
           },
           "notes": "Added later.",
-          "revision": 2,
+          "revision": 3,
           "source": "api",
           "timing": {
             "active_ms": 300000,
-            "complete": false,
-            "edited": false,
-            "ended_at": "2026-03-04T11:06:00Z",
-            "paused_ms": 60000,
+            "complete": true,
+            "edited": true,
+            "ended_at": "2026-03-04T11:05:30Z",
+            "paused_ms": 30000,
             "pauses": [
               {
-                "end": "2026-03-04T11:04:00Z",
+                "end": "2026-03-04T11:03:30Z",
                 "start": "2026-03-04T11:03:00Z"
               }
             ],
             "segments": [
               {
-                "active_ms": 150125,
-                "ended_at": "2026-03-04T11:02:30.125000Z",
+                "active_ms": 120000,
+                "ended_at": "2026-03-04T11:02:00Z",
                 "kind": "step",
                 "label": "Pour",
                 "paused_ms": 0,
@@ -84,18 +84,16 @@
                 "step": "pour"
               },
               {
-                "active_ms": 149875,
-                "ended_at": "2026-03-04T11:06:00Z",
-                "kind": "lap",
-                "label": "Lap 1",
-                "paused_ms": 60000,
-                "started_at": "2026-03-04T11:02:30.125000Z",
-                "step": null
+                "active_ms": 180000,
+                "ended_at": "2026-03-04T11:05:30Z",
+                "kind": "step",
+                "label": "Drink",
+                "paused_ms": 30000,
+                "started_at": "2026-03-04T11:02:00Z",
+                "step": "drink"
               }
             ],
-            "skipped": [
-              "drink"
-            ],
+            "skipped": [],
             "started_at": "2026-03-04T11:00:00Z"
           },
           "topic_id": "00000000-0000-4000-8000-000000000001",
@@ -103,7 +101,7 @@
           "version": 2
         },
         "kind": "entry",
-        "seq": 33
+        "seq": 34
       },
       {
         "entry": {
@@ -142,10 +140,10 @@
           "version": 1
         },
         "kind": "entry",
-        "seq": 35
+        "seq": 36
       }
     ],
-    "next": 39,
+    "next": 40,
     "server_id": "00000000-0000-4000-8000-000000000009",
     "server_time": "2026-06-01T12:00:00.123456Z"
   },

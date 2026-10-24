@@ -4926,6 +4926,10 @@
             ],
             "title": "Expected Revision",
             "description": "Optional optimistic-concurrency guard: the revision this change was based on. When it no longer matches, the change is rejected with 409 stale_revision."
+          },
+          "timing": {
+            "$ref": "#/components/schemas/TimingEdit",
+            "description": "A timed entry's new run times (timers.md \u00a73.8); requires expected_revision and excludes captured_at."
           }
         },
         "additionalProperties": false,
@@ -7125,7 +7129,7 @@
           "effects"
         ],
         "title": "RunState",
-        "description": "The fold's output (timers.md \u00a74.3). For a stopped run, ``segments``, ``skipped`` and\n``pauses`` are exactly its entry's ``timing``."
+        "description": "The fold's output (timers.md \u00a74.3). For a stopped run, ``segments``, ``skipped`` and\n``pauses`` are exactly its entry's ``timing``, until the times are edited: an edited run\n(``RunOut.edited``) keeps its last fold, and its entry holds the edited times."
       },
       "SeriesPoint": {
         "properties": {
@@ -7533,6 +7537,124 @@
         ],
         "title": "Timing",
         "description": "A finished run's times (timers.md \u00a72.3). Every instant is a whole millisecond;\n``ended_at`` equals the entry's ``captured_at``."
+      },
+      "TimingEdit": {
+        "properties": {
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At",
+            "description": "Stored truncated to whole milliseconds; the captured_at bounds apply."
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/TimingEditSegment"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Segments",
+            "description": "In time order."
+          },
+          "skipped": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,62}$",
+              "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+              "examples": [
+                "hours_slept"
+              ]
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Skipped",
+            "description": "Skipped step keys, in step order."
+          },
+          "pauses": {
+            "items": {
+              "$ref": "#/components/schemas/TimingEditPause"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "title": "Pauses",
+            "description": "Sorted, not overlapping, within the run."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "started_at",
+          "segments",
+          "skipped",
+          "pauses"
+        ],
+        "title": "TimingEdit",
+        "description": "A stopped run's times, replaced as a whole (timers.md \u00a73.8). The server rebuilds the\nentry's ``Timing`` from it: the last segment's ``ended_at`` becomes the run's end and the\nentry's ``captured_at``."
+      },
+      "TimingEditPause": {
+        "properties": {
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start",
+            "description": "Stored truncated to whole milliseconds; the captured_at bounds apply."
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End",
+            "description": "Stored truncated to whole milliseconds; the captured_at bounds apply."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "TimingEditPause"
+      },
+      "TimingEditSegment": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "step",
+              "lap"
+            ],
+            "title": "Kind"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,62}$",
+                "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+                "examples": [
+                  "hours_slept"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step",
+            "description": "A step of the run's version; null for a lap."
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ended At",
+            "description": "Each segment starts where the previous one ended."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "ended_at"
+        ],
+        "title": "TimingEditSegment"
       },
       "TimingLaps": {
         "properties": {

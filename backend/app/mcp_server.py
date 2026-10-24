@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated
-from uuid import UUID
+from datetime import timedelta
+from typing import Annotated, Literal
+from uuid import UUID, uuid4
 
 import mcp_types as mt
 from fastmcp import FastMCP
@@ -20,7 +21,7 @@ from pydantic import AwareDatetime, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_sessionmaker
-from app.errors import DomainError
+from app.errors import DomainError, InvalidRequest
 from app.models import Channel
 from app.schemas.api import (
     AnswerMap,
@@ -34,8 +35,13 @@ from app.schemas.api import (
     Meta,
     QuestionList,
     QuestionSeries,
+    RunEventIn,
+    RunEventResult,
+    RunListStatus,
+    RunOut,
     Schedule,
     StatusFilter,
+    TimingEdit,
     TopicCreate,
     TopicDetail,
     TopicPage,
@@ -48,6 +54,7 @@ from app.schemas.api import (
 from app.schemas.base import describe_issues, issues_from
 from app.schemas.questions import Timer
 from app.services import entries as entry_svc
+from app.services import runs as run_svc
 from app.services import stats as stats_svc
 from app.services import topics as topic_svc
 
@@ -68,6 +75,14 @@ Question types can never change for a key and enum options can only be archived.
 A topic is timed when its current version has a `timer` ({steps: [{key, label}]};
 no steps is a plain stopwatch). `publish_topic_version` requires `timer`: pass the
 current version's (from `list_topic_versions`) to keep it, or null for untimed.
+
+Timing a timed topic: `start_run`, then `run_action` for each tap (next, lap, skip,
+pause, resume, stop), acting on what is open now. A stop makes the entry, or leaves
+the run `finishing` when required questions are unanswered: `run_action` finish with
+the answers then makes it. `list_runs` shows open and finishing runs. A stopped
+run's times are corrected with `edit_run_timing` on its entry (same id as the run);
+`update_entry` can't change a timed entry's captured_at. `record_entry` on a timed
+topic records an untimed entry.
 """
 
 
@@ -279,7 +294,8 @@ async def update_entry(
     captured_at: AwareDatetime | None = None,
     notes: str | None = None,
 ) -> EntryOut:
-    """Correct an entry. `answers` merges; a null value clears that answer."""
+    """Correct an entry. `answers` merges; a null value clears that answer. A timed entry's
+    captured_at is its run's end: change it with edit_run_timing."""
     async with _db() as db:
         return await entry_svc.update_entry(
             db, entry_id, EntryUpdate(answers=answers, captured_at=captured_at, notes=notes)
@@ -317,3 +333,119 @@ async def question_series(
     """Time series of one question bucketed by day/week/month."""
     async with _db() as db:
         return await stats_svc.question_series(db, ref, key, EntryFilters(), bucket=bucket, tz=tz)
+
+
+# --- runs (docs/specs/timers.md §11.6) ----------------------------------------------------
+
+RunAction = Literal["next", "lap", "skip", "pause", "resume", "stop", "finish", "discard"]
+TapAt = Annotated[
+    AwareDatetime | None,
+    Field(description="When it happened; defaults to now (server clock). At most 7 days back for a start."),
+]
+
+
+async def _record(db: AsyncSession, run_id: UUID, body: RunEventIn) -> RunEventResult:
+    recorded = await run_svc.record_event(db, run_id, body, Channel.mcp)
+    await run_svc.after_run_event(recorded.result.run.id, None)  # after the commit, as the route does
+    return recorded.result
+
+
+@mcp.tool
+async def start_run(ref: TopicRef, at: TapAt = None) -> RunEventResult:
+    """Start timing a timed topic, on its current version. If the topic already has an open
+    run, this start merges into it (effect void, reason merged) and `run` is that run."""
+    async with _db() as db:
+        topic = await topic_svc.resolve_topic(db, ref)
+        topic_id, version = topic.id, topic.current_version
+        await db.rollback()  # the writer needs an idle session
+        run_id = uuid4()
+        body = RunEventIn(id=run_id, type="start", at=at or run_svc.now(), topic_id=topic_id, version=version)
+        return await _record(db, run_id, body)
+
+
+def _open_pause(run: RunOut) -> UUID | None:
+    """The pause event the run's open pause began with: the last applied pause in time order."""
+    pauses = [e for e in run.events if e.type == "pause" and e.effect == "applied"]
+    last = max(pauses, key=lambda e: (e.at, str(e.id)), default=None)
+    return None if run.state.paused_since is None or last is None else last.id
+
+
+@mcp.tool
+async def run_action(
+    run_id: UUID,
+    action: RunAction,
+    at: TapAt = None,
+    answers: Annotated[AnswerMap | None, Field(description="stop and finish only.")] = None,
+    notes: Annotated[str | None, Field(description="stop and finish only.")] = None,
+) -> RunEventResult:
+    """One tap on a run, against what is open now: next (the next step, or a lap after the
+    last), lap, skip (the open step, or the next one during a lap), pause, resume, stop,
+    finish (the answers of a stopped or finishing run) or discard. A next, lap or skip with
+    nothing open, or a resume while not paused, is refused; other taps the run can't take
+    (a pause while paused, a second stop) are recorded with effect void."""
+    async with _db() as db:
+        run = await run_svc.get_run(db, run_id)  # ends its read snapshot: the session is idle
+        opened = run.state.open
+        seg: int | None = None
+        step: str | None = None
+        pause_id: UUID | None = None
+        if action in ("next", "lap", "skip"):
+            if opened is None:
+                raise InvalidRequest(f"the run is {run.status}: nothing is open to {action}")
+            seg = opened.index
+        if action == "skip":
+            assert opened is not None
+            step = opened.step or run.state.next_step  # during a lap, the next step
+            if step is None:
+                raise InvalidRequest("there is no step left to skip")
+        if action == "resume":
+            pause_id = _open_pause(run)
+            if pause_id is None:
+                raise InvalidRequest("the run isn't paused")
+        if at is None:  # monotonic, as every client stamps its taps (timers.md §5.1)
+            latest = max(e.at for e in run.events)
+            at = max(run_svc.now(), latest + timedelta(milliseconds=1))
+        body = RunEventIn(
+            id=uuid4(),
+            type=action,
+            at=at,
+            seg=seg,
+            step=step,
+            pause_id=pause_id,
+            answers=answers,
+            notes=notes,
+        )
+        return await _record(db, run.id, body)
+
+
+@mcp.tool
+async def list_runs(
+    status: Annotated[
+        RunListStatus | None,
+        Field(description="open (running or paused) or finishing; default both."),
+    ] = None,
+) -> list[RunOut]:
+    """Open and finishing runs with their state, oldest start first. Stopped runs are entries."""
+    async with _db() as db:
+        return await run_svc.list_runs(db, [status] if status is not None else ["open", "finishing"])
+
+
+@mcp.tool
+async def edit_run_timing(
+    entry_id: UUID,
+    timing: Annotated[
+        TimingEdit,
+        Field(
+            description="The run's times, replaced as a whole: started_at, every segment (kind, "
+            "step, ended_at) in order, skipped step keys and pauses. The last segment's ended_at "
+            "becomes the entry's captured_at."
+        ),
+    ],
+    expected_revision: Annotated[int, Field(ge=1, description="The entry's current revision.")],
+) -> EntryOut:
+    """Correct a stopped run's times on its entry. The run is then frozen: taps that arrive
+    later from other devices are void (run_edited); answers still apply."""
+    async with _db() as db:
+        return await entry_svc.update_entry(
+            db, entry_id, EntryUpdate(timing=timing, expected_revision=expected_revision)
+        )
