@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import read_snapshot
 from app.models import Entry, TopicVersion
 from app.schemas.api import (
     EntryFilters,
@@ -25,32 +26,37 @@ from app.services.topics import parse_timer, resolve_topic
 
 async def topic_timing(db: AsyncSession, ref: str, filters: EntryFilters) -> TopicTiming:
     """The same filters as ``getTopicStats``; an untimed topic answers zero counts."""
-    topic = await resolve_topic(db, ref)
-    rows = (
-        await db.execute(
-            apply_filters(select(Entry.id, Entry.captured_at, Entry.timing), topic.id, filters).where(
-                Entry.timing.is_not(None)
+    # One snapshot: a publish committing mid-read can't mix its labels with older entries.
+    await read_snapshot(db)
+    try:
+        topic = await resolve_topic(db, ref)
+        rows = (
+            await db.execute(
+                apply_filters(select(Entry.id, Entry.captured_at, Entry.timing), topic.id, filters).where(
+                    Entry.timing.is_not(None)
+                )
             )
-        )
-    ).all()
-    entries = [
-        timing_stats.TimedEntry(
-            entry_id=str(entry_id),
-            captured_at=run_fold.to_ms(captured_at),
-            timing=None if timing is None else run_fold.timing_from_json(timing),
-        )
-        for entry_id, captured_at, timing in rows
-    ]
-    # Every version, not only those in range: a step's label is the latest version's.
-    versions: dict[int, list[run_fold.Step] | None] = {}
-    for number, raw in (
-        await db.execute(
-            select(TopicVersion.version, TopicVersion.timer).where(TopicVersion.topic_id == topic.id)
-        )
-    ).all():
-        timer = parse_timer(raw)
-        versions[number] = None if timer is None else [run_fold.Step(s.key, s.label) for s in timer.steps]
-    return _out(timing_stats.timing_stats(entries, versions, topic.current_version))
+        ).all()
+        entries = [
+            timing_stats.TimedEntry(
+                entry_id=str(entry_id),
+                captured_at=run_fold.to_ms(captured_at),
+                timing=None if timing is None else run_fold.timing_from_json(timing),
+            )
+            for entry_id, captured_at, timing in rows
+        ]
+        # Every version, not only those in range: a step's label is the latest version's.
+        versions: dict[int, list[run_fold.Step] | None] = {}
+        for number, raw in (
+            await db.execute(
+                select(TopicVersion.version, TopicVersion.timer).where(TopicVersion.topic_id == topic.id)
+            )
+        ).all():
+            timer = parse_timer(raw)
+            versions[number] = None if timer is None else [run_fold.Step(s.key, s.label) for s in timer.steps]
+        return _out(timing_stats.timing_stats(entries, versions, topic.current_version))
+    finally:
+        await db.rollback()  # ends the snapshot
 
 
 def _out(t: timing_stats.TopicTiming) -> TopicTiming:

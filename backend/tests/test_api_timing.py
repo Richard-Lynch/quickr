@@ -13,6 +13,7 @@ from uuid import UUID
 
 import httpx
 import pytest
+from sqlalchemy import func, null, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Channel, Entry, Topic, TopicVersion
@@ -27,9 +28,15 @@ CASES = {c["name"]: c for c in VECTORS}
 SLUG = "routine"
 
 
-async def seed(db: AsyncSession, case: dict[str, Any], versions_of: dict[int, int] | None = None) -> None:
+async def seed(
+    db: AsyncSession,
+    case: dict[str, Any],
+    versions_of: dict[int, int] | None = None,
+    origins: dict[int, tuple[str, Channel]] | None = None,
+) -> None:
     """The case's topic and entries; entry ``i`` (0-based) is recorded against version
-    ``versions_of[i]``, by default the current one."""
+    ``versions_of[i]``, by default the current one, with source and channel ``origins[i]``,
+    by default ``("test", api)``. An untimed entry's timing is SQL NULL, as the server stores it."""
     topic = Topic(slug=SLUG, name="Routine", current_version=case["current_version"])
     db.add(topic)
     rows: dict[int, TopicVersion] = {}
@@ -41,16 +48,17 @@ async def seed(db: AsyncSession, case: dict[str, Any], versions_of: dict[int, in
     await db.flush()
     for i, e in enumerate(case["entries"]):
         version = rows[(versions_of or {}).get(i, case["current_version"])]
+        source, channel = (origins or {}).get(i, ("test", Channel.api))
         db.add(
             Entry(
                 id=UUID(e["entry_id"]),
                 topic_id=topic.id,
                 topic_version_id=version.id,
                 version=version.version,
-                source="test",
-                channel=Channel.api,
+                source=source,
+                channel=channel,
                 captured_at=run_fold.from_ms(run_fold.parse_instant(e["captured_at"])),
-                timing=e["timing"],
+                timing=null() if e["timing"] is None else e["timing"],
             )
         )
     await db.commit()
@@ -77,6 +85,27 @@ def expected(case: dict[str, Any], indices: list[int]) -> dict[str, Any]:
 async def test_endpoint_matches_the_vectors(name: str, db: AsyncSession, client: httpx.AsyncClient) -> None:
     await seed(db, CASES[name])
     assert await timing(client) == CASES[name]["expected"]
+
+
+async def test_untimed_entries_are_sql_null(db: AsyncSession, client: httpx.AsyncClient) -> None:
+    """The seed stores no JSON 'null', so the endpoint's SQL filter is what drops them."""
+    case = CASES["untimed-entries-ignored"]
+    await seed(db, case)
+    untimed = sum(e["timing"] is None for e in case["entries"])
+    assert untimed > 0
+    assert (await db.execute(select(func.count()).where(Entry.timing.is_(None)))).scalar_one() == untimed
+    assert await timing(client) == case["expected"]
+
+
+async def test_source_and_channel_filter(db: AsyncSession, client: httpx.AsyncClient) -> None:
+    case = CASES["odd-median"]
+    await seed(db, case, origins={0: ("watch", Channel.ios), 1: ("phone", Channel.ui)})
+    assert await timing(client, source="watch") == expected(case, [0])
+    assert await timing(client, source="phone") == expected(case, [1])
+    assert await timing(client, channel="ios") == expected(case, [0])
+    assert await timing(client, channel="ui") == expected(case, [1])
+    assert await timing(client, channel="api") == expected(case, [2])
+    assert await timing(client, source="watch", channel="ui") == expected(case, [])
 
 
 async def test_from_and_to_filter_on_captured_at(db: AsyncSession, client: httpx.AsyncClient) -> None:
