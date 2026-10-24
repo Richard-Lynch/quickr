@@ -213,7 +213,7 @@ struct OverviewView: View {
                     empty(topic)
                 } else {
                     StatsSummaryCard(stats: stats)
-                    TimingOverviewSection(timing: model.timing, timed: topic.topic.timer != nil)
+                    TimingOverviewSection(timing: model.timing, timed: topic.topic.timer != nil, bucket: bucket)
                     ForEach(stats.questions, id: \.key) { question in
                         QuestionStatsCard(
                             stats: question, question: topic.topic.questions.first { $0.key == question.key },

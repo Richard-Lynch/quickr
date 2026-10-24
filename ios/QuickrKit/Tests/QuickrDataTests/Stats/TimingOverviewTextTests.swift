@@ -35,10 +35,42 @@ import Testing
         #expect(text.median == "4:30")
         #expect(text.mean == "4:40")
         #expect(text.completeNote == "Best, median and mean over complete runs: 2 of 3 runs")
-        #expect(TimingOverviewText.lineTitle == "Run time (all runs)")
+        #expect(TimingOverviewText.lineTitle(.week) == "Average run per week (all runs)")
         let point = text.points.first?.activeMs
         #expect(point == 3_725_000)
         #expect(TimingOverviewText.duration(3_725_000) == "1:02:05", "h:mm:ss from an hour")
+    }
+
+    /// The PWA's `totalsByBucket`: every run, by the bucket it ended in (local midnight, Monday,
+    /// the 1st), the floored mean with min and max.
+    @Test func runTimesAverageByBucket() throws {
+        func point(_ end: String, _ ms: Int) -> String {
+            #"{"entry_id": "0a000000-0000-4000-8000-000000000001", "captured_at": "\#(end)", "started_at": "\#(end)", "active_ms": \#(ms), "paused_ms": 0, "complete": false, "steps": {}}"#
+        }
+        let series = [
+            point("2026-03-02T09:00:00Z", 100), point("2026-03-02T21:00:00Z", 201),  // Monday
+            point("2026-03-08T09:00:00Z", 300),  // Sunday, same week
+            point("2026-03-09T09:00:00Z", 400),  // next Monday
+        ].joined(separator: ",")
+        let head = Self.three.components(separatedBy: #""series":"#)[0]
+        let json = head + #""series": [\#(series)]}"#
+        let text = TimingOverviewText(try Self.decode(json))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let days = text.totals(by: .day, calendar: calendar)
+        let dayMeans: [Int] = days.map(\.meanMs)
+        #expect(dayMeans == [150, 300, 400], "100 and 201: floor(301 / 2)")
+        let weeks = text.totals(by: .week, calendar: calendar)
+        let weekMeans: [Int] = weeks.map(\.meanMs)
+        let weekCounts: [Int] = weeks.map(\.count)
+        #expect(weekMeans == [200, 400])
+        #expect(weekCounts == [3, 1])
+        let first = try #require(weeks.first)
+        let firstRange: [Int] = [first.minMs, first.maxMs]
+        #expect(firstRange == [100, 300])
+        let months = text.totals(by: .month, calendar: calendar)
+        let monthCounts: [Int] = months.map(\.count)
+        #expect(monthCounts == [4])
     }
 
     @Test func stepsShowMedianBestRetiredAndSkipped() throws {

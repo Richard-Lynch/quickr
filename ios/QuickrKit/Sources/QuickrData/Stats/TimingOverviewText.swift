@@ -29,15 +29,53 @@ public struct TimingOverviewText: Sendable, Hashable {
         public var activeMs: Int
     }
 
+    /// Every run in one chart bucket (the PWA's `totalsByBucket`): the floored mean, min and max
+    /// of their active time.
+    public struct BucketPoint: Sendable, Hashable {
+        public var start: Date
+        public var count: Int
+        public var meanMs: Int
+        public var minMs: Int
+        public var maxMs: Int
+    }
+
     public var runs: Int
     public var median: String
     public var best: String
     public var mean: String
     /// "Best, median and mean over complete runs: 2 of 3 runs".
     public var completeNote: String
-    /// Every run (complete or not), by end: the line's title says "(all runs)".
+    /// Every run (complete or not), by end; the line averages them per bucket (``totals(by:calendar:)``).
     public var points: [Point]
-    public static let lineTitle = "Run time (all runs)"
+    /// The line's title: every run counts, complete or not.
+    public static func lineTitle(_ bucket: QuestionSeries.Bucket) -> String {
+        "Average run per \(bucket.rawValue) (all runs)"
+    }
+
+    /// The runs by the bucket they ended in (`calendar`'s zone): local midnight, the Monday, or
+    /// the 1st, oldest first.
+    public func totals(by bucket: QuestionSeries.Bucket, calendar: Calendar) -> [BucketPoint] {
+        var calendar = calendar
+        calendar.firstWeekday = 2
+        var groups: [Date: [Int]] = [:]
+        for point in points {
+            let day = calendar.startOfDay(for: point.endedAt)
+            let start: Date
+            switch bucket {
+            case .day: start = day
+            case .week: start = calendar.dateInterval(of: .weekOfYear, for: day)?.start ?? day
+            case .month: start = calendar.dateInterval(of: .month, for: day)?.start ?? day
+            }
+            groups[start, default: []].append(point.activeMs)
+        }
+        return groups.keys.sorted().map { start in
+            let ms = groups[start] ?? []
+            // Durations are non-negative, so integer division is the floor.
+            return BucketPoint(
+                start: start, count: ms.count, meanMs: ms.reduce(0, +) / Swift.max(1, ms.count),
+                minMs: ms.min() ?? 0, maxMs: ms.max() ?? 0)
+        }
+    }
     public var steps: [Step]
     public var runsWithLaps: String
     public var lapMedian: String

@@ -12,6 +12,7 @@ struct TimingOverviewSection: View {
     let timing: OverviewModel.Load<TopicTimingDTO>
     /// The current version has a timer.
     let timed: Bool
+    let bucket: QuestionSeries.Bucket
 
     var body: some View {
         switch timing {
@@ -45,7 +46,7 @@ struct TimingOverviewSection: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("overview.timing.empty")
             case .stats(let text):
-                TimingCards(text: text)
+                TimingCards(text: text, bucket: bucket)
             }
         }
     }
@@ -53,6 +54,7 @@ struct TimingOverviewSection: View {
 
 private struct TimingCards: View {
     let text: TimingOverviewText
+    let bucket: QuestionSeries.Bucket
 
     var body: some View {
         Card {
@@ -74,10 +76,11 @@ private struct TimingCards: View {
                     tile("Mean", text.mean, id: "mean")
                     tile("Runs", text.runs.formatted(), id: "runs")
                 }
-                if text.points.count > 1 {
+                let totals = text.totals(by: bucket, calendar: .autoupdatingCurrent)
+                if !totals.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(TimingOverviewText.lineTitle).font(.qr(.caption)).foregroundStyle(.qr.inkSoft)
-                        RunTimeLine(points: text.points)
+                        Text(TimingOverviewText.lineTitle(bucket)).font(.qr(.caption)).foregroundStyle(.qr.inkSoft)
+                        RunTimeLine(points: totals, bucket: bucket)
                     }
                 }
             }
@@ -144,19 +147,31 @@ private struct StepBar: View {
     }
 }
 
-/// Every run's active time by its end.
+/// The average run per bucket (every run counted), over its min–max band, as the question
+/// cards' `MeanLineChart` draws a mean.
 private struct RunTimeLine: View {
-    let points: [TimingOverviewText.Point]
+    let points: [TimingOverviewText.BucketPoint]
+    let bucket: QuestionSeries.Bucket
 
     var body: some View {
         Chart {
-            ForEach(Array(points.enumerated()), id: \.offset) { _, point in
-                LineMark(x: .value("Ended", point.endedAt), y: .value("Run time", point.activeMs))
+            ForEach(points, id: \.start) { point in
+                if points.count > 1 {
+                    AreaMark(
+                        x: .value("Bucket", point.start), yStart: .value("Min", point.minMs),
+                        yEnd: .value("Max", point.maxMs)
+                    )
+                    .foregroundStyle(Color.qr.accent.opacity(0.15))
+                    .accessibilityHidden(true)
+                    LineMark(x: .value("Bucket", point.start), y: .value("Average", point.meanMs))
+                        .foregroundStyle(Color.qr.accent)
+                        .accessibilityHidden(true)
+                }
+                PointMark(x: .value("Bucket", point.start), y: .value("Average", point.meanMs))
                     .foregroundStyle(Color.qr.accent)
-                PointMark(x: .value("Ended", point.endedAt), y: .value("Run time", point.activeMs))
-                    .foregroundStyle(Color.qr.accent)
-                    .accessibilityLabel(point.endedAt.formatted(date: .abbreviated, time: .shortened))
-                    .accessibilityValue(DurationFormat.format(point.activeMs))
+                    .accessibilityLabel(ChartFormat.bucket(point.start, bucket))
+                    .accessibilityValue(
+                        "average \(DurationFormat.format(point.meanMs)), \(ChartFormat.plural(point.count, "run"))")
             }
         }
         .chartYAxis {
@@ -167,7 +182,15 @@ private struct RunTimeLine: View {
                 }
             }
         }
+        .chartXAxis {
+            AxisMarks(values: points.map(\.start)) { value in
+                AxisValueLabel {
+                    if let date = value.as(Date.self) { Text(ChartFormat.bucket(date, bucket)).font(.qr(.caption)) }
+                }
+            }
+        }
         .frame(height: 160)
-        .accessibilityLabel(TimingOverviewText.lineTitle)
+        .accessibilityLabel(TimingOverviewText.lineTitle(bucket))
+        .accessibilityIdentifier("overview.timing.line")
     }
 }
