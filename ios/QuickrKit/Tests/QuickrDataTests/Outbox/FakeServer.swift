@@ -348,9 +348,14 @@ final class FakeServer: Transport {
             return HTTPResponse(status: 200, headers: ["Content-Type": "application/json"], body: data)
         }
         guard report.ok else { return problem(422, "incompatible_version", "incompatible") }
+        // Publishing requires `timer` (null: untimed), and the topic takes the new version's.
+        guard let publish = try? WireCoding.decoder().decode(VersionCreateDTO.self, from: body) else {
+            return problem(422, "invalid_request", "timer is required")
+        }
         topic.currentVersion += 1
         topic.questions = proposed
         topic.questionCount = proposed.count
+        topic.timer = publish.timer
         topic.revision += 1
         state.topics[id] = topic
         return ok(201, topic)

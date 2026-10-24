@@ -213,7 +213,15 @@ import Testing
         let storeRows = try await before.read { db in
             try Self.dump(db, tables: storeTables, columns: try Self.storeV1Columns(db, tables: storeTables))
         }
-        let storeViews = try await before.read { db in try Self.views(db) }
+        // Today's topic reads join v2's `topic_version.timer_json` (a v1 file has none, so every
+        // timer is null): add the column, read, and roll back, leaving the file v1.
+        var viewsBefore: Views?
+        try before.inTransaction { db in
+            try db.execute(sql: "ALTER TABLE topic_version ADD COLUMN timer_json TEXT")
+            viewsBefore = try Self.views(db)
+            return .rollback
+        }
+        let storeViews = try #require(viewsBefore)
         let registryBefore = try DatabaseQueue(path: location.registryURL.path)
         let registryTables = try await registryBefore.read { db in try Self.tables(db) }
         let registryRows = try await registryBefore.read { db in try Self.dump(db, tables: registryTables) }

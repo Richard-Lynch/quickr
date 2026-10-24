@@ -131,6 +131,15 @@ async def test_create_record_stats_publish(mcp_client: Client[Any]) -> None:
     assert [t["slug"] for t in listed["items"]] == ["sleep-log"]
 
 
+async def test_topic_outputs_carry_the_current_versions_timer(mcp_client: Client[Any]) -> None:
+    steps = {"steps": [{"key": "pour", "label": "Pour"}]}
+    await call(mcp_client, "create_topic", name="Coffee", questions=[], timer=steps)
+    await call(mcp_client, "create_topic", name="Plain", questions=[])
+    assert (await call(mcp_client, "get_topic", ref="coffee"))["timer"] == steps
+    listed = await call(mcp_client, "list_topics", sort="name")
+    assert [(t["slug"], t["timer"]) for t in listed["items"]] == [("coffee", steps), ("plain", None)]
+
+
 async def test_record_entry_errors_include_field_details(mcp_client: Client[Any]) -> None:
     await call(mcp_client, "create_topic", name="Sleep log", questions=sleep_questions())
     with pytest.raises(ToolError) as exc:

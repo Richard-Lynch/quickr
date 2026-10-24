@@ -29,17 +29,24 @@ public enum StoreView {
 
     // MARK: - Topics
 
+    /// `topic` rows with their current version's `timer_json` (`Topic.timer`; null when untimed,
+    /// or until that version's row arrives with the pull).
+    static let topicRows = """
+        SELECT topic.*, tv.timer_json FROM topic
+        LEFT JOIN topic_version AS tv ON tv.topic_id = topic.id AND tv.version = topic.current_version
+        """
+
     /// Every view topic, archived included, by lowercased name then id (the server's `name` sort).
     public static func topics(_ db: Database) throws -> [ViewTopic] {
-        try viewTopics(db, rows: Row.fetchAll(db, sql: "SELECT * FROM topic ORDER BY lower(name), id"))
+        try viewTopics(db, rows: Row.fetchAll(db, sql: "\(topicRows) ORDER BY lower(name), topic.id"))
     }
 
     public static func topic(_ db: Database, id: String) throws -> ViewTopic? {
-        try viewTopics(db, rows: Row.fetchAll(db, sql: "SELECT * FROM topic WHERE id = ?", arguments: [id])).first
+        try viewTopics(db, rows: Row.fetchAll(db, sql: "\(topicRows) WHERE topic.id = ?", arguments: [id])).first
     }
 
     public static func topic(_ db: Database, slug: String) throws -> ViewTopic? {
-        try viewTopics(db, rows: Row.fetchAll(db, sql: "SELECT * FROM topic WHERE slug = ?", arguments: [slug])).first
+        try viewTopics(db, rows: Row.fetchAll(db, sql: "\(topicRows) WHERE topic.slug = ?", arguments: [slug])).first
     }
 
     private static func viewTopics(_ db: Database, rows: [Row]) throws -> [ViewTopic] {
@@ -94,7 +101,7 @@ public enum StoreView {
     public static func dueTopics(_ db: Database) throws -> [ViewTopic] {
         let last = try lastCapturedAt(db)
         let states = try queuedTopicStates(db)
-        return try Row.fetchAll(db, sql: "SELECT * FROM topic ORDER BY lower(name), id").map { row in
+        return try Row.fetchAll(db, sql: "\(topicRows) ORDER BY lower(name), topic.id").map { row in
             var topic = try Topic(serverRow: row)
             let id = topic.id.wireString
             topic.entryCount = 0

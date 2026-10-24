@@ -24,8 +24,7 @@ public struct Topic: Sendable, Hashable, Identifiable {
     public var scheduleUpdatedAt: Date?
     public var due: DueStatus?
     /// The current version's timer; nil when the topic isn't timed (timers.md §2.1). The store
-    /// doesn't keep it on the topic row yet, so a topic read from the store has nil here; the
-    /// current `TopicVersion` there has it.
+    /// reads it from the current version's row, so it's nil there until that row is synced.
     public var timer: TopicTimer?
     public var questions: [Question]
 
