@@ -727,14 +727,20 @@ The PWA has no change feed. It reads `listRuns(status=open|finishing)`:
 | `run.event` | `run:{run_id}` | `POST /api/v1/runs/{run_id}/events`, body `RunEventIn` | `{topic: {id, slug, name}, run_id, event: RunEventIn}` |
 
 - **The item id is the event id.** For a start it is the run id.
-- **Ordering (outbox.md §7.1), extended:** a `run.event` waits only for its
-  run's unresolved **start** item and for `topic.*` items of its topic. Events
-  are idempotent and folded by time (§4), so they don't need to wait for each
-  other. A start also waits for the topic's earlier active stop/discard (of
-  another run): otherwise it can overtake a retrying stop, and the server merges
-  the new run into the one it still has open (§4.5). A failed non-start event never blocks the run; a failed start blocks
+- **Ordering (outbox.md §7.1), extended:** a `run.event` waits for its run's
+  unresolved **start** item (ids resolved through the run's aliases) and for
+  `topic.*` items of its topic. Events are idempotent and folded by time (§4),
+  so they don't otherwise wait for each other, with two exceptions:
+  - a **finish** waits for its run's active stops;
+  - a **start** waits for the topic's earlier active stop/discard of another
+    run (active: not failed, and not belonging to a run whose start failed).
+    Otherwise it can overtake a retrying stop, and the server merges the new
+    run into the one it still has open (§4.5).
+
+  A failed non-start event never blocks the run; a failed start blocks
   its run's events until it is retried or discarded (discarding it discards
   them). Entries need no new rule: answers go as `finish` (§3.6).
+
 - **Coalescing (outbox.md §8), one new rule, K6:** when a `discard` is enqueued
   and every item of its run is `pending` and never attempted, including the
   `start`, all of them and the discard are dropped. Nothing is sent: the server
@@ -1152,20 +1158,20 @@ hand (`shared/fixtures/README.md` gains a row for each).
 
 ### 13.3 iOS
 
-| #   | Case                                                                                                                                                                                                                                                                           | Class   |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
-| R1  | Fold, stats and format vectors, with instants parsed to integer milliseconds (no `Date`)                                                                                                                                                                                       | host    |
-| R2  | `listChanges` decode and apply: run items and run deletions, live and staged; a topic tombstone clears its runs and aliases                                                                                                                                                    | host    |
-| R3  | Outbox `run.event`: waits only for its start; a failed Next doesn't block Stop; K6 drops a never-sent start…discard; classification table (§8.1)                                                                                                                               | host    |
-| R4  | Local view: queued start → open run at once; queued Next folds over server events; an alias response re-keys the local run; a queued stop projects an optimistic entry; a start for a topic with a local open run enqueues nothing                                             | host    |
-| R5  | (MP) The widget's Next and the app's Next for one segment, enqueued in the same instant: both queued, the server applies one                                                                                                                                                   | host MP |
-| R6  | (INT) Device A starts and steps; device B, offline, taps Next twice and Lap; A stops; B flushes: the entry's timing equals the fold vector for that history                                                                                                                    | INT     |
-| R7  | (INT) A reminder Start tapped on iOS and in the PWA: one run, whose id is the action entry id                                                                                                                                                                                  | INT     |
-| R8  | Live Activity reconciliation with a fake activity centre: ends orphaned and duplicate activities; updates one whose content differs from the view                                                                                                                              | host    |
-| R9  | UI test: start, Next ×2, Skip, Pause, Resume, Stop, answer, Save; the entry shows the expected segments                                                                                                                                                                        | sim     |
-| R10 | UI test: Edit times on a finished run, then the stats screen shows the new median                                                                                                                                                                                              | sim     |
-| R11 | `dueCount` is the one helper behind the app badge, the NSE badge, home and widgets: a topic with an open run isn't counted by any of them                                                                                                                                      | host    |
-| R12 | Offset and clamp: the offset comes from the latest response with a round trip ≤ 5 s; `at` = device now + offset; an event whose stamp would be at or before the run's latest local `at` is clamped to that `at` + 1 ms (both platforms); offline stamping uses the last offset | host    |
+| #   | Case                                                                                                                                                                                                                                                                                                                                      | Class   |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| R1  | Fold, stats and format vectors, with instants parsed to integer milliseconds (no `Date`)                                                                                                                                                                                                                                                  | host    |
+| R2  | `listChanges` decode and apply: run items and run deletions, live and staged; a topic tombstone clears its runs and aliases                                                                                                                                                                                                               | host    |
+| R3  | Outbox `run.event`: waits for its start (a finish also for its stops; a start for the topic's earlier active stop/discard); a failed Next doesn't block Stop; K6 drops a never-sent start…discard; classification table (§8.1)                                                                                                            | host    |
+| R4  | Local view: queued start → open run at once; queued Next folds over server events; an alias response re-keys the local run; a queued stop projects an optimistic entry; a start for a topic with a local open run enqueues nothing                                                                                                        | host    |
+| R5  | (MP) The widget's Next and the app's Next for one segment, enqueued in the same instant: both queued, the server applies one                                                                                                                                                                                                              | host MP |
+| R6  | (INT) Device A starts and steps; device B, offline, taps Next twice and Lap; A stops; B flushes: the entry's timing equals the fold vector for that history                                                                                                                                                                               | INT     |
+| R7  | (INT) A reminder Start tapped on iOS and in the PWA: one run, whose id is the action entry id                                                                                                                                                                                                                                             | INT     |
+| R8  | Live Activity reconciliation with a fake activity centre: ends orphaned and duplicate activities; updates one whose content differs from the view                                                                                                                                                                                         | host    |
+| R9  | UI test: start, Next ×2, Skip, Pause, Resume, Stop, answer, Save; the entry shows the expected segments                                                                                                                                                                                                                                   | sim     |
+| R10 | UI test: Edit times on a finished run, then the stats screen shows the new median                                                                                                                                                                                                                                                         | sim     |
+| R11 | `dueCount` is the one helper behind the app badge, the NSE badge, home and widgets: a topic with an open run isn't counted by any of them                                                                                                                                                                                                 | host    |
+| R12 | Offset and clamp: the offset comes from the latest response with a round trip ≤ 5 s (iOS skips a store write within 5 ms of the stored offset); `at` = device now + offset; an event whose stamp would be at or before the run's latest local `at` is clamped to that `at` + 1 ms (both platforms); offline stamping uses the last offset | host    |
 
 ### 13.4 PWA
 
