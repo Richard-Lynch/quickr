@@ -286,16 +286,21 @@ Timed topics (timers.md §2.1). A step draft is `{key, label, locked}` (the
 PWA's `DraftStep` without its `uid`); `locked` marks a step of the base
 version, whose key never changes.
 
-- `new_step[]`: `{label, taken, expected}` (`newDraftStep`: the key derived from
-  the label, unique among `taken`; `step` when the label has no usable
-  characters; `''` for a blank label).
+- `new_step[]`: `{label, taken, history, expected}` (`newDraftStep`: the key
+  derived from the label, unique among `taken` and every `history` key; `step`
+  when the label has no usable characters; `''` for a blank label). `history`
+  is every step key the topic's versions have used, with its latest label
+  (`stepHistory`): a label equal, ignoring case and surrounding space, to a
+  historic step's whose key isn't in `taken` takes that key back.
 - `from_timer[]`: `{timer, expected: {timed, steps}}` (`draftFromTimer`: the
   steps a published timer opens as).
-- `step_label[]`: `{name, step, label, taken, expected}` (`withStepLabel`: a
-  locked step keeps its key, a new one re-derives it).
+- `step_label[]`: `{name, step, label, taken, history, expected}`
+  (`withStepLabel`: a locked step keeps its key, a new one re-derives it as
+  `new_step` does).
 - `timer_output[]`: `{name, timed, steps, expected: {timer, issues}}`
   (`timerFromDraft`: the `timer` a publish sends, or the issues at paths
-  relative to the steps list, with `timer` null).
+  relative to the steps list, with `timer` null). Keys must be unique; labels may
+  repeat, as on the server.
 - `timer_changes[]`: `{name, base, next, expected}` (`timerChanges`: the review
   sheet's timing lines).
 

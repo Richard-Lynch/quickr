@@ -4,7 +4,7 @@
  * on the fields they name.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -136,14 +136,14 @@ function renderPage() {
   return userEvent.setup();
 }
 
-/** Types a note and saves; whether the Captured-at field was read-only. */
+/** Types a note and saves; whether the form had a Captured-at field. */
 async function saveNotes(): Promise<boolean> {
   const user = renderPage();
-  await user.type(await screen.findByLabelText(/notes/i), 'Slow morning');
-  const readOnly = screen.getByLabelText<HTMLInputElement>(/captured at/i).readOnly;
+  await user.type(await screen.findByRole('textbox', { name: /notes/i }), 'Slow morning');
+  const shown = screen.queryByLabelText(/captured at/i) !== null;
   await user.click(screen.getByRole('button', { name: /save changes/i }));
   await screen.findByText('entries page');
-  return readOnly;
+  return shown;
 }
 
 beforeEach(() => {
@@ -156,17 +156,17 @@ afterEach(() => {
 });
 
 describe('EntryEditPage captured_at', () => {
-  it('is read-only and left out of the PATCH for a timed entry', async () => {
+  it('is hidden and left out of the PATCH for a timed entry', async () => {
     const patches = stubServer(entry(timing));
-    expect(await saveNotes()).toBe(true);
+    expect(await saveNotes()).toBe(false);
     expect(patches).toHaveLength(1);
     expect(patches[0]).toMatchObject({ notes: 'Slow morning' });
     expect(patches[0]).not.toHaveProperty('captured_at');
   });
 
-  it('is sent for an untimed entry', async () => {
+  it('is shown and sent for an untimed entry', async () => {
     const patches = stubServer(entry(null));
-    expect(await saveNotes()).toBe(false);
+    expect(await saveNotes()).toBe(true);
     expect(patches[0]).toHaveProperty('captured_at');
   });
 });
@@ -212,6 +212,11 @@ const steppedTiming: NonNullable<EntryOut['timing']> = {
   skipped: [],
   pauses: [],
 };
+
+const [washSegment, drySegment] = steppedTiming.segments as [
+  NonNullable<EntryOut['timing']>['segments'][number],
+  NonNullable<EntryOut['timing']>['segments'][number],
+];
 
 const localAt = (iso: string) => toLocalSeconds(parseInstant(iso));
 
@@ -289,5 +294,90 @@ describe('EntryEditPage Edit times', () => {
       target: { value: localAt('2026-10-23T08:04:00Z') },
     });
     expect(within(form).queryByText('Overlaps the next pause')).toBeNull();
+  });
+
+  it('a 409 stale_revision stops saving until the times are reloaded', async () => {
+    let revision = 1;
+    let current = entry(steppedTiming);
+    const patches: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: Request) => {
+        const path = new URL(input.url).pathname;
+        if (path.endsWith(`/entries/${ENTRY_ID}`) && input.method === 'PATCH') {
+          const body = JSON.parse(await input.text()) as { expected_revision: number };
+          patches.push(body);
+          if (body.expected_revision !== revision)
+            return json(409, {
+              code: 'stale_revision',
+              detail: `entry is at revision ${String(revision)}`,
+              errors: [{ loc: ['body', 'expected_revision'], message: 'current revision is 2' }],
+            });
+          return json(200, { ...current, revision: revision + 1 });
+        }
+        if (path.endsWith(`/entries/${ENTRY_ID}`)) return json(200, { ...current, revision });
+        if (path.endsWith('/versions')) return json(200, [stepped]);
+        return json(404, { code: 'not_found', detail: 'not found', errors: [] });
+      }),
+    );
+    const user = renderPage();
+    const form = await openEditor(user);
+    // Meanwhile another device edits the times: Wash now ends at 8:01.
+    revision = 2;
+    current = {
+      ...current,
+      timing: {
+        ...steppedTiming,
+        segments: [
+          { ...washSegment, ended_at: '2026-10-23T08:01:00Z', active_ms: 60_000 },
+          { ...drySegment, started_at: '2026-10-23T08:01:00Z', active_ms: 240_500 },
+        ],
+      },
+    };
+    await user.click(within(form).getByRole('button', { name: 'Save times' }));
+    expect(
+      await within(form).findByText('These times changed since you opened them'),
+    ).toBeInTheDocument();
+    expect(patches).toEqual([expect.objectContaining({ expected_revision: 1 })]);
+    // Saving stays off: the draft is never sent against the new revision.
+    expect(within(form).getByRole('button', { name: 'Save times' })).toBeDisabled();
+    await user.click(within(form).getByRole('button', { name: 'Reload times' }));
+    const fresh = screen.getByRole('form', { name: 'Edit times' });
+    await waitFor(() => {
+      // The input drops ":00" seconds when it shows the value.
+      expect(within(fresh).getByLabelText<HTMLInputElement>('Segment 1 ended').value).toBe(
+        localAt('2026-10-23T08:01:00Z').slice(0, 16),
+      );
+    });
+    expect(within(fresh).queryByText('These times changed since you opened them')).toBeNull();
+    await user.click(within(fresh).getByRole('button', { name: 'Save times' }));
+    expect(await screen.findByText('Times updated')).toBeInTheDocument();
+    expect(patches).toHaveLength(2);
+    expect(patches[1]).toMatchObject({ expected_revision: 2 });
+  });
+
+  it('a times save keeps unsaved notes in the entry form', async () => {
+    stubServer(
+      entry(steppedTiming),
+      () =>
+        json(200, {
+          ...entry(steppedTiming),
+          revision: 2,
+          captured_at: '2026-10-23T08:06:00Z',
+          updated_at: '2026-10-23T09:00:00Z',
+          timing: { ...steppedTiming, edited: true },
+        }),
+      stepped,
+    );
+    const user = renderPage();
+    const notes = await screen.findByRole('textbox', { name: /notes/i });
+    await user.type(notes, 'Draft note');
+    const form = await openEditor(user);
+    await user.click(within(form).getByRole('button', { name: 'Save times' }));
+    expect(await screen.findByText('Times updated')).toBeInTheDocument();
+    expect(await screen.findByText('edited')).toBeInTheDocument();
+    expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: /notes/i }).value).toBe(
+      'Draft note',
+    );
   });
 });

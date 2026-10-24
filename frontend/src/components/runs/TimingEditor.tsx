@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 
 import type { Step, Timing, TimingEdit } from '../../client';
 import { fmtDuration } from '../../lib/runs/format';
@@ -9,9 +9,9 @@ import { Icon } from '../ui/Icon';
 import {
   checkTimingDraft,
   draftFromTiming,
-  newPause,
-  newSegment,
-  originalInstants,
+  localTimeNote,
+  withNewPause,
+  withNewSegment,
   withSegmentStep,
   type FieldErrors,
   type TimingDraft,
@@ -27,6 +27,11 @@ interface Props {
   serverErrors: FieldErrors;
   serverMessage: string | null;
   saving: boolean;
+  /**
+   * Set when the entry changed since this form opened (a 409 `stale_revision`, or a newer
+   * revision seen): saving is off until the user reloads the times, discarding this draft.
+   */
+  stale: { onReload: () => void; reloading: boolean } | null;
   onSave: (edit: TimingEdit) => void;
   onCancel: () => void;
 }
@@ -43,6 +48,7 @@ export function TimingEditor({
   serverErrors,
   serverMessage,
   saving,
+  stale: staleEntry,
   onSave,
   onCancel,
 }: Props) {
@@ -56,8 +62,7 @@ export function TimingEditor({
     setErrorsSeen(serverErrors);
     setStale(new Set());
   }
-  const originals = useMemo(() => originalInstants(timing), [timing]);
-  const checked = checkTimingDraft(draft, steps, originals);
+  const checked = checkTimingDraft(draft, steps);
 
   const errorAt = (path: string): string | undefined =>
     (submitted ? checked.errors[path] : undefined) ??
@@ -80,17 +85,35 @@ export function TimingEditor({
       onSubmit={(e) => {
         e.preventDefault();
         setSubmitted(true);
-        if (checked.edit) onSave(checked.edit);
+        if (checked.edit && !staleEntry) onSave(checked.edit);
       }}
     >
-      {serverMessage ? <Banner title={serverMessage} /> : null}
+      {staleEntry ? (
+        <Banner
+          tone="warn"
+          title="These times changed since you opened them"
+          action={
+            <Button size="sm" loading={staleEntry.reloading} onClick={staleEntry.onReload}>
+              Reload times
+            </Button>
+          }
+        >
+          Reloading shows the latest times and discards your edits here.
+        </Banner>
+      ) : serverMessage ? (
+        <Banner title={serverMessage} />
+      ) : null}
       {formError ? (
         <p role="alert" className="text-sm font-medium text-danger">
           {formError}
         </p>
       ) : null}
 
-      <Field label="Started" error={errorAt('started_at')}>
+      <Field
+        label="Started"
+        error={errorAt('started_at')}
+        hint={localTimeNote(draft.started_at) ?? undefined}
+      >
         {({ id, describedBy, invalid }) => (
           <Input
             id={id}
@@ -148,11 +171,12 @@ export function TimingEditor({
                   error={endError}
                   className="col-start-1 sm:col-start-auto"
                   hint={
-                    shown?.active_ms != null
+                    localTimeNote(seg.ended_at) ??
+                    (shown?.active_ms != null
                       ? `${shown.label}: ${fmtDuration(shown.active_ms)}${
                           shown.paused_ms ? ` (${fmtDuration(shown.paused_ms)} paused)` : ''
                         }`
-                      : undefined
+                      : undefined)
                   }
                 >
                   {({ id, describedBy, invalid }) => (
@@ -196,12 +220,7 @@ export function TimingEditor({
           size="md"
           className="self-start border-dashed"
           icon={<Icon name="plus" />}
-          onClick={() =>
-            update('segments', {
-              ...draft,
-              segments: [...draft.segments, newSegment(draft, steps)],
-            })
-          }
+          onClick={() => update('segments', withNewSegment(draft, steps))}
         >
           Add segment
         </Button>
@@ -256,7 +275,11 @@ export function TimingEditor({
                 key={p.uid}
                 className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-xl border border-line bg-paper/40 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
               >
-                <Field label={`Pause ${n} started`} error={errorAt(`pauses.${String(i)}.start`)}>
+                <Field
+                  label={`Pause ${n} started`}
+                  error={errorAt(`pauses.${String(i)}.start`)}
+                  hint={localTimeNote(p.start) ?? undefined}
+                >
                   {({ id, describedBy, invalid }) => (
                     <Input
                       id={id}
@@ -272,6 +295,7 @@ export function TimingEditor({
                 <Field
                   label={`Pause ${n} ended`}
                   error={errorAt(`pauses.${String(i)}.end`)}
+                  hint={localTimeNote(p.end) ?? undefined}
                   className="col-start-1 sm:col-start-auto"
                 >
                   {({ id, describedBy, invalid }) => (
@@ -304,7 +328,7 @@ export function TimingEditor({
           size="md"
           className="self-start border-dashed"
           icon={<Icon name="plus" />}
-          onClick={() => update('pauses', { ...draft, pauses: [...draft.pauses, newPause(draft)] })}
+          onClick={() => update('pauses', withNewPause(draft))}
         >
           Add pause
         </Button>
@@ -324,7 +348,13 @@ export function TimingEditor({
         <Button size="lg" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" variant="primary" size="lg" loading={saving}>
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          loading={saving}
+          disabled={staleEntry !== null}
+        >
           Save times
         </Button>
       </div>

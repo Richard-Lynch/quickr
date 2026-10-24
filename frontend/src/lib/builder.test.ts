@@ -5,6 +5,7 @@ import {
   draftFromQuestion,
   draftFromTimer,
   newDraftStep,
+  stepHistory,
   stepIssues,
   timerChanges,
   withStepLabel,
@@ -296,8 +297,14 @@ describe('timer drafts (timers.md §2.1)', () => {
     expect(issues.map((i) => [i.path.join('.'), i.message])).toEqual([
       ['0.label', 'Required'],
       ['2.key', 'Another step has this key'],
-      ['2.label', 'Another step has this label'],
     ]);
+    // Labels may repeat (the server allows it): only keys must be unique.
+    expect(
+      stepIssues([
+        { key: 'a', label: 'Rinse' },
+        { key: 'b', label: 'rinse' },
+      ]),
+    ).toEqual([]);
     const many = Array.from({ length: 31 }, (_, i) => ({
       key: `s${String(i)}`,
       label: `S${String(i)}`,
@@ -311,6 +318,34 @@ describe('timer drafts (timers.md §2.1)', () => {
       steps: [newDraftStep('')],
     });
     expect(r.error?.issues.map((i) => i.path.join('.'))).toEqual(['steps.0.label']);
+  });
+
+  it('a retired step’s key is reused only by the same step, never by another', () => {
+    const history = stepHistory([
+      { version: 2, timer: { steps: [{ key: 'shower', label: 'Shower' }] } },
+      {
+        version: 1,
+        timer: {
+          steps: [
+            { key: 'prep', label: 'Old prep' },
+            { key: 'shower', label: 'Wash' },
+          ],
+        },
+      },
+      { version: 3, timer: null },
+    ]);
+    expect(history).toEqual([
+      { key: 'prep', label: 'Old prep' },
+      { key: 'shower', label: 'Shower' },
+    ]);
+    // Same (folded) label as a retired step: it is that step again.
+    expect(newDraftStep('  old PREP ', [], history).key).toBe('prep');
+    // A different step that would derive a retired key gets a fresh one.
+    expect(newDraftStep('Prep', [], history).key).toBe('prep_2');
+    // A retired key already used by another draft step isn't reused.
+    expect(newDraftStep('Old prep', ['prep'], history).key).toBe('old_prep');
+    expect(withStepLabel(newDraftStep(''), 'Shower', [], history).key).toBe('shower');
+    expect(withStepLabel(newDraftStep(''), 'Shower', ['shower'], history).key).toBe('shower_2');
   });
 
   it('timerChanges names what the review sheet shows', () => {

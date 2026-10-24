@@ -45,7 +45,19 @@ const topic: TopicDetail = {
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-function stubServer(timing: TopicTiming) {
+const versionWith = (timer: { steps: { key: string; label: string }[] } | null) => ({
+  version: 1,
+  questions: [],
+  timer,
+  change_note: '',
+  created_at: '2026-10-01T00:00:00Z',
+  entry_count: 4,
+});
+
+function stubServer(
+  timing: TopicTiming,
+  timer: { steps: { key: string; label: string }[] } | null = null,
+) {
   const paths: string[] = [];
   vi.stubGlobal(
     'fetch',
@@ -53,6 +65,7 @@ function stubServer(timing: TopicTiming) {
       const path = new URL(input.url).pathname;
       paths.push(path);
       if (path.endsWith('/timing')) return Promise.resolve(json(200, timing));
+      if (path.endsWith('/versions')) return Promise.resolve(json(200, [versionWith(timer)]));
       // The question cards aren't under test: the stats with no questions.
       if (path.endsWith('/stats'))
         return Promise.resolve(json(200, { ...statsFixture, entry_count: 4, questions: [] }));
@@ -144,5 +157,27 @@ describe('OverviewPage Timing', () => {
     });
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByRole('region', { name: 'Timing' })).toBeNull();
+  });
+
+  it('a timed topic with no runs in range says so', async () => {
+    stubServer(untimedFixture, { steps: [] });
+    renderPage();
+    const section = await screen.findByRole('region', { name: 'Timing' });
+    expect(within(section).getByText(/No runs in this range/)).toBeInTheDocument();
+  });
+
+  it('best, median and mean are told apart', async () => {
+    const spread: TopicTiming = {
+      ...timingFixture,
+      runs: 3,
+      complete_runs: 3,
+      total: { best_ms: 240_000, median_ms: 300_000, mean_ms: 320_000 },
+    };
+    stubServer(spread);
+    renderPage();
+    const section = await screen.findByRole('region', { name: 'Timing' });
+    expect(within(section).getByTestId('timing-best').textContent).toBe('4:00');
+    expect(within(section).getByTestId('timing-median').textContent).toBe('5:00');
+    expect(within(section).getByTestId('timing-mean').textContent).toBe('5:20');
   });
 });

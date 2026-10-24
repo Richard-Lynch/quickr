@@ -4,8 +4,9 @@
  * run's steps, the 7-day limit). The server stays the final word: its 422 field paths
  * (`timing.segments.1.ended_at`…) land on the same fields as these checks.
  *
- * Times are edited as local wall time to the second (`datetime-local` with seconds). An
- * instant left as it was keeps its exact original millisecond; an edited one is that second.
+ * Times are edited as local wall time to the second (`datetime-local` with seconds). Each
+ * field remembers its original text and millisecond: while its text is unchanged it sends that
+ * exact millisecond; once edited, it sends the second it shows.
  */
 import type { Step as TimerStep, Timing, TimingEdit } from '../../client';
 import { MAX_RUN_MS } from '../../lib/runs/fold';
@@ -25,12 +26,23 @@ export interface DraftPause {
   end: string;
 }
 
+/** A field's original value: the text it opened with and the exact instant behind it. */
+export interface Original {
+  text: string;
+  ms: number;
+}
+
 export interface TimingDraft {
   started_at: string;
   segments: DraftSegment[];
   /** Skipped step keys (any order; a save sends them in step order). */
   skipped: string[];
   pauses: DraftPause[];
+  /**
+   * Originals by field id: `started_at`, `{segment uid}.ended_at`, `{pause uid}.start` and
+   * `{pause uid}.end`. A field whose text still equals its original's sends the original ms.
+   */
+  originals: Record<string, Original>;
 }
 
 /** A field's path relative to `timing`, as the server reports it: `segments.0.ended_at`. */
@@ -64,66 +76,86 @@ export function fromLocalInput(value: string): number | null {
 
 /** The draft a stopped run's timing opens as. */
 export function draftFromTiming(timing: Timing): TimingDraft {
-  const local = (iso: string) => toLocalSeconds(parseInstant(iso));
-  return {
-    started_at: local(timing.started_at),
-    segments: timing.segments.map((s) => ({
-      uid: nextUid('g'),
-      kind: s.kind,
-      step: s.step,
-      ended_at: local(s.ended_at),
-    })),
-    skipped: [...timing.skipped],
-    pauses: timing.pauses.map((p) => ({
-      uid: nextUid('p'),
-      start: local(p.start),
-      end: local(p.end),
-    })),
-  };
-}
-
-/**
- * Each original instant by its displayed text, so an untouched field sends its exact
- * millisecond rather than the whole second it shows.
- */
-export function originalInstants(timing: Timing): Map<string, number> {
-  const out = new Map<string, number>();
-  const add = (iso: string) => {
+  const originals: Record<string, Original> = {};
+  const field = (id: string, iso: string): string => {
     const ms = parseInstant(iso);
-    const key = toLocalSeconds(ms);
-    if (!out.has(key)) out.set(key, ms);
+    const text = toLocalSeconds(ms);
+    originals[id] = { text, ms };
+    return text;
   };
-  add(timing.started_at);
-  for (const s of timing.segments) add(s.ended_at);
-  for (const p of timing.pauses) {
-    add(p.start);
-    add(p.end);
-  }
-  return out;
+  const started_at = field('started_at', timing.started_at);
+  const segments = timing.segments.map((s) => {
+    const uid = nextUid('g');
+    return { uid, kind: s.kind, step: s.step, ended_at: field(`${uid}.ended_at`, s.ended_at) };
+  });
+  const pauses = timing.pauses.map((p) => {
+    const uid = nextUid('p');
+    return { uid, start: field(`${uid}.start`, p.start), end: field(`${uid}.end`, p.end) };
+  });
+  return { started_at, segments, skipped: [...timing.skipped], pauses, originals };
 }
 
-function instantOf(value: string, originals: ReadonlyMap<string, number>): number | null {
-  return originals.get(value) ?? fromLocalInput(value);
+/** The instant a field's text means: its original ms while unchanged, else the local time. */
+function instantOf(draft: TimingDraft, id: string, text: string): number | null {
+  const o = draft.originals[id];
+  return o?.text === text ? o.ms : fromLocalInput(text);
 }
 
-/** A segment added at the end: the first step not used yet, else a lap; zero length. */
-export function newSegment(draft: TimingDraft, steps: readonly TimerStep[]): DraftSegment {
+/** The run's last end, as text and its original (so a copy of it keeps the exact ms). */
+function lastEnd(draft: TimingDraft): { text: string; original: Original | undefined } {
+  const last = draft.segments[draft.segments.length - 1];
+  return last
+    ? { text: last.ended_at, original: draft.originals[`${last.uid}.ended_at`] }
+    : { text: draft.started_at, original: draft.originals.started_at };
+}
+
+/** Add a segment at the end, timing the first step not used yet, else a lap; zero length. */
+export function withNewSegment(draft: TimingDraft, steps: readonly TimerStep[]): TimingDraft {
   const used = new Set(draft.segments.map((s) => s.step).filter((k) => k !== null));
   const free = steps.find((s) => !used.has(s.key));
-  const last = draft.segments[draft.segments.length - 1];
+  const { text, original } = lastEnd(draft);
+  const uid = nextUid('g');
   return {
-    uid: nextUid('g'),
-    kind: free ? 'step' : 'lap',
-    step: free?.key ?? null,
-    ended_at: last?.ended_at ?? draft.started_at,
+    ...draft,
+    segments: [
+      ...draft.segments,
+      { uid, kind: free ? 'step' : 'lap', step: free?.key ?? null, ended_at: text },
+    ],
+    skipped: free ? draft.skipped.filter((k) => k !== free.key) : draft.skipped,
+    originals: original ? { ...draft.originals, [`${uid}.ended_at`]: original } : draft.originals,
   };
 }
 
-/** A zero-length pause at the run's end, to be moved. */
-export function newPause(draft: TimingDraft): DraftPause {
-  const last = draft.segments[draft.segments.length - 1];
-  const at = last?.ended_at ?? draft.started_at;
-  return { uid: nextUid('p'), start: at, end: at };
+/** Add a zero-length pause at the run's end, to be moved. */
+export function withNewPause(draft: TimingDraft): TimingDraft {
+  const { text, original } = lastEnd(draft);
+  const uid = nextUid('p');
+  return {
+    ...draft,
+    pauses: [...draft.pauses, { uid, start: text, end: text }],
+    originals: original
+      ? { ...draft.originals, [`${uid}.start`]: original, [`${uid}.end`]: original }
+      : draft.originals,
+  };
+}
+
+const MIN_INSTANT = Date.UTC(2000, 0, 1);
+const MAX_AHEAD_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A note for a local time a clock change makes ambiguous (it happens twice: the earlier is
+ * used) or skips (it doesn't exist: it reads as the time after the gap); null otherwise.
+ */
+export function localTimeNote(text: string): string | null {
+  const ms = fromLocalInput(text);
+  if (ms === null) return null;
+  const wanted = text.length === 16 ? `${text}:00` : text;
+  const shown = toLocalSeconds(ms);
+  if (shown !== wanted)
+    return `There is no ${wanted.slice(11)} that day (the clocks went forward): it reads as ${shown.slice(11)}.`;
+  if (toLocalSeconds(ms + 3_600_000) === wanted || toLocalSeconds(ms - 3_600_000) === wanted)
+    return `${wanted.slice(11)} happens twice that day (the clocks went back): the earlier one is used.`;
+  return null;
 }
 
 /** Pick what a segment times: a step's key, or `null` for a lap. Drops it from `skipped`. */
@@ -153,13 +185,13 @@ export interface Checked {
 
 /**
  * Check a draft against the run's `steps` (its version's) and build the `TimingEdit`. The
- * rules are the server's (backend `edited_timing`), with its messages: the first problem in
- * each field is reported.
+ * rules are the server's (backend `edited_timing`, and the captured_at bounds at `now`), in
+ * the client's own words: the first problem in each field is reported.
  */
 export function checkTimingDraft(
   draft: TimingDraft,
   steps: readonly TimerStep[],
-  originals: ReadonlyMap<string, number> = new Map(),
+  now: number = Date.now(),
 ): Checked {
   const errors: FieldErrors = {};
   const fail = (path: FieldPath, message: string) => {
@@ -174,8 +206,16 @@ export function checkTimingDraft(
     claimed.add(key);
   };
 
-  const start = instantOf(draft.started_at, originals);
-  if (start === null) fail('started_at', 'Enter a date and time');
+  // Every instant: a date and time within the captured_at bounds (sync-protocol.md §10).
+  const read = (id: string, text: string, path: FieldPath): number | null => {
+    const ms = instantOf(draft, id, text);
+    if (ms === null) fail(path, 'Enter a date and time');
+    else if (ms < MIN_INSTANT) fail(path, 'Must not be before 2000-01-01');
+    else if (ms > now + MAX_AHEAD_MS) fail(path, 'Must not be more than 24 hours in the future');
+    return ms;
+  };
+
+  const start = read('started_at', draft.started_at, 'started_at');
   if (draft.segments.length === 0) fail('segments', 'Keep at least one segment');
 
   const ends: (number | null)[] = [];
@@ -185,9 +225,8 @@ export function checkTimingDraft(
       if (seg.step === null) fail(`segments.${String(i)}.step`, 'Pick a step');
       else claim(seg.step, `segments.${String(i)}.step`);
     }
-    const end = instantOf(seg.ended_at, originals);
-    if (end === null) fail(`segments.${String(i)}.ended_at`, 'Enter a date and time');
-    else if (previous !== null && end < previous)
+    const end = read(`${seg.uid}.ended_at`, seg.ended_at, `segments.${String(i)}.ended_at`);
+    if (end !== null && previous !== null && end < previous)
       fail(`segments.${String(i)}.ended_at`, 'Before the segment’s start');
     ends.push(end);
     previous = end ?? previous;
@@ -205,14 +244,14 @@ export function checkTimingDraft(
   const pauses: { start: number; end: number }[] = [];
   let floor = start;
   draft.pauses.forEach((p, i) => {
-    const ps = instantOf(p.start, originals);
-    const pe = instantOf(p.end, originals);
-    if (ps === null) fail(`pauses.${String(i)}.start`, 'Enter a date and time');
-    else if (floor !== null && ps < floor)
+    const ps = read(`${p.uid}.start`, p.start, `pauses.${String(i)}.start`);
+    const pe = read(`${p.uid}.end`, p.end, `pauses.${String(i)}.end`);
+    if (ps !== null && floor !== null && ps < floor)
       fail(`pauses.${String(i)}.start`, 'Before the run’s start or the previous pause’s end');
-    if (pe === null) fail(`pauses.${String(i)}.end`, 'Enter a date and time');
-    else if (ps !== null && pe < ps) fail(`pauses.${String(i)}.end`, 'Before the pause’s start');
-    else if (runEnd !== null && pe > runEnd) fail(`pauses.${String(i)}.end`, 'After the run’s end');
+    if (pe !== null && ps !== null && pe < ps)
+      fail(`pauses.${String(i)}.end`, 'Before the pause’s start');
+    else if (pe !== null && runEnd !== null && pe > runEnd)
+      fail(`pauses.${String(i)}.end`, 'After the run’s end');
     if (ps !== null && pe !== null) pauses.push({ start: ps, end: pe });
     floor = pe ?? floor;
   });

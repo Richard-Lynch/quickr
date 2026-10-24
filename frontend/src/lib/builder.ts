@@ -284,13 +284,51 @@ export function emptyTopicDraft(): TopicDraft {
 }
 
 /** A step's key from its label: snake_case, unique among `taken`; '' for a blank label. */
-export function stepKeyFor(label: string, taken: Iterable<string>): string {
-  return label.trim() ? uniqueKey(toSnakeKey(label) || 'step', taken) : '';
+/** A step key some version of the topic has used, with its latest label (`stepHistory`). */
+export interface HistoricStep {
+  key: string;
+  label: string;
 }
 
-/** A new, unpublished step. `taken`: the other steps' keys. */
-export function newDraftStep(label = '', taken: Iterable<string> = []): DraftStep {
-  return { uid: uid('s'), key: stepKeyFor(label, taken), label, locked: false };
+/**
+ * Every step key any version has used, with the label of the latest version that has it
+ * (versions in any order). Stats join on keys across versions (timers.md §2.1, §9), so a
+ * new step must not take a retired step's key unless it is that step.
+ */
+export function stepHistory(
+  versions: readonly { version: number; timer: Timer | null }[],
+): HistoricStep[] {
+  const labels = new Map<string, string>();
+  for (const v of [...versions].sort((a, b) => a.version - b.version))
+    for (const step of v.timer?.steps ?? []) labels.set(step.key, step.label);
+  return [...labels].map(([key, label]) => ({ key, label }));
+}
+
+/**
+ * A new step's key from its label; '' for a blank label. `taken`: the other draft steps'
+ * keys. A label matching (ignoring case and surrounding space) a historic step whose key is
+ * free is that step again, and takes its key; otherwise the key is derived from the label
+ * and unique among `taken` and every historic key (`prep`, else `prep_2`…).
+ */
+export function stepKeyFor(
+  label: string,
+  taken: Iterable<string>,
+  history: readonly HistoricStep[] = [],
+): string {
+  if (!label.trim()) return '';
+  const used = new Set(taken);
+  const same = history.find((h) => !used.has(h.key) && fold(h.label) === fold(label));
+  if (same) return same.key;
+  return uniqueKey(toSnakeKey(label) || 'step', [...used, ...history.map((h) => h.key)]);
+}
+
+/** A new, unpublished step. `taken`: the other steps' keys; `history`: see {@link stepKeyFor}. */
+export function newDraftStep(
+  label = '',
+  taken: Iterable<string> = [],
+  history: readonly HistoricStep[] = [],
+): DraftStep {
+  return { uid: uid('s'), key: stepKeyFor(label, taken, history), label, locked: false };
 }
 
 /** Rename a step. A published step keeps its key; a new one re-derives it from the label. */
@@ -298,9 +336,10 @@ export function withStepLabel(
   step: DraftStep,
   label: string,
   takenKeys: Iterable<string>,
+  history: readonly HistoricStep[] = [],
 ): DraftStep {
   if (step.locked) return { ...step, label };
-  return { ...step, label, key: stepKeyFor(label, takenKeys) };
+  return { ...step, label, key: stepKeyFor(label, takenKeys, history) };
 }
 
 /** Apply a label change, deriving the key while it has not been hand-edited. */
@@ -665,7 +704,7 @@ export const MAX_STEPS = 30;
 
 /**
  * The steps' rules (timers.md §2.1, §5): a label (at most the label limit), a key matching the
- * key pattern, keys unique, labels unique ignoring case, at most {@link MAX_STEPS}. Paths are
+ * key pattern, keys unique (labels may repeat, as on the server), at most {@link MAX_STEPS}. Paths are
  * relative to the steps list: `[i, 'label']`, `[i, 'key']`, or `[]` for the list.
  */
 export function stepIssues(
@@ -686,11 +725,6 @@ export function stepIssues(
   });
   for (const i of duplicates(steps.map((x) => x.key.trim())))
     issues.push({ path: [i, 'key'], message: 'Another step has this key' });
-  for (const i of duplicates(
-    steps.map((x) => x.label),
-    fold,
-  ))
-    issues.push({ path: [i, 'label'], message: 'Another step has this label' });
   return issues;
 }
 

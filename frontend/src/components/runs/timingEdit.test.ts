@@ -1,5 +1,5 @@
 /** The Edit times model: the server's T2–T5 rules client-side, and the body a save sends. */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Timing } from '../../client';
 import { parseInstant } from '../../lib/runs/instant';
@@ -7,10 +7,11 @@ import {
   checkTimingDraft,
   draftFromTiming,
   fromLocalInput,
-  newSegment,
-  originalInstants,
+  localTimeNote,
   timingFieldOf,
   toLocalSeconds,
+  withNewPause,
+  withNewSegment,
   withSegmentStep,
   type TimingDraft,
 } from './timingEdit';
@@ -61,13 +62,37 @@ function seg(
 
 const local = (iso: string) => toLocalSeconds(parseInstant(iso));
 const at = (hms: string) => local(`2026-10-23T${hms}.000Z`);
-const originals = originalInstants(timing);
+/** Well after the run, so the 24-hour bound only bites where a test means it to. */
+const NOW = Date.parse('2026-12-01T00:00:00Z');
 function segAt(d: TimingDraft, i: number) {
   const s = d.segments[i];
   if (!s) throw new Error(`no segment ${String(i)}`);
   return s;
 }
-const check = (d: TimingDraft) => checkTimingDraft(d, steps, originals);
+const check = (d: TimingDraft, now = NOW) => checkTimingDraft(d, steps, now);
+
+describe('localTimeNote (clock changes)', () => {
+  const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } })
+    .process.env;
+  const previous = env.TZ;
+  afterEach(() => {
+    if (previous === undefined) delete env.TZ;
+    else env.TZ = previous;
+  });
+
+  it('notes a time that happens twice, and one that is skipped', () => {
+    env.TZ = 'Europe/London';
+    // Clocks went back at 02:00 BST on 2026-10-25, and forward at 01:00 GMT on 2026-03-29.
+    expect(localTimeNote('2026-10-25T01:30:00')).toBe(
+      '01:30:00 happens twice that day (the clocks went back): the earlier one is used.',
+    );
+    expect(localTimeNote('2026-03-29T01:30')).toBe(
+      'There is no 01:30:00 that day (the clocks went forward): it reads as 02:30:00.',
+    );
+    expect(localTimeNote('2026-10-24T01:30:00')).toBeNull();
+    expect(localTimeNote('')).toBeNull();
+  });
+});
 
 describe('timing edit model', () => {
   it('round-trips local input values to the second', () => {
@@ -170,15 +195,99 @@ describe('timing edit model', () => {
 
   it('a new segment times the first unused step, else a lap; lap labels follow the order', () => {
     const d = draftFromTiming({ ...timing, skipped: [] });
-    expect(newSegment(d, steps)).toMatchObject({
+    const one = withNewSegment(d, steps);
+    expect(one.segments[3]).toMatchObject({
       kind: 'step',
       step: 'coffee',
       ended_at: at('07:09:00'),
     });
-    const all = { ...d, segments: [...d.segments, newSegment(d, steps)] };
-    expect(newSegment(all, steps)).toMatchObject({ kind: 'lap', step: null });
-    const laps = withSegmentStep(all, 0, null);
-    expect(check(laps).segments.map((s) => s.label)).toEqual(['Lap 1', 'Lap 2', 'Dress', 'Coffee']);
+    const two = withNewSegment(one, steps);
+    expect(two.segments[4]).toMatchObject({ kind: 'lap', step: null });
+    const laps = withSegmentStep(two, 0, null);
+    expect(check(laps).segments.map((s) => s.label)).toEqual([
+      'Lap 1',
+      'Lap 2',
+      'Dress',
+      'Coffee',
+      'Lap 3',
+    ]);
+  });
+
+  it('a new segment or pause copies the run end’s exact millisecond (zero length is fine)', () => {
+    const odd: Timing = {
+      ...timing,
+      ended_at: '2026-10-23T07:09:00.750Z',
+      segments: [
+        ...timing.segments.slice(0, 2),
+        seg('step', 'dress', 'Dress', '07:05:00.000', '07:09:00.750', 0),
+      ],
+    };
+    const d = withNewPause(withNewSegment(draftFromTiming(odd), steps));
+    const r = check(d);
+    expect(r.errors).toEqual({});
+    expect(r.edit?.segments[3]?.ended_at).toBe('2026-10-23T07:09:00.750000Z');
+    expect(r.edit?.pauses[1]).toEqual({
+      start: '2026-10-23T07:09:00.750000Z',
+      end: '2026-10-23T07:09:00.750000Z',
+    });
+  });
+
+  it('untouched fields showing the same second keep their own milliseconds', () => {
+    const close: Timing = {
+      ...timing,
+      started_at: '2026-10-23T07:00:01.100Z',
+      ended_at: '2026-10-23T07:00:01.900Z',
+      skipped: [],
+      segments: [seg('step', 'shower', 'Shower', '07:00:01.100', '07:00:01.900', 0)],
+      pauses: [],
+    };
+    const d = draftFromTiming(close);
+    expect(d.started_at).toBe(segAt(d, 0).ended_at);
+    expect(check(d).edit).toMatchObject({
+      started_at: '2026-10-23T07:00:01.100000Z',
+      segments: [{ ended_at: '2026-10-23T07:00:01.900000Z' }],
+    });
+    // Edited and set back to the same text: the field's own original again.
+    const back = { ...d, started_at: at('07:00:00') };
+    expect(check({ ...back, started_at: d.started_at }).edit?.started_at).toBe(
+      '2026-10-23T07:00:01.100000Z',
+    );
+  });
+
+  it('accepts a zero-length segment, exactly 7 days, and a pause starting at the run’s start', () => {
+    const zero = draftFromTiming(timing);
+    zero.segments[0] = { ...segAt(zero, 0), ended_at: at('07:04:30') };
+    zero.segments[1] = { ...segAt(zero, 1), ended_at: at('07:04:30') };
+    expect(check(zero).errors).toEqual({});
+    expect(check(zero).segments[1]?.active_ms).toBe(0);
+
+    const week = draftFromTiming(timing);
+    week.segments[2] = { ...segAt(week, 2), ended_at: local('2026-10-30T07:00:00.000Z') };
+    expect(check(week).errors).toEqual({});
+    week.segments[2] = { ...segAt(week, 2), ended_at: local('2026-10-30T07:00:01.000Z') };
+    expect(check(week).errors).toEqual({
+      'segments.2.ended_at': 'More than 7 days after the start',
+    });
+
+    const atStart = draftFromTiming(timing);
+    atStart.pauses = [{ uid: 'p', start: atStart.started_at, end: at('07:00:30') }];
+    expect(check(atStart).errors).toEqual({});
+    atStart.pauses.push({ uid: 'q', start: at('07:00:30'), end: at('07:01:00') });
+    expect(check(atStart).errors).toEqual({});
+  });
+
+  it('checks the captured_at bounds on every instant', () => {
+    const d = draftFromTiming(timing);
+    expect(check({ ...d, started_at: '1999-12-31T12:00:00' }).errors.started_at).toBe(
+      'Must not be before 2000-01-01',
+    );
+    const now = Date.parse('2026-10-23T07:00:00Z');
+    expect(check(d, now).errors).toEqual({});
+    const late = { ...d, pauses: [{ uid: 'p', start: at('07:08:00'), end: at('07:08:30') }] };
+    expect(check(late, now - 24 * 3_600_000 + 8 * 60_000).errors).toEqual({
+      'segments.2.ended_at': 'Must not be more than 24 hours in the future',
+      'pauses.0.end': 'Must not be more than 24 hours in the future',
+    });
   });
 
   it('maps the server’s field paths onto the form’s', () => {

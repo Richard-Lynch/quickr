@@ -35,7 +35,9 @@ import { useToast } from '../../components/ui/Toast';
 import {
   draftFromTopic,
   makeVersionDraftSchema,
+  stepHistory,
   timerChanges,
+  type HistoricStep,
   type TopicDraft,
   type VersionDraftOutput,
 } from '../../lib/builder';
@@ -78,17 +80,25 @@ export function EditQuestionsPage() {
     );
   }
   return (
-    <Editor key={base.current_version} base={base} baseTimer={version.timer} onRebase={setBase} />
+    <Editor
+      key={base.current_version}
+      base={base}
+      baseTimer={version.timer}
+      history={stepHistory(versions.data ?? [])}
+      onRebase={setBase}
+    />
   );
 }
 
 function Editor({
   base,
   baseTimer,
+  history,
   onRebase,
 }: {
   base: TopicDetail;
   baseTimer: Timer | null;
+  history: readonly HistoricStep[];
   onRebase: (t: TopicDetail) => void;
 }) {
   const navigate = useNavigate();
@@ -227,6 +237,7 @@ function Editor({
       <Page>
         <TopicBuilder
           form={form}
+          stepHistory={history}
           defaultExpanded="new"
           onSubmit={(e) => void onReview(e)}
           header={
@@ -299,7 +310,15 @@ function Editor({
       >
         {review ? (
           <div className="flex flex-col gap-5">
-            <CompatReport report={review.report} labelFor={labelFor} />
+            <CompatReport
+              report={review.report}
+              labelFor={labelFor}
+              emptyText={
+                timerChanges(baseTimer, review.draft.timer).length > 0
+                  ? 'No question changes.'
+                  : 'No changes.'
+              }
+            />
             <TimerChanges changes={timerChanges(baseTimer, review.draft.timer)} />
             {review.report.ok ? (
               <Field

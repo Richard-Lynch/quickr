@@ -438,7 +438,12 @@ const step = (key: string, label: string, locked = false): DraftStep => ({
   locked,
 });
 
-const NEW_STEP: { label: string; taken: string[] }[] = [
+const HISTORY = [
+  { key: 'prep', label: 'Old prep' },
+  { key: 'shower', label: 'Shower' },
+];
+
+const NEW_STEP: { label: string; taken: string[]; history?: { key: string; label: string }[] }[] = [
   { label: '', taken: [] },
   { label: '   ', taken: [] },
   { label: 'Shower', taken: [] },
@@ -449,6 +454,10 @@ const NEW_STEP: { label: string; taken: string[] }[] = [
   { label: '123', taken: ['step'] },
   { label: 'Café au lait!', taken: [] },
   { label: 'x'.repeat(80), taken: [] },
+  { label: ' old PREP ', taken: [], history: HISTORY },
+  { label: 'Prep', taken: [], history: HISTORY },
+  { label: 'Old prep', taken: ['prep'], history: HISTORY },
+  { label: 'Shower', taken: ['shower'], history: HISTORY },
 ];
 
 const TIMERS: (Timer | null)[] = [
@@ -462,7 +471,13 @@ const TIMERS: (Timer | null)[] = [
   },
 ];
 
-const STEP_LABEL: { name: string; step: DraftStep; label: string; taken: string[] }[] = [
+const STEP_LABEL: {
+  name: string;
+  step: DraftStep;
+  label: string;
+  taken: string[];
+  history?: { key: string; label: string }[];
+}[] = [
   { name: 'published: key kept', step: step('shower', 'Shower', true), label: 'Bath', taken: [] },
   {
     name: 'published: blank keeps key',
@@ -473,6 +488,27 @@ const STEP_LABEL: { name: string; step: DraftStep; label: string; taken: string[
   { name: 'new: key follows', step: step('shower', 'Shower'), label: 'Bath', taken: [] },
   { name: 'new: blank clears key', step: step('shower', 'Shower'), label: ' ', taken: [] },
   { name: 'new: taken key', step: step('', ''), label: 'Dress', taken: ['dress'] },
+  {
+    name: 'new: a retired step again',
+    step: step('', ''),
+    label: 'Old Prep',
+    taken: [],
+    history: HISTORY,
+  },
+  {
+    name: 'new: not a retired key',
+    step: step('', ''),
+    label: 'Prep',
+    taken: [],
+    history: HISTORY,
+  },
+  {
+    name: 'published: history ignored',
+    step: step('dress', 'Dress', true),
+    label: 'Old prep',
+    taken: [],
+    history: HISTORY,
+  },
 ];
 
 const TIMER_OUTPUT: { name: string; timed: boolean; steps: DraftStep[] }[] = [
@@ -487,9 +523,14 @@ const TIMER_OUTPUT: { name: string; timed: boolean; steps: DraftStep[] }[] = [
   { name: 'blank label', timed: true, steps: [step('', '  ')] },
   { name: 'bad key', timed: true, steps: [step('Shower', 'Shower')] },
   {
-    name: 'duplicate key and label',
+    name: 'duplicate key (a repeated label is fine)',
     timed: true,
     steps: [step('a', 'A'), step('a', 'a')],
+  },
+  {
+    name: 'repeated label',
+    timed: true,
+    steps: [step('rinse', 'Rinse'), step('rinse_2', 'rinse')],
   },
   { name: 'label too long', timed: true, steps: [step('long', 'x'.repeat(201))] },
   {
@@ -534,21 +575,23 @@ function generate() {
       question,
       expected: constraintText(question),
     })),
-    new_step: NEW_STEP.map(({ label, taken }) => ({
+    new_step: NEW_STEP.map(({ label, taken, history = [] }) => ({
       label,
       taken,
-      expected: plainStep(newDraftStep(label, taken)),
+      history,
+      expected: plainStep(newDraftStep(label, taken, history)),
     })),
     from_timer: TIMERS.map((timer) => {
       const d = draftFromTimer(timer);
       return { timer, expected: { timed: d.timed, steps: d.steps.map(plainStep) } };
     }),
-    step_label: STEP_LABEL.map(({ name, step: st, label, taken }) => ({
+    step_label: STEP_LABEL.map(({ name, step: st, label, taken, history = [] }) => ({
       name,
       step: plainStep(st),
       label,
       taken,
-      expected: plainStep(withStepLabel(st, label, taken)),
+      history,
+      expected: plainStep(withStepLabel(st, label, taken, history)),
     })),
     timer_output: TIMER_OUTPUT.map(({ name, timed, steps }) => {
       const r = timerFromDraft({ timed, steps });

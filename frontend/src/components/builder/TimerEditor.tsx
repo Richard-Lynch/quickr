@@ -6,6 +6,7 @@ import {
   newDraftStep,
   withStepLabel,
   type DraftStep,
+  type HistoricStep,
   type TopicDraft,
 } from '../../lib/builder';
 import { Button, IconButton } from '../ui/Button';
@@ -23,8 +24,11 @@ import { fieldError } from './fieldError';
  * A published step keeps its key when renamed, so its stats join across versions; a new
  * step's key follows its label until it is published. Switching Timed off empties the steps
  * (so they don't block publishing) and switching it back on restores them.
+ *
+ * `history`: every step key the topic's versions have used. A new step named like a retired
+ * one takes its key back; any other new step gets a key no version has used.
  */
-export function TimerEditor() {
+export function TimerEditor({ history = [] }: { history?: readonly HistoricStep[] }) {
   const { control, setValue, getValues, register, formState } = useFormContext<TopicDraft>();
   const timed = useWatch({ control, name: 'timed' });
   const { fields, append, remove, move, replace } = useFieldArray({
@@ -33,6 +37,9 @@ export function TimerEditor() {
     keyName: 'fieldId',
   });
   const parked = useRef<DraftStep[]>([]);
+  const addButton = useRef<HTMLButtonElement>(null);
+  const steps = useWatch({ control, name: 'steps' });
+  const nameOf = (i: number) => steps[i]?.label.trim() || `step ${String(i + 1)}`;
   const listError = fieldError(formState.errors, 'steps');
 
   const setTimed = (next: boolean) => {
@@ -84,13 +91,14 @@ export function TimerEditor() {
             {fields.map((f, i) => {
               const labelError = fieldError(formState.errors, `steps.${i}.label`);
               const keyError = fieldError(formState.errors, `steps.${i}.key`);
+              const errorId = `step-${f.uid}-error`;
               const reg = register(`steps.${i}.label`, {
                 onChange: (e: { target: { value: string } }) => {
                   const all = getValues('steps');
                   const cur = all[i];
                   if (!cur) return;
                   const taken = all.filter((_, j) => j !== i).map((s) => s.key);
-                  const next = withStepLabel(cur, e.target.value, taken);
+                  const next = withStepLabel(cur, e.target.value, taken, history);
                   if (next.key !== cur.key)
                     setValue(`steps.${i}.key`, next.key, { shouldValidate: formState.isSubmitted });
                 },
@@ -108,13 +116,14 @@ export function TimerEditor() {
                     <Input
                       id={`step-${f.uid}`}
                       aria-label={`Step ${String(i + 1)} name`}
-                      aria-invalid={labelError ? true : undefined}
+                      aria-invalid={labelError || keyError ? true : undefined}
+                      aria-describedby={labelError || keyError ? errorId : undefined}
                       placeholder="Step name"
                       className="h-11 flex-1"
                       {...reg}
                     />
                     <IconButton
-                      label="Move step up"
+                      label={`Move ${nameOf(i)} up`}
                       size="sm"
                       disabled={i === 0}
                       onClick={() => move(i, i - 1)}
@@ -122,7 +131,7 @@ export function TimerEditor() {
                       <Icon name="up" className="size-4.5" />
                     </IconButton>
                     <IconButton
-                      label="Move step down"
+                      label={`Move ${nameOf(i)} down`}
                       size="sm"
                       disabled={i === fields.length - 1}
                       onClick={() => move(i, i + 1)}
@@ -130,9 +139,17 @@ export function TimerEditor() {
                       <Icon name="down" className="size-4.5" />
                     </IconButton>
                     <IconButton
-                      label="Remove step"
+                      label={`Remove ${nameOf(i)}`}
                       size="sm"
-                      onClick={() => remove(i)}
+                      onClick={() => {
+                        // Focus the step that takes its place, else the one before, else Add step.
+                        const next = fields[i + 1] ?? fields[i - 1];
+                        remove(i);
+                        window.setTimeout(() => {
+                          const el = next ? document.getElementById(`step-${next.uid}`) : null;
+                          (el ?? addButton.current)?.focus();
+                        }, 0);
+                      }}
                       className="hover:bg-danger-soft hover:text-danger"
                     >
                       <Icon name="trash" className="size-4.5" />
@@ -140,7 +157,7 @@ export function TimerEditor() {
                   </div>
                   <StepKey index={i} />
                   {labelError || keyError ? (
-                    <p role="alert" className="pl-6 text-sm font-medium text-danger">
+                    <p id={errorId} role="alert" className="pl-6 text-sm font-medium text-danger">
                       {labelError ?? keyError}
                     </p>
                   ) : null}
@@ -154,6 +171,7 @@ export function TimerEditor() {
             </p>
           ) : null}
           <Button
+            ref={addButton}
             size="lg"
             onClick={add}
             className="border-dashed"

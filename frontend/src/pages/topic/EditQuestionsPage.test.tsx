@@ -1,6 +1,6 @@
 /** Publishing from the question editor sends the edited timer (timers.md §2.1, §11.5). */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -154,9 +154,7 @@ describe('EditQuestionsPage publish', () => {
       'load',
       'wipe_down',
     ]);
-    const [, secondUp] = screen.getAllByRole('button', { name: 'Move step up' });
-    if (!secondUp) throw new Error('no second step');
-    await user.click(secondUp);
+    await user.click(screen.getByRole('button', { name: 'Move Wipe down up' }));
     await user.click(screen.getByRole('button', { name: /review changes/i }));
     expect(await screen.findByText('Step renamed: Load → Unload')).toBeInTheDocument();
     expect(screen.getByText('Step added: Wipe down')).toBeInTheDocument();
@@ -204,5 +202,45 @@ describe('EditQuestionsPage publish', () => {
     await user.click(screen.getByRole('button', { name: /review changes/i }));
     expect(await screen.findByText('Required')).toBeInTheDocument();
     expect(requests.some((r) => r.path.endsWith('/versions/check'))).toBe(false);
+  });
+
+  it('a new step never takes a retired step’s key, unless it is that step', async () => {
+    const old = { steps: [{ key: 'prep', label: 'Prep work' }, ...timer.steps] };
+    stubServer([version(2, timer), version(1, old)]);
+    const user = renderPage();
+    await user.click(await screen.findByRole('button', { name: 'Add step' }));
+    await user.type(screen.getByLabelText('Step 2 name'), 'Prep');
+    expect(screen.getAllByTestId('step-key').map((k) => k.textContent)).toEqual(['load', 'prep_2']);
+    await user.clear(screen.getByLabelText('Step 2 name'));
+    await user.type(screen.getByLabelText('Step 2 name'), 'prep work');
+    expect(screen.getAllByTestId('step-key').map((k) => k.textContent)).toEqual(['load', 'prep']);
+  });
+
+  it('names each step’s buttons and moves focus after a remove', async () => {
+    stubServer([version(2, timer)]);
+    const user = renderPage();
+    await user.click(await screen.findByRole('button', { name: 'Add step' }));
+    await user.type(screen.getByLabelText('Step 2 name'), 'Dry');
+    await user.click(screen.getByRole('button', { name: 'Remove Load' }));
+    await waitFor(() => {
+      expect(screen.getByLabelText('Step 1 name')).toHaveFocus();
+    });
+    expect(screen.getByLabelText<HTMLInputElement>('Step 1 name').value).toBe('Dry');
+    await user.click(screen.getByRole('button', { name: 'Remove Dry' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Add step' })).toHaveFocus();
+    });
+  });
+
+  it('a step error is announced on its input', async () => {
+    stubServer([version(2, timer)]);
+    const user = renderPage();
+    await user.click(await screen.findByRole('button', { name: 'Add step' }));
+    await user.click(screen.getByRole('button', { name: /review changes/i }));
+    const input = await screen.findByLabelText('Step 2 name');
+    await waitFor(() => {
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+    });
+    expect(input).toHaveAccessibleDescription('Required');
   });
 });

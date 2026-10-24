@@ -66,7 +66,9 @@ export function TimingOverview({ timing, bucket }: { timing: TopicTiming; bucket
           ))}
         </dl>
         <div>
-          <p className="mb-1 text-xs font-semibold text-ink-soft">Average run per {bucket}</p>
+          <p className="mb-1 text-xs font-semibold text-ink-soft">
+            Average run per {bucket} (all runs)
+          </p>
           <LineChart
             points={totals}
             bucket={bucket}

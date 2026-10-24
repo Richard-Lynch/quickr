@@ -25,7 +25,8 @@ export function LineChart({ points, bucket, unit, label, format, ticker }: Props
   const [active, setActive] = useState<number | null>(null);
   const { height, pad } = LINE_LAYOUT;
   const model = lineModel(points, width, ticker);
-  const value = format ?? ((v: number | null) => formatNumber(v));
+  // Null (no min or max in the bucket) reads "—" whatever the format.
+  const value = (v: number | null) => (v === null || !format ? formatNumber(v) : format(v));
 
   if (model === null) {
     return <p className="py-8 text-center text-sm text-muted">No answers in this range.</p>;
@@ -160,11 +161,11 @@ export function LineChart({ points, bucket, unit, label, format, ticker }: Props
         >
           <p className="font-semibold">{formatBucket(shown.start, bucket, 'long')}</p>
           <p className="mt-0.5 font-mono tabular">
-            avg <strong>{value(shown.mean ?? 0)}</strong>
+            avg <strong>{value(shown.mean)}</strong>
             {u}
           </p>
           <p className="font-mono text-muted tabular">
-            {value(shown.min ?? 0)}–{value(shown.max ?? 0)} · n={shown.count}
+            {value(shown.min)}–{value(shown.max)} · n={shown.count}
           </p>
         </div>
       ) : null}
