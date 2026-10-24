@@ -9,6 +9,7 @@ import { queryOptions, type QueryClient } from '@tanstack/react-query';
 import { listRuns, type RunOut } from '../client';
 import { listRunsQueryKey } from '../client/@tanstack/react-query.gen';
 import { getOutboxSnapshot, outbox } from '../lib/outbox/client';
+import { isCachedResponse } from '../lib/runs/serverClock';
 import type { RunTapDeps } from '../lib/runs/actions';
 import { ackedItems, getAckedSnapshot, pruneAcked } from '../lib/runs/acked';
 import { localRuns, openRunTopics, type LocalRun } from '../lib/runs/localView';
@@ -50,15 +51,30 @@ export function mergeListed(
 }
 
 /**
- * The runs query: `listRuns`, merged into the cache by {@link mergeListed}. A successful
- * answer also prunes the acked-runs record of what it covers.
+ * A `listRuns` answer from a cache (it may be any age) merged into the cache: it can only
+ * bring a cached run's newer revision. It never drops a run, and never adds one, which
+ * could reopen a run that has since closed.
+ */
+export function mergeCachedListed(cached: readonly RunOut[], fetched: readonly RunOut[]): RunOut[] {
+  return cached.map((c) => {
+    const f = fetched.find((r) => same(r, c));
+    return f && f.revision > c.revision && LISTED.has(f.status) ? f : c;
+  });
+}
+
+/**
+ * The runs query: `listRuns`, merged into the cache by {@link mergeListed}. A fresh answer
+ * also prunes the acked-runs record of what it covers. One served from a cache (the
+ * service worker doesn't cache `/runs`, but an older one or an HTTP cache might) is
+ * additive only ({@link mergeCachedListed}) and prunes nothing.
  */
 export function runsQueryOptions(qc: QueryClient) {
   return queryOptions({
     queryKey: runsQueryKey(),
     queryFn: async ({ signal }) => {
       const startedAt = Date.now();
-      const { data } = await listRuns({ signal, throwOnError: true });
+      const { data, response } = await listRuns({ signal, throwOnError: true });
+      if (isCachedResponse(response)) return mergeCachedListed(cachedServerRuns(qc), data);
       await pruneAcked(startedAt);
       return mergeListed(cachedServerRuns(qc), data, startedAt);
     },

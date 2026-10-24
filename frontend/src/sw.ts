@@ -73,6 +73,9 @@ const NO_CACHE = [
   /\.csv$/,
   new RegExp(`^${API_PREFIX}/push/`),
   new RegExp(`^${API_PREFIX}/health$`),
+  // Runs change by the second: a stale list would reopen stopped runs. The persisted
+  // query cache covers offline (timers.md §7.3).
+  new RegExp(`^${API_PREFIX}/runs(/|$)`),
 ];
 
 /**

@@ -8,6 +8,12 @@ import { listTopicsQueryKey } from '../client/@tanstack/react-query.gen';
 import { setAppBadge } from '../lib/badge';
 import { outbox, refreshOutboxSnapshot } from '../lib/outbox/client';
 import { RUN_EVENT } from '../lib/outbox/kinds';
+import {
+  memoryAckedStore,
+  recordAcked,
+  refreshAckedSnapshot,
+  setAckedStore,
+} from '../lib/runs/acked';
 import { T0, ev, runItem, serverRun } from '../test/runs';
 import { connectDueBadge } from './dueBadge';
 import { runsQueryKey } from './runs';
@@ -74,6 +80,21 @@ describe('the badge with runs (timers.md §11.1)', () => {
     expect(vi.mocked(setAppBadge).mock.lastCall).toEqual([0]);
     await outbox.clear();
     await refreshOutboxSnapshot();
+    stop();
+  });
+
+  it('follows the acked record: a just-acked start keeps its topic out of the count', async () => {
+    setAckedStore(memoryAckedStore());
+    const qc = new QueryClient();
+    const page: TopicPage = { items: [due('topic-1')], total: 1, limit: 50, offset: 0 };
+    qc.setQueryData(listTopicsQueryKey(), page);
+    const stop = connectDueBadge(qc);
+    expect(vi.mocked(setAppBadge).mock.lastCall).toEqual([1]);
+    await recordAcked(runItem('start', { id: 'r1', run: 'r1', at: T0 }));
+    await refreshAckedSnapshot();
+    expect(vi.mocked(setAppBadge).mock.lastCall).toEqual([0]);
+    setAckedStore(memoryAckedStore());
+    await refreshAckedSnapshot();
     stop();
   });
 });
