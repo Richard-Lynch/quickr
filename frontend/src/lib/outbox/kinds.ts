@@ -193,8 +193,9 @@ const runEvent: OutboxKind<RunEventPayload> = {
     const id = encodeURIComponent(runId);
     const reads = [`${API_PREFIX}/runs/${id}`];
     if (code === 'id_conflict') reads.push(`${API_PREFIX}/entries/${id}`);
+    const { headers } = runEvent.toRequest(item);
     for (const [i, url] of reads.entries()) {
-      const res = await read(url);
+      const res = await read(url, headers);
       if (res.status === 404) continue;
       const error: OutboxError = {
         message: errorMessageFor(res.status, res.body),
@@ -205,17 +206,23 @@ const runEvent: OutboxKind<RunEventPayload> = {
       if (outcome !== 'ok') return { outcome, error };
       if (!ofTopic(res.body, topic.id)) continue;
       if (i === 0) return { outcome: 'ok', data: knownStart(item, res.body as RunOut) };
-      const taps = queue.filter((q) => isRunEvent(q) && q.payload.run_id === runId);
+      // Listed after the reads, so the outbox can skip a tap changed meanwhile.
+      const taps = (await queue()).filter((q) => isRunEvent(q) && q.payload.run_id === runId);
       return {
         outcome: 'retired',
         error: { ...refusal, message: ALREADY_LOGGED },
-        fail: { ids: taps.map((t) => t.id), error: { ...refusal, message: ALREADY_LOGGED } },
+        fail: { items: taps, error: { ...refusal, message: ALREADY_LOGGED } },
       };
     }
     return undefined;
   },
-  /** Keep the event in the local view until `listRuns` has it (`lib/runs/acked.ts`). */
-  onAck(item) {
+  /**
+   * Keep the event in the local view until `listRuns` has it (`lib/runs/acked.ts`). Not a
+   * start whose run the server has closed already (a start known elsewhere, §8.1): on its
+   * own it would fold to an open run, holding off the next Start and the topic's due state.
+   */
+  onAck(item, data) {
+    if (item.payload.event.type === 'start' && closedRun(data)) return Promise.resolve();
     return recordAcked(item);
   },
   /**
@@ -246,6 +253,14 @@ const runEvent: OutboxKind<RunEventPayload> = {
 /** Why a start's run's taps fail once its id turns out to be an entry of its topic. */
 export const ALREADY_LOGGED = 'Already logged elsewhere';
 
+/** Whether `data` is a `RunEventResult` whose run is closed (`stopped`, `discarded`). */
+function closedRun(data: unknown): boolean {
+  if (typeof data !== 'object' || data === null || !('run' in data)) return false;
+  const run = data.run;
+  if (typeof run !== 'object' || run === null || !('status' in run)) return false;
+  return run.status === 'stopped' || run.status === 'discarded';
+}
+
 /** Whether `body` is a run or entry (a `topic_id`) of the topic `topicId`. */
 function ofTopic(body: unknown, topicId: string): boolean {
   if (typeof body !== 'object' || body === null || !('topic_id' in body)) return false;
@@ -259,7 +274,11 @@ function ofTopic(body: unknown, topicId: string): boolean {
  */
 function knownStart(item: OutboxItem<RunEventPayload>, run: RunOut): RunEventResult {
   const runId = item.payload.run_id.toLowerCase();
-  const effect = run.state.effects[item.id] ?? { effect: 'void', reason: 'merged' };
+  const id = item.id.toLowerCase();
+  const effect = Object.entries(run.state.effects).find(([k]) => k.toLowerCase() === id)?.[1] ?? {
+    effect: 'void',
+    reason: 'merged',
+  };
   const aliases = run.aliases.map((a) => a.toLowerCase());
   const alias = run.id.toLowerCase() !== runId && !aliases.includes(runId);
   return {

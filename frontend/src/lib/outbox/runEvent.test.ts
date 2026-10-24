@@ -429,9 +429,10 @@ describe('a start the server already has (§8.1, §10.2)', () => {
   /** An outbox on the stateful fake, with the requests as `METHOD path` lines. */
   function onFake(fetch?: typeof globalThis.fetch) {
     const server = fakeQuickrServer('srv', [TOPIC.id, OTHER]);
+    const store = memoryOutboxStore();
     const outbox = createOutbox({
       kinds: OUTBOX_KINDS,
-      store: memoryOutboxStore(),
+      store,
       fetch: fetch ?? server.fetch,
       now: () => T0,
       random: () => 0.5,
@@ -445,7 +446,7 @@ describe('a start the server already has (§8.1, §10.2)', () => {
     const requests = () =>
       server.requests.map((r) => `${r.method} ${new URL(r.url, 'https://q.test').pathname}`);
     const ids = async () => (await outbox.list()).map((i) => `${i.id}:${i.status}`);
-    return { server, outbox, events, queue, requests, ids };
+    return { server, store, outbox, events, queue, requests, ids };
   }
   const sentEvent = (events: OutboxEvent[], id: string) =>
     events.find(
@@ -479,6 +480,25 @@ describe('a start the server already has (§8.1, §10.2)', () => {
     });
     expect(sentEvent(events, 'n1')?.verified).toBeUndefined();
     expect(server.runs.get('r1')?.events?.has('n1')).toBe(true);
+    // The acked record keeps the run in the local view until listRuns has it.
+    expect((await ackedItems(T0)).map((i) => i.id)).toEqual(['r1', 'n1']);
+  });
+
+  it('a run already stopped on the server: acked, but not kept as an open run', async () => {
+    const { server, outbox, events, queue, ids } = onFake();
+    server.runs.set('r1', {
+      id: 'r1',
+      topic_id: TOPIC.id,
+      version: 1,
+      at: elsewhere,
+      source: 'ios',
+      status: 'stopped',
+    });
+    await queue(start);
+    await outbox.flush();
+    expect(await ids()).toEqual([]);
+    expect(sentEvent(events, 'r1')?.data).toMatchObject({ run: { status: 'stopped' } });
+    expect(await ackedItems(T0)).toEqual([]);
   });
 
   it('event_conflict on a start merged into another run: acked with that run, the id an alias', async () => {
@@ -544,6 +564,26 @@ describe('a start the server already has (§8.1, §10.2)', () => {
     expect((await outbox.get('n1'))?.last_error?.message).toBe(ALREADY_LOGGED);
     expect((await outbox.get('n1'))?.attempts).toBe(0);
     expect(events.find((e) => e.type === 'retired')?.item.id).toBe('r1');
+    const failed = events.filter((e) => e.type === 'failed').map((e) => e.item.id);
+    expect(failed).toEqual(['n1', 's1']);
+  });
+
+  it('the entry case leaves another run’s taps, and a tap failed already, alone', async () => {
+    const { server, store, outbox, queue, ids } = onFake();
+    server.entries.set('r1', logged(TOPIC.id));
+    server.unavailable.add('n2');
+    const n2 = runItem('next', { id: 'n2', run: 'r2', at: T0 + 1500, seg: 0 });
+    const s1Failed = {
+      ...stop,
+      status: 'failed' as const,
+      last_error: { message: 'Mine', status: 422 },
+    };
+    await queue(start, next, n2);
+    await store.put(s1Failed);
+    await outbox.flush();
+    expect(await ids()).toEqual(['n1:failed', 'n2:pending', 's1:failed']);
+    expect((await outbox.get('n2'))?.last_error?.status).toBe(503);
+    expect((await outbox.get('s1'))?.last_error?.message).toBe('Mine');
   });
 
   it('id_conflict, another topic’s entry: failed rejected', async () => {
@@ -574,6 +614,18 @@ describe('a start the server already has (§8.1, §10.2)', () => {
     server.unavailableReads.delete('r1');
     await outbox.flush({ force: true });
     expect(await ids()).toEqual([]);
+  });
+
+  it('a network error on the read retries the start', async () => {
+    const { outbox, queue, ids } = onFake((_url, init) =>
+      init?.method === 'GET'
+        ? Promise.reject(new TypeError('Failed to fetch'))
+        : Promise.resolve(problem(409, 'event_conflict')),
+    );
+    await queue(start);
+    await outbox.flush();
+    expect(await ids()).toEqual(['r1:pending']);
+    expect((await outbox.get('r1'))?.last_error?.status).toBeNull();
   });
 
   it('a terminal refusal of the read (not a 404) fails the start', async () => {

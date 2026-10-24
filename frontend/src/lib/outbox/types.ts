@@ -102,13 +102,17 @@ export interface OutboxKind<P = unknown> {
   onAck?(item: OutboxItem<P>, data: unknown): Promise<void>;
   /**
    * A second look at a terminal refusal before the item fails (`run.event`: a start the
-   * server already knows, timers.md §8.1). `read` GETs a same-origin path. Returns the
-   * outcome to apply instead, or `undefined` to fail the item with the refusal as usual.
+   * server already knows, timers.md §8.1). `read` GETs a same-origin path (with `headers`,
+   * e.g. the item's identity precondition); `queue` lists the queued items as they are now.
+   * Returns the outcome to apply instead, or `undefined` to fail the item with the refusal.
    */
   verify?(
     item: OutboxItem<P>,
     refusal: OutboxError,
-    ctx: { read: (url: string) => Promise<OutboxRead>; queue: readonly OutboxItem[] },
+    ctx: {
+      read: (url: string, headers?: Readonly<Record<string, string>>) => Promise<OutboxRead>;
+      queue: () => Promise<readonly OutboxItem[]>;
+    },
   ): Promise<Verdict | undefined>;
 }
 
@@ -121,14 +125,14 @@ export interface OutboxRead {
 /**
  * What `verify` decides. `ok` acks the item with `data`, as if the send had answered it;
  * any other outcome is applied with `error` (the refusal when absent). `fail` also fails
- * other queued items, with their own error (e.g. a run's taps once its start is retired).
+ * other queued items, with their own error, unless they changed since `queue` listed them (e.g. a run's taps once its start is retired).
  */
 export type Verdict =
   | { outcome: 'ok'; data: unknown }
   | {
       outcome: Exclude<Outcome, 'ok'>;
       error?: OutboxError;
-      fail?: { ids: readonly string[]; error: OutboxError };
+      fail?: { items: readonly OutboxItem[]; error: OutboxError };
     };
 
 export type OutboxEvent =

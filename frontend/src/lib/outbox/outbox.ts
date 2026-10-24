@@ -199,8 +199,11 @@ export function createOutbox(opts: OutboxOptions): Outbox {
   }
 
   /** A kind's `verify` read: no usable answer (network, redirect, not JSON) is a null status. */
-  async function read(url: string): Promise<OutboxRead> {
-    const res = await send({ method: 'GET', url });
+  async function read(
+    url: string,
+    headers?: Readonly<Record<string, string>>,
+  ): Promise<OutboxRead> {
+    const res = await send({ method: 'GET', url, ...(headers ? { headers } : {}) });
     if (res.kind !== 'response' || (res.text && !res.parsed))
       return { status: null, body: undefined };
     return { status: res.status, body: res.json };
@@ -273,16 +276,18 @@ export function createOutbox(opts: OutboxOptions): Outbox {
     if (res.outcome !== 'terminal' || !kind?.verify) return { res, verified: false };
     let verdict: Verdict | undefined;
     try {
-      verdict = await kind.verify(item, res.error, { read, queue: await list() });
+      verdict = await kind.verify(item, res.error, { read, queue: list });
     } catch (err) {
       console.error('[outbox] verify failed', err);
     }
     if (!verdict) return { res, verified: false };
     if (verdict.outcome === 'ok')
       return { res: { outcome: 'ok', data: verdict.data }, verified: true };
-    for (const id of verdict.fail?.ids ?? []) {
-      const other = await store.get(id);
+    for (const listed of verdict.fail?.items ?? []) {
+      // Compare-and-set against the listing: an edit, retry or discard made since wins.
+      const other = await store.get(listed.id);
       if (!other || other.id === item.id || other.status === 'failed') continue;
+      if (other.updated_at !== listed.updated_at) continue;
       const next: OutboxItem = {
         ...other,
         status: 'failed',

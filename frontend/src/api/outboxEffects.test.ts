@@ -195,6 +195,8 @@ describe('a start acked by verify (§8.1)', () => {
       emit({ type: 'sent', item: start, data, ...(verified ? { verified } : {}) });
       await flushPromises();
       expect(qc.getQueryState(runsQueryKey())?.isInvalidated).toBe(verified);
+      const entriesKey = listEntriesInfiniteQueryKey({ path: { ref: 'sleep' } });
+      expect(qc.getQueryState(entriesKey)?.isInvalidated).toBe(verified);
       expect(cachedServerRuns(qc).map((r) => r.id)).toEqual([R1]);
     }
   });

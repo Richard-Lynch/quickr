@@ -792,6 +792,9 @@ describe('a timed topic (timers.md §10.1, §10.2)', () => {
     expect(await click()).toEqual({ kind: 'none' });
     expect(server.runs.get(id)?.source).toBe('ios');
     expect(await outbox.list()).toEqual([]);
+    // The check's read carries the reminder's identity precondition too.
+    const read = server.requests.find((r) => r.method === 'GET');
+    expect(read?.headers['x-quickr-expect-server-id']).toBe(SERVER);
   });
 
   it('the same id as another topic’s run or entry is refused, not dropped', async () => {
