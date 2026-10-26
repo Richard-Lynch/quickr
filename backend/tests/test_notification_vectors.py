@@ -21,7 +21,7 @@ from app.services import notification
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
 
 PATH = FIXTURES_DIR / "notification-vectors.json"
-GENERATOR_VERSION = 4
+GENERATOR_VERSION = 5
 
 SERVER_ID = "0b9e0000-0000-4000-8000-0000000000aa"
 TOPIC_ID = "6f1c0000-0000-4000-8000-000000000001"
@@ -117,6 +117,18 @@ CASES: dict[str, tuple[list[dict[str, Any]], dict[str, int], Any, int]] = {
     "double-truncated-label": ([num("double", label=LONG, unit="µ" * 32)], {}, 1.25, 1),
 }
 
+STEPS = {"steps": [{"key": "shower", "label": "Shower"}, {"key": "breakfast", "label": "Breakfast"}]}
+
+# Timed versions (timers.md §10.1): name -> (questions, timer, version). The descriptor is
+# {"type": "timed"} whatever the questions, which are answered at Stop.
+TIMED_CASES: dict[str, tuple[list[dict[str, Any]], dict[str, Any], int]] = {
+    "timed-no-steps": ([], {"steps": []}, 1),
+    "timed-steps": ([], STEPS, 2),
+    # A question that would make it an enum reminder if it weren't timed.
+    "timed-with-enum-question": ([enum(numbered(2))], STEPS, 3),
+    "timed-with-required-number": ([num("int", min=0, max=10)], {"steps": []}, 1),
+}
+
 FMT: list[tuple[Literal["int", "double"], int | float]] = [
     ("int", 0),
     ("int", -42),
@@ -177,10 +189,15 @@ def action_json(action: notification.Action) -> dict[str, Any]:
 
 
 def case(
-    name: str, raw: list[dict[str, Any]], counts: dict[str, int], last: Any, version: int
+    name: str,
+    raw: list[dict[str, Any]],
+    counts: dict[str, int],
+    last: Any,
+    version: int,
+    timer: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     questions = [question_adapter.validate_python(q) for q in raw]
-    quick_log = notification.descriptor(questions, counts=counts, last=last)
+    quick_log = notification.descriptor(questions, counts=counts, last=last, timed=timer is not None)
     expected: dict[str, Any] = {"quick_log": None, "actions": [], "hash_input": None, "category_id": None}
     if quick_log is not None:
         actions = notification.actions(SERVER_ID, TOPIC_ID, version, quick_log)
@@ -197,6 +214,7 @@ def case(
         "topic_id": TOPIC_ID,
         "version": version,
         "questions": [q.model_dump(mode="json") for q in questions],
+        "timer": timer,
         "counts": counts,
         "last": last,
         "expected": expected,
@@ -210,7 +228,9 @@ def build() -> dict[str, Any]:
             "generator_version": GENERATOR_VERSION,
             "max_label_length": notification.MAX_LABEL_LENGTH,
             "semantics": [
-                "descriptor: quickLogFor(questions) decides eligibility (quicklog-vectors.json). Enum: "
+                "descriptor: a version with a timer (timer != null) is {type: 'timed'}, whatever its "
+                "questions (timers.md §10.1). Otherwise quickLogFor(questions) decides eligibility "
+                "(quicklog-vectors.json). Enum: "
                 "{type: 'enum', key, label, options: [{value, label}], total_options}; with <= 4 active "
                 "options all of them in question order, with 5-6 the 3 with the highest counts[value] "
                 "(missing = 0), ties in question order. Number: {type: 'int'|'double', key, label, unit, "
@@ -232,6 +252,8 @@ def build() -> dict[str, Any]:
                 "sha256(UTF-8(NFC(hash_input))). hash_input = 'quickr-cat-v1' + for each action: "
                 "U+001E + kind + U+001F + identifier + U+001F + title (+ U+001F + button title + "
                 "U+001F + placeholder for 'input'). hash_input is listed already NFC-normalised.",
+                "timed: one {kind: 'start', identifier: q1|server|topic|version||t| (empty key and "
+                "value), title: 'Start'}, hashed like any other action (kind 'start').",
                 "body_suffix: appended to the APNs alert body when options are cut: ' · {n} of "
                 "{total} shown, More for all'.",
                 "fmt(kind, value): int: base 10. double: the shortest decimal that round-trips to "
@@ -241,7 +263,10 @@ def build() -> dict[str, Any]:
                 "hex, to build it without a JSON parser.",
             ],
         },
-        "cases": [case(name, *spec) for name, spec in CASES.items()],
+        "cases": [
+            *(case(name, *spec) for name, spec in CASES.items()),
+            *(case(name, qs, {}, None, version, timer) for name, (qs, timer, version) in TIMED_CASES.items()),
+        ],
         "fmt": [fmt_case(kind, value) for kind, value in FMT],
     }
 
@@ -255,7 +280,18 @@ def test_vectors_cover_the_spec() -> None:
     value, null unit and decimals, non-ASCII labels, truncation."""
     cases = {c["name"]: c["expected"] for c in build()["cases"]}
     kinds = {(q["quick_log"] or {}).get("type") for q in cases.values()}
-    assert kinds == {None, "enum", "int", "double", "single"}
+    assert kinds == {None, "enum", "int", "double", "single", "timed"}
+    # timers.md §10.1: a timed version's one "Start", whatever its questions; its own kind is
+    # hashed, so it can't share a category with a "Log it".
+    for name in TIMED_CASES:
+        assert cases[name]["quick_log"] == {"type": "timed"}, name
+    version = TIMED_CASES["timed-steps"][2]
+    assert cases["timed-steps"]["actions"] == [
+        {"kind": "start", "identifier": f"q1|{SERVER_ID}|{TOPIC_ID}|{version}||t|", "title": "Start"}
+    ]
+    assert "\u001estart\u001f" in cases["timed-no-steps"]["hash_input"]
+    # Steps aren't in the descriptor: two versions with different steps differ only by version.
+    assert cases["timed-no-steps"]["category_id"] != cases["timed-steps"]["category_id"]
     assert cases["single"]["quick_log"] == {"type": "single"}
     assert cases["single"]["actions"] == [
         {"kind": "log", "identifier": f"q1|{SERVER_ID}|{TOPIC_ID}|1||s|", "title": "Log it"}

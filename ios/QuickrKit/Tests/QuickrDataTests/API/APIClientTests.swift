@@ -26,10 +26,14 @@ import Testing
         "unarchiveTopic": { try await $0.unarchiveTopic(ref: "old-habit").erased },
         "listTopicVersions": { try await $0.listTopicVersions(ref: "everything").erased },
         "publishTopicVersion": {
-            try await $0.publishTopicVersion(ref: "everything", VersionCreateDTO(questions: [], baseVersion: 1)).erased
+            try await $0.publishTopicVersion(
+                ref: "everything", VersionCreateDTO(questions: [], baseVersion: 1, timer: nil)
+            ).erased
         },
         "checkTopicVersion": {
-            try await $0.checkTopicVersion(ref: "everything", VersionDraftDTO(questions: [], baseVersion: 2)).erased
+            try await $0.checkTopicVersion(
+                ref: "everything", VersionDraftDTO(questions: [], baseVersion: 2, timer: nil)
+            ).erased
         },
         "listEntries": { try await $0.listEntries(ref: "everything").erased },
         "createEntry": {
@@ -41,8 +45,16 @@ import Testing
         "getEntry": { try await $0.getEntry(id: entryId).erased },
         "updateEntry": { try await $0.updateEntry(id: entryId, EntryUpdateDTO(notes: "Edited later.")).erased },
         "deleteEntry": { try await $0.deleteEntry(id: entryId).erased },
+        "recordRunEvent": {
+            let body = try WireCoding.decoder().decode(
+                RunEventInDTO.self, from: Data(#"{"id": "x", "type": "pause", "at": "2026-03-04T11:00:00Z"}"#.utf8))
+            return try await $0.recordRunEvent(runId: entryId, body).erased
+        },
+        "getRun": { try await $0.getRun(id: entryId).erased },
+        "listRuns": { try await $0.listRuns(statuses: ["finishing"]).erased },
         "listChanges": { try await $0.listChanges(after: 0).erased },
         "getTopicStats": { try await $0.getTopicStats(ref: "everything").erased },
+        "getTopicTiming": { try await $0.getTopicTiming(ref: "everything").erased },
         "getQuestionSeries": {
             try await $0.getQuestionSeries(ref: "everything", key: "hours", bucket: .day, timezone: "Europe/London")
                 .erased
@@ -65,6 +77,12 @@ import Testing
         },
         "deleteApnsDevice": { try await $0.deleteApnsDevice(ApnsDeviceRefDTO(token: "ab")).erased },
         "sendApnsTestPush": { try await $0.sendApnsTestPush(ApnsDeviceRefDTO(token: "ab")).erased },
+        "registerLiveActivity": {
+            try await $0.registerLiveActivity(
+                LiveActivityInDTO(token: "cd", kind: .start, deviceToken: "ab", environment: .sandbox)
+            ).erased
+        },
+        "deleteLiveActivity": { try await $0.deleteLiveActivity(LiveActivityRefDTO(token: "cd")).erased },
     ]
 
     @Test func everyOperationHasATypedCall() {

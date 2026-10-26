@@ -104,10 +104,20 @@ struct RootView: View {
         .task(id: environment.session?.binding) {
             if let session = environment.session { await environment.sync.observe(session) }
         }
+        // The run clocks' server offset (timers.md §5.1).
+        .task(id: environment.session?.binding) {
+            if let session = environment.session { await environment.runTicker.observe(session) }
+        }
+        // The run notices too (timers.md §11.4).
+        .task(id: environment.session?.binding) {
+            if let session = environment.session { await environment.runNotices.observe(session) }
+        }
+        // The Live Activities are reconciled with the active store's runs (timers.md §10.3).
+        .task(id: environment.session?.binding) { await environment.observeRunsForLiveActivities() }
         // The widgets follow the active store too.
         .task(id: environment.session?.binding) {
             if let session = environment.session, let store = session.store {
-                await environment.widgets.observe(store, refresh: session.refresh.stream())
+                await environment.widgets.observe(store, refresh: { session.refresh.stream() })
             }
         }
         #if DEBUG
@@ -193,5 +203,6 @@ struct RootView: View {
 #Preview {
     RootView()
         .environment(
-            AppEnvironment.live(location: StoreLocation(root: URL.temporaryDirectory.appending(path: "preview"))))
+            AppEnvironment.live(
+                location: StoreLocation(root: URL.temporaryDirectory.appending(path: "preview")), categoryCenter: nil))
 }

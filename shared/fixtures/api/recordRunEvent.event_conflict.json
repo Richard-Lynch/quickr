@@ -1,0 +1,26 @@
+{
+  "body": {
+    "code": "event_conflict",
+    "detail": "event '0e000000-0000-4000-8000-000000000001' was already recorded with different content",
+    "errors": [
+      {
+        "loc": [
+          "id"
+        ],
+        "message": "already used by another event"
+      }
+    ]
+  },
+  "operation_id": "recordRunEvent",
+  "request": {
+    "body": {
+      "at": "2026-03-04T11:02:31Z",
+      "id": "0e000000-0000-4000-8000-000000000001",
+      "seg": 0,
+      "type": "next"
+    },
+    "method": "POST",
+    "path": "/api/v1/runs/0a000000-0000-4000-8000-000000000001/events"
+  },
+  "status": 409
+}

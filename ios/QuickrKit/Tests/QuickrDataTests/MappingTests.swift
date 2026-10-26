@@ -84,6 +84,7 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
                 #expect(version.version >= 1)
                 #expect(topicId.uuidString.hasPrefix("00000000"))
             case .entry: entries += 1
+            case .run: Issue.record("a bootstrap fixture with no runs")
             }
         }
         #expect((topics, versions, entries) == (3, 4, 5))
@@ -99,6 +100,64 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         let topicPage = try decode(ChangePageDTO.self, "listChanges.topic_deletion")
         let deletion = try #require(topicPage.deleted.first)
         #expect(deletion.kind == .topic && deletion.id == deletion.topicId)
+    }
+
+    /// Run items and deletions map to the domain (R2's decode half; timers.md §7.1).
+    @Test func runPagesMapRunItemsAndDeletions() throws {
+        let fixture = try Fixtures.api("listChanges.run")
+        let page = try ChangePageDTO.decode(try #require(fixture.body), using: WireCoding.decoder()).toDomain()
+        guard case .run(let seq, let run) = try #require(page.items.first) else {
+            Issue.record("expected a run item")
+            return
+        }
+        #expect(seq == 30)
+        #expect(page.items.count == 1)
+        #expect(run.status == .finishing)
+        #expect(run.revision == 8)
+        #expect(run.events.count == 8)
+        #expect(run.aliases == [UUID(uuidString: "0a000000-0000-4000-8000-000000000002")!])
+
+        let closed = try Fixtures.api("listChanges.run_deletion")
+        let closedWire = try ChangePageDTO.decode(try #require(closed.body), using: WireCoding.decoder())
+        let closedPage = try closedWire.toDomain()
+        #expect(closedPage.deleted.map(\.kind) == [.run, .run, .run])
+        let wireSeqs: [Int] = closedWire.deleted.map(\.seq)
+        let seqs: [Int] = closedPage.deleted.map(\.seq)
+        #expect(seqs == wireSeqs)
+        #expect(closedPage.items.count == 2)
+        guard case .entry(_, let entry) = try #require(closedPage.items.first) else {
+            Issue.record("expected the stopped run's entry")
+            return
+        }
+        let firstDeleted: UUID? = closedPage.deleted.first?.id
+        let activeMs: Int? = entry.timing?.activeMs
+        #expect(entry.id == firstDeleted)
+        #expect(activeMs == 300_000)
+    }
+
+    /// The store keeps a run as its wire shape: domain → `RunDTO` → domain is the identity, for every
+    /// run the fixtures hold.
+    @Test func runsRoundTripThroughTheirWireShape() throws {
+        var runs: [Run] = []
+        for name in try Fixtures.apiNames() where name.hasPrefix("listChanges.") {
+            let page = try ChangePageDTO.decode(
+                try #require(try Fixtures.api(name).body), using: WireCoding.decoder()
+            ).toDomain()
+            for item in page.items { if case .run(_, let run) = item { runs.append(run) } }
+        }
+        for name in ["getRun", "recordRunEvent", "recordRunEvent.next", "recordRunEvent.merged"] {
+            let body = try #require(try Fixtures.api(name).body)
+            if name == "getRun" {
+                runs.append(try RunDTO.decode(body, using: WireCoding.decoder()).toDomain())
+            } else {
+                runs.append(try RunEventResultDTO.decode(body, using: WireCoding.decoder()).toDomain().run)
+            }
+        }
+        #expect(runs.count >= 5)
+        for run in runs {
+            let json = try WireCoding.encoder().encode(RunDTO(run))
+            #expect(try WireCoding.decoder().decode(RunDTO.self, from: json).toDomain() == run)
+        }
     }
 
     @Test func unknownFeedKindFailsThePage() throws {
@@ -130,6 +189,8 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         let raw = [
             "bad_request", "not_found", "conflict", "invalid_request", "invalid_answers", "incompatible_version",
             "topic_archived", "entry_deleted", "stale_revision", "server_mismatch", "epoch_mismatch", "internal_error",
+            "topic_not_timed", "id_conflict", "before_start", "event_conflict", "run_open", "run_deleted",
+            "run_too_long", "run_too_many_events",
         ]
         #expect(ProblemCode.known.map(\.rawValue) == raw)
         for code in raw { #expect(ProblemCode(rawValue: code).rawValue == code) }

@@ -27,6 +27,10 @@ public struct SyncState: Sendable, Hashable {
     /// `server_time − device_time`, smoothed (§10).
     public var skewMilliseconds: Double
     public var skewMeasuredAt: Date?
+    /// The run-event offset (timers.md §5.1): `server_time − (t_send + t_recv) / 2` from the latest
+    /// response with a round trip of at most 5 s, unsmoothed, whole milliseconds; 0 before the
+    /// first sample. Any process may update it (`ServerOffsetRecorder`).
+    public var serverOffsetMs: Int
     /// The server's clock by this store's skew.
     public var serverClock: ServerClock { ServerClock(skewMilliseconds: skewMilliseconds) }
     public var bootstrapComplete: Bool
@@ -35,7 +39,7 @@ public struct SyncState: Sendable, Hashable {
         serverId: String, baseURL: String, epoch: String? = nil, cursor: Int = 0, headSeen: Int = 0, layerGen: Int = 1,
         rebuilding: String? = nil, epochSuspect: Bool = false, retired: Bool = false, identityMismatch: Bool = false,
         lastPullAt: Date? = nil, skewMilliseconds: Double = 0, skewMeasuredAt: Date? = nil,
-        bootstrapComplete: Bool = false
+        bootstrapComplete: Bool = false, serverOffsetMs: Int = 0
     ) {
         self.serverId = serverId
         self.baseURL = baseURL
@@ -51,6 +55,7 @@ public struct SyncState: Sendable, Hashable {
         self.skewMilliseconds = skewMilliseconds
         self.skewMeasuredAt = skewMeasuredAt
         self.bootstrapComplete = bootstrapComplete
+        self.serverOffsetMs = serverOffsetMs
     }
 }
 
@@ -162,11 +167,14 @@ public enum OutboxKind: String, Sendable, Hashable, CaseIterable, Codable {
     case entryDelete = "entry.delete"
     case topicArchive = "topic.archive"
     case topicUnarchive = "topic.unarchive"
+    /// One tap on a run of a timed topic (timers.md §8.1).
+    case runEvent = "run.event"
 
     public var entityKind: OutboxEntityKind {
         switch self {
         case .entryCreate, .entryUpdate, .entryDelete: .entry
         case .topicArchive, .topicUnarchive: .topic
+        case .runEvent: .run
         }
     }
 }
@@ -174,6 +182,8 @@ public enum OutboxKind: String, Sendable, Hashable, CaseIterable, Codable {
 public enum OutboxEntityKind: String, Sendable, Hashable, CaseIterable, Codable {
     case entry
     case topic
+    /// `run:{run_id}`: the run id the event was sent to (its start's id, or one the server answered).
+    case run
 }
 
 public enum OutboxState: String, Sendable, Hashable, CaseIterable, Codable {
@@ -197,6 +207,9 @@ public enum OutboxFailureReason: String, Sendable, Hashable, CaseIterable, Codab
     case topicArchived = "topic_archived"
     case topicMissing = "topic_missing"
     case futureTime = "future_time"
+    /// A run's tap whose run never existed: its id is an entry another device logged for the same
+    /// reminder (timers.md §10.2). Nothing can come of it; dismiss it.
+    case loggedElsewhere = "logged_elsewhere"
 }
 
 /// The process that enqueued an item; decides `source` for creates (outbox.md §4).
@@ -242,6 +255,9 @@ public enum OutboxPayload: Sendable, Hashable {
     case topicArchive(topicId: String)
     /// `{topic_id}`
     case topicUnarchive(topicId: String)
+    /// `{topic: {id, slug, name}, run_id, event: RunEventIn}` (timers.md §8.1). The item id is
+    /// the event id (`event.id`); for a start it is the run id.
+    case runEvent(RunEventPayload)
 
     public var kind: OutboxKind {
         switch self {
@@ -250,6 +266,7 @@ public enum OutboxPayload: Sendable, Hashable {
         case .entryDelete: .entryDelete
         case .topicArchive: .topicArchive
         case .topicUnarchive: .topicUnarchive
+        case .runEvent: .runEvent
         }
     }
 
@@ -272,6 +289,8 @@ public enum OutboxPayload: Sendable, Hashable {
             data = try encoder.encode(DeleteShape(entryId: entryId, topicId: topicId))
         case .topicArchive(let topicId), .topicUnarchive(let topicId):
             data = try encoder.encode(TopicShape(topicId: topicId))
+        case .runEvent(let payload):
+            data = try encoder.encode(payload)
         }
         return String(decoding: data, as: UTF8.self)
     }
@@ -293,6 +312,8 @@ public enum OutboxPayload: Sendable, Hashable {
             return .topicArchive(topicId: try decoder.decode(TopicShape.self, from: data).topicId)
         case .topicUnarchive:
             return .topicUnarchive(topicId: try decoder.decode(TopicShape.self, from: data).topicId)
+        case .runEvent:
+            return .runEvent(try decoder.decode(RunEventPayload.self, from: data))
         }
     }
 
@@ -327,6 +348,30 @@ public enum OutboxPayload: Sendable, Hashable {
         var topicId: String
 
         enum CodingKeys: String, CodingKey { case topicId = "topic_id" }
+    }
+}
+
+/// The payload of a `run.event` item (timers.md §8.1).
+public struct RunEventPayload: Codable, Sendable, Hashable {
+    /// Enough of the topic to label the item and its notices.
+    public var topic: TopicRef
+    /// The run the event is sent to, lowercase: its start's id, or an id the server answered.
+    public var runId: String
+    /// The request body. `event.id` is the item id; `source` is set at send time (outbox.md §4).
+    public var event: RunEventInDTO
+
+    public init(topic: TopicRef, runId: String, event: RunEventInDTO) {
+        self.topic = topic
+        self.runId = runId.lowercased()
+        self.event = event
+    }
+
+    /// `event.type`, parsed; nil for a type this build doesn't know.
+    public var type: RunEventType? { RunEventType(rawValue: event.type) }
+
+    enum CodingKeys: String, CodingKey {
+        case topic, event
+        case runId = "run_id"
     }
 }
 

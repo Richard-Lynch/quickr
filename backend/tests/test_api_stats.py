@@ -153,7 +153,9 @@ async def test_removed_question_with_data_still_included(client: httpx.AsyncClie
     await seed(client)
     qs = [q for q in sleep_questions() if q["key"] != "wakeups"]
     qs.append({"key": "nap", "label": "Nap", "type": "int", "required": False})
-    r = await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 1})
+    r = await client.post(
+        "/topics/sleep-log/versions", json={"questions": qs, "base_version": 1, "timer": None}
+    )
     assert r.status_code == 201
     await record(client, "sleep-log", {"hours": 5, "quality": "ok", "nap": 1})
 
@@ -172,7 +174,7 @@ async def test_archived_option_counts(client: httpx.AsyncClient) -> None:
     await seed(client)
     qs = sleep_questions()
     qs[2]["options"][0]["archived"] = True
-    await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 1})
+    await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 1, "timer": None})
     quality = by_key(await stats(client))["quality"]
     poor = quality["options"][0]
     assert (poor["value"], poor["archived"], poor["count"]) == ("poor", True, 1)
@@ -272,7 +274,7 @@ async def test_series_errors(client: httpx.AsyncClient) -> None:
 async def test_series_filters_and_removed_question(client: httpx.AsyncClient) -> None:
     await seed(client)
     qs = [q for q in sleep_questions() if q["key"] != "wakeups"]
-    await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 1})
+    await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 1, "timer": None})
     s = await series(client, "wakeups", source="phone")
     assert [p["count"] for p in s["points"]] == [1, 1, 1]
 
@@ -309,7 +311,7 @@ async def test_csv_export(client: httpx.AsyncClient) -> None:
     # Historic columns: removed questions follow current ones.
     qs = [q for q in sleep_questions() if q["key"] != "wakeups"]
     qs.append({"key": "nap", "label": "Nap", "type": "int", "required": False})
-    await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 1})
+    await client.post("/topics/sleep-log/versions", json={"questions": qs, "base_version": 1, "timer": None})
     await record(
         client,
         "sleep-log",

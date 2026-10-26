@@ -4,7 +4,7 @@ import QuickrCore
 
 /// The online-only topic writes (sync-protocol.md §11): create, details and schedule edits
 /// (`updateTopic`), delete, and a new version (its check, the publish, and reloading the topic
-/// after a conflict). They are never queued.
+/// after a conflict); and an entry's Edit times (timers.md §3.8). They are never queued.
 ///
 /// - **Fail closed.** A write belongs to the store bound when it starts (its ``Scope``): without
 ///   that store's identity nothing is sent, and the request carries the Expect headers, so another
@@ -64,6 +64,11 @@ public struct TopicWrites: Sendable {
     public static let unconfirmedMessage =
         "The connection dropped before the server answered. Check the topic once it has synced."
 
+    /// An editor whose base version hasn't synced yet: its timer, which the draft starts from
+    /// and a publish must carry, isn't known.
+    public static let baseVersionMissingMessage =
+        "This topic’s latest version hasn’t synced yet. Try again in a moment."
+
     public let scope: Scope
     let store: LocalStore
     let client: APIClient
@@ -90,7 +95,7 @@ public struct TopicWrites: Sendable {
         self.requestSync = requestSync
         client = APIClient(
             baseURL: scope.binding.baseURL, transport: transport, identity: StaticServerIdentity(scope.identity),
-            credentials: credentials, origin: .app)
+            credentials: credentials, origin: .app, serverOffset: StoreServerOffset(store: store))
     }
 
     /// The scope of a write starting now: the binding, its store's request context and identity.
@@ -185,6 +190,15 @@ public struct TopicWrites: Sendable {
         await send({ try await client.checkTopicVersion(ref: topicId.wireString, body, options: options).outcome })
     }
 
+    /// Publishes `version` (``TopicRequests/publish(_:baseVersion:changeNote:)``), with the
+    /// draft's timer: a publish must send one (null turns timing off, timers.md §2.1).
+    public func publishVersion(
+        topicId: UUID, _ version: TopicDraft.Version, baseVersion: Int, changeNote: String
+    ) async -> Outcome<Topic> {
+        await publishVersion(
+            topicId: topicId, TopicRequests.publish(version, baseVersion: baseVersion, changeNote: changeNote))
+    }
+
     /// `POST /topics/{ref}/versions`: publishes the next version (409 `conflict` on a stale
     /// `base_version`, seen live). On success the topic row, with the new current version and its
     /// questions, is in the store (fence permitting); the version's own row comes with the pull.
@@ -200,6 +214,37 @@ public struct TopicWrites: Sendable {
         await send(
             { try await client.getTopic(ref: topicId.wireString, options: options).outcome },
             apply: { db, topic in _ = try ServerLayer.upsert(db, topic: topic) })
+    }
+
+    // MARK: Edit times
+
+    /// `PATCH /entries/{id}` with `timing` (Edit times, timers.md §3.8), online only, unlike the
+    /// entry's other edits: the outbox rebases a `stale_revision` and resends (outbox.md §7.4),
+    /// which would save times edited from an older revision over newer ones. Here the 409 comes
+    /// back to the form (`staleRevision`), which asks for a reload instead. `captured_at` is never
+    /// sent with it (the server derives it, T1). On success the entry is in the store (fence
+    /// permitting) and a pull follows.
+    public func updateEntryTiming(entryId: UUID, _ edit: TimingDraft.Edit, expectedRevision: Int) async
+        -> Outcome<Entry>
+    {
+        let body = EntryUpdateDTO(timing: TimingEditDTO(edit), expectedRevision: expectedRevision)
+        return await send(
+            { try await client.updateEntry(id: entryId, body, options: options).outcome },
+            apply: { db, entry in _ = try ServerLayer.upsert(db, entry: entry) })
+    }
+
+    /// `GET /entries/{id}`: the entry as the server holds it now (Edit times' "Reload times"),
+    /// applied like a write's response.
+    public func latestEntry(entryId: UUID) async -> Outcome<Entry> {
+        await send(
+            { try await client.getEntry(id: entryId, options: options).outcome },
+            apply: { db, entry in _ = try ServerLayer.upsert(db, entry: entry) })
+    }
+
+    /// `GET /topics/{ref}/versions`: every version, for the step keys they have used (the editor's
+    /// history after "Load latest version"). A read: nothing is applied; the pull brings the rows.
+    public func versions(topicId: UUID) async -> Outcome<[TopicVersion]> {
+        await send({ try await client.listTopicVersions(ref: topicId.wireString, options: options).outcome })
     }
 
     /// `POST /topics/{ref}/archive` sent now, for a delete (see ``delete(topicId:)``).

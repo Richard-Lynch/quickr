@@ -14,3 +14,6 @@ export const CHANNEL_HEADERS: Readonly<Record<string, string>> = { [CHANNEL_HEAD
 
 /** Cache Storage bucket the service worker uses for GET /api/v1/* responses. */
 export const SW_API_CACHE = 'quickr-api';
+
+/** Set by the service worker on an API response it answered from its cache. */
+export const FROM_CACHE_HEADER = 'X-QuickR-From-Cache';

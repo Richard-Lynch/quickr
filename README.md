@@ -278,6 +278,28 @@ cd backend && uv run python scripts/apns_send.py --token <hex token> --env sandb
 
 It prints Apple's `apns-id`, or the status and reason.
 
+To test a topic's real reminder (its category and actions, a log topic's quick
+actions or a timed topic's Start) without waiting for the scheduler, send it now
+to every registered device and browser:
+
+```sh
+make send-reminder t=morning-routine                     # a timed topic: one "Start" action
+make send-reminder t=mood a="--channel apns"             # a log topic: its quick actions, APNs only
+make send-reminder t=mood a="--due-since 2026-10-26T08:00:00Z --dry-run"  # print the payloads, send nothing
+make send-reminder-docker t=mood                         # against the docker stack
+# the same, by hand: docker compose exec backend python -m scripts.send_reminder mood --dry-run
+```
+
+`t` is a topic slug or id. The notification is built and delivered by the
+scheduler's own code, under the same lock as the test push, so it is exactly
+what a scheduled reminder would be. It is a test send: the topic's slot is not
+marked as notified and its due state doesn't change. `--due-since` (default: now,
+to the second) sets the slot; the entry id a log action uses, and the run id a
+Start uses, derive from it, so give each test a new one to act on the same
+reminder again. `--channel` is `apns`, `webpush` or `all` (the default). The
+script prints the category, the actions, the action entry id and how many
+targets it reached.
+
 ### Delivery semantics
 
 Delivery is **best-effort per device, at least once per slot overall**. Each
@@ -313,7 +335,10 @@ you publish a new version (`POST /topics/{ref}/versions`):
 
 `POST /topics/{ref}/versions/check` is a dry run. It returns the change list and
 any errors, warnings or info. Publishing also requires `base_version` to equal
-the topic's current version (optimistic concurrency, `409` otherwise).
+the topic's current version (optimistic concurrency, `409` otherwise), and a
+`timer`: the version's steps (`{steps: [{key, label}]}`) for a timed topic, or
+`null`. It is required, so a client that leaves it out can't switch timing off;
+send the current version's timer to keep it.
 
 ## API overview
 

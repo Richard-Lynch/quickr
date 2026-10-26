@@ -3,6 +3,12 @@ import { describe, expect, it } from 'vitest';
 import {
   convertDraftQuestion,
   draftFromQuestion,
+  draftFromTimer,
+  newDraftStep,
+  stepHistory,
+  stepIssues,
+  timerChanges,
+  withStepLabel,
   newDraftOption,
   newDraftQuestion,
   previewQuestion,
@@ -134,6 +140,8 @@ describe('topicDraftSchema', () => {
       description: '',
       change_note: '',
       schedule,
+      timed: false,
+      steps: [],
       questions: [draft('int', { key: 'hours' })],
     });
     expect(r.success).toBe(true);
@@ -149,6 +157,8 @@ describe('topicDraftSchema', () => {
       description: '',
       change_note: '',
       schedule,
+      timed: false,
+      steps: [],
       questions: [draft('int', { key: 'a' }), draft('str', { key: 'a' })],
     });
     expect(dup.success).toBe(false);
@@ -163,6 +173,8 @@ describe('topicDraftSchema', () => {
       description: '',
       change_note: '',
       schedule,
+      timed: false,
+      steps: [],
       questions: [],
     });
     // No questions is allowed (a single topic, logged with one tap): only the name is missing.
@@ -178,6 +190,8 @@ describe('topicDraftSchema', () => {
       questions: [draft('int')],
       change_note: ' hi ',
       schedule,
+      timed: false,
+      steps: [],
     });
     expect(r.data?.change_note).toBe('hi');
   });
@@ -212,5 +226,149 @@ describe('draftFromQuestion / previewQuestion', () => {
     expect(p).toMatchObject({ key: 'question_3', label: 'Question 3', type: 'int' });
     const broken = previewQuestion(draft('int', { min: '9', max: '1' }), 0);
     expect(broken).toMatchObject({ min: null, max: null });
+  });
+});
+
+describe('timer drafts (timers.md §2.1)', () => {
+  const base = { name: 'Morning', slug: '', slugEdited: false, description: '', change_note: '' };
+
+  it('a new step derives its key from its label, unique among the others', () => {
+    expect(newDraftStep('Brush teeth', [])).toMatchObject({ key: 'brush_teeth', locked: false });
+    expect(newDraftStep('Brush teeth', ['brush_teeth']).key).toBe('brush_teeth_2');
+    expect(newDraftStep('123', []).key).toBe('step');
+    expect(newDraftStep('   ', []).key).toBe('');
+  });
+
+  it('renaming keeps a published step’s key and re-derives a new one’s', () => {
+    const [published] = draftFromTimer({ steps: [{ key: 'shower', label: 'Shower' }] }).steps;
+    if (!published) throw new Error('no step');
+    expect(withStepLabel(published, 'Bath', [])).toMatchObject({ key: 'shower', label: 'Bath' });
+    expect(withStepLabel(newDraftStep('Shower'), 'Bath', []).key).toBe('bath');
+  });
+
+  it('publish sends the steps in order with their stable keys, or null when not timed', () => {
+    const timer = {
+      steps: [
+        { key: 'shower', label: 'Shower' },
+        { key: 'dress', label: 'Dress' },
+      ],
+    };
+    const d = draftFromTimer(timer);
+    const [shower, dress] = d.steps;
+    if (!shower || !dress) throw new Error('no steps');
+    const steps = [dress, withStepLabel(shower, ' Bath ', ['dress']), newDraftStep('Coffee', [])];
+    const r = versionDraftSchema.safeParse({
+      ...base,
+      questions: [],
+      schedule,
+      timed: true,
+      steps,
+    });
+    expect(r.data?.timer).toEqual({
+      steps: [
+        { key: 'dress', label: 'Dress' },
+        { key: 'shower', label: 'Bath' },
+        { key: 'coffee', label: 'Coffee' },
+      ],
+    });
+    const off = versionDraftSchema.safeParse({
+      ...base,
+      questions: [],
+      schedule,
+      ...draftFromTimer(null),
+    });
+    expect(off.data?.timer).toBeNull();
+    const stopwatch = topicDraftSchema.safeParse({
+      ...base,
+      questions: [],
+      schedule,
+      timed: true,
+      steps: [],
+    });
+    expect(stopwatch.data?.timer).toEqual({ steps: [] });
+  });
+
+  it('refuses blank, duplicate and too many steps at their paths', () => {
+    const issues = stepIssues([
+      { key: '', label: ' ' },
+      { key: 'a', label: 'A' },
+      { key: 'a', label: 'a' },
+    ]);
+    expect(issues.map((i) => [i.path.join('.'), i.message])).toEqual([
+      ['0.label', 'Required'],
+      ['2.key', 'Another step has this key'],
+    ]);
+    // Labels may repeat (the server allows it): only keys must be unique.
+    expect(
+      stepIssues([
+        { key: 'a', label: 'Rinse' },
+        { key: 'b', label: 'rinse' },
+      ]),
+    ).toEqual([]);
+    const many = Array.from({ length: 31 }, (_, i) => ({
+      key: `s${String(i)}`,
+      label: `S${String(i)}`,
+    }));
+    expect(stepIssues(many).map((i) => i.message)).toEqual(['At most 30 steps']);
+    const r = versionDraftSchema.safeParse({
+      ...base,
+      questions: [],
+      schedule,
+      timed: true,
+      steps: [newDraftStep('')],
+    });
+    expect(r.error?.issues.map((i) => i.path.join('.'))).toEqual(['steps.0.label']);
+  });
+
+  it('a retired step’s key is reused only by the same step, never by another', () => {
+    const history = stepHistory([
+      { version: 2, timer: { steps: [{ key: 'shower', label: 'Shower' }] } },
+      {
+        version: 1,
+        timer: {
+          steps: [
+            { key: 'prep', label: 'Old prep' },
+            { key: 'shower', label: 'Wash' },
+          ],
+        },
+      },
+      { version: 3, timer: null },
+    ]);
+    expect(history).toEqual([
+      { key: 'prep', label: 'Old prep' },
+      { key: 'shower', label: 'Shower' },
+    ]);
+    // Same (folded) label as a retired step: it is that step again.
+    expect(newDraftStep('  old PREP ', [], history).key).toBe('prep');
+    // A different step that would derive a retired key gets a fresh one.
+    expect(newDraftStep('Prep', [], history).key).toBe('prep_2');
+    // A retired key already used by another draft step isn't reused.
+    expect(newDraftStep('Old prep', ['prep'], history).key).toBe('old_prep');
+    expect(withStepLabel(newDraftStep(''), 'Shower', [], history).key).toBe('shower');
+    expect(withStepLabel(newDraftStep(''), 'Shower', ['shower'], history).key).toBe('shower_2');
+  });
+
+  it('timerChanges names what the review sheet shows', () => {
+    const a = {
+      steps: [
+        { key: 'x', label: 'X' },
+        { key: 'y', label: 'Y' },
+      ],
+    };
+    expect(timerChanges(null, null)).toEqual([]);
+    expect(timerChanges(a, a)).toEqual([]);
+    expect(timerChanges(null, a)).toEqual(['Timed, with 2 steps']);
+    expect(timerChanges(null, { steps: [] })).toEqual(['Timed, as a stopwatch (no steps)']);
+    expect(timerChanges(a, null)).toEqual(['No longer timed']);
+    expect(
+      timerChanges(a, {
+        steps: [
+          { key: 'z', label: 'Z' },
+          { key: 'y', label: 'Why' },
+          { key: 'x', label: 'X' },
+        ],
+      }),
+    ).toEqual(['Step added: Z', 'Step renamed: Y → Why', 'Steps reordered']);
+    expect(timerChanges(a, { steps: [{ key: 'y', label: 'Y' }] })).toEqual(['Step removed: X']);
   });
 });

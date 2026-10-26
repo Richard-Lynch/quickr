@@ -45,6 +45,15 @@ public struct StaticAccessCredentials: AccessCredentialsProvider {
     public func accessCredentials(for baseURL: URL) async throws -> AccessCredentials? { credentials }
 }
 
+/// Where the run-event offset goes (timers.md §5.1 item 2): every response's
+/// `X-QuickR-Server-Time`, errors included, as one sample. `StoreServerOffset` keeps it in the
+/// store's `sync_state.server_offset_ms`.
+public protocol ServerOffsetRecorder: Sendable {
+    /// One qualifying sample: `server_time − (t_send + t_recv) / 2`, from a response whose round
+    /// trip took at most 5 s. The latest one wins.
+    func record(offsetMs: Int) async
+}
+
 /// Per-call options.
 public struct RequestOptions: Sendable, Hashable {
     /// The identity a mutation must target, instead of the provider's current one. The outbox
@@ -79,7 +88,7 @@ public enum APIClientError: Error, Sendable, Hashable, CustomStringConvertible {
     }
 }
 
-/// Entry filters shared by listEntries, exportEntriesCsv, getTopicStats and getQuestionSeries.
+/// Entry filters shared by listEntries, exportEntriesCsv, getTopicStats, getTopicTiming and getQuestionSeries.
 public struct EntryFilters: Sendable, Hashable {
     public var capturedFrom: Date?
     public var capturedTo: Date?
@@ -129,16 +138,25 @@ public struct APIClient: Sendable {
     public var identity: any ServerIdentityProvider
     public var credentials: any AccessCredentialsProvider
     public var origin: OutboxOrigin
+    /// Gets an offset sample from every response that carries `X-QuickR-Server-Time` (§5.1); nil
+    /// keeps none.
+    public var serverOffset: (any ServerOffsetRecorder)?
+    /// The device clock, epoch milliseconds, read just before a request and just after its answer.
+    public var deviceNow: @Sendable () -> Int
 
     public init(
         baseURL: URL, transport: any Transport, identity: any ServerIdentityProvider,
-        credentials: any AccessCredentialsProvider = StaticAccessCredentials(nil), origin: OutboxOrigin = .app
+        credentials: any AccessCredentialsProvider = StaticAccessCredentials(nil), origin: OutboxOrigin = .app,
+        serverOffset: (any ServerOffsetRecorder)? = nil,
+        deviceNow: @escaping @Sendable () -> Int = { RunInstant.milliseconds(Date()) }
     ) {
         self.baseURL = baseURL
         self.transport = transport
         self.identity = identity
         self.credentials = credentials
         self.origin = origin
+        self.serverOffset = serverOffset
+        self.deviceNow = deviceNow
     }
 
     // MARK: Meta
@@ -307,6 +325,32 @@ public struct APIClient: Sendable {
         try await send(Endpoints.deleteEntry, path: ["entry_id": id.wireString], options: options)
     }
 
+    // MARK: Runs
+
+    /// One tap on a run (timers.md §3.2). `runId` may be an alias. A nil `body.source` becomes
+    /// the client's `origin.source`.
+    public func recordRunEvent(runId: UUID, _ body: RunEventInDTO, options: RequestOptions = .init()) async throws
+        -> APIResponse<RunEventResult>
+    {
+        var body = body
+        if body.source == nil { body.source = origin.source }
+        return try await send(
+            Endpoints.recordRunEvent, path: ["run_id": runId.wireString], body: body, options: options)
+    }
+
+    public func getRun(id: UUID, options: RequestOptions = .init()) async throws -> APIResponse<Run> {
+        try await send(Endpoints.getRun, path: ["run_id": id.wireString], options: options)
+    }
+
+    /// `statuses`: `open` and/or `finishing` (the server's default is both).
+    public func listRuns(statuses: [String] = [], topic: String? = nil, options: RequestOptions = .init())
+        async throws -> APIResponse<[Run]>
+    {
+        var items = statuses.map { URLQueryItem(name: "status", value: $0) }
+        if let topic { items.append(URLQueryItem(name: "topic", value: topic)) }
+        return try await send(Endpoints.listRuns, query: items, options: options)
+    }
+
     // MARK: Feed
 
     /// One feed page (sync-protocol.md §1.1): 30 s timeout unless `options` says otherwise.
@@ -329,6 +373,12 @@ public struct APIClient: Sendable {
         async throws -> APIResponse<TopicStats>
     {
         try await send(Endpoints.getTopicStats, path: ["ref": ref], query: filters.queryItems, options: options)
+    }
+
+    public func getTopicTiming(ref: String, filters: EntryFilters = .init(), options: RequestOptions = .init())
+        async throws -> APIResponse<TopicTimingDTO>
+    {
+        try await send(Endpoints.getTopicTiming, path: ["ref": ref], query: filters.queryItems, options: options)
     }
 
     /// `timezone` is an IANA name for bucketing (the server defaults to UTC).
@@ -385,6 +435,19 @@ public struct APIClient: Sendable {
         try await send(Endpoints.sendApnsTestPush, body: body, options: options)
     }
 
+    /// A Live Activity push token: the device's push-to-start token, or one activity's (timers.md §10.3).
+    public func registerLiveActivity(_ body: LiveActivityInDTO, options: RequestOptions = .init()) async throws
+        -> APIResponse<LiveActivityDTO>
+    {
+        try await send(Endpoints.registerLiveActivity, body: body, options: options)
+    }
+
+    public func deleteLiveActivity(_ body: LiveActivityRefDTO, options: RequestOptions = .init()) async throws
+        -> APIResponse<EmptyBody>
+    {
+        try await send(Endpoints.deleteLiveActivity, body: body, options: options)
+    }
+
     // MARK: Core
 
     /// Builds, sends and classifies one call. Throws only `APIClientError`.
@@ -396,8 +459,11 @@ public struct APIClient: Sendable {
         let request = try await build(
             endpoint, path: parameters, query: query, body: body, options: options, expected: expected)
         let result: Result<HTTPResponse, TransportError>
+        let sent = deviceNow()
         do {
-            result = .success(try await transport.send(request))
+            let response = try await transport.send(request)
+            await recordOffset(response, expected: expected, sent: sent, received: deviceNow())
+            result = .success(response)
         } catch let error as TransportError {
             result = .failure(error)
         } catch {
@@ -410,6 +476,22 @@ public struct APIClient: Sendable {
             }
             return try Response.decode(response.body, using: WireCoding.decoder()).toDomain()
         }
+    }
+
+    /// Hands `response`'s offset sample to `serverOffset` when it qualifies (§5.1 item 2): from a
+    /// response with both identity headers, naming the expected server and epoch when there is one
+    /// (another server's clock is no sample of this one's).
+    private func recordOffset(_ response: HTTPResponse, expected: ServerIdentity?, sent: Int, received: Int) async {
+        guard let observed = ObservedIdentity(response: response.headers).complete,
+            expected.map({
+                $0.serverId.lowercased() == observed.serverId.lowercased()
+                    && $0.epoch.lowercased() == observed.epoch.lowercased()
+            }) ?? true
+        else { return }
+        guard let serverOffset, let serverTime = RunClock.parseServerTime(response.headers[RunClock.serverTimeHeader]),
+            let sample = RunClock.offsetSample(serverTime: serverTime, sent: sent, received: received)
+        else { return }
+        await serverOffset.record(offsetMs: sample)
     }
 
     /// The request `send` would make, without sending it. Throws only `APIClientError`.

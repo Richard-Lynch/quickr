@@ -303,7 +303,9 @@ async def test_scheduler_ranks_options_by_use_over_every_version(
 
     # Version 2 has 6 options: the counts include version 1's entries.
     six = {**mood, "options": options(6)}
-    r = await client.post("/topics/mood/versions", json={"questions": [six], "base_version": 1})
+    r = await client.post(
+        "/topics/mood/versions", json={"questions": [six], "base_version": 1, "timer": None}
+    )
     assert r.status_code == 201, r.text
     await record(client, "mood", {"mood": "o5"})
     await record(client, "mood", {"mood": "o5"})
@@ -340,7 +342,7 @@ async def test_scheduler_uses_the_latest_value_by_captured_at(
 
     # A newer version caps it at 6: 6.5 isn't a valid answer any more.
     r = await client.post(
-        "/topics/sleep/versions", json={"questions": [{**hours, "max": 6}], "base_version": 1}
+        "/topics/sleep/versions", json={"questions": [{**hours, "max": 6}], "base_version": 1, "timer": None}
     )
     assert r.status_code == 201, r.text
     await _forget_notified()

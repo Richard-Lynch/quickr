@@ -3,7 +3,9 @@
 Every ``/api/v1`` response (errors and ``/health`` included) carries
 ``X-QuickR-Server-Id`` and ``X-QuickR-Epoch``, so a client can tell on any
 response that it is still talking to the server, and the database epoch, its
-local store belongs to.
+local store belongs to. It also carries ``X-QuickR-Server-Time``, the server's
+clock in integer Unix epoch milliseconds, from which clients stamp run events
+(docs/specs/timers.md §5.1); it is set even when the identity can't be read.
 
 Mutating endpoints accept ``X-QuickR-Expect-Server-Id`` / ``X-QuickR-Expect-Epoch``:
 when present and different, the request is rejected with 409 ``server_mismatch`` /
@@ -16,6 +18,7 @@ no check (PWA, MCP).
 from __future__ import annotations
 
 import logging
+import time
 from typing import Annotated
 
 from fastapi import Depends, Header
@@ -33,10 +36,17 @@ log = logging.getLogger(__name__)
 
 SERVER_ID_HEADER = "X-QuickR-Server-Id"
 EPOCH_HEADER = "X-QuickR-Epoch"
+SERVER_TIME_HEADER = "X-QuickR-Server-Time"
 
 
 _SERVER_ID_KEY = SERVER_ID_HEADER.lower().encode()
 _EPOCH_KEY = EPOCH_HEADER.lower().encode()
+_SERVER_TIME_KEY = SERVER_TIME_HEADER.lower().encode()
+
+
+def _server_time() -> bytes:
+    """The server clock as the header carries it: whole epoch milliseconds."""
+    return str(time.time_ns() // 1_000_000).encode()
 
 
 # Whether the open transaction has written anything (Postgres assigns an xid on first write).
@@ -81,7 +91,7 @@ def _under(path: str, prefix: str) -> bool:
 
 
 class IdentityHeadersMiddleware:
-    """Adds the identity headers to every response under ``prefix``.
+    """Adds the identity headers and the server time to every response under ``prefix``.
 
     The middleware owns the request's database session: it opens it, hands it to the
     handler (``app.db.get_db``), reads the identity on it, and closes it after the
@@ -132,6 +142,7 @@ class IdentityHeadersMiddleware:
                     headers += [
                         (k, v) for k, v in (await _identity_headers(db, scope["path"])) if k not in present
                     ]
+                headers.append((_SERVER_TIME_KEY, _server_time()))  # read last, closest to sending
                 message = {**message, "headers": headers}
                 started = True
             await send(message)

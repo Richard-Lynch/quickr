@@ -9,6 +9,9 @@ SLUG_PATTERN = r"^[a-z0-9][a-z0-9-]{0,63}$"
 TIME_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 
 MAX_QUESTIONS = 100
+MAX_STEPS = 30
+MAX_RUN_EVENTS = 1_000  # per run, void events included (timers.md §5)
+RUN_START_MAX_AGE_DAYS = 7  # a start's `at` is at most this old
 MAX_ENUM_OPTIONS = 200
 MAX_STR_LENGTH = 10_000
 MAX_LABEL_LENGTH = 200
@@ -37,6 +40,8 @@ MAX_PUSH_ENDPOINT_LENGTH = 2_048
 MAX_PUSH_KEY_LENGTH = 256
 MAX_USER_AGENT_LENGTH = 500
 APNS_TOKEN_PATTERN = r"^[0-9a-fA-F]{64,200}$"  # hex; Apple's tokens are 32 bytes today
+# Live Activity push tokens (push-to-start and update) are longer than device tokens.
+LIVE_ACTIVITY_TOKEN_PATTERN = r"^[0-9a-fA-F]{64,512}$"
 BUNDLE_ID_PATTERN = r"^[A-Za-z0-9.-]{1,155}$"
 MAX_APP_VERSION_LENGTH = 64
 MAX_DEVICE_NAME_LENGTH = 200

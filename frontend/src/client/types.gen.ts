@@ -94,14 +94,15 @@ export type ApnsDeviceRef = {
  * One page of the change feed, read from a single consistent snapshot.
  *
  * Each changed entity appears once, in its latest state (``items``) or as a deletion
- * (``deleted``). Apply ``items`` in order (topics, then versions, then entries), then
- * ``deleted`` (entries, then versions, then topics), then store ``next`` as the cursor.
+ * (``deleted``). Apply ``items`` in order (topics, then versions, then entries, then runs),
+ * then ``deleted`` (runs, then entries, then versions, then topics), then store ``next`` as
+ * the cursor.
  */
 export type ChangesPage = {
     /**
      * Items
      */
-    items: Array<FeedEntry | FeedTopic | FeedVersion>;
+    items: Array<FeedEntry | FeedTopic | FeedVersion | FeedRun>;
     /**
      * Deleted
      */
@@ -506,6 +507,10 @@ export type EntryOut = {
      * Answers
      */
     answers: Array<IntAnswer | DoubleAnswer | StrAnswer | EnumAnswer | EnumListAnswer>;
+    /**
+     * A finished run's times; null for an untimed entry.
+     */
+    timing: Timing | null;
 };
 
 /**
@@ -568,6 +573,10 @@ export type EntryUpdate = {
      * Optional optimistic-concurrency guard: the revision this change was based on. When it no longer matches, the change is rejected with 409 stale_revision.
      */
     expected_revision?: number | null;
+    /**
+     * A timed entry's new run times (timers.md §3.8); requires expected_revision and excludes captured_at.
+     */
+    timing?: TimingEdit;
 };
 
 /**
@@ -823,13 +832,15 @@ export type EnumStats = {
 /**
  * FeedDeletion
  *
- * A permanently deleted id. A topic deletion also deletes all of its versions and entries.
+ * A permanently deleted id. A topic deletion also deletes all of its versions, entries and
+ * runs. A ``run`` deletion means the run is no longer open or finishing: it stopped, was
+ * discarded, or went with its topic.
  */
 export type FeedDeletion = {
     /**
      * Kind
      */
-    kind: 'entry' | 'topic' | 'version';
+    kind: 'entry' | 'topic' | 'version' | 'run';
     /**
      * Seq
      */
@@ -861,6 +872,24 @@ export type FeedEntry = {
      */
     seq: number;
     entry: EntryOut;
+};
+
+/**
+ * FeedRun
+ *
+ * A run that is open or finishing in the page's snapshot (timers.md §7.1). A closed run
+ * leaves the feed as a ``run`` deletion; a stopped run's data arrives as its entry.
+ */
+export type FeedRun = {
+    /**
+     * Kind
+     */
+    kind: 'run';
+    /**
+     * Seq
+     */
+    seq: number;
+    run: RunOut;
 };
 
 /**
@@ -1201,6 +1230,97 @@ export type Limits = {
 };
 
 /**
+ * LiveActivityIn
+ *
+ * A Live Activity push token (timers.md §10.3), upserted by token: the device's push-to-start
+ * token, or one activity's update token with the topic and run it shows.
+ */
+export type LiveActivityIn = {
+    /**
+     * Token
+     *
+     * A Live Activity push token, hex (stored lowercase).
+     */
+    token: string;
+    /**
+     * Kind
+     *
+     * start: the device's push-to-start token (it replaces the device's older ones). update: one activity's update token.
+     */
+    kind: 'start' | 'update';
+    /**
+     * Device Token
+     *
+     * The APNs device token of the phone that owns it.
+     */
+    device_token: string;
+    /**
+     * Environment
+     */
+    environment: 'sandbox' | 'production';
+    /**
+     * Topic Id
+     *
+     * update (required): the activity's topic.
+     */
+    topic_id?: string | null;
+    /**
+     * Run Id
+     *
+     * update (required): the run it was started for.
+     */
+    run_id?: string | null;
+};
+
+/**
+ * LiveActivityOut
+ */
+export type LiveActivityOut = {
+    /**
+     * Token
+     */
+    token: string;
+    /**
+     * Kind
+     */
+    kind: 'start' | 'update';
+    /**
+     * Device Token
+     */
+    device_token: string;
+    /**
+     * Environment
+     */
+    environment: 'sandbox' | 'production';
+    /**
+     * Topic Id
+     */
+    topic_id: string | null;
+    /**
+     * Run Id
+     */
+    run_id: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * LiveActivityRef
+ *
+ * One Live Activity token, by token (unregister).
+ */
+export type LiveActivityRef = {
+    /**
+     * Token
+     *
+     * A Live Activity push token, hex (stored lowercase).
+     */
+    token: string;
+};
+
+/**
  * NumericStats
  */
 export type NumericStats = {
@@ -1444,6 +1564,347 @@ export type RecentText = {
 };
 
 /**
+ * RunDevice
+ *
+ * The iOS device that sent the event, for Live Activity pushes (timers.md §10.3).
+ */
+export type RunDevice = {
+    /**
+     * Apns Token
+     *
+     * The APNs device token, hex (stored lower-case).
+     */
+    apns_token: string;
+    /**
+     * Live Activity
+     */
+    live_activity: boolean;
+};
+
+/**
+ * RunEventEffect
+ */
+export type RunEventEffect = {
+    /**
+     * Effect
+     */
+    effect: 'applied' | 'void';
+    /**
+     * Reason
+     */
+    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | null;
+};
+
+/**
+ * RunEventIn
+ *
+ * One tap on a run (``recordRunEvent``). Idempotent by ``id``.
+ */
+export type RunEventIn = {
+    /**
+     * Id
+     *
+     * The event id, client-generated. For a start it must equal the run id.
+     */
+    id: string;
+    /**
+     * Type
+     */
+    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard';
+    /**
+     * At
+     *
+     * The tap, on the server's clock as the device estimates it (X-QuickR-Server-Time). Stored truncated to whole milliseconds. Not before 2000-01-01, at most 24h ahead; a start's at most 7 days old.
+     */
+    at: string;
+    /**
+     * Seg
+     *
+     * next, lap and skip (required): the open segment the device saw.
+     */
+    seg?: number | null;
+    /**
+     * Step
+     *
+     * skip (required): the step the device saw as being skipped.
+     */
+    step?: string | null;
+    /**
+     * Pause Id
+     *
+     * resume (required): the pause event it ends.
+     */
+    pause_id?: string | null;
+    /**
+     * Topic Id
+     *
+     * start (required): the timed topic.
+     */
+    topic_id?: string | null;
+    /**
+     * Version
+     *
+     * start (required): the topic version the run is pinned to.
+     */
+    version?: number | null;
+    /**
+     * Answers
+     *
+     * stop and finish only.
+     */
+    answers?: {
+        [key: string]: number | string | Array<string> | null;
+    } | null;
+    /**
+     * Notes
+     *
+     * stop and finish only.
+     */
+    notes?: string | null;
+    /**
+     * Meta
+     */
+    meta?: {
+        [key: string]: string;
+    } | null;
+    /**
+     * Source
+     *
+     * Defaults to the channel name.
+     */
+    source?: string | null;
+    device?: RunDevice | null;
+};
+
+/**
+ * RunEventOut
+ */
+export type RunEventOut = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Type
+     */
+    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard';
+    /**
+     * At
+     */
+    at: string;
+    /**
+     * Seg
+     */
+    seg: number | null;
+    /**
+     * Step
+     */
+    step: string | null;
+    /**
+     * Pause Id
+     */
+    pause_id: string | null;
+    /**
+     * Arrival
+     *
+     * Server arrival order.
+     */
+    arrival: number;
+    /**
+     * Effect
+     */
+    effect: 'applied' | 'void';
+    /**
+     * Reason
+     */
+    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | null;
+    /**
+     * Source
+     */
+    source: string;
+};
+
+/**
+ * RunEventResult
+ */
+export type RunEventResult = {
+    event: RunEventResultEvent;
+    /**
+     * The target run: not the path's id when that is an alias.
+     */
+    run: RunOut;
+    /**
+     * The run's entry, once it is stopped and the entry exists.
+     */
+    entry: EntryOut | null;
+};
+
+/**
+ * RunEventResultEvent
+ */
+export type RunEventResultEvent = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Effect
+     */
+    effect: 'applied' | 'void';
+    /**
+     * Reason
+     */
+    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | null;
+};
+
+/**
+ * RunOpenSegment
+ */
+export type RunOpenSegment = {
+    /**
+     * Index
+     *
+     * The `seg` a next, lap or skip of this segment sends.
+     */
+    index: number;
+    /**
+     * Kind
+     */
+    kind: 'step' | 'lap';
+    /**
+     * Step
+     */
+    step: string | null;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Started At
+     */
+    started_at: string;
+};
+
+/**
+ * RunOut
+ *
+ * A run in any status, with every event and its current effect.
+ */
+export type RunOut = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Topic Id
+     */
+    topic_id: string;
+    /**
+     * Version
+     */
+    version: number;
+    /**
+     * Status
+     */
+    status: 'running' | 'paused' | 'finishing' | 'stopped' | 'discarded';
+    /**
+     * Revision
+     *
+     * Bumped by every event and status change.
+     */
+    revision: number;
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Ended At
+     *
+     * The stop's at; null until the run stops.
+     */
+    ended_at: string | null;
+    /**
+     * Edited
+     *
+     * The entry's times were edited; later events are void.
+     */
+    edited: boolean;
+    /**
+     * Events
+     *
+     * In arrival order.
+     */
+    events: Array<RunEventOut>;
+    state: RunState;
+    /**
+     * Aliases
+     *
+     * Run ids merged into this one.
+     */
+    aliases: Array<string>;
+};
+
+/**
+ * RunState
+ *
+ * The fold's output (timers.md §4.3). For a stopped run, ``segments``, ``skipped`` and
+ * ``pauses`` are exactly its entry's ``timing``, until the times are edited: an edited run
+ * (``RunOut.edited``) keeps its last fold, and its entry holds the edited times.
+ */
+export type RunState = {
+    /**
+     * Status
+     */
+    status: 'running' | 'paused' | 'finishing' | 'stopped' | 'discarded';
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Ended At
+     */
+    ended_at: string | null;
+    /**
+     * The segment being timed; null once the run closes.
+     */
+    open: RunOpenSegment | null;
+    /**
+     * Next Step
+     *
+     * The step Next starts; null when it would start a lap.
+     */
+    next_step: string | null;
+    /**
+     * Paused Since
+     */
+    paused_since: string | null;
+    /**
+     * Segments
+     *
+     * Closed so far, in time order.
+     */
+    segments: Array<TimingSegment>;
+    /**
+     * Skipped
+     */
+    skipped: Array<string>;
+    /**
+     * Pauses
+     *
+     * Ended pauses; an open one is paused_since.
+     */
+    pauses: Array<TimingPause>;
+    /**
+     * Effects
+     *
+     * Each event's effect, by lowercase event id.
+     */
+    effects: {
+        [key: string]: RunEventEffect;
+    };
+};
+
+/**
  * SeriesPoint
  */
 export type SeriesPoint = {
@@ -1475,6 +1936,25 @@ export type SeriesPoint = {
     option_counts: {
         [key: string]: number;
     };
+};
+
+/**
+ * Step
+ *
+ * A named checkpoint of a timed topic. Its key is its identity across versions, in a
+ * namespace of its own (a step and a question may share a key).
+ */
+export type Step = {
+    /**
+     * Key
+     *
+     * Stable machine key (lower snake_case); the identity of a question across versions.
+     */
+    key: string;
+    /**
+     * Label
+     */
+    label: string;
 };
 
 /**
@@ -1614,6 +2094,347 @@ export type StrStats = {
 };
 
 /**
+ * Timer
+ *
+ * A version's timing: its steps, timed in this order. No steps makes a plain stopwatch.
+ */
+export type Timer = {
+    /**
+     * Steps
+     */
+    steps: Array<Step>;
+};
+
+/**
+ * Timing
+ *
+ * A finished run's times (timers.md §2.3). Every instant is a whole millisecond;
+ * ``ended_at`` equals the entry's ``captured_at``.
+ */
+export type Timing = {
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Ended At
+     */
+    ended_at: string;
+    /**
+     * Active Ms
+     *
+     * ended_at - started_at - paused_ms.
+     */
+    active_ms: number;
+    /**
+     * Paused Ms
+     */
+    paused_ms: number;
+    /**
+     * Complete
+     *
+     * No steps, or every step has a segment and none was skipped.
+     */
+    complete: boolean;
+    /**
+     * Edited
+     *
+     * The times were edited after the run stopped.
+     */
+    edited: boolean;
+    /**
+     * Segments
+     *
+     * In time order.
+     */
+    segments: Array<TimingSegment>;
+    /**
+     * Skipped
+     *
+     * Skipped step keys, in step order.
+     */
+    skipped: Array<string>;
+    /**
+     * Pauses
+     */
+    pauses: Array<TimingPause>;
+};
+
+/**
+ * TimingEdit
+ *
+ * A stopped run's times, replaced as a whole (timers.md §3.8). The server rebuilds the
+ * entry's ``Timing`` from it: the last segment's ``ended_at`` becomes the run's end and the
+ * entry's ``captured_at``.
+ */
+export type TimingEdit = {
+    /**
+     * Started At
+     *
+     * Stored truncated to whole milliseconds; the captured_at bounds apply.
+     */
+    started_at: string;
+    /**
+     * Segments
+     *
+     * In time order.
+     */
+    segments: Array<TimingEditSegment>;
+    /**
+     * Skipped
+     *
+     * Skipped step keys, in step order.
+     */
+    skipped: Array<string>;
+    /**
+     * Pauses
+     *
+     * Sorted, not overlapping, within the run.
+     */
+    pauses: Array<TimingEditPause>;
+};
+
+/**
+ * TimingEditPause
+ */
+export type TimingEditPause = {
+    /**
+     * Start
+     *
+     * Stored truncated to whole milliseconds; the captured_at bounds apply.
+     */
+    start: string;
+    /**
+     * End
+     *
+     * Stored truncated to whole milliseconds; the captured_at bounds apply.
+     */
+    end: string;
+};
+
+/**
+ * TimingEditSegment
+ */
+export type TimingEditSegment = {
+    /**
+     * Kind
+     */
+    kind: 'step' | 'lap';
+    /**
+     * Step
+     *
+     * A step of the run's version; null for a lap.
+     */
+    step?: string | null;
+    /**
+     * Ended At
+     *
+     * Each segment starts where the previous one ended.
+     */
+    ended_at: string;
+};
+
+/**
+ * TimingLaps
+ */
+export type TimingLaps = {
+    /**
+     * Runs With Laps
+     */
+    runs_with_laps: number;
+    /**
+     * Median Ms
+     *
+     * Of each such run's summed lap time.
+     */
+    median_ms: number | null;
+    /**
+     * Mean Ms
+     */
+    mean_ms: number | null;
+};
+
+/**
+ * TimingPause
+ */
+export type TimingPause = {
+    /**
+     * Start
+     */
+    start: string;
+    /**
+     * End
+     */
+    end: string;
+};
+
+/**
+ * TimingPaused
+ */
+export type TimingPaused = {
+    /**
+     * Runs With Pauses
+     *
+     * Runs with paused_ms > 0.
+     */
+    runs_with_pauses: number;
+    /**
+     * Median Ms
+     */
+    median_ms: number | null;
+};
+
+/**
+ * TimingSegment
+ *
+ * One segment of a finished run: a named step's time, or an unnamed lap's.
+ */
+export type TimingSegment = {
+    /**
+     * Kind
+     */
+    kind: 'step' | 'lap';
+    /**
+     * Step
+     *
+     * The step's key; null for a lap.
+     */
+    step: string | null;
+    /**
+     * Label
+     *
+     * The step's label in the run's version, or 'Lap n'.
+     */
+    label: string;
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Ended At
+     */
+    ended_at: string;
+    /**
+     * Active Ms
+     */
+    active_ms: number;
+    /**
+     * Paused Ms
+     *
+     * Its overlap with the run's pauses.
+     */
+    paused_ms: number;
+};
+
+/**
+ * TimingSeriesPoint
+ */
+export type TimingSeriesPoint = {
+    /**
+     * Entry Id
+     */
+    entry_id: string;
+    /**
+     * Captured At
+     *
+     * The run's end.
+     */
+    captured_at: string;
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Active Ms
+     */
+    active_ms: number;
+    /**
+     * Paused Ms
+     */
+    paused_ms: number;
+    /**
+     * Complete
+     */
+    complete: boolean;
+    /**
+     * Steps
+     *
+     * Each step segment's key and its active_ms.
+     */
+    steps: {
+        [key: string]: number;
+    };
+};
+
+/**
+ * TimingStepStats
+ */
+export type TimingStepStats = {
+    /**
+     * Key
+     */
+    key: string;
+    /**
+     * Label
+     *
+     * The latest version's label for the key, else its latest segment's.
+     */
+    label: string;
+    /**
+     * Current
+     *
+     * The key is a step of the current version.
+     */
+    current: boolean;
+    /**
+     * Done
+     *
+     * Runs with a segment for the step.
+     */
+    done: number;
+    /**
+     * Skipped
+     *
+     * Runs that skipped the step.
+     */
+    skipped: number;
+    /**
+     * Best Ms
+     *
+     * Over the done segments' active_ms, from every run.
+     */
+    best_ms: number | null;
+    /**
+     * Median Ms
+     */
+    median_ms: number | null;
+    /**
+     * Mean Ms
+     */
+    mean_ms: number | null;
+};
+
+/**
+ * TimingSummary
+ *
+ * Best, median and mean of active times in milliseconds; null when there are none.
+ */
+export type TimingSummary = {
+    /**
+     * Best Ms
+     */
+    best_ms: number | null;
+    /**
+     * Median Ms
+     */
+    median_ms: number | null;
+    /**
+     * Mean Ms
+     */
+    mean_ms: number | null;
+};
+
+/**
  * TopicCreate
  */
 export type TopicCreate = {
@@ -1645,6 +2466,10 @@ export type TopicCreate = {
     } & DailyScheduleInput) | ({
         kind: 'interval';
     } & IntervalScheduleInput) | null;
+    /**
+     * Makes the topic timed (optional; null: not timed).
+     */
+    timer?: Timer | null;
 };
 
 /**
@@ -1720,6 +2545,10 @@ export type TopicDetail = {
      * Null when the topic has no schedule.
      */
     due: DueStatus | null;
+    /**
+     * The current version's timer; null when the topic is not timed.
+     */
+    timer: Timer | null;
     /**
      * Questions
      */
@@ -1858,6 +2687,45 @@ export type TopicSummary = {
      * Null when the topic has no schedule.
      */
     due: DueStatus | null;
+    /**
+     * The current version's timer; null when the topic is not timed.
+     */
+    timer: Timer | null;
+};
+
+/**
+ * TopicTiming
+ *
+ * Timing stats over the timed entries in range (timers.md §9). Durations are active
+ * time in integer milliseconds; untimed entries count toward nothing here.
+ */
+export type TopicTiming = {
+    /**
+     * Runs
+     */
+    runs: number;
+    /**
+     * Complete Runs
+     */
+    complete_runs: number;
+    /**
+     * Best, median and mean run totals, over complete runs only.
+     */
+    total: TimingSummary;
+    /**
+     * Steps
+     *
+     * Every step key seen in range: the current version's steps in step order, then the rest by key.
+     */
+    steps: Array<TimingStepStats>;
+    laps: TimingLaps;
+    paused: TimingPaused;
+    /**
+     * Series
+     *
+     * One point per timed entry, by captured_at then entry_id.
+     */
+    series: Array<TimingSeriesPoint>;
 };
 
 /**
@@ -1909,6 +2777,10 @@ export type TopicVersionOut = {
      */
     questions: Array<IntQuestionOutput | DoubleQuestionOutput | StrQuestionOutput | EnumQuestionOutput>;
     /**
+     * Null when this version is not timed.
+     */
+    timer: Timer | null;
+    /**
      * Change Note
      */
     change_note: string;
@@ -1951,6 +2823,10 @@ export type VersionCreate = {
      */
     base_version: number;
     /**
+     * The new version's timer, or null for an untimed topic. Required, so leaving it out can't switch timing off: send the current version's timer to keep it.
+     */
+    timer: Timer | null;
+    /**
      * Change Note
      */
     change_note?: string;
@@ -1970,6 +2846,10 @@ export type VersionDraft = {
      * Optional: the version this draft was based on. When given and stale, the dry run fails with 409 just as publishing would.
      */
     base_version?: number | null;
+    /**
+     * Optional: the draft's timer (null for untimed). When given, a timer change with no question changes is a change, as publishing treats it; the report itself covers questions only.
+     */
+    timer?: Timer | null;
 };
 
 export type HealthData = {
@@ -3014,6 +3894,166 @@ export type UpdateEntryResponses = {
 
 export type UpdateEntryResponse = UpdateEntryResponses[keyof UpdateEntryResponses];
 
+export type RecordRunEventData = {
+    body: RunEventIn;
+    headers?: {
+        /**
+         * X-Quickr-Channel
+         *
+         * Client channel; defaults to 'api'.
+         */
+        'X-QuickR-Channel'?: Channel | null;
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
+    path: {
+        /**
+         * Run Id
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/api/v1/runs/{run_id}/events';
+};
+
+export type RecordRunEventErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type RecordRunEventError = RecordRunEventErrors[keyof RecordRunEventErrors];
+
+export type RecordRunEventResponses = {
+    /**
+     * Successful Response
+     */
+    200: RunEventResult;
+    /**
+     * The call created the run (or merged it).
+     */
+    201: RunEventResult;
+};
+
+export type RecordRunEventResponse = RecordRunEventResponses[keyof RecordRunEventResponses];
+
+export type ListRunsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Status
+         *
+         * open (running or paused) and/or finishing; default both.
+         */
+        status?: Array<'open' | 'finishing'>;
+        /**
+         * Topic
+         *
+         * Only this topic (UUID or slug).
+         */
+        topic?: string | null;
+    };
+    url: '/api/v1/runs';
+};
+
+export type ListRunsErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type ListRunsError = ListRunsErrors[keyof ListRunsErrors];
+
+export type ListRunsResponses = {
+    /**
+     * Response Listruns
+     *
+     * Successful Response
+     */
+    200: Array<RunOut>;
+};
+
+export type ListRunsResponse = ListRunsResponses[keyof ListRunsResponses];
+
+export type GetRunData = {
+    body?: never;
+    path: {
+        /**
+         * Run Id
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/api/v1/runs/{run_id}';
+};
+
+export type GetRunErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type GetRunError = GetRunErrors[keyof GetRunErrors];
+
+export type GetRunResponses = {
+    /**
+     * Successful Response
+     */
+    200: RunOut;
+};
+
+export type GetRunResponse = GetRunResponses[keyof GetRunResponses];
+
 export type ListChangesData = {
     body?: never;
     path?: never;
@@ -3132,6 +4172,75 @@ export type GetTopicStatsResponses = {
 };
 
 export type GetTopicStatsResponse = GetTopicStatsResponses[keyof GetTopicStatsResponses];
+
+export type GetTopicTimingData = {
+    body?: never;
+    path: {
+        /**
+         * Ref
+         *
+         * Topic UUID or slug.
+         */
+        ref: string;
+    };
+    query?: {
+        /**
+         * Captured From
+         *
+         * Inclusive lower bound.
+         */
+        captured_from?: string | null;
+        /**
+         * Captured To
+         *
+         * Exclusive upper bound.
+         */
+        captured_to?: string | null;
+        /**
+         * Version
+         */
+        version?: number | null;
+        /**
+         * Source
+         */
+        source?: string | null;
+        /**
+         * Channel
+         */
+        channel?: Channel | null;
+    };
+    url: '/api/v1/topics/{ref}/timing';
+};
+
+export type GetTopicTimingErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type GetTopicTimingError = GetTopicTimingErrors[keyof GetTopicTimingErrors];
+
+export type GetTopicTimingResponses = {
+    /**
+     * Successful Response
+     */
+    200: TopicTiming;
+};
+
+export type GetTopicTimingResponse = GetTopicTimingResponses[keyof GetTopicTimingResponses];
 
 export type GetQuestionSeriesData = {
     body?: never;
@@ -3507,6 +4616,108 @@ export type DeleteApnsDeviceResponses = {
 };
 
 export type DeleteApnsDeviceResponse = DeleteApnsDeviceResponses[keyof DeleteApnsDeviceResponses];
+
+export type RegisterLiveActivityData = {
+    body: LiveActivityIn;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/push/apns/live-activities';
+};
+
+export type RegisterLiveActivityErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type RegisterLiveActivityError = RegisterLiveActivityErrors[keyof RegisterLiveActivityErrors];
+
+export type RegisterLiveActivityResponses = {
+    /**
+     * Successful Response
+     */
+    201: LiveActivityOut;
+};
+
+export type RegisterLiveActivityResponse = RegisterLiveActivityResponses[keyof RegisterLiveActivityResponses];
+
+export type DeleteLiveActivityData = {
+    body: LiveActivityRef;
+    headers?: {
+        /**
+         * X-Quickr-Expect-Server-Id
+         *
+         * Optional: reject with 409 server_mismatch unless this is the server's id.
+         */
+        'X-QuickR-Expect-Server-Id'?: string | null;
+        /**
+         * X-Quickr-Expect-Epoch
+         *
+         * Optional: reject with 409 epoch_mismatch unless this is the current feed epoch.
+         */
+        'X-QuickR-Expect-Epoch'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/push/apns/live-activities/delete';
+};
+
+export type DeleteLiveActivityErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type DeleteLiveActivityError = DeleteLiveActivityErrors[keyof DeleteLiveActivityErrors];
+
+export type DeleteLiveActivityResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteLiveActivityResponse = DeleteLiveActivityResponses[keyof DeleteLiveActivityResponses];
 
 export type SendApnsTestPushData = {
     body: ApnsDeviceRef;

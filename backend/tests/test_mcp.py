@@ -12,6 +12,7 @@ from fastmcp.exceptions import ToolError
 
 from app.mcp_server import mcp
 from tests.helpers import backdate_schedule, sleep_questions
+from tests.test_api_runs import frozen_clock
 
 
 @pytest.fixture
@@ -45,6 +46,10 @@ async def test_lists_tools_with_schemas(mcp_client: Client[Any]) -> None:
         "list_due_topics",
         "topic_stats",
         "question_series",
+        "start_run",
+        "run_action",
+        "list_runs",
+        "edit_run_timing",
     }
     for tool in tools.values():
         assert tool.description
@@ -100,6 +105,7 @@ async def test_create_record_stats_publish(mcp_client: Client[Any]) -> None:
         ref="sleep-log",
         questions=new_qs,
         base_version=1,
+        timer=None,
         change_note="nap",
     )
     assert published["current_version"] == 2
@@ -123,6 +129,15 @@ async def test_create_record_stats_publish(mcp_client: Client[Any]) -> None:
 
     listed = await call(mcp_client, "list_topics", query="sleep")
     assert [t["slug"] for t in listed["items"]] == ["sleep-log"]
+
+
+async def test_topic_outputs_carry_the_current_versions_timer(mcp_client: Client[Any]) -> None:
+    steps = {"steps": [{"key": "pour", "label": "Pour"}]}
+    await call(mcp_client, "create_topic", name="Coffee", questions=[], timer=steps)
+    await call(mcp_client, "create_topic", name="Plain", questions=[])
+    assert (await call(mcp_client, "get_topic", ref="coffee"))["timer"] == steps
+    listed = await call(mcp_client, "list_topics", sort="name")
+    assert [(t["slug"], t["timer"]) for t in listed["items"]] == [("coffee", steps), ("plain", None)]
 
 
 async def test_record_entry_errors_include_field_details(mcp_client: Client[Any]) -> None:
@@ -153,12 +168,13 @@ async def test_domain_errors_are_surfaced(mcp_client: Client[Any]) -> None:
         await mcp_client.call_tool("create_topic", {"name": "Sleep log", "questions": sleep_questions()})
     with pytest.raises(ToolError, match="no changes to publish"):
         await mcp_client.call_tool(
-            "publish_topic_version", {"ref": "sleep-log", "questions": sleep_questions(), "base_version": 1}
+            "publish_topic_version",
+            {"ref": "sleep-log", "questions": sleep_questions(), "base_version": 1, "timer": None},
         )
     with pytest.raises(ToolError, match="based on version 7"):
         await mcp_client.call_tool(
             "publish_topic_version",
-            {"ref": "sleep-log", "questions": sleep_questions()[:2], "base_version": 7},
+            {"ref": "sleep-log", "questions": sleep_questions()[:2], "base_version": 7, "timer": None},
         )
     dup = [*sleep_questions(), sleep_questions()[0]]
     with pytest.raises(ToolError, match=r"duplicate question key .hours."):
@@ -268,3 +284,244 @@ async def test_single_topics_through_mcp(mcp_client: Client[Any]) -> None:
     report = await call(mcp_client, "check_topic_version", ref="took-vitamins", questions=dose)
     assert report["ok"] is True
     assert report["changes"] == [{"kind": "added", "question_key": "dose", "details": []}]
+
+
+async def test_publish_requires_timer(mcp_client: Client[Any]) -> None:
+    timer = {"steps": [{"key": "load", "label": "Load"}]}
+    await call(mcp_client, "create_topic", name="Dishwasher", questions=[], timer=timer)
+    tools = {t.name: t for t in await mcp_client.list_tools()}
+    assert "timer" in tools["publish_topic_version"].input_schema["required"]
+    assert "timer" not in tools["create_topic"].input_schema.get("required", [])
+
+    qs = [
+        {"key": "full", "label": "Full load?", "type": "enum", "options": [{"value": "yes", "label": "Yes"}]}
+    ]
+    with pytest.raises(ToolError, match="timer"):
+        await mcp_client.call_tool(
+            "publish_topic_version", {"ref": "dishwasher", "questions": qs, "base_version": 1}
+        )
+    with pytest.raises(ToolError, match="duplicate step key 'load'"):
+        await mcp_client.call_tool(
+            "publish_topic_version",
+            {
+                "ref": "dishwasher",
+                "questions": qs,
+                "base_version": 1,
+                "timer": {"steps": [timer["steps"][0]] * 2},
+            },
+        )
+    await call(
+        mcp_client, "publish_topic_version", ref="dishwasher", questions=qs, base_version=1, timer=timer
+    )
+    await call(
+        mcp_client, "publish_topic_version", ref="dishwasher", questions=qs, base_version=2, timer=None
+    )
+    versions = (await mcp_client.call_tool("list_topic_versions", {"ref": "dishwasher"})).structured_content
+    assert [v["timer"] for v in versions["result"]] == [None, timer, timer]  # type: ignore[index]
+
+
+# --- runs (timers.md §11.6) ---------------------------------------------------------------------
+
+ROUTINE = {"steps": [{"key": "shower", "label": "Shower"}, {"key": "breakfast", "label": "Breakfast"}]}
+MOOD = [{"key": "mood", "label": "Mood", "type": "int", "min": 0, "max": 10}]
+
+
+@pytest.fixture
+def may_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The server clock at noon on 2026-05-01, for runs with explicit `at`s that morning."""
+    frozen_clock(monkeypatch, datetime(2026, 5, 1, 12, tzinfo=UTC))
+
+
+@pytest.mark.usefixtures("may_day")
+async def test_start_run(mcp_client: Client[Any]) -> None:
+    await call(mcp_client, "create_topic", name="Routine", questions=[], timer=ROUTINE)
+    started = await call(mcp_client, "start_run", ref="routine", at="2026-05-01T08:00:00.0009Z")
+    run = started["run"]
+    assert (started["event"]["effect"], run["status"], run["version"]) == ("applied", "running", 1)
+    assert run["started_at"] == "2026-05-01T08:00:00Z"  # truncated to the millisecond
+    assert started["event"]["id"] == run["id"]
+    assert run["events"][0]["source"] == "mcp"
+    assert run["state"]["open"]["step"] == "shower"
+    # A second start merges into the open run; `at` defaults to now.
+    again = await call(mcp_client, "start_run", ref="routine")
+    assert (again["event"]["reason"], again["run"]["id"]) == ("merged", run["id"])
+    await call(mcp_client, "create_topic", name="Plain", questions=[])
+    with pytest.raises(ToolError, match="not timed"):
+        await mcp_client.call_tool("start_run", {"ref": "plain"})
+
+
+async def test_run_action_fills_seg_step_and_pause_id(mcp_client: Client[Any]) -> None:
+    await call(mcp_client, "create_topic", name="Routine", questions=[], timer=ROUTINE)
+    run_id = (await call(mcp_client, "start_run", ref="routine"))["run"]["id"]
+
+    async def act(action: str, **args: Any) -> dict[str, Any]:
+        return await call(mcp_client, "run_action", run_id=run_id, action=action, **args)
+
+    with pytest.raises(ToolError, match="isn't paused"):
+        await mcp_client.call_tool("run_action", {"run_id": run_id, "action": "resume"})
+    nxt = await act("next")
+    assert (nxt["event"]["effect"], nxt["run"]["events"][-1]["seg"]) == ("applied", 0)
+    assert nxt["run"]["state"]["open"]["step"] == "breakfast"
+    pause = await act("pause")
+    resume = await act("resume")
+    assert resume["event"]["effect"] == "applied"
+    assert resume["run"]["events"][-1]["pause_id"] == pause["event"]["id"]
+    skip = await act("skip")
+    assert skip["run"]["events"][-1]["step"] == "breakfast"
+    assert (skip["run"]["state"]["skipped"], skip["run"]["state"]["open"]["kind"]) == (["breakfast"], "lap")
+    with pytest.raises(ToolError, match="no step left to skip"):
+        await mcp_client.call_tool("run_action", {"run_id": run_id, "action": "skip"})
+    lap = await act("lap")
+    assert lap["run"]["events"][-1]["seg"] == 1
+    # Taps without `at` are strictly after the run's latest one (timers.md §5.1).
+    # As instants, not strings: a whole-second instant is written without a fraction ("…05Z"),
+    # which sorts after "…05.011000Z" as text.
+    ats = [datetime.fromisoformat(e["at"]) for e in lap["run"]["events"]]
+    assert ats == sorted(set(ats))
+    stopped = await act("stop", notes="done")
+    assert (stopped["run"]["status"], stopped["entry"]["notes"]) == ("stopped", "done")
+    assert [s["kind"] for s in stopped["entry"]["timing"]["segments"]] == ["step", "lap", "lap"]
+    with pytest.raises(ToolError, match="nothing is open"):
+        await mcp_client.call_tool("run_action", {"run_id": run_id, "action": "next"})
+    assert (await act("stop"))["event"]["reason"] == "already_closed"
+
+
+async def test_run_action_finish_and_discard(mcp_client: Client[Any]) -> None:
+    await call(mcp_client, "create_topic", name="Routine", questions=MOOD, timer=ROUTINE)
+    first = (await call(mcp_client, "start_run", ref="routine"))["run"]["id"]
+    with pytest.raises(ToolError, match="hasn't stopped"):
+        await mcp_client.call_tool(
+            "run_action", {"run_id": first, "action": "finish", "answers": {"mood": 5}}
+        )
+    stop = await call(mcp_client, "run_action", run_id=first, action="stop")
+    assert (stop["run"]["status"], stop["entry"]) == ("finishing", None)
+    with pytest.raises(ToolError, match="mood"):
+        await mcp_client.call_tool(
+            "run_action", {"run_id": first, "action": "finish", "answers": {"mood": 11}}
+        )
+    finish = await call(mcp_client, "run_action", run_id=first, action="finish", answers={"mood": 5})
+    assert finish["entry"]["answers"] == [{"key": "mood", "type": "int", "value": 5}]
+    with pytest.raises(ToolError, match="answers"):
+        await mcp_client.call_tool("run_action", {"run_id": first, "action": "pause", "answers": {"mood": 1}})
+
+    second = (await call(mcp_client, "start_run", ref="routine"))["run"]["id"]
+    discard = await call(mcp_client, "run_action", run_id=second, action="discard")
+    assert discard["run"]["status"] == "discarded"
+
+
+async def test_list_runs(mcp_client: Client[Any]) -> None:
+    await call(mcp_client, "create_topic", name="Routine", questions=MOOD, timer=ROUTINE)
+    await call(mcp_client, "create_topic", name="Tea", questions=[], timer={"steps": []})
+    finishing = (await call(mcp_client, "start_run", ref="routine"))["run"]["id"]
+    await call(mcp_client, "run_action", run_id=finishing, action="stop")
+    running = (await call(mcp_client, "start_run", ref="tea"))["run"]["id"]
+
+    async def ids(**args: Any) -> list[tuple[str, str]]:
+        result = (await mcp_client.call_tool("list_runs", args)).structured_content
+        assert result is not None
+        return [(r["id"], r["status"]) for r in result["result"]]
+
+    assert await ids() == [(finishing, "finishing"), (running, "running")]
+    assert await ids(status="open") == [(running, "running")]
+    assert await ids(status="finishing") == [(finishing, "finishing")]
+    with pytest.raises(ToolError):
+        await mcp_client.call_tool("list_runs", {"status": "stopped"})
+
+
+@pytest.mark.usefixtures("may_day")
+async def test_edit_run_timing(mcp_client: Client[Any]) -> None:
+    await call(mcp_client, "create_topic", name="Routine", questions=[], timer=ROUTINE)
+    run_id = (await call(mcp_client, "start_run", ref="routine", at="2026-05-01T08:00:00Z"))["run"]["id"]
+    await call(mcp_client, "run_action", run_id=run_id, action="next", at="2026-05-01T08:05:00Z")
+    entry = (await call(mcp_client, "run_action", run_id=run_id, action="stop", at="2026-05-01T08:20:00Z"))[
+        "entry"
+    ]
+    timing = {
+        "started_at": "2026-05-01T08:00:00Z",
+        "segments": [
+            {"kind": "step", "step": "shower", "ended_at": "2026-05-01T08:10:00Z"},
+            {"kind": "step", "step": "breakfast", "ended_at": "2026-05-01T08:25:00Z"},
+        ],
+        "skipped": [],
+        "pauses": [{"start": "2026-05-01T08:12:00Z", "end": "2026-05-01T08:13:00Z"}],
+    }
+    edited = await call(
+        mcp_client,
+        "edit_run_timing",
+        entry_id=entry["id"],
+        timing=timing,
+        expected_revision=entry["revision"],
+    )
+    assert (edited["captured_at"], edited["revision"]) == ("2026-05-01T08:25:00Z", entry["revision"] + 1)
+    assert (edited["timing"]["edited"], edited["timing"]["active_ms"]) == (True, 24 * 60_000)
+    with pytest.raises(ToolError, match="current revision"):
+        await mcp_client.call_tool(
+            "edit_run_timing",
+            {"entry_id": entry["id"], "timing": timing, "expected_revision": entry["revision"]},
+        )
+    bad = {**timing, "segments": [{"kind": "step", "step": "coffee", "ended_at": "2026-05-01T08:25:00Z"}]}
+    with pytest.raises(ToolError, match="not a step"):
+        await mcp_client.call_tool(
+            "edit_run_timing",
+            {"entry_id": entry["id"], "timing": bad, "expected_revision": edited["revision"]},
+        )
+    with pytest.raises(ToolError, match="edit the run's times"):
+        await mcp_client.call_tool(
+            "update_entry", {"entry_id": entry["id"], "captured_at": "2026-05-01T09:00:00Z"}
+        )
+    # The run is frozen: a late tap is void, run_edited.
+    late = await call(mcp_client, "run_action", run_id=run_id, action="stop", at="2026-05-01T08:30:00Z")
+    assert late["event"]["reason"] == "run_edited"
+
+
+async def test_timing_switched_off_mid_run(mcp_client: Client[Any]) -> None:
+    """T11 through MCP: a run started on the timed version stops against it after a publish
+    with timer null; a new start is refused."""
+    await call(mcp_client, "create_topic", name="Routine", questions=[], timer=ROUTINE)
+    run_id = (await call(mcp_client, "start_run", ref="routine"))["run"]["id"]
+    await call(mcp_client, "publish_topic_version", ref="routine", questions=[], base_version=1, timer=None)
+    stopped = await call(mcp_client, "run_action", run_id=run_id, action="stop")
+    assert (stopped["entry"]["version"], stopped["entry"]["timing"]["segments"][0]["label"]) == (1, "Shower")
+    with pytest.raises(ToolError, match="not timed"):
+        await mcp_client.call_tool("start_run", {"ref": "routine"})
+
+
+async def test_run_action_resumes_the_latest_pause(mcp_client: Client[Any]) -> None:
+    await call(mcp_client, "create_topic", name="Tea", questions=[], timer={"steps": []})
+    run_id = (await call(mcp_client, "start_run", ref="tea"))["run"]["id"]
+    for _ in range(2):
+        pause = await call(mcp_client, "run_action", run_id=run_id, action="pause")
+        resume = await call(mcp_client, "run_action", run_id=run_id, action="resume")
+        assert resume["event"]["effect"] == "applied"
+        assert resume["run"]["events"][-1]["pause_id"] == pause["event"]["id"]
+    assert len(resume["run"]["state"]["pauses"]) == 2
+
+
+async def test_run_action_skip_during_a_lap_skips_the_next_step(mcp_client: Client[Any]) -> None:
+    await call(mcp_client, "create_topic", name="Routine", questions=[], timer=ROUTINE)
+    run_id = (await call(mcp_client, "start_run", ref="routine"))["run"]["id"]
+    lap = await call(mcp_client, "run_action", run_id=run_id, action="lap")
+    assert (lap["run"]["state"]["open"]["kind"], lap["run"]["state"]["next_step"]) == ("lap", "breakfast")
+    skip = await call(mcp_client, "run_action", run_id=run_id, action="skip")
+    assert skip["event"]["effect"] == "applied"
+    assert (skip["run"]["events"][-1]["step"], skip["run"]["state"]["skipped"]) == (
+        "breakfast",
+        ["breakfast"],
+    )
+
+
+async def test_run_action_stamps_after_the_latest_tap(
+    mcp_client: Client[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the clock standing still, taps without `at` still get strictly later times (§5.1)."""
+    frozen_clock(monkeypatch, datetime(2026, 5, 1, 12, tzinfo=UTC))
+    await call(mcp_client, "create_topic", name="Tea", questions=[], timer={"steps": []})
+    run_id = (await call(mcp_client, "start_run", ref="tea"))["run"]["id"]
+    await call(mcp_client, "run_action", run_id=run_id, action="lap")
+    lap = await call(mcp_client, "run_action", run_id=run_id, action="lap")
+    assert [e["at"] for e in lap["run"]["events"]] == [
+        "2026-05-01T12:00:00Z",
+        "2026-05-01T12:00:00.001000Z",
+        "2026-05-01T12:00:00.002000Z",
+    ]
+    assert [e["effect"] for e in lap["run"]["events"]] == ["applied"] * 3

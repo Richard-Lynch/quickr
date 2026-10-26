@@ -20,12 +20,15 @@ import Testing
 @Suite(.timeLimit(.minutes(2))) struct UpgradeTests {
     struct Frozen: Decodable {
         var storeV1: [String]
+        /// The store's v2 (timers T-DB: `timer_json`), as shipped before I-SYNC's v3.
+        var storeV2: [String]
         var registryV1: [String]
         /// The registry's v2 (the APNs registration retry), as shipped before CATCAP's v3.
         var registryV2: [String]
 
         enum CodingKeys: String, CodingKey {
             case storeV1 = "store_v1"
+            case storeV2 = "store_v2"
             case registryV1 = "registry_v1"
             case registryV2 = "registry_v2"
         }
@@ -53,6 +56,9 @@ import Testing
     @Test func theShippedV1MigrationsAreUnchanged() {
         #expect(StoreSchema.migrations.first?.identifier == "v1")
         #expect(StoreSchema.migrations.first?.statements == Self.frozen.storeV1)
+        #expect(StoreSchema.migrations.count >= 2)
+        #expect(StoreSchema.migrations[1].identifier == "v2")
+        #expect(StoreSchema.migrations[1].statements == Self.frozen.storeV2)
         #expect(RegistrySchema.migrations.first?.identifier == "v1")
         #expect(RegistrySchema.migrations.first?.statements == Self.frozen.registryV1)
         #expect(RegistrySchema.migrations.count >= 2)
@@ -83,6 +89,24 @@ import Testing
                 SELECT name FROM sqlite_master WHERE type = 'table'
                   AND name NOT LIKE 'sqlite_%' AND name <> 'grdb_migrations' ORDER BY name
                 """)
+    }
+
+    /// The store's columns that "nothing lost" compares: v2's `timer_json`, v3's `timing_json` and
+    /// v4's `sync_state.server_offset_ms` are new, and v2 and v3 set `sync_state.rebuilding`
+    /// (checked on their own).
+    static func storeV1Columns(_ db: Database, tables: [String]) throws -> [String: [String]] {
+        let added: [String: Set<String>] = [
+            "topic_version": ["timer_json"], "stage_topic_version": ["timer_json"], "entry": ["timing_json"],
+            "stage_entry": ["timing_json"], "sync_state": ["rebuilding", "server_offset_ms"],
+        ]
+        var columns: [String: [String]] = [:]
+        for table in tables {
+            let rows: [Row] = try Row.fetchAll(db, sql: "PRAGMA table_info(\(table))")
+            let names: [String] = rows.map { (row: Row) -> String in row["name"] }
+            let skipped: Set<String> = added[table] ?? []
+            columns[table] = names.filter { (name: String) -> Bool in !skipped.contains(name) }
+        }
+        return columns
     }
 
     static func migrations(_ db: Database) throws -> [String] {
@@ -188,8 +212,18 @@ import Testing
         // Before: read with today's views over the v1 files (the store schema is the same).
         let before = try DatabaseQueue(path: storeURL.path)
         let storeTables = try await before.read { db in try Self.tables(db) }
-        let storeRows = try await before.read { db in try Self.dump(db, tables: storeTables) }
-        let storeViews = try await before.read { db in try Self.views(db) }
+        let storeRows = try await before.read { db in
+            try Self.dump(db, tables: storeTables, columns: try Self.storeV1Columns(db, tables: storeTables))
+        }
+        // Today's topic reads join v2's `topic_version.timer_json` (a v1 file has none, so every
+        // timer is null): add the column, read, and roll back, leaving the file v1.
+        var viewsBefore: Views?
+        try before.inTransaction { db in
+            try db.execute(sql: "ALTER TABLE topic_version ADD COLUMN timer_json TEXT")
+            viewsBefore = try Self.views(db)
+            return .rollback
+        }
+        let storeViews = try #require(viewsBefore)
         let registryBefore = try DatabaseQueue(path: location.registryURL.path)
         let registryTables = try await registryBefore.read { db in try Self.tables(db) }
         let registryRows = try await registryBefore.read { db in try Self.dump(db, tables: registryTables) }
@@ -214,7 +248,26 @@ import Testing
             try await store.writer.read { db in try Self.migrations(db) } == StoreSchema.migrations.map(\.identifier))
 
         // Nothing lost: every v1 row, column for column.
-        #expect(try await store.writer.read { db in try Self.dump(db, tables: storeTables) } == storeRows)
+        let storeV1Columns = try await store.writer.read { db in try Self.storeV1Columns(db, tables: storeTables) }
+        #expect(
+            try await store.writer.read { db in try Self.dump(db, tables: storeTables, columns: storeV1Columns) }
+                == storeRows)
+        // The store's v2 column: no version was timed before timers.
+        let timed = try await store.writer.read { db in
+            try Int.fetchOne(
+                db,
+                sql: """
+                    SELECT (SELECT COUNT(*) FROM topic_version WHERE timer_json IS NOT NULL)
+                      + (SELECT COUNT(*) FROM stage_topic_version WHERE timer_json IS NOT NULL)
+                    """)
+        }
+        #expect(timed == 0)
+        // …and a rebuild of the epoch it has, so the server's timers arrive (store v2).
+        let state = try await store.state()
+        #expect(state.epoch != nil && state.rebuilding == state.epoch)
+        #expect(
+            try await store.writer.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM topic_version") } ?? 0
+                > 0)
         let v1Columns = try await registry.read { db in
             try Dictionary(
                 uniqueKeysWithValues: registryTables.map { table in
@@ -348,6 +401,224 @@ import Testing
         #expect(shown == stored)
         #expect(shown > Self.spec.entries - 100)
         await session.shutdown()
+    }
+
+    // MARK: - Store v2: timers
+
+    /// A timers server synced by a build before store v2: its timed version is stored without a
+    /// timer. The update's v2 migration starts a rebuild, the next sync re-pulls the server layer,
+    /// and a question edit then publishes the timer the server has, not null.
+    @Test func aStoreSyncedBeforeV2RebuildsAndPublishesTheTimer() async throws {
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        let synced = try await env.connect(env.coordinator())
+        let everything = SyncTimerTests.everything
+        // As the old build left it: v1 only, so no timer column.
+        try await synced.writer.write { db in
+            for prefix in ["", "stage_"] {
+                try db.execute(sql: "ALTER TABLE \(prefix)topic_version DROP COLUMN timer_json")
+            }
+            try db.execute(sql: "DELETE FROM grdb_migrations WHERE identifier = 'v2'")
+        }
+
+        // The updated app (a new process) opens it: v2 runs and asks for a rebuild of its epoch.
+        let partitions = try env.otherProcess()
+        let store = try #require(try await partitions.openActiveStore(role: .app)).store
+        let state = try await store.state()
+        #expect(state.rebuilding == state.epoch && state.epoch != nil)
+        #expect(try await store.versions.version(topicId: everything, number: 2)?.timer == nil)
+
+        let relaunched = env.coordinator(owner: "app:B", partitions: partitions)
+        #expect(await relaunched.sync(reason: .activation) == .synced)
+        let after = try await store.state()
+        #expect(after.rebuilding == nil && after.epoch == state.epoch && after.layerGen == state.layerGen + 1)
+        #expect(try await store.versions.version(topicId: everything, number: 2)?.timer == SyncTimerTests.fixtureTimer)
+
+        // A publish from this device keeps it.
+        let binding = AppSession.Binding(serverId: store.serverId, storeGen: store.storeGen, baseURL: SyncEnv.baseURL)
+        let scope = try #require(await TopicWrites.scope(binding: binding, store: store))
+        let recorder = SyncTimerTests.Recorder()
+        let writes = TopicWrites(
+            scope: scope, store: store, transport: recorder, credentials: StaticAccessCredentials(nil),
+            requestSync: { _ in })
+        let v2 = try #require(try await store.versions.version(topicId: everything, number: 2))
+        let draft = TopicDraft.editing(name: "x", slug: "x", description: "", questions: v2.questions, timer: v2.timer)
+        _ = await writes.publishVersion(
+            topicId: everything, try draft.validatedForVersion().get(), baseVersion: 2, changeNote: "")
+        let body = try #require(recorder.requests.last?.body)
+        #expect(
+            try WireCoding.decoder().decode(SyncTimerTests.SentTimer.self, from: body).timer
+                == SyncTimerTests.fixtureTimer)
+    }
+
+    // MARK: - Store v3: runs
+
+    /// v3 on a real v1 + v2 file, mid-rebuild: tombstones are copied into the rebuilt table, which
+    /// now takes kind `run`; staging starts over (every stage table empty, its cursor 0); and the
+    /// rebuild already under way keeps its target.
+    @Test func v3OnAV2StoreKeepsTombstonesAndRestartsStaging() throws {
+        let queue = try DatabaseQueue()
+        try SharedDatabase.migrate(queue, [("v1", Self.frozen.storeV1), ("v2", Self.frozen.storeV2)])
+        let topic = Make.topic()
+        try queue.write { db in
+            try LocalStore.createSyncState(db, serverId: "s", baseURL: "https://q.example")
+            try db.execute(sql: "UPDATE sync_state SET epoch = 'E1', rebuilding = 'E2', cursor = 30 WHERE id = 1")
+            try db.execute(sql: "UPDATE stage_state SET cursor = 12 WHERE id = 1")
+            for prefix in ["", "stage_"] {
+                try db.execute(
+                    sql: """
+                        INSERT INTO \(prefix)tombstone (kind, id, topic_id, seq)
+                        VALUES ('entry', 'e1', 't1', 3), ('topic', 't2', 't2', 4), ('version', 'v1', 't1', NULL)
+                        """)
+            }
+            _ = try ServerLayer.upsert(db, topic: topic, into: .stage)
+            _ = try ServerLayer.upsert(db, entry: Make.entry(topicId: topic.id), into: .stage)
+            _ = try ServerLayer.insert(db, version: Make.version(), id: UUID(), topicId: topic.id, into: .stage)
+        }
+        let tombstones = { (db: Database, table: String) throws -> [String] in
+            try Row.fetchAll(db, sql: "SELECT * FROM \(table) ORDER BY kind, id").map(\.description)
+        }
+        let before: [String] = try queue.read { db in try tombstones(db, "tombstone") }
+        #expect(before.count == 3)
+
+        try SharedDatabase.migrate(queue, StoreSchema.migrations)
+        try queue.write { db in
+            #expect(try tombstones(db, "tombstone") == before)
+            for table in StoreSchema.stageTables {
+                #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)") == 0, "\(table)")
+            }
+            #expect(try Int.fetchOne(db, sql: "SELECT cursor FROM stage_state") == 0)
+            let state = try #require(try Row.fetchOne(db, sql: "SELECT rebuilding, epoch, cursor FROM sync_state"))
+            let rebuilding: String? = state["rebuilding"]
+            let epoch: String? = state["epoch"]
+            let cursor: Int = state["cursor"]
+            #expect(rebuilding == "E2")
+            #expect(epoch == "E1")
+            #expect(cursor == 30)
+            for prefix in ["", "stage_"] {
+                try db.execute(
+                    sql: "INSERT INTO \(prefix)tombstone (kind, id, topic_id, seq) VALUES ('run', 'r1', 't1', 6)")
+            }
+        }
+    }
+
+    /// The store `synced` holds, as a build before v3 (T-FEED's) left it, at `env`'s location: a
+    /// real v1 + v2 file with the same server layer and sync state, less what that build never
+    /// kept (run rows, run tombstones, entry timing), registered and active. `env`'s server takes
+    /// the same state. `edit` runs on the copy before it is closed.
+    static func preV3Location(
+        copying synced: LocalStore, server: FakeFeedServer, into env: SyncEnv,
+        edit: @escaping @Sendable (Database) throws -> Void = { _ in }
+    ) async throws {
+        let source = try #require(synced.url).path
+        let url = StoreLocation(root: env.dir.url).url("stores/\(synced.serverId).g1.sqlite")
+        let pool = try SharedDatabase.openPool(
+            at: url, migrations: [("v1", frozen.storeV1), ("v2", frozen.storeV2)], notifier: nil,
+            commitSignal: .dbChanged)
+        try await pool.writeWithoutTransaction { db in
+            try db.execute(sql: "ATTACH DATABASE ? AS old", arguments: [source])
+            try db.inTransaction {
+                for table in StoreSchema.v1ServerLayerTables + ["sync_state", "stage_state"] {
+                    let names: [String] = try Row.fetchAll(db, sql: "PRAGMA main.table_info(\(table))").map {
+                        (row: Row) -> String in row["name"]
+                    }
+                    let columns = names.joined(separator: ", ")
+                    let filter = table == "tombstone" ? "WHERE kind <> 'run'" : ""
+                    try db.execute(sql: "DELETE FROM main.\(table)")
+                    try db.execute(
+                        sql: "INSERT INTO main.\(table) (\(columns)) SELECT \(columns) FROM old.\(table) \(filter)")
+                }
+                try edit(db)
+                return .commit
+            }
+            try db.execute(sql: "DETACH DATABASE old")
+        }
+        try pool.close()
+        try await env.partitions.registry.writer.write { db in
+            try db.execute(
+                sql: "INSERT INTO server (server_id, base_url, store_gen, created_at) VALUES (?, ?, 1, 0)",
+                arguments: [synced.serverId, SyncEnv.baseURL.absoluteString])
+            try db.execute(sql: "INSERT INTO active (id, server_id) VALUES (1, ?)", arguments: [synced.serverId])
+        }
+        env.server.restore(server.snapshot())
+    }
+
+    /// A timers server synced by a build before store v3 (T-FEED's): it decoded run items and
+    /// deletions, dropped them and moved its cursor past them, and stored entries without their
+    /// timing. Opening that v2 file runs v3, which starts a rebuild; the next sync re-pulls the
+    /// server layer, and the open run and the stopped run's timing arrive.
+    @Test func aStoreSyncedBeforeV3RebuildsAndGetsItsRuns() async throws {
+        let old = try SyncEnv()
+        defer { old.cleanup() }
+        let stopped = try SyncRunTests.stoppedEntry()
+        old.server.putRun(try SyncRunTests.openRun())
+        old.server.closeRun(SyncRunTests.runA, entry: stopped)
+        old.server.putRun(try SyncRunTests.otherRun())
+        let synced = try await old.connect(old.coordinator())
+        let head = old.server.head
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        try await Self.preV3Location(copying: synced, server: old.server, into: env)
+        let entryId = try SyncRunTests.domainEntry(stopped).id
+
+        // The updated app (a new process) opens it: v3 runs and asks for a rebuild of its epoch.
+        let partitions = try env.otherProcess()
+        let store = try #require(try await partitions.openActiveStore(role: .app)).store
+        let state = try await store.state()
+        #expect(state.rebuilding == state.epoch && state.epoch != nil && state.cursor == head)
+        #expect(state.bootstrapComplete)
+        #expect(try await store.runs.runs().isEmpty)
+        let timingBefore: Timing? = try await store.entries.entry(id: entryId)?.entry.timing
+        #expect(timingBefore == nil)
+
+        let relaunched = env.coordinator(owner: "app:B", partitions: partitions)
+        #expect(await relaunched.sync(reason: .activation) == .synced)
+        let after = try await store.state()
+        #expect(after.rebuilding == nil && after.epoch == state.epoch && after.layerGen == state.layerGen + 1)
+        let expectedRuns: [Run] = [try SyncRunTests.domain(try SyncRunTests.otherRun())]
+        #expect(try await store.runs.runs() == expectedRuns)
+        let expectedTiming: Timing? = try SyncRunTests.domainEntry(stopped).timing
+        let storedTiming: Timing? = try await store.entries.entry(id: entryId)?.entry.timing
+        #expect(storedTiming == expectedTiming && expectedTiming != nil)
+        let runTombstones: [String] = try await store.writer.read { db in
+            try String.fetchAll(db, sql: "SELECT id FROM tombstone WHERE kind = 'run'")
+        }
+        #expect(runTombstones == [SyncRunTests.runA])
+    }
+
+    /// The same, stopped mid-bootstrap (an epoch, `bootstrap_complete = 0`): v3's rebuild of that
+    /// epoch ends the bootstrap at the swap.
+    @Test func aV2StoreMidBootstrapCompletesThroughTheRebuild() async throws {
+        let old = try SyncEnv()
+        defer { old.cleanup() }
+        old.server.putRun(try SyncRunTests.openRun())
+        let synced = try await old.connect(old.coordinator())
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        try await Self.preV3Location(copying: synced, server: old.server, into: env) { db in
+            try db.execute(sql: "UPDATE main.sync_state SET bootstrap_complete = 0 WHERE id = 1")
+        }
+
+        let partitions = try env.otherProcess()
+        let store = try #require(try await partitions.openActiveStore(role: .app)).store
+        let state = try await store.state()
+        #expect(!state.bootstrapComplete && state.epoch != nil && state.rebuilding == state.epoch)
+
+        let relaunched = env.coordinator(owner: "app:B", partitions: partitions)
+        #expect(await relaunched.sync(reason: .activation) == .synced)
+        let after = try await store.state()
+        #expect(after.bootstrapComplete && after.rebuilding == nil && after.layerGen == state.layerGen + 1)
+        let expectedRuns: [Run] = [try SyncRunTests.domain(try SyncRunTests.openRun())]
+        #expect(try await store.runs.runs() == expectedRuns)
+    }
+
+    /// A store that never synced has nothing to re-pull: v2 and v3 leave `rebuilding` alone.
+    @Test func v2DoesNotRebuildAStoreWithNoEpoch() throws {
+        let queue = try DatabaseQueue()
+        try SharedDatabase.migrate(queue, [("v1", Self.frozen.storeV1)])
+        try queue.write { db in try LocalStore.createSyncState(db, serverId: "s", baseURL: "https://q.example") }
+        try SharedDatabase.migrate(queue, StoreSchema.migrations)
+        #expect(try queue.read { db in try String.fetchOne(db, sql: "SELECT rebuilding FROM sync_state") } == nil)
     }
 }
 #endif

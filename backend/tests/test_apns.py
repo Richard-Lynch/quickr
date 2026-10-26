@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.db import get_engine, get_sessionmaker
 from app.models import ApnsDevice, PushSlotDelivery, PushSubscription, Topic
-from app.schemas.api import QuickLogDescriptor
+from app.schemas.api import QuickLogDescriptor, QuickLogTimed
 from app.schemas.questions import DoubleQuestion, EnumOption, EnumQuestion, StrQuestion
 from app.services import notification, scheduler
 from app.services import push as push_svc
@@ -223,6 +223,28 @@ async def test_payload_for_a_topic_that_cant_be_logged_from_a_notification(fake_
         },
         "quickr": {**QUICKR, "quick_log": None},
     }
+
+
+async def test_payload_for_a_timed_topic_offers_start(fake_apns: FakeApns) -> None:
+    # timers.md §10.1: {"type": "timed"} whatever the questions, one "Start" in the category,
+    # and the widest title still fits.
+    timed = notification.descriptor([_enum(3)], counts={"o2": 9}, last=None, timed=True)
+    assert timed == QuickLogTimed()
+    start = notification.Action("start", f"q1|{SERVER_ID}|{TOPIC_ID}|3||t|", "Start")
+    assert await _render(fake_apns, _due(timed)) == {
+        "aps": {
+            "alert": {"title": "Water", "body": "Time to log"},
+            "sound": "default",
+            "thread-id": f"topic-{TOPIC_ID}",
+            "category": notification.category_id(str(TOPIC_ID), [start]),
+            "mutable-content": 1,
+            "relevance-score": 0.8,
+        },
+        "quickr": {**QUICKR, "quick_log": {"type": "timed"}},
+    }
+    worst = _due(timed, title="\u0001" * 200, body="Overdue since Wed 23:59", topic_slug="a" * 64)
+    body = await _render(fake_apns, worst)  # asserts <= 4096 bytes
+    assert body["aps"]["alert"]["title"] == "\u0001" * 119 + "…"
 
 
 @pytest.mark.parametrize(
@@ -807,9 +829,9 @@ async def test_slow_preparation_never_eats_the_delivery_budget(
     monkeypatch.setattr(scheduler, "TICK_BUDGET_SECONDS", BUDGET)
     real = scheduler.prepare_quick_logs
 
-    async def slow(db: AsyncSession, questions: dict[UUID, list[Any]]) -> dict[UUID, Any]:
+    async def slow(db: AsyncSession, questions: dict[UUID, list[Any]], **kw: Any) -> dict[UUID, Any]:
         await asyncio.sleep(BUDGET + 0.2)  # longer than the whole budget
-        return await real(db, questions)
+        return await real(db, questions, **kw)
 
     monkeypatch.setattr(scheduler, "prepare_quick_logs", slow)
     assert await _tick(datetime.now(UTC) + timedelta(hours=1)) == 3
@@ -845,7 +867,7 @@ async def test_preparation_reads_in_at_most_two_queries(
     event.listen(engine, "before_cursor_execute", count)
     try:
         async with get_sessionmaker()() as db:
-            questions = await scheduler._questions(
+            questions, _ = await scheduler.version_questions(
                 db, [(t.id, 1) for t in (await db.execute(select(Topic))).scalars()]
             )
             slugs = {t.id: t.slug for t in (await db.execute(select(Topic))).scalars()}

@@ -46,6 +46,7 @@
           "schedule_updated_at": "2026-01-01T00:00:00Z",
           "slug": "water",
           "status": "active",
+          "timer": null,
           "updated_at": "2026-06-01T12:00:00.123456Z"
         }
       },
@@ -177,6 +178,18 @@
           "schedule_updated_at": "2026-01-01T00:00:00Z",
           "slug": "everything",
           "status": "active",
+          "timer": {
+            "steps": [
+              {
+                "key": "pour",
+                "label": "Pour"
+              },
+              {
+                "key": "drink",
+                "label": "Drink"
+              }
+            ]
+          },
           "updated_at": "2026-06-01T12:00:00.123456Z"
         }
       },
@@ -211,6 +224,7 @@
           "schedule_updated_at": null,
           "slug": "old-habit",
           "status": "archived",
+          "timer": null,
           "updated_at": "2026-06-01T12:00:00.123456Z"
         }
       },
@@ -310,6 +324,7 @@
               "type": "str"
             }
           ],
+          "timer": null,
           "version": 1
         }
       },
@@ -334,6 +349,7 @@
               "unit": null
             }
           ],
+          "timer": null,
           "version": 1
         }
       },
@@ -358,6 +374,7 @@
               "unit": null
             }
           ],
+          "timer": null,
           "version": 1
         }
       },
@@ -457,6 +474,18 @@
               "type": "str"
             }
           ],
+          "timer": {
+            "steps": [
+              {
+                "key": "pour",
+                "label": "Pour"
+              },
+              {
+                "key": "drink",
+                "label": "Drink"
+              }
+            ]
+          },
           "version": 2
         }
       },
@@ -502,6 +531,7 @@
           "notes": "",
           "revision": 1,
           "source": "ios",
+          "timing": null,
           "topic_id": "00000000-0000-4000-8000-000000000001",
           "updated_at": "2026-06-01T12:00:00.123456Z",
           "version": 1
@@ -543,6 +573,7 @@
           "notes": "Weekend.",
           "revision": 1,
           "source": "api",
+          "timing": null,
           "topic_id": "00000000-0000-4000-8000-000000000001",
           "updated_at": "2026-06-01T12:00:00.123456Z",
           "version": 2
@@ -567,6 +598,7 @@
           "notes": "",
           "revision": 1,
           "source": "api",
+          "timing": null,
           "topic_id": "00000000-0000-4000-8000-000000000003",
           "updated_at": "2026-06-01T12:00:00.123456Z",
           "version": 1
@@ -606,6 +638,7 @@
           "notes": "Edited later.",
           "revision": 2,
           "source": "api",
+          "timing": null,
           "topic_id": "00000000-0000-4000-8000-000000000001",
           "updated_at": "2026-06-01T12:00:00.123456Z",
           "version": 1
@@ -630,6 +663,7 @@
           "notes": "",
           "revision": 1,
           "source": "api",
+          "timing": null,
           "topic_id": "00000000-0000-4000-8000-000000000003",
           "updated_at": "2026-06-01T12:00:00.123456Z",
           "version": 1

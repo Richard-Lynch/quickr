@@ -127,6 +127,23 @@ public struct StatsLoader: Sendable {
         }
     }
 
+    /// `...|timing|{topic}|{range&version&source}` (getTopicTiming, timers.md §9.2).
+    func timingKey(topicId: UUID, query: StatsQuery) -> String {
+        "\(store.scope.id)|timing|\(topicId.wireString)|\(query.cacheKey)"
+    }
+
+    /// The cached timing stats for `query`, if any (to show while fetching).
+    public func cachedTiming(topicId: UUID, query: StatsQuery) async -> (TopicTimingDTO, fetchedAt: Date)? {
+        await cached(TopicTimingDTO.self, key: timingKey(topicId: topicId, query: query))
+    }
+
+    /// A timed topic's timing stats (an untimed one answers with zero runs).
+    public func timing(topicId: UUID, ref: String, query: StatsQuery) async -> StatsResult<TopicTimingDTO> {
+        await load(TopicTimingDTO.self, key: timingKey(topicId: topicId, query: query), topicId: topicId) { options in
+            try await client.getTopicTiming(ref: ref, filters: query.filters, options: options)
+        }
+    }
+
     /// The cached series, if any (to show while fetching).
     public func cachedSeries(
         topicId: UUID, key: String, bucket: QuestionSeries.Bucket, timeZone: String, query: StatsQuery

@@ -1,0 +1,29 @@
+{
+  "body": {
+    "complete_runs": 0,
+    "laps": {
+      "mean_ms": null,
+      "median_ms": null,
+      "runs_with_laps": 0
+    },
+    "paused": {
+      "median_ms": null,
+      "runs_with_pauses": 0
+    },
+    "runs": 0,
+    "series": [],
+    "steps": [],
+    "total": {
+      "best_ms": null,
+      "mean_ms": null,
+      "median_ms": null
+    }
+  },
+  "operation_id": "getTopicTiming",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/topics/water/timing"
+  },
+  "status": 200
+}

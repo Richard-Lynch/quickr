@@ -11,6 +11,7 @@ import {
 import type { EntryOut, TopicDetail, TopicVersionOut } from '../../client';
 import { ChannelBadge } from '../../components/ChannelBadge';
 import { FilterBar } from '../../components/FilterBar';
+import { pendingTimedEntries } from '../../components/runs/model';
 import { Button, buttonClass, ButtonLink } from '../../components/ui/Button';
 import { Badge, Banner, Card, EmptyState, VersionTag } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
@@ -23,6 +24,9 @@ import { isEntryCreate, type EntryCreatePayload } from '../../lib/outbox/kinds';
 import type { OutboxItem } from '../../lib/outbox/types';
 import { useOutbox } from '../../lib/outbox/useOutbox';
 import type { Question } from '../../lib/questions';
+import { fmtDuration } from '../../lib/runs/format';
+import { formatInstant } from '../../lib/runs/instant';
+import { useRuns } from '../../lib/runs/useRuns';
 import { useTopic } from './TopicLayout';
 
 const PAGE = 25;
@@ -54,15 +58,23 @@ function display(col: Column, s: EntryOut): string | null {
   return a ? formatAnswer(col.question, a) : null;
 }
 
-/** A queued (not yet synced) entry, shaped like a stored one so it renders the same way. */
-function pendingAsEntry(item: OutboxItem<EntryCreatePayload>, topic: TopicDetail): EntryOut {
-  const b = item.payload.body;
+/** Queued answers (`{key: value}`) as stored answers, typed by the topic's questions. */
+function answersOut(
+  topic: TopicDetail,
+  map: Readonly<Record<string, unknown>>,
+): EntryOut['answers'] {
   const types = new Map(topic.questions.map((q) => [q.key, q.type]));
-  const answers = Object.entries(b.answers).flatMap(([key, value]) => {
+  return Object.entries(map).flatMap(([key, value]) => {
     const type = types.get(key);
     if (!type || value === null) return [];
     return [{ key, type: type === 'enum' && Array.isArray(value) ? 'enum_list' : type, value }];
   }) as EntryOut['answers'];
+}
+
+/** A queued (not yet synced) entry, shaped like a stored one so it renders the same way. */
+function pendingAsEntry(item: OutboxItem<EntryCreatePayload>, topic: TopicDetail): EntryOut {
+  const b = item.payload.body;
+  const answers = answersOut(topic, b.answers);
   return {
     id: item.id,
     topic_id: topic.id,
@@ -76,6 +88,27 @@ function pendingAsEntry(item: OutboxItem<EntryCreatePayload>, topic: TopicDetail
     notes: b.notes ?? '',
     meta: b.meta ?? {},
     answers,
+    timing: null, // createEntry makes untimed entries
+  };
+}
+
+/** The fields `AnswerGrid` doesn't read, for an entry that exists only on this device. */
+function pendingAsEntryShape(topic: TopicDetail, id: string): EntryOut {
+  const now = new Date().toISOString();
+  return {
+    id,
+    topic_id: topic.id,
+    version: topic.current_version,
+    revision: 0,
+    source: 'ui',
+    channel: 'ui',
+    captured_at: now,
+    created_at: now,
+    updated_at: now,
+    notes: '',
+    meta: {},
+    answers: [],
+    timing: null,
   };
 }
 
@@ -121,15 +154,53 @@ function AnswerGrid({ columns, entry }: { columns: Column[]; entry: EntryOut }) 
   );
 }
 
-/** Entries recorded on this device that the server hasn't confirmed yet. */
-function PendingEntries({ topic, columns }: { topic: TopicDetail; columns: Column[] }) {
+/**
+ * Entries recorded on this device that the server hasn't confirmed yet: queued creates,
+ * and the entries queued Stops will make (timers.md §8.3). A run's optimistic entry has
+ * the run's id, so it is dropped as soon as the server's entry with that id is listed.
+ */
+function PendingEntries({
+  topic,
+  columns,
+  serverIds,
+}: {
+  topic: TopicDetail;
+  columns: Column[];
+  serverIds: ReadonlySet<string>;
+}) {
   const { items } = useOutbox();
+  const { runs } = useRuns();
   const mine = items.filter(
     (i): i is OutboxItem<EntryCreatePayload> => isEntryCreate(i) && i.payload.topic.id === topic.id,
   );
-  if (mine.length === 0) return null;
+  const timed = pendingTimedEntries(runs, topic.id, serverIds);
+  if (mine.length === 0 && timed.length === 0) return null;
   return (
     <ul className="flex flex-col gap-3" aria-label="Not yet synced">
+      {timed.map((e) => (
+        <li key={e.id}>
+          <Card className="relative border-dashed border-line-strong p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate font-semibold">
+                {formatDateTime(formatInstant(e.captured_at))}
+              </span>
+              <Badge tone="info">
+                <Icon name="clock" className="size-3.5" /> Waiting to sync
+              </Badge>
+            </div>
+            <p className="mb-2 text-sm text-ink-soft">
+              Timed{' '}
+              <span className="font-mono font-semibold text-ink tabular">
+                {fmtDuration(e.timing.active_ms)}
+              </span>
+            </p>
+            <AnswerGrid
+              columns={columns}
+              entry={{ ...pendingAsEntryShape(topic, e.id), answers: answersOut(topic, e.answers) }}
+            />
+          </Card>
+        </li>
+      ))}
       {mine.map((item) => {
         const s = pendingAsEntry(item, topic);
         const failed = item.status === 'failed';
@@ -201,6 +272,7 @@ export function EntriesPage() {
     [topic.questions, versions.data],
   );
   const items = entries.data?.pages.flatMap((p) => p.items) ?? [];
+  const serverIds = new Set(items.map((e) => e.id.toLowerCase()));
   const total = entries.data?.pages[0]?.total ?? 0;
   const outbox = useOutbox();
   const queuedHere = outbox.items.filter(
@@ -234,7 +306,7 @@ export function EntriesPage() {
           : ' '}
       </p>
 
-      <PendingEntries topic={topic} columns={columns} />
+      <PendingEntries topic={topic} columns={columns} serverIds={serverIds} />
 
       {entries.isError ? (
         <Banner title="Could not load entries">{errorMessage(entries.error)}</Banner>

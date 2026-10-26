@@ -136,8 +136,8 @@ import Testing
         Make.questions + [Question(key: "energy", label: "Energy", kind: .int(.init(min: 1, max: 10)))]
     }
 
-    static func version(_ questions: [Question] = nextQuestions) -> TopicDraft.Version {
-        TopicDraft.Version(questions: questions, changeNote: "")
+    static func version(_ questions: [Question] = nextQuestions, timer: TopicTimer? = nil) -> TopicDraft.Version {
+        TopicDraft.Version(questions: questions, timer: timer, changeNote: "")
     }
 
     @Test func aCheckReportsAndChangesNothing() async throws {
@@ -176,9 +176,22 @@ import Testing
         #expect(syncs.reasons.isEmpty)
     }
 
+    static let timer = TopicTimer(steps: [.init(key: "load", label: "Load"), .init(key: "rinse", label: "Rinse")])
+
+    /// The base version's row, as a pull leaves it.
+    func storeVersion(_ number: Int, timer: TopicTimer?) throws {
+        try harness.write { db in
+            _ = try ServerLayer.insert(
+                db, version: TopicVersion(version: number, questions: Make.questions, timer: timer, createdAt: Make.t0),
+                id: UUID(), topicId: self.harness.topic.id)
+        }
+    }
+
     @Test func aPublishAppliesTheTopicAndPulls() async throws {
-        let body = TopicRequests.publish(Self.version(), baseVersion: 1, changeNote: "  add energy \n")
-        guard case .done(let topic) = await try writes().publishVersion(topicId: harness.topic.id, body) else {
+        try storeVersion(1, timer: Self.timer)
+        let outcome = await try writes().publishVersion(
+            topicId: harness.topic.id, Self.version(timer: Self.timer), baseVersion: 1, changeNote: "  add energy \n")
+        guard case .done(let topic) = outcome else {
             Issue.record("not done")
             return
         }
@@ -191,6 +204,36 @@ import Testing
         let sent = try JSONSerialization.jsonObject(with: try #require(request.body)) as? [String: Any]
         #expect(sent?["change_note"] as? String == "add energy")
         #expect(sent?["base_version"] as? Int == 1)
+        // The draft's timer (timers.md §2.1).
+        let timer = try #require(sent?["timer"] as? [String: Any])
+        #expect(
+            (timer["steps"] as? [[String: String]]) == [
+                ["key": "load", "label": "Load"], ["key": "rinse", "label": "Rinse"],
+            ])
+    }
+
+    @Test func aPublishOfAnUntimedVersionSendsANullTimer() async throws {
+        try storeVersion(1, timer: nil)
+        guard
+            case .done = await try writes().publishVersion(
+                topicId: harness.topic.id, Self.version(), baseVersion: 1, changeNote: "")
+        else {
+            Issue.record("not done")
+            return
+        }
+        let sent = try JSONSerialization.jsonObject(with: try #require(harness.server.requests.last?.body))
+        let body = try #require(sent as? [String: Any])
+        #expect(body.keys.contains("timer") && body["timer"] is NSNull, "sent, as null: leaving it out is a 422")
+    }
+
+    @Test func aCheckSendsTheDraftsTimer() async throws {
+        let body = TopicRequests.versionCheck(Self.version(timer: Self.timer), baseVersion: 1)
+        _ = await try writes().checkVersion(topicId: harness.topic.id, body)
+        let sent = try JSONSerialization.jsonObject(with: try #require(harness.server.requests.last?.body))
+        let object = try #require(sent as? [String: Any])
+        let timer = try #require(object["timer"] as? [String: Any])
+        let steps = timer["steps"] as? [[String: String]]
+        #expect(steps == [["key": "load", "label": "Load"], ["key": "rinse", "label": "Rinse"]])
     }
 
     @Test func aStalePublishIsAConflictAndNothingChanges() async throws {

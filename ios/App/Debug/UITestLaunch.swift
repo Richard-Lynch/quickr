@@ -122,10 +122,16 @@ final class FakeServerState: Sendable {
         /// Topics as the server holds them now (`TopicDetail` JSON), after the online-only writes
         /// and archives the tests made (TOPIC). Seeded with the feed's two.
         var topics: [String: Data] = FakeServer.seedTopics()
-        /// Feed items after the seeded page (seq 5, 6, …): the topic and version rows of the
-        /// versions published here, as the change feed lists them.
-        var feed: [String] = []
+        /// Feed items after the seeded page (seq 7, 8, …): the topic and version rows of the
+        /// versions published here, and the entries runs made, as the change feed lists them.
+        /// `-QuickrSeedTimedTopic` starts it with Morning's finished run (`FakeTiming`).
+        var feed: [String] = FakeTiming.seedFeed()
         var publishElsewhere = false
+        /// The runs started here (`FakeRuns`, UITestRuns.swift).
+        var runs = FakeRunBook()
+
+        /// The seq of the next feed item.
+        var nextSeq: Int { FakeServer.seededHead + 1 + feed.count }
     }
 
     private let state = Mutex(State())
@@ -185,7 +191,7 @@ final class FakeServerState: Sendable {
         }
     }
 
-    fileprivate func topic(_ id: String) -> [String: Any]? {
+    func topic(_ id: String) -> [String: Any]? {
         state.withLock { $0.topics[id] }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
     }
 
@@ -211,17 +217,19 @@ final class FakeServerState: Sendable {
 
     /// Publishes `questions` as the topic's next version: the topic row and the version row go
     /// into the feed. Returns the updated topic.
-    fileprivate func publish(_ id: String, questions: [[String: Any]], note: String) -> [String: Any]? {
+    fileprivate func publish(_ id: String, questions: [[String: Any]], timer: Any?, note: String) -> [String: Any]? {
         guard var topic = topic(id) else { return nil }
         let now = ISO8601DateFormatter().string(from: Date())
         let number = (topic["current_version"] as? Int ?? 1) + 1
         topic["current_version"] = number
         topic["questions"] = questions
         topic["question_count"] = questions.count
+        topic["timer"] = timer ?? NSNull()
         topic["revision"] = (topic["revision"] as? Int ?? 1) + 1
         topic["updated_at"] = now
         let version: [String: Any] = [
-            "version": number, "questions": questions, "change_note": note, "created_at": now, "entry_count": 0,
+            "version": number, "questions": questions, "timer": timer ?? NSNull(), "change_note": note,
+            "created_at": now, "entry_count": 0,
         ]
         put(topic)
         appendToFeed(topic, version: version)
@@ -233,7 +241,7 @@ final class FakeServerState: Sendable {
     fileprivate func appendToFeed(_ topic: [String: Any], version: [String: Any]) {
         guard let id = topic["id"] as? String else { return }
         state.withLock { state in
-            let seq = 5 + state.feed.count
+            let seq = state.nextSeq
             let items: [[String: Any]] = [
                 ["kind": "topic", "seq": seq, "topic": topic],
                 [
@@ -248,11 +256,32 @@ final class FakeServerState: Sendable {
         }
     }
 
+    /// One more feed item, `{kind, seq, <key>: object}` (an entry `FakeTiming` changed).
+    fileprivate func appendItem(kind: String, key: String, _ object: Any) {
+        state.withLock { state in
+            let item: [String: Any] = ["kind": kind, "seq": state.nextSeq, key: object]
+            guard let data = try? JSONSerialization.data(withJSONObject: item) else { return }
+            state.feed.append(String(decoding: data, as: UTF8.self))
+        }
+    }
+
     /// The feed items after `cursor`, and the head.
     fileprivate func feed(after cursor: Int) -> (items: [String], head: Int) {
         state.withLock { state in
-            let head = 4 + state.feed.count
-            return (Array(state.feed.dropFirst(max(0, cursor - 4))), head)
+            let head = FakeServer.seededHead + state.feed.count
+            return (Array(state.feed.dropFirst(max(0, cursor - FakeServer.seededHead))), head)
+        }
+    }
+
+    /// One run event against the runs, in one critical section with the feed: an entry the event
+    /// made or changed goes into the feed as an `entry` item, as the backend logs it.
+    func recordRun(_ body: (inout FakeRunBook) -> FakeRunOutcome) -> FakeRunOutcome {
+        state.withLock { state in
+            let outcome = body(&state.runs)
+            if let entry = outcome.feedEntry {
+                state.feed.append(#"{"kind": "entry", "seq": \#(state.nextSeq), "entry": \#(entry)}"#)
+            }
+            return outcome
         }
     }
 
@@ -319,11 +348,13 @@ final class DebugNetworkMonitor: NetworkMonitoring {
     }
 }
 
-/// The fake server's topics: Workout (a chip and a number, so the form shows) and Mood (one chip
-/// question: the record screen saves on a tap).
+/// The fake server's topics: Workout (a chip and a number, so the form shows), Mood (one chip
+/// question: the record screen saves on a tap) and Morning (timed, four steps, and Mood's required
+/// question, answered after Stop: timers.md §11.2).
 enum FakeServer {
     static let workoutId = UUID(uuidString: "00000000-0000-4000-8000-0000000000c1")!
     static let moodId = UUID(uuidString: "00000000-0000-4000-8000-0000000000c2")!
+    static let morningId = UUID(uuidString: "00000000-0000-4000-8000-0000000000c3")!
     static let epoch = "00000000-0000-4000-8000-0000000000bb"
 
     static let workoutQuestions = #"""
@@ -342,22 +373,33 @@ enum FakeServer {
                       {"archived": false, "label": "OK", "value": "ok"},
                       {"archived": false, "label": "Bad", "value": "bad"}]}]
         """#
+    static let morningTimer = #"""
+        {"steps": [{"key": "shower", "label": "Shower"}, {"key": "dress", "label": "Dress"},
+                   {"key": "breakfast", "label": "Breakfast"}, {"key": "teeth", "label": "Teeth"}]}
+        """#
 
-    static func topic(_ id: UUID, slug: String, name: String, questions: String, count: Int, seq: Int) -> String {
+    /// The seeded page's last seq: three topics, each a version row and a topic row.
+    static let seededHead = 6
+
+    static func topic(
+        _ id: UUID, slug: String, name: String, questions: String, count: Int, seq: Int, timer: String = "null"
+    ) -> String {
         #"""
         {"kind": "topic", "seq": \#(seq), "topic": {"archived_at": null, "created_at": "2026-01-01T00:00:00Z",
          "current_version": 1, "description": "", "due": null, "entry_count": 0, "id": "\#(id.wireString)",
          "last_captured_at": null, "name": "\#(name)", "question_count": \#(count), "questions": \#(questions),
          "revision": 1, "schedule": null, "schedule_updated_at": null, "slug": "\#(slug)", "status": "active",
-         "updated_at": "2026-01-01T00:00:00Z"}}
+         "timer": \#(timer), "updated_at": "2026-01-01T00:00:00Z"}}
         """#
     }
 
-    static func version(_ topicId: UUID, versionId: String, questions: String, seq: Int) -> String {
+    static func version(
+        _ topicId: UUID, versionId: String, questions: String, seq: Int, timer: String = "null"
+    ) -> String {
         #"""
         {"id": "\#(versionId)", "kind": "version", "seq": \#(seq), "topic_id": "\#(topicId.wireString)",
          "version": {"change_note": "", "created_at": "2026-01-01T00:00:00Z", "entry_count": 0,
-                     "questions": \#(questions), "version": 1}}
+                     "questions": \#(questions), "timer": \#(timer), "version": 1}}
         """#
     }
 
@@ -372,6 +414,12 @@ enum FakeServer {
                 topic(workoutId, slug: "workout", name: "Workout", questions: workoutQuestions, count: 2, seq: 2),
                 version(moodId, versionId: "00000000-0000-4000-8000-0000000000d2", questions: moodQuestions, seq: 3),
                 topic(moodId, slug: "mood", name: "Mood", questions: moodQuestions, count: 1, seq: 4),
+                version(
+                    morningId, versionId: "00000000-0000-4000-8000-0000000000d3", questions: moodQuestions, seq: 5,
+                    timer: morningTimer),
+                topic(
+                    morningId, slug: "morning", name: "Morning", questions: moodQuestions, count: 1, seq: 6,
+                    timer: morningTimer),
             ] : []
         let items = seeded + published
         return #"""
@@ -384,10 +432,12 @@ enum FakeServer {
     /// The feed's topics as `TopicDetail` objects (the fake server's starting state).
     static func seedTopics() -> [String: Data] {
         var out: [String: Data] = [:]
-        for (id, slug, name, questions, count) in [
-            (workoutId, "workout", "Workout", workoutQuestions, 2), (moodId, "mood", "Mood", moodQuestions, 1),
+        for (id, slug, name, questions, count, timer) in [
+            (workoutId, "workout", "Workout", workoutQuestions, 2, "null"),
+            (moodId, "mood", "Mood", moodQuestions, 1, "null"),
+            (morningId, "morning", "Morning", moodQuestions, 1, morningTimer),
         ] {
-            let item = topic(id, slug: slug, name: name, questions: questions, count: count, seq: 0)
+            let item = topic(id, slug: slug, name: name, questions: questions, count: count, seq: 0, timer: timer)
             guard let object = try? JSONSerialization.jsonObject(with: Data(item.utf8)) as? [String: Any],
                 let detail = object["topic"], let data = try? JSONSerialization.data(withJSONObject: detail)
             else { continue }
@@ -451,7 +501,7 @@ enum FakeServer {
     }
 }
 
-/// `https://quickr.test`: the feed above, entry creates (201, or 422 for a duration over 600 or
+/// `https://quickr.test`: the feed above, run events (`FakeRuns`), entry creates (201, or 422 for a duration over 600 or
 /// when `state` is told to reject the next, so a rejection can be shown), deletes (204, for
 /// Undo after a send), stats and series (`FakeStats`), TOPIC's topic writes (`topicRoute`), and
 /// BUILDER-UI's topic reads and versions (`topicDetail`, `versionRoute`).
@@ -467,9 +517,12 @@ private struct FakeServerTransport: Transport {
         if state.offline { throw TransportError.unreachable("offline (UI test)") }
         let headers: HTTPHeaders = [
             QuickrHeader.serverId: UITestLaunch.fakeServerId, QuickrHeader.epoch: FakeServer.epoch,
-            "Content-Type": "application/json",
+            "Content-Type": "application/json", RunClock.serverTimeHeader: String(RunInstant.milliseconds(Date())),
         ]
         let path = request.url.path()
+        if let response = FakeTiming.route(request, headers: headers, appendToFeed: state.appendItem) {
+            return response
+        }
         if request.method == .get, path == "/api/v1/changes" {
             try await state.waitIfFeedHeld()
             let after =
@@ -480,6 +533,10 @@ private struct FakeServerTransport: Transport {
         }
         if request.method == .post, path.hasPrefix("/api/v1/topics/"), path.hasSuffix("/entries") {
             return create(request, headers: headers)
+        }
+        if request.method == .post, path.hasPrefix("/api/v1/runs/"), path.hasSuffix("/events") {
+            let runId = path.dropFirst("/api/v1/runs/".count).dropLast("/events".count)
+            return FakeRuns.record(String(runId), request, state: state, headers: headers)
         }
         if request.method == .delete, path.hasPrefix("/api/v1/entries/") {
             return HTTPResponse(status: 204, headers: headers)
@@ -529,15 +586,15 @@ private struct FakeServerTransport: Transport {
                 "entry_count": 0, "last_captured_at": NSNull(), "created_at": now, "updated_at": now,
                 "archived_at": NSNull(), "schedule": schedule,
                 "schedule_updated_at": schedule is NSNull ? NSNull() : now as Any, "due": NSNull(),
-                "questions": questions,
+                "timer": body["timer"] ?? NSNull(), "questions": questions,
             ]
             state.put(topic)
             // Its v1, in the feed like the backend's: an entry's screen loads its version's questions.
             state.appendToFeed(
                 topic,
                 version: [
-                    "version": 1, "questions": questions, "change_note": "Initial version", "created_at": now,
-                    "entry_count": 0,
+                    "version": 1, "questions": questions, "timer": body["timer"] ?? NSNull(),
+                    "change_note": "Initial version", "created_at": now, "entry_count": 0,
                 ])
             return json(201, topic)
         }
@@ -605,7 +662,8 @@ private struct FakeServerTransport: Transport {
                 "key": "energy", "label": "Energy", "type": "int", "min": 1, "max": 10, "unit": NSNull(),
                 "help_text": NSNull(), "required": false,
             ]
-            _ = state.publish(id, questions: (current["questions"] as? [[String: Any]] ?? []) + [energy], note: "")
+            _ = state.publish(
+                id, questions: (current["questions"] as? [[String: Any]] ?? []) + [energy], timer: nil, note: "")
         }
         guard let topic = state.topic(id) else { return problem(404, "not_found", "topic not found") }
         let current = topic["current_version"] as? Int ?? 1
@@ -616,8 +674,15 @@ private struct FakeServerTransport: Transport {
             )
         }
         let inputs = (body["questions"] as? [[String: Any]]) ?? []
-        let report = CompatibilityCheck.report(
+        var report = CompatibilityCheck.report(
             history: [FakeServer.questions(topic["questions"] ?? [Any]())], proposed: FakeServer.questions(inputs))
+        // Like the backend's `_report`: with the draft's timer, a timer-only change is a change.
+        if let timer = body["timer"], report.changes.isEmpty,
+            !(timer as AnyObject).isEqual(topic["timer"] ?? NSNull())
+        {
+            report.issues.removeAll { $0.questionKey == nil }
+            report.ok = !report.issues.contains { $0.level == .error }
+        }
         if check {
             return json(
                 200,
@@ -635,7 +700,14 @@ private struct FakeServerTransport: Transport {
         }
         guard report.ok else { return problem(422, "incompatible_version", "the new version is incompatible") }
         let note = body["change_note"] as? String ?? ""
-        guard let updated = state.publish(id, questions: inputs.map(FakeServer.outputQuestion), note: note) else {
+        // The backend requires `timer` (null: untimed) and puts it on the new version.
+        guard body.keys.contains("timer") else { return problem(422, "invalid_request", "timer is required") }
+        guard
+            let updated = state.publish(
+                id, questions: inputs.map(FakeServer.outputQuestion),
+                timer: body["timer"].flatMap { $0 is NSNull ? nil : $0 },
+                note: note)
+        else {
             return problem(404, "not_found", "topic not found")
         }
         return json(201, updated)
@@ -684,7 +756,7 @@ private struct FakeServerTransport: Transport {
             "answers": FakeServer.echo(answers), "captured_at": body["captured_at"] as? String ?? now,
             "channel": "ios", "created_at": now, "updated_at": now, "meta": [String: String](),
             "notes": body["notes"] as? String ?? "", "revision": 1, "source": body["source"] as? String ?? "ios",
-            "version": body["version"] as? Int ?? 1,
+            "version": body["version"] as? Int ?? 1, "timing": NSNull(),  // createEntry makes untimed entries
         ]
         let json = (try? JSONSerialization.data(withJSONObject: entry)) ?? Data()
         return HTTPResponse(status: 201, headers: headers, body: json)

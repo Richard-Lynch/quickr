@@ -19,6 +19,9 @@ import Testing
                 var query = Dictionary(items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { $1 })
                 query.removeValue(forKey: "captured_from")
                 let parts = request.url.pathComponents  // ["/", "api", "v1", "topics", ref, ...]
+                if parts.last == "timing" {
+                    return HTTPResponse(status: 200, headers: identity(epoch), body: try untimedTiming())
+                }
                 let topic = parts[4]
                 let match = StatsLoaderTests.input.cases.first { c in
                     c.topic == topic && c.query == query
@@ -28,6 +31,11 @@ import Testing
                 return HTTPResponse(
                     status: 200, headers: identity(epoch), body: try JSONEncoder().encode(match.response))
             })
+    }
+
+    /// getTopicTiming for a topic without runs (the Overview asks for every topic's).
+    nonisolated static func untimedTiming() throws -> Data {
+        try #require(try Fixtures.api("getTopicTiming.untimed").body)
     }
 
     nonisolated static func identity(_ epoch: String) -> HTTPHeaders {
@@ -42,6 +50,29 @@ import Testing
         return OverviewModel(
             topicId: StatsLoaderTests.topicId, ref: "everything", timeZone: { TimeZone(identifier: zone)! },
             loader: { loader })
+    }
+
+    /// getTopicTiming for the same filters, cached like the stats (timers.md §9.2).
+    @Test func loadsTheTimingForTheQueryAndShowsItOffline() async throws {
+        let h = try Harness()
+        Self.serve(h)
+        let model = model(h)
+        await model.load(query: Self.query, bucket: .day)
+        guard case .loaded(let timing, .fresh) = model.timing else {
+            Issue.record("expected fresh timing, got \(model.timing)")
+            return
+        }
+        #expect(timing.runs == 0)
+        let request = h.transport.requests.first { $0.url.path.hasSuffix("/timing") }
+        let path: String? = request?.url.path
+        #expect(path == "/api/v1/topics/everything/timing")
+        h.offline()
+        let later = self.model(h)
+        await later.load(query: Self.query, bucket: .day)
+        guard case .loaded(_, .stale(_, .offline)) = later.timing else {
+            Issue.record("expected the cached timing, got \(later.timing)")
+            return
+        }
     }
 
     @Test func loadsTheStatsTheSourcesAndEachChartableSeries() async throws {
@@ -403,6 +434,9 @@ final class StatsGate: Transport {
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let headers: HTTPHeaders = [QuickrHeader.serverId: "server-1", QuickrHeader.epoch: "E1"]
+        if request.url.path.hasSuffix("/timing") {
+            return HTTPResponse(status: 200, headers: headers, body: try OverviewModelTests.untimedTiming())
+        }
         guard request.url.path.hasSuffix("/stats") else {
             let key = request.url.pathComponents.dropLast().last ?? ""
             let items = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems ?? []

@@ -8,7 +8,7 @@ public enum TopicRequests {
     public static func create(_ creation: TopicDraft.Creation, schedule: Schedule?) -> TopicCreateDTO {
         TopicCreateDTO(
             name: creation.name, slug: creation.slug, description: creation.description,
-            questions: creation.questions, schedule: schedule)
+            questions: creation.questions, schedule: schedule, timer: creation.timer)
     }
 
     /// The Details save (`MetaForm`): only the changed fields (``TopicDetailsChange``).
@@ -23,17 +23,20 @@ public enum TopicRequests {
 }
 
 extension TopicRequests {
-    /// `VersionDraft` for "Review changes" (`EditQuestionsPage.onReview`): the validated questions
-    /// and the version they were edited from, so a newer one answers 409.
+    /// `VersionDraft` for "Review changes" (`EditQuestionsPage.onReview`): the validated questions,
+    /// the draft's timer (so a timer-only change isn't "no changes", timers.md §2.1) and the version
+    /// they were edited from, so a newer one answers 409.
     public static func versionCheck(_ version: TopicDraft.Version, baseVersion: Int) -> VersionDraftDTO {
-        VersionDraftDTO(questions: version.questions, baseVersion: baseVersion)
+        VersionDraftDTO(questions: version.questions, baseVersion: baseVersion, timer: version.timer)
     }
 
-    /// `VersionCreate` for "Publish": the reviewed questions, the same base, and the change note as
-    /// typed in the review (`.trim()`ed; empty is sent as is, like the PWA).
-    public static func publish(_ version: TopicDraft.Version, baseVersion: Int, changeNote: String) -> VersionCreateDTO
+    /// `VersionCreate` for "Publish": the reviewed questions and timer, the same base, and the
+    /// change note as typed in the review (`.trim()`ed; empty is sent as is, like the PWA).
+    public static func publish(_ version: TopicDraft.Version, baseVersion: Int, changeNote: String)
+        -> VersionCreateDTO
     {
         VersionCreateDTO(
-            questions: version.questions, baseVersion: baseVersion, changeNote: JSNumber.trim(changeNote))
+            questions: version.questions, baseVersion: baseVersion, timer: version.timer,
+            changeNote: JSNumber.trim(changeNote))
     }
 }

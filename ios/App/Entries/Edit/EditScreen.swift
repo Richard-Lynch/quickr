@@ -14,7 +14,7 @@ struct EditScreen: View {
 
     private enum Load {
         case loading
-        case ready(EditModel, EntriesModel.Row)
+        case ready(EditModel, EntriesModel.Row, LocalStore)
         /// A create the server refused: it is fixed on the record screen.
         case refused
         case gone
@@ -34,8 +34,23 @@ struct EditScreen: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .qrPaperBackground()
                 .navigationTitle("Edit entry")
-        case .ready(let model, let row):
+        case .ready(let model, let row, let store):
             EditView(model: model, row: row)
+                // The entry as the store shows it, as it changes: a timed entry's times (and an
+                // open Edit times sheet's staleness), or answers changed elsewhere.
+                .task {
+                    guard let session = environment.session else { return }
+                    let entryId = entryId
+                    do {
+                        for try await entries in store.observeEntries(
+                            topicId: model.entry.topicId, refresh: session.refresh.stream())
+                        {
+                            if let latest = entries.first(where: { $0.entry.id == entryId }) {
+                                model.entryChanged(latest.entry)
+                            }
+                        }
+                    } catch {}
+                }
         case .refused:
             EditNotice(
                 heading: "This entry was not saved",
@@ -113,11 +128,16 @@ struct EditScreen: View {
                     problem = viewEntry.lastError?.message ?? "The last change didn’t sync."
                 }
             }
+            // A timed entry's run version's steps (labels, and Edit times' choices).
+            let steps =
+                stored?.timer?.steps
+                ?? (viewEntry.entry.version == topic.topic.currentVersion ? topic.topic.timer?.steps : nil) ?? []
             let model = EditModel(
                 topic: topic.topic, entry: shown, questions: questions,
                 localOnly: viewEntry.isLocalOnly, syncProblem: problem, fix: fix, writer: environment.entryWriter,
-                toasts: environment.entryToasts, scope: binding.scope)
-            load = .ready(model, EntriesModel.Row(entry: viewEntry, binding: binding))
+                toasts: environment.entryToasts, scope: binding.scope, timerSteps: steps,
+                timingWriter: SessionTopicWriter(session: session, binding: binding))
+            load = .ready(model, EntriesModel.Row(entry: viewEntry, binding: binding), store)
         } catch {
             load = .failed(String(describing: error))
         }
@@ -136,8 +156,23 @@ struct EditView: View {
 
     var body: some View {
         FormView(model: model.form) {
+            // The entry's own version's steps name its skipped ones (a later version may have
+            // renamed or retired them); Edit times when the server has the run (timers.md §3.8).
+            EntryTimingSection(
+                timing: model.entry.timing, stepLabels: stepLabels, onEdit: editTimes, showsStatus: true,
+                editUnavailable: model.timingEditUnavailable)
             EntryDetailsSection(model: model, idPrefix: "edit")
             deleteSection
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { model.timingEditor != nil },
+                set: { if !$0 && model.timingEditor?.isSaving != true { model.timingEditor = nil } })
+        ) {
+            if let editor = model.timingEditor {
+                TimingEditorSheet(
+                    editor: editor, save: { Task { await model.saveTiming() } }, cancel: { model.timingEditor = nil })
+            }
         }
         .disabled(model.isSaving || model.isDeleted)
         .safeAreaInset(edge: .top, spacing: 0) { banners }
@@ -201,6 +236,22 @@ struct EditView: View {
                 Banner(title: "The last change didn’t sync", text: problem, tone: .warn)
                     .accessibilityIdentifier("edit.syncProblem")
             }
+            if model.changedElsewhere != nil {
+                VStack(alignment: .leading, spacing: 6) {
+                    Banner(
+                        title: "This entry changed elsewhere",
+                        text: "Your edits below are kept. Reload shows the latest answers and notes and discards them.",
+                        tone: .warn)
+                    Button("Reload") { model.reloadChangedEntry() }
+                        .buttonStyle(.bordered)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
+                        .accessibilityIdentifier("edit.reloadChanged")
+                }
+                .background(QuickrTone.warn.background)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("edit.changedElsewhere")
+            }
             if model.isOutdated {
                 Banner(
                     title: "Logged against version \(model.entry.version)",
@@ -232,6 +283,19 @@ struct EditView: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { delete() }
             .accessibilityIdentifier("edit.delete")
+    }
+
+    private var stepLabels: [String: String] {
+        var labels: [String: String] = [:]
+        for step in model.timerSteps where labels[step.key] == nil { labels[step.key] = step.label }
+        return labels
+    }
+
+    /// Edit times, when it can be offered.
+    private var editTimes: (() -> Void)? {
+        guard model.timingEditUnavailable == nil else { return nil }
+        let model = model
+        return { model.openTimingEditor() }
     }
 
     private func delete() {

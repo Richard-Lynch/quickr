@@ -92,6 +92,16 @@ interface EntryFormProps {
    * where the pick *is* the entry. Undo comes from the caller's toast.
    */
   submitOnPick?: string | undefined;
+  /** A timed entry: captured_at is its run's end, shown read-only (timers.md §3.8). */
+  capturedAtLocked?: boolean;
+  /**
+   * Which details the form edits: all of them (default), or only the notes (a timed run's
+   * answers: its time is the run's, and its source the start's, timers.md §11.1). The
+   * hidden fields still submit their default values.
+   */
+  meta?: 'all' | 'notes';
+  /** Told whenever the form's dirty state (any field differs from its default) changes. */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 export interface SubmitHelpers {
@@ -114,6 +124,9 @@ export function EntryForm({
   prefill,
   focusFirstEmpty = false,
   submitOnPick,
+  capturedAtLocked = false,
+  meta = 'all',
+  onDirtyChange,
 }: EntryFormProps) {
   const limits = useLimits();
   const schema = useMemo(
@@ -142,6 +155,10 @@ export function EntryForm({
     };
   });
   const guard = useUnsavedChangesGuard(guardUnsaved && form.formState.isDirty);
+  const { isDirty } = form.formState;
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
 
   useEffect(() => {
     if (initialError !== undefined) {
@@ -274,46 +291,61 @@ export function EntryForm({
         <summary className="flex min-h-13 cursor-pointer list-none items-center gap-3 px-4 text-sm font-semibold text-ink-soft select-none">
           <Icon name="clock" className="size-4.5 text-muted" />
           <span className="min-w-0 flex-1 truncate">
-            Details
-            <span className="ml-2 font-normal text-muted">
-              <MetaSummary control={form.control} />
-            </span>
+            {meta === 'all' ? (
+              <>
+                Details
+                <span className="ml-2 font-normal text-muted">
+                  <MetaSummary control={form.control} />
+                </span>
+              </>
+            ) : (
+              'Notes'
+            )}
           </span>
           {metaError ? <Icon name="alert" className="size-4 text-danger" /> : null}
           <Icon name="chevronDown" className="size-4 transition-transform group-open:rotate-180" />
         </summary>
         <div className="grid gap-4 px-4 pt-1 pb-4 sm:grid-cols-2">
-          <Field label="Captured at" error={errors.captured_at?.message}>
-            {({ id, describedBy, invalid }) => (
-              <Input
-                id={id}
-                type="datetime-local"
-                aria-describedby={describedBy}
-                aria-invalid={invalid || undefined}
-                {...form.register('captured_at')}
-              />
-            )}
-          </Field>
-          <Field label="Source" hint="Remembered on this device" error={errors.source?.message}>
-            {({ id, describedBy, invalid }) => (
-              <Input
-                id={id}
-                aria-describedby={describedBy}
-                aria-invalid={invalid || undefined}
-                autoCapitalize="none"
-                autoComplete="off"
-                maxLength={inputMaxLength(limits.max_source_length)}
-                list="quickr-sources"
-                {...form.register('source')}
-              />
-            )}
-          </Field>
-          <datalist id="quickr-sources">
-            <option value="phone" />
-            <option value="tablet" />
-            <option value="desktop" />
-            <option value="watch" />
-          </datalist>
+          {meta === 'all' ? (
+            <>
+              <Field
+                label="Captured at"
+                hint={capturedAtLocked ? 'The end of the timed run' : undefined}
+                error={errors.captured_at?.message}
+              >
+                {({ id, describedBy, invalid }) => (
+                  <Input
+                    id={id}
+                    type="datetime-local"
+                    readOnly={capturedAtLocked}
+                    aria-describedby={describedBy}
+                    aria-invalid={invalid || undefined}
+                    {...form.register('captured_at')}
+                  />
+                )}
+              </Field>
+              <Field label="Source" hint="Remembered on this device" error={errors.source?.message}>
+                {({ id, describedBy, invalid }) => (
+                  <Input
+                    id={id}
+                    aria-describedby={describedBy}
+                    aria-invalid={invalid || undefined}
+                    autoCapitalize="none"
+                    autoComplete="off"
+                    maxLength={inputMaxLength(limits.max_source_length)}
+                    list="quickr-sources"
+                    {...form.register('source')}
+                  />
+                )}
+              </Field>
+              <datalist id="quickr-sources">
+                <option value="phone" />
+                <option value="tablet" />
+                <option value="desktop" />
+                <option value="watch" />
+              </datalist>
+            </>
+          ) : null}
           <Field label="Notes" optional className="sm:col-span-2" error={errors.notes?.message}>
             {({ id, describedBy, invalid }) => (
               <Textarea

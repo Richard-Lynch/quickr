@@ -94,4 +94,6 @@ public protocol VersionWriter: AnyObject {
         -> TopicWriteOutcome<Topic>
     /// "Load latest version": the server's topic now.
     func latestTopic(topicId: UUID) async -> TopicWriteOutcome<Topic>
+    /// Every version on the server now, for the step keys they have used.
+    func versions(topicId: UUID) async -> TopicWriteOutcome<[TopicVersion]>
 }

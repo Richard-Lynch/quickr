@@ -28,6 +28,7 @@ import json
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -123,22 +124,33 @@ def add(build: str, sha: str, source: str) -> None:
     fields = [f'"{k}": {json.dumps(v)}' for k, v in (("build", build), ("sha", sha), ("source", source))]
     entry = "    {\n" + "".join(f"      {f},\n" for f in fields) + '      "fallbacks": {}\n    },\n'
     text = POLICY.read_text()
-    anchor = '"clients": [\n'
+    if data["clients"]:
+        anchor, listed = '"clients": [\n', '"clients": [\n' + entry
+    else:
+        # An empty list (no old builds supported) is written `[]`: the first entry has no comma.
+        anchor, listed = '"clients": []', '"clients": [\n' + entry.removesuffix(",\n") + "\n  ]"
     if text.count(anchor) != 1:
         sys.exit(f"{POLICY.name}: can't find the clients list")
-    text = text.replace(anchor, anchor + entry)
+    text = text.replace(anchor, listed)
     json.loads(text)  # still valid
     POLICY.write_text(text)
 
 
+def lines(items: Iterable[str]) -> None:
+    for item in items:
+        print(item)
+
+
 def main(argv: list[str]) -> None:
     match argv:
+        # One per line, and nothing at all for an empty list (not a blank line, which a reader
+        # would take for a client).
         case ["shas"]:
-            print("\n".join(c["sha"] for c in policy()["clients"]))
+            lines(c["sha"] for c in policy()["clients"])
         case ["suites"]:
-            print("\n".join(policy()["suites"]))
+            lines(policy()["suites"])
         case ["skip"]:
-            print("\n".join(policy()["skip"]))
+            lines(policy()["skip"])
         case ["fixtures", sha, out]:
             write_fixtures(sha, Path(out))
         case ["add", build, sha, source]:

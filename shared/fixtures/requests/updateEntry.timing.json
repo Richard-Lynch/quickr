@@ -1,0 +1,47 @@
+{
+  "operation_id": "updateEntry",
+  "request": {
+    "body": {
+      "expected_revision": 1,
+      "timing": {
+        "pauses": [
+          {
+            "end": "2026-03-05T08:05:15.125000Z",
+            "start": "2026-03-05T08:04:00Z"
+          }
+        ],
+        "segments": [
+          {
+            "ended_at": "2026-03-05T08:01:00Z",
+            "kind": "step",
+            "step": "pour"
+          },
+          {
+            "ended_at": "2026-03-05T08:03:00.750000Z",
+            "kind": "lap",
+            "step": null
+          },
+          {
+            "ended_at": "2026-03-05T08:06:00Z",
+            "kind": "lap",
+            "step": null
+          }
+        ],
+        "skipped": [
+          "drink"
+        ],
+        "started_at": "2026-03-05T08:00:00Z"
+      }
+    },
+    "headers": {
+      "accept": "application/json",
+      "cache-control": "no-store",
+      "content-type": "application/json",
+      "x-quickr-channel": "ios",
+      "x-quickr-expect-epoch": "22222222-2222-4222-8222-222222222222",
+      "x-quickr-expect-server-id": "11111111-1111-4111-8111-111111111111"
+    },
+    "method": "PATCH",
+    "path": "/api/v1/entries/55555555-5555-4555-8555-000000000001"
+  }
+}

@@ -123,6 +123,30 @@ enum TopicLookup {
         }
     }
 
+    /// The topic's versions once its `number` has synced (waiting up to `wait` for it), or nil.
+    static func versions(
+        of topicId: UUID, including number: Int, in store: LocalStore, refresh: AsyncStream<Void>, wait: Duration
+    ) async throws -> [TopicVersion]? {
+        let now = try await store.versions.versions(topicId: topicId)
+        if now.contains(where: { $0.version == number }) { return now }
+        return try await withThrowingTaskGroup(of: [TopicVersion]?.self) { group in
+            group.addTask {
+                for try await versions in store.observeVersions(topicId: topicId, refresh: refresh)
+                where versions.contains(where: { $0.version == number }) {
+                    return versions
+                }
+                return nil
+            }
+            group.addTask {
+                try await Task.sleep(for: wait)
+                return nil
+            }
+            let first = try await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
     private static func lookUp(_ ref: TopicLinkRef, in store: LocalStore) async throws -> Topic? {
         if let id = ref.id { return try await store.topics.topic(id: id)?.topic }
         return try await store.topics.topic(slug: ref.rawValue)?.topic

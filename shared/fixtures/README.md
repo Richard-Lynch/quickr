@@ -5,25 +5,29 @@ Generated from the backend and checked by every platform (the Swift tests in
 `make vectors` (it needs the test database, like `make check`) and commit the
 result.
 
-| File                           | Generator                                                                                         | Checked by                                                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `due-vectors.json`             | `backend/tests/test_due_vectors.py` (real `services/schedule.py`)                                 | pytest drift check; Swift `QuickrCore` due tests (M1)                                            |
-| `quicklog-vectors.json`        | `backend/tests/test_quicklog_vectors.py` (`services/quicklog.py`)                                 | pytest drift check; `frontend/src/lib/quickLog.vectors.test.ts`; Swift (M1)                      |
-| `answer-text-vectors.json`     | `backend/tests/test_answer_text_vectors.py` (`services/answers.py`)                               | pytest drift check; `frontend/src/lib/answerText.vectors.test.ts`; Swift `AnswerTextVectorTests` |
-| `jsnumber-vectors.json`        | `frontend/scripts/gen-jsnumber-vectors.js` (V8 `String(x)`, run once by hand)                     | Swift `JSNumberVectorTests`; pytest (`js_number_string` in `services/quicklog.py`)               |
-| `notification-vectors.json`    | `backend/tests/test_notification_vectors.py` (`services/notification.py`)                         | pytest drift check; Swift notification categories (M3, spec test N1)                             |
-| `apns-payload-vectors.json`    | `backend/tests/test_apns_payload_vectors.py` (`push/apns.render`)                                 | pytest drift check; Swift DEBUG demo reminder (`DueReminderVectorTests`, M3 media)               |
-| `action-entry-id-vectors.json` | `backend/tests/test_action_entry_id_vectors.py` (`services/notification.py`)                      | pytest drift check; `frontend/src/lib/pushActions.test.ts`; Swift action handler (M3)            |
-| `home-vectors.json`            | `backend/tests/test_home_vectors.py` (`list_topics`, test database)                               | pytest drift check; Swift home list ordering, status filter and search (M2)                      |
-| `home-due-vectors.json`        | `frontend/src/lib/home.vectors.test.ts` (`dueParts`, `splitByDue`, vitest)                        | vitest drift check; Swift home due pill and sections (M2)                                        |
-| `entries-vectors.json`         | `backend/tests/test_entries_vectors.py` (`list_entries`, test database)                           | pytest drift check; Swift topic entry list filters, order and sources (M2)                       |
-| `entries-range-vectors.json`   | `frontend/src/lib/entries.vectors.test.ts` (`rangeStart`, `parseRange`)                           | vitest drift check; Swift entries range filter (M2)                                              |
-| `stats-vectors.json`           | `backend/tests/test_stats_vectors.py` (the app, via ASGI)                                         | pytest drift check; input of `stats-chart-vectors.json`; Swift stats decoding and requests (M6)  |
-| `stats-chart-vectors.json`     | `frontend/src/components/charts/stats.vectors.test.ts` (the PWA's chart code)                     | vitest drift check; Swift chart models and Overview summaries (M6)                               |
-| `builder-vectors.json`         | `backend/tests/test_builder_vectors.py` (`schemas/questions.py`, `services/compat.py`, `slugify`) | pytest drift check; Swift `BuilderVectorTests`                                                   |
-| `schedule-vectors.json`        | `frontend/src/lib/schedule.vectors.test.ts` (`schedule.ts`, vitest)                               | vitest drift check; Swift schedule editor (TOPIC, M2)                                            |
-| `builder-ui-vectors.json`      | `frontend/src/lib/builderUi.vectors.test.ts` (`builder.ts`, `questionSummary.ts`, vitest)         | vitest drift check; Swift builder screens and versions list (BUILDER-UI, M6)                     |
-| `api/*.json`                   | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                                          | pytest drift check; Swift `QuickrData` decoding tests (M1)                                       |
+| File                           | Generator                                                                                         | Checked by                                                                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `due-vectors.json`             | `backend/tests/test_due_vectors.py` (real `services/schedule.py`)                                 | pytest drift check; Swift `QuickrCore` due tests (M1)                                                                                         |
+| `quicklog-vectors.json`        | `backend/tests/test_quicklog_vectors.py` (`services/quicklog.py`)                                 | pytest drift check; `frontend/src/lib/quickLog.vectors.test.ts`; Swift (M1)                                                                   |
+| `answer-text-vectors.json`     | `backend/tests/test_answer_text_vectors.py` (`services/answers.py`)                               | pytest drift check; `frontend/src/lib/answerText.vectors.test.ts`; Swift `AnswerTextVectorTests`                                              |
+| `jsnumber-vectors.json`        | `frontend/scripts/gen-jsnumber-vectors.js` (V8 `String(x)`, run once by hand)                     | Swift `JSNumberVectorTests`; pytest (`js_number_string` in `services/quicklog.py`)                                                            |
+| `notification-vectors.json`    | `backend/tests/test_notification_vectors.py` (`services/notification.py`)                         | pytest drift check; Swift notification categories (M3, spec test N1)                                                                          |
+| `apns-payload-vectors.json`    | `backend/tests/test_apns_payload_vectors.py` (`push/apns.render`)                                 | pytest drift check; Swift DEBUG demo reminder (`DueReminderVectorTests`, M3 media)                                                            |
+| `action-entry-id-vectors.json` | `backend/tests/test_action_entry_id_vectors.py` (`services/notification.py`)                      | pytest drift check; `frontend/src/lib/pushActions.test.ts`; Swift action handler (M3)                                                         |
+| `home-vectors.json`            | `backend/tests/test_home_vectors.py` (`list_topics`, test database)                               | pytest drift check; Swift home list ordering, status filter and search (M2)                                                                   |
+| `home-due-vectors.json`        | `frontend/src/lib/home.vectors.test.ts` (`dueParts`, `splitByDue`, `dueCount`, vitest)            | vitest drift check; Swift home due pill, sections and `dueCount` (M2, R11)                                                                    |
+| `entries-vectors.json`         | `backend/tests/test_entries_vectors.py` (`list_entries`, test database)                           | pytest drift check; Swift topic entry list filters, order and sources (M2)                                                                    |
+| `entries-range-vectors.json`   | `frontend/src/lib/entries.vectors.test.ts` (`rangeStart`, `parseRange`)                           | vitest drift check; Swift entries range filter (M2)                                                                                           |
+| `stats-vectors.json`           | `backend/tests/test_stats_vectors.py` (the app, via ASGI)                                         | pytest drift check; input of `stats-chart-vectors.json`; Swift stats decoding and requests (M6)                                               |
+| `stats-chart-vectors.json`     | `frontend/src/components/charts/stats.vectors.test.ts` (the PWA's chart code)                     | vitest drift check; Swift chart models and Overview summaries (M6)                                                                            |
+| `builder-vectors.json`         | `backend/tests/test_builder_vectors.py` (`schemas/questions.py`, `services/compat.py`, `slugify`) | pytest drift check; Swift `BuilderVectorTests`                                                                                                |
+| `schedule-vectors.json`        | `frontend/src/lib/schedule.vectors.test.ts` (`schedule.ts`, vitest)                               | vitest drift check; Swift schedule editor (TOPIC, M2)                                                                                         |
+| `builder-ui-vectors.json`      | `frontend/src/lib/builderUi.vectors.test.ts` (`builder.ts`, `questionSummary.ts`, vitest)         | vitest drift check; Swift builder screens and versions list (BUILDER-UI, M6; timed cases I-MANAGE)                                            |
+| `run-fold-vectors.json`        | `backend/tests/test_run_fold_vectors.py` (`services/run_fold.py`)                                 | pytest drift check; vitest `runFold.vectors.test.ts` (`lib/runs/fold.ts`, F-CORE); Swift `RunFoldVectorTests`                                 |
+| `timing-stats-vectors.json`    | `backend/tests/test_timing_stats_vectors.py` (`services/timing_stats.py`)                         | pytest drift check; `getTopicTiming` (T-STATS); vitest `timingStats.vectors.test.ts` (`lib/runs/stats.ts`, F-CORE); Swift timing chart models |
+| `duration-format-vectors.json` | `backend/tests/test_duration_vectors.py` (`run_fold.fmt_duration`)                                | pytest drift check; vitest `format.vectors.test.ts` (`lib/runs/format.ts` `fmtDuration`, F-CORE); Swift `fmtDuration` (I-CORE)                |
+| `live-activity-vectors.json`   | `backend/tests/test_live_activity_vectors.py` (`services/push/live_activity.py`)                  | pytest drift check; Swift `LiveActivityVectorTests` (I-LA)                                                                                    |
+| `api/*.json`                   | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                                          | pytest drift check; Swift `QuickrData` decoding tests (M1)                                                                                    |
 
 ## Drift checks
 
@@ -91,14 +95,17 @@ produce byte-identical descriptors, actions and category ids.
 - `meta.semantics`: the rules in prose (descriptor, `last_value`, actions, hash
   input, category id, body suffix, `fmt`).
 - `cases[]`:
-  `{name, server_id, topic_id, version, questions, counts, last, expected}`.
-  `counts` maps an option value to the number of entries that chose it, and
+  `{name, server_id, topic_id, version, questions, timer, counts, last, expected}`.
+  `timer` is the version's timer (`{steps}`) or null; a timed version's
+  `quick_log` is `{type: "timed"}` whatever its questions
+  ([timers.md](../../docs/specs/timers.md) §10.1). `counts` maps an option value to the number of entries that chose it, and
   `last` is the latest numeric answer for the key (any JSON value). `expected`
   is `{quick_log, actions[], hash_input, category_id, body_suffix}`, with
   `quick_log`, `hash_input` and `category_id` null and `actions` empty when the
   topic isn't quick-loggable. Each action is `{kind, identifier, title}`, plus
   `text_input_button_title` and `text_input_placeholder` for `kind: "input"`.
-  `kind` is `log`, `input`, or `open` (the "More…" action, identifier `…|m|`).
+  `kind` is `log`, `input`, `open` (the "More…" action, identifier `…|m|`), or
+  `start` (a timed topic's "Start", identifier `…||t|`).
   `hash_input` is already NFC-normalised, with U+001E and U+001F separators.
 - `fmt[]`: `{kind, value, bits, expected}`: how numbers appear in action titles
   and identifiers: the shortest round-trip decimal, positional, never rounded to
@@ -113,8 +120,8 @@ scheduler's inputs ([notifications.md](../../docs/ios/specs/notifications.md)
 screenshots) builds the same notification on the simulator, so it must match.
 
 - `cases[]`: `{name, server_id, topic_id, topic_slug, title, body, version,
-  due_since, questions, counts, last, expected}`. `title` is the topic name,
-  `body` the scheduler's message, and `questions`, `counts` and `last` feed the
+due_since, questions, timer, counts, last, expected}`. `title` is the topic name,
+  `body` the scheduler's message, and `questions`, `timer`, `counts` and `last` feed the
   descriptor as in `notification-vectors.json`. `due_since` may be any ISO 8601
   instant. `expected` is the APNs JSON body: `aps` (alert title and body,
   `category`, `thread-id`, `sound`, `mutable-content`, `relevance-score`) and
@@ -193,12 +200,15 @@ decision, not the label.
     as "tomorrow {time}", `|d| < 7` as "{weekday} {time}", else the date.
   - `minutes`: for `due_in`, `max(1, round(wait_ms / 60000))` with JS
     `Math.round` (halves round up).
-- `split[]`: `{name, now, topics, expected}`. Each topic is
-  `{id, status, scheduled, due}`. `expected` is `{due, upcoming, other}`, the
-  ids in order: active topics that are due now (the server says `is_due`, or
+- `split[]`: `{name, now, topics, open_runs, expected}`. Each topic is
+  `{id, status, scheduled, due}`. `open_runs` are the ids of the topics with an
+  open run (running or paused; an id may name no listed topic). `expected` is
+  `{due, upcoming, other, due_count}`, the ids in order: active topics without
+  an open run that are due now (the server says `is_due`, or
   `next_due_at <= now`) in input order; other active scheduled topics, stably
   sorted by `next_due_at` (none counts as `9999-12-31`); everything else
-  (including archived topics) in input order.
+  (including archived topics) in input order. `due_count` is `dueCount`, the
+  length of `due` (timers.md §11.1).
 
 Timestamps are UTC ISO-8601, some with milliseconds. Each case is one line.
 
@@ -225,7 +235,6 @@ The entries page's date-range filter, which the PWA computes client side
 
 `now` is UTC ISO-8601 with a `Z` suffix, some with milliseconds. Each case is
 one line.
-
 
 ## `schedule-vectors.json`
 
@@ -262,9 +271,9 @@ en-US (the generator checks the locale).
 - `meta`: `generator`, `version`, `locale`.
 - `new_question[]`: `{type, expected}` (`newDraftQuestion`). A draft is the
   PWA's `DraftQuestion` without its `uid`s: `{type, key, label, help_text,
-  required, keyEdited, locked, min, max, unit, decimals, min_length,
-  max_length, multiline, options: [{value, label, archived, valueEdited,
-  locked}], multiple, min_selected, max_selected, publishedMultiple}`, every
+required, keyEdited, locked, min, max, unit, decimals, min_length,
+max_length, multiline, options: [{value, label, archived, valueEdited,
+locked}], multiple, min_selected, max_selected, publishedMultiple}`, every
   constraint as the text of its field.
 - `from_question[]`: `{question, locked, expected}` (`draftFromQuestion`: the
   draft a published question opens as in the editor).
@@ -272,6 +281,28 @@ en-US (the generator checks the locale).
   preview's best-effort question; `index` numbers the placeholders).
 - `constraint_text[]`: `{question, expected}` (`constraintText`: the versions
   list's line under each question).
+
+Timed topics (timers.md §2.1). A step draft is `{key, label, locked}` (the
+PWA's `DraftStep` without its `uid`); `locked` marks a step of the base
+version, whose key never changes.
+
+- `new_step[]`: `{label, taken, history, expected}` (`newDraftStep`: the key
+  derived from the label, unique among `taken` and every `history` key; `step`
+  when the label has no usable characters; `''` for a blank label). `history`
+  is every step key the topic's versions have used, with its latest label
+  (`stepHistory`): a label equal, ignoring case and surrounding space, to a
+  historic step's whose key isn't in `taken` takes that key back.
+- `from_timer[]`: `{timer, expected: {timed, steps}}` (`draftFromTimer`: the
+  steps a published timer opens as).
+- `step_label[]`: `{name, step, label, taken, history, expected}`
+  (`withStepLabel`: a locked step keeps its key, a new one re-derives it as
+  `new_step` does).
+- `timer_output[]`: `{name, timed, steps, expected: {timer, issues}}`
+  (`timerFromDraft`: the `timer` a publish sends, or the issues at paths
+  relative to the steps list, with `timer` null). Keys must be unique; labels may
+  repeat, as on the server.
+- `timer_changes[]`: `{name, base, next, expected}` (`timerChanges`: the review
+  sheet's timing lines).
 
 ## `entries-vectors.json`
 
@@ -328,6 +359,12 @@ the iOS builder (`QuickrCore/Builder`) can prove it agrees offline.
   `expected` is `check_compatibility`'s report. Python visits option sets in
   hash order, so `issues` are sorted by `(level, question_key, message)` and
   each change's `details` are sorted; compare them sorted.
+- `timers[]`: `{name, timer, expected: {errors}}`. `timer` is a version's timer
+  as a client sends it (`{steps: [{key, label}]}`; no steps is a plain
+  stopwatch). `errors` lists the sorted dotted locations, relative to the timer,
+  where `Timer` rejects it (`steps`, `steps.2.key`); `[]` means accepted. Step
+  keys follow the question key rule and are unique; labels follow the question
+  label limit and need not be unique; at most 30 steps (timers.md §2.1, §5).
 - `slugs[]`: `{input, expected}`: `slugify` (`services/topics.py`), which gives
   `topic` when nothing is left.
 - `casefold[]`: `[code point, [folded code points]]` for every code point whose
@@ -399,7 +436,8 @@ To add an endpoint, add one `rec(...)` call to `scenario()`.
 ## `action-entry-id-vectors.json`
 
 - `cases[]`: `{name, server_id, topic_id, due_since, expected}`: the id every
-  client gives the entry a reminder action logs (notifications.md §7.4).
+  client gives the entry a reminder action logs (notifications.md §7.4), and the
+  run id a timed reminder's Start uses (timers.md §10.2).
 - `meta.semantics`: the exact bytes hashed. Both ids are lowercased;
   `due_since` is used exactly as the payload carries it, so the non-canonical
   cases give different ids on purpose.
@@ -429,6 +467,75 @@ What the PWA's Overview makes of each `stats-vectors.json` case (same `name`), e
   (`visible`, `top`, `shares`, `colors`) or str (`distinct`, `most_common`, `recent`).
 - `default_bucket`, `ticks` (`niceTicks` and `formatTick`), `numbers` (`formatNumber`; NaN and
   null as strings), `percents` (`formatPercent`) and `pick` (`pickLabels`): the helpers alone.
+
+## `run-fold-vectors.json`
+
+The run fold ([docs/specs/timers.md](../../docs/specs/timers.md) §4) and the
+timing projection (§2.3). Every client folds a run's events with its own port
+and must reach the same state, effects and timing.
+
+- `meta`: `run_id` (every case's run), `max_run_ms` (7 days) and `semantics`:
+  the rules in prose.
+- `step_sets`: `id -> [{key, label}]`, the run version's steps. Cases refer to
+  them by id.
+- `cases[]`: `{name, steps, events, frozen, expected}`. `events` are
+  `{id, type, at, seg, step, pause_id}` in server arrival order. `frozen` is
+  `null` or `{after, reason}`: events from arrival index `after` on are void
+  with `reason` (`run_edited`, `entry_deleted` or `already_closed`) and not
+  folded, as the server does once a run is edited, its entry deleted or the run
+  discarded. `expected` is `{state, timing}`: `state` is `RunState` (§4.3) plus
+  `started_at` and `ended_at`; `effects` maps each lowercase event id to
+  `{effect, reason}` (`finish` events have none: the server decides them).
+  `timing` is the entry's `Timing` for a stopped run, else `null`.
+
+Input `at` values are wire strings, some with sub-millisecond digits or a
+non-UTC offset: parse each to integer epoch milliseconds, truncating, and do
+all arithmetic on integers. Output instants are UTC with `Z`, with six fraction
+digits only when the millisecond part isn't zero (the API's form). Each case is
+one line.
+
+Notes for the ports:
+
+- An open pause covers a closed segment up to that segment's end. Measure it to
+  the segment's end; don't stand in a large number for "not resumed" (`2**62`
+  is past JavaScript's `Number.MAX_SAFE_INTEGER`).
+- Time order is `(at, lowercase id)`, except that a resume with the same `at`
+  as the pause it names sorts right after that pause
+  (`resume-at-the-pause-instant`).
+
+## `timing-stats-vectors.json`
+
+Timing stats ([timers.md](../../docs/specs/timers.md) §9.1): what
+`getTopicTiming` answers for a set of entries, and what the clients' timing
+chart models are checked against.
+
+- `cases[]`: `{name, versions, current_version, entries, expected}`. `versions`
+  maps a version number (a string) to its steps, or `null` for an untimed
+  version. `entries` are `{entry_id, captured_at, timing}`, with `timing` in
+  the `run-fold-vectors.json` form or `null` for an untimed entry. `expected`
+  is `TopicTiming` (§9.2): `runs`, `complete_runs`, `total`, `steps`, `laps`,
+  `paused` and `series`, in integer milliseconds.
+- `meta.semantics`: the rules in prose: complete runs only for `total`; floored
+  medians and means; which step keys are listed, in which order, with which
+  label.
+
+## `duration-format-vectors.json`
+
+- `cases[]`: `{name, ms, expected}`: `fmtDuration(ms)`
+  ([timers.md](../../docs/specs/timers.md) §11.1): `m:ss` below one hour,
+  `h:mm:ss` from it, truncated to whole seconds, negative as `0:00`.
+
+## `live-activity-vectors.json`
+
+- `cases[]`: `{name, event, steps, run, payload, bytes}`: the exact APNs body the server sends
+  for a run whose events are folded as in `run-fold-vectors.json`
+  ([timers.md](../../docs/specs/timers.md) §10.3, §10.4). `run` is that run: its `events` (in
+  `run-fold-vectors.json`'s event shape), the server's `status` when it isn't the fold's
+  (`finishing`), and its `revision`; the app builds the same content state from it for its
+  local updates. `payload.aps["content-state"]` is
+  `RunActivityState`; a `start`'s `attributes` are `RunActivityAttributes`. `bytes` is the
+  encoded size (at most `meta.max_bytes`). `meta.headers` are the request headers, and
+  `meta.apple` the documentation every `aps` key was checked against.
 
 ## `provisioning/`
 

@@ -1,0 +1,663 @@
+/** The `run.event` kind in a real outbox: start ordering, K6, classification (timers.md §8). */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { fakeQuickrServer } from '../../test/fakeQuickrServer';
+import { T0, TOPIC, runItem } from '../../test/runs';
+import { ackedItems, memoryAckedStore, setAckedStore } from '../runs/acked';
+import { formatInstant } from '../runs/instant';
+import {
+  ALREADY_LOGGED,
+  ENTRY_CREATE,
+  OUTBOX_KINDS,
+  RUN_EVENT,
+  problemCode,
+  type RunEventPayload,
+} from './kinds';
+import { createOutbox } from './outbox';
+import { memoryOutboxStore } from './store';
+import type { OutboxEvent, OutboxItem } from './types';
+
+const json = (status: number, body: unknown) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+const problem = (status: number, code: string) => json(status, { code, detail: code, errors: [] });
+const ok = (id: string) =>
+  json(200, { event: { id, effect: 'applied', reason: null }, run: {}, entry: null });
+
+beforeEach(() => {
+  setAckedStore(memoryAckedStore());
+});
+
+type Responder = (body: { id: string; type: string }) => Response | Error;
+
+function setup(respond: Responder) {
+  const t = { now: T0 };
+  const sent: string[] = [];
+  const fetchMock = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(init?.body as string) as { id: string; type: string };
+    sent.push(body.id);
+    const r = respond(body);
+    return r instanceof Error ? Promise.reject(r) : Promise.resolve(r);
+  });
+  const store = memoryOutboxStore();
+  const outbox = createOutbox({
+    kinds: OUTBOX_KINDS,
+    store,
+    fetch: fetchMock,
+    now: () => t.now,
+    random: () => 0.5,
+    channelName: null,
+  });
+  const events: OutboxEvent[] = [];
+  outbox.subscribe((e) => events.push(e));
+  /** Put items in the queue as `enqueue` would (in order, kind hooks included). */
+  const queue = async (...items: OutboxItem<RunEventPayload>[]) => {
+    for (const i of items) {
+      t.now = Date.parse(i.created_at);
+      await outbox.enqueue(RUN_EVENT, i.payload, { id: i.id });
+    }
+  };
+  const ids = async () => (await outbox.list()).map((i) => `${i.id}:${i.status}`);
+  return { outbox, store, sent, events, queue, ids, t };
+}
+
+const start = runItem('start', { id: 'r1', run: 'r1', at: T0 });
+const next = runItem('next', { id: 'n1', run: 'r1', at: T0 + 1000, seg: 0 });
+const stop = runItem('stop', { id: 's1', run: 'r1', at: T0 + 2000 });
+
+describe('start ordering', () => {
+  it("doesn't send a run's events before its start is in", async () => {
+    let up = false;
+    const { outbox, sent, queue, ids } = setup((b) => (up ? ok(b.id) : problem(503, 'down')));
+    await queue(start, next, stop);
+    await outbox.flush();
+    // The start was tried and backs off; its events weren't attempted at all.
+    expect(sent).toEqual(['r1']);
+    expect((await outbox.list()).map((i) => i.attempts)).toEqual([1, 0, 0]);
+    up = true;
+    await outbox.flush({ force: true });
+    // Start first, then its events in the same pass.
+    expect(sent).toEqual(['r1', 'r1', 'n1', 's1']);
+    expect(await ids()).toEqual([]);
+  });
+
+  it('sends events at once when the start is already in', async () => {
+    const { outbox, sent, queue } = setup((b) => ok(b.id));
+    await queue(next, stop); // the start was acked earlier
+    await outbox.flush();
+    expect(sent).toEqual(['n1', 's1']);
+  });
+
+  it('a failed start blocks its events until retried, and nothing else', async () => {
+    let refuse = true;
+    const { outbox, sent, queue, ids } = setup((b) =>
+      refuse && b.id === 'r1' ? problem(409, 'topic_not_timed') : ok(b.id),
+    );
+    const other = runItem('start', { id: 'r2', run: 'r2', at: T0 + 500 });
+    await queue(start, other, next);
+    await outbox.flush();
+    expect(sent).toEqual(['r1', 'r2']);
+    expect(await ids()).toEqual(['r1:failed', 'n1:pending']);
+    // Blocked items aren't due: no polling while the start needs the user.
+    expect(await outbox.nextDueAt()).toBeNull();
+    refuse = false;
+    await outbox.retry('r1');
+    expect(sent).toEqual(['r1', 'r2', 'r1', 'n1']);
+    expect(await ids()).toEqual([]);
+  });
+
+  it('discarding a failed start discards its events', async () => {
+    const { outbox, events, queue, ids } = setup(() => problem(409, 'topic_archived'));
+    await queue(start, next, stop);
+    await outbox.flush();
+    await outbox.discard('r1');
+    expect(await ids()).toEqual([]);
+    expect(
+      events.filter((e) => e.type === 'discarded').map((e) => 'item' in e && e.item.id),
+    ).toEqual(['r1', 'n1', 's1']);
+  });
+
+  it("a failed Next doesn't block Stop", async () => {
+    const { outbox, sent, queue, ids } = setup((b) =>
+      b.id === 'n1' ? problem(422, 'invalid_request') : ok(b.id),
+    );
+    await queue(start, next, stop);
+    await outbox.flush();
+    expect(sent).toEqual(['r1', 'n1', 's1']);
+    expect(await ids()).toEqual(['n1:failed']);
+  });
+
+  it('events of one run never wait for each other while retrying', async () => {
+    const { outbox, sent, queue, ids } = setup((b) =>
+      b.id === 'n1' ? problem(503, 'down') : ok(b.id),
+    );
+    await queue(next, stop);
+    await outbox.flush();
+    expect(sent).toEqual(['n1', 's1']);
+    expect(await ids()).toEqual(['n1:pending']);
+  });
+});
+
+describe('K6', () => {
+  const discard = runItem('discard', { id: 'd1', run: 'r1', at: T0 + 3000 });
+
+  it('a discard of a never-sent run removes it without a trace', async () => {
+    const { outbox, sent, events, queue, ids } = setup((b) => ok(b.id));
+    await queue(start, next, discard);
+    expect(await ids()).toEqual([]);
+    await outbox.flush();
+    expect(sent).toEqual([]);
+    expect(events.map((e) => e.type)).toEqual(['enqueued', 'enqueued', 'discarded', 'discarded']);
+    expect(await outbox.get('d1')).toBeUndefined();
+  });
+
+  it('a discard after any attempt is appended and sent', async () => {
+    const { outbox, sent, queue, ids } = setup((b) =>
+      b.id === 'r1' ? new Error('offline') : ok(b.id),
+    );
+    await queue(start, next);
+    await outbox.flush(); // offline: the start was attempted
+    await queue(discard);
+    expect(await ids()).toEqual(['r1:pending', 'n1:pending', 'd1:pending']);
+    expect(sent).toEqual(['r1']);
+  });
+});
+
+describe('classification', () => {
+  it('acks a void event like any success', async () => {
+    const { outbox, queue, ids } = setup((b) =>
+      json(200, { event: { id: b.id, effect: 'void', reason: 'stale' }, run: {}, entry: null }),
+    );
+    await queue(next);
+    await outbox.flush();
+    expect(await ids()).toEqual([]);
+  });
+
+  it('retires on run_deleted', async () => {
+    const { outbox, events, queue, ids } = setup(() => problem(409, 'run_deleted'));
+    await queue(next);
+    await outbox.flush();
+    expect(await ids()).toEqual([]);
+    expect(events.at(-1)?.type).toBe('retired');
+  });
+
+  it('fails a non-start event on 404, and rejects 409 conflicts and 422', async () => {
+    const codes: Record<string, Response> = {
+      n1: problem(404, 'not_found'),
+      s1: problem(422, 'invalid_answers'),
+      r1: problem(409, 'id_conflict'),
+    };
+    const { outbox, queue, ids } = setup((b) => codes[b.id] ?? ok(b.id));
+    await queue(start);
+    await outbox.flush();
+    await queue(next, stop);
+    await outbox.flush();
+    expect(await ids()).toEqual(['r1:failed', 'n1:pending', 's1:pending']);
+    // With the start discarded, they'd go out and fail on their own.
+    const { outbox: o2, queue: q2, ids: ids2 } = setup((b) => codes[b.id] ?? ok(b.id));
+    await q2(next, stop);
+    await o2.flush();
+    expect(await ids2()).toEqual(['n1:failed', 's1:failed']);
+  });
+
+  it('fails a finish refused with run_open, answers kept, instead of retrying forever', async () => {
+    const finish = runItem('finish', { id: 'f1', run: 'r1', at: T0 + 2500, answers: { mood: 4 } });
+    const { outbox, queue, ids } = setup(() => problem(409, 'run_open'));
+    await queue(finish);
+    await outbox.flush();
+    expect(await ids()).toEqual(['f1:failed']);
+    const kept = await outbox.get('f1');
+    expect((kept?.payload as RunEventPayload).event.answers).toEqual({ mood: 4 });
+  });
+});
+
+describe('finish after stop (L1)', () => {
+  const finish = runItem('finish', { id: 'f1', run: 'r1', at: T0 + 2500, answers: { mood: 4 } });
+
+  it("waits for its run's pending stop", async () => {
+    let up = false;
+    const { outbox, sent, queue, ids } = setup((b) =>
+      b.id === 's1' && !up ? problem(503, 'down') : ok(b.id),
+    );
+    await queue(stop, finish);
+    await outbox.flush();
+    expect(sent).toEqual(['s1']);
+    expect(await ids()).toEqual(['s1:pending', 'f1:pending']);
+    up = true;
+    await outbox.flush({ force: true });
+    expect(sent).toEqual(['s1', 's1', 'f1']);
+  });
+
+  it('goes (and fails on run_open) once its stop failed', async () => {
+    const { outbox, sent, queue, ids } = setup((b) =>
+      b.id === 's1' ? problem(422, 'before_start') : problem(409, 'run_open'),
+    );
+    await queue(stop, finish);
+    await outbox.flush();
+    expect(sent).toEqual(['s1', 'f1']);
+    expect(await ids()).toEqual(['s1:failed', 'f1:failed']);
+  });
+
+  it("isn't discarded with its stop", async () => {
+    const { outbox, queue, ids } = setup(() => new Error('offline'));
+    await queue(stop, finish);
+    await outbox.discard('s1');
+    expect(await ids()).toEqual(['f1:pending']);
+  });
+});
+
+describe("start after another run's stop (§8.1)", () => {
+  const r2 = runItem('start', { id: 'r2', run: 'r2', at: T0 });
+  const s2 = runItem('stop', { id: 's2', run: 'r2', at: T0 + 2000 });
+  const r3 = runItem('start', { id: 'r3', run: 'r3', at: T0 + 3000 });
+
+  /** An outbox on the stateful fake: it merges a start into the topic's open run. */
+  function onServer() {
+    const t = { now: T0 };
+    const server = fakeQuickrServer('srv', [TOPIC.id]);
+    const store = memoryOutboxStore();
+    const outbox = createOutbox({
+      kinds: OUTBOX_KINDS,
+      store,
+      fetch: server.fetch,
+      now: () => t.now,
+      random: () => 0.5,
+      channelName: null,
+    });
+    const queue = async (...items: OutboxItem<RunEventPayload>[]) => {
+      for (const i of items) {
+        t.now = Date.parse(i.created_at);
+        // A failed item is put as it is: enqueue makes a pending one.
+        if (i.status === 'failed') await store.put(i);
+        else await outbox.enqueue(RUN_EVENT, i.payload, { id: i.id });
+      }
+    };
+    const sent = () =>
+      server.requests.map((r) => {
+        const b = r.body as { id: string; type: string };
+        return `${b.type}:${b.id}`;
+      });
+    return { server, outbox, queue, sent, t };
+  }
+
+  it('waits for the retrying stop, so the new run is created, not merged', async () => {
+    const { server, outbox, queue, sent } = onServer();
+    await queue(r2);
+    await outbox.flush(); // R2 started and acked
+    server.unavailable.add('s2');
+    await queue(s2);
+    await outbox.flush(); // 503: the stop backs off
+    await queue(r3); // the local view has R2 stopped: a new run
+    await outbox.flush({ force: true });
+    // The stop was retried (503 again); the start wasn't attempted.
+    expect(sent()).toEqual(['start:r2', 'stop:s2', 'stop:s2']);
+    expect((await outbox.list()).map((i) => `${i.id}:${i.attempts}`)).toEqual(['s2:2', 'r3:0']);
+    expect(await outbox.nextDueAt()).toBe((await outbox.get('s2'))?.next_attempt_at);
+    server.unavailable.delete('s2');
+    await outbox.flush({ force: true });
+    expect(sent()).toEqual(['start:r2', 'stop:s2', 'stop:s2', 'stop:s2', 'start:r3']);
+    expect(await outbox.list()).toEqual([]);
+    expect(server.runs.get('r2')?.status).toBe('stopped');
+    expect(server.runs.get('r2')?.aliases).toBeUndefined();
+    expect(server.runs.get('r3')?.status).toBe('running');
+  });
+
+  it('waits for a pending discard of another run too', async () => {
+    const { server, outbox, queue, sent } = onServer();
+    const d2 = runItem('discard', { id: 'd2', run: 'r2', at: T0 + 2000 });
+    await queue(r2);
+    await outbox.flush();
+    server.unavailable.add('d2');
+    await queue(d2, r3);
+    await outbox.flush({ force: true });
+    expect(sent()).toEqual(['start:r2', 'discard:d2']);
+    server.unavailable.delete('d2');
+    await outbox.flush({ force: true });
+    expect(sent()).toEqual(['start:r2', 'discard:d2', 'discard:d2', 'start:r3']);
+    expect(server.runs.get('r3')?.status).toBe('running');
+  });
+
+  it("isn't held by a failed stop: it goes, and the server merges it into the run still open", async () => {
+    const { server, outbox, queue, sent } = onServer();
+    await queue(r2);
+    await outbox.flush();
+    await queue(runItem('stop', { id: 's2', run: 'r2', at: T0 + 2000, status: 'failed' }), r3);
+    await outbox.flush();
+    expect(sent()).toEqual(['start:r2', 'start:r3']);
+    // The failed stop stays for the user (retry or discard), as any failed item.
+    expect((await outbox.list()).map((i) => `${i.id}:${i.status}`)).toEqual(['s2:failed']);
+    expect(server.runs.get('r2')?.aliases?.has('r3')).toBe(true);
+  });
+
+  it("isn't held by the stop of a run whose start failed", async () => {
+    const { outbox, queue, sent } = onServer();
+    await queue(
+      runItem('start', { id: 'r2', run: 'r2', at: T0, status: 'failed' }),
+      s2, // held by its failed start
+      r3,
+    );
+    await outbox.flush();
+    expect(sent()).toEqual(['start:r3']);
+  });
+
+  it("isn't held by a later stop, the run's own, or another topic's", () => {
+    const kind = OUTBOX_KINDS[RUN_EVENT];
+    const later = runItem('stop', { id: 's9', run: 'r9', at: T0 + 4000 });
+    const own = runItem('stop', { id: 's3', run: 'r3', at: T0 + 2000 });
+    const elsewhere = runItem('stop', { id: 's8', run: 'r8', at: T0 + 2000 });
+    elsewhere.payload = { ...elsewhere.payload, topic: { ...TOPIC, id: 'topic-2' } };
+    expect(kind?.waitsFor?.(r3, [later, own, elsewhere, r3])).toEqual([]);
+    expect(kind?.waitsFor?.(r3, [s2, r3])).toEqual(['s2']);
+  });
+});
+
+describe('enqueue and flush (H1, L2)', () => {
+  it("doesn't wait for a flush in progress, except for a discard", async () => {
+    let release: (r: Response) => void = () => undefined;
+    const hanging = new Promise<Response>((r) => {
+      release = r;
+    });
+    // The start's request hangs.
+    const o = createOutbox({
+      kinds: OUTBOX_KINDS,
+      store: memoryOutboxStore(),
+      fetch: () => hanging,
+      channelName: null,
+    });
+    await o.enqueue(RUN_EVENT, start.payload, { id: 'r1' });
+    const flushing = o.flush();
+    await new Promise((r) => setTimeout(r, 0));
+    // The pass holds the lock on the start's request; a lap is stored at once.
+    await o.enqueue(RUN_EVENT, next.payload, { id: 'n1' });
+    expect((await o.list()).map((i) => i.id).sort()).toEqual(['n1', 'r1']);
+    let discarded = false;
+    const discard = runItem('discard', { id: 'd1', run: 'r1', at: T0 + 3000 });
+    const pendingDiscard = o.enqueue(RUN_EVENT, discard.payload, { id: 'd1' }).then(() => {
+      discarded = true;
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(discarded).toBe(false);
+    release(ok('r1'));
+    await flushing;
+    await pendingDiscard;
+    expect(discarded).toBe(true);
+  });
+
+  it('sends taps of one millisecond in the order of their at', async () => {
+    const { outbox, sent, queue } = setup((b) => ok(b.id));
+    // Same created_at; ids that sort the other way round.
+    const a = runItem('next', { id: 'zz', run: 'r1', at: T0 + 1, seg: 0, created: T0 });
+    const b = runItem('lap', { id: 'aa', run: 'r1', at: T0 + 2, seg: 1, created: T0 });
+    await queue(a, b);
+    await outbox.flush();
+    expect(sent).toEqual(['zz', 'aa']);
+  });
+
+  it('records an acked event before it leaves the queue', async () => {
+    const seen: string[] = [];
+    const { outbox, queue } = setup((b) => ok(b.id));
+    outbox.subscribe((e) => {
+      if (e.type === 'sent') void ackedItems().then((a) => seen.push(...a.map((i) => i.id)));
+    });
+    await queue(next);
+    await outbox.flush();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(seen).toEqual(['n1']);
+  });
+});
+
+describe('entry.create alongside run events', () => {
+  it('is sent in order and never waits for a run', async () => {
+    const { outbox, sent, queue, t } = setup((b) =>
+      b.id === 'r1' ? problem(503, 'down') : json(201, { id: b.id }),
+    );
+    await queue(start, next);
+    t.now += 10;
+    await outbox.enqueue(
+      ENTRY_CREATE,
+      { topic: { id: 't', slug: 't', name: 'T' }, body: { answers: {} } },
+      { id: 'e1' },
+    );
+    await outbox.flush();
+    expect(sent).toEqual(['r1', 'e1']);
+  });
+});
+
+describe('a start the server already has (§8.1, §10.2)', () => {
+  const OTHER = 'topic-2';
+  const elsewhere = formatInstant(T0 - 5000); // another device's start of the same reminder
+
+  /** An outbox on the stateful fake, with the requests as `METHOD path` lines. */
+  function onFake(fetch?: typeof globalThis.fetch) {
+    const server = fakeQuickrServer('srv', [TOPIC.id, OTHER]);
+    const store = memoryOutboxStore();
+    const outbox = createOutbox({
+      kinds: OUTBOX_KINDS,
+      store,
+      fetch: fetch ?? server.fetch,
+      now: () => T0,
+      random: () => 0.5,
+      channelName: null,
+    });
+    const events: OutboxEvent[] = [];
+    outbox.subscribe((e) => events.push(e));
+    const queue = async (...items: OutboxItem<RunEventPayload>[]) => {
+      for (const i of items) await outbox.enqueue(RUN_EVENT, i.payload, { id: i.id });
+    };
+    const requests = () =>
+      server.requests.map((r) => `${r.method} ${new URL(r.url, 'https://q.test').pathname}`);
+    const ids = async () => (await outbox.list()).map((i) => `${i.id}:${i.status}`);
+    return { server, store, outbox, events, queue, requests, ids };
+  }
+  const sentEvent = (events: OutboxEvent[], id: string) =>
+    events.find(
+      (e): e is Extract<OutboxEvent, { type: 'sent' }> => e.type === 'sent' && e.item.id === id,
+    );
+  const logged = (topicId: string) => ({ id: 'r1', topic_id: topicId, answers: [], source: 'ios' });
+
+  it('event_conflict, same topic: acked with the server’s run, and its Next goes after', async () => {
+    const { server, outbox, events, queue, requests, ids } = onFake();
+    server.runs.set('r1', {
+      id: 'r1',
+      topic_id: TOPIC.id,
+      version: 1,
+      at: elsewhere,
+      source: 'ios',
+    });
+    await queue(start, next);
+    await outbox.flush();
+    expect(requests()).toEqual([
+      'POST /api/v1/runs/r1/events',
+      'GET /api/v1/runs/r1',
+      'POST /api/v1/runs/r1/events',
+    ]);
+    expect(await ids()).toEqual([]);
+    const acked = sentEvent(events, 'r1');
+    expect(acked?.verified).toBe(true);
+    expect(acked?.data).toMatchObject({
+      event: { id: 'r1', effect: 'applied' },
+      run: { id: 'r1', topic_id: TOPIC.id },
+      entry: null,
+    });
+    expect(sentEvent(events, 'n1')?.verified).toBeUndefined();
+    expect(server.runs.get('r1')?.events?.has('n1')).toBe(true);
+    // The acked record keeps the run in the local view until listRuns has it.
+    expect((await ackedItems(T0)).map((i) => i.id)).toEqual(['r1', 'n1']);
+  });
+
+  it('a run already stopped on the server: acked, but not kept as an open run', async () => {
+    const { server, outbox, events, queue, ids } = onFake();
+    server.runs.set('r1', {
+      id: 'r1',
+      topic_id: TOPIC.id,
+      version: 1,
+      at: elsewhere,
+      source: 'ios',
+      status: 'stopped',
+    });
+    await queue(start);
+    await outbox.flush();
+    expect(await ids()).toEqual([]);
+    expect(sentEvent(events, 'r1')?.data).toMatchObject({ run: { status: 'stopped' } });
+    expect(await ackedItems(T0)).toEqual([]);
+  });
+
+  it('event_conflict on a start merged into another run: acked with that run, the id an alias', async () => {
+    const { server, outbox, events, queue, ids } = onFake();
+    server.runs.set('r0', {
+      id: 'r0',
+      topic_id: TOPIC.id,
+      version: 1,
+      at: elsewhere,
+      source: 'ios',
+      aliases: new Map([['r1', { type: 'start', at: elsewhere, topic_id: TOPIC.id }]]),
+    });
+    await queue(start, next);
+    await outbox.flush();
+    expect(await ids()).toEqual([]);
+    expect(sentEvent(events, 'r1')?.data).toMatchObject({
+      event: { id: 'r1', effect: 'void', reason: 'merged' },
+      run: { id: 'r0', aliases: ['r1'] },
+    });
+    expect(server.runs.get('r0')?.events?.has('n1')).toBe(true);
+  });
+
+  it('adds the alias when the run read doesn’t list it, and defaults the effect to merged', async () => {
+    const run = { id: 'r0', topic_id: TOPIC.id, aliases: [], state: { effects: {} } };
+    const { outbox, events, queue } = onFake((_url, init) =>
+      Promise.resolve(init?.method === 'GET' ? json(200, run) : problem(409, 'event_conflict')),
+    );
+    await queue(start);
+    await outbox.flush();
+    expect(sentEvent(events, 'r1')?.data).toEqual({
+      event: { id: 'r1', effect: 'void', reason: 'merged' },
+      run: { ...run, aliases: ['r1'] },
+      entry: null,
+    });
+  });
+
+  it('event_conflict, another topic’s run: failed rejected, its taps held as before', async () => {
+    const { server, outbox, queue, ids } = onFake();
+    server.runs.set('r1', {
+      id: 'r1',
+      topic_id: OTHER,
+      version: 1,
+      at: formatInstant(T0),
+      source: 'ios',
+    });
+    await queue(start, next);
+    await outbox.flush();
+    expect(await ids()).toEqual(['r1:failed', 'n1:pending']);
+    expect(problemCode((await outbox.get('r1'))?.last_error?.body)).toBe('event_conflict');
+  });
+
+  it('id_conflict, an entry of the topic: the start retires and its taps fail as already logged', async () => {
+    const { server, outbox, events, queue, requests, ids } = onFake();
+    server.entries.set('r1', logged(TOPIC.id));
+    await queue(start, next, stop);
+    await outbox.flush();
+    expect(requests()).toEqual([
+      'POST /api/v1/runs/r1/events',
+      'GET /api/v1/runs/r1',
+      'GET /api/v1/entries/r1',
+    ]);
+    expect(await ids()).toEqual(['n1:failed', 's1:failed']);
+    expect((await outbox.get('n1'))?.last_error?.message).toBe(ALREADY_LOGGED);
+    expect((await outbox.get('n1'))?.attempts).toBe(0);
+    expect(events.find((e) => e.type === 'retired')?.item.id).toBe('r1');
+    const failed = events.filter((e) => e.type === 'failed').map((e) => e.item.id);
+    expect(failed).toEqual(['n1', 's1']);
+  });
+
+  it('the entry case leaves another run’s taps, and a tap failed already, alone', async () => {
+    const { server, store, outbox, queue, ids } = onFake();
+    server.entries.set('r1', logged(TOPIC.id));
+    server.unavailable.add('n2');
+    const n2 = runItem('next', { id: 'n2', run: 'r2', at: T0 + 1500, seg: 0 });
+    const s1Failed = {
+      ...stop,
+      status: 'failed' as const,
+      last_error: { message: 'Mine', status: 422 },
+    };
+    await queue(start, next, n2);
+    await store.put(s1Failed);
+    await outbox.flush();
+    expect(await ids()).toEqual(['n1:failed', 'n2:pending', 's1:failed']);
+    expect((await outbox.get('n2'))?.last_error?.status).toBe(503);
+    expect((await outbox.get('s1'))?.last_error?.message).toBe('Mine');
+  });
+
+  it('id_conflict, another topic’s entry: failed rejected', async () => {
+    const { server, outbox, queue, ids } = onFake();
+    server.entries.set('r1', logged(OTHER));
+    await queue(start, next);
+    await outbox.flush();
+    expect(await ids()).toEqual(['r1:failed', 'n1:pending']);
+    expect(problemCode((await outbox.get('r1'))?.last_error?.body)).toBe('id_conflict');
+  });
+
+  it('a transient error on the read retries the start; it acks once the read answers', async () => {
+    const { server, outbox, queue, ids } = onFake();
+    server.runs.set('r1', {
+      id: 'r1',
+      topic_id: TOPIC.id,
+      version: 1,
+      at: elsewhere,
+      source: 'ios',
+    });
+    server.unavailableReads.add('r1');
+    await queue(start, next);
+    await outbox.flush();
+    expect(await ids()).toEqual(['r1:pending', 'n1:pending']);
+    const retrying = await outbox.get('r1');
+    expect(retrying?.attempts).toBe(1);
+    expect(retrying?.last_error?.status).toBe(503);
+    server.unavailableReads.delete('r1');
+    await outbox.flush({ force: true });
+    expect(await ids()).toEqual([]);
+  });
+
+  it('a network error on the read retries the start', async () => {
+    const { outbox, queue, ids } = onFake((_url, init) =>
+      init?.method === 'GET'
+        ? Promise.reject(new TypeError('Failed to fetch'))
+        : Promise.resolve(problem(409, 'event_conflict')),
+    );
+    await queue(start);
+    await outbox.flush();
+    expect(await ids()).toEqual(['r1:pending']);
+    expect((await outbox.get('r1'))?.last_error?.status).toBeNull();
+  });
+
+  it('a terminal refusal of the read (not a 404) fails the start', async () => {
+    const { outbox, queue, ids } = onFake((_url, init) =>
+      Promise.resolve(
+        init?.method === 'GET' ? problem(400, 'bad_request') : problem(409, 'event_conflict'),
+      ),
+    );
+    await queue(start);
+    await outbox.flush();
+    expect(await ids()).toEqual(['r1:failed']);
+    expect((await outbox.get('r1'))?.last_error?.status).toBe(400);
+  });
+
+  it('no run with that id (404): the event_conflict stands', async () => {
+    const { outbox, queue, ids } = onFake((_url, init) =>
+      Promise.resolve(
+        init?.method === 'GET' ? problem(404, 'not_found') : problem(409, 'event_conflict'),
+      ),
+    );
+    await queue(start);
+    await outbox.flush();
+    expect(await ids()).toEqual(['r1:failed']);
+    expect(problemCode((await outbox.get('r1'))?.last_error?.body)).toBe('event_conflict');
+  });
+
+  it('only a start is checked: a Next’s event_conflict fails it without a read', async () => {
+    const { outbox, queue, ids } = onFake((_url, init) =>
+      Promise.resolve(init?.method === 'GET' ? json(200, {}) : problem(409, 'event_conflict')),
+    );
+    await queue(next);
+    await outbox.flush();
+    expect(await ids()).toEqual(['n1:failed']);
+  });
+});

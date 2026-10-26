@@ -12,14 +12,18 @@ public struct WidgetActions {
     public var number: (AnswerValue) -> (any AppIntent)?
     /// A single topic's "Log it" (no questions).
     public var single: () -> (any AppIntent)?
+    /// A timed topic's Start, Next, Lap or Stop (timers.md §11.3); nil opens the run screen.
+    public var run: (WidgetRunButton) -> (any AppIntent)?
 
     public init(
         option: @escaping (EnumOption) -> (any AppIntent)?, number: @escaping (AnswerValue) -> (any AppIntent)?,
-        single: @escaping () -> (any AppIntent)? = { nil }
+        single: @escaping () -> (any AppIntent)? = { nil },
+        run: @escaping (WidgetRunButton) -> (any AppIntent)? = { _ in nil }
     ) {
         self.option = option
         self.number = number
         self.single = single
+        self.run = run
     }
 }
 
@@ -66,7 +70,14 @@ public struct TopicWidgetView: View {
 
     public var body: some View {
         Group {
-            if let topic {
+            if let topic, topic.runTile.isTimed {
+                switch style.family {
+                case .accessoryInline: timedInline(topic)
+                case .accessoryCircular: timedCircular(topic)
+                case .accessoryRectangular: timedRectangular(topic)
+                default: timedHome(topic)
+                }
+            } else if let topic {
                 switch style.family {
                 case .accessoryInline: inline(topic)
                 case .accessoryCircular: circular(topic)
@@ -96,7 +107,7 @@ public struct TopicWidgetView: View {
                     Spacer(minLength: 4)
                     if topic.queued > 0 { QueuedMark(count: topic.queued, compact: style.family == .systemSmall) }
                 }
-                DueBadge(DueView(due: topic.due(at: date), now: topic.serverTime(date)))
+                DueBadge(topic.dueView(at: date))
                     .lineLimit(1)
                     .widgetAccentable()
                 lastLine(topic)
@@ -202,8 +213,7 @@ public struct TopicWidgetView: View {
             AccessoryWidgetBackground()
             VStack(spacing: 0) {
                 Image(
-                    systemName: DueView.isDueNow(topic.due(at: date), now: topic.serverTime(date))
-                        ? "bell.fill" : "checkmark"
+                    systemName: topic.countsAsDue(at: date) ? "bell.fill" : "checkmark"
                 )
                 .font(.system(size: 14, weight: .semibold))
                 .widgetAccentable()
@@ -221,8 +231,145 @@ public struct TopicWidgetView: View {
     }
 
     private func dueLabel(_ topic: WidgetTopic) -> String? {
-        let view = DueView(due: topic.due(at: date), now: topic.serverTime(date))
+        let view = topic.dueView(at: date)
         return view.kind == .none ? nil : view.label()
+    }
+
+    // MARK: Timed (timers.md §11.3)
+
+    /// A timed topic: never a one-tap log. Idle, its due state and Start; running, the segment's
+    /// label, its ticking timer and the total, and Next (or Lap) and Stop, the small size one
+    /// Auto button; finishing, "Add details", which opens its answers form. A tap elsewhere opens
+    /// the run screen.
+    private func timedHome(_ topic: WidgetTopic) -> some View {
+        let display = topic.runDisplay
+        let state = topic.runTile
+        return VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(topic.topic.name)
+                    .font(.qr(.section))
+                    .foregroundStyle(.qr.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .accessibilityAddTraits(.isHeader)
+                switch state {
+                case .open(let paused):
+                    if let display {
+                        Text(paused ? "Paused · \(display.label)" : display.label)
+                            .font(.qr(.footnote))
+                            .foregroundStyle(.qr.muted)
+                            .lineLimit(1)
+                        RunWidgetTimer(timer: display.segmentTimer)
+                            .font(.qr(.title))
+                            .foregroundStyle(.qr.ink)
+                            .widgetAccentable()
+                        if style.family != .systemSmall {
+                            RunWidgetTimer(timer: display.totalTimer)
+                                .font(.qr(.footnote))
+                                .foregroundStyle(.qr.muted)
+                        }
+                    }
+                case .finishing:
+                    Text("Add details")
+                        .font(.qr(.footnote))
+                        .foregroundStyle(.qr.warn)
+                    if topic.dueView(at: date).kind != .none {
+                        DueBadge(topic.dueView(at: date)).lineLimit(1).widgetAccentable()
+                    }
+                case .idle, .untimed:
+                    DueBadge(topic.dueView(at: date)).lineLimit(1).widgetAccentable()
+                    lastLine(topic)
+                        .font(.qr(.footnote))
+                        .foregroundStyle(.qr.muted)
+                        .lineLimit(2)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            Spacer(minLength: 0)
+            runControls(topic)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .widgetURL(topic.runURL)
+    }
+
+    @ViewBuilder private func runControls(_ topic: WidgetTopic) -> some View {
+        if topic.runTile == .finishing {
+            Link(destination: topic.runURL) {
+                WidgetChip(label: "Add details", isLast: false, isAccented: style.isAccented, isPrimary: true)
+            }
+            .accessibilityLabel("Add details to \(topic.topic.name)")
+        } else {
+            let compact = style.family == .systemSmall
+            HStack(spacing: 6) {
+                ForEach(topic.runButtons(compact: compact), id: \.self) { button in
+                    runControl(actions?.run(button), topic) {
+                        WidgetChip(
+                            label: compact && button == .next
+                                ? (topic.run?.nextLabel.map { "Next: \($0)" } ?? "Next")
+                                : button.title,
+                            isLast: false, isAccented: style.isAccented, isPrimary: button != .lap)
+                    }
+                    .accessibilityLabel(topic.runButtonLabel(button))
+                }
+            }
+        }
+    }
+
+    /// A run button: runs `intent` in place, or opens the run screen without one (the gallery).
+    @ViewBuilder private func runControl(
+        _ intent: (any AppIntent)?, _ topic: WidgetTopic, @ViewBuilder label: () -> some View
+    ) -> some View {
+        if let intent {
+            AnyView(intentButton(intent, label: label()))
+        } else {
+            Link(destination: topic.runURL, label: label)
+        }
+    }
+
+    /// The Lock Screen's: the name, then the open segment and its timer, "Add details", or the due
+    /// state. It opens the run screen.
+    private func timedRectangular(_ topic: WidgetTopic) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(topic.topic.name).font(.headline).widgetAccentable().lineLimit(1)
+            if case .open = topic.runTile, let display = topic.runDisplay {
+                Text(display.label).font(.caption).lineLimit(1)
+                RunWidgetTimer(timer: display.segmentTimer).font(.caption)
+            } else if topic.runTile == .finishing {
+                Text("Add details").font(.caption).lineLimit(1)
+            } else {
+                Text(dueLabel(topic) ?? "Start").font(.caption).lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .widgetURL(topic.runURL)
+    }
+
+    private func timedCircular(_ topic: WidgetTopic) -> some View {
+        ZStack {
+            AccessoryWidgetBackground()
+            VStack(spacing: 0) {
+                Image(systemName: topic.hasOpenRun ? "timer" : topic.countsAsDue(at: date) ? "bell.fill" : "play.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .widgetAccentable()
+                Text(String(topic.topic.name.prefix(5))).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+            }
+        }
+        .widgetURL(topic.runURL)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(topic.topic.name), \(timedStatus(topic))")
+    }
+
+    private func timedInline(_ topic: WidgetTopic) -> some View {
+        Text("\(topic.topic.name) · \(timedStatus(topic))").widgetURL(topic.runURL)
+    }
+
+    /// "Running", "Paused", "Add details", or the due state ("not due").
+    private func timedStatus(_ topic: WidgetTopic) -> String {
+        switch topic.runTile {
+        case .open(let paused): paused ? "Paused" : "Running"
+        case .finishing: "Add details"
+        case .idle, .untimed: dueLabel(topic) ?? "not due"
+        }
     }
 }
 
@@ -241,7 +388,8 @@ public struct DueListWidgetView: View {
         self.style = style
     }
 
-    private var dueNow: [WidgetTopic] { topics.filter { DueView.isDueNow($0.due(at: date), now: $0.serverTime(date)) } }
+    /// The due count's own rule (`TopicListing.countsAsDue`): a topic with an open run isn't due.
+    private var dueNow: [WidgetTopic] { topics.filter { $0.countsAsDue(at: date) } }
 
     /// Due and scheduled topics, in the list's order; plain ones only fill a large widget.
     private var rows: [WidgetTopic] {
@@ -280,7 +428,7 @@ public struct DueListWidgetView: View {
                     .widgetAccentable()
                 ForEach(rows) { topic in
                     Text(
-                        "\(topic.topic.name) · \(DueView(due: topic.due(at: date), now: topic.serverTime(date)).label())"
+                        "\(topic.topic.name) · \(topic.hasOpenRun ? "Running" : topic.dueView(at: date).label())"
                     )
                     .font(.caption)
                     .lineLimit(1)
@@ -318,7 +466,8 @@ public struct DueListWidgetView: View {
                     .foregroundStyle(.qr.muted)
             }
             ForEach(rows) { topic in
-                Link(destination: topic.recordURL) {
+                // A timed topic opens its run screen, like its tile (timers.md §11.3).
+                Link(destination: topic.runTile.isTimed ? topic.runURL : topic.recordURL) {
                     HStack(spacing: 8) {
                         Text(topic.topic.name)
                             .font(.qr(.callout))
@@ -327,7 +476,7 @@ public struct DueListWidgetView: View {
                             .minimumScaleFactor(0.8)
                         Spacer(minLength: 4)
                         if topic.queued > 0 { QueuedMark(count: topic.queued, compact: true) }
-                        DueBadge(DueView(due: topic.due(at: date), now: topic.serverTime(date)))
+                        DueBadge(topic.dueView(at: date))
                             .lineLimit(1)
                             .fixedSize()
                             .widgetAccentable()
@@ -368,6 +517,21 @@ struct WidgetChip: View {
             }
         }
         .widgetAccentable(isPrimary)
+    }
+}
+
+/// A run's ticking timer, frozen at its pause (the system draws it: no timeline entries).
+struct RunWidgetTimer: View {
+    let timer: RunActivityDisplay.Timer?
+
+    var body: some View {
+        if let timer {
+            Text(
+                timerInterval: Date(timeIntervalSince1970: timer.start)...Date.distantFuture,
+                pauseTime: timer.pausedAt.map { Date(timeIntervalSince1970: $0) }, countsDown: false
+            )
+            .monospacedDigit()
+        }
     }
 }
 

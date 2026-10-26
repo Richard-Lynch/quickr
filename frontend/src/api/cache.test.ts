@@ -36,6 +36,7 @@ const topic = {
   schedule: null,
   schedule_updated_at: null,
   due: null,
+  timer: null,
   questions: [],
 } satisfies TopicDetail;
 
@@ -52,6 +53,7 @@ const entry = (id: string, value = 1): EntryOut => ({
   notes: '',
   meta: {},
   answers: [{ key: 'hours', type: 'int', value }],
+  timing: null,
 });
 
 function seed() {

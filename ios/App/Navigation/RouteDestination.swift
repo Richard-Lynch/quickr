@@ -17,6 +17,10 @@ struct RouteDestination: View {
             TopicTabsView(ref: ref, tab: tab)
         case .record(let ref, let fix):
             RecordScreen(ref: ref, fix: fix)
+        case .run(let ref):
+            RunScreen(ref: ref)
+        case .runDetails(let ref, let runId, let fix):
+            RunDetailsScreen(ref: ref, runId: runId, fix: fix)
         case .entry(let ref, let entryId):
             EditScreen(ref: ref, entryId: entryId)
         case .editQuestions(let ref):

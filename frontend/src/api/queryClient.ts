@@ -41,7 +41,9 @@ export type OperationId =
   | 'listEntries'
   | 'getEntry'
   | 'getTopicStats'
-  | 'getQuestionSeries';
+  | 'getQuestionSeries'
+  | 'getTopicTiming'
+  | 'listRuns';
 
 /** Invalidate every cached query for the given generated operations. */
 export function invalidateOperations(qc: QueryClient, ids: readonly OperationId[]): Promise<void> {
@@ -61,6 +63,8 @@ export const ENTRY_DATA_OPS: readonly OperationId[] = [
   'listEntries',
   'getTopicStats',
   'getQuestionSeries',
+  // Timed entries' run times (timers.md §9.2): a stop, a finish or an Edit times changes them.
+  'getTopicTiming',
 ];
 
 /**

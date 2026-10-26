@@ -8,7 +8,8 @@
  * - update flow: waits until the page asks it to SKIP_WAITING (no surprise reloads)
  * - Background Sync: flushes the IndexedDB outbox where supported (Chromium)
  * - Web Push: shows notifications, routes clicks into the app; quick-log reminders offer
- *   Chromium actions that log through the outbox (lib/pushActions.ts)
+ *   Chromium actions that log through the outbox (lib/pushActions.ts), and a timed topic's
+ *   reminder a Start that starts its run (timers.md §10.2)
  */
 import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 import { clientsClaim } from 'workbox-core';
@@ -23,15 +24,21 @@ import {
 import { NavigationRoute, registerRoute } from 'workbox-routing';
 import { NetworkFirst } from 'workbox-strategies';
 
-import { API_PREFIX, CHANNEL_HEADERS, SW_API_CACHE } from './api/constants';
+import { API_PREFIX, CHANNEL_HEADERS, FROM_CACHE_HEADER, SW_API_CACHE } from './api/constants';
 import { OUTBOX_KINDS, OUTBOX_SYNC_TAG } from './lib/outbox/kinds';
 import { createOutbox } from './lib/outbox/outbox';
+import { ackedItems } from './lib/runs/acked';
+import { SERVER_TIME_HEADER } from './lib/runs/clock';
+import { loadServerOffset, timedFetch } from './lib/runs/serverClock';
 import {
   handleReminderAction,
   notificationData,
   pushActions,
   type ActionFeedback,
   type CachedTopicState,
+  startVersionOf,
+  startVersionOfTopic,
+  type StartVersion,
 } from './lib/pushActions';
 import { parsePushPayload, safeInAppPath, type NavigateMessage } from './lib/pushPayload';
 
@@ -71,7 +78,32 @@ const NO_CACHE = [
   /\.csv$/,
   new RegExp(`^${API_PREFIX}/push/`),
   new RegExp(`^${API_PREFIX}/health$`),
+  // Runs change by the second: a stale list would reopen stopped runs. The persisted
+  // query cache covers offline (timers.md §7.3).
+  new RegExp(`^${API_PREFIX}/runs(/|$)`),
 ];
+
+/**
+ * A cached copy doesn't keep the server time, and an answer from the cache is marked:
+ * offline, it would be an old time with a short round trip, a bad offset sample
+ * (timers.md §5.1).
+ */
+const dropServerTime: WorkboxPlugin = {
+  cachedResponseWillBeUsed: ({ cachedResponse }) => {
+    if (!cachedResponse) return Promise.resolve(cachedResponse);
+    const headers = new Headers(cachedResponse.headers);
+    headers.set(FROM_CACHE_HEADER, '1');
+    const { status, statusText } = cachedResponse;
+    return Promise.resolve(new Response(cachedResponse.body, { status, statusText, headers }));
+  },
+  cacheWillUpdate: ({ response }) => {
+    if (!response.headers.has(SERVER_TIME_HEADER)) return Promise.resolve(response);
+    const headers = new Headers(response.headers);
+    headers.delete(SERVER_TIME_HEADER);
+    const { status, statusText } = response;
+    return Promise.resolve(new Response(response.body, { status, statusText, headers }));
+  },
+};
 
 registerRoute(
   ({ url, request, sameOrigin }) =>
@@ -85,6 +117,7 @@ registerRoute(
     plugins: [
       // (workbox's plugin classes predate exactOptionalPropertyTypes)
       new CacheableResponsePlugin({ statuses: [200] }) as WorkboxPlugin,
+      dropServerTime,
       new ExpirationPlugin({
         maxEntries: 300,
         maxAgeSeconds: 7 * 24 * 60 * 60,
@@ -97,7 +130,7 @@ registerRoute(
 
 // ---- Background Sync: flush the outbox -------------------------------------------
 
-const outbox = createOutbox({ kinds: OUTBOX_KINDS, headers: CHANNEL_HEADERS });
+const outbox = createOutbox({ kinds: OUTBOX_KINDS, headers: CHANNEL_HEADERS, fetch: timedFetch() });
 
 self.addEventListener('sync', (event) => {
   const e = event as SyncEvent;
@@ -186,6 +219,10 @@ async function onAction(action: string, data: unknown, open: () => Promise<void>
       data,
       locks: (self.navigator as { locks?: LockManager }).locks,
       topicState: cachedTopicState,
+      // A Start (timers.md §10.2): stamped with the page's latest offset (no localStorage here).
+      acked: () => ackedItems(Date.now()), // no page may have pruned it: fresh ones only
+      offset: loadServerOffset,
+      startVersion: cachedStartVersion,
       queued: () =>
         (self.registration as { sync?: { register(tag: string): Promise<void> } }).sync?.register(
           OUTBOX_SYNC_TAG,
@@ -206,6 +243,42 @@ async function onAction(action: string, data: unknown, open: () => Promise<void>
       ...(typeof topicId === 'string' ? { tag: `quickr.err.${topicId}` } : {}),
     });
   }
+}
+
+/**
+ * The steps and required-question flag of a topic version, from the API cache: the app's
+ * last `listTopicVersions` answer, else a `getTopic` or `listTopics` answer whose current
+ * version it is and that carries its questions and timer. Undefined when none has them: the
+ * Start's metadata is then unknown, and the local view defers to the server.
+ */
+async function cachedStartVersion(
+  topicId: string,
+  slug: string | null,
+  version: number,
+): Promise<StartVersion | undefined> {
+  const cache = await caches.open(SW_API_CACHE);
+  const refs = [slug, topicId].flatMap((ref) => (ref ? [encodeURIComponent(ref)] : []));
+  for (const ref of refs) {
+    const hit = await cache.match(`${API_PREFIX}/topics/${ref}/versions`);
+    const found = startVersionOf(await hit?.json().catch(() => null), version);
+    if (found) return found;
+  }
+  const topics: Response[] = [];
+  for (const ref of refs) {
+    const hit = await cache.match(`${API_PREFIX}/topics/${ref}`);
+    if (hit) topics.push(hit);
+  }
+  for (const request of await cache.keys()) {
+    if (new URL(request.url).pathname === `${API_PREFIX}/topics`) {
+      const hit = await cache.match(request);
+      if (hit) topics.push(hit);
+    }
+  }
+  for (const response of topics) {
+    const found = startVersionOfTopic(await response.json().catch(() => null), topicId, version);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 /**

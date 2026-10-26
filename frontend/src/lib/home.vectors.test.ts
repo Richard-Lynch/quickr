@@ -1,7 +1,7 @@
 /**
  * Generator + drift check for shared/fixtures/home-due-vectors.json: the home screen's
- * due pill (`dueParts`, the decision behind `dueView`) and sections (`splitByDue`), for
- * the iOS port. The vectors hold the decision structure, not text (that is locale
+ * due pill (`dueParts`, the decision behind `dueView`), sections (`splitByDue`) and the
+ * due count (`dueCount`, with the open-run rule of timers.md §11.1), for the iOS port. The vectors hold the decision structure, not text (that is locale
  * dependent). `day_offset` depends on the local time zone, so it is pinned below.
  *
  * With QUICKR_UPDATE_VECTORS=1 (`make vectors`) this writes the file; otherwise it fails
@@ -11,7 +11,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import type { ScheduleOutput } from './schedule';
 import { FRESH_DUE_MS, SOON_MS, dueParts, type DueStatus } from './schedule';
-import { splitByDue, type SplittableTopic } from './home';
+import { dueCount, splitByDue, type SplittableTopic } from './home';
 
 // No @types/node in the app's tsconfig: reach Node through narrow local types.
 interface NodeProcess {
@@ -288,6 +288,8 @@ interface SplitCase {
   name: string;
   now: string;
   topics: SplitTopic[];
+  /** Ids of the topics with an open run (running or paused), timers.md §11.1. */
+  open_runs?: string[];
 }
 
 const t = (id: string, patch: Partial<Omit<SplitTopic, 'id'>> = {}): SplitTopic => ({
@@ -379,6 +381,40 @@ const SPLIT_CASES: SplitCase[] = [
       t('due-passed', { due: due({ next_due_at: plus(NOW, -300 * MIN) }) }),
     ],
   },
+  // An open run takes a topic out of "Due now" and the count (timers.md §11.1).
+  {
+    name: 'open run: a due topic with an open run is not due',
+    now: NOW,
+    topics: [
+      t('due-running', { due: due({ is_due: true, due_since: plus(NOW, -45 * MIN) }) }),
+      t('due-idle', { due: due({ is_due: true, due_since: plus(NOW, -10 * MIN) }) }),
+      t('passed-running', { due: due({ next_due_at: plus(NOW, -MIN) }) }),
+      t('upcoming-running', { due: due({ next_due_at: plus(NOW, 30 * MIN) }) }),
+      t('unscheduled-running', { scheduled: false }),
+    ],
+    open_runs: ['due-running', 'passed-running', 'upcoming-running', 'unscheduled-running'],
+  },
+  {
+    name: 'open run: an archived topic stays out, and an unknown id changes nothing',
+    now: NOW,
+    topics: [
+      t('archived-running', {
+        status: 'archived',
+        due: due({ is_due: true, due_since: plus(NOW, -60 * MIN) }),
+      }),
+      t('due-a', { due: due({ is_due: true }) }),
+    ],
+    open_runs: ['archived-running', 'not-listed'],
+  },
+  {
+    name: 'open run: every due topic running counts zero',
+    now: NOW,
+    topics: [
+      t('due-1', { due: due({ is_due: true, due_since: plus(NOW, -5 * MIN) }) }),
+      t('due-2', { due: due({ next_due_at: NOW }) }),
+    ],
+    open_runs: ['due-1', 'due-2'],
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -399,7 +435,7 @@ function build(): Record<string, unknown> {
   return {
     meta: {
       generator: 'frontend/src/lib/home.vectors.test.ts',
-      version: 1,
+      version: 2,
       timezone: TIMEZONE,
       fresh_due_ms: FRESH_DUE_MS,
       soon_ms: SOON_MS,
@@ -412,11 +448,18 @@ function build(): Record<string, unknown> {
         schedule: x.scheduled ? DUMMY_SCHEDULE : null,
         due: x.due,
       }));
-      const s = splitByDue(topics, new Date(c.now));
+      const openRuns = new Set(c.open_runs ?? []);
+      const s = splitByDue(topics, new Date(c.now), openRuns);
       const ids = (xs: Topic[]) => xs.map((x) => x.id);
       return {
         ...c,
-        expected: { due: ids(s.due), upcoming: ids(s.upcoming), other: ids(s.other) },
+        open_runs: [...openRuns],
+        expected: {
+          due: ids(s.due),
+          upcoming: ids(s.upcoming),
+          other: ids(s.other),
+          due_count: dueCount(topics, new Date(c.now), openRuns),
+        },
       };
     }),
   };

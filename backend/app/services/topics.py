@@ -13,7 +13,18 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import Conflict, DomainError, IncompatibleVersion, NotFound, StaleRevision
-from app.models import DeletedId, Entry, FeedKind, FeedOp, Topic, TopicStatus, TopicVersion
+from app.models import (
+    DeletedId,
+    Entry,
+    FeedKind,
+    FeedOp,
+    LiveActivityToken,
+    Run,
+    RunAlias,
+    Topic,
+    TopicStatus,
+    TopicVersion,
+)
 from app.schemas.api import (
     CompatibilityReport,
     DueStatus,
@@ -29,7 +40,7 @@ from app.schemas.api import (
     VersionCreate,
 )
 from app.schemas.base import issues_from
-from app.schemas.questions import Question, QuestionSet
+from app.schemas.questions import Question, QuestionSet, Timer
 from app.services.compat import check_compatibility
 from app.services.feed import log_change, tombstone, writer
 from app.services.schedule import compute_due, dump_schedule, parse_schedule
@@ -45,6 +56,14 @@ def parse_questions(raw: list[dict[str, Any]]) -> list[Question]:
 def dump_questions(questions: list[Question]) -> list[dict[str, Any]]:
     dumped: list[dict[str, Any]] = _questions_adapter.dump_python(questions, mode="json")
     return dumped
+
+
+def parse_timer(raw: dict[str, Any] | None) -> Timer | None:
+    return None if raw is None else Timer.model_validate(raw, context={"stored": True})
+
+
+def dump_timer(timer: Timer | None) -> dict[str, Any] | None:
+    return None if timer is None else timer.model_dump(mode="json")
 
 
 def slugify(name: str) -> str:
@@ -116,7 +135,7 @@ async def _summaries(
     rows = (await db.execute(stmt)).all()
     now = now or datetime.now(UTC)
     out: list[tuple[TopicSummary, list[Question]]] = []
-    for topic, questions_raw, entry_count, last_captured in rows:
+    for topic, questions_raw, timer_raw, entry_count, last_captured in rows:
         questions = parse_questions(questions_raw)
         out.append(
             (
@@ -137,6 +156,7 @@ async def _summaries(
                     schedule=parse_schedule(topic.schedule),
                     schedule_updated_at=topic.schedule_updated_at,
                     due=_due(topic, last_captured, now),
+                    timer=parse_timer(timer_raw),
                 ),
                 questions,
             )
@@ -150,6 +170,7 @@ def _base_select() -> tuple[Select[Any], Any]:
         select(
             Topic,
             TopicVersion.questions,
+            TopicVersion.timer,
             stats.c.entry_count,
             stats.c.last_captured_at,
         )
@@ -310,6 +331,7 @@ async def create_topic(db: AsyncSession, body: TopicCreate) -> TopicDetail:
         id=uuid4(),
         version=1,
         questions=dump_questions(questions),
+        timer=dump_timer(body.timer),
         change_note="Initial version",
     )
     topic.versions.append(first)
@@ -363,21 +385,32 @@ async def set_archived(
 
 @writer
 async def delete_topic(db: AsyncSession, ref: str) -> None:
-    """Delete an archived topic. Its versions and entries are tombstoned (before the
-    foreign-key cascade removes them) and the feed gets one topic deletion, which clients
-    apply to every child."""
+    """Delete an archived topic. Its versions, entries, runs and run aliases are tombstoned
+    (before the foreign-key cascade removes them; a closed run's id already is) and the feed
+    gets one topic deletion, which clients apply to every child. Its Live Activity update
+    tokens go with it (timers.md §10.3)."""
     topic = await resolve_topic(db, ref)
     if topic.status != TopicStatus.archived:
         raise Conflict("archive the topic before deleting it")
-    for model, kind in ((Entry, FeedKind.entry), (TopicVersion, FeedKind.version)):
-        children = select(model.id, literal(kind, DeletedId.__table__.c.kind.type), model.topic_id).where(
+    tables = ((Entry, FeedKind.entry), (TopicVersion, FeedKind.version), (Run, FeedKind.run))
+    children = [
+        select(model.id, literal(kind, DeletedId.__table__.c.kind.type), model.topic_id).where(
             model.topic_id == topic.id
         )
+        for model, kind in tables
+    ]
+    children.append(
+        select(RunAlias.id, literal(FeedKind.run, DeletedId.__table__.c.kind.type), Run.topic_id)
+        .join(Run, Run.id == RunAlias.run_id)
+        .where(Run.topic_id == topic.id)
+    )
+    for rows in children:
         await db.execute(
-            insert(DeletedId).from_select(["id", "kind", "topic_id"], children).on_conflict_do_nothing()
+            insert(DeletedId).from_select(["id", "kind", "topic_id"], rows).on_conflict_do_nothing()
         )
     await tombstone(db, FeedKind.topic, topic.id, topic.id)
     await log_change(db, FeedKind.topic, FeedOp.delete, topic.id, topic.id)
+    await db.execute(delete(LiveActivityToken).where(LiveActivityToken.topic_id == topic.id))
     await db.execute(delete(Topic).where(Topic.id == topic.id))
 
 
@@ -407,13 +440,34 @@ def _stale(topic: Topic, base_version: int) -> Conflict:
     )
 
 
-async def check_version(
-    db: AsyncSession, ref: str, questions: list[Question], base_version: int | None = None
+async def _report(
+    db: AsyncSession, topic: Topic, questions: list[Question], timer: dict[str, Any] | None, with_timer: bool
 ) -> CompatibilityReport:
+    """``check_compatibility`` compares questions only. With the draft's timer, a timer change
+    with no question changes is still a change, so the report's "no changes" error goes."""
+    report = check_compatibility(await _history(db, topic), questions)
+    if not with_timer or report.changes or timer == (await get_version(db, topic)).timer:
+        return report
+    # With no question changes, "no changes to publish" is the report's only issue without a
+    # question; an error on a question (a type change of a historic key, say) still blocks.
+    issues = [i for i in report.issues if i.question_key is not None]
+    return report.model_copy(update={"issues": issues, "ok": not any(i.level == "error" for i in issues)})
+
+
+async def check_version(
+    db: AsyncSession,
+    ref: str,
+    questions: list[Question],
+    base_version: int | None = None,
+    *,
+    timer: Timer | None = None,
+    with_timer: bool = False,
+) -> CompatibilityReport:
+    """``with_timer``: the draft has a timer (``timer``, None for untimed) to compare too."""
     topic = await resolve_topic(db, ref)
     if base_version is not None and base_version != topic.current_version:
         raise _stale(topic, base_version)
-    return check_compatibility(await _history(db, topic), _validated_set(questions))
+    return await _report(db, topic, _validated_set(questions), dump_timer(timer), with_timer)
 
 
 @writer
@@ -423,13 +477,13 @@ async def publish_version(db: AsyncSession, ref: str, body: VersionCreate) -> To
     if body.base_version != topic.current_version:
         raise _stale(topic, body.base_version)
     questions = _validated_set(body.questions)
-    report = check_compatibility(await _history(db, topic), questions)
-    if not report.ok:
+    timer = dump_timer(body.timer)
+    report = await _report(db, topic, questions, timer, with_timer=True)
+    errors = [i for i in report.issues if i.level == "error"]
+    if errors:
         raise IncompatibleVersion(
             "; ".join(
-                i.message if i.question_key is None else f"{i.question_key}: {i.message}"
-                for i in report.issues
-                if i.level == "error"
+                i.message if i.question_key is None else f"{i.question_key}: {i.message}" for i in errors
             )
         )
     next_version = TopicVersion(
@@ -437,6 +491,7 @@ async def publish_version(db: AsyncSession, ref: str, body: VersionCreate) -> To
         topic_id=topic.id,
         version=topic.current_version + 1,
         questions=dump_questions(questions),
+        timer=timer,
         change_note=body.change_note,
     )
     db.add(next_version)
@@ -466,6 +521,7 @@ async def _versions(db: AsyncSession, *where: Any) -> list[tuple[TopicVersion, T
             TopicVersionOut(
                 version=v.version,
                 questions=parse_questions(v.questions),
+                timer=parse_timer(v.timer),
                 change_note=v.change_note,
                 created_at=v.created_at,
                 entry_count=n or 0,

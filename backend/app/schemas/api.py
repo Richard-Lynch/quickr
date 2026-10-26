@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 from zoneinfo import available_timezones
 
@@ -31,6 +31,7 @@ from app.schemas.limits import (
     CAPTURED_AT_MIN,
     INTERVAL_MAX_MINUTES,
     INTERVAL_MIN_MINUTES,
+    LIVE_ACTIVITY_TOKEN_PATTERN,
     MAX_APP_VERSION_LENGTH,
     MAX_CHANGE_NOTE_LENGTH,
     MAX_DECIMALS,
@@ -46,7 +47,9 @@ from app.schemas.limits import (
     MAX_PUSH_ENDPOINT_LENGTH,
     MAX_PUSH_KEY_LENGTH,
     MAX_QUESTIONS,
+    MAX_RUN_EVENTS,
     MAX_SOURCE_LENGTH,
+    MAX_STEPS,
     MAX_STR_LENGTH,
     MAX_TIMEZONE_LENGTH,
     MAX_TOPIC_NAME_LENGTH,
@@ -56,7 +59,7 @@ from app.schemas.limits import (
     SLUG_PATTERN,
     TIME_PATTERN,
 )
-from app.schemas.questions import KEY_PATTERN, AnswerValue, Question, QuestionKey, QuestionList
+from app.schemas.questions import KEY_PATTERN, AnswerValue, Question, QuestionKey, QuestionList, Timer
 
 __all__ = ["FieldIssue", "Problem", "QuestionList"]
 
@@ -205,6 +208,9 @@ class TopicCreate(StrictModel):
     description: Description = ""
     questions: QuestionList
     schedule: Schedule | None = Field(default=None, description="When entries are expected (optional).")
+    timer: Timer | None = Field(
+        default=None, description="Makes the topic timed (optional; null: not timed)."
+    )
 
 
 class TopicUpdate(StrictModel):
@@ -239,6 +245,7 @@ class TopicSummary(StrictModel):
         description="When the schedule was last set or changed; due status ignores anything before it."
     )
     due: DueStatus | None = Field(description="Null when the topic has no schedule.")
+    timer: Timer | None = Field(description="The current version's timer; null when the topic is not timed.")
 
 
 class TopicDetail(TopicSummary):
@@ -279,6 +286,11 @@ class VersionDraft(StrictModel):
         description="Optional: the version this draft was based on. When given and stale, the dry run "
         "fails with 409 just as publishing would.",
     )
+    timer: Timer | None = Field(
+        default=None,
+        description="Optional: the draft's timer (null for untimed). When given, a timer change with no "
+        "question changes is a change, as publishing treats it; the report itself covers questions only.",
+    )
 
 
 class VersionCreate(VersionDraft):
@@ -288,11 +300,16 @@ class VersionCreate(VersionDraft):
         "(optimistic concurrency); otherwise 409.",
     )
     change_note: Annotated[str, Field(max_length=MAX_CHANGE_NOTE_LENGTH)] = ""
+    timer: Timer | None = Field(
+        description="The new version's timer, or null for an untimed topic. Required, so leaving it "
+        "out can't switch timing off: send the current version's timer to keep it."
+    )
 
 
 class TopicVersionOut(StrictModel):
     version: int
     questions: list[Question]
+    timer: Timer | None = Field(description="Null when this version is not timed.")
     change_note: str
     created_at: datetime
     entry_count: int
@@ -432,6 +449,46 @@ class EntryCreate(StrictModel):
     )
 
 
+EditInstant = Annotated[
+    AwareDatetime,
+    AfterValidator(check_captured_at),
+    Field(description="Stored truncated to whole milliseconds; the captured_at bounds apply."),
+]
+
+
+class TimingEditSegment(StrictModel):
+    kind: Literal["step", "lap"]
+    step: QuestionKey | None = Field(default=None, description="A step of the run's version; null for a lap.")
+    ended_at: EditInstant = Field(description="Each segment starts where the previous one ended.")
+
+
+class TimingEditPause(StrictModel):
+    start: EditInstant
+    end: EditInstant
+
+
+class TimingEdit(StrictModel):
+    """A stopped run's times, replaced as a whole (timers.md §3.8). The server rebuilds the
+    entry's ``Timing`` from it: the last segment's ``ended_at`` becomes the run's end and the
+    entry's ``captured_at``."""
+
+    started_at: EditInstant
+    segments: Annotated[list[TimingEditSegment], Field(min_length=1, max_length=MAX_RUN_EVENTS)] = Field(
+        description="In time order."
+    )
+    skipped: Annotated[list[QuestionKey], Field(max_length=MAX_STEPS)] = Field(
+        description="Skipped step keys, in step order."
+    )
+    pauses: Annotated[list[TimingEditPause], Field(max_length=MAX_RUN_EVENTS)] = Field(
+        description="Sorted, not overlapping, within the run."
+    )
+
+
+def _not_nullable(schema: dict[str, Any]) -> None:
+    """Drop ``null`` from an optional field's schema: absent is allowed, ``null`` is refused."""
+    schema.update(next(s for s in schema.pop("anyOf") if s.get("type") != "null"))
+
+
 class EntryUpdate(StrictModel):
     """Partial update. ``answers`` merges into existing answers; a null value clears an answer."""
 
@@ -441,6 +498,63 @@ class EntryUpdate(StrictModel):
     notes: Notes | None = None
     meta: Meta | None = None
     expected_revision: ExpectedRevision = None
+    # Optional but not nullable: an entry can't stop being timed (timers.md §3.8). The schema
+    # leaves out `null`, and the before-validator refuses it.
+    timing: TimingEdit | None = Field(
+        default=None,
+        json_schema_extra=_not_nullable,
+        description="A timed entry's new run times (timers.md §3.8); requires expected_revision and "
+        "excludes captured_at.",
+    )
+
+    @field_validator("timing", mode="before")
+    @classmethod
+    def _timing_not_null(cls, v: object) -> object:
+        if v is None:
+            raise PydanticCustomError("timing_null", "an entry's timing can't be removed")
+        return v
+
+    @model_validator(mode="after")
+    def _timing_rules(self) -> Self:
+        if "timing" not in self.model_fields_set:
+            return self
+        if self.captured_at is not None:
+            raise field_error("captured_at", "not with timing: captured_at is the end of the edited timing")
+        if self.expected_revision is None:
+            raise field_error("expected_revision", "required with timing")
+        return self
+
+
+class TimingSegment(StrictModel):
+    """One segment of a finished run: a named step's time, or an unnamed lap's."""
+
+    kind: Literal["step", "lap"]
+    step: str | None = Field(description="The step's key; null for a lap.")
+    label: str = Field(description="The step's label in the run's version, or 'Lap n'.")
+    started_at: datetime
+    ended_at: datetime
+    active_ms: int
+    paused_ms: int = Field(description="Its overlap with the run's pauses.")
+
+
+class TimingPause(StrictModel):
+    start: datetime
+    end: datetime
+
+
+class Timing(StrictModel):
+    """A finished run's times (timers.md §2.3). Every instant is a whole millisecond;
+    ``ended_at`` equals the entry's ``captured_at``."""
+
+    started_at: datetime
+    ended_at: datetime
+    active_ms: int = Field(description="ended_at - started_at - paused_ms.")
+    paused_ms: int
+    complete: bool = Field(description="No steps, or every step has a segment and none was skipped.")
+    edited: bool = Field(description="The times were edited after the run stopped.")
+    segments: list[TimingSegment] = Field(description="In time order.")
+    skipped: list[str] = Field(description="Skipped step keys, in step order.")
+    pauses: list[TimingPause]
 
 
 class EntryOut(StrictModel):
@@ -456,6 +570,7 @@ class EntryOut(StrictModel):
     notes: str
     meta: dict[str, str]
     answers: list[AnswerOut]
+    timing: Timing | None = Field(description="A finished run's times; null for an untimed entry.")
 
 
 class EntryPage(StrictModel):
@@ -569,6 +684,64 @@ class QuestionSeries(StrictModel):
     type: Literal["int", "double", "str", "enum"]
     bucket: Bucket
     points: list[SeriesPoint]
+
+
+class TimingSummary(StrictModel):
+    """Best, median and mean of active times in milliseconds; null when there are none."""
+
+    best_ms: int | None
+    median_ms: int | None
+    mean_ms: int | None
+
+
+class TimingStepStats(StrictModel):
+    key: str
+    label: str = Field(description="The latest version's label for the key, else its latest segment's.")
+    current: bool = Field(description="The key is a step of the current version.")
+    done: int = Field(description="Runs with a segment for the step.")
+    skipped: int = Field(description="Runs that skipped the step.")
+    best_ms: int | None = Field(description="Over the done segments' active_ms, from every run.")
+    median_ms: int | None
+    mean_ms: int | None
+
+
+class TimingLaps(StrictModel):
+    runs_with_laps: int
+    median_ms: int | None = Field(description="Of each such run's summed lap time.")
+    mean_ms: int | None
+
+
+class TimingPaused(StrictModel):
+    runs_with_pauses: int = Field(description="Runs with paused_ms > 0.")
+    median_ms: int | None
+
+
+class TimingSeriesPoint(StrictModel):
+    entry_id: UUID
+    captured_at: datetime = Field(description="The run's end.")
+    started_at: datetime
+    active_ms: int
+    paused_ms: int
+    complete: bool
+    steps: dict[str, int] = Field(description="Each step segment's key and its active_ms.")
+
+
+class TopicTiming(StrictModel):
+    """Timing stats over the timed entries in range (timers.md §9). Durations are active
+    time in integer milliseconds; untimed entries count toward nothing here."""
+
+    runs: int
+    complete_runs: int
+    total: TimingSummary = Field(description="Best, median and mean run totals, over complete runs only.")
+    steps: list[TimingStepStats] = Field(
+        description="Every step key seen in range: the current version's steps in step order, "
+        "then the rest by key."
+    )
+    laps: TimingLaps
+    paused: TimingPaused
+    series: list[TimingSeriesPoint] = Field(
+        description="One point per timed entry, by captured_at then entry_id."
+    )
 
 
 class EntryFilters(StrictModel):
@@ -722,7 +895,15 @@ class QuickLogSingle(StrictModel):
     type: Literal["single"] = "single"
 
 
-type QuickLogDescriptor = QuickLogEnum | QuickLogNumber | QuickLogSingle
+class QuickLogTimed(StrictModel):
+    """A timed topic: its reminder starts a run with one action, "Start" (docs/specs/timers.md
+    §10.1). Its questions are answered at Stop, so none is offered here.
+    """
+
+    type: Literal["timed"] = "timed"
+
+
+type QuickLogDescriptor = QuickLogEnum | QuickLogNumber | QuickLogSingle | QuickLogTimed
 
 
 class PushPayload(StrictModel):
@@ -744,7 +925,7 @@ class PushPayload(StrictModel):
     topic_id: str | None = None
     version: int | None = None
     due_since: str | None = None  # canonical: UTC, whole seconds, "Z"
-    quick_log: QuickLogEnum | QuickLogNumber | QuickLogSingle | None = None
+    quick_log: QuickLogEnum | QuickLogNumber | QuickLogSingle | QuickLogTimed | None = None
 
 
 ApnsToken = Annotated[
@@ -790,6 +971,208 @@ class ApnsDeviceRef(StrictModel):
     token: ApnsToken
 
 
+LiveActivityPushToken = Annotated[
+    str,
+    Field(
+        pattern=LIVE_ACTIVITY_TOKEN_PATTERN, description="A Live Activity push token, hex (stored lowercase)."
+    ),
+    AfterValidator(str.lower),
+]
+LiveActivityTokenKind = Literal["start", "update"]
+
+
+class LiveActivityIn(StrictModel):
+    """A Live Activity push token (timers.md §10.3), upserted by token: the device's push-to-start
+    token, or one activity's update token with the topic and run it shows."""
+
+    token: LiveActivityPushToken
+    kind: LiveActivityTokenKind = Field(
+        description="start: the device's push-to-start token (it replaces the device's older ones). "
+        "update: one activity's update token."
+    )
+    device_token: ApnsToken = Field(description="The APNs device token of the phone that owns it.")
+    environment: ApnsEnvironment
+    topic_id: UUID | None = Field(default=None, description="update (required): the activity's topic.")
+    run_id: UUID | None = Field(default=None, description="update (required): the run it was started for.")
+
+    @model_validator(mode="after")
+    def _fields_for_kind(self) -> Self:
+        for name in ("topic_id", "run_id"):
+            if self.kind == "update" and getattr(self, name) is None:
+                raise field_error(name, "required for an update token")
+            if self.kind == "start" and getattr(self, name) is not None:
+                raise field_error(name, "a push-to-start token has no topic or run")
+        return self
+
+
+class LiveActivityOut(StrictModel):
+    token: str
+    kind: LiveActivityTokenKind
+    device_token: str
+    environment: ApnsEnvironment
+    topic_id: UUID | None
+    run_id: UUID | None
+    created_at: datetime
+
+
+class LiveActivityRef(StrictModel):
+    """One Live Activity token, by token (unregister)."""
+
+    token: LiveActivityPushToken
+
+
+# ---------------------------------------------------------------------------
+# Runs (docs/specs/timers.md §3)
+# ---------------------------------------------------------------------------
+
+RunEventKind = Literal["start", "next", "lap", "skip", "pause", "resume", "stop", "finish", "discard"]
+RunStatusName = Literal["running", "paused", "finishing", "stopped", "discarded"]
+VoidReason = Literal[
+    "merged",
+    "already_closed",
+    "run_edited",
+    "entry_deleted",
+    "before_start",
+    "after_stop",
+    "too_long",
+    "stale",
+    "no_step",
+    "already_paused",
+    "not_paused",
+]
+RunListStatus = Literal["open", "finishing"]
+
+# Which optional fields each event type needs (timers.md §3.2).
+_REQUIRED_FOR: dict[str, tuple[str, ...]] = {
+    "start": ("topic_id", "version"),
+    "next": ("seg",),
+    "lap": ("seg",),
+    "skip": ("seg", "step"),
+    "resume": ("pause_id",),
+}
+
+
+class RunDevice(StrictModel):
+    """The iOS device that sent the event, for Live Activity pushes (timers.md §10.3)."""
+
+    apns_token: ApnsToken
+    live_activity: StrictBool
+
+
+class RunEventIn(StrictModel):
+    """One tap on a run (``recordRunEvent``). Idempotent by ``id``."""
+
+    id: UUID = Field(description="The event id, client-generated. For a start it must equal the run id.")
+    type: RunEventKind
+    at: Annotated[
+        AwareDatetime,
+        AfterValidator(check_captured_at),
+        Field(
+            description="The tap, on the server's clock as the device estimates it (X-QuickR-Server-Time). "
+            "Stored truncated to whole milliseconds. Not before 2000-01-01, at most 24h ahead; a start's "
+            "at most 7 days old."
+        ),
+    ]
+    seg: Annotated[StrictInt, Field(ge=0)] | None = Field(
+        default=None, description="next, lap and skip (required): the open segment the device saw."
+    )
+    step: QuestionKey | None = Field(
+        default=None, description="skip (required): the step the device saw as being skipped."
+    )
+    pause_id: UUID | None = Field(default=None, description="resume (required): the pause event it ends.")
+    topic_id: UUID | None = Field(default=None, description="start (required): the timed topic.")
+    version: Annotated[StrictInt, Field(ge=1)] | None = Field(
+        default=None, description="start (required): the topic version the run is pinned to."
+    )
+    answers: AnswerMap | None = Field(default=None, description="stop and finish only.")
+    notes: Notes | None = Field(default=None, description="stop and finish only.")
+    meta: Meta | None = None
+    source: Source | None = Field(default=None, description="Defaults to the channel name.")
+    device: RunDevice | None = None
+
+    @model_validator(mode="after")
+    def _fields_for_type(self) -> Self:
+        for name in _REQUIRED_FOR.get(self.type, ()):
+            if getattr(self, name) is None:
+                raise field_error(name, f"required for a {self.type} event")
+        if self.type not in ("stop", "finish"):
+            for name in ("answers", "notes"):
+                if getattr(self, name) is not None:
+                    raise field_error(name, "only a stop or a finish carries answers and notes")
+        return self
+
+
+class RunEventOut(StrictModel):
+    id: UUID
+    type: RunEventKind
+    at: datetime
+    seg: int | None
+    step: str | None
+    pause_id: UUID | None
+    arrival: int = Field(description="Server arrival order.")
+    effect: Literal["applied", "void"]
+    reason: VoidReason | None
+    source: str
+
+
+class RunEventEffect(StrictModel):
+    effect: Literal["applied", "void"]
+    reason: VoidReason | None
+
+
+class RunOpenSegment(StrictModel):
+    index: int = Field(description="The `seg` a next, lap or skip of this segment sends.")
+    kind: Literal["step", "lap"]
+    step: str | None
+    label: str
+    started_at: datetime
+
+
+class RunState(StrictModel):
+    """The fold's output (timers.md §4.3). For a stopped run, ``segments``, ``skipped`` and
+    ``pauses`` are exactly its entry's ``timing``, until the times are edited: an edited run
+    (``RunOut.edited``) keeps its last fold, and its entry holds the edited times."""
+
+    status: RunStatusName
+    started_at: datetime
+    ended_at: datetime | None
+    open: RunOpenSegment | None = Field(description="The segment being timed; null once the run closes.")
+    next_step: str | None = Field(description="The step Next starts; null when it would start a lap.")
+    paused_since: datetime | None
+    segments: list[TimingSegment] = Field(description="Closed so far, in time order.")
+    skipped: list[str]
+    pauses: list[TimingPause] = Field(description="Ended pauses; an open one is paused_since.")
+    effects: dict[str, RunEventEffect] = Field(description="Each event's effect, by lowercase event id.")
+
+
+class RunOut(StrictModel):
+    """A run in any status, with every event and its current effect."""
+
+    id: UUID
+    topic_id: UUID
+    version: int
+    status: RunStatusName
+    revision: int = Field(description="Bumped by every event and status change.")
+    started_at: datetime
+    ended_at: datetime | None = Field(description="The stop's at; null until the run stops.")
+    edited: bool = Field(description="The entry's times were edited; later events are void.")
+    events: list[RunEventOut] = Field(description="In arrival order.")
+    state: RunState
+    aliases: list[UUID] = Field(description="Run ids merged into this one.")
+
+
+class RunEventResultEvent(StrictModel):
+    id: UUID
+    effect: Literal["applied", "void"]
+    reason: VoidReason | None
+
+
+class RunEventResult(StrictModel):
+    event: RunEventResultEvent
+    run: RunOut = Field(description="The target run: not the path's id when that is an alias.")
+    entry: EntryOut | None = Field(description="The run's entry, once it is stopped and the entry exists.")
+
+
 # ---------------------------------------------------------------------------
 # Change feed
 # ---------------------------------------------------------------------------
@@ -820,13 +1203,27 @@ class FeedVersion(StrictModel):
     version: TopicVersionOut
 
 
-FeedItem = Annotated[FeedEntry | FeedTopic | FeedVersion, Field(discriminator="kind")]
+class FeedRun(StrictModel):
+    """A run that is open or finishing in the page's snapshot (timers.md §7.1). A closed run
+    leaves the feed as a ``run`` deletion; a stopped run's data arrives as its entry."""
+
+    kind: Literal["run"] = "run"
+    seq: int
+    run: RunOut
+
+
+FeedItem = Annotated[FeedEntry | FeedTopic | FeedVersion | FeedRun, Field(discriminator="kind")]
+
+
+DeletionKind = Literal["entry", "topic", "version", "run"]
 
 
 class FeedDeletion(StrictModel):
-    """A permanently deleted id. A topic deletion also deletes all of its versions and entries."""
+    """A permanently deleted id. A topic deletion also deletes all of its versions, entries and
+    runs. A ``run`` deletion means the run is no longer open or finishing: it stopped, was
+    discarded, or went with its topic."""
 
-    kind: Literal["entry", "topic", "version"]
+    kind: DeletionKind
     seq: int
     id: UUID
     topic_id: UUID
@@ -837,8 +1234,9 @@ class ChangesPage(StrictModel):
     """One page of the change feed, read from a single consistent snapshot.
 
     Each changed entity appears once, in its latest state (``items``) or as a deletion
-    (``deleted``). Apply ``items`` in order (topics, then versions, then entries), then
-    ``deleted`` (entries, then versions, then topics), then store ``next`` as the cursor.
+    (``deleted``). Apply ``items`` in order (topics, then versions, then entries, then runs),
+    then ``deleted`` (runs, then entries, then versions, then topics), then store ``next`` as
+    the cursor.
     """
 
     items: list[FeedItem]

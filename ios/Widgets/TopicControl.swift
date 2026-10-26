@@ -43,6 +43,12 @@ struct TopicControlValue: Sendable {
         let entity = TopicEntity(shown.topic)
         let name = shown.topic.name
         let nothing = WidgetLogIntent(topic: entity, scope: scope)
+        // A timed topic is never one-press logged untimed (timers.md §11.1): the Timer Control
+        // times it.
+        if shown.runTile.isTimed {
+            self.init(title: name, detail: "Timed: use the Timer control", intent: nothing, logs: false)
+            return
+        }
         switch shown.quick {
         case .chips(let question, let options):
             guard case .string(let value)? = shown.lastAnswer, let option = options.first(where: { $0.value == value })
@@ -121,6 +127,119 @@ struct TopicControl: ControlWidget {
         }
         .displayName("Log a topic")
         .description("Logs a topic's last answer again in one press.")
+        .promptsForUserConfiguration()
+    }
+}
+
+// MARK: - Timer
+
+/// What a timed topic's Control (timers.md §11.3) shows and does: "Timer: {topic}", and what a
+/// press does now, which is Auto (`RunWidgetIntent`, pinned to the store it was read from): Start,
+/// "Next: Breakfast" (or a plain Next while the steps aren't known), or Stop on the last step. A
+/// finishing run isn't open, so a press starts a new one. A topic it can't time (untimed,
+/// archived, gone) gets an empty intent, which does nothing.
+struct TimerControlValue: Sendable {
+    let title: String
+    let detail: String?
+    let intent: RunWidgetIntent
+    let icon: String
+
+    static let unconfigured = TimerControlValue(
+        title: "Choose a topic", detail: nil, intent: RunWidgetIntent(), icon: "timer")
+
+    init(title: String, detail: String?, intent: RunWidgetIntent, icon: String) {
+        self.title = title
+        self.detail = detail
+        self.intent = intent
+        self.icon = icon
+    }
+
+    init(_ shown: WidgetTopic) {
+        guard let scope = shown.scope else {
+            self = .unconfigured
+            return
+        }
+        let title = "Timer: \(shown.topic.name)"
+        let auto = RunWidgetIntent(action: .auto, topicId: shown.id, scope: scope)
+        switch shown.runTile {
+        case .untimed:
+            self.init(title: title, detail: "Not timed", intent: RunWidgetIntent(), icon: "timer")
+        case .open:
+            if shown.runButtons(compact: true).first == .next {
+                let detail = shown.run?.nextLabel.map { "Next: \($0)" } ?? "Next"
+                self.init(title: title, detail: detail, intent: auto, icon: "forward.end")
+            } else {
+                self.init(title: title, detail: "Stop", intent: auto, icon: "stop")
+            }
+        case .idle, .finishing:
+            guard shown.topic.status != .archived else {
+                self.init(title: title, detail: "Archived", intent: RunWidgetIntent(), icon: "timer")
+                return
+            }
+            self.init(title: title, detail: "Start", intent: auto, icon: "play")
+        }
+    }
+}
+
+/// The Timer Control's picker: timed topics only. Declared here, in the extension: App Intents'
+/// metadata can't find an options provider declared in a package.
+struct TimedTopicOptions: DynamicOptionsProvider {
+    func results() async throws -> [TopicEntity] {
+        try await TopicEntityQuery().timedEntities()
+    }
+}
+
+/// Chooses the timed topic a Timer Control advances: the picker lists timed topics only.
+struct SelectTimerControlIntent: ControlConfigurationIntent {
+    static let title: LocalizedStringResource = "Timed Topic"
+
+    @Parameter(title: "Topic", optionsProvider: TimedTopicOptions()) var topic: TopicEntity?
+
+    init() {}
+}
+
+struct TimerControlProvider: AppIntentControlValueProvider {
+    func previewValue(configuration: SelectTimerControlIntent) -> TimerControlValue {
+        guard let topic = configuration.topic else { return .unconfigured }
+        return TimerControlValue(
+            title: "Timer: \(topic.name)", detail: nil, intent: RunWidgetIntent(), icon: "timer")
+    }
+
+    func currentValue(configuration: SelectTimerControlIntent) async throws -> TimerControlValue {
+        await Self.value(for: configuration.topic?.id)
+    }
+
+    static func value(for id: UUID?) async -> TimerControlValue {
+        guard let id, let reader = WidgetBootstrap.reader() else { return .unconfigured }
+        do {
+            guard let shown = try await reader.topic(id: id) else { return .unconfigured }
+            return TimerControlValue(shown)
+        } catch {
+            WidgetBootstrap.log.error("timer control topic unreadable: \(String(describing: error), privacy: .public)")
+            return .unconfigured
+        }
+    }
+}
+
+/// One Control per timed topic (Control Centre, the Lock Screen): Auto in one press, without
+/// opening quickR. Its intent runs in the app's process, so it can start or update the Live
+/// Activity.
+struct TimerControl: ControlWidget {
+    static let kind = "com.bahumia.quickr.control.timer"
+
+    var body: some ControlWidgetConfiguration {
+        AppIntentControlConfiguration(kind: Self.kind, provider: TimerControlProvider()) { value in
+            ControlWidgetButton(action: value.intent) {
+                Label {
+                    Text(value.title)
+                    if let detail = value.detail { Text(detail) }
+                } icon: {
+                    Image(systemName: value.icon)
+                }
+            }
+        }
+        .displayName("Timer")
+        .description("Starts a timed topic, moves to its next step, or stops it on the last one.")
         .promptsForUserConfiguration()
     }
 }

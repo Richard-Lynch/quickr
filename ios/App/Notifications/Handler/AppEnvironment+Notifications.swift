@@ -21,12 +21,19 @@ extension AppEnvironment {
             case .open: "open"
             case .logged: "logged"
             case .alreadyLogged: "already logged"
+            case .started: "started"
+            case .alreadyStarted: "already started"
             case .refused(let failure): "refused: \(failure)"
             case .needsFix: "needs fix"
             }
         Logger(subsystem: "com.bahumia.quickr", category: "notification-action").notice(
             "outcome: \(kind, privacy: .public)")
         #endif
+        // timers.md §10.2: a Start's run gets its Live Activity here (a refused request leaves it
+        // to the server's push-to-start).
+        if case .started(let runId, let serverId, _) = outcome {
+            await notificationRunStarted(runId: runId, serverId: serverId)
+        }
         // §7.5: the reminder's server's topic, by id, and only while that server is active.
         guard case .open(let path, let serverId, let prefill) = outcome, let routes = DeepLink.routes(forPath: path)
         else { return }
@@ -60,13 +67,16 @@ extension AppEnvironment {
                 else { return nil }
                 return APIClient(
                     baseURL: url, transport: transport, identity: StaticServerIdentity(nil), credentials: credentials,
-                    origin: .notification)
+                    origin: .notification, serverOffset: StoreServerOffset(store: store))
             },
             owner: LeaseClaim.owner(kind: "app", launchId: UUID()), wallClock: configuration.wallClock,
             isProtectedDataAvailable: { await UIApplication.shared.isProtectedDataAvailable },
             onSignal: session.coordinator.outboxSignalHandler,
             reloadWidgets: { WidgetCenter.shared.reloadAllTimelines() },
             // The badge and the flush follow the session's binding, decided where it changes.
-            gate: SessionActiveGate(session: session))
+            gate: SessionActiveGate(session: session),
+            // timers.md §10.2: whether the Start's run is shown here (prompt); the request follows
+            // the write, below (`notificationRunStarted`).
+            startLiveActivity: { [weak self] start in await self?.liveActivityForNotificationStart(start) ?? false })
     }
 }

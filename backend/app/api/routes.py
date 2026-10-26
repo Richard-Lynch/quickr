@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Path, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, Query, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import AwareDatetime, TypeAdapter
 from sqlalchemy import text
@@ -27,6 +27,9 @@ from app.schemas.api import (
     EntryPage,
     EntryUpdate,
     Limits,
+    LiveActivityIn,
+    LiveActivityOut,
+    LiveActivityRef,
     Problem,
     PushConfig,
     PushSubscriptionDelete,
@@ -35,12 +38,17 @@ from app.schemas.api import (
     PushTestResult,
     QuestionSeries,
     QuestionTypeInfo,
+    RunEventIn,
+    RunEventResult,
+    RunListStatus,
+    RunOut,
     StatusFilter,
     TopicCreate,
     TopicDetail,
     TopicPage,
     TopicSort,
     TopicStats,
+    TopicTiming,
     TopicUpdate,
     TopicVersionOut,
     VersionCreate,
@@ -50,9 +58,12 @@ from app.schemas.questions import DoubleQuestion, EnumQuestion, IntQuestion, Str
 from app.services import changes as changes_svc
 from app.services import entries as entry_svc
 from app.services import push as push_svc
+from app.services import runs as run_svc
 from app.services import stats as stats_svc
+from app.services import timing as timing_svc
 from app.services import topics as topic_svc
 from app.services.feed import FeedIdentity
+from app.services.push import live_activity
 
 Db = Annotated[AsyncSession, Depends(get_db)]
 TopicRef = Annotated[str, Path(description="Topic UUID or slug.", examples=["sleep-log"])]
@@ -219,7 +230,14 @@ async def list_versions(db: Db, ref: TopicRef) -> list[TopicVersionOut]:
 @router.post("/topics/{ref}/versions/check", tags=["versions"], operation_id="checkTopicVersion")
 async def check_version(db: Db, ref: TopicRef, body: VersionDraft) -> CompatibilityReport:
     """Dry-run: report what publishing these questions would change, and whether it is allowed."""
-    return await topic_svc.check_version(db, ref, body.questions, body.base_version)
+    return await topic_svc.check_version(
+        db,
+        ref,
+        body.questions,
+        body.base_version,
+        timer=body.timer,
+        with_timer="timer" in body.model_fields_set,
+    )
 
 
 @router.post(
@@ -309,6 +327,56 @@ async def delete_entry(db: Db, entry_id: UUID) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+# --- runs -------------------------------------------------------------------
+
+
+@router.post(
+    "/runs/{run_id}/events",
+    tags=["runs"],
+    operation_id="recordRunEvent",
+    dependencies=[ExpectIdentity],
+    responses={201: {"model": RunEventResult, "description": "The call created the run (or merged it)."}},
+)
+async def record_run_event(
+    db: Db,
+    run_id: UUID,
+    body: RunEventIn,
+    response: Response,
+    background: BackgroundTasks,
+    channel: ChannelHeader = None,
+) -> RunEventResult:
+    """Record one tap on a run: start, next, lap, skip, pause, resume, stop, finish or discard.
+
+    Idempotent by event id. An event the fold voids (a double tap, a lap after the stop) is
+    stored and answered with 200 and ``effect: "void"``. ``run_id`` may be an alias: the
+    event applies to the run it was merged into, and ``run.id`` says which.
+    """
+    recorded = await run_svc.record_event(db, run_id, body, channel or Channel.api)
+    if recorded.created:
+        response.status_code = status.HTTP_201_CREATED
+    background.add_task(run_svc.after_run_event, run_id, recorded, body.device)
+    return recorded.result
+
+
+@router.get("/runs", tags=["runs"], operation_id="listRuns")
+async def list_runs(
+    db: Db,
+    status_: Annotated[
+        list[RunListStatus],
+        Query(alias="status", description="open (running or paused) and/or finishing; default both."),
+    ] = ["open", "finishing"],  # noqa: B006  # FastAPI copies query defaults
+    topic: Annotated[str | None, Query(max_length=64, description="Only this topic (UUID or slug).")] = None,
+) -> list[RunOut]:
+    """Open and finishing runs, oldest start first. Closed runs are entries."""
+    return await run_svc.list_runs(db, status_, topic)
+
+
+@router.get("/runs/{run_id}", tags=["runs"], operation_id="getRun")
+async def get_run(db: Db, run_id: UUID) -> RunOut:
+    """One run in any status, with its events and their effects. An alias returns its run."""
+    return await run_svc.get_run(db, run_id)
+
+
 # --- sync -------------------------------------------------------------------
 
 
@@ -338,6 +406,15 @@ async def list_changes(
 @router.get("/topics/{ref}/stats", tags=["stats"], operation_id="getTopicStats")
 async def get_stats(db: Db, ref: TopicRef, filters: Filters) -> TopicStats:
     return await stats_svc.topic_stats(db, ref, filters)
+
+
+@router.get("/topics/{ref}/timing", tags=["stats"], operation_id="getTopicTiming")
+async def get_timing(db: Db, ref: TopicRef, filters: Filters) -> TopicTiming:
+    """Timing stats over the topic's timed entries (timers.md §9): best, median and mean run
+    totals over complete runs, per step, laps, pauses and one series point per run. The filters
+    are getTopicStats's; ``version`` keeps that version's runs, labels still come from the latest.
+    A topic that isn't timed answers zero counts."""
+    return await timing_svc.topic_timing(db, ref, filters)
 
 
 @router.get("/topics/{ref}/questions/{key}/series", tags=["stats"], operation_id="getQuestionSeries")
@@ -417,6 +494,41 @@ async def register_apns_device(db: Db, body: ApnsDeviceIn) -> ApnsDeviceOut:
 async def delete_apns_device(db: Db, body: ApnsDeviceRef) -> Response:
     """Remove a device by token (idempotent)."""
     await push_svc.unregister_device(db, body.token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/push/apns/live-activities",
+    tags=["push"],
+    operation_id="registerLiveActivity",
+    dependencies=[ExpectIdentity],
+    status_code=status.HTTP_201_CREATED,
+)
+async def register_live_activity(
+    db: Db, body: LiveActivityIn, background: BackgroundTasks
+) -> LiveActivityOut:
+    """Register (or refresh, keyed by token) a Live Activity push token: the device's push-to-start
+    token (``kind: start``; it replaces the device's older ones), or one activity's update token
+    (``kind: update``, with its topic and its open run; ``run_id`` may be an alias). An update
+    token for a run that is closed or unknown is answered the same but not kept; a closed run's
+    gets its ``end`` push. 422 ``invalid_request`` when the run belongs to another topic. Works
+    whether or not APNs is enabled."""
+    registered = await live_activity.register(db, body)
+    if registered.ended_run is not None:
+        background.add_task(live_activity.send_late_end, body, registered.ended_run)
+    return registered.out
+
+
+@router.post(
+    "/push/apns/live-activities/delete",
+    tags=["push"],
+    operation_id="deleteLiveActivity",
+    dependencies=[ExpectIdentity],
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_live_activity(db: Db, body: LiveActivityRef) -> Response:
+    """Remove a Live Activity token (idempotent)."""
+    await live_activity.unregister(db, body.token)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

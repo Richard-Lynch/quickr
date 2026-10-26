@@ -29,17 +29,24 @@ public enum StoreView {
 
     // MARK: - Topics
 
+    /// `topic` rows with their current version's `timer_json` (`Topic.timer`; null when untimed,
+    /// or until that version's row arrives with the pull).
+    static let topicRows = """
+        SELECT topic.*, tv.timer_json FROM topic
+        LEFT JOIN topic_version AS tv ON tv.topic_id = topic.id AND tv.version = topic.current_version
+        """
+
     /// Every view topic, archived included, by lowercased name then id (the server's `name` sort).
     public static func topics(_ db: Database) throws -> [ViewTopic] {
-        try viewTopics(db, rows: Row.fetchAll(db, sql: "SELECT * FROM topic ORDER BY lower(name), id"))
+        try viewTopics(db, rows: Row.fetchAll(db, sql: "\(topicRows) ORDER BY lower(name), topic.id"))
     }
 
     public static func topic(_ db: Database, id: String) throws -> ViewTopic? {
-        try viewTopics(db, rows: Row.fetchAll(db, sql: "SELECT * FROM topic WHERE id = ?", arguments: [id])).first
+        try viewTopics(db, rows: Row.fetchAll(db, sql: "\(topicRows) WHERE topic.id = ?", arguments: [id])).first
     }
 
     public static func topic(_ db: Database, slug: String) throws -> ViewTopic? {
-        try viewTopics(db, rows: Row.fetchAll(db, sql: "SELECT * FROM topic WHERE slug = ?", arguments: [slug])).first
+        try viewTopics(db, rows: Row.fetchAll(db, sql: "\(topicRows) WHERE topic.slug = ?", arguments: [slug])).first
     }
 
     private static func viewTopics(_ db: Database, rows: [Row]) throws -> [ViewTopic] {
@@ -94,7 +101,7 @@ public enum StoreView {
     public static func dueTopics(_ db: Database) throws -> [ViewTopic] {
         let last = try lastCapturedAt(db)
         let states = try queuedTopicStates(db)
-        return try Row.fetchAll(db, sql: "SELECT * FROM topic ORDER BY lower(name), id").map { row in
+        return try Row.fetchAll(db, sql: "\(topicRows) ORDER BY lower(name), topic.id").map { row in
             var topic = try Topic(serverRow: row)
             let id = topic.id.wireString
             topic.entryCount = 0
@@ -217,7 +224,16 @@ public enum StoreView {
             items += 1
             try builder?.apply(item)
         }
-        _ = try finish()
+        guard try finish() else { return }
+        // Queued run stops' optimistic entries (timers.md §8.3), unless the entity has items.
+        for overlay in try RunOverlay.optimisticEntries(db, topicId: topicId, book: book) {
+            guard let id = overlay.entry?.id.wireString,
+                try Bool.fetchOne(
+                    db, sql: "SELECT EXISTS (SELECT 1 FROM outbox_item WHERE entity_kind = 'entry' AND entity_id = ?)",
+                    arguments: [id]) == false
+            else { continue }
+            guard try body(overlay) else { return }
+        }
     }
 
     /// How many (topic, version) question sets a stream keeps decoded.
@@ -257,8 +273,13 @@ public enum StoreView {
         let server = try Row.fetchOne(db, sql: "SELECT * FROM entry WHERE id = ?", arguments: [id]).map { row in
             try Entry(serverRow: row, questions: try book.questions(row["topic_id"], row["version"]))
         }
-        let overlay = try EntryOverlay.resolve(
-            server: server, items: OutboxStorage.items(db, entityKind: .entry, entityId: id), questions: book.lookup)
+        let items = try OutboxStorage.items(db, entityKind: .entry, entityId: id)
+        if server == nil, items.isEmpty {
+            // A queued run stop's optimistic entry (timers.md §8.3), if any.
+            return try RunOverlay.optimisticEntries(db, topicId: nil, book: book)
+                .first { $0.entry?.id.wireString == id }?.viewEntry
+        }
+        let overlay = try EntryOverlay.resolve(server: server, items: items, questions: book.lookup)
         guard let viewEntry = overlay.viewEntry, try topicExists(db, viewEntry.entry.topicId.wireString) else {
             return nil
         }
@@ -312,14 +333,54 @@ public enum StoreView {
         try versions(db, topicId: topicId).first { $0.version == number }
     }
 
+    // MARK: - Runs (timers.md §7.2)
+
+    /// The server layer's runs of a topic (or all), open **and finishing**, newest start first. Like
+    /// entries, a run is hidden until its topic arrives. Queued `run.event` items are not folded in
+    /// here: that is the local view of a run (timers.md §8.3).
+    public static func runs(_ db: Database, topicId: String? = nil) throws -> [Run] {
+        let filter = topicId == nil ? "" : "WHERE r.topic_id = ?"
+        return try Row.fetchAll(
+            db,
+            sql: """
+                SELECT r.* FROM run AS r JOIN topic AS t ON t.id = r.topic_id \(filter)
+                ORDER BY r.started_at DESC, r.id DESC
+                """,
+            arguments: StatementArguments(topicId.map { [$0] } ?? [])
+        ).map(Run.init(serverRow:))
+    }
+
+    /// The stored run with this id, or the one it was merged into (an alias, timers.md §4.5); nil
+    /// when neither is stored or its topic isn't here.
+    public static func run(_ db: Database, id: String) throws -> Run? {
+        try Row.fetchOne(
+            db,
+            sql: """
+                SELECT r.* FROM run AS r JOIN topic AS t ON t.id = r.topic_id
+                WHERE r.id = ? OR r.id = (SELECT run_id FROM run_alias WHERE id = ?)
+                """,
+            arguments: [id, id]
+        ).map(Run.init(serverRow:))
+    }
+
     // MARK: - Overlay inputs
 
     /// The resolved overlays of every entry entity with outbox items (in one topic, or all),
     /// tombstoned ids and entities whose topic isn't in the server layer removed.
+    /// Queued run stops that make an entry add their optimistic entries (timers.md §8.3).
     static func overlays(_ db: Database, topicId: String?, book: QuestionBook? = nil) throws -> [EntryOverlay] {
         let book = book ?? QuestionBook(db)
         let items = try topicId.map { try OutboxStorage.items(db, topicId: $0) } ?? OutboxStorage.items(db)
         let byEntity = Dictionary(grouping: items.filter { $0.entityKind == .entry }, by: \.entityId)
+        let runs = try RunOverlay.optimisticEntries(db, topicId: topicId, book: book).filter { overlay in
+            overlay.entry.map { byEntity[$0.id.wireString] == nil } ?? false
+        }
+        return try entryOverlays(db, byEntity, book: book) + runs
+    }
+
+    private static func entryOverlays(_ db: Database, _ byEntity: [String: [OutboxItem]], book: QuestionBook) throws
+        -> [EntryOverlay]
+    {
         guard !byEntity.isEmpty else { return [] }
         let ids = Array(byEntity.keys)
         let marks = Array(repeating: "?", count: ids.count).joined(separator: ",")

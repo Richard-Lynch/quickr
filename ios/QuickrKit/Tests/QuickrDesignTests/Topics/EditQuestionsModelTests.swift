@@ -44,6 +44,8 @@ final class FakeVersionWriter: VersionWriter {
     }
 
     var calls: [Call] = []
+    /// Every checked or published version, in order.
+    var versions: [TopicDraft.Version] = []
     var report: CompatibilityReport
     var checkResult: TopicWriteOutcome<CompatibilityReport>?
     var publishResult: TopicWriteOutcome<Topic>?
@@ -64,6 +66,7 @@ final class FakeVersionWriter: VersionWriter {
         -> TopicWriteOutcome<CompatibilityReport>
     {
         calls.append(.check(keys: version.questions.map(\.key), base: baseVersion))
+        versions.append(version)
         await checkGate?.wait()
         return checkResult ?? .done(report)
     }
@@ -72,12 +75,19 @@ final class FakeVersionWriter: VersionWriter {
         -> TopicWriteOutcome<Topic>
     {
         calls.append(.publish(keys: version.questions.map(\.key), base: baseVersion, note: changeNote))
+        versions.append(version)
         await publishGate?.wait()
         if let publishResult { return publishResult }
         server.currentVersion += 1
         server.questions = version.questions
+        server.timer = version.timer
         return .done(server)
     }
+
+    /// The server's versions ("Load latest version" reads their step keys).
+    var versionsResult: TopicWriteOutcome<[TopicVersion]> = .offline
+
+    func versions(topicId: UUID) async -> TopicWriteOutcome<[TopicVersion]> { versionsResult }
 
     func latestTopic(topicId: UUID) async -> TopicWriteOutcome<Topic> {
         calls.append(.latest)
@@ -111,7 +121,8 @@ final class FakeVersionWriter: VersionWriter {
     init() {
         let published = published
         model = EditQuestionsModel(
-            topic: Self.topic, writer: writer, toasts: toasts, onPublished: { published.topics.append($0) })
+            topic: Self.topic, timer: nil, writer: writer, toasts: toasts,
+            onPublished: { published.topics.append($0) })
     }
 
     var titles: [String] { toasts.items.map(\.toast.title) }
@@ -255,7 +266,7 @@ final class FakeVersionWriter: VersionWriter {
         // Reviewing again checks the questions as they are now.
         writer.checkGate = nil
         await model.reviewChanges()
-        #expect(model.review?.questions == model.draft.questions)
+        #expect(model.review?.checked.questions == model.draft.questions)
         #expect(model.visibleBanner == nil)
     }
 
@@ -415,6 +426,149 @@ final class FakeVersionWriter: VersionWriter {
         #expect(model.label(forKey: "energy") == "Energy")
         #expect(model.label(forKey: "mood") == "Mood", "a blanked label falls back to the published one")
         #expect(model.label(forKey: "gone") == "gone")
+    }
+}
+
+/// The Timed switch and the steps editor in the question editor (timers.md §2.1, §11.2).
+@MainActor @Suite struct EditQuestionsTimerTests {
+    static let timer = TopicTimer(steps: [.init(key: "shower", label: "Shower"), .init(key: "dress", label: "Dress")])
+    static let history = [
+        HistoricStep(key: "prep", label: "Old prep"), HistoricStep(key: "shower", label: "Shower"),
+        HistoricStep(key: "dress", label: "Dress"),
+    ]
+    static let noQuestionChanges = CompatibilityReport(ok: true, nextVersion: 3, issues: [], changes: [])
+
+    let writer = FakeVersionWriter(server: EditQuestionsModelTests.topic, report: noQuestionChanges)
+    let toasts = ToastCenter(sleep: { _ in try await Task.sleep(for: .seconds(3600)) })
+    let model: EditQuestionsModel
+
+    init() {
+        model = EditQuestionsModel(
+            topic: EditQuestionsModelTests.topic, timer: Self.timer, stepHistory: Self.history, writer: writer,
+            toasts: toasts)
+    }
+
+    @Test func opensWithThePublishedStepsLocked() {
+        #expect(model.draft.timed)
+        let keys = model.draft.steps.map(\.key)
+        #expect(keys == ["shower", "dress"])
+        let locked = model.draft.steps.allSatisfy { $0.locked }
+        #expect(locked)
+        #expect(!model.hasUnsavedChanges)
+    }
+
+    @Test func aRenameKeepsThePublishedKeyAndIsSent() async {
+        model.setStepLabel(model.draft.steps[0].id, "Bath")
+        let key = model.draft.steps[0].key
+        #expect(key == "shower")
+        await model.reviewChanges()
+        let sent: TopicTimer? = writer.versions.last?.timer
+        #expect(sent == TopicTimer(steps: [.init(key: "shower", label: "Bath"), .init(key: "dress", label: "Dress")]))
+    }
+
+    @Test func aNewStepNamedLikeARetiredOneTakesItsKeyBack() {
+        let id = model.addStep()!
+        model.setStepLabel(id, "old prep")
+        let key: String? = model.draft.steps.last?.key
+        #expect(key == "prep")
+        model.setStepLabel(id, "Prep")
+        let other: String? = model.draft.steps.last?.key
+        #expect(other == "prep_2", "a key no version has used")
+    }
+
+    @Test func aTimerOnlyChangeIsReviewedAndPublished() async {
+        model.draft.moveStep(model.draft.steps[1].id, to: 0)
+        await model.reviewChanges()
+        let timerChanges: [String]? = model.review?.timerChanges
+        let emptyText: String? = model.review?.emptyChangesText
+        #expect(timerChanges == ["Steps reordered"])
+        #expect(emptyText == "No question changes.")
+        let checked: [String]? = writer.versions.first?.timer?.steps.map { $0.key }
+        #expect(checked == ["dress", "shower"], "the check sends the timer")
+        await model.publish()
+        let published: [String]? = writer.versions.last?.timer?.steps.map { $0.key }
+        #expect(published == ["dress", "shower"])
+    }
+
+    @Test func timedOffSendsNullAndOnRestoresTheSteps() async {
+        model.draft.timed = false
+        await model.reviewChanges()
+        let off: TopicDraft.Version? = writer.versions.last
+        #expect(off != nil)
+        let offTimer: TopicTimer? = off?.timer
+        #expect(offTimer == nil)
+        let changes: [String]? = model.review?.timerChanges
+        #expect(changes == ["No longer timed"])
+        model.closeReview()
+        model.draft.timed = true
+        let keys = model.draft.steps.map(\.key)
+        #expect(keys == ["shower", "dress"])
+        #expect(!model.hasUnsavedChanges)
+    }
+
+    @Test func aBlankStepBlocksTheReview() async {
+        model.addStep()
+        await model.reviewChanges()
+        #expect(model.review == nil)
+        #expect(writer.calls.isEmpty)
+        let error = model.draftErrors[.step(2, .label)]
+        #expect(error == "Required")
+    }
+
+    @Test func aStepEditedWhileCheckingDropsTheReport() async {
+        model.setStepLabel(model.draft.steps[0].id, "Bath")
+        let gate = Gate()
+        writer.checkGate = gate
+        let checking = Task { await model.reviewChanges() }
+        await eventually("the check is out") { writer.calls.count == 1 }
+        model.setStepLabel(model.draft.steps[0].id, "Bath time")
+        gate.open()
+        await checking.value
+        #expect(model.review == nil)
+        #expect(model.visibleBanner == EditQuestionsModel.changedWhileChecking)
+    }
+
+    /// "Load latest version" reads every version's steps: a key retired in a version published
+    /// meanwhile is still taken back by its label, never reused for another step.
+    @Test func loadingTheLatestVersionExtendsTheHistoryFromEveryVersion() async {
+        writer.checkResult = .rejected(EditQuestionsModelTests.conflict)
+        await model.reviewChanges()
+        var latest = EditQuestionsModelTests.topic
+        latest.currentVersion = 4
+        latest.timer = TopicTimer(steps: [.init(key: "shower", label: "Shower")])
+        writer.latestResult = .done(latest)
+        let v3 = TopicVersion(
+            version: 3, questions: [], timer: TopicTimer(steps: [.init(key: "wash", label: "Rinse")]),
+            createdAt: .distantPast)
+        let v4 = TopicVersion(version: 4, questions: [], timer: latest.timer, createdAt: .distantPast)
+        writer.versionsResult = .done([v4, v3])
+        await model.reloadLatest()
+        let base: Int = model.base.currentVersion
+        #expect(base == 4)
+        let id = model.addStep()!
+        model.setStepLabel(id, "rinse")
+        let retired: String? = model.draft.steps.last?.key
+        #expect(retired == "wash", "v3's retired step, taken back")
+        model.setStepLabel(id, "Old prep")
+        let older: String? = model.draft.steps.last?.key
+        #expect(older == "prep", "the history from before the reload is kept")
+        model.setStepLabel(id, "Dress")
+        let dress: String? = model.draft.steps.last?.key
+        #expect(dress == "dress", "dress is retired (not in v4) and free: taken back")
+    }
+
+    @Test func aServerStepErrorLandsOnTheStep() async {
+        writer.checkResult = .rejected(
+            Problem(
+                code: .invalidRequest, detail: "invalid",
+                errors: [
+                    .init(
+                        location: [.key("body"), .key("timer"), .key("steps"), .index(1), .key("key")],
+                        message: "duplicate key")
+                ]))
+        await model.reviewChanges()
+        let error = model.draftErrors[.step(1, .key)]
+        #expect(error == "Duplicate key")
     }
 }
 

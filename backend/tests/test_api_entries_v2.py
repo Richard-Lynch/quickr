@@ -185,7 +185,8 @@ async def test_multi_select_update_keeps_archived_held_options(client: httpx.Asy
     archived = multi_questions()
     archived[1]["options"][0]["archived"] = True  # caffeine
     r = await client.post(
-        "/topics/day/versions", json={"questions": archived, "base_version": t["current_version"]}
+        "/topics/day/versions",
+        json={"questions": archived, "base_version": t["current_version"], "timer": None},
     )
     assert r.status_code == 201
 
@@ -211,7 +212,8 @@ async def test_single_to_multi_keeps_old_answers_readable(client: httpx.AsyncCli
     t = await make_topic(client, "Day", single)
     old = await record(client, "day", {"mood": 3, "factors": "screen"})
     r = await client.post(
-        "/topics/day/versions", json={"questions": multi_questions(), "base_version": t["current_version"]}
+        "/topics/day/versions",
+        json={"questions": multi_questions(), "base_version": t["current_version"], "timer": None},
     )
     assert r.status_code == 201
     new = await record(client, "day", {"mood": 4, "factors": ["screen", "stress"]})

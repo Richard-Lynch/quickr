@@ -7,7 +7,7 @@ import Foundation
 /// A parse gives the navigation stack to show above the topic list: `[]` is the list itself,
 /// one route otherwise (back returns to the list, like the PWA's back button with no history).
 /// Anything the PWA wouldn't route, or with a malformed slug or id, is nil. Query parameters
-/// other than the record screen's `fix` and the app's `scope` are ignored (the PWA's list and
+/// other than the record screen's `fix` and `finish` and the app's `scope` are ignored (the PWA's list and
 /// chart filters).
 ///
 /// **Provenance** (notifications.md §7.5): a link quickR makes for a widget names the store it
@@ -109,6 +109,10 @@ public enum DeepLink {
         case .record(let ref, let fix):
             let fixQuery = fix.map { "?fix=\($0.addingPercentEncoding(withAllowedCharacters: fixAllowed) ?? $0)" }
             return "/t/\(ref)/record" + (fixQuery ?? "")
+        case .run(let ref): return "/t/\(ref)/run"
+        case .runDetails(let ref, let runId, let fix):
+            let fixQuery = fix.map { "&fix=\($0.addingPercentEncoding(withAllowedCharacters: fixAllowed) ?? $0)" }
+            return "/t/\(ref)/record?finish=\(runId.uuidString.lowercased())" + (fixQuery ?? "")
         case .entry(let ref, let entryId): return "/t/\(ref)/entries/\(entryId.uuidString.lowercased())"
         case .editQuestions(let ref): return "/t/\(ref)/edit"
         case .topicSettings(let ref): return "/t/\(ref)/settings"
@@ -159,8 +163,14 @@ public enum DeepLink {
             case "entries", "sessions": return .topic(ref, .entries)  // `sessions`: pre-v2 URLs
             case "versions": return .topic(ref, .versions)
             case "record":
-                guard let fix = query.first(where: { $0.name == "fix" })?.value else { return .record(ref) }
-                return isFixId(fix) ? .record(ref, fix: fix) : nil
+                let fix = query.first(where: { $0.name == "fix" })?.value
+                if let fix, !isFixId(fix) { return nil }
+                if let finish = query.first(where: { $0.name == "finish" })?.value {
+                    guard let runId = UUID(uuidString: finish) else { return nil }
+                    return .runDetails(ref, runId: runId, fix: fix)
+                }
+                return .record(ref, fix: fix)
+            case "run": return .run(ref)
             case "edit": return .editQuestions(ref)
             case "settings": return .topicSettings(ref)
             default: return nil

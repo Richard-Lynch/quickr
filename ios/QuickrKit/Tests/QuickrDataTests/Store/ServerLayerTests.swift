@@ -28,6 +28,35 @@ import Testing
         #expect(try await s.store.versions.versions(topicId: topic.id).map(\.questions) == [Make.questions])
     }
 
+    /// A topic read from the store has its current version's timer (timers.md §2.1): none before
+    /// that version's row arrives, and none once an untimed version is current.
+    @Test func aTopicReadFromTheStoreHasItsCurrentVersionsTimer() async throws {
+        let s = try TestStore()
+        let timer = TopicTimer(steps: [.init(key: "pour", label: "Pour"), .init(key: "drink", label: "Drink")])
+        var topic = Make.topic()
+        topic.timer = timer
+        try s.write { (db: Database) throws in _ = try ServerLayer.upsert(db, topic: topic) }
+        #expect(try await s.store.topics.topic(id: topic.id)?.topic.timer == nil)
+
+        var v1 = Make.version(1)
+        v1.timer = timer
+        try s.write { (db: Database) throws in
+            _ = try ServerLayer.insert(db, version: v1, id: UUID(), topicId: topic.id)
+        }
+        #expect(try await s.store.topics.topic(id: topic.id)?.topic.timer == timer)
+        #expect(try await s.store.topics.topic(slug: topic.slug)?.topic.timer == timer)
+        #expect(try await s.store.topics.topics().map(\.topic.timer) == [timer])
+
+        topic.currentVersion = 2
+        topic.revision = 2
+        topic.timer = nil
+        try s.write { (db: Database) throws in
+            _ = try ServerLayer.upsert(db, topic: topic)
+            _ = try ServerLayer.insert(db, version: Make.version(2), id: UUID(), topicId: topic.id)
+        }
+        #expect(try await s.store.topics.topic(id: topic.id)?.topic.timer == nil)
+    }
+
     @Test func revisionGuardDropsOlderAndAcceptsEqualOrNewer() throws {
         let s = try TestStore()
         let topic = Make.topic(revision: 3)

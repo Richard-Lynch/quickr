@@ -59,7 +59,9 @@ async def test_logging_a_single_topic_stores_an_entry_with_no_answers(client: ht
 async def test_versions_can_go_to_and_from_no_questions(client: httpx.AsyncClient) -> None:
     await make_topic(client)  # Sleep log, 4 questions
     await record(client, "sleep-log", {"hours": 7.0, "wakeups": 1, "quality": "ok"})
-    r = await client.post("/topics/sleep-log/versions", json={"questions": [], "base_version": 1})
+    r = await client.post(
+        "/topics/sleep-log/versions", json={"questions": [], "base_version": 1, "timer": None}
+    )
     assert r.status_code == 201, r.text
     assert r.json()["current_version"] == 2
     assert r.json()["questions"] == []
@@ -71,7 +73,9 @@ async def test_versions_can_go_to_and_from_no_questions(client: httpx.AsyncClien
     check = await client.post("/topics/took-vitamins/versions/check", json={"questions": qs})
     assert check.status_code == 200, check.text
     assert check.json()["ok"] is True
-    r = await client.post("/topics/took-vitamins/versions", json={"questions": qs, "base_version": 1})
+    r = await client.post(
+        "/topics/took-vitamins/versions", json={"questions": qs, "base_version": 1, "timer": None}
+    )
     assert r.status_code == 201, r.text
     assert [q["key"] for q in r.json()["questions"]] == ["dose"]
 

@@ -30,12 +30,24 @@ public enum OutboxResolution: Sendable, Hashable {
     case retry(maybeDelivered: Bool)
     /// §7.4: refetch, rebase and resend.
     case rebase
+    /// A start refused because the server already knows its id (409 `event_conflict` or
+    /// `id_conflict`, timers.md §10.2): the same reminder started on another device, or the PWA.
+    /// `Outbox` reads the run (or entry) with that id: one of the start's topic is "started
+    /// elsewhere" and resolves the item; anything else fails it `rejected`, as before.
+    case startKnown
+    /// `startKnown` found an entry of the start's topic with the start's id: the reminder was
+    /// already logged, so the run never existed. The start is retired and every other item of the
+    /// run fails `logged_elsewhere` (a Stop's answers stay visible to discard); a pull follows.
+    case loggedElsewhere
     /// 409 `server_mismatch` / `epoch_mismatch`: nothing executed; restore the pre-claim state.
     case restore(OutboxMismatch)
     /// Mismatched or missing headers on a response that may have executed: `uncertain`.
     case mismatchUncertain(OutboxMismatch)
 
-    public static func resolve(_ kind: OutboxKind, _ outcome: APIOutcome<OutboxSuccess>) -> OutboxResolution {
+    /// `runEvent` is a `run.event` item's event type (a start's 404 differs from the others').
+    public static func resolve(
+        _ kind: OutboxKind, _ outcome: APIOutcome<OutboxSuccess>, runEvent: RunEventType? = nil
+    ) -> OutboxResolution {
         switch outcome {
         case .identityMismatch(let evidence):
             return evidence.mayHaveExecuted ? .mismatchUncertain(.identity) : .restore(.identity)
@@ -52,7 +64,7 @@ public enum OutboxResolution: Sendable, Hashable {
             case .entryCreate, .entryUpdate: return .entityGone
             // A delete whose id is already reserved is done.
             case .entryDelete: return .ack(.empty)
-            case .topicArchive, .topicUnarchive: return .fail(.rejected, pull: false)
+            case .topicArchive, .topicUnarchive, .runEvent: return .fail(.rejected, pull: false)
             }
         case .notFound:
             switch kind {
@@ -61,14 +73,27 @@ public enum OutboxResolution: Sendable, Hashable {
             case .entryDelete: return .ack(.empty)
             case .topicArchive: return .retire(pull: true)
             case .topicUnarchive: return .fail(.deletedElsewhere, pull: true)
+            // timers.md §8.1: the run is gone (a start's 404 is its topic's, as for a create).
+            case .runEvent:
+                return runEvent == .start ? .fail(.topicMissing, pull: true) : .fail(.deletedElsewhere, pull: true)
             }
         case .staleRevision:
             switch kind {
             case .entryUpdate, .topicArchive, .topicUnarchive: return .rebase
-            // Creates and deletes never send `expected_revision`; the server can't say this.
-            case .entryCreate, .entryDelete: return .fail(.rejected, pull: false)
+            // Creates, deletes and run events never send `expected_revision`; the server can't say this.
+            case .entryCreate, .entryDelete, .runEvent: return .fail(.rejected, pull: false)
             }
         case .terminal(let status, let problem):
+            // timers.md §8.1: the run's topic was deleted; nothing can come of the event. A start's
+            // known id is checked (`startKnown`). Every other refusal (`topic_not_timed`,
+            // `topic_archived`, a non-start's `event_conflict`, a finish's `run_open`, any 422)
+            // fails it with its payload kept.
+            if kind == .runEvent, status == 409, problem?.code == .runDeleted { return .retire(pull: true) }
+            if kind == .runEvent, runEvent == .start, status == 409,
+                problem?.code == .eventConflict || problem?.code == .idConflict
+            {
+                return .startKnown
+            }
             if kind == .entryCreate, status == 409, problem?.code == .topicArchived {
                 return .fail(.topicArchived, pull: false)
             }
@@ -97,6 +122,7 @@ enum OutboxMessage {
     static let topicArchived = "Topic is archived. Unarchive it to sync this entry."
     static let conflict = "Changed on another device — review and retry"
     static let deletedElsewhere = "Deleted on another device"
+    static let loggedElsewhere = "Already logged elsewhere"
     static let entryDeleted = "This entry was deleted"
     static let topicMissing = "Topic not found"
 

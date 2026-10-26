@@ -61,7 +61,8 @@ public struct NotificationActionSpec: Sendable, Hashable, Identifiable {
     }
 
     public enum Kind: Sendable, Hashable {
-        /// Logs a fixed answer (`UNNotificationAction`, no options: it runs in the background).
+        /// Logs a fixed answer, or starts a timed topic's run (`UNNotificationAction`, no options: it
+        /// runs in the background).
         case log
         /// Asks for a number (`UNTextInputNotificationAction`).
         case input(buttonTitle: String, placeholder: String)
@@ -186,13 +187,15 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
     case number(Number)
     /// No questions (`{"type": "single"}`): one "Log it", an entry with no answers.
     case single
+    /// A timed topic (`{"type": "timed"}`, timers.md §10.1): one "Start", which starts a run.
+    case timed
 
-    /// The quick question's key; empty for `single`, as in its action identifier.
+    /// The quick question's key; empty for `single` and `timed`, as in their action identifiers.
     public var key: String {
         switch self {
         case .choice(let choice): choice.key
         case .number(let number): number.key
-        case .single: ""
+        case .single, .timed: ""
         }
     }
 
@@ -298,7 +301,7 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
     private enum TagKeys: String, CodingKey { case type }
 
     /// The `type` values this build reads; any other quick_log is ignored (a plain reminder).
-    static let knownTypes: Set<String> = ["enum", "int", "double", "single"]
+    static let knownTypes: Set<String> = ["enum", "int", "double", "single", "timed"]
 
     /// Just a quick_log's `type`, to tell a known one from a newer server's.
     struct Tag: Decodable {
@@ -311,6 +314,7 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
         case "enum": self = .choice(try Choice(from: decoder))
         case "int", "double": self = .number(try Number(from: decoder))
         case "single": self = .single
+        case "timed": self = .timed
         case let tag:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: container, debugDescription: "unknown quick_log type \(tag)")
@@ -328,6 +332,9 @@ public enum QuickLogDescriptor: Codable, Sendable, Hashable {
         case .single:
             var tag = encoder.container(keyedBy: TagKeys.self)
             try tag.encode("single", forKey: .type)
+        case .timed:
+            var tag = encoder.container(keyedBy: TagKeys.self)
+            try tag.encode("timed", forKey: .type)
         }
     }
 }

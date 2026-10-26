@@ -186,24 +186,6 @@ export const zEntryCreate = z.object({
 });
 
 /**
- * EntryUpdate
- *
- * Partial update. ``answers`` merges into existing answers; a null value clears an answer.
- */
-export const zEntryUpdate = z.object({
-    answers: z.record(z.string(), z.union([
-        z.number(),
-        z.string(),
-        z.array(z.string())
-    ]).nullable()).nullish(),
-    source: z.string().min(1).max(100).nullish(),
-    captured_at: z.iso.datetime({ offset: true }).nullish(),
-    notes: z.string().max(5000).nullish(),
-    meta: z.record(z.string(), z.string().max(500)).nullish(),
-    expected_revision: z.int().gte(1).nullish()
-});
-
-/**
  * EnumAnswer
  *
  * Answer to a single-select enum question.
@@ -300,13 +282,16 @@ export const zEnumStats = z.object({
 /**
  * FeedDeletion
  *
- * A permanently deleted id. A topic deletion also deletes all of its versions and entries.
+ * A permanently deleted id. A topic deletion also deletes all of its versions, entries and
+ * runs. A ``run`` deletion means the run is no longer open or finishing: it stopped, was
+ * discarded, or went with its topic.
  */
 export const zFeedDeletion = z.object({
     kind: z.enum([
         'entry',
         'topic',
-        'version'
+        'version',
+        'run'
     ]),
     seq: z.int(),
     id: z.uuid(),
@@ -421,6 +406,43 @@ export const zLimits = z.object({
     schedule_max_times: z.int().default(24),
     interval_min_minutes: z.int().default(15),
     interval_max_minutes: z.int().default(129600)
+});
+
+/**
+ * LiveActivityIn
+ *
+ * A Live Activity push token (timers.md §10.3), upserted by token: the device's push-to-start
+ * token, or one activity's update token with the topic and run it shows.
+ */
+export const zLiveActivityIn = z.object({
+    token: z.string().regex(/^[0-9a-fA-F]{64,512}$/),
+    kind: z.enum(['start', 'update']),
+    device_token: z.string().regex(/^[0-9a-fA-F]{64,200}$/),
+    environment: z.enum(['sandbox', 'production']),
+    topic_id: z.uuid().nullish(),
+    run_id: z.uuid().nullish()
+});
+
+/**
+ * LiveActivityOut
+ */
+export const zLiveActivityOut = z.object({
+    token: z.string(),
+    kind: z.enum(['start', 'update']),
+    device_token: z.string(),
+    environment: z.enum(['sandbox', 'production']),
+    topic_id: z.uuid().nullable(),
+    run_id: z.uuid().nullable(),
+    created_at: z.iso.datetime({ offset: true })
+});
+
+/**
+ * LiveActivityRef
+ *
+ * One Live Activity token, by token (unregister).
+ */
+export const zLiveActivityRef = z.object({
+    token: z.string().regex(/^[0-9a-fA-F]{64,512}$/)
 });
 
 /**
@@ -552,6 +574,141 @@ export const zRecentText = z.object({
 });
 
 /**
+ * RunDevice
+ *
+ * The iOS device that sent the event, for Live Activity pushes (timers.md §10.3).
+ */
+export const zRunDevice = z.object({
+    apns_token: z.string().regex(/^[0-9a-fA-F]{64,200}$/),
+    live_activity: z.boolean()
+});
+
+/**
+ * RunEventEffect
+ */
+export const zRunEventEffect = z.object({
+    effect: z.enum(['applied', 'void']),
+    reason: z.enum([
+        'merged',
+        'already_closed',
+        'run_edited',
+        'entry_deleted',
+        'before_start',
+        'after_stop',
+        'too_long',
+        'stale',
+        'no_step',
+        'already_paused',
+        'not_paused'
+    ]).nullable()
+});
+
+/**
+ * RunEventIn
+ *
+ * One tap on a run (``recordRunEvent``). Idempotent by ``id``.
+ */
+export const zRunEventIn = z.object({
+    id: z.uuid(),
+    type: z.enum([
+        'start',
+        'next',
+        'lap',
+        'skip',
+        'pause',
+        'resume',
+        'stop',
+        'finish',
+        'discard'
+    ]),
+    at: z.iso.datetime({ offset: true }),
+    seg: z.int().gte(0).nullish(),
+    step: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/).nullish(),
+    pause_id: z.uuid().nullish(),
+    topic_id: z.uuid().nullish(),
+    version: z.int().gte(1).nullish(),
+    answers: z.record(z.string(), z.union([
+        z.number(),
+        z.string(),
+        z.array(z.string())
+    ]).nullable()).nullish(),
+    notes: z.string().max(5000).nullish(),
+    meta: z.record(z.string(), z.string().max(500)).nullish(),
+    source: z.string().min(1).max(100).nullish(),
+    device: zRunDevice.nullish()
+});
+
+/**
+ * RunEventOut
+ */
+export const zRunEventOut = z.object({
+    id: z.uuid(),
+    type: z.enum([
+        'start',
+        'next',
+        'lap',
+        'skip',
+        'pause',
+        'resume',
+        'stop',
+        'finish',
+        'discard'
+    ]),
+    at: z.iso.datetime({ offset: true }),
+    seg: z.int().nullable(),
+    step: z.string().nullable(),
+    pause_id: z.uuid().nullable(),
+    arrival: z.int(),
+    effect: z.enum(['applied', 'void']),
+    reason: z.enum([
+        'merged',
+        'already_closed',
+        'run_edited',
+        'entry_deleted',
+        'before_start',
+        'after_stop',
+        'too_long',
+        'stale',
+        'no_step',
+        'already_paused',
+        'not_paused'
+    ]).nullable(),
+    source: z.string()
+});
+
+/**
+ * RunEventResultEvent
+ */
+export const zRunEventResultEvent = z.object({
+    id: z.uuid(),
+    effect: z.enum(['applied', 'void']),
+    reason: z.enum([
+        'merged',
+        'already_closed',
+        'run_edited',
+        'entry_deleted',
+        'before_start',
+        'after_stop',
+        'too_long',
+        'stale',
+        'no_step',
+        'already_paused',
+        'not_paused'
+    ]).nullable()
+});
+
+/**
+ * RunOpenSegment
+ */
+export const zRunOpenSegment = z.object({
+    index: z.int(),
+    kind: z.enum(['step', 'lap']),
+    step: z.string().nullable(),
+    label: z.string(),
+    started_at: z.iso.datetime({ offset: true })
+});
+
+/**
  * SeriesPoint
  */
 export const zSeriesPoint = z.object({
@@ -583,55 +740,23 @@ export const zQuestionSeries = z.object({
 });
 
 /**
+ * Step
+ *
+ * A named checkpoint of a timed topic. Its key is its identity across versions, in a
+ * namespace of its own (a step and a question may share a key).
+ */
+export const zStep = z.object({
+    key: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/),
+    label: z.string().min(1).max(200)
+});
+
+/**
  * StrAnswer
  */
 export const zStrAnswer = z.object({
     key: z.string(),
     type: z.literal('str').default('str'),
     value: z.string()
-});
-
-/**
- * EntryOut
- */
-export const zEntryOut = z.object({
-    id: z.uuid(),
-    topic_id: z.uuid(),
-    version: z.int(),
-    revision: z.int(),
-    source: z.string(),
-    channel: zChannel,
-    captured_at: z.iso.datetime({ offset: true }),
-    created_at: z.iso.datetime({ offset: true }),
-    updated_at: z.iso.datetime({ offset: true }),
-    notes: z.string(),
-    meta: z.record(z.string(), z.string()),
-    answers: z.array(z.union([
-        zIntAnswer,
-        zDoubleAnswer,
-        zStrAnswer,
-        zEnumAnswer,
-        zEnumListAnswer
-    ]))
-});
-
-/**
- * EntryPage
- */
-export const zEntryPage = z.object({
-    items: z.array(zEntryOut),
-    total: z.int(),
-    limit: z.int(),
-    offset: z.int()
-});
-
-/**
- * FeedEntry
- */
-export const zFeedEntry = z.object({
-    kind: z.literal('entry').default('entry'),
-    seq: z.int(),
-    entry: zEntryOut
 });
 
 /**
@@ -663,6 +788,277 @@ export const zStrQuestionOutput = z.object({
 });
 
 /**
+ * Timer
+ *
+ * A version's timing: its steps, timed in this order. No steps makes a plain stopwatch.
+ */
+export const zTimer = z.object({
+    steps: z.array(zStep).max(30)
+});
+
+/**
+ * TimingEditPause
+ */
+export const zTimingEditPause = z.object({
+    start: z.iso.datetime({ offset: true }),
+    end: z.iso.datetime({ offset: true })
+});
+
+/**
+ * TimingEditSegment
+ */
+export const zTimingEditSegment = z.object({
+    kind: z.enum(['step', 'lap']),
+    step: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/).nullish(),
+    ended_at: z.iso.datetime({ offset: true })
+});
+
+/**
+ * TimingEdit
+ *
+ * A stopped run's times, replaced as a whole (timers.md §3.8). The server rebuilds the
+ * entry's ``Timing`` from it: the last segment's ``ended_at`` becomes the run's end and the
+ * entry's ``captured_at``.
+ */
+export const zTimingEdit = z.object({
+    started_at: z.iso.datetime({ offset: true }),
+    segments: z.array(zTimingEditSegment).min(1).max(1000),
+    skipped: z.array(z.string().regex(/^[a-z][a-z0-9_]{0,62}$/)).max(30),
+    pauses: z.array(zTimingEditPause).max(1000)
+});
+
+/**
+ * EntryUpdate
+ *
+ * Partial update. ``answers`` merges into existing answers; a null value clears an answer.
+ */
+export const zEntryUpdate = z.object({
+    answers: z.record(z.string(), z.union([
+        z.number(),
+        z.string(),
+        z.array(z.string())
+    ]).nullable()).nullish(),
+    source: z.string().min(1).max(100).nullish(),
+    captured_at: z.iso.datetime({ offset: true }).nullish(),
+    notes: z.string().max(5000).nullish(),
+    meta: z.record(z.string(), z.string().max(500)).nullish(),
+    expected_revision: z.int().gte(1).nullish(),
+    timing: zTimingEdit.optional()
+});
+
+/**
+ * TimingLaps
+ */
+export const zTimingLaps = z.object({
+    runs_with_laps: z.int(),
+    median_ms: z.int().nullable(),
+    mean_ms: z.int().nullable()
+});
+
+/**
+ * TimingPause
+ */
+export const zTimingPause = z.object({
+    start: z.iso.datetime({ offset: true }),
+    end: z.iso.datetime({ offset: true })
+});
+
+/**
+ * TimingPaused
+ */
+export const zTimingPaused = z.object({
+    runs_with_pauses: z.int(),
+    median_ms: z.int().nullable()
+});
+
+/**
+ * TimingSegment
+ *
+ * One segment of a finished run: a named step's time, or an unnamed lap's.
+ */
+export const zTimingSegment = z.object({
+    kind: z.enum(['step', 'lap']),
+    step: z.string().nullable(),
+    label: z.string(),
+    started_at: z.iso.datetime({ offset: true }),
+    ended_at: z.iso.datetime({ offset: true }),
+    active_ms: z.int(),
+    paused_ms: z.int()
+});
+
+/**
+ * RunState
+ *
+ * The fold's output (timers.md §4.3). For a stopped run, ``segments``, ``skipped`` and
+ * ``pauses`` are exactly its entry's ``timing``, until the times are edited: an edited run
+ * (``RunOut.edited``) keeps its last fold, and its entry holds the edited times.
+ */
+export const zRunState = z.object({
+    status: z.enum([
+        'running',
+        'paused',
+        'finishing',
+        'stopped',
+        'discarded'
+    ]),
+    started_at: z.iso.datetime({ offset: true }),
+    ended_at: z.iso.datetime({ offset: true }).nullable(),
+    open: zRunOpenSegment.nullable(),
+    next_step: z.string().nullable(),
+    paused_since: z.iso.datetime({ offset: true }).nullable(),
+    segments: z.array(zTimingSegment),
+    skipped: z.array(z.string()),
+    pauses: z.array(zTimingPause),
+    effects: z.record(z.string(), zRunEventEffect)
+});
+
+/**
+ * RunOut
+ *
+ * A run in any status, with every event and its current effect.
+ */
+export const zRunOut = z.object({
+    id: z.uuid(),
+    topic_id: z.uuid(),
+    version: z.int(),
+    status: z.enum([
+        'running',
+        'paused',
+        'finishing',
+        'stopped',
+        'discarded'
+    ]),
+    revision: z.int(),
+    started_at: z.iso.datetime({ offset: true }),
+    ended_at: z.iso.datetime({ offset: true }).nullable(),
+    edited: z.boolean(),
+    events: z.array(zRunEventOut),
+    state: zRunState,
+    aliases: z.array(z.uuid())
+});
+
+/**
+ * FeedRun
+ *
+ * A run that is open or finishing in the page's snapshot (timers.md §7.1). A closed run
+ * leaves the feed as a ``run`` deletion; a stopped run's data arrives as its entry.
+ */
+export const zFeedRun = z.object({
+    kind: z.literal('run').default('run'),
+    seq: z.int(),
+    run: zRunOut
+});
+
+/**
+ * Timing
+ *
+ * A finished run's times (timers.md §2.3). Every instant is a whole millisecond;
+ * ``ended_at`` equals the entry's ``captured_at``.
+ */
+export const zTiming = z.object({
+    started_at: z.iso.datetime({ offset: true }),
+    ended_at: z.iso.datetime({ offset: true }),
+    active_ms: z.int(),
+    paused_ms: z.int(),
+    complete: z.boolean(),
+    edited: z.boolean(),
+    segments: z.array(zTimingSegment),
+    skipped: z.array(z.string()),
+    pauses: z.array(zTimingPause)
+});
+
+/**
+ * EntryOut
+ */
+export const zEntryOut = z.object({
+    id: z.uuid(),
+    topic_id: z.uuid(),
+    version: z.int(),
+    revision: z.int(),
+    source: z.string(),
+    channel: zChannel,
+    captured_at: z.iso.datetime({ offset: true }),
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true }),
+    notes: z.string(),
+    meta: z.record(z.string(), z.string()),
+    answers: z.array(z.union([
+        zIntAnswer,
+        zDoubleAnswer,
+        zStrAnswer,
+        zEnumAnswer,
+        zEnumListAnswer
+    ])),
+    timing: zTiming.nullable()
+});
+
+/**
+ * EntryPage
+ */
+export const zEntryPage = z.object({
+    items: z.array(zEntryOut),
+    total: z.int(),
+    limit: z.int(),
+    offset: z.int()
+});
+
+/**
+ * FeedEntry
+ */
+export const zFeedEntry = z.object({
+    kind: z.literal('entry').default('entry'),
+    seq: z.int(),
+    entry: zEntryOut
+});
+
+/**
+ * RunEventResult
+ */
+export const zRunEventResult = z.object({
+    event: zRunEventResultEvent,
+    run: zRunOut,
+    entry: zEntryOut.nullable()
+});
+
+/**
+ * TimingSeriesPoint
+ */
+export const zTimingSeriesPoint = z.object({
+    entry_id: z.uuid(),
+    captured_at: z.iso.datetime({ offset: true }),
+    started_at: z.iso.datetime({ offset: true }),
+    active_ms: z.int(),
+    paused_ms: z.int(),
+    complete: z.boolean(),
+    steps: z.record(z.string(), z.int())
+});
+
+/**
+ * TimingStepStats
+ */
+export const zTimingStepStats = z.object({
+    key: z.string(),
+    label: z.string(),
+    current: z.boolean(),
+    done: z.int(),
+    skipped: z.int(),
+    best_ms: z.int().nullable(),
+    median_ms: z.int().nullable(),
+    mean_ms: z.int().nullable()
+});
+
+/**
+ * TimingSummary
+ *
+ * Best, median and mean of active times in milliseconds; null when there are none.
+ */
+export const zTimingSummary = z.object({
+    best_ms: z.int().nullable(),
+    median_ms: z.int().nullable(),
+    mean_ms: z.int().nullable()
+});
+
+/**
  * TopicCreate
  */
 export const zTopicCreate = z.object({
@@ -678,7 +1074,8 @@ export const zTopicCreate = z.object({
     schedule: z.discriminatedUnion('kind', [
         zDailyScheduleInput,
         zIntervalScheduleInput
-    ]).nullish()
+    ]).nullish(),
+    timer: zTimer.nullish()
 });
 
 /**
@@ -709,6 +1106,7 @@ export const zTopicDetail = z.object({
     ]).nullable(),
     schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
     due: zDueStatus.nullable(),
+    timer: zTimer.nullable(),
     questions: z.array(z.union([
         zIntQuestionOutput,
         zDoubleQuestionOutput,
@@ -751,7 +1149,8 @@ export const zTopicSummary = z.object({
         zIntervalScheduleOutput
     ]).nullable(),
     schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
-    due: zDueStatus.nullable()
+    due: zDueStatus.nullable(),
+    timer: zTimer.nullable()
 });
 
 /**
@@ -762,6 +1161,22 @@ export const zTopicPage = z.object({
     total: z.int(),
     limit: z.int(),
     offset: z.int()
+});
+
+/**
+ * TopicTiming
+ *
+ * Timing stats over the timed entries in range (timers.md §9). Durations are active
+ * time in integer milliseconds; untimed entries count toward nothing here.
+ */
+export const zTopicTiming = z.object({
+    runs: z.int(),
+    complete_runs: z.int(),
+    total: zTimingSummary,
+    steps: z.array(zTimingStepStats),
+    laps: zTimingLaps,
+    paused: zTimingPaused,
+    series: z.array(zTimingSeriesPoint)
 });
 
 /**
@@ -793,6 +1208,7 @@ export const zTopicVersionOut = z.object({
         zStrQuestionOutput,
         zEnumQuestionOutput
     ])),
+    timer: zTimer.nullable(),
     change_note: z.string(),
     created_at: z.iso.datetime({ offset: true }),
     entry_count: z.int()
@@ -817,14 +1233,16 @@ export const zFeedVersion = z.object({
  * One page of the change feed, read from a single consistent snapshot.
  *
  * Each changed entity appears once, in its latest state (``items``) or as a deletion
- * (``deleted``). Apply ``items`` in order (topics, then versions, then entries), then
- * ``deleted`` (entries, then versions, then topics), then store ``next`` as the cursor.
+ * (``deleted``). Apply ``items`` in order (topics, then versions, then entries, then runs),
+ * then ``deleted`` (runs, then entries, then versions, then topics), then store ``next`` as
+ * the cursor.
  */
 export const zChangesPage = z.object({
     items: z.array(z.union([
         zFeedEntry,
         zFeedTopic,
-        zFeedVersion
+        zFeedVersion,
+        zFeedRun
     ])),
     deleted: z.array(zFeedDeletion),
     next: z.int(),
@@ -884,6 +1302,7 @@ export const zVersionCreate = z.object({
         zEnumQuestionInput
     ])).min(0).max(100),
     base_version: z.int().gte(1),
+    timer: zTimer.nullable(),
     change_note: z.string().max(2000).optional().default('')
 });
 
@@ -897,7 +1316,8 @@ export const zVersionDraft = z.object({
         zStrQuestionInput,
         zEnumQuestionInput
     ])).min(0).max(100),
-    base_version: z.int().gte(1).nullish()
+    base_version: z.int().gte(1).nullish(),
+    timer: zTimer.nullish()
 });
 
 /**
@@ -1170,6 +1590,44 @@ export const zUpdateEntryPath = z.object({
  */
 export const zUpdateEntryResponse = zEntryOut;
 
+export const zRecordRunEventBody = zRunEventIn;
+
+export const zRecordRunEventHeaders = z.object({
+    'X-QuickR-Channel': zChannel.nullish(),
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
+export const zRecordRunEventPath = z.object({
+    run_id: z.uuid()
+});
+
+/**
+ * Successful Response
+ */
+export const zRecordRunEventResponse = zRunEventResult;
+
+export const zListRunsQuery = z.object({
+    status: z.array(z.enum(['open', 'finishing'])).optional().default(['open', 'finishing']),
+    topic: z.string().max(64).nullish()
+});
+
+/**
+ * Response Listruns
+ *
+ * Successful Response
+ */
+export const zListRunsResponse = z.array(zRunOut);
+
+export const zGetRunPath = z.object({
+    run_id: z.uuid()
+});
+
+/**
+ * Successful Response
+ */
+export const zGetRunResponse = zRunOut;
+
 export const zListChangesQuery = z.object({
     after: z.int().gte(0).optional().default(0),
     limit: z.int().gte(1).lte(500).optional().default(500)
@@ -1196,6 +1654,23 @@ export const zGetTopicStatsQuery = z.object({
  * Successful Response
  */
 export const zGetTopicStatsResponse = zTopicStats;
+
+export const zGetTopicTimingPath = z.object({
+    ref: z.string()
+});
+
+export const zGetTopicTimingQuery = z.object({
+    captured_from: z.iso.datetime({ offset: true }).nullish(),
+    captured_to: z.iso.datetime({ offset: true }).nullish(),
+    version: z.int().gte(1).nullish(),
+    source: z.string().max(100).nullish(),
+    channel: zChannel.nullish()
+});
+
+/**
+ * Successful Response
+ */
+export const zGetTopicTimingResponse = zTopicTiming;
 
 export const zGetQuestionSeriesPath = z.object({
     ref: z.string(),
@@ -1283,6 +1758,30 @@ export const zDeleteApnsDeviceHeaders = z.object({
  * Successful Response
  */
 export const zDeleteApnsDeviceResponse = z.void();
+
+export const zRegisterLiveActivityBody = zLiveActivityIn;
+
+export const zRegisterLiveActivityHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
+/**
+ * Successful Response
+ */
+export const zRegisterLiveActivityResponse = zLiveActivityOut;
+
+export const zDeleteLiveActivityBody = zLiveActivityRef;
+
+export const zDeleteLiveActivityHeaders = z.object({
+    'X-QuickR-Expect-Server-Id': z.string().nullish(),
+    'X-QuickR-Expect-Epoch': z.string().nullish()
+});
+
+/**
+ * Successful Response
+ */
+export const zDeleteLiveActivityResponse = z.void();
 
 export const zSendApnsTestPushBody = zApnsDeviceRef;
 

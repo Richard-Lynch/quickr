@@ -63,6 +63,8 @@ RECORD_PATHS = frozenset(
         ("body", "items", "*", "entry"),
         ("body", "items", "*", "version"),
         ("body", "deleted", "*"),
+        # recordRunEvent: the run's entry.
+        ("body", "entry"),
     }
 )
 FIXED_PUBLIC_KEY = "B" + "A" * 86
@@ -91,6 +93,11 @@ UNCOVERED_OPERATIONS = {
 
 ENTRY_IDS = [f"0f1e2d3c-4b5a-4968-8778-{n:012d}" for n in range(1, 6)]
 E1, E2, E3, E4, E5 = ENTRY_IDS
+# Client-generated run and event ids (kept as they are, like the entry ids).
+RUN_IDS = [f"0a000000-0000-4000-8000-{n:012d}" for n in range(1, 6)]
+R1, R2, R3, R4, R5 = RUN_IDS
+EVENT_IDS = [f"0e000000-0000-4000-8000-{n:012d}" for n in range(1, 13)]
+CLIENT_IDS = [*ENTRY_IDS, *RUN_IDS, *EVENT_IDS]
 
 EVERYTHING: list[dict[str, Any]] = [
     {"key": "glasses", "label": "Glasses of water", "type": "int", "min": 0, "max": 30, "unit": "glasses"},
@@ -159,7 +166,7 @@ class Recorder:
     def __init__(self, client: httpx.AsyncClient) -> None:
         self.client = client
         self.files: dict[str, str] = {}
-        self.uuids: dict[str, str] = {i: i for i in ENTRY_IDS}
+        self.uuids: dict[str, str] = {i: i for i in CLIENT_IDS}
 
     async def __call__(
         self,
@@ -210,8 +217,8 @@ class Recorder:
         return out
 
     def uuids_in(self, value: Any) -> Any:
-        if isinstance(value, dict):
-            return {k: self.uuids_in(v) for k, v in value.items()}
+        if isinstance(value, dict):  # keys too: a run's effects are keyed by event id
+            return {self.uuids_in(k): self.uuids_in(v) for k, v in value.items()}
         if isinstance(value, list):
             return [self.uuids_in(v) for v in value]
         if isinstance(value, str):
@@ -220,7 +227,7 @@ class Recorder:
 
     def _uuid(self, real: str) -> str:
         if real not in self.uuids:
-            self.uuids[real] = f"00000000-0000-4000-8000-{len(self.uuids) - len(ENTRY_IDS) + 1:012d}"
+            self.uuids[real] = f"00000000-0000-4000-8000-{len(self.uuids) - len(CLIENT_IDS) + 1:012d}"
         return self.uuids[real]
 
 
@@ -291,7 +298,12 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
         "publishTopicVersion",
         "POST",
         "/topics/everything/versions",
-        {"questions": everything_v2(), "base_version": 1, "change_note": "Retire 'poor'"},
+        {
+            "questions": everything_v2(),
+            "base_version": 1,
+            "change_note": "Retire 'poor'",
+            "timer": {"steps": [{"key": "pour", "label": "Pour"}, {"key": "drink", "label": "Drink"}]},
+        },
         status=201,
     )
     await record(
@@ -370,7 +382,7 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
         "publishTopicVersion",
         "POST",
         "/topics/everything/versions",
-        {"questions": everything_v2(), "base_version": 1},
+        {"questions": everything_v2(), "base_version": 1, "timer": None},
         status=409,
         variant="conflict",
     )
@@ -433,7 +445,214 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
         {"endpoint": PUSH_SUBSCRIPTION["endpoint"]},
         status=204,
     )
+    await runs(client, rec)
+    await live_activities(client, rec)
     return rec.files
+
+
+async def live_activities(client: httpx.AsyncClient, rec: Recorder) -> None:
+    """Live Activity tokens (timers.md §10.3): the push-to-start token, and one activity's."""
+    everything = (await client.get("/topics/everything")).json()["id"]
+    device = {"device_token": APNS_DEVICE["token"], "environment": "sandbox"}
+    start = {"token": "5a" * 80, "kind": "start", **device}
+    update = {"token": "6b" * 80, "kind": "update", "topic_id": everything, "run_id": RUN_IDS[0], **device}
+    await rec(
+        "registerLiveActivity", "POST", "/push/apns/live-activities", start, status=201, variant="start"
+    )
+    await rec("registerLiveActivity", "POST", "/push/apns/live-activities", update, status=201)
+    await rec(
+        "deleteLiveActivity",
+        "POST",
+        "/push/apns/live-activities/delete",
+        {"token": update["token"]},
+        status=204,
+    )
+
+
+def run_event(event_id: str, kind: str, at: str, **fields: Any) -> dict[str, Any]:
+    return {"id": event_id, "type": kind, "at": at, **fields}
+
+
+async def runs(client: httpx.AsyncClient, rec: Recorder) -> None:
+    """Runs (docs/specs/timers.md §3): 'everything' is timed from v2 and has required questions,
+    so its runs finish; 'dishwasher' has neither steps nor questions, so its stop makes the entry."""
+    ev1, ev2, ev3, ev4, ev5, ev6, ev7, ev8, ev9, ev10, ev11, ev12 = EVENT_IDS
+    everything = (await client.get("/topics/everything")).json()["id"]
+    dishwasher = (
+        await client.post("/topics", json={"name": "Dishwasher", "questions": [], "timer": {"steps": []}})
+    ).json()["id"]
+
+    def start(run_id: str, topic_id: str, at: str) -> dict[str, Any]:
+        return run_event(run_id, "start", at, topic_id=topic_id, version=2 if topic_id == everything else 1)
+
+    def post(run_id: str) -> str:
+        return f"/runs/{run_id}/events"
+
+    runs_from = (await client.get("/changes?after=0&limit=500")).json()["head"]
+    await rec("recordRunEvent", "POST", post(R1), start(R1, everything, "2026-03-04T11:00:00Z"), status=201)
+    # A second device's start for the same topic: merged into R1, whose start time is kept.
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R2),
+        {**start(R2, everything, "2026-03-04T10:59:58.250Z"), "source": "widget"},
+        status=201,
+        variant="merged",
+    )
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R1),
+        run_event(ev1, "next", "2026-03-04T11:02:30.125Z", seg=0),
+        status=200,
+        variant="next",
+    )
+    # The other device's Next for the same segment, sent to its alias: one advance, this one stale.
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R2),
+        run_event(ev2, "next", "2026-03-04T11:02:31Z", seg=0),
+        status=200,
+        variant="void",
+    )
+    await client.post(post(R1), json=run_event(ev3, "pause", "2026-03-04T11:03:00Z"))
+    await client.post(post(R1), json=run_event(ev4, "resume", "2026-03-04T11:04:00Z", pause_id=ev3))
+    await client.post(post(R1), json=run_event(ev5, "skip", "2026-03-04T11:05:00Z", seg=1, step="drink"))
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R1),
+        run_event(ev6, "stop", "2026-03-04T11:06:00Z", meta={"device": "iphone"}),
+        status=200,
+        variant="finishing",
+    )
+    # The feed since the first start: one run item, finishing (timers.md §7.1).
+    await rec("listChanges", "GET", f"/changes?after={runs_from}", status=200, variant="run")
+    await rec("getRun", "GET", f"/runs/{R2}", status=200)  # an alias resolves
+    await rec("listRuns", "GET", "/runs", status=200, params={"status": "finishing"})
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R1),
+        run_event(ev7, "finish", "2026-03-04T11:07:00Z", answers={"glasses": 2, "hours": 7, "mood": "ok"}),
+        status=200,
+        variant="finish",
+    )
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R1),
+        run_event(ev8, "finish", "2026-03-04T11:08:00Z", answers={"note": "Later."}, notes="Added later."),
+        status=200,
+        variant="finish_stopped",
+    )
+    # Editing the stopped run's times on its entry (§3.8): drink was skipped, now it is timed.
+    await rec(
+        "updateEntry",
+        "PATCH",
+        f"/entries/{R1}",
+        {
+            "expected_revision": 2,
+            "timing": {
+                "started_at": "2026-03-04T11:00:00Z",
+                "segments": [
+                    {"kind": "step", "step": "pour", "ended_at": "2026-03-04T11:02:00Z"},
+                    {"kind": "step", "step": "drink", "ended_at": "2026-03-04T11:05:30Z"},
+                ],
+                "skipped": [],
+                "pauses": [{"start": "2026-03-04T11:03:00Z", "end": "2026-03-04T11:03:30Z"}],
+            },
+        },
+        status=200,
+        variant="timing",
+    )
+
+    # R1's entry: a run of 'everything' v2 with a skipped step and a pause.
+    await rec("getTopicTiming", "GET", "/topics/everything/timing", status=200)
+    await rec("getTopicTiming", "GET", "/topics/water/timing", status=200, variant="untimed")
+
+    await client.post(post(R3), json=start(R3, dishwasher, "2026-03-04T11:10:00Z"))
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R3),
+        run_event(ev9, "stop", "2026-03-04T11:14:05.5Z"),
+        status=200,
+        variant="stop",
+    )
+
+    await client.post(post(R4), json=start(R4, everything, "2026-03-04T11:20:00Z"))
+    await client.post(post(R4), json=run_event(ev10, "stop", "2026-03-04T11:21:00Z"))
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R4),
+        run_event(ev11, "discard", "2026-03-04T11:22:00Z"),
+        status=200,
+        variant="discard_finishing",
+    )
+    # The same span once every run has closed: their entries, and one run deletion each.
+    await rec("listChanges", "GET", f"/changes?after={runs_from}", status=200, variant="run_deletion")
+
+    # --- problems ---
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R5),
+        run_event(
+            R5,
+            "start",
+            "2026-03-04T11:30:00Z",
+            topic_id=(await client.get("/topics/water")).json()["id"],
+            version=1,
+        ),
+        status=409,
+        variant="topic_not_timed",
+    )
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(E1),
+        start(E1, dishwasher, "2026-03-04T11:30:00Z"),
+        status=409,
+        variant="id_conflict",
+    )
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R1),
+        run_event(ev1, "next", "2026-03-04T11:02:31Z", seg=0),
+        status=409,
+        variant="event_conflict",
+    )
+    await client.post(post(R5), json=start(R5, dishwasher, "2026-03-04T11:40:00Z"))
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R5),
+        run_event(ev12, "stop", "2026-03-04T11:39:59Z"),
+        status=422,
+        variant="before_start",
+    )
+    await rec(
+        "createEntry",
+        "POST",
+        f"/topics/{dishwasher}/entries",
+        {"id": R5, "answers": {}, "captured_at": "2026-03-04T11:41:00Z"},
+        status=409,
+        variant="run_id_conflict",
+    )
+    await client.post(f"/topics/{dishwasher}/archive")
+    await client.delete(f"/topics/{dishwasher}")
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R5),
+        run_event(ev12, "stop", "2026-03-04T11:42:00Z"),
+        status=409,
+        variant="run_deleted",
+    )
 
 
 async def test_api_fixtures_match_committed(
@@ -442,6 +661,9 @@ async def test_api_fixtures_match_committed(
     # Only the topic service still reads the Python clock (due computation); entry and
     # topic timestamps come from the database's now() and are normalised instead.
     monkeypatch.setattr("app.services.topics.datetime", FrozenDatetime)
+    # Runs: the start-age bound and the `at` bounds.
+    monkeypatch.setattr("app.services.runs.now", lambda: FROZEN_NOW)
+    monkeypatch.setattr("app.schemas.api.datetime", FrozenDatetime)
     monkeypatch.setattr("app.services.push.web.deliver", lambda *_: None)
     files = await scenario(client)
     existing = {p.name for p in API_DIR.glob("*.json")}

@@ -147,11 +147,12 @@ public struct EntriesExport: Sendable {
     /// holds and the task isn't cancelled; otherwise it is deleted (`.discarded`).
     public func export(
         scope: Scope, transport: any Transport, credentials: any AccessCredentialsProvider, slug: String,
-        filters: EntryFilters, now: Date, calendar: Calendar, isCurrent: @MainActor @Sendable () -> Bool
+        filters: EntryFilters, now: Date, calendar: Calendar, serverOffset: (any ServerOffsetRecorder)? = nil,
+        isCurrent: @MainActor @Sendable () -> Bool
     ) async -> Outcome {
         let client = APIClient(
             baseURL: scope.binding.baseURL, transport: transport, identity: StaticServerIdentity(scope.identity),
-            credentials: credentials, origin: .app)
+            credentials: credentials, origin: .app, serverOffset: serverOffset)
         let name = UUID().uuidString
         ledger.created(name)
         let folder = root.appending(path: name, directoryHint: .isDirectory)

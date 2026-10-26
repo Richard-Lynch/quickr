@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 from functools import lru_cache
 
 from fastapi import Request
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import get_settings
@@ -33,3 +34,10 @@ async def get_db(request: Request) -> AsyncIterator[AsyncSession]:
         return
     async with get_sessionmaker()() as session:
         yield session
+
+
+async def read_snapshot(db: AsyncSession) -> None:
+    """Run the rest of this read in one REPEATABLE READ snapshot, so rows read by separate
+    queries always agree even when a write commits between them. End it with a rollback."""
+    await db.rollback()  # whatever the session had open; the snapshot starts with the next statement
+    await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))

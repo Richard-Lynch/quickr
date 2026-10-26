@@ -106,6 +106,7 @@ public struct NotificationPreparation: Sendable {
             return out
         }
 
+        // A timed reminder's category (its Start, timers.md §10.1) is registered like any other.
         if let descriptor = q.quickLog, let topicId = q.topicId, let version = q.version {
             let category = NotificationCategory(
                 serverId: q.serverId, topicId: topicId, version: version, descriptor: descriptor)
@@ -142,7 +143,12 @@ public struct NotificationPreparation: Sendable {
     /// L6 and the badge (§8), from the active store's view at `now + skew`. A read that fails leaves
     /// both alone.
     private func prepareFromActiveStore(_ store: LocalStore, q: QuickrNotificationInfo, out: inout Prepared) async {
-        guard let topics = try? await store.writer.read({ db in try StoreView.dueTopics(db) }) else { return }
+        // The topics and their open runs in one read, so the badge counts one state of the store.
+        guard
+            let (topics, openRuns) = try? await store.writer.read({ db in
+                (try StoreView.dueTopics(db), try RunOverlay.openRunTopics(db))
+            })
+        else { return }
         let clock = (try? await store.syncState.syncState())?.serverClock ?? .device
         let now = clock.now(at: now())
         if let topicId = q.topicId, let dueSince = q.dueSince.flatMap(Self.date),
@@ -153,7 +159,7 @@ public struct NotificationPreparation: Sendable {
             out.body = Self.alreadyLoggedBody
             out.categoryIdentifier = ""
         }
-        out.badge = TopicListing.badgeCount(topics.map(\.topic), now: now)
+        out.badge = TopicListing.dueCount(topics.map(\.topic), now: now, openRuns: openRuns)
     }
 
     /// The reminder's ids and descriptor keep the contract (§2.1, §2.3, §4.2), so its category's
@@ -166,8 +172,10 @@ public struct NotificationPreparation: Sendable {
         else { return false }
         guard let descriptor = q.quickLog else { return q.version.map { $0 >= 1 } ?? true }
         guard let version = q.version, version >= 1 else { return false }
-        // A single topic's descriptor has no key (its action's is empty); every other one has one.
-        guard descriptor == .single || ActionIdentifier.isKey(descriptor.key) else { return false }
+        // A single or timed topic's descriptor has no key (its action's is empty); every other one has one.
+        guard descriptor == .single || descriptor == .timed || ActionIdentifier.isKey(descriptor.key) else {
+            return false
+        }
         func fits(_ text: String?) -> Bool { (text?.unicodeScalars.count ?? 0) <= NotificationCategory.maxLabelLength }
         switch descriptor {
         case .choice(let choice):
@@ -183,6 +191,8 @@ public struct NotificationPreparation: Sendable {
                 && (number.decimals.map { (0...10).contains($0) } ?? true)
                 && inOrder([number.min, number.lastValue, number.max], type: number.type)
         case .single:
+            return true
+        case .timed:
             return true
         }
     }

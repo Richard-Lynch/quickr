@@ -1,10 +1,11 @@
 import { useState, type ComponentProps, type ReactNode } from 'react';
 import { FormProvider, type UseFormReturn } from 'react-hook-form';
 
-import type { TopicDraft } from '../../lib/builder';
+import type { HistoricStep, TopicDraft } from '../../lib/builder';
 import { Segmented } from '../ui/Segmented';
 import { FormPreview } from './FormPreview';
 import { QuestionsEditor } from './QuestionsEditor';
+import { TimerEditor } from './TimerEditor';
 
 interface Props<TOut> {
   form: UseFormReturn<TopicDraft, unknown, TOut>;
@@ -15,6 +16,8 @@ interface Props<TOut> {
   defaultExpanded: 'all' | 'new';
   onSubmit: NonNullable<ComponentProps<'form'>['onSubmit']>;
   actions: ReactNode;
+  /** Every step key the topic's versions have used (the steps editor's key rule). */
+  stepHistory?: readonly HistoricStep[];
 }
 
 /**
@@ -28,6 +31,7 @@ export function TopicBuilder<TOut>({
   defaultExpanded,
   onSubmit,
   actions,
+  stepHistory,
 }: Props<TOut>) {
   const [pane, setPane] = useState<'edit' | 'preview'>('edit');
   return (
@@ -54,6 +58,7 @@ export function TopicBuilder<TOut>({
           >
             {header}
             <QuestionsEditor defaultExpanded={defaultExpanded} />
+            <TimerEditor history={stepHistory ?? []} />
             {footer}
           </div>
           <aside

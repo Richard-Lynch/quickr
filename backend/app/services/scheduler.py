@@ -8,6 +8,11 @@ devices, concurrently) and records the slot. Each notification carries what an a
 needs to log the topic from it: the server id, the topic's current version, the slot and
 its ``quick_log`` descriptor (:func:`prepare_quick_logs`; docs/ios/specs/notifications.md §2).
 
+A timed topic with an open run (running or paused) is skipped without marking its slot
+(docs/specs/timers.md §10.1): someone timing it needs no reminder. The slot stays due, so if
+the run is discarded the reminder goes out at the next tick; a stop makes an entry, which
+moves the topic on. A finishing run doesn't suppress the reminder.
+
 Delivery semantics: send, then mark. The tick's targets are loaded once; the delivery
 outcomes (success, failure counts, gone targets) and the notified slots are written
 only just before the commit, so no target or topic row is locked during the network
@@ -46,7 +51,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import get_sessionmaker
-from app.models import Answer, Entry, PushSlotDelivery, Topic, TopicStatus, TopicVersion
+from app.models import Answer, Entry, PushSlotDelivery, Run, RunStatus, Topic, TopicStatus, TopicVersion
 from app.schemas.api import QuickLogDescriptor
 from app.schemas.questions import Question
 from app.services import push as push_svc
@@ -101,8 +106,17 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
             .order_by(Topic.created_at)
         )
     ).all()
+    timing = set(
+        (
+            await db.scalars(
+                select(Run.topic_id).where(Run.status.in_([RunStatus.running, RunStatus.paused]))
+            )
+        ).all()
+    )
     due: list[tuple[datetime, UUID, str, str, int, str]] = []
     for topic_id, slug, name, version, raw_schedule, since, last_notified, last_entry_at in rows:
+        if topic_id in timing:
+            continue  # an open run: no reminder, and the slot stays unmarked (timers.md §10.1)
         schedule = parse_schedule(raw_schedule)
         if schedule is None or not schedule.notify:
             continue
@@ -119,20 +133,19 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
     targets: list[push_svc.Pair] = []
     reached: set[Progress] = set()
     if due:
-        questions = await _questions(db, [(topic_id, version) for _, topic_id, _, _, version, _ in due])
-        quick_logs = await prepare_quick_logs(db, questions)
+        questions, timed = await version_questions(
+            db, [(topic_id, version) for _, topic_id, _, _, version, _ in due]
+        )
+        quick_logs = await prepare_quick_logs(db, questions, timed=timed)
         for due_since, topic_id, slug, name, version, message in due:
-            notification = Notification(
-                kind="due",
-                title=name,
-                body=message,
-                url=f"/t/{slug}/record",
-                tag=f"due-{topic_id}",
-                topic_slug=slug,
+            notification = reminder(
                 server_id=server_id,
                 topic_id=topic_id,
+                slug=slug,
+                name=name,
                 version=version,
                 due_since=due_since,
+                message=message,
                 quick_log=quick_logs.get(topic_id),
             )
             due_topics.append((due_since, topic_id, slug, notification))
@@ -169,21 +182,61 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
     return len(marks)
 
 
-async def _questions(db: AsyncSession, versions: list[tuple[UUID, int]]) -> dict[UUID, list[Question]]:
-    """The questions of each ``(topic id, version)``, by topic id."""
+def reminder(
+    *,
+    server_id: str,
+    topic_id: UUID,
+    slug: str,
+    name: str,
+    version: int,
+    due_since: datetime,
+    message: str,
+    quick_log: QuickLogDescriptor | None,
+) -> Notification:
+    """The due notification for one topic's slot (also sent by ``scripts/send_reminder.py``)."""
+    return Notification(
+        kind="due",
+        title=name,
+        body=message,
+        url=f"/t/{slug}/record",
+        tag=f"due-{topic_id}",
+        topic_slug=slug,
+        server_id=server_id,
+        topic_id=topic_id,
+        version=version,
+        due_since=due_since,
+        quick_log=quick_log,
+    )
+
+
+async def version_questions(
+    db: AsyncSession, versions: list[tuple[UUID, int]]
+) -> tuple[dict[UUID, list[Question]], set[UUID]]:
+    """The questions of each ``(topic id, version)``, by topic id, and the topics whose version
+    is timed (has a timer)."""
     rows = await db.execute(
-        select(TopicVersion.topic_id, TopicVersion.questions).where(
+        select(TopicVersion.topic_id, TopicVersion.questions, TopicVersion.timer).where(
             tuple_(TopicVersion.topic_id, TopicVersion.version).in_(versions)
         )
     )
-    return {topic_id: parse_questions(raw) for topic_id, raw in rows}
+    questions: dict[UUID, list[Question]] = {}
+    timed: set[UUID] = set()
+    for topic_id, raw, timer in rows:
+        questions[topic_id] = parse_questions(raw)
+        if timer is not None:
+            timed.add(topic_id)
+    return questions, timed
 
 
 async def prepare_quick_logs(
-    db: AsyncSession, questions: dict[UUID, list[Question]]
+    db: AsyncSession,
+    questions: dict[UUID, list[Question]],
+    *,
+    timed: set[UUID] | frozenset[UUID] = frozenset(),
 ) -> dict[UUID, QuickLogDescriptor | None]:
     """Each topic's ``quick_log`` descriptor (docs/ios/specs/notifications.md §2.3), in at
-    most two queries whatever the number of topics.
+    most two queries whatever the number of topics. A topic in ``timed`` gets the timed
+    descriptor (docs/specs/timers.md §10.1) and needs neither query.
 
     Enums with 5-6 active options: how many of the topic's entries (any version) chose each
     option, to rank the most-used (with fewer, all are shown and counts don't matter).
@@ -193,6 +246,8 @@ async def prepare_quick_logs(
     ranked: list[tuple[UUID, str]] = []
     numbers: list[tuple[UUID, str]] = []
     for topic_id, qs in questions.items():
+        if topic_id in timed:
+            continue
         quick = quick_log_for(qs)
         if isinstance(quick, QuickLogChips):
             if len(quick.options) > MAX_SHOWN_OPTIONS:
@@ -222,7 +277,9 @@ async def prepare_quick_logs(
         for topic_id, value_int, value_double in latest:
             last[topic_id] = value_int if value_int is not None else value_double
     return {
-        topic_id: descriptor(qs, counts=counts.get(topic_id, {}), last=last.get(topic_id))
+        topic_id: descriptor(
+            qs, counts=counts.get(topic_id, {}), last=last.get(topic_id), timed=topic_id in timed
+        )
         for topic_id, qs in questions.items()
     }
 

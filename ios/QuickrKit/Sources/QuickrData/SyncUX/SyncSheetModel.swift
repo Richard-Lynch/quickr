@@ -31,7 +31,8 @@ public struct SyncItemRow: Identifiable, Sendable, Hashable {
     public var canRetry: Bool
     /// "Retry as is" for a failed item, "Retry now" otherwise (the PWA's).
     public var retryTitle: String
-    /// RECORD's fix mode, for a failed create that never reached the server (§11 Fix).
+    /// RECORD's fix mode, for a failed create that never reached the server (§11 Fix); for a
+    /// refused run event, its answers form or its run screen (`runFix`).
     public var fix: Route?
     /// Anything not being sent right now can be discarded (confirmed: "Discard for good").
     public var canDiscard: Bool
@@ -95,6 +96,8 @@ public struct SyncSheetModel: Sendable, Hashable {
     static func title(_ item: OutboxItem, topics: [String: SyncTopicInfo]) -> String {
         var name = topics[item.topicId]?.name
         if name == nil, case .entryCreate(let topic, _)? = try? item.payload() { name = topic.name }
+        let event = try? item.runEventPayload()
+        if name == nil, let event { name = event.topic.name }
         let topic = name ?? "a topic"
         return switch item.kind {
         case .entryCreate: "Entry · \(topic)"
@@ -102,6 +105,8 @@ public struct SyncSheetModel: Sendable, Hashable {
         case .entryDelete: "Delete · \(topic)"
         case .topicArchive: "Archive · \(topic)"
         case .topicUnarchive: "Unarchive · \(topic)"
+        case .runEvent:
+            event?.type == .finish ? "Details · \(topic)" : "\(event?.event.type.capitalized ?? "Timer") · \(topic)"
         }
     }
 
@@ -110,19 +115,38 @@ public struct SyncSheetModel: Sendable, Hashable {
     ) -> SyncItemRow {
         let failed = item.state == .failed
         let deletedElsewhere = failed && item.failureReason == .deletedElsewhere
+        // A tap on a run that never existed (timers.md §10.2): never retried; discarded by the user.
+        let loggedElsewhere = failed && item.failureReason == .loggedElsewhere
         var when = item.createdAt
         if case .entryCreate(_, let body)? = try? item.payload(), let capturedAt = body.capturedAt { when = capturedAt }
         let (status, tone) = statusLine(item, blockedBy: blockedBy, online: online, now: now)
         let fixable: Set<OutboxFailureReason> = [.rejected, .topicArchived, .futureTime]
+        let canFix = failed && !item.maybeDelivered && item.failureReason.map(fixable.contains) == true
+        let topicRef = UUID(uuidString: item.topicId).map { TopicLinkRef(id: $0) }
         let fix: Route? =
-            failed && item.kind == .entryCreate && !item.maybeDelivered
-                && item.failureReason.map(fixable.contains) == true
-            ? UUID(uuidString: item.topicId).map { .record(TopicLinkRef(id: $0), fix: item.id) } : nil
+            switch item.kind {
+            case .entryCreate: canFix ? topicRef.map { .record($0, fix: item.id) } : nil
+            case .runEvent: canFix ? topicRef.flatMap { runFix(item, topic: $0) } : nil
+            default: nil
+            }
         return SyncItemRow(
             id: item.id, scope: scope, title: title, when: when, status: status, tone: tone,
-            canRetry: !deletedElsewhere && item.state != .held && item.state != .inFlight,
+            canRetry: !deletedElsewhere && !loggedElsewhere && item.state != .held && item.state != .inFlight,
             retryTitle: failed ? "Retry as is" : "Retry now", fix: fix,
             canDiscard: !deletedElsewhere && item.state != .inFlight, canDismiss: deletedElsewhere)
+    }
+
+    /// Fix for a refused run event (timers.md §8.1): answers (a `finish`, or a `stop` that carried
+    /// them) refused with a 422 open the run's answers form with them; a plain `stop`, the run
+    /// screen, where the run shows open again and can be stopped or discarded. Nothing else.
+    static func runFix(_ item: OutboxItem, topic: TopicLinkRef) -> Route? {
+        guard let payload = try? item.runEventPayload(), let type = payload.type else { return nil }
+        let answers = type == .finish || (type == .stop && payload.event.answers != nil)
+        if answers {
+            guard item.lastError?.status == 422, let runId = UUID(uuidString: payload.runId) else { return nil }
+            return .runDetails(topic, runId: runId, fix: item.id)
+        }
+        return type == .stop ? .run(topic) : nil
     }
 
     static func statusLine(_ item: OutboxItem, blockedBy: String?, online: Bool, now: LeaseInstant)
@@ -131,6 +155,7 @@ public struct SyncSheetModel: Sendable, Hashable {
         switch item.state {
         case .failed:
             if item.failureReason == .deletedElsewhere { return ("Deleted on another device", .failed) }
+            if item.failureReason == .loggedElsewhere { return (OutboxMessage.loggedElsewhere, .failed) }
             return ("Failed — \(item.lastError?.message ?? "rejected")", .failed)
         case .held:
             return ("Deleting — you can still undo", .held)

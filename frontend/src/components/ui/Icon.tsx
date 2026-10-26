@@ -36,6 +36,12 @@ const PATHS = {
   share: 'M12 3v12M8 7l4-4 4 4M7 10H5v11h14V10h-2',
   plusSquare: 'M4 4h16v16H4zM12 8v8M8 12h8',
   phone: 'M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Zm3 17h2',
+  play: 'M7 4.5v15l12.5-7.5L7 4.5Z',
+  pause: 'M8.5 5v14M15.5 5v14',
+  stop: 'M6 6h12v12H6z',
+  skip: 'M5 5v14l10-7L5 5Zm14 0v14',
+  flag: 'M5 21V4h12l-2.5 4L17 12H5',
+  timer: 'M12 9v4.5l2.5 1.5M9 2.5h6M12 22a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17Z',
 } as const;
 
 export type IconName = keyof typeof PATHS;

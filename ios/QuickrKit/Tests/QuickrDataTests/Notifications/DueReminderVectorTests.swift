@@ -28,7 +28,8 @@ import Testing
     func matchesTheServersPayload(_ vector: Case) throws {
         let category = NotificationCategory(
             serverId: vector.serverId, topicId: vector.topicId, version: vector.version,
-            questions: vector.questions.map { $0.toDomain() }, counts: vector.counts, last: vector.last)
+            questions: vector.questions.map { $0.toDomain() }, counts: vector.counts, last: vector.last,
+            timed: vector.timed)
         let request = DueReminder.request(
             serverId: vector.serverId, topicId: vector.topicId, topicSlug: vector.topicSlug, title: vector.title,
             body: vector.body, version: vector.version, dueSince: try Self.instant(vector.dueSince),
@@ -137,6 +138,8 @@ import Testing
         var version: Int
         var dueSince: String
         var questions: [QuestionDTO]
+        /// The version has a timer (timers.md §10.1).
+        var timed: Bool
         var counts: [String: Int]
         var last: AnswerValue?
         var expected: Payload
@@ -166,7 +169,7 @@ import Testing
         }
 
         enum CodingKeys: String, CodingKey {
-            case name, title, body, version, questions, counts, last, expected
+            case name, title, body, version, questions, timer, counts, last, expected
             case serverId = "server_id"
             case topicId = "topic_id"
             case topicSlug = "topic_slug"
@@ -184,6 +187,7 @@ import Testing
             version = try c.decode(Int.self, forKey: .version)
             dueSince = try c.decode(String.self, forKey: .dueSince)
             questions = try c.decode([QuestionDTO].self, forKey: .questions)
+            timed = try !c.decodeNil(forKey: .timer)
             counts = try c.decode([String: Int].self, forKey: .counts)
             expected = try c.decode(Payload.self, forKey: .expected)
             // As NotificationVectorTests reads it: an int stays exact, a string isn't a number.

@@ -1,8 +1,9 @@
 import Foundation
 import QuickrCore
-import QuickrData
 import QuickrTestSupport
 import Testing
+
+@testable import QuickrData
 
 /// B5 request goldens (PLAN §2 "API client"): what the Swift client puts on the wire for every
 /// mutating or request-bodied operation, in `shared/fixtures/requests/<operationId>[.<variant>].json`.
@@ -20,6 +21,10 @@ import Testing
     static let entryIds = (1...3).map { UUID(uuidString: String(format: "44444444-4444-4444-8444-%012d", $0))! }
     static let apnsToken = "7c5d0e1fa2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d"
     static let pushEndpoint = "https://web.push.apple.com/QGuQyavXutnMlB5k"
+    /// The run of the timed v2 topic; its start event has the run's id (timers.md §3.2).
+    static let runId = UUID(uuidString: "55555555-5555-4555-8555-000000000001")!
+    static let eventIds = (1...8).map { String(format: "66666666-6666-4666-8666-%012d", $0) }
+    static let device = RunEventInDTO.Device(apnsToken: apnsToken, liveActivity: false)
 
     static let directory = Fixtures.root.appendingPathComponent("requests", isDirectory: true)
 
@@ -71,6 +76,22 @@ import Testing
 
     static func date(_ text: String) -> Date { WireDate.parse(text)! }
 
+    /// A run event's `at`: `RunInstant.format` of a whole millisecond (timers.md §2.3).
+    static func at(_ text: String) -> String { RunInstant.format(RunInstant.parse(text)!) }
+
+    /// A finish's answers, as `EntryCreateDTO` maps them.
+    static func wire(_ answers: [String: AnswerValue]) -> [String: WireAnswer?] { answers.mapValues { WireAnswer($0) } }
+
+    /// One tap of the run, as the `run.event` outbox kind sends it (timers.md §8.1): every
+    /// event from iOS carries `device` (§10.3).
+    static func runEvent(_ name: String, _ body: RunEventInDTO) -> Case {
+        Case(name: "recordRunEvent." + name) { client in
+            var body = body
+            body.device = device
+            _ = try await client.recordRunEvent(runId: runId, body)
+        }
+    }
+
     static let cases: [Case] = [
         // Topics
         Case(name: "createTopic") { client in
@@ -114,11 +135,15 @@ import Testing
         Case(name: "publishTopicVersion") { client in
             _ = try await client.publishTopicVersion(
                 ref: topicId.wireString,
-                VersionCreateDTO(questions: everythingV2, baseVersion: 1, changeNote: "Retire 'poor'"))
+                VersionCreateDTO(
+                    questions: everythingV2, baseVersion: 1,
+                    timer: TopicTimer(steps: [.init(key: "pour", label: "Pour"), .init(key: "drink", label: "Drink")]),
+                    changeNote: "Retire 'poor'"))
         },
         Case(name: "checkTopicVersion") { client in
             _ = try await client.checkTopicVersion(
-                ref: topicId.wireString, VersionDraftDTO(questions: Array(everythingV2.prefix(3)), baseVersion: 1))
+                ref: topicId.wireString,
+                VersionDraftDTO(questions: Array(everythingV2.prefix(3)), baseVersion: 1, timer: nil))
         },
         // Entries: the outbox's shapes (outbox.md §1)
         Case(name: "createEntry") { client in
@@ -159,9 +184,53 @@ import Testing
                 id: entryIds[0],
                 EntryUpdateDTO(capturedAt: date("2026-03-01T09:00:00.000001Z"), meta: [:], expectedRevision: 1))
         },
+        // Edit times on the finished run's entry (its id is the run's, timers.md §3.8): the first
+        // step ends earlier; the lap, the skip and the pause are kept to the millisecond.
+        Case(name: "updateEntry.timing") { client in
+            let edit = TimingDraft.Edit(
+                startedAt: RunInstant.parse("2026-03-05T08:00:00Z")!,
+                segments: [
+                    .init(kind: .step, step: "pour", endedAt: RunInstant.parse("2026-03-05T08:01:00Z")!),
+                    .init(kind: .lap, step: nil, endedAt: RunInstant.parse("2026-03-05T08:03:00.75Z")!),
+                    .init(kind: .lap, step: nil, endedAt: RunInstant.parse("2026-03-05T08:06:00Z")!),
+                ],
+                skipped: ["drink"],
+                pauses: [
+                    RunPause(
+                        start: RunInstant.parse("2026-03-05T08:04:00Z")!,
+                        end: RunInstant.parse("2026-03-05T08:05:15.125Z")!)
+                ])
+            _ = try await client.updateEntry(
+                id: runId, EntryUpdateDTO(timing: TimingEditDTO(edit), expectedRevision: 1))
+        },
         Case(name: "deleteEntry") { client in
             _ = try await client.deleteEntry(id: entryIds[0])
         },
+        // Runs: one tap of each type on the v2 timer (steps pour, drink), in the order the
+        // replay builds them: start, next to drink, skip drink, lap, pause, resume, stop (no
+        // answers: the run is finishing), finish. The discard throws away a just-started run.
+        runEvent(
+            "start",
+            RunEventInDTO(
+                id: runId.wireString, type: "start", at: at("2026-03-05T08:00:00Z"), topicId: topicId.wireString,
+                version: 2)),
+        runEvent("next", RunEventInDTO(id: eventIds[0], type: "next", at: at("2026-03-05T08:01:30.25Z"), seg: 0)),
+        runEvent(
+            "skip",
+            RunEventInDTO(id: eventIds[1], type: "skip", at: at("2026-03-05T08:02:10.5Z"), seg: 1, step: "drink")),
+        runEvent("lap", RunEventInDTO(id: eventIds[2], type: "lap", at: at("2026-03-05T08:03:00.75Z"), seg: 1)),
+        runEvent("pause", RunEventInDTO(id: eventIds[3], type: "pause", at: at("2026-03-05T08:04:00Z"))),
+        runEvent(
+            "resume",
+            RunEventInDTO(id: eventIds[4], type: "resume", at: at("2026-03-05T08:05:15.125Z"), pauseId: eventIds[3])),
+        runEvent("stop", RunEventInDTO(id: eventIds[5], type: "stop", at: at("2026-03-05T08:06:00Z"))),
+        runEvent(
+            "finish",
+            RunEventInDTO(
+                id: eventIds[6], type: "finish", at: at("2026-03-05T08:07:20Z"),
+                answers: wire(["glasses": .int(2), "hours": .double(7.5), "mood": .string("ok")]),
+                notes: "Two glasses.")),
+        runEvent("discard", RunEventInDTO(id: eventIds[7], type: "discard", at: at("2026-03-05T08:08:00Z"))),
         // Push
         Case(name: "createPushSubscription") { client in
             let json =
@@ -241,11 +310,18 @@ import Testing
 
     /// G1 for requests (PLAN §6a rule 12): every mutation and every operation with a body has at
     /// least one golden, and every golden names a known operation.
+    /// Operations the app doesn't send yet; each one gets its goldens with the WP that sends it.
+    /// `registerLiveActivity`, `deleteLiveActivity`: the Live Activity (I-LA). The backend's
+    /// `test_request_goldens.py` lists the same ones.
+    static let noGoldenYet: Set<String> = ["registerLiveActivity", "deleteLiveActivity"]
+
     @Test func everyMutationAndBodiedOperationHasAGolden() {
         let covered = Set(Self.cases.map(\.operationId))
         for endpoint in Endpoints.all where endpoint.isMutation || endpoint.hasRequestBody {
+            guard !Self.noGoldenYet.contains(endpoint.operationId) else { continue }
             #expect(covered.contains(endpoint.operationId), "no request golden for \(endpoint.operationId)")
         }
+        #expect(covered.isDisjoint(with: Self.noGoldenYet), "a stale exclusion: the golden exists now")
         for operationId in covered {
             #expect(Endpoints.named(operationId) != nil, "unknown operation \(operationId)")
         }

@@ -23,6 +23,16 @@ private let pwaPaths: [(String, [Route])] = [
     ("/t/water/edit", [.editQuestions(water)]),
     ("/t/water/settings", [.topicSettings(water)]),
     ("/t/3f2504e0-4f89-11d3-9a0c-0305e82c3301/record", [.record(TopicLinkRef(id: topicId))]),
+    // Timed topics (timers.md §11.2): the run screen, and the answers form after Stop.
+    ("/t/3f2504e0-4f89-11d3-9a0c-0305e82c3301/run", [.run(TopicLinkRef(id: topicId))]),
+    (
+        "/t/water/record?finish=6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        [.runDetails(water, runId: entryId)]
+    ),
+    (
+        "/t/water/record?finish=6ba7b810-9dad-11d1-80b4-00c04fd430c8&fix=a_b-9",
+        [.runDetails(water, runId: entryId, fix: "a_b-9")]
+    ),
 ]
 
 @Suite struct DeepLinkTests {
@@ -42,7 +52,8 @@ private let pwaPaths: [(String, [Route])] = [
         let routes: [Route] =
             [
                 .settings, .newTopic, .record(water), .record(water, fix: "a_b-9"), .entry(water, entryId: entryId),
-                .editQuestions(water), .topicSettings(water),
+                .editQuestions(water), .topicSettings(water), .run(water), .runDetails(water, runId: entryId),
+                .runDetails(water, runId: entryId, fix: "x-1"),
             ] + TopicTab.allCases.map { .topic(water, $0) }
         for route in routes {
             #expect(DeepLink.routes(for: DeepLink.url(for: route)) == [route], "\(route)")
@@ -185,5 +196,13 @@ private let pwaPaths: [(String, [Route])] = [
         #expect(Route.record(water, fix: "f").with(topic: id) == .record(id, fix: "f"))
         #expect(Route.topic(water, .entries).with(topic: id) == .topic(id, .entries))
         #expect(Route.settings.with(topic: id) == .settings)
+    }
+
+    @Test func aFinishThatIsNotARunIdIsNoLink() {
+        #expect(DeepLink.routes(forPath: "/t/water/record?finish=nope") == nil)
+        #expect(
+            DeepLink.routes(forPath: "/t/water/record?finish=6ba7b810-9dad-11d1-80b4-00c04fd430c8&fix=a%20b") == nil)
+        let run = Route.run(water).with(topic: TopicLinkRef(id: topicId))
+        #expect(run == .run(TopicLinkRef(id: topicId)))
     }
 }

@@ -7,9 +7,11 @@ import type {
   OutboxEvent,
   OutboxItem,
   OutboxKind,
+  OutboxRead,
   OutboxRequest,
   Outcome,
   SendNowResult,
+  Verdict,
 } from './types';
 
 export interface OutboxOptions {
@@ -32,7 +34,11 @@ export interface OutboxOptions {
 export type OutboxListener = (event: OutboxEvent, remote: boolean) => void;
 
 export interface Outbox {
-  /** Persist a new item (status `pending`, due now). Does not send — call `flush`/`sendNow`. */
+  /**
+   * Persist a new item (status `pending`, due now). Does not send — call `flush`/`sendNow`.
+   * A kind's `coalesce` may drop queued items, or the new one: it is then returned but never
+   * stored (`get(id)` finds nothing).
+   */
   enqueue<P>(kind: string, payload: P, opts?: { id?: string }): Promise<OutboxItem<P>>;
   /** All items, oldest first. */
   list(): Promise<OutboxItem[]>;
@@ -41,7 +47,7 @@ export interface Outbox {
   update<P>(id: string, payload: P): Promise<OutboxItem<P> | undefined>;
   /** Make an item (pending or failed) due now and flush. */
   retry(id: string): Promise<FlushResult | undefined>;
-  /** Remove an item without sending it. */
+  /** Remove an item without sending it, and every item that waits for it. */
   discard(id: string): Promise<OutboxItem | undefined>;
   /**
    * Send every due `pending` item (all of them with `force`), oldest first. Concurrent calls
@@ -63,10 +69,6 @@ export const OUTBOX_LOCK = 'quickr-outbox';
 
 type AttemptResult =
   { outcome: 'ok'; data: unknown } | { outcome: Exclude<Outcome, 'ok'>; error: OutboxError };
-
-function byCreated(a: OutboxItem, b: OutboxItem): number {
-  return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
-}
 
 export function createOutbox(opts: OutboxOptions): Outbox {
   const store = opts.store ?? idbOutboxStore();
@@ -105,37 +107,47 @@ export function createOutbox(opts: OutboxOptions): Outbox {
     }
   }
 
-  async function withLock(fn: () => Promise<void>): Promise<void> {
+  // Serialises lock holders in this context too (the Web Lock alone does where it exists).
+  let lockTail: Promise<unknown> = Promise.resolve();
+
+  function withLock(fn: () => Promise<void>): Promise<void> {
     const locks = (globalThis as { navigator?: { locks?: LockManager } }).navigator?.locks;
-    if (!locks) {
-      await fn();
-      return;
-    }
-    await locks.request(opts.lockName ?? OUTBOX_LOCK, () => fn());
+    const run = lockTail.then(() =>
+      locks ? locks.request(opts.lockName ?? OUTBOX_LOCK, () => fn()) : fn(),
+    );
+    lockTail = run.catch(() => undefined);
+    return run.then(() => undefined);
+  }
+
+  /** Whether an item it waits for (`OutboxKind.waitsFor`) is still in `queue`. */
+  function isBlocked(item: OutboxItem, queue: readonly OutboxItem[]): boolean {
+    const deps = opts.kinds[item.kind]?.waitsFor?.(item, queue) ?? [];
+    return deps.some((d) => d !== item.id && queue.some((i) => i.id === d));
+  }
+
+  /** Enqueue order: `created_at`, then the kind's tie-break (`orderKey`), then the id. */
+  function byCreated(a: OutboxItem, b: OutboxItem): number {
+    const key = (i: OutboxItem) => opts.kinds[i.kind]?.orderKey?.(i) ?? '';
+    return (
+      a.created_at.localeCompare(b.created_at) ||
+      key(a).localeCompare(key(b)) ||
+      a.id.localeCompare(b.id)
+    );
   }
 
   async function list(): Promise<OutboxItem[]> {
     return (await store.all()).sort(byCreated);
   }
 
-  async function attempt(item: OutboxItem): Promise<AttemptResult> {
-    const kind = opts.kinds[item.kind];
-    if (!kind) {
-      return {
-        outcome: 'terminal',
-        error: { message: `Unknown outbox item kind "${item.kind}"`, status: null },
-      };
-    }
-    let req: OutboxRequest;
-    try {
-      req = kind.toRequest(item);
-    } catch (err) {
-      return {
-        outcome: 'terminal',
-        error: { message: err instanceof Error ? err.message : 'Invalid item', status: null },
-      };
-    }
+  type Sent =
+    | { kind: 'network' }
+    | { kind: 'redirect'; status: number | null }
+    | { kind: 'response'; status: number; text: string; json: unknown; parsed: boolean };
 
+  /** One request, with the outbox's headers, timeout and fetch options. */
+  async function send(
+    req: Omit<OutboxRequest, 'method'> & { method: OutboxRequest['method'] | 'GET' },
+  ): Promise<Sent> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => {
       ctrl.abort();
@@ -158,19 +170,13 @@ export function createOutbox(opts: OutboxOptions): Outbox {
         signal: ctrl.signal,
       });
     } catch {
-      return { outcome: 'retry', error: { message: 'Could not reach the server', status: null } };
+      return { kind: 'network' };
     } finally {
       clearTimeout(timer);
     }
 
     if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
-      return {
-        outcome: 'retry',
-        error: {
-          message: 'The server redirected the request (sign-in required?)',
-          status: res.status || null,
-        },
-      };
+      return { kind: 'redirect', status: res.status || null };
     }
 
     let text = '';
@@ -189,14 +195,60 @@ export function createOutbox(opts: OutboxOptions): Outbox {
         // not JSON
       }
     }
+    return { kind: 'response', status: res.status, text, json, parsed };
+  }
 
-    const outcome = kind.classify?.(res.status, json) ?? classifyStatus(res.status);
+  /** A kind's `verify` read: no usable answer (network, redirect, not JSON) is a null status. */
+  async function read(
+    url: string,
+    headers?: Readonly<Record<string, string>>,
+  ): Promise<OutboxRead> {
+    const res = await send({ method: 'GET', url, ...(headers ? { headers } : {}) });
+    if (res.kind !== 'response' || (res.text && !res.parsed))
+      return { status: null, body: undefined };
+    return { status: res.status, body: res.json };
+  }
+
+  async function attempt(item: OutboxItem): Promise<AttemptResult> {
+    const kind = opts.kinds[item.kind];
+    if (!kind) {
+      return {
+        outcome: 'terminal',
+        error: { message: `Unknown outbox item kind "${item.kind}"`, status: null },
+      };
+    }
+    let req: OutboxRequest;
+    try {
+      req = kind.toRequest(item);
+    } catch (err) {
+      return {
+        outcome: 'terminal',
+        error: { message: err instanceof Error ? err.message : 'Invalid item', status: null },
+      };
+    }
+
+    const res = await send(req);
+    if (res.kind === 'network') {
+      return { outcome: 'retry', error: { message: 'Could not reach the server', status: null } };
+    }
+    if (res.kind === 'redirect') {
+      return {
+        outcome: 'retry',
+        error: {
+          message: 'The server redirected the request (sign-in required?)',
+          status: res.status,
+        },
+      };
+    }
+
+    const { status, text, json, parsed } = res;
+    const outcome = kind.classify?.(status, json, item) ?? classifyStatus(status);
     if (outcome === 'ok') {
       // A 200 HTML page (captive portal, proxy) is not a confirmation.
       if (text && !parsed) {
         return {
           outcome: 'retry',
-          error: { message: 'Unexpected response from the server', status: res.status },
+          error: { message: 'Unexpected response from the server', status },
         };
       }
       return { outcome: 'ok', data: json };
@@ -204,10 +256,51 @@ export function createOutbox(opts: OutboxOptions): Outbox {
     return {
       outcome,
       error: {
-        message: errorMessageFor(res.status, json),
-        status: res.status,
+        message: errorMessageFor(status, json),
+        status,
         ...(parsed ? { body: json } : {}),
       },
+    };
+  }
+
+  /**
+   * A terminal refusal, looked at again by the kind's `verify`: the outcome to apply, and
+   * whether an ack came from it. Other items it fails are failed here (unless edited meanwhile).
+   */
+  async function verified(
+    item: OutboxItem,
+    res: AttemptResult,
+    total: Omit<FlushResult, 'remaining'>,
+  ): Promise<{ res: AttemptResult; verified: boolean }> {
+    const kind = opts.kinds[item.kind];
+    if (res.outcome !== 'terminal' || !kind?.verify) return { res, verified: false };
+    let verdict: Verdict | undefined;
+    try {
+      verdict = await kind.verify(item, res.error, { read, queue: list });
+    } catch (err) {
+      console.error('[outbox] verify failed', err);
+    }
+    if (!verdict) return { res, verified: false };
+    if (verdict.outcome === 'ok')
+      return { res: { outcome: 'ok', data: verdict.data }, verified: true };
+    for (const listed of verdict.fail?.items ?? []) {
+      // Compare-and-set against the listing: an edit, retry or discard made since wins.
+      const other = await store.get(listed.id);
+      if (!other || other.id === item.id || other.status === 'failed') continue;
+      if (other.updated_at !== listed.updated_at) continue;
+      const next: OutboxItem = {
+        ...other,
+        status: 'failed',
+        last_error: verdict.fail?.error ?? null,
+        updated_at: iso(),
+      };
+      await store.put(next);
+      total.failed++;
+      emit({ type: 'failed', item: next });
+    }
+    return {
+      res: { outcome: verdict.outcome, error: verdict.error ?? res.error },
+      verified: false,
     };
   }
 
@@ -218,12 +311,20 @@ export function createOutbox(opts: OutboxOptions): Outbox {
     for (const snapshot of due) {
       const item = await store.get(snapshot.id);
       if (item?.status !== 'pending') continue;
+      // Waits for an item still queued (e.g. its run's start): not attempted, no backoff.
+      // An earlier item of this pass that was just sent is gone from the store by now.
+      if (opts.kinds[item.kind]?.waitsFor && isBlocked(item, await store.all())) continue;
 
-      const res = await attempt(item);
+      const { res, verified: ackedByVerify } = await verified(item, await attempt(item), total);
       if (res.outcome === 'ok') {
+        try {
+          await opts.kinds[item.kind]?.onAck?.(item, res.data);
+        } catch (err) {
+          console.error('[outbox] ack hook failed', err);
+        }
         await store.delete(item.id);
         total.sent++;
-        emit({ type: 'sent', item, data: res.data });
+        emit({ type: 'sent', item, data: res.data, ...(ackedByVerify ? { verified: true } : {}) });
         continue;
       }
 
@@ -336,7 +437,8 @@ export function createOutbox(opts: OutboxOptions): Outbox {
 
   return {
     async enqueue<P>(kind: string, payload: P, o: { id?: string } = {}) {
-      if (!Object.hasOwn(opts.kinds, kind)) throw new Error(`Unknown outbox item kind "${kind}"`);
+      const k = Object.hasOwn(opts.kinds, kind) ? opts.kinds[kind] : undefined;
+      if (!k) throw new Error(`Unknown outbox item kind "${kind}"`);
       const ts = iso();
       const item: OutboxItem<P> = {
         id: o.id ?? uuid(),
@@ -349,8 +451,27 @@ export function createOutbox(opts: OutboxOptions): Outbox {
         next_attempt_at: now(),
         last_error: null,
       };
-      await store.put(item);
-      emit({ type: 'enqueued', item });
+      if (!k.coalesce || k.coalesces?.(item) === false) {
+        await store.put(item);
+        emit({ type: 'enqueued', item });
+        return item;
+      }
+      // Under the flush lock, so no attempt of a dropped item is in flight.
+      const dropped: OutboxItem[] = [];
+      const kept = { stored: true };
+      await withLock(async () => {
+        const verdict = k.coalesce?.(item, await list());
+        for (const id of verdict?.drop ?? []) {
+          const queued = await store.get(id);
+          if (!queued) continue;
+          await store.delete(id);
+          dropped.push(queued);
+        }
+        kept.stored = verdict?.store ?? true;
+        if (kept.stored) await store.put(item);
+      });
+      for (const d of dropped) emit({ type: 'discarded', item: d });
+      if (kept.stored) emit({ type: 'enqueued', item });
       return item;
     },
     list,
@@ -388,6 +509,13 @@ export function createOutbox(opts: OutboxOptions): Outbox {
       if (!item) return undefined;
       await store.delete(id);
       emit({ type: 'discarded', item });
+      // Items that can never be sent without it (e.g. a run's events without its start).
+      for (const other of await list()) {
+        const owners = opts.kinds[other.kind]?.discardedWith?.(other) ?? [];
+        if (other.id === id || !owners.includes(id)) continue;
+        await store.delete(other.id);
+        emit({ type: 'discarded', item: other });
+      }
       return item;
     },
     flush,
@@ -397,7 +525,9 @@ export function createOutbox(opts: OutboxOptions): Outbox {
       return wait;
     },
     async nextDueAt() {
-      const pending = (await store.all()).filter((i) => i.status === 'pending');
+      // Blocked items aren't due: the item they wait for has its own deadline (or failed).
+      const all = await store.all();
+      const pending = all.filter((i) => i.status === 'pending' && !isBlocked(i, all));
       return pending.length ? Math.min(...pending.map((i) => i.next_attempt_at)) : null;
     },
     async clear() {

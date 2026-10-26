@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
 import { errorMessage } from '../../api/errors';
@@ -7,6 +7,7 @@ import { useDeleteEntryWithUndo, useUpdateEntry } from '../../api/mutations';
 import { getEntryOptions, listTopicVersionsOptions } from '../../client/@tanstack/react-query.gen';
 import { Page, TopBar } from '../../components/AppShell';
 import { EntryForm, type EntryFormValues } from '../../components/answers/EntryForm';
+import { TimingSection } from '../../components/runs/TimingSection';
 import { Button } from '../../components/ui/Button';
 import { ChannelBadge } from '../../components/ChannelBadge';
 import { Banner, VersionTag } from '../../components/ui/Card';
@@ -43,8 +44,36 @@ export function EntryEditPage() {
       source: s.source,
       notes: s.notes,
     };
-    return { defaults, allowArchived: archivedValuesInEntry(version.questions, s.answers) };
+    // What the form shows. A timed entry's time is its run's, edited in the Timing section:
+    // an Edit times save changes captured_at, and mustn't reset the form.
+    const signature = JSON.stringify({
+      ...defaults,
+      captured_at: s.timing ? null : defaults.captured_at,
+    });
+    return {
+      defaults,
+      signature,
+      allowArchived: archivedValuesInEntry(version.questions, s.answers),
+    };
   }, [entry.data, version]);
+
+  // When what the form shows changes on the server: a clean form takes the new values (a
+  // remount); a dirty one keeps the user's edits and says the entry changed, with Reload.
+  const [dirty, setDirty] = useState(false);
+  const [form, setForm] = useState<{ signature: string | null; generation: number }>({
+    signature: null,
+    generation: 0,
+  });
+  const changedElsewhere =
+    prepared !== null && form.signature !== null && prepared.signature !== form.signature;
+  if (prepared && (form.signature === null || (changedElsewhere && !dirty))) {
+    setForm({ signature: prepared.signature, generation: form.generation + 1 });
+  }
+  const reloadForm = () => {
+    if (!prepared) return;
+    setDirty(false);
+    setForm({ signature: prepared.signature, generation: form.generation + 1 });
+  };
 
   const back = `${base}/entries`;
 
@@ -91,12 +120,33 @@ export function EntryEditPage() {
           </Banner>
         ) : null}
 
+        {s.timing ? (
+          <TimingSection entry={{ ...s, timing: s.timing }} steps={version.timer?.steps ?? []} />
+        ) : null}
+
+        {changedElsewhere && dirty ? (
+          <Banner
+            tone="warn"
+            title="This entry changed elsewhere"
+            action={
+              <Button size="sm" onClick={reloadForm}>
+                Reload
+              </Button>
+            }
+          >
+            Your edits below are kept. Reload shows the latest answers and notes and discards them.
+          </Banner>
+        ) : null}
         <EntryForm
-          key={s.updated_at}
+          key={`${s.id}-${String(form.generation)}`}
           questions={version.questions}
           defaultValues={prepared.defaults}
           allowArchived={prepared.allowArchived}
           submitLabel="Save changes"
+          // A timed entry edits only its notes: its time is the run's and its source the
+          // start's (timers.md §11.1); captured_at is hidden and never sent.
+          meta={s.timing ? 'notes' : 'all'}
+          onDirtyChange={setDirty}
           secondaryAction={({ allowNavigation }) => (
             <Button
               variant="quiet-danger"
@@ -121,7 +171,8 @@ export function EntryEditPage() {
               body: {
                 // every key of the version: null clears a previously-set answer
                 answers: v.answers,
-                captured_at: v.captured_at,
+                // A timed entry's captured_at is its run's end: the server refuses a change.
+                ...(s.timing ? {} : { captured_at: v.captured_at }),
                 source: v.source,
                 notes: v.notes,
               },

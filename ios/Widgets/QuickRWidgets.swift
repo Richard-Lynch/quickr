@@ -2,7 +2,8 @@ import SwiftUI
 import WidgetKit
 
 /// The widget extension: the per-topic quick-log widget and the due list (Home Screen and Lock
-/// Screen), and one Control per topic.
+/// Screen), one Control per topic and one Timer Control per timed topic, and the run's Live
+/// Activity.
 @main
 struct QuickRWidgets: WidgetBundle {
     init() {
@@ -13,5 +14,7 @@ struct QuickRWidgets: WidgetBundle {
         TopicWidget()
         DueListWidget()
         TopicControl()
+        TimerControl()
+        RunActivityWidget()
     }
 }

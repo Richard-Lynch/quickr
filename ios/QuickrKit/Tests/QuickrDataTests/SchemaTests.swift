@@ -36,7 +36,7 @@ import Testing
                 try columns(db, "sync_state") == [
                     "id", "server_id", "base_url", "epoch", "cursor", "head_seen", "layer_gen", "rebuilding",
                     "epoch_suspect", "retired", "identity_mismatch", "last_pull_at", "skew_ms", "skew_measured_at",
-                    "bootstrap_complete",
+                    "bootstrap_complete", "server_offset_ms",
                 ])
             for table in StoreSchema.serverLayerTables {
                 #expect(try columns(db, "stage_" + table) == columns(db, table), "\(table)")
@@ -61,6 +61,41 @@ import Testing
             }
             #expect(throws: DatabaseError.self) { try db.execute(sql: insert, arguments: ["x", "sent"]) }
             #expect(try Int.fetchAll(db, sql: "SELECT seq FROM outbox_item ORDER BY seq") == [1, 2, 3, 4, 5])
+        }
+    }
+
+    /// Store v3 (timers.md §7.2): the run tables, `entry.timing_json`, and a tombstone kind `run`.
+    @Test func storeV3AddsRuns() throws {
+        let queue = try TestDatabase.store()
+        try queue.write { (db: Database) throws in
+            #expect(try columns(db, "run") == ["id", "topic_id", "status", "revision", "started_at", "run_json"])
+            #expect(try columns(db, "run_alias") == ["id", "run_id", "topic_id"])
+            #expect(try columns(db, "entry").last == "timing_json")
+            #expect(try columns(db, "tombstone") == ["kind", "id", "topic_id", "seq"])
+            #expect(try db.indexes(on: "tombstone").map(\.name).contains("ix_tombstone_topic"))
+            let insert = "INSERT INTO tombstone (kind, id, topic_id, seq) VALUES (?, ?, 't', 1)"
+            try db.execute(sql: insert, arguments: ["run", "r"])
+            #expect(throws: DatabaseError.self) { try db.execute(sql: insert, arguments: ["lap", "l"]) }
+        }
+    }
+
+    /// Store v4 (timers.md §5.1): the run-event offset, 0 until the first sample.
+    @Test func storeV4AddsTheServerOffset() throws {
+        let queue = try TestDatabase.store()
+        try queue.write { (db: Database) throws in
+            try LocalStore.createSyncState(db, serverId: "s", baseURL: "https://q.example")
+            let offset = try Int.fetchOne(db, sql: "SELECT server_offset_ms FROM sync_state WHERE id = 1")
+            #expect(offset == 0)
+        }
+    }
+
+    /// Store v5 (timers.md §11.4): the run notices, kept until toasted or dismissed.
+    @Test func storeV5AddsRunNotices() throws {
+        let queue = try TestDatabase.store()
+        try queue.read { (db: Database) throws in
+            let names = try columns(db, "run_notice")
+            #expect(
+                names == ["id", "run_id", "topic_id", "topic_name", "tap", "reason", "stopped_at", "created_at"])
         }
     }
 

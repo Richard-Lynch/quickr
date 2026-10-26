@@ -139,6 +139,31 @@ import Testing
         #expect(w.fake.withState { $0.categories.map(\.id) } == [Self.waterCategory.id])
     }
 
+    /// I-NOTIF (timers.md §10.1, §10.2): a timed reminder (`{"type": "timed"}`) gets its category
+    /// before it is shown, registered with the system: one "Start", a background button (no
+    /// `.foreground`). The badge is still the shared due count (an open run's topic is left out:
+    /// `theNSEBadgeLeavesOutATopicWithAnOpenRun`).
+    @Test func aTimedReminderRegistersItsStartCategory() async throws {
+        let w = try await World()
+        var timed = Self.reminder()
+        timed.quickLog = .timed
+        let category = NotificationCategory(
+            serverId: Self.active, topicId: Self.water.id.wireString, version: 1, descriptor: .timed)
+        let prepared = await w.prepare(timed)
+        #expect(prepared.categoryIdentifier == category.id)
+        let badge: Int? = prepared.badge
+        #expect(badge == 2)
+        let table: [String] = try w.table
+        #expect(table == [category.id])
+        let registered: [NotificationCategorySpec] = w.fake.withState { $0.categories }
+        let start: NotificationActionSpec? = registered.first { $0.id == category.id }?.actions.first
+        #expect(start?.id == "q1|\(Self.active)|\(Self.water.id.wireString)|1||t|")
+        #expect(start?.title == "Start")
+        #expect(start?.kind == .log, "runs in the background")
+        let opensApp: Bool? = start?.kind.opensApp
+        #expect(opensApp == false)
+    }
+
     /// The due count is at `now + skew`: Stretch falls due 30 minutes from now on this clock, but
     /// the server's is 31 minutes ahead.
     @Test func theDueCountUsesTheServersClock() async throws {

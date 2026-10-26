@@ -39,7 +39,8 @@ import Testing
 
     /// Every key of every response object is required in `openapi.json` (nullable ones too), so
     /// a response missing any one of them must fail to decode, never default to nil (sync §2.2).
-    /// Free-form maps (`meta`, `option_counts`, `json_schema`, `/health`) have no required keys.
+    /// Free-form maps (`meta`, `option_counts`, `json_schema`, a run's `effects`, a timing series
+    /// point's `steps`, `/health`) have no required keys.
     @Test(arguments: try Fixtures.apiNames().filter { $0 != "health" })
     func responseMissingAnyKeyFailsToDecode(name: String) throws {
         let fixture = try Fixtures.api(name)
@@ -62,15 +63,25 @@ import Testing
     @Test func requiredNullableKeysAcceptNull() throws {
         let body = try #require(try Fixtures.api("getTopic").body)
         var object = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
-        for key in ["schedule", "schedule_updated_at", "archived_at", "last_captured_at", "due"] {
+        let timed = try #require(try Endpoints.getTopic.erased.decodeResponse(body) as? Topic)
+        #expect(timed.timer?.steps.map(\.key) == ["pour", "drink"])
+        for key in ["schedule", "schedule_updated_at", "archived_at", "last_captured_at", "due", "timer"] {
             object[key] = NSNull()
         }
         let data = try JSONSerialization.data(withJSONObject: object)
         let topic = try Endpoints.getTopic.erased.decodeResponse(data) as? Topic
-        #expect(topic?.schedule == nil && topic?.due == nil && topic?.archivedAt == nil)
+        #expect(topic?.schedule == nil && topic?.due == nil && topic?.archivedAt == nil && topic?.timer == nil)
     }
 
-    private static let freeFormMaps: Set<String> = ["meta", "option_counts", "json_schema"]
+    /// A summary carries its current version's timer (timers.md §2.1); null when untimed.
+    @Test func topicSummaryCarriesTheTimer() throws {
+        let body = try #require(try Fixtures.api("listTopics").body)
+        let page = try #require(try Endpoints.listTopics.erased.decodeResponse(body) as? Page<TopicSummary>)
+        #expect(page.items.map(\.slug) == ["water", "everything"])
+        #expect(page.items.map { $0.timer?.steps.map(\.key) } == [nil, ["pour", "drink"]])
+    }
+
+    private static let freeFormMaps: Set<String> = ["meta", "option_counts", "json_schema", "effects"]
 
     /// Every copy of `value` with exactly one object key removed, with the removed key's path.
     static func withOneKeyRemoved(_ value: Any, path: String) -> [(String, Any)] {
@@ -80,7 +91,8 @@ import Testing
                 var removed = object
                 removed[key] = nil
                 variants.append(("\(path)/\(key)", removed))
-                guard !freeFormMaps.contains(key) else { continue }
+                // A series point's `steps` is a map; a topic's `steps` is an array of objects.
+                guard !freeFormMaps.contains(key), !(key == "steps" && child is [String: Any]) else { continue }
                 for (childPath, childVariant) in withOneKeyRemoved(child, path: "\(path)/\(key)") {
                     var copy = object
                     copy[key] = childVariant

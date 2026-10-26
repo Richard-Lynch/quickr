@@ -141,7 +141,9 @@ async def test_body_integers_are_strict(client: httpx.AsyncClient) -> None:
     r = await client.patch("/topics/water", json={"schedule": {**every(60), "every_minutes": "60"}})
     assert r.status_code == 422
     assert r.json()["errors"][0]["loc"] == ["body", "schedule", "every_minutes"]
-    r = await client.post("/topics/water/versions", json={"questions": QUESTIONS, "base_version": "1"})
+    r = await client.post(
+        "/topics/water/versions", json={"questions": QUESTIONS, "base_version": "1", "timer": None}
+    )
     assert r.status_code == 422
     assert r.json()["errors"][0]["loc"] == ["body", "base_version"]
     r = await client.post("/topics/water/entries", json={"answers": {"n": 1}, "version": "1"})

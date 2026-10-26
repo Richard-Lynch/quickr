@@ -42,7 +42,7 @@ public enum TopicStatusFilter: String, Sendable, Hashable, CaseIterable {
 /// The topic list the server's `GET /topics` returns (`list_topics` in
 /// `backend/app/services/topics.py`), computed on the device from the local store: the status
 /// filter, the search and every sort, with due status from `Due` at `now`. The PWA's sections
-/// (`splitByDue`) and badge are here too. Checked against `shared/fixtures/home-vectors.json`
+/// (`splitByDue`) and the due count (`dueCount`) are here too. Checked against `shared/fixtures/home-vectors.json`
 /// (the real `list_topics`) and `home-due-vectors.json` (the PWA's sections).
 public enum TopicListing {
     /// One listed topic with its due status at the listing's `now`.
@@ -170,9 +170,34 @@ public enum TopicListing {
         return idString(x) < idString(y)
     }
 
-    // MARK: - The PWA's sections and badge
+    // MARK: - The PWA's sections and the due count
 
-    /// The home screen's sections (the PWA's `splitByDue`): "Due now" (active and due), "Coming
+    /// Ids of the topics with an open run (running or paused). A finishing run isn't open: its
+    /// topic keeps its due state (timers.md §11.1).
+    public typealias OpenRunTopics = Set<UUID>
+
+    /// For callers that have no run data yet.
+    public static let noOpenRuns: OpenRunTopics = []
+
+    /// Whether a topic counts as due (the PWA's `countsAsDue`): active, due now, and without an
+    /// open run (a timed topic with an open run shows "Running" instead of its due state, §11.1).
+    public static func countsAsDue<Value>(_ item: Item<Value>, now: Date, openRuns: OpenRunTopics) -> Bool {
+        item.topic.status == .active && !openRuns.contains(item.topic.id) && DueView.isDueNow(item.due, now: now)
+    }
+
+    /// The number of due topics (the PWA's `dueCount`): the one count behind the app badge, the
+    /// NSE badge, the home screen's "Due now" and the widgets (timers.md §11.1), whatever the
+    /// search or filter.
+    public static func dueCount<Value>(_ items: [Item<Value>], now: Date, openRuns: OpenRunTopics) -> Int {
+        items.count { countsAsDue($0, now: now, openRuns: openRuns) }
+    }
+
+    /// `dueCount` over topics, with each one's due status at `now`.
+    public static func dueCount(_ topics: [Topic], now: Date, openRuns: OpenRunTopics) -> Int {
+        dueCount(topics.map { Item(value: (), topic: $0, due: due(of: $0, at: now)) }, now: now, openRuns: openRuns)
+    }
+
+    /// The home screen's sections (the PWA's `splitByDue`): "Due now" (`countsAsDue`), "Coming
     /// up" (active and scheduled, by next slot, none last, stable) and the rest. "Due now" and the
     /// rest keep the list's order.
     public struct Sections<Value> {
@@ -187,11 +212,13 @@ public enum TopicListing {
         }
     }
 
-    public static func sections<Value>(_ items: [Item<Value>], now: Date) -> Sections<Item<Value>> {
+    public static func sections<Value>(_ items: [Item<Value>], now: Date, openRuns: OpenRunTopics)
+        -> Sections<Item<Value>>
+    {
         var out = Sections<Item<Value>>()
         var upcoming: [(offset: Int, element: Item<Value>)] = []
         for item in items {
-            if item.topic.status == .active && DueView.isDueNow(item.due, now: now) {
+            if countsAsDue(item, now: now, openRuns: openRuns) {
                 out.due.append(item)
             } else if item.topic.status == .active && item.topic.schedule != nil {
                 upcoming.append((upcoming.count, item))
@@ -211,10 +238,5 @@ public enum TopicListing {
     /// The sections show only for the default view: due first, active, no search.
     public static func isSectioned(status: TopicStatusFilter, sort: TopicSort, query: String) -> Bool {
         sort == .due && status == .active && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    /// The app badge (the PWA's `dueBadge`): active topics due now, whatever the search or filter.
-    public static func badgeCount(_ topics: [Topic], now: Date) -> Int {
-        topics.count { $0.status == .active && DueView.isDueNow(due(of: $0, at: now), now: now) }
     }
 }

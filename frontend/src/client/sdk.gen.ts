@@ -4,8 +4,8 @@ import * as z from 'zod';
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { ArchiveTopicData, ArchiveTopicErrors, ArchiveTopicResponses, CheckTopicVersionData, CheckTopicVersionErrors, CheckTopicVersionResponses, CreateEntryData, CreateEntryErrors, CreateEntryResponses, CreatePushSubscriptionData, CreatePushSubscriptionErrors, CreatePushSubscriptionResponses, CreateTopicData, CreateTopicErrors, CreateTopicResponses, DeleteApnsDeviceData, DeleteApnsDeviceErrors, DeleteApnsDeviceResponses, DeleteEntryData, DeleteEntryErrors, DeleteEntryResponses, DeletePushSubscriptionData, DeletePushSubscriptionErrors, DeletePushSubscriptionResponses, DeleteTopicData, DeleteTopicErrors, DeleteTopicResponses, ExportEntriesCsvData, ExportEntriesCsvErrors, ExportEntriesCsvResponses, GetEntryData, GetEntryErrors, GetEntryResponses, GetLimitsData, GetLimitsErrors, GetLimitsResponses, GetPushConfigData, GetPushConfigErrors, GetPushConfigResponses, GetQuestionSeriesData, GetQuestionSeriesErrors, GetQuestionSeriesResponses, GetTopicData, GetTopicErrors, GetTopicResponses, GetTopicStatsData, GetTopicStatsErrors, GetTopicStatsResponses, HealthData, HealthErrors, HealthResponses, ListChangesData, ListChangesErrors, ListChangesResponses, ListEntriesData, ListEntriesErrors, ListEntriesResponses, ListQuestionTypesData, ListQuestionTypesErrors, ListQuestionTypesResponses, ListTopicsData, ListTopicsErrors, ListTopicsResponses, ListTopicVersionsData, ListTopicVersionsErrors, ListTopicVersionsResponses, PublishTopicVersionData, PublishTopicVersionErrors, PublishTopicVersionResponses, RegisterApnsDeviceData, RegisterApnsDeviceErrors, RegisterApnsDeviceResponses, SendApnsTestPushData, SendApnsTestPushErrors, SendApnsTestPushResponses, SendTestPushData, SendTestPushErrors, SendTestPushResponses, UnarchiveTopicData, UnarchiveTopicErrors, UnarchiveTopicResponses, UpdateEntryData, UpdateEntryErrors, UpdateEntryResponses, UpdateTopicData, UpdateTopicErrors, UpdateTopicResponses } from './types.gen';
-import { zArchiveTopicHeaders, zArchiveTopicPath, zArchiveTopicQuery, zArchiveTopicResponse, zCheckTopicVersionBody, zCheckTopicVersionPath, zCheckTopicVersionResponse, zCreateEntryBody, zCreateEntryHeaders, zCreateEntryPath, zCreateEntryResponse, zCreatePushSubscriptionBody, zCreatePushSubscriptionHeaders, zCreatePushSubscriptionResponse, zCreateTopicBody, zCreateTopicHeaders, zCreateTopicResponse, zDeleteApnsDeviceBody, zDeleteApnsDeviceHeaders, zDeleteApnsDeviceResponse, zDeleteEntryHeaders, zDeleteEntryPath, zDeleteEntryResponse, zDeletePushSubscriptionBody, zDeletePushSubscriptionHeaders, zDeletePushSubscriptionResponse, zDeleteTopicHeaders, zDeleteTopicPath, zDeleteTopicResponse, zExportEntriesCsvPath, zExportEntriesCsvQuery, zExportEntriesCsvResponse, zGetEntryPath, zGetEntryResponse, zGetLimitsResponse, zGetPushConfigResponse, zGetQuestionSeriesPath, zGetQuestionSeriesQuery, zGetQuestionSeriesResponse, zGetTopicPath, zGetTopicResponse, zGetTopicStatsPath, zGetTopicStatsQuery, zGetTopicStatsResponse, zHealthResponse, zListChangesQuery, zListChangesResponse, zListEntriesPath, zListEntriesQuery, zListEntriesResponse, zListQuestionTypesResponse, zListTopicsQuery, zListTopicsResponse, zListTopicVersionsPath, zListTopicVersionsResponse, zPublishTopicVersionBody, zPublishTopicVersionHeaders, zPublishTopicVersionPath, zPublishTopicVersionResponse, zRegisterApnsDeviceBody, zRegisterApnsDeviceHeaders, zRegisterApnsDeviceResponse, zSendApnsTestPushBody, zSendApnsTestPushHeaders, zSendApnsTestPushResponse, zSendTestPushHeaders, zSendTestPushResponse, zUnarchiveTopicHeaders, zUnarchiveTopicPath, zUnarchiveTopicQuery, zUnarchiveTopicResponse, zUpdateEntryBody, zUpdateEntryHeaders, zUpdateEntryPath, zUpdateEntryResponse, zUpdateTopicBody, zUpdateTopicHeaders, zUpdateTopicPath, zUpdateTopicResponse } from './zod.gen';
+import type { ArchiveTopicData, ArchiveTopicErrors, ArchiveTopicResponses, CheckTopicVersionData, CheckTopicVersionErrors, CheckTopicVersionResponses, CreateEntryData, CreateEntryErrors, CreateEntryResponses, CreatePushSubscriptionData, CreatePushSubscriptionErrors, CreatePushSubscriptionResponses, CreateTopicData, CreateTopicErrors, CreateTopicResponses, DeleteApnsDeviceData, DeleteApnsDeviceErrors, DeleteApnsDeviceResponses, DeleteEntryData, DeleteEntryErrors, DeleteEntryResponses, DeleteLiveActivityData, DeleteLiveActivityErrors, DeleteLiveActivityResponses, DeletePushSubscriptionData, DeletePushSubscriptionErrors, DeletePushSubscriptionResponses, DeleteTopicData, DeleteTopicErrors, DeleteTopicResponses, ExportEntriesCsvData, ExportEntriesCsvErrors, ExportEntriesCsvResponses, GetEntryData, GetEntryErrors, GetEntryResponses, GetLimitsData, GetLimitsErrors, GetLimitsResponses, GetPushConfigData, GetPushConfigErrors, GetPushConfigResponses, GetQuestionSeriesData, GetQuestionSeriesErrors, GetQuestionSeriesResponses, GetRunData, GetRunErrors, GetRunResponses, GetTopicData, GetTopicErrors, GetTopicResponses, GetTopicStatsData, GetTopicStatsErrors, GetTopicStatsResponses, GetTopicTimingData, GetTopicTimingErrors, GetTopicTimingResponses, HealthData, HealthErrors, HealthResponses, ListChangesData, ListChangesErrors, ListChangesResponses, ListEntriesData, ListEntriesErrors, ListEntriesResponses, ListQuestionTypesData, ListQuestionTypesErrors, ListQuestionTypesResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListTopicsData, ListTopicsErrors, ListTopicsResponses, ListTopicVersionsData, ListTopicVersionsErrors, ListTopicVersionsResponses, PublishTopicVersionData, PublishTopicVersionErrors, PublishTopicVersionResponses, RecordRunEventData, RecordRunEventErrors, RecordRunEventResponses, RegisterApnsDeviceData, RegisterApnsDeviceErrors, RegisterApnsDeviceResponses, RegisterLiveActivityData, RegisterLiveActivityErrors, RegisterLiveActivityResponses, SendApnsTestPushData, SendApnsTestPushErrors, SendApnsTestPushResponses, SendTestPushData, SendTestPushErrors, SendTestPushResponses, UnarchiveTopicData, UnarchiveTopicErrors, UnarchiveTopicResponses, UpdateEntryData, UpdateEntryErrors, UpdateEntryResponses, UpdateTopicData, UpdateTopicErrors, UpdateTopicResponses } from './types.gen';
+import { zArchiveTopicHeaders, zArchiveTopicPath, zArchiveTopicQuery, zArchiveTopicResponse, zCheckTopicVersionBody, zCheckTopicVersionPath, zCheckTopicVersionResponse, zCreateEntryBody, zCreateEntryHeaders, zCreateEntryPath, zCreateEntryResponse, zCreatePushSubscriptionBody, zCreatePushSubscriptionHeaders, zCreatePushSubscriptionResponse, zCreateTopicBody, zCreateTopicHeaders, zCreateTopicResponse, zDeleteApnsDeviceBody, zDeleteApnsDeviceHeaders, zDeleteApnsDeviceResponse, zDeleteEntryHeaders, zDeleteEntryPath, zDeleteEntryResponse, zDeleteLiveActivityBody, zDeleteLiveActivityHeaders, zDeleteLiveActivityResponse, zDeletePushSubscriptionBody, zDeletePushSubscriptionHeaders, zDeletePushSubscriptionResponse, zDeleteTopicHeaders, zDeleteTopicPath, zDeleteTopicResponse, zExportEntriesCsvPath, zExportEntriesCsvQuery, zExportEntriesCsvResponse, zGetEntryPath, zGetEntryResponse, zGetLimitsResponse, zGetPushConfigResponse, zGetQuestionSeriesPath, zGetQuestionSeriesQuery, zGetQuestionSeriesResponse, zGetRunPath, zGetRunResponse, zGetTopicPath, zGetTopicResponse, zGetTopicStatsPath, zGetTopicStatsQuery, zGetTopicStatsResponse, zGetTopicTimingPath, zGetTopicTimingQuery, zGetTopicTimingResponse, zHealthResponse, zListChangesQuery, zListChangesResponse, zListEntriesPath, zListEntriesQuery, zListEntriesResponse, zListQuestionTypesResponse, zListRunsQuery, zListRunsResponse, zListTopicsQuery, zListTopicsResponse, zListTopicVersionsPath, zListTopicVersionsResponse, zPublishTopicVersionBody, zPublishTopicVersionHeaders, zPublishTopicVersionPath, zPublishTopicVersionResponse, zRecordRunEventBody, zRecordRunEventHeaders, zRecordRunEventPath, zRecordRunEventResponse, zRegisterApnsDeviceBody, zRegisterApnsDeviceHeaders, zRegisterApnsDeviceResponse, zRegisterLiveActivityBody, zRegisterLiveActivityHeaders, zRegisterLiveActivityResponse, zSendApnsTestPushBody, zSendApnsTestPushHeaders, zSendApnsTestPushResponse, zSendTestPushHeaders, zSendTestPushResponse, zUnarchiveTopicHeaders, zUnarchiveTopicPath, zUnarchiveTopicQuery, zUnarchiveTopicResponse, zUpdateEntryBody, zUpdateEntryHeaders, zUpdateEntryPath, zUpdateEntryResponse, zUpdateTopicBody, zUpdateTopicHeaders, zUpdateTopicPath, zUpdateTopicResponse } from './zod.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -332,6 +332,63 @@ export const updateEntry = <ThrowOnError extends boolean = false>(options: Optio
 });
 
 /**
+ * Record Run Event
+ *
+ * Record one tap on a run: start, next, lap, skip, pause, resume, stop, finish or discard.
+ *
+ * Idempotent by event id. An event the fold voids (a double tap, a lap after the stop) is
+ * stored and answered with 200 and ``effect: "void"``. ``run_id`` may be an alias: the
+ * event applies to the run it was merged into, and ``run.id`` says which.
+ */
+export const recordRunEvent = <ThrowOnError extends boolean = false>(options: Options<RecordRunEventData, ThrowOnError>): RequestResult<RecordRunEventResponses, RecordRunEventErrors, ThrowOnError> => (options.client ?? client).post<RecordRunEventResponses, RecordRunEventErrors, ThrowOnError>({
+    requestValidator: async (data) => await z.object({
+        body: zRecordRunEventBody,
+        headers: zRecordRunEventHeaders.optional(),
+        path: zRecordRunEventPath,
+        query: z.never().optional()
+    }).parseAsync(data),
+    responseValidator: async (data) => await zRecordRunEventResponse.parseAsync(data),
+    url: '/api/v1/runs/{run_id}/events',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * List Runs
+ *
+ * Open and finishing runs, oldest start first. Closed runs are entries.
+ */
+export const listRuns = <ThrowOnError extends boolean = false>(options?: Options<ListRunsData, ThrowOnError>): RequestResult<ListRunsResponses, ListRunsErrors, ThrowOnError> => (options?.client ?? client).get<ListRunsResponses, ListRunsErrors, ThrowOnError>({
+    requestValidator: async (data) => await z.object({
+        body: z.never().optional(),
+        path: z.never().optional(),
+        query: zListRunsQuery.optional()
+    }).parseAsync(data),
+    responseValidator: async (data) => await zListRunsResponse.parseAsync(data),
+    url: '/api/v1/runs',
+    ...options
+});
+
+/**
+ * Get Run
+ *
+ * One run in any status, with its events and their effects. An alias returns its run.
+ */
+export const getRun = <ThrowOnError extends boolean = false>(options: Options<GetRunData, ThrowOnError>): RequestResult<GetRunResponses, GetRunErrors, ThrowOnError> => (options.client ?? client).get<GetRunResponses, GetRunErrors, ThrowOnError>({
+    requestValidator: async (data) => await z.object({
+        body: z.never().optional(),
+        path: zGetRunPath,
+        query: z.never().optional()
+    }).parseAsync(data),
+    responseValidator: async (data) => await zGetRunResponse.parseAsync(data),
+    url: '/api/v1/runs/{run_id}',
+    ...options
+});
+
+/**
  * List Changes
  *
  * The change feed: every topic, version and entry changed after a cursor, plus deletions.
@@ -361,6 +418,25 @@ export const getTopicStats = <ThrowOnError extends boolean = false>(options: Opt
     }).parseAsync(data),
     responseValidator: async (data) => await zGetTopicStatsResponse.parseAsync(data),
     url: '/api/v1/topics/{ref}/stats',
+    ...options
+});
+
+/**
+ * Get Timing
+ *
+ * Timing stats over the topic's timed entries (timers.md §9): best, median and mean run
+ * totals over complete runs, per step, laps, pauses and one series point per run. The filters
+ * are getTopicStats's; ``version`` keeps that version's runs, labels still come from the latest.
+ * A topic that isn't timed answers zero counts.
+ */
+export const getTopicTiming = <ThrowOnError extends boolean = false>(options: Options<GetTopicTimingData, ThrowOnError>): RequestResult<GetTopicTimingResponses, GetTopicTimingErrors, ThrowOnError> => (options.client ?? client).get<GetTopicTimingResponses, GetTopicTimingErrors, ThrowOnError>({
+    requestValidator: async (data) => await z.object({
+        body: z.never().optional(),
+        path: zGetTopicTimingPath,
+        query: zGetTopicTimingQuery.optional()
+    }).parseAsync(data),
+    responseValidator: async (data) => await zGetTopicTimingResponse.parseAsync(data),
+    url: '/api/v1/topics/{ref}/timing',
     ...options
 });
 
@@ -490,6 +566,53 @@ export const deleteApnsDevice = <ThrowOnError extends boolean = false>(options: 
     }).parseAsync(data),
     responseValidator: async (data) => await zDeleteApnsDeviceResponse.parseAsync(data),
     url: '/api/v1/push/apns/devices/delete',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Register Live Activity
+ *
+ * Register (or refresh, keyed by token) a Live Activity push token: the device's push-to-start
+ * token (``kind: start``; it replaces the device's older ones), or one activity's update token
+ * (``kind: update``, with its topic and its open run; ``run_id`` may be an alias). An update
+ * token for a run that is closed or unknown is answered the same but not kept; a closed run's
+ * gets its ``end`` push. 422 ``invalid_request`` when the run belongs to another topic. Works
+ * whether or not APNs is enabled.
+ */
+export const registerLiveActivity = <ThrowOnError extends boolean = false>(options: Options<RegisterLiveActivityData, ThrowOnError>): RequestResult<RegisterLiveActivityResponses, RegisterLiveActivityErrors, ThrowOnError> => (options.client ?? client).post<RegisterLiveActivityResponses, RegisterLiveActivityErrors, ThrowOnError>({
+    requestValidator: async (data) => await z.object({
+        body: zRegisterLiveActivityBody,
+        headers: zRegisterLiveActivityHeaders.optional(),
+        path: z.never().optional(),
+        query: z.never().optional()
+    }).parseAsync(data),
+    responseValidator: async (data) => await zRegisterLiveActivityResponse.parseAsync(data),
+    url: '/api/v1/push/apns/live-activities',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Delete Live Activity
+ *
+ * Remove a Live Activity token (idempotent).
+ */
+export const deleteLiveActivity = <ThrowOnError extends boolean = false>(options: Options<DeleteLiveActivityData, ThrowOnError>): RequestResult<DeleteLiveActivityResponses, DeleteLiveActivityErrors, ThrowOnError> => (options.client ?? client).post<DeleteLiveActivityResponses, DeleteLiveActivityErrors, ThrowOnError>({
+    requestValidator: async (data) => await z.object({
+        body: zDeleteLiveActivityBody,
+        headers: zDeleteLiveActivityHeaders.optional(),
+        path: z.never().optional(),
+        query: z.never().optional()
+    }).parseAsync(data),
+    responseValidator: async (data) => await zDeleteLiveActivityResponse.parseAsync(data),
+    url: '/api/v1/push/apns/live-activities/delete',
     ...options,
     headers: {
         'Content-Type': 'application/json',

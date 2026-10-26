@@ -43,6 +43,9 @@ public struct OutboxFlushReport: Sendable, Hashable {
     public var retried = 0
     /// Retired, cancelled (S8) or restored after a precondition 409.
     public var settled = 0
+    /// Acked run events the server voided for a reason the user is told about (timers.md §8.1,
+    /// §11.4), in ack order.
+    public var runVoids: [RunVoid] = []
     /// When `flush` started, and when it was done: the lease released (or never taken), before
     /// signals are delivered. What the budget bounds (§10), measured by the flush itself, so a
     /// caller resumed late doesn't stretch it.
@@ -55,6 +58,45 @@ public struct OutboxFlushReport: Sendable, Hashable {
     public var elapsed: Duration? {
         guard let startedAt, let endedAt else { return nil }
         return endedAt - startedAt
+    }
+}
+
+/// A run event of this device that the server voided with a reason worth a notice (timers.md
+/// §11.4): `after_stop`, `run_edited`, `entry_deleted` or `already_closed`. Double taps (`stale`,
+/// `merged`, `already_paused`, `not_paused`) are silent and never reported.
+public struct RunVoid: Sendable, Hashable {
+    public static let noticed: Set<VoidReason> = [.afterStop, .runEdited, .entryDeleted, .alreadyClosed]
+
+    public var eventId: String
+    public var runId: String
+    public var topic: TopicRef
+    public var type: RunEventType
+    public var reason: VoidReason
+    /// The origin of the tap (which process made it).
+    public var origin: OutboxOrigin
+    /// The run's end (epoch ms), when the server says it stopped: `after_stop`'s "at {time}".
+    public var stoppedAt: Int?
+
+    init?(_ item: OutboxItem, _ result: RunEventResult) {
+        guard let reason = result.effect.reason, Self.noticed.contains(reason),
+            let payload = try? item.runEventPayload(), let type = payload.type
+        else { return nil }
+        self.init(
+            eventId: item.id, runId: payload.runId, topic: payload.topic, type: type, reason: reason,
+            origin: item.origin, stoppedAt: result.run.endedAt)
+    }
+
+    public init(
+        eventId: String, runId: String, topic: TopicRef, type: RunEventType, reason: VoidReason, origin: OutboxOrigin,
+        stoppedAt: Int? = nil
+    ) {
+        self.eventId = eventId
+        self.runId = runId
+        self.topic = topic
+        self.type = type
+        self.reason = reason
+        self.origin = origin
+        self.stoppedAt = stoppedAt
     }
 }
 
@@ -80,7 +122,7 @@ public struct OutboxSummary: Sendable, Hashable {
 
     static func read(_ db: Database, now: LeaseInstant) throws -> OutboxSummary {
         var summary = OutboxSummary()
-        var scope = OutboxScope()
+        var scope = OutboxScope(aliases: try OutboxScope.aliases(db))
         for item in try OutboxStorage.items(db) {
             defer { scope.add(item) }
             switch item.state {
@@ -260,6 +302,24 @@ public struct Outbox: Sendable {
         }
     }
 
+    /// Fix of a refused run event (timers.md §8.1): replaces a failed `finish`'s (or a `stop`
+    /// with answers') answers and notes, nothing else, and makes it pending again, in one
+    /// transaction (CAS on `rowVersion`, as `fix`). `OutboxError.notAllowed` for any other item;
+    /// `OutboxError.itemChanged` when it moved since it was read.
+    public func fixRunEvent(
+        itemId: String, rowVersion: Int, answers: [String: AnswerValue], notes: String?
+    ) async throws {
+        try await write { db, _, wall in
+            let item = try OutboxStorage.item(db, id: itemId)
+            guard let item, var payload = try item.runEventPayload() else {
+                throw OutboxError.notAllowed("Fix isn't available for this item")
+            }
+            payload.event.answers = answers.mapValues { WireAnswer($0) }
+            payload.event.notes = notes
+            try OutboxQueue.fix(db, itemId: itemId, payload: .runEvent(payload), rowVersion: rowVersion, wall: wall)
+        }
+    }
+
     public func discard(itemId: String, origin: OutboxOrigin) async throws {
         try await write { db, now, wall in
             try OutboxQueue.discard(db, itemId: itemId, origin: origin, now: now, wall: wall)
@@ -417,7 +477,9 @@ public struct Outbox: Sendable {
                 return Task.isCancelled ? .cancelled : .budgetExhausted
             }
             run.report.requests += 1
-            let resolution = OutboxResolution.resolve(item.kind, response.outcome)
+            let resolution = OutboxResolution.resolve(
+                item.kind, response.outcome, runEvent: (try? item.runEventPayload())?.type)
+            if resolution == .startKnown { return try await checkStart(claim, item, refused: response, &run) }
             guard resolution == .rebase else {
                 return try await finish(
                     claim, resolution, error: response.outboxError, stopsPass: response.outcome.stopsPass, &run)
@@ -481,26 +543,108 @@ public struct Outbox: Sendable {
                 claim, resolution, error: response.outboxError, stopsPass: response.outcome.stopsPass, &run))
     }
 
+    /// A start the server refused as a known id (`startKnown`, timers.md §10.2), verified like a
+    /// rebase: read the run with that id (an alias resolves). A run of the start's topic means
+    /// it was started elsewhere: the item is acked with that run, as a merged start would be (the
+    /// run, and its alias, go into the server layer), and a pull brings the rest (its entry). With
+    /// `id_conflict` the id may be an entry's instead: one of the start's topic means this
+    /// reminder was already logged and the run never existed (`loggedElsewhere`: the start and the
+    /// run's other items fail `logged_elsewhere`), and a pull is asked for. Anything else (no such
+    /// run or entry, or another topic's) fails the start `rejected` with the refusal kept; a
+    /// terminal refusal of the read fails it with the read's error. In the run case the run's other queued
+    /// taps aren't touched: they go to the server's run. The pull is asked for only when the ack
+    /// applied.
+    private func checkStart(
+        _ claim: OutboxClaim, _ item: OutboxItem, refused: APIResponse<OutboxSuccess>, _ run: inout FlushRun
+    ) async throws -> OutboxFlushReport.Ending? {
+        let sender = claim.sender
+        let itemId = item.id
+        guard ContinuousClock.now < run.shutdownDeadline else { return .budgetExhausted }
+        let fenced = try await uncancellable { db, now, _ in
+            try OutboxFlush.verify(db, itemId: itemId, sender: sender, now: now)
+        }
+        if fenced != nil { return .superseded }
+        let rejected: OutboxResolution = .fail(.rejected, pull: false)
+        guard let runId = UUID(uuidString: item.entityId), let topicId = UUID(uuidString: item.topicId) else {
+            return try await finish(claim, rejected, error: refused.outboxError, stopsPass: false, &run)
+        }
+        var reads: [OutboxOperation] = [.getRun(runId: runId)]
+        if case .terminal(_, let problem) = refused.outcome, problem?.code == .idConflict {
+            reads.append(.getEntry(entryId: runId))
+        }
+        for operation in reads {
+            let request = OutboxRequest(operation: operation, expecting: claim.expecting, timeout: timeout(run))
+            guard let response = await send(request, run) else {
+                return Task.isCancelled ? .cancelled : .budgetExhausted
+            }
+            run.report.requests += 1
+            let resolution: OutboxResolution
+            switch response.outcome {
+            case .success(.run(let server)) where server.topicId == topicId:
+                let effect = Self.startKnownEffect(server, startId: itemId)
+                resolution = .ack(.runEvent(RunEventResult(eventId: itemId, effect: effect, run: server, entry: nil)))
+            case .success(.entry(let entry)) where entry.topicId == topicId:
+                resolution = .loggedElsewhere
+            case .success, .notFound:
+                continue  // not this topic's, or not there: the next read, or the refusal stands
+            case .identityMismatch:
+                resolution = .restore(.identity)
+            case .epochMismatch:
+                resolution = .restore(.epoch)
+            case .terminal, .entryDeleted, .staleRevision:
+                // The read itself is refused for good: the start fails with the read's error.
+                return try await finish(
+                    claim, rejected, error: response.outboxError ?? refused.outboxError, stopsPass: false, &run)
+            default:
+                // The start didn't execute (409); check again on the next attempt.
+                resolution = .retry(maybeDelivered: false)
+            }
+            let acks: Bool = if case .ack = resolution { true } else { false }
+            return try await finish(
+                claim, resolution, error: response.outboxError ?? refused.outboxError,
+                stopsPass: response.outcome.stopsPass, pullOnAck: acks, &run)
+        }
+        return try await finish(claim, rejected, error: refused.outboxError, stopsPass: false, &run)
+    }
+
+    /// The effect a start acked by `checkStart` gets: the server's for its id (applied for the run's
+    /// own start, `merged` for an alias), or `merged` when the run doesn't list it.
+    static func startKnownEffect(_ server: Run, startId: String) -> RunEffect {
+        server.state.effects[startId.lowercased()] ?? .void(.merged)
+    }
+
     /// The outcome transaction and the pass decision.
+    /// `pullOnAck`: ask for a pull when (and only when) the ack applied.
     private func finish(
         _ claim: OutboxClaim, _ resolution: OutboxResolution, error: OutboxErrorInfo?, stopsPass: Bool,
-        _ run: inout FlushRun
+        pullOnAck: Bool = false, _ run: inout FlushRun
     ) async throws -> OutboxFlushReport.Ending? {
         let (itemId, sender, jitter) = (claim.item.id, claim.sender, random())
+        let item = claim.item
         let applied = try await uncancellable { db, now, wall in
-            try OutboxFlush.apply(
+            let applied = try OutboxFlush.apply(
                 db, itemId: itemId, sender: sender, resolution: resolution, error: error, random: jitter, now: now,
                 wall: wall)
+            // The notice is kept with the ack (timers.md §11.4), whichever process flushed it.
+            if applied == .acked, case .ack(.runEvent(let result)) = resolution, let void = RunVoid(item, result) {
+                try RunNoticeStorage.record(db, void, wall: wall)
+            }
+            return applied
         }
         switch applied {
         case .fenced: return .superseded
-        case .acked: run.report.acked += 1
+        case .acked:
+            run.report.acked += 1
+            if pullOnAck { run.signal(.pullRequested) }
+            if case .ack(.runEvent(let result)) = resolution, let void = RunVoid(claim.item, result) {
+                run.report.runVoids.append(void)
+            }
         case .failed: run.report.failed += 1
         case .retried: run.report.retried += 1
         case .retired, .restored, .cancelled: run.report.settled += 1
         }
         switch resolution {
-        case .retire(pull: true), .fail(_, pull: true): run.signal(.pullRequested)
+        case .retire(pull: true), .fail(_, pull: true), .loggedElsewhere: run.signal(.pullRequested)
         case .restore(let mismatch), .mismatchUncertain(let mismatch):
             run.signal(mismatch == .identity ? .identityMismatch : .epochSuspect)
             return .mismatch(mismatch)

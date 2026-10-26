@@ -58,6 +58,9 @@ public final class PushRegistration {
         public var leaseClock: any LeaseClock
         /// In `[0, 1)`, for the backoff jitter.
         public var random: @Sendable () -> Double
+        /// Where a server's responses leave their run-event offset samples (timers.md §5.1): its
+        /// store's, when the app has it open. Nil keeps none.
+        public var serverOffset: @Sendable (_ serverId: String) async -> (any ServerOffsetRecorder)?
 
         public init(
             registry: Registry, transport: any Transport,
@@ -67,7 +70,8 @@ public final class PushRegistration {
             requestToken: @escaping @MainActor @Sendable () -> Void, bundleId: String? = nil, appVersion: String? = nil,
             deviceName: String? = nil, wallClock: any WallClock = SystemWallClock(),
             leaseClock: any LeaseClock = SystemLeaseClock(),
-            random: @escaping @Sendable () -> Double = { .random(in: 0..<1) }
+            random: @escaping @Sendable () -> Double = { .random(in: 0..<1) },
+            serverOffset: @escaping @Sendable (_ serverId: String) async -> (any ServerOffsetRecorder)? = { _ in nil }
         ) {
             self.registry = registry
             self.transport = transport
@@ -81,6 +85,7 @@ public final class PushRegistration {
             self.wallClock = wallClock
             self.leaseClock = leaseClock
             self.random = random
+            self.serverOffset = serverOffset
         }
     }
 
@@ -233,7 +238,7 @@ public final class PushRegistration {
             appVersion: dependencies.appVersion, deviceName: dependencies.deviceName)
         let outcome: APIOutcome<ApnsDevice>
         do {
-            outcome = try await client(active.baseURL).registerApnsDevice(
+            outcome = try await client(active.baseURL, serverId: active.identity.serverId).registerApnsDevice(
                 body, options: RequestOptions(expecting: active.identity)
             ).outcome
         } catch {
@@ -303,7 +308,7 @@ public final class PushRegistration {
         guard let token = (try? await readState())?.token else { return .notRegistered }
         let outcome: APIOutcome<PushTestResult>
         do {
-            outcome = try await client(active.baseURL).sendApnsTestPush(
+            outcome = try await client(active.baseURL, serverId: active.identity.serverId).sendApnsTestPush(
                 ApnsDeviceRefDTO(token: token), options: RequestOptions(expecting: active.identity)
             ).outcome
         } catch {
@@ -359,15 +364,16 @@ public final class PushRegistration {
     }
 
     private func delete(_ token: String, at baseURL: URL, identity: ServerIdentity) async -> APIOutcome<EmptyBody>? {
-        try? await client(baseURL).deleteApnsDevice(
+        try? await client(baseURL, serverId: identity.serverId).deleteApnsDevice(
             ApnsDeviceRefDTO(token: token), options: RequestOptions(expecting: identity)
         ).outcome
     }
 
-    private func client(_ baseURL: URL) -> APIClient {
+    private func client(_ baseURL: URL, serverId: String) async -> APIClient {
         APIClient(
             baseURL: baseURL, transport: dependencies.transport, identity: StaticServerIdentity(nil),
-            credentials: dependencies.credentials, origin: .app)
+            credentials: dependencies.credentials, origin: .app, serverOffset: await dependencies.serverOffset(serverId)
+        )
     }
 
     // MARK: - Registry

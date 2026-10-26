@@ -66,7 +66,8 @@ struct EntriesExportButton: View {
         let outcome = await export.export(
             scope: scope, transport: session.configuration.transport, credentials: session.configuration.credentials,
             slug: slug, filters: EntriesExport.filters(filters, now: now, calendar: .current), now: now,
-            calendar: .current, isCurrent: { session.binding == scope.binding })
+            calendar: .current, serverOffset: store.map { StoreServerOffset(store: $0) },
+            isCurrent: { session.binding == scope.binding })
         switch outcome {
         case .file(let file):
             // Rechecked here, on the main actor, right before presenting.

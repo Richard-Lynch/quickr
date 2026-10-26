@@ -87,5 +87,59 @@
     {"question":{"key":"m","label":"M","help_text":"Pick some","required":true,"type":"enum","options":[{"value":"red","label":"Red","archived":false},{"value":"old","label":"Old","archived":true},{"value":"blue","label":"Blue","archived":true}],"multiple":true,"min_selected":1,"max_selected":2},"expected":"1 option · 2 archived"},
     {"question":{"key":"n","label":"N","help_text":null,"required":true,"type":"enum","options":[{"value":"only","label":"Only","archived":false}],"multiple":false,"min_selected":null,"max_selected":null},"expected":"1 option"},
     {"question":{"key":"o","label":"O","help_text":null,"required":true,"type":"enum","options":[{"value":"gone","label":"Gone","archived":true}],"multiple":false,"min_selected":null,"max_selected":null},"expected":"0 options · 1 archived"}
+  ],
+  "new_step": [
+    {"label":"","taken":[],"history":[],"expected":{"key":"","label":"","locked":false}},
+    {"label":"   ","taken":[],"history":[],"expected":{"key":"","label":"   ","locked":false}},
+    {"label":"Shower","taken":[],"history":[],"expected":{"key":"shower","label":"Shower","locked":false}},
+    {"label":"  Brush teeth  ","taken":[],"history":[],"expected":{"key":"brush_teeth","label":"  Brush teeth  ","locked":false}},
+    {"label":"Shower","taken":["shower"],"history":[],"expected":{"key":"shower_2","label":"Shower","locked":false}},
+    {"label":"Shower","taken":["shower","shower_2"],"history":[],"expected":{"key":"shower_3","label":"Shower","locked":false}},
+    {"label":"123","taken":[],"history":[],"expected":{"key":"step","label":"123","locked":false}},
+    {"label":"123","taken":["step"],"history":[],"expected":{"key":"step_2","label":"123","locked":false}},
+    {"label":"Café au lait!","taken":[],"history":[],"expected":{"key":"cafe_au_lait","label":"Café au lait!","locked":false}},
+    {"label":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","taken":[],"history":[],"expected":{"key":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","label":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","locked":false}},
+    {"label":" old PREP ","taken":[],"history":[{"key":"prep","label":"Old prep"},{"key":"shower","label":"Shower"}],"expected":{"key":"prep","label":" old PREP ","locked":false}},
+    {"label":"Prep","taken":[],"history":[{"key":"prep","label":"Old prep"},{"key":"shower","label":"Shower"}],"expected":{"key":"prep_2","label":"Prep","locked":false}},
+    {"label":"Old prep","taken":["prep"],"history":[{"key":"prep","label":"Old prep"},{"key":"shower","label":"Shower"}],"expected":{"key":"old_prep","label":"Old prep","locked":false}},
+    {"label":"Shower","taken":["shower"],"history":[{"key":"prep","label":"Old prep"},{"key":"shower","label":"Shower"}],"expected":{"key":"shower_2","label":"Shower","locked":false}}
+  ],
+  "from_timer": [
+    {"timer":null,"expected":{"timed":false,"steps":[]}},
+    {"timer":{"steps":[]},"expected":{"timed":true,"steps":[]}},
+    {"timer":{"steps":[{"key":"shower","label":"Shower"},{"key":"dress","label":"Get dressed"}]},"expected":{"timed":true,"steps":[{"key":"shower","label":"Shower","locked":true},{"key":"dress","label":"Get dressed","locked":true}]}}
+  ],
+  "step_label": [
+    {"name":"published: key kept","step":{"key":"shower","label":"Shower","locked":true},"label":"Bath","taken":[],"history":[],"expected":{"key":"shower","label":"Bath","locked":true}},
+    {"name":"published: blank keeps key","step":{"key":"shower","label":"Shower","locked":true},"label":"","taken":[],"history":[],"expected":{"key":"shower","label":"","locked":true}},
+    {"name":"new: key follows","step":{"key":"shower","label":"Shower","locked":false},"label":"Bath","taken":[],"history":[],"expected":{"key":"bath","label":"Bath","locked":false}},
+    {"name":"new: blank clears key","step":{"key":"shower","label":"Shower","locked":false},"label":" ","taken":[],"history":[],"expected":{"key":"","label":" ","locked":false}},
+    {"name":"new: taken key","step":{"key":"","label":"","locked":false},"label":"Dress","taken":["dress"],"history":[],"expected":{"key":"dress_2","label":"Dress","locked":false}},
+    {"name":"new: a retired step again","step":{"key":"","label":"","locked":false},"label":"Old Prep","taken":[],"history":[{"key":"prep","label":"Old prep"},{"key":"shower","label":"Shower"}],"expected":{"key":"prep","label":"Old Prep","locked":false}},
+    {"name":"new: not a retired key","step":{"key":"","label":"","locked":false},"label":"Prep","taken":[],"history":[{"key":"prep","label":"Old prep"},{"key":"shower","label":"Shower"}],"expected":{"key":"prep_2","label":"Prep","locked":false}},
+    {"name":"published: history ignored","step":{"key":"dress","label":"Dress","locked":true},"label":"Old prep","taken":[],"history":[{"key":"prep","label":"Old prep"},{"key":"shower","label":"Shower"}],"expected":{"key":"dress","label":"Old prep","locked":true}}
+  ],
+  "timer_output": [
+    {"name":"not timed","timed":false,"steps":[],"expected":{"timer":null,"issues":[]}},
+    {"name":"not timed ignores steps","timed":false,"steps":[{"key":"","label":"","locked":false}],"expected":{"timer":null,"issues":[]}},
+    {"name":"stopwatch","timed":true,"steps":[],"expected":{"timer":{"steps":[]},"issues":[]}},
+    {"name":"steps trimmed, in order","timed":true,"steps":[{"key":"dress","label":" Get dressed ","locked":false},{"key":"shower","label":"Shower","locked":true}],"expected":{"timer":{"steps":[{"key":"dress","label":"Get dressed"},{"key":"shower","label":"Shower"}]},"issues":[]}},
+    {"name":"blank label","timed":true,"steps":[{"key":"","label":"  ","locked":false}],"expected":{"timer":null,"issues":[{"path":[0,"label"],"message":"Required"}]}},
+    {"name":"bad key","timed":true,"steps":[{"key":"Shower","label":"Shower","locked":false}],"expected":{"timer":null,"issues":[{"path":[0,"key"],"message":"Use lower_snake_case: a–z, 0–9, _ (start with a letter, max 63)"}]}},
+    {"name":"duplicate key (a repeated label is fine)","timed":true,"steps":[{"key":"a","label":"A","locked":false},{"key":"a","label":"a","locked":false}],"expected":{"timer":null,"issues":[{"path":[1,"key"],"message":"Another step has this key"}]}},
+    {"name":"repeated label","timed":true,"steps":[{"key":"rinse","label":"Rinse","locked":false},{"key":"rinse_2","label":"rinse","locked":false}],"expected":{"timer":{"steps":[{"key":"rinse","label":"Rinse"},{"key":"rinse_2","label":"rinse"}]},"issues":[]}},
+    {"name":"label too long","timed":true,"steps":[{"key":"long","label":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","locked":false}],"expected":{"timer":null,"issues":[{"path":[0,"label"],"message":"At most 200 characters (201 now)"}]}},
+    {"name":"too many steps","timed":true,"steps":[{"key":"s0","label":"S0","locked":false},{"key":"s1","label":"S1","locked":false},{"key":"s2","label":"S2","locked":false},{"key":"s3","label":"S3","locked":false},{"key":"s4","label":"S4","locked":false},{"key":"s5","label":"S5","locked":false},{"key":"s6","label":"S6","locked":false},{"key":"s7","label":"S7","locked":false},{"key":"s8","label":"S8","locked":false},{"key":"s9","label":"S9","locked":false},{"key":"s10","label":"S10","locked":false},{"key":"s11","label":"S11","locked":false},{"key":"s12","label":"S12","locked":false},{"key":"s13","label":"S13","locked":false},{"key":"s14","label":"S14","locked":false},{"key":"s15","label":"S15","locked":false},{"key":"s16","label":"S16","locked":false},{"key":"s17","label":"S17","locked":false},{"key":"s18","label":"S18","locked":false},{"key":"s19","label":"S19","locked":false},{"key":"s20","label":"S20","locked":false},{"key":"s21","label":"S21","locked":false},{"key":"s22","label":"S22","locked":false},{"key":"s23","label":"S23","locked":false},{"key":"s24","label":"S24","locked":false},{"key":"s25","label":"S25","locked":false},{"key":"s26","label":"S26","locked":false},{"key":"s27","label":"S27","locked":false},{"key":"s28","label":"S28","locked":false},{"key":"s29","label":"S29","locked":false},{"key":"s30","label":"S30","locked":false}],"expected":{"timer":null,"issues":[{"path":[],"message":"At most 30 steps"}]}}
+  ],
+  "timer_changes": [
+    {"name":"untimed both","base":null,"next":null,"expected":[]},
+    {"name":"unchanged","base":{"steps":[{"key":"shower","label":"Shower"},{"key":"dress","label":"Get dressed"}]},"next":{"steps":[{"key":"shower","label":"Shower"},{"key":"dress","label":"Get dressed"}]},"expected":[]},
+    {"name":"turned on, stopwatch","base":null,"next":{"steps":[]},"expected":["Timed, as a stopwatch (no steps)"]},
+    {"name":"turned on, one step","base":null,"next":{"steps":[{"key":"shower","label":"Shower"}]},"expected":["Timed, with 1 step"]},
+    {"name":"turned on, two steps","base":null,"next":{"steps":[{"key":"shower","label":"Shower"},{"key":"dress","label":"Get dressed"}]},"expected":["Timed, with 2 steps"]},
+    {"name":"turned off","base":{"steps":[{"key":"shower","label":"Shower"}]},"next":null,"expected":["No longer timed"]},
+    {"name":"renamed","base":{"steps":[{"key":"shower","label":"Shower"}]},"next":{"steps":[{"key":"shower","label":"Bath"}]},"expected":["Step renamed: Shower → Bath"]},
+    {"name":"added and removed","base":{"steps":[{"key":"shower","label":"Shower"}]},"next":{"steps":[{"key":"dress","label":"Get dressed"}]},"expected":["Step added: Get dressed","Step removed: Shower"]},
+    {"name":"reordered","base":{"steps":[{"key":"shower","label":"Shower"},{"key":"dress","label":"Get dressed"}]},"next":{"steps":[{"key":"dress","label":"Get dressed"},{"key":"shower","label":"Shower"}]},"expected":["Steps reordered"]}
   ]
 }

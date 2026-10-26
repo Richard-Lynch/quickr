@@ -14,9 +14,9 @@ import QuickrCore
 ///   system is missing any category of the capped selection. The center is asked outside any
 ///   transaction.
 /// - ``refresh(from:)``: the app's call after a sync, a server switch, a reset or launch: the
-///   category of every quick-loggable active topic in the store, computed with the server's rules,
-///   becomes the server's current set. The NSE may never run (spike F1), so these must be
-///   registered ahead of any push.
+///   category of every quick-loggable or timed active topic in the store, computed with the
+///   server's rules, becomes the server's current set. The NSE may never run (spike F1), so these
+///   must be registered ahead of any push.
 ///
 /// The selection (§5.2), in order: the push a registration is for; categories of pushes shown in
 /// the last ``pushWindow`` (latest push first, by a registry counter); current categories of topics due within ``dueWindow`` of now, either way (closest
@@ -112,9 +112,9 @@ public struct NotificationCategories: Sendable {
         return true
     }
 
-    /// The categories of every quick-loggable active topic in `store` become its server's current
-    /// set (with their due times). Registers when the system is missing any of the resulting
-    /// selection. Returns the topics' category ids.
+    /// The categories of every quick-loggable or timed active topic in `store` become its server's
+    /// current set (with their due times). Registers when the system is missing any of the
+    /// resulting selection. Returns the topics' category ids.
     @discardableResult
     public func refresh(from store: LocalStore) async throws -> [String] {
         let rows = try await Self.rows(in: store, now: wallClock.now())
@@ -217,8 +217,8 @@ public struct NotificationCategories: Sendable {
         Set(await center.deliveredNotifications().map(\.categoryIdentifier).filter { !$0.isEmpty })
     }
 
-    /// One row per quick-loggable active topic of the store (its current version), with the
-    /// option counts and last value read from the store's view (queued entries included). Due
+    /// One row per quick-loggable or timed active topic of the store (its current version), with
+    /// the option counts and last value read from the store's view (queued entries included). Due
     /// state is the server's, at device time `now` on the store's clock (sync-protocol.md §10);
     /// `dueAt` is mapped back to device time, which the ranking compares across stores.
     public static func rows(in store: LocalStore, now: Date) async throws -> [Row] {
@@ -230,11 +230,15 @@ public struct NotificationCategories: Sendable {
             let serverNow = clock.now(at: now)
             return try StoreView.topics(db).compactMap { view -> Row? in
                 let topic = view.topic
-                guard topic.status == .active, let quick = QuickLog(questions: topic.questions) else { return nil }
+                guard topic.status == .active else { return nil }
+                // A timed topic's reminder offers Start, whatever its questions (timers.md §10.1).
+                let timed = topic.timer != nil
+                let quick = timed ? nil : QuickLog(questions: topic.questions)
+                guard timed || quick != nil else { return nil }
                 var counts: [String: Int] = [:]
                 var last: AnswerValue?
                 // A single topic has no question: nothing to count or repeat.
-                if let key = quick.question?.key {
+                if let quick, let key = quick.question?.key {
                     let entries = try StoreView.entries(db, topicId: topic.id.wireString, countedOnly: true)
                     if case .chips(_, let options) = quick, options.count > NotificationCategory.shownOptions {
                         for entry in entries {
@@ -247,7 +251,7 @@ public struct NotificationCategories: Sendable {
                 guard
                     let category = NotificationCategory(
                         serverId: serverId, topicId: topic.id.wireString, version: topic.currentVersion,
-                        questions: topic.questions, counts: counts, last: last)
+                        questions: topic.questions, counts: counts, last: last, timed: timed)
                 else { return nil }
                 // When it's due: since when, if it is; otherwise next. Nil when it sends no
                 // reminders (unscheduled, or `notify` off), so it has no due rank.
@@ -293,9 +297,15 @@ public struct NotificationCategories: Sendable {
             if delivered.contains(c.id) { return (3, -c.usedAt) }
             return (4, -c.usedAt)
         }
-        let ordered = candidates.map { ($0, rank($0)) }.sorted { a, b in
-            a.1 != b.1 ? a.1 < b.1 : a.0.id < b.0.id
-        }.map(\.0)
+        // Spelled out: the one-expression tuple comparison took seconds to type-check.
+        func precedes(_ a: (Candidate, (Int, Double)), _ b: (Candidate, (Int, Double))) -> Bool {
+            let (ra, rb): ((Int, Double), (Int, Double)) = (a.1, b.1)
+            if ra.0 != rb.0 { return ra.0 < rb.0 }
+            if ra.1 != rb.1 { return ra.1 < rb.1 }
+            return a.0.id < b.0.id
+        }
+        let ranked: [(Candidate, (Int, Double))] = candidates.map { ($0, rank($0)) }
+        let ordered: [Candidate] = ranked.sorted(by: precedes).map(\.0)
         let kept = cap.map { Array(ordered.prefix($0)) } ?? ordered
         let keptIds = Set(kept.map(\.id))
         let graceStart = time - deleteGrace

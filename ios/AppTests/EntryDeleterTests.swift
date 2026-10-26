@@ -15,7 +15,7 @@ import Testing
     @Test func anOldRowsDeleteNeverReachesTheNewStore() async throws {
         let seeded = try await TestStores.seededLocation()
         defer { TestStores.remove(seeded) }
-        let environment = AppEnvironment.live(location: seeded)
+        let environment = AppEnvironment.live(location: seeded, categoryCenter: nil)
         await environment.start()
         let session = try #require(environment.session)
         defer { Task { await session.shutdown() } }

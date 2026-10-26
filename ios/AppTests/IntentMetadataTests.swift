@@ -1,5 +1,8 @@
+import AppIntents
 import Foundation
 import Testing
+
+@testable import QuickR
 
 /// The App Intents metadata Xcode generated for the installed app and widget extension (PLAN M1
 /// platform proof). Both bundles must carry the package's types, neither may declare an
@@ -43,16 +46,32 @@ import Testing
         #expect(
             metadata.actions.isSuperset(of: [
                 "LogEntryIntent", "SelectTopicIntent", "RepeatLastEntryIntent", "OpenRecordIntent", "WhatsDueIntent",
+                // The Live Activity's buttons: drawn by the widget, run in the app's process (timers.md §10.3).
+                "RunActivityButtonIntent",
+                // Timed topics' widget buttons and Control, the Action button and Siri (§11.3).
+                "RunWidgetIntent", "AdvanceRunIntent", "RunActionIntent",
             ]))
         #expect(!metadata.hasPackageData)
     }
 
     @Test func onlyTheAppHasAppShortcuts() throws {
-        var shortcuts = ["LogTopicIntent", "RepeatLastEntryIntent", "OpenRecordIntent", "WhatsDueIntent"]
+        // One parameterised timer shortcut for every run action (timers.md §11.3).
+        var shortcuts = [
+            "LogTopicIntent", "RepeatLastEntryIntent", "OpenRecordIntent", "WhatsDueIntent", "RunActionIntent",
+        ]
         #if DEBUG
         shortcuts.append("SpikePromptIntent")  // the DEBUG-only prompt harness (research/04-siri.md)
         #endif
-        #expect(try Metadata(bundle: Self.appURL).shortcuts == shortcuts)
+        let app = try Metadata(bundle: Self.appURL).shortcuts
+        #expect(app == shortcuts)
         #expect(try Metadata(bundle: Self.widgetsURL).shortcuts.isEmpty)
+    }
+
+    /// iOS allows an app at most 10 App Shortcuts (research/04-siri.md §5): past that it drops
+    /// them. The DEBUG build's spike counts too.
+    @Test func theAppHasAtMostTenAppShortcuts() throws {
+        let count = try Metadata(bundle: Self.appURL).shortcuts.count
+        #expect(count <= 10)
+        #expect(QuickRShortcuts.appShortcuts.count == count)
     }
 }

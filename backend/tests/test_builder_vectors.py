@@ -9,6 +9,8 @@ What the server decides about the question configs a client builds, so the iOS b
   names.
 * ``compat[]``: ``check_compatibility`` reports (``services/compat.py``) for the local
   pre-check that warns before ``versions/check``.
+* ``timers[]``: a version's timer (``{steps: [{key, label}]}``) and the locations where
+  ``Timer`` rejects it, so the steps editor accepts exactly what the server accepts.
 * ``slugs[]``: ``slugify`` (``services/topics.py``), which the builder pre-fills.
 
 ``QUICKR_UPDATE_VECTORS=1`` (``make vectors``) rewrites the file; otherwise the committed
@@ -27,14 +29,14 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from app.schemas.base import error_loc
-from app.schemas.questions import Question, QuestionSet
+from app.schemas.questions import Question, QuestionSet, Timer
 from app.services.compat import check_compatibility
 from app.services.topics import slugify
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases, updating
 
 PATH = FIXTURES_DIR / "builder-vectors.json"
 CASEFOLD_GENERATOR = FIXTURES_DIR.parents[1] / "ios" / "scripts" / "gen-casefold.py"
-GENERATOR_VERSION = 2
+GENERATOR_VERSION = 3
 
 adapter: TypeAdapter[list[Question]] = TypeAdapter(list[Question])
 
@@ -429,6 +431,63 @@ SLUG_INPUTS = [
 ]
 
 
+# --------------------------------------------------------------------------------------
+# timers[]: a version's timer -> server verdict
+# --------------------------------------------------------------------------------------
+
+
+def step(key: str, label: str | None = None) -> dict[str, str]:
+    return {"key": key, "label": key.title() if label is None else label}
+
+
+def steps(n: int) -> list[dict[str, str]]:
+    return [step(f"step_{i}", f"Step {i}") for i in range(n)]
+
+
+TIMER_CASES: dict[str, list[dict[str, str]]] = {
+    "stopwatch": [],
+    "one-step": [step("load")],
+    "three-steps": [step("load"), step("run"), step("unload")],
+    "max-steps": steps(30),
+    "too-many-steps": steps(31),
+    "duplicate-key": [step("load"), step("run"), step("load", "Load again")],
+    "duplicate-keys-twice": [step("a"), step("a"), step("a")],
+    "duplicate-label-allowed": [step("first", "Rinse"), step("second", "Rinse")],
+    "key-uppercase": [step("Load", "Load")],
+    "key-leading-digit": [step("1st", "First")],
+    "key-hyphen": [step("load-up", "Load")],
+    "key-empty": [step("", "Load")],
+    "key-63": [step("k" * 63, "Long")],
+    "key-64": [step("k" * 64, "Long")],
+    "key-padded": [step(" load ", "Load")],
+    "label-empty": [step("load", "")],
+    "label-whitespace": [step("load", "   ")],
+    "label-padded": [step("load", "  Load  ")],
+    "label-200": [step("load", "x" * 200)],
+    "label-201": [step("load", "x" * 201)],
+    "label-200-emoji": [step("load", "\U0001f37d" * 200)],
+    "label-201-emoji": [step("load", "\U0001f37d" * 201)],
+    "label-200-padded": [step("load", " " + "x" * 200 + " ")],
+    "two-errors": [step("Bad", ""), step("ok")],
+}
+
+
+def timer_errors(timer: dict[str, Any]) -> list[str]:
+    """Dotted locations (relative to the timer) where the server rejects it."""
+    try:
+        Timer.model_validate(timer)
+    except ValidationError as exc:
+        return sorted({".".join(str(p) for p in error_loc(e["loc"], e.get("ctx"))) for e in exc.errors()})
+    return []
+
+
+def timer_cases() -> list[dict[str, Any]]:
+    return [
+        {"name": name, "timer": {"steps": s}, "expected": {"errors": timer_errors({"steps": s})}}
+        for name, s in TIMER_CASES.items()
+    ]
+
+
 def casefold_table() -> list[list[Any]]:
     """[code point, [code points of its casefold()]] wherever it isn't the code point itself."""
     table: list[list[Any]] = []
@@ -457,6 +516,9 @@ def build() -> dict[str, Any]:
                 "option sets in hash order.",
                 "compat questions are full API shapes; whole double bounds below 1e16 are ints, as "
                 "Swift's JSONEncoder sends them.",
+                "timers[].timer: a version's timer as a client sends it; expected.errors: sorted dotted "
+                "locations (relative to the timer) where Timer rejects it; [] = accepted. Step keys "
+                "are unique; step labels need not be.",
                 "slugs[]: services/topics.py slugify ('topic' when nothing is left).",
                 "casefold[]: [code point, [folded code points]] for every code point whose Python "
                 "str.casefold() differs from itself (the server compares labels by casefold, code "
@@ -465,6 +527,7 @@ def build() -> dict[str, Any]:
         },
         "questions": question_cases(),
         "compat": [compat_case(name, h, p) for name, (h, p) in COMPAT_CASES.items()],
+        "timers": timer_cases(),
         "slugs": [{"input": x, "expected": slugify(x)} for x in SLUG_INPUTS],
         "casefold": casefold_table(),
     }

@@ -44,6 +44,14 @@ rotate-epoch: ## New change-feed epoch (run after a DB restore/reset; clients re
 rotate-epoch-docker: ## rotate-epoch against the docker stack
 	docker compose exec backend python scripts/rotate_epoch.py
 
+.PHONY: send-reminder
+send-reminder: ## Send a topic's real reminder now, a test send: make send-reminder t=<slug|id> [a="--dry-run --channel apns"]
+	$(BACKEND) uv run python scripts/send_reminder.py "$(t)" $(a)
+
+.PHONY: send-reminder-docker
+send-reminder-docker: ## send-reminder against the docker stack
+	docker compose exec backend python scripts/send_reminder.py "$(t)" $(a)
+
 .PHONY: vapid
 vapid: ## Print a fresh VAPID key pair for QUICKR_VAPID_PRIVATE_KEY / QUICKR_VAPID_PUBLIC_KEY
 	$(BACKEND) uv run python -c "from app.services.push import generate_vapid_keys as g; k = g(); print(f'QUICKR_VAPID_PRIVATE_KEY={k.private_key}'); print(f'QUICKR_VAPID_PUBLIC_KEY={k.public_key}')"
@@ -61,11 +69,13 @@ client: openapi ## Regenerate spec + typed TS client/zod schemas
 	$(FRONTEND) pnpm gen:api
 
 .PHONY: vectors
-vectors: ## Regenerate shared/fixtures (due, quick-log, answer-text, notification, APNs payload, action-entry-id, home, entries, stats, builder, schedule and builder-UI vectors, API response fixtures) and the iOS casefold table
+vectors: ## Regenerate shared/fixtures (due, quick-log, answer-text, notification, APNs payload, action-entry-id, home, entries, stats, builder, schedule, builder-UI, run-fold, timing-stats, duration-format and Live Activity vectors, API response fixtures) and the iOS casefold table
 	$(BACKEND) QUICKR_UPDATE_VECTORS=1 uv run pytest -q tests/test_due_vectors.py tests/test_quicklog_vectors.py \
 		tests/test_answer_text_vectors.py tests/test_notification_vectors.py tests/test_apns_payload_vectors.py \
 		tests/test_action_entry_id_vectors.py \
 		tests/test_home_vectors.py tests/test_entries_vectors.py tests/test_stats_vectors.py tests/test_builder_vectors.py \
+		tests/test_run_fold_vectors.py tests/test_timing_stats_vectors.py tests/test_duration_vectors.py \
+		tests/test_live_activity_vectors.py \
 		tests/test_api_fixtures.py
 	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/lib/home.vectors.test.ts
 	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/lib/entries.vectors.test.ts

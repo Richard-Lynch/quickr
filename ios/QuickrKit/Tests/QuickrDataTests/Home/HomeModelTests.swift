@@ -192,6 +192,8 @@ import Testing
 
     // MARK: - The server's clock (sync-protocol.md §10, APP-SKEW)
 
+    /// Writes the skew through the session's own store, whose observation sees it (a write
+    /// through another pool on the file would only show after an unrelated re-read).
     func setSkew(_ store: LocalStore, _ seconds: TimeInterval) async throws {
         try await store.writer.write { db in
             try db.execute(sql: "UPDATE sync_state SET skew_ms = ? WHERE id = 1", arguments: [seconds * 1000])
@@ -207,7 +209,7 @@ import Testing
         defer { w.cleanup() }
         let (model, observing) = try await w.model()
         defer { observing.cancel() }
-        try await setSkew(w.store, skew)
+        try await setSkew(try #require(w.session.store), skew)
         try await eventually("the clock is read") { await MainActor.run { model.clock.skew == skew } }
 
         let boundary = Self.now.addingTimeInterval(30 * 60 - skew)  // device time
@@ -241,7 +243,7 @@ import Testing
         defer { w.cleanup() }
         let (model, observing) = try await w.model()
         defer { observing.cancel() }
-        try await setSkew(w.store, skew)
+        try await setSkew(try #require(w.session.store), skew)
         try await eventually("the clock is read") { await MainActor.run { model.clock.skew == skew } }
         model.tick(at(8, 58))
         #expect(Self.names(model.sections.due) == order)
@@ -253,7 +255,7 @@ import Testing
     @Test func theFirstListIsAlreadyOnTheServersClock() async throws {
         let w = try await World(topics: Self.mixed)
         defer { w.cleanup() }
-        try await setSkew(w.store, 31 * 60)  // Stretch is due on the server's clock
+        try await setSkew(try #require(w.session.store), 31 * 60)  // Stretch is due on the server's clock
         let (held, release) = AsyncThrowingStream<SyncState?, any Error>.makeStream()
         let model = await MainActor.run {
             let model = HomeModel(session: w.session, now: Self.now, debounce: .zero)
@@ -286,7 +288,7 @@ import Testing
         let (model, observing) = try await w.model()
         defer { observing.cancel() }
         #expect(model.badgeCount == 2)
-        try await setSkew(w.store, 31 * 60)  // the server is 31 min ahead: Stretch is due there
+        try await setSkew(try #require(w.session.store), 31 * 60)  // the server is 31 min ahead: Stretch is due there
         try await eventually("Stretch is due on the server's clock") {
             await MainActor.run { Self.names(model.sections.due) == ["Meds", "Water", "Stretch"] }
         }

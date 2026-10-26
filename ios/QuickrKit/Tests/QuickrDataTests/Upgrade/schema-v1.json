@@ -45,5 +45,16 @@
     "CREATE INDEX ix_stats_cache_topic ON stats_cache(topic_id)",
     "CREATE TABLE widget_state (\n  key          TEXT PRIMARY KEY NOT NULL,\n  topic_id     TEXT,\n  payload_json TEXT NOT NULL,\n  updated_at   REAL NOT NULL\n)",
     "CREATE INDEX ix_widget_state_topic ON widget_state(topic_id)"
-  ]
+  ],
+  "store_v2" : [
+    "ALTER TABLE topic_version ADD COLUMN timer_json TEXT",
+    "ALTER TABLE stage_topic_version ADD COLUMN timer_json TEXT",
+    "DELETE FROM stage_topic",
+    "DELETE FROM stage_topic_version",
+    "DELETE FROM stage_entry",
+    "DELETE FROM stage_tombstone",
+    "UPDATE stage_state SET cursor = 0 WHERE id = 1",
+    "UPDATE sync_state SET rebuilding = COALESCE(rebuilding, epoch) WHERE id = 1 AND epoch IS NOT NULL"
+  ],
+  "store_v2_frozen_at" : "3ec439c (store v2, timers T-DB, as shipped before I-SYNC's v3)"
 }

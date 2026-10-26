@@ -68,6 +68,8 @@ notification should arrive within seconds.
 
 To send to a token directly, without the scheduler:
 `cd backend && uv run python scripts/apns_send.py --token <hex token> --env sandbox`.
+To send a topic's real reminder now, with its category and actions:
+`make send-reminder-docker t=<slug>` (see the README's push section).
 
 ## Rotating or revoking the key
 

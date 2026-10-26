@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { dueCount } from '../api/dueBadge';
 import type { TopicSummary } from '../client';
-import { splitByDue } from './home';
+import { NO_OPEN_RUNS, dueCount, splitByDue } from './home';
 import type { IntQuestionOutput, Question } from './questions';
 import { initialNumber, parseQuickNumber, quickLogFor } from './quickLog';
 import { describeSchedule, dueAfterLogging, dueView, formatWhen, isDueNow } from './schedule';
@@ -187,6 +186,7 @@ describe('due list + badge', () => {
     schedule: null,
     schedule_updated_at: null,
     due: null,
+    timer: null,
     ...patch,
   });
   const daily = {
@@ -238,14 +238,27 @@ describe('due list + badge', () => {
   ];
 
   it('splits into due now / coming up (soonest first) / the rest', () => {
-    const s = splitByDue(items, now);
+    const s = splitByDue(items, now, NO_OPEN_RUNS);
     expect(s.due.map((x) => x.id)).toEqual(['a']);
     expect(s.upcoming.map((x) => x.id)).toEqual(['c', 'b']);
     expect(s.other.map((x) => x.id)).toEqual(['d', 'e']);
   });
 
   it('counts due active topics for the badge', () => {
-    expect(dueCount(items, now)).toBe(1);
-    expect(dueCount(items, new Date('2026-10-15T10:30:00Z'))).toBe(2);
+    expect(dueCount(items, now, NO_OPEN_RUNS)).toBe(1);
+    expect(dueCount(items, new Date('2026-10-15T10:30:00Z'), NO_OPEN_RUNS)).toBe(2);
+  });
+
+  it('leaves a topic with an open run out of the count and of "Due now" (timers §11.1)', () => {
+    const later = new Date('2026-10-15T10:30:00Z'); // a and c are due
+    const openRuns = new Set(['a']);
+    expect(dueCount(items, later, openRuns)).toBe(1);
+    const s = splitByDue(items, later, openRuns);
+    expect(s.due.map((x) => x.id)).toEqual(['c']);
+    // It keeps a section: its schedule puts it under "Coming up".
+    expect(s.upcoming.map((x) => x.id)).toContain('a');
+    expect(s.due.length).toBe(dueCount(items, later, openRuns));
+    // An open run on a topic that isn't due changes nothing.
+    expect(dueCount(items, later, new Set(['b', 'e']))).toBe(2);
   });
 });
