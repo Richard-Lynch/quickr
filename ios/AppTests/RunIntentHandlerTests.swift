@@ -2,6 +2,7 @@ import Foundation
 import GRDB
 import QuickrCore
 import QuickrData
+import Synchronization
 import Testing
 
 @testable import QuickR
@@ -27,12 +28,22 @@ import Testing
         return (location, topic)
     }
 
+    /// A live environment like `LiveActivityTapTests.environment`, its cooldown on `clock`.
+    static func environment(
+        _ location: StoreLocation, clock: ManualRunClock, activityCenter: (any RunActivityCenter)? = nil
+    ) -> AppEnvironment {
+        AppEnvironment.live(
+            location: location, defaults: UserDefaults(suiteName: "intent-tests-\(UUID().uuidString)")!,
+            keychain: InMemoryKeychain(), transport: RecordingTransport(), categoryCenter: nil,
+            activityCenter: activityCenter, runClock: { clock.now })
+    }
+
     @Test func aDoublePressStartsOnceThenTheNextPressAdvances() async throws {
         let (location, topic) = try await Self.seeded()
         defer { TestStores.remove(location) }
         let center = AppActivityCenter()
-        let environment = LiveActivityTapTests.environment(
-            location, transport: RecordingTransport(), activityCenter: center)
+        let clock = ManualRunClock()
+        let environment = Self.environment(location, clock: clock, activityCenter: center)
         defer { Task { await environment.session?.shutdown() } }
         await environment.start()
 
@@ -60,7 +71,7 @@ import Testing
         let afterStop = try await LiveActivityTapTests.runEvents(location)
         #expect(afterStop == ["start"])
 
-        try await Task.sleep(for: .milliseconds(500))
+        clock.advance(by: .milliseconds(500))
         let next = try await environment.handleRunIntent(auto)
         let expected: RunIntentOutcome = .advanced(done: "A", ms: next.outcome.ms, next: "B")
         #expect(next.outcome == expected)
@@ -90,11 +101,12 @@ import Testing
     @Test func theIntentsAskForWhatTheyShow() async throws {
         let (location, topic) = try await Self.seeded()
         defer { TestStores.remove(location) }
-        let environment = LiveActivityTapTests.environment(location, transport: RecordingTransport())
+        let clock = ManualRunClock()
+        let environment = Self.environment(location, clock: clock)
         defer { Task { await environment.session?.shutdown() } }
         let advance = AdvanceRunIntent(topic: TopicEntity(topic))
         _ = try await environment.handleRunIntent(advance.request)
-        try await Task.sleep(for: .milliseconds(500))
+        clock.advance(by: .milliseconds(500))
         let store = try #require(try await environment.session?.partitions.openActiveStore(role: .app)?.store)
         let widget = RunWidgetIntent(action: .auto, topicId: topic.id, scope: store.scope)
         _ = try await environment.handleRunIntent(try #require(widget.request))
@@ -123,4 +135,14 @@ extension RunIntentOutcome {
         default: 0
         }
     }
+}
+
+/// The cooldown's clock, moved by hand: a press lands inside or after the 450 ms whatever the
+/// runner's speed (a write and its flush can take seconds on CI).
+final class ManualRunClock: Sendable {
+    private let instant = Mutex(ContinuousClock.now)
+
+    var now: ContinuousClock.Instant { instant.withLock { $0 } }
+
+    func advance(by duration: Duration) { instant.withLock { $0 += duration } }
 }

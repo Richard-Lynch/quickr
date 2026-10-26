@@ -81,14 +81,17 @@ final class AppEnvironment {
     /// `start()` was cancelled before it finished (see `cancelStart`).
     @ObservationIgnored private var startInterrupted = false
 
-    /// - Parameter prepare: runs once in `start()` before the session opens (a debug demo store's
-    ///   seeding); with it, the session opens in `start()` rather than here.
+    /// - Parameters:
+    ///   - prepare: runs once in `start()` before the session opens (a debug demo store's
+    ///     seeding); with it, the session opens in `start()` rather than here.
+    ///   - runClock: the run taps' cooldown clock (`RunActions`); tests pass a manual one.
     init(
         settings: AppSettings, credentials: KeychainAccessCredentials? = nil,
         network: any NetworkMonitoring = NWNetworkMonitor(),
         prepare: (@MainActor () async -> Void)? = nil,
         makePush: (@MainActor (AppSession) -> PushLifecycle)? = nil,
         activityCenter: (any RunActivityCenter)? = nil,
+        runClock: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now },
         makeSession: @escaping @MainActor () throws -> AppSession
     ) {
         self.settings = settings
@@ -118,21 +121,22 @@ final class AppEnvironment {
             snapshot: { await box.activitySnapshot() })
         liveActivities = activities
         // The app's own taps update its activity at once; a start here requests one (§10.3).
-        runActions = RunActions(writer: {
-            guard let session = weakSession() else { return nil }
-            let base = RunActions.Writer(session: session)
-            return RunActions.Writer(
-                start: { topic, version in
-                    let result = try await base.start(topic, version)
-                    await activities.reconcile(startFor: UUID(uuidString: topic.id))
-                    return result
-                },
-                tap: { type, runId, target in
-                    let result = try await base.tap(type, runId, target)
-                    await activities.reconcile()
-                    return result
-                })
-        })
+        runActions = RunActions(
+            writer: {
+                guard let session = weakSession() else { return nil }
+                let base = RunActions.Writer(session: session)
+                return RunActions.Writer(
+                    start: { topic, version in
+                        let result = try await base.start(topic, version)
+                        await activities.reconcile(startFor: UUID(uuidString: topic.id))
+                        return result
+                    },
+                    tap: { type, runId, target in
+                        let result = try await base.tap(type, runId, target)
+                        await activities.reconcile()
+                        return result
+                    })
+            }, now: runClock)
         quickLogModels = QuickLogModels(writer: entryWriter, toasts: entryToasts, drafts: quickLogDrafts)
         if prepare == nil { openSession() }
         entryWriter.session = { [weak self] in self?.session }
@@ -154,7 +158,8 @@ final class AppEnvironment {
         network: any NetworkMonitoring = NWNetworkMonitor(),
         categoryCenter: (any NotificationCenterProtocol)?,
         notificationCenter: NotificationCenter = .default,
-        activityCenter: (any RunActivityCenter)? = nil
+        activityCenter: (any RunActivityCenter)? = nil,
+        runClock: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now }
     ) -> AppEnvironment {
         let credentials = KeychainAccessCredentials(keychain: keychain)
         // APNs registration (REG) sends through the same transport and Access token.
@@ -174,7 +179,7 @@ final class AppEnvironment {
         }
         return AppEnvironment(
             settings: AppSettings(defaults: defaults), credentials: credentials, network: network, makePush: makePush,
-            activityCenter: activityCenter, makeSession: makeSession)
+            activityCenter: activityCenter, runClock: runClock, makeSession: makeSession)
     }
 
     /// The app's launch path: builds the live environment and registers the active store's topics
