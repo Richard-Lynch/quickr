@@ -69,7 +69,7 @@ struct TopicWidget: Widget {
             TopicWidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Topic")
-        .description("Log a topic in one tap, see when it's due and what you logged last.")
+        .description("Log a topic in one tap, or time it, and see when it's due and what you logged last.")
         .supportedFamilies([
             .systemSmall, .systemMedium, .accessoryRectangular, .accessoryCircular, .accessoryInline,
         ])
@@ -89,9 +89,11 @@ struct TopicWidgetEntryView: View {
         .containerBackground(for: .widget) { Color.qr.paper }
     }
 
-    /// A chip logs its option, ✓ its number, through `WidgetLogIntent`: pinned to the store this
-    /// snapshot came from, so a widget left over from another server refuses instead of logging
-    /// there. Without a scope (no store) the controls open the record screen.
+    /// A chip logs its option, ✓ its number, through `WidgetLogIntent`; a timed topic's Start,
+    /// Next, Lap and Stop run `RunWidgetIntent` with the run and segment shown (timers.md §11.3).
+    /// Both are pinned to the store this snapshot came from, so a widget left over from another
+    /// server refuses instead of writing there. Without a scope (no store) the controls open the
+    /// record or run screen.
     static func actions(_ topic: WidgetTopic) -> WidgetActions {
         let entity = TopicEntity(topic.topic)
         let scope = topic.scope
@@ -113,6 +115,10 @@ struct TopicWidgetEntryView: View {
             single: {
                 guard let scope, case .single = topic.quick else { return nil }
                 return WidgetLogIntent(topic: entity, scope: scope)
+            },
+            run: { button in
+                guard let scope else { return nil }
+                return RunWidgetIntent(button, topicId: topic.id, scope: scope, run: topic.run)
             })
     }
 }

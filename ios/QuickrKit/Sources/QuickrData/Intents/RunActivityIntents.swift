@@ -51,7 +51,7 @@ public enum RunActivityTaps {
         public var description: String {
             switch self {
             case .noHandler: "Open quickR to time this topic."
-            case .locked: "Unlock your iPhone to use quickR’s buttons."
+            case .locked: "Unlock your iPhone to use quickR."
             }
         }
     }

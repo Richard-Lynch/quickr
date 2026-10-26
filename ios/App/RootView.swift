@@ -117,7 +117,7 @@ struct RootView: View {
         // The widgets follow the active store too.
         .task(id: environment.session?.binding) {
             if let session = environment.session, let store = session.store {
-                await environment.widgets.observe(store, refresh: session.refresh.stream())
+                await environment.widgets.observe(store, refresh: { session.refresh.stream() })
             }
         }
         #if DEBUG

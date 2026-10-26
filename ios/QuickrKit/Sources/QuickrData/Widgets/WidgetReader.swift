@@ -12,7 +12,7 @@ public struct WidgetReader: Sendable {
     /// One topic (nil once it's gone: deleted, or another server's).
     public func topic(id: UUID) async throws -> WidgetTopic? {
         guard let view = try await store.topics.topic(id: id) else { return nil }
-        return try await widgetTopic(view.topic, skew: skew(), openRuns: store.runs.openRunTopics())
+        return try await widgetTopic(view.topic, skew: skew(), runs: runs(topicId: id))
     }
 
     /// Active topics, due first (the home list's order at device time `now`, in server time), for
@@ -20,11 +20,11 @@ public struct WidgetReader: Sendable {
     public func dueList(now: Date) async throws -> [WidgetTopic] {
         let skew = try await skew()
         let topics = try await store.topics.topics().map(\.topic)
-        let openRuns = try await store.runs.openRunTopics()
+        let runs = try await runs(topicId: nil)
         let listed = TopicListing.list(
             topics, topic: { $0 }, now: ServerClock(skew: skew).now(at: now), status: .active, sort: .due, query: "")
         var result: [WidgetTopic] = []
-        for item in listed { result.append(try await widgetTopic(item.topic, skew: skew, openRuns: openRuns)) }
+        for item in listed { result.append(try await widgetTopic(item.topic, skew: skew, runs: runs)) }
         return result
     }
 
@@ -33,9 +33,21 @@ public struct WidgetReader: Sendable {
         (try await store.syncState.syncState()?.serverClock ?? .device).skew
     }
 
-    private func widgetTopic(_ topic: Topic, skew: TimeInterval, openRuns: TopicListing.OpenRunTopics) async throws
-        -> WidgetTopic
-    {
+    /// The local view of runs (of one topic, or all).
+    private func runs(topicId: UUID?) async throws -> [LocalRun] {
+        try await store.writer.read { db in try RunOverlay.localRuns(db, topicId: topicId?.wireString) }
+    }
+
+    /// The run a timed widget shows (timers.md §11.3): the topic's open run, else its newest
+    /// finishing one (the home tile's choice), as a Live Activity content state.
+    static func shownRun(_ topicId: UUID, in runs: [LocalRun]) -> RunActivityState? {
+        let mine = runs.filter { $0.topicId == topicId }
+        let finishing = mine.filter { $0.status == .finishing }.max { $0.state.startedAt < $1.state.startedAt }
+        guard let run = mine.first(where: \.isOpen) ?? finishing else { return nil }
+        return RunActivitySnapshot.state(run) ?? RunActivitySnapshot.stateWithoutSteps(run)
+    }
+
+    private func widgetTopic(_ topic: Topic, skew: TimeInterval, runs: [LocalRun]) async throws -> WidgetTopic {
         let quick = QuickLog(questions: topic.questions)
         var lastAnswer: AnswerValue?
         if let question = quick?.question, let latest = try await store.entries.latestEntry(topicId: topic.id) {
@@ -56,6 +68,7 @@ public struct WidgetReader: Sendable {
         }
         return WidgetTopic(
             topic: topic, quick: quick, lastAnswer: lastAnswer, queued: queued, failed: failed, scope: store.scope,
-            skew: skew, hasOpenRun: openRuns.contains(topic.id))
+            skew: skew, hasOpenRun: RunOverlay.openRunTopics(runs).contains(topic.id),
+            run: Self.shownRun(topic.id, in: runs))
     }
 }

@@ -48,10 +48,21 @@ public struct TopicEntityQuery: EntityStringQuery, EnumerableEntityQuery {
         try await allEntities()
     }
 
+    /// The timed topics (`timed(_:)`).
+    public func timedEntities() async throws -> [TopicEntity] {
+        Self.timed(try await IntentTopicSource.repository().topics())
+    }
+
     // The rules, separate from the registration so the host tests can run them.
 
     static func listed(_ topics: [ViewTopic]) -> [TopicEntity] {
         topics.filter { $0.topic.status == .active }.map { TopicEntity($0.topic) }
+    }
+
+    /// The timed ones (timers.md §11.3), for the Timer Control's picker: active topics whose
+    /// current version has a timer.
+    public static func timed(_ topics: [ViewTopic]) -> [TopicEntity] {
+        listed(topics.filter { $0.topic.timer != nil })
     }
 
     static func entities(for identifiers: [UUID], in topics: [ViewTopic]) -> [TopicEntity] {

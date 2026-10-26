@@ -22,12 +22,16 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     /// The topic has an open run (running or paused) in the store's local view: it isn't counted
     /// as due (timers.md §11.1).
     public var hasOpenRun: Bool
+    /// The run a timed widget shows (timers.md §11.3): the topic's open run, else its newest
+    /// finishing one, as the Live Activity's content state (`steps_unknown` when the pinned
+    /// version's steps aren't stored). Nil for none.
+    public var run: RunActivityState?
 
     public var id: UUID { topic.id }
 
     public init(
         topic: Topic, quick: QuickLog?, lastAnswer: AnswerValue?, queued: Int = 0, failed: Int = 0,
-        scope: EntryScope? = nil, skew: TimeInterval = 0, hasOpenRun: Bool = false
+        scope: EntryScope? = nil, skew: TimeInterval = 0, hasOpenRun: Bool = false, run: RunActivityState? = nil
     ) {
         self.topic = topic
         self.quick = quick
@@ -37,6 +41,7 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
         self.scope = scope
         self.skew = skew
         self.hasOpenRun = hasOpenRun
+        self.run = run
     }
 
     /// What ✓ shows and logs for a number topic, the same value for both: the last one while the
@@ -87,7 +92,70 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     }
 }
 
+/// A timed widget's button (timers.md §11.3): a start, or one tap on the run it shows.
+public enum WidgetRunButton: String, Sendable, Hashable, CaseIterable {
+    case start, next, lap, stop
+
+    public var title: String {
+        switch self {
+        case .start: "Start"
+        case .next: "Next"
+        case .lap: "Lap"
+        case .stop: "Stop"
+        }
+    }
+}
+
 extension WidgetTopic {
+    /// What a timed widget shows, as the home tile decides it: Start, the open run, or "Add
+    /// details"; `.untimed` for the quick-log widget.
+    public var runTile: RunTileState { RunTileState(timed: topic.timer != nil, run: run?.runStatus) }
+
+    /// The shown run's label, timers and buttons, as its Live Activity has them.
+    public var runDisplay: RunActivityDisplay? { run.map { RunActivityDisplay(state: $0, topicName: topic.name) } }
+
+    /// The buttons (§11.3): idle, Start (none for an archived topic); running, Next (or Lap on
+    /// the last step) and Stop; `compact` (the small widget), the one Auto button: Next while a
+    /// named step remains or the steps aren't known, else Stop. A finishing run has none: it
+    /// links to "Add details".
+    public func runButtons(compact: Bool) -> [WidgetRunButton] {
+        switch runTile {
+        case .untimed, .finishing:
+            return []
+        case .idle:
+            return topic.status == .archived ? [] : [.start]
+        case .open:
+            guard let display = runDisplay else { return [] }
+            let primary: WidgetRunButton = display.buttons.first == .lap ? .lap : .next
+            if compact { return [primary == .next ? .next : .stop] }
+            return [primary, .stop]
+        }
+    }
+
+    /// What VoiceOver says for `button`: "Next: Breakfast", "Start Dishwasher".
+    public func runButtonLabel(_ button: WidgetRunButton) -> String {
+        switch button {
+        case .start: "Start \(topic.name)"
+        case .next: run?.nextLabel.map { "Next: \($0)" } ?? "Next"
+        case .lap: "Lap"
+        case .stop: "Stop \(topic.name)"
+        }
+    }
+
+    /// Where a tap on a timed widget goes: the run screen, or for a finishing run its answers
+    /// form ("Add details"), naming the store like `recordURL`.
+    public var runURL: URL {
+        let ref = TopicLinkRef(id: topic.id)
+        let route: Route
+        if runTile == .finishing, let runId = run.flatMap({ UUID(uuidString: $0.runId) }) {
+            route = .runDetails(ref, runId: runId)
+        } else {
+            route = .run(ref)
+        }
+        guard let scope else { return DeepLink.url(for: route) }
+        return DeepLink.url(for: route, scope: scope)
+    }
+
     /// `topics` in the home list's due-first order at device time `date` (a timeline entry's own
     /// order), in server time: they come from one store, so they share its skew.
     public static func dueFirst(_ topics: [WidgetTopic], at date: Date) -> [WidgetTopic] {

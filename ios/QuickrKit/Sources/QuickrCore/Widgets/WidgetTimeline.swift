@@ -54,7 +54,8 @@ public enum WidgetTimeline {
 
 /// What the widgets show, reduced to a value the app compares to decide whether to reload them
 /// (`WidgetCenter.reloadAllTimelines`). Covers each active topic's identity, questions, schedule,
-/// last entry and last quick answer, and its queued and failed counts, and the store's skew; due
+/// last entry and last quick answer, its queued and failed counts and the run it shows (its
+/// content state, which changes with each tap, not as it ticks), and the store's skew; due
 /// state itself follows from these and the clock, which the timelines already handle.
 public struct WidgetFingerprint: Sendable, Hashable {
     struct Topic: Sendable, Hashable {
@@ -71,6 +72,7 @@ public struct WidgetFingerprint: Sendable, Hashable {
         var queued: Int
         var failed: Int
         var scope: EntryScope?
+        var run: RunActivityState?
     }
 
     let topics: [Topic]
@@ -86,14 +88,15 @@ public struct WidgetFingerprint: Sendable, Hashable {
                 currentVersion: $0.topic.currentVersion, schedule: $0.topic.schedule,
                 scheduleUpdatedAt: $0.topic.scheduleUpdatedAt, lastCapturedAt: $0.topic.lastCapturedAt,
                 entryCount: $0.topic.entryCount, lastAnswer: $0.lastAnswer, queued: $0.queued, failed: $0.failed,
-                scope: $0.scope)
+                scope: $0.scope, run: $0.run)
         }
         .sorted { $0.id.uuidString < $1.id.uuidString }
     }
 }
 
 /// What a topic's Control shows and does (`TopicControl`): its name, whether it logs and what
-/// (questions version, last answer), and the store its action is pinned to. Not "queued" or the
+/// (questions version, last answer, the run a timer Control advances), and the store its action
+/// is pinned to. Not "queued" or the
 /// schedule: a Control doesn't show them, so they don't spend its reloads.
 public struct ControlFingerprint: Sendable, Hashable {
     struct Topic: Sendable, Hashable {
@@ -103,6 +106,7 @@ public struct ControlFingerprint: Sendable, Hashable {
         var currentVersion: Int
         var lastAnswer: AnswerValue?
         var scope: EntryScope?
+        var run: RunActivityState?
     }
 
     let topics: [Topic]
@@ -111,7 +115,7 @@ public struct ControlFingerprint: Sendable, Hashable {
         self.topics = topics.map {
             Topic(
                 id: $0.topic.id, name: $0.topic.name, status: $0.topic.status,
-                currentVersion: $0.topic.currentVersion, lastAnswer: $0.lastAnswer, scope: $0.scope)
+                currentVersion: $0.topic.currentVersion, lastAnswer: $0.lastAnswer, scope: $0.scope, run: $0.run)
         }
         .sorted { $0.id.uuidString < $1.id.uuidString }
     }
