@@ -44,6 +44,14 @@ rotate-epoch: ## New change-feed epoch (run after a DB restore/reset; clients re
 rotate-epoch-docker: ## rotate-epoch against the docker stack
 	docker compose exec backend python scripts/rotate_epoch.py
 
+.PHONY: send-reminder
+send-reminder: ## Send a topic's real reminder now, a test send: make send-reminder t=<slug|id> [a="--dry-run --channel apns"]
+	$(BACKEND) uv run python scripts/send_reminder.py "$(t)" $(a)
+
+.PHONY: send-reminder-docker
+send-reminder-docker: ## send-reminder against the docker stack
+	docker compose exec backend python scripts/send_reminder.py "$(t)" $(a)
+
 .PHONY: vapid
 vapid: ## Print a fresh VAPID key pair for QUICKR_VAPID_PRIVATE_KEY / QUICKR_VAPID_PUBLIC_KEY
 	$(BACKEND) uv run python -c "from app.services.push import generate_vapid_keys as g; k = g(); print(f'QUICKR_VAPID_PRIVATE_KEY={k.private_key}'); print(f'QUICKR_VAPID_PUBLIC_KEY={k.public_key}')"
