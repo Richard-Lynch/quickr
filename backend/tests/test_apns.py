@@ -867,7 +867,7 @@ async def test_preparation_reads_in_at_most_two_queries(
     event.listen(engine, "before_cursor_execute", count)
     try:
         async with get_sessionmaker()() as db:
-            questions, _ = await scheduler._questions(
+            questions, _ = await scheduler.version_questions(
                 db, [(t.id, 1) for t in (await db.execute(select(Topic))).scalars()]
             )
             slugs = {t.id: t.slug for t in (await db.execute(select(Topic))).scalars()}

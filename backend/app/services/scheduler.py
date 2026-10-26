@@ -133,22 +133,19 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
     targets: list[push_svc.Pair] = []
     reached: set[Progress] = set()
     if due:
-        questions, timed = await _questions(
+        questions, timed = await version_questions(
             db, [(topic_id, version) for _, topic_id, _, _, version, _ in due]
         )
         quick_logs = await prepare_quick_logs(db, questions, timed=timed)
         for due_since, topic_id, slug, name, version, message in due:
-            notification = Notification(
-                kind="due",
-                title=name,
-                body=message,
-                url=f"/t/{slug}/record",
-                tag=f"due-{topic_id}",
-                topic_slug=slug,
+            notification = reminder(
                 server_id=server_id,
                 topic_id=topic_id,
+                slug=slug,
+                name=name,
                 version=version,
                 due_since=due_since,
+                message=message,
                 quick_log=quick_logs.get(topic_id),
             )
             due_topics.append((due_since, topic_id, slug, notification))
@@ -185,7 +182,34 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
     return len(marks)
 
 
-async def _questions(
+def reminder(
+    *,
+    server_id: str,
+    topic_id: UUID,
+    slug: str,
+    name: str,
+    version: int,
+    due_since: datetime,
+    message: str,
+    quick_log: QuickLogDescriptor | None,
+) -> Notification:
+    """The due notification for one topic's slot (also sent by ``scripts/send_reminder.py``)."""
+    return Notification(
+        kind="due",
+        title=name,
+        body=message,
+        url=f"/t/{slug}/record",
+        tag=f"due-{topic_id}",
+        topic_slug=slug,
+        server_id=server_id,
+        topic_id=topic_id,
+        version=version,
+        due_since=due_since,
+        quick_log=quick_log,
+    )
+
+
+async def version_questions(
     db: AsyncSession, versions: list[tuple[UUID, int]]
 ) -> tuple[dict[UUID, list[Question]], set[UUID]]:
     """The questions of each ``(topic id, version)``, by topic id, and the topics whose version
