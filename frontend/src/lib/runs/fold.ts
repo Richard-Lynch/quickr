@@ -272,7 +272,7 @@ class Clock {
  * How much of `[start, end)` the pauses cover. `openPause` is the start of a pause not
  * resumed yet, which covers up to `end` (measured to `end`: no "not resumed" sentinel).
  */
-function overlap(
+export function overlap(
   start: number,
   end: number,
   pauses: readonly Pause[],

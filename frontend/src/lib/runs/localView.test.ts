@@ -241,4 +241,65 @@ describe('review fixes', () => {
     expect(both[0]?.events.map((e) => e.id)).toEqual(['r1', 'r1']);
     expect(both[0]?.state.open?.index).toBe(0);
   });
+
+  describe('a server run whose pinned version’s steps aren’t known here (M3)', () => {
+    const blind = (item: ReturnType<typeof runItem>) => {
+      item.payload = { ...item.payload, steps: null, requires_answers: null };
+      return item;
+    };
+    const server = serverRun('r1', [start, ev('n1', 'next', T0 + 60 * S, { seg: 0 })]);
+
+    it('an offline Pause, then Resume, show over the server’s labels', () => {
+      const pause = blind(runItem('pause', { id: 'p1', run: 'r1', at: T0 + 90 * S }));
+      const [paused] = localRuns([server], [pause]);
+      expect(paused).toMatchObject({ status: 'paused', steps: null });
+      expect(paused?.state.open).toMatchObject({ index: 1, step: 'breakfast', label: 'Breakfast' });
+      expect(paused?.state.paused_since).toBe(T0 + 90 * S);
+      const resume = blind(
+        runItem('resume', { id: 'u1', run: 'r1', at: T0 + 100 * S, pause_id: 'p1' }),
+      );
+      const [running] = localRuns([server], [pause, resume]);
+      expect(running?.status).toBe('running');
+      expect(running?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 100 * S }]);
+    });
+
+    it('an offline Stop closes it; a Next waits for the server', () => {
+      const next = blind(runItem('next', { id: 'n2', run: 'r1', at: T0 + 80 * S, seg: 1 }));
+      const stop = blind(runItem('stop', { id: 's1', run: 'r1', at: T0 + 120 * S }));
+      const [run] = localRuns([server], [next, stop]);
+      expect(run?.status).toBe('stopped');
+      expect(run?.state.open).toBeNull();
+      expect(run?.state.ended_at).toBe(T0 + 120 * S);
+      expect(run?.state.segments.map((x) => [x.label, x.active_ms])).toEqual([
+        ['Shower', 60 * S],
+        ['Breakfast', 60 * S],
+      ]);
+      expect(run?.state.effects.n2).toBeUndefined();
+      expect(run?.state.effects.s1).toEqual({ effect: 'applied', reason: null });
+    });
+
+    it('a Lap opens a lap segment; a Discard discards; taps after the close are void', () => {
+      const lap = blind(runItem('lap', { id: 'l1', run: 'r1', at: T0 + 70 * S, seg: 1 }));
+      const [lapped] = localRuns([server], [lap]);
+      expect(lapped?.state.open).toMatchObject({ index: 2, kind: 'lap', label: 'Lap 1' });
+      const discard = blind(runItem('discard', { id: 'd1', run: 'r1', at: T0 + 80 * S }));
+      const late = blind(runItem('pause', { id: 'p2', run: 'r1', at: T0 + 90 * S }));
+      const [gone] = localRuns([server], [discard, late]);
+      expect(gone?.status).toBe('discarded');
+      expect(gone?.state.effects.p2).toEqual({ effect: 'void', reason: 'after_stop' });
+    });
+
+    it('a tap the server lists already isn’t applied twice', () => {
+      const listed = serverRun('r1', [start, ev('p1', 'pause', T0 + 30 * S)]);
+      const pause = blind(runItem('pause', { id: 'p1', run: 'r1', at: T0 + 30 * S }));
+      const resume = blind(
+        runItem('resume', { id: 'u1', run: 'r1', at: T0 + 40 * S, pause_id: 'p1' }),
+      );
+      const [run] = localRuns([listed], [], [pause]);
+      expect(run?.status).toBe('paused');
+      const [resumed] = localRuns([listed], [resume], [pause]);
+      expect(resumed?.status).toBe('running');
+      expect(resumed?.state.pauses).toEqual([{ start: T0 + 30 * S, end: T0 + 40 * S }]);
+    });
+  });
 });
