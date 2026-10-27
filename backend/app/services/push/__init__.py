@@ -170,6 +170,8 @@ async def deliver(
         failed += 1
         if isinstance(outcome, PushGone):
             log.info("%s push target %s is gone; removing it: %s", sender.kind, target.id, outcome)
+            # An ORM delete, not a DELETE statement: an APNs device's Live Activity tokens go
+            # with it through apns's after_delete listener.
             await db.delete(target)
             continue
         if isinstance(outcome, PushFailed):
@@ -181,7 +183,7 @@ async def deliver(
         target.failure_count += 1
         if _dead(target, now):
             log.info("%s push target %s keeps failing; removing it", sender.kind, target.id)
-            await db.delete(target)
+            await db.delete(target)  # an ORM delete, for the listener (as above)
     cut_off = sum(outcome is _CUT_OFF for outcome in outcomes)
     if cut_off:
         log.warning("push of %r: the deadline cut off %d of %d sends", n.tag, cut_off, len(live))

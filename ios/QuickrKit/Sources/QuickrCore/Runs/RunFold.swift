@@ -65,7 +65,9 @@ public enum RunFold {
     /// aren't known here (timers.md §8.3): only the events that need no steps, so an offline
     /// pause, resume, lap, stop or discard still shows. A next or skip, and an event `state`
     /// already has an effect for, is left out (the server folds it). `pauseId` is the id of
-    /// `state`'s open pause, when known: a resume naming another is stale.
+    /// `state`'s open pause: a resume naming another, or any resume when it isn't known, is stale.
+    /// A stop, pause or lap before the open segment's start, and a resume before its pause, is
+    /// stale (it would end a segment or a pause before it began).
     public static func overlay(_ state: RunState, events: [RunEvent], pauseId: String? = nil) -> RunState {
         var s = state
         var pauseId = pauseId?.lowercased()
@@ -85,6 +87,7 @@ public enum RunFold {
             }
             var reason: VoidReason? = e.type == .stop ? inRange(e) : nil
             if reason == nil, !s.status.isOpen || terminal != nil { reason = .alreadyClosed }
+            if reason == nil, e.type == .stop, let open = s.open, e.at < open.startedAt { reason = .stale }
             if reason == nil { terminal = e }
             s.effects[e.id.lowercased()] = RunEffect(reason)
         }
@@ -118,6 +121,7 @@ public enum RunFold {
 
     /// Apply one in-range pause, resume or lap to an open run's state; its void reason, or nil.
     private static func overlayApply(_ s: inout RunState, _ e: RunEvent, _ pauseId: inout String?) -> VoidReason? {
+        if e.type != .resume, let open = s.open, e.at < open.startedAt { return .stale }
         switch e.type {
         case .lap:
             if e.seg != s.segments.count { return .stale }
@@ -132,7 +136,8 @@ public enum RunFold {
             pauseId = e.id.lowercased()
         case .resume:
             guard let since = s.pausedSince else { return .notPaused }
-            if let pauseId, (e.pauseId ?? "").lowercased() != pauseId { return .stale }
+            guard let open = pauseId, (e.pauseId ?? "").lowercased() == open else { return .stale }
+            if e.at < since { return .stale }  // it would end the pause before it began
             s.pauses.append(RunPause(start: since, end: e.at))
             s.pausedSince = nil
             s.status = .running
