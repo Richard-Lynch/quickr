@@ -117,8 +117,14 @@ const runEvent: OutboxKind<RunEventPayload> = {
    * `run_open` on a finish: it is sent only once this device's stop is in ({@link
    * waitsFor}), so the run has no stop the server knows of (none was tapped here, or it
    * failed or was discarded). It fails with its answers kept, for the user to fix.
+   *
+   * A 2xx is an ack only when its body is a `RunEventResult`: anything else (a proxy's
+   * page, a truncated body) is retried, as one that may have been delivered.
    */
   classify(status, body) {
+    if (status >= 200 && status < 300) {
+      return isRunEventResult(body) ? undefined : 'retry';
+    }
     return status === 409 && problemCode(body) === 'run_deleted' ? 'retired' : undefined;
   },
   /**
@@ -259,6 +265,28 @@ const runEvent: OutboxKind<RunEventPayload> = {
 
 /** Why a start's run's taps fail once its id turns out to be an entry of its topic. */
 export const ALREADY_LOGGED = 'Already logged elsewhere';
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+
+/**
+ * Whether `body` has the shape of a `RunEventResult`: the event's id and effect, a run with
+ * its id, status, state, events and aliases, and an entry or null.
+ */
+export function isRunEventResult(body: unknown): body is RunEventResult {
+  if (!isObject(body) || !isObject(body.event) || !isObject(body.run)) return false;
+  const { event, run } = body;
+  return (
+    typeof event.id === 'string' &&
+    (event.effect === 'applied' || event.effect === 'void') &&
+    typeof run.id === 'string' &&
+    typeof run.topic_id === 'string' &&
+    typeof run.status === 'string' &&
+    isObject(run.state) &&
+    Array.isArray(run.events) &&
+    Array.isArray(run.aliases) &&
+    (body.entry === null || isObject(body.entry))
+  );
+}
 
 /** Whether `data` is a `RunEventResult` whose run is closed (`stopped`, `discarded`). */
 function closedRun(data: unknown): boolean {

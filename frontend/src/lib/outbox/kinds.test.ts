@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { T0, runItem } from '../../test/runs';
+import { T0, runEventResult, runItem } from '../../test/runs';
 import { ENTRY_CREATE, OUTBOX_KINDS, RUN_EVENT, problemCode } from './kinds';
 import type { OutboxItem } from './types';
 
@@ -60,7 +60,15 @@ describe('run.event kind', () => {
     }
     expect(kind.classify?.(404, problem('not_found'), next)).toBeUndefined();
     expect(kind.classify?.(422, problem('invalid_answers'), finish)).toBeUndefined();
-    expect(kind.classify?.(200, { event: { effect: 'void' } }, next)).toBeUndefined();
+    expect(kind.classify?.(200, runEventResult('n1', 'void', 'stale'), next)).toBeUndefined();
+  });
+
+  it('retries a 2xx whose body isn’t a RunEventResult (M7)', () => {
+    expect(kind.classify?.(200, { event: { effect: 'void' } }, next)).toBe('retry');
+    expect(kind.classify?.(200, {}, next)).toBe('retry');
+    expect(kind.classify?.(200, undefined, next)).toBe('retry');
+    const { entry: _entry, ...noEntry } = runEventResult('n1');
+    expect(kind.classify?.(200, noEntry, next)).toBe('retry');
   });
 
   it('makes an event wait for its run start, and a finish for its pending stops too', () => {

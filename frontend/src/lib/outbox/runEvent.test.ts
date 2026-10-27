@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fakeQuickrServer } from '../../test/fakeQuickrServer';
-import { T0, TOPIC, runItem } from '../../test/runs';
+import { T0, TOPIC, runEventResult, runItem } from '../../test/runs';
 import { ackedItems, memoryAckedStore, setAckedStore } from '../runs/acked';
 import { formatInstant } from '../runs/instant';
 import {
@@ -20,8 +20,9 @@ import type { OutboxEvent, OutboxItem } from './types';
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const problem = (status: number, code: string) => json(status, { code, detail: code, errors: [] });
-const ok = (id: string) =>
-  json(200, { event: { id, effect: 'applied', reason: null }, run: {}, entry: null });
+const result = (id: string, effect: 'applied' | 'void', reason: string | null) =>
+  json(200, runEventResult(id, effect, reason));
+const ok = (id: string) => result(id, 'applied', null);
 
 beforeEach(() => {
   setAckedStore(memoryAckedStore());
@@ -164,11 +165,24 @@ describe('K6', () => {
 
 describe('classification', () => {
   it('acks a void event like any success', async () => {
-    const { outbox, queue, ids } = setup((b) =>
-      json(200, { event: { id: b.id, effect: 'void', reason: 'stale' }, run: {}, entry: null }),
-    );
+    const { outbox, queue, ids } = setup((b) => result(b.id, 'void', 'stale'));
     await queue(next);
     await outbox.flush();
+    expect(await ids()).toEqual([]);
+  });
+
+  it('retries an ack that isn’t a RunEventResult, as maybe delivered, then acks (M7)', async () => {
+    let good = false;
+    const { outbox, events, queue, ids } = setup((b) =>
+      good ? ok(b.id) : json(200, { event: { id: b.id, effect: 'applied' } }),
+    );
+    await queue(start);
+    await outbox.flush();
+    expect(await ids()).toEqual(['r1:pending']);
+    expect((await outbox.list())[0]).toMatchObject({ maybe_delivered: true });
+    expect(events.some((e) => e.type === 'sent')).toBe(false);
+    good = true;
+    await outbox.flush({ force: true });
     expect(await ids()).toEqual([]);
   });
 

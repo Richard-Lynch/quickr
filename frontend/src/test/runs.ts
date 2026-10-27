@@ -30,6 +30,19 @@ export type ItemSpec = Omit<Partial<RunEventPayload['event']>, 'at'> & {
   created?: number;
 };
 
+/** A `RunEventResult` body for event `id`, its run reduced to what the outbox checks. */
+export function runEventResult(
+  id: string,
+  effect: 'applied' | 'void' = 'applied',
+  reason: string | null = null,
+) {
+  return {
+    event: { id, effect, reason },
+    run: { id: 'r1', topic_id: TOPIC.id, status: 'running', state: {}, events: [], aliases: [] },
+    entry: null,
+  };
+}
+
 /** A queued `run.event` item. `created` defaults to its `at`. */
 export function runItem(
   type: RunEventPayload['event']['type'],
