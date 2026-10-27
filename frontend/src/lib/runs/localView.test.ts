@@ -343,6 +343,17 @@ describe('review fixes', () => {
       ]);
     });
 
+    it('a resume stamped before its pause began is stale: no negative pause', () => {
+      const listed = serverRun('r1', [start, ev('p1', 'pause', T0 + 30 * S)]);
+      const resume = blind(
+        runItem('resume', { id: 'u1', run: 'r1', at: T0 + 20 * S, pause_id: 'p1' }),
+      );
+      const [run] = localRuns([listed], [resume]);
+      expect(run?.status).toBe('paused');
+      expect(run?.state.effects.u1).toEqual({ effect: 'void', reason: 'stale' });
+      expect(run?.state.pauses).toEqual([]);
+    });
+
     it('a tap the server lists already isn’t applied twice', () => {
       const listed = serverRun('r1', [start, ev('p1', 'pause', T0 + 30 * S)]);
       const pause = blind(runItem('pause', { id: 'p1', run: 'r1', at: T0 + 30 * S }));

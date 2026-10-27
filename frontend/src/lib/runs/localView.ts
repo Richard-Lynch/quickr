@@ -209,6 +209,8 @@ function overlay(server: RunOut, base: RunState, mine: readonly QueuedRunEvent[]
     }
     if (pausedSince === null) return 'not_paused';
     if (e.pause_id !== pauseId) return 'stale';
+    // A resume before its pause began would make a negative pause.
+    if (e.at < pausedSince) return 'stale';
     pauses.push({ start: pausedSince, end: e.at });
     pausedSince = null;
     pauseId = null;
