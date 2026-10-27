@@ -89,13 +89,19 @@ ChangePage {
       { kind: "topic",   seq, topic: TopicDetail }                          // incl. revision; derived fields ignored (§3.3)
     | { kind: "version", seq, id, topic_id, version: TopicVersionOut }      // immutable; nested, not flattened
     | { kind: "entry",   seq, entry: EntryOut }                             // incl. revision
+    | { kind: "run",     seq, run: RunOut }                                 // open or finishing only (timers.md §7.1)
   )[]
-  deleted: { kind: "entry" | "topic" | "version", seq, id, topic_id, deleted_at }[]   // topic_id never null
+  deleted: { kind: "entry" | "topic" | "version" | "run", seq, id, topic_id, deleted_at }[]   // topic_id never null
 }
 ```
 
-Ordering within a page: `items` are listed topics, then versions, then entries;
-`deleted` is listed entries, then versions, then topics. Each kind is in
+A `run` item is a run that is open or finishing in the page's snapshot. A `run`
+deletion means the run is no longer open or finishing: it stopped (its data
+arrives as its entry), was discarded, or went with its topic. The emission rule
+for closed runs is in [timers.md §7.1](../../specs/timers.md#71-the-feed-server).
+
+Ordering within a page: `items` are listed topics, then versions, then entries,
+then runs; `deleted` is listed runs, then entries, then versions, then topics. Each kind is in
 ascending `seq`. The client applies by kind (§4.1) and doesn't depend on this
 order. `limit` counts change_log rows, not items, so a page can hold fewer items
 than `limit`.

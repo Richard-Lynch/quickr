@@ -1,6 +1,6 @@
 # Plan: timed topics (milestone T)
 
-**Status:** draft, revision 5, 2026-10-23 (server-time offset, timers.md §5.1). **Spec:** [timers.md](timers.md).
+**Status:** done, shipped in v0.3.0 (revision 5, 2026-10-23). **Spec:** [timers.md](timers.md).
 **Branch:** `feat/timers`; each WP is on its own branch cut from it and merged
 back into it. The milestone merges to `main` as one PR and is released with one
 `v*` tag. The server, the PWA and the iOS app are updated together; there is
@@ -9,9 +9,9 @@ back into it. The milestone merges to `main` as one PR and is released with one
 **Next:** milestone CV, forced updates ([client-versions.md](client-versions.md)
 §8), runs **after** this milestone. Nothing here depends on it.
 
-**Defaults taken, pending the user's final word:** a lap closes the current
-segment and opens an unnamed one (timers.md OPEN 1); best and median count
-complete runs only (OPEN 2).
+**Decided (confirmed by the user):** a lap closes the current segment and opens
+an unnamed one (timers.md Decision 1); best and median count complete runs only
+(Decision 2).
 
 ## Scope guard
 
@@ -505,7 +505,9 @@ I-NOTIF) share the two simulator slots.
 
 ## Before starting
 
-- The user confirms, or overrides, the two defaults above. Only T-FOLD and
-  T-STATS depend on them.
-- The spec gets a Codex review before T-API starts; findings go into the spec,
-  not into WPs.
+Both resolved:
+
+- The user confirmed the two defaults above (timers.md Decisions). Only T-FOLD
+  and T-STATS depended on them.
+- The spec was reviewed before T-RUNS started (revision 4 took in the review of
+  revision 3); the findings went into the spec, not into WPs.
