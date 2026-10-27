@@ -310,3 +310,22 @@ export function isEntryCreate(item: OutboxItem): item is OutboxItem<EntryCreateP
 export function isRunEvent(item: OutboxItem): item is OutboxItem<RunEventPayload> {
   return item.kind === RUN_EVENT;
 }
+
+/** A run event that carries answers: a finish, or a stop with answers. */
+export function carriesAnswers(item: OutboxItem<RunEventPayload>): boolean {
+  const e = item.payload.event;
+  return e.type === 'finish' || (e.type === 'stop' && e.answers != null);
+}
+
+/**
+ * Whether a failed answers event offers Fix (the answers form, timers.md §8.1): only a 422,
+ * and only when no attempt may have reached the server (it may already hold the answers).
+ */
+export function answersFixable(item: OutboxItem<RunEventPayload>): boolean {
+  return (
+    item.status === 'failed' &&
+    carriesAnswers(item) &&
+    item.last_error?.status === 422 &&
+    !item.maybe_delivered
+  );
+}

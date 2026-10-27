@@ -244,4 +244,39 @@ describe('Fix of a failed finish (§8.1, L5)', () => {
     expect(finishes.at(-1)).toMatchObject({ id: item?.id, answers: { how: 'Great' } });
     expect(h.server.entries[0]?.answers).toEqual([{ key: 'how', type: 'str', value: 'Great' }]);
   });
+
+  it('a finish refused other than with a 422 has nothing to fix (#59)', async () => {
+    const FIX_ID = '6f1c0000-0000-4000-8000-0000000000f1';
+    h = renderRunApp(`/t/morning/record?fix=${FIX_ID}`, timedTopic(), (s) =>
+      seedRun(s, [{ type: 'stop', s: 40 }]),
+    );
+    h.server.override = (body) =>
+      body.type === 'finish'
+        ? new Response(JSON.stringify({ code: 'run_open', detail: 'The run is still open' }), {
+            status: 409,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        : undefined;
+    await outbox.enqueue(
+      'run.event',
+      {
+        topic: { id: TOPIC_ID, slug: 'morning', name: 'Morning' },
+        run_id: RUN_ID,
+        version: 1,
+        steps: [],
+        requires_answers: true,
+        makes_entry: true,
+        event: { type: 'finish', at: new Date().toISOString(), answers: { how: 'Meh' } },
+      },
+      { id: FIX_ID },
+    );
+    await waitFor(async () => expect((await outbox.list())[0]?.status).toBe('failed'), {
+      timeout: 4000,
+    });
+    expect(await screen.findByText('Nothing to fix')).toBeInTheDocument();
+    expect(screen.queryByText('These answers were not saved')).toBeNull();
+    await userEvent.click(await screen.findByRole('button', { name: /1 failed/ }));
+    expect(await screen.findByRole('button', { name: 'Discard' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Fix' })).toBeNull();
+  });
 });

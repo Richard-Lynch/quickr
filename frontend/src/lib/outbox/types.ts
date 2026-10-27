@@ -32,6 +32,12 @@ export interface OutboxItem<P = unknown> {
   /** Epoch ms before which automatic flushes skip this item (backoff). */
   next_attempt_at: number;
   last_error: OutboxError | null;
+  /**
+   * Sticky: an attempt may have reached the server (no response, a 5xx, or a 2xx that didn't
+   * decode). A later refusal may then answer a request the server already applied, so the
+   * item isn't offered Fix (timers.md §8.1). Absent on older items: false.
+   */
+  maybe_delivered?: boolean;
 }
 
 export interface OutboxRequest {

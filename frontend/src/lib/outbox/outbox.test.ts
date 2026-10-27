@@ -201,6 +201,49 @@ describe('outbox', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('remembers that an attempt may have reached the server (maybe_delivered, sticky)', async () => {
+    const { outbox } = setup([
+      json(503, {}),
+      json(422, problem('invalid', 'nope')),
+      json(429, {}),
+      json(422, problem('invalid', 'nope')),
+      new TypeError('Failed to fetch'),
+      json(422, problem('invalid', 'nope')),
+    ]);
+    const a = await outbox.enqueue('note.create', { text: 'a' });
+    await outbox.flush();
+    await outbox.flush({ force: true });
+    expect(await outbox.get(a.id)).toMatchObject({ status: 'failed', maybe_delivered: true });
+    await outbox.discard(a.id);
+    // A 429 was refused before it ran: nothing may have been delivered.
+    const b = await outbox.enqueue('note.create', { text: 'b' });
+    await outbox.flush();
+    await outbox.flush({ force: true });
+    const failed = await outbox.get(b.id);
+    expect(failed?.status).toBe('failed');
+    expect(failed?.maybe_delivered).toBeUndefined();
+    await outbox.discard(b.id);
+    const c = await outbox.enqueue('note.create', { text: 'c' });
+    await outbox.flush();
+    await outbox.flush({ force: true });
+    expect(await outbox.get(c.id)).toMatchObject({ status: 'failed', maybe_delivered: true });
+  });
+
+  it('a 2xx the kind classifies as retry is retried, and may have been delivered', async () => {
+    const strict: OutboxKind = {
+      ...noteCreate,
+      classify: (s, body) => (s === 201 && !body ? 'retry' : undefined),
+    };
+    const { outbox } = setup([json(201, null)], { kinds: { 'note.create': strict } });
+    await outbox.enqueue('note.create', { text: 'x' });
+    expect(await outbox.flush()).toMatchObject({ sent: 0, retrying: 1 });
+    expect((await outbox.list())[0]).toMatchObject({
+      status: 'pending',
+      maybe_delivered: true,
+      last_error: { status: 201, message: 'Unexpected response from the server' },
+    });
+  });
+
   it('retry() re-sends a failed item; update() replaces its payload', async () => {
     const { outbox, fetchMock } = setup([json(422, problem('invalid', 'nope')), json(201, {})]);
     const item = await outbox.enqueue<NotePayload>('note.create', { text: 'bad' });

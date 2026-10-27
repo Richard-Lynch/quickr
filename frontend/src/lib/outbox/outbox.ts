@@ -68,7 +68,9 @@ export const OUTBOX_CHANNEL = 'quickr-outbox';
 export const OUTBOX_LOCK = 'quickr-outbox';
 
 type AttemptResult =
-  { outcome: 'ok'; data: unknown } | { outcome: Exclude<Outcome, 'ok'>; error: OutboxError };
+  | { outcome: 'ok'; data: unknown }
+  /** `maybeDelivered`: the request may have reached the server (`OutboxItem.maybe_delivered`). */
+  | { outcome: Exclude<Outcome, 'ok'>; error: OutboxError; maybeDelivered?: boolean };
 
 export function createOutbox(opts: OutboxOptions): Outbox {
   const store = opts.store ?? idbOutboxStore();
@@ -229,7 +231,11 @@ export function createOutbox(opts: OutboxOptions): Outbox {
 
     const res = await send(req);
     if (res.kind === 'network') {
-      return { outcome: 'retry', error: { message: 'Could not reach the server', status: null } };
+      return {
+        outcome: 'retry',
+        error: { message: 'Could not reach the server', status: null },
+        maybeDelivered: true,
+      };
     }
     if (res.kind === 'redirect') {
       return {
@@ -249,17 +255,21 @@ export function createOutbox(opts: OutboxOptions): Outbox {
         return {
           outcome: 'retry',
           error: { message: 'Unexpected response from the server', status },
+          maybeDelivered: true,
         };
       }
       return { outcome: 'ok', data: json };
     }
+    const success = status >= 200 && status < 300;
     return {
       outcome,
       error: {
-        message: errorMessageFor(status, json),
+        // A 2xx the kind refused (its body isn't the answer it expects) has no Problem detail.
+        message: success ? 'Unexpected response from the server' : errorMessageFor(status, json),
         status,
         ...(parsed ? { body: json } : {}),
       },
+      ...(outcome === 'retry' && (success || status >= 500) ? { maybeDelivered: true } : {}),
     };
   }
 
@@ -341,10 +351,12 @@ export function createOutbox(opts: OutboxOptions): Outbox {
       }
       const attempts = item.attempts + 1;
       const terminal = res.outcome === 'terminal';
+      const sticky = item.maybe_delivered || res.maybeDelivered ? { maybe_delivered: true } : {};
       const next: OutboxItem = terminal
-        ? { ...item, attempts, status: 'failed', last_error: error, updated_at: iso() }
+        ? { ...item, ...sticky, attempts, status: 'failed', last_error: error, updated_at: iso() }
         : {
             ...item,
+            ...sticky,
             attempts,
             next_attempt_at: now() + backoffMs(attempts, random),
             last_error: error,
