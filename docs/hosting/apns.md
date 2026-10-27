@@ -71,6 +71,28 @@ To send to a token directly, without the scheduler:
 To send a topic's real reminder now, with its category and actions:
 `make send-reminder-docker t=<slug>` (see the README's push section).
 
+## Live Activities (timed topics)
+
+The timed-topics Live Activity uses the same APNs setup. There is nothing extra
+to configure:
+
+- **Topic.** Keep `QUICKR_APNS_TOPIC` the bare bundle id (`com.bahumia.quickr`).
+  The server derives the Live Activity topic itself: it sends with
+  `apns-push-type: liveactivity` on `<QUICKR_APNS_TOPIC>.push-type.liveactivity`.
+  Don't put the suffix in the variable; reminders would then fail with
+  `DeviceTokenNotForTopic`.
+- **Key.** The same `.p8` key signs Live Activity pushes. No separate key or
+  certificate is needed.
+- **Environment.** Each Live Activity token is registered with its build's
+  environment, as device tokens are. A TestFlight or App Store build registers
+  `production`, so the key must be valid for production, or push-to-start and
+  remote updates never reach the phone (local updates from the phone's own taps
+  still work).
+- **APNs off.** With APNs off, the server sends no Live Activity pushes. A run
+  started on the PWA or by MCP then gets no activity on the phone (the app only
+  requests one for a run it starts itself), and an activity isn't updated by
+  another device's taps until the app next opens and reconciles it.
+
 ## Rotating or revoking the key
 
 1. Create a new key and point the override at it.

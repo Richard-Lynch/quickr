@@ -43,7 +43,9 @@ public struct LocalRun: Sendable, Hashable, Identifiable {
     }
 
     /// The id of the pause a resume would end: the latest applied pause, while paused.
-    public var openPauseId: String? {
+    public var openPauseId: String? { Self.openPauseId(state, events) }
+
+    static func openPauseId(_ state: RunState, _ events: [RunEvent]) -> String? {
         guard state.pausedSince != nil else { return nil }
         var latest: RunEvent?
         for event in events where event.type == .pause && state.effects[event.id.lowercased()] == .applied {
@@ -173,8 +175,11 @@ public enum RunOverlay {
         if mine.isEmpty, let server {
             state = server.state
         } else if info.steps == nil, let server {
-            // The pinned version isn't stored: the server's labels, not a fold over the wrong steps.
-            state = server.state
+            // The pinned version isn't stored: the server's labels, not a fold over the wrong steps,
+            // with this device's step-independent taps over them.
+            state = RunFold.overlay(
+                server.state, events: mine.compactMap { queuedEvent($0.0, $0.1) },
+                pauseId: LocalRun.openPauseId(server.state, server.foldEvents))
         } else if let folded = try? RunFold.fold(runId: id, steps: info.steps ?? [], events: events) {
             state = folded
         } else if let server {

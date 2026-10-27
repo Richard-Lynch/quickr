@@ -61,6 +61,99 @@ public enum RunFold {
         return clock.state(startedAt: start.at, terminal: terminal, effects: effects)
     }
 
+    /// `state` with `events` (in arrival order) applied over it, for a run whose version's steps
+    /// aren't known here (timers.md §8.3): only the events that need no steps, so an offline
+    /// pause, resume, lap, stop or discard still shows. A next or skip, and an event `state`
+    /// already has an effect for, is left out (the server folds it). `pauseId` is the id of
+    /// `state`'s open pause, when known: a resume naming another is stale.
+    public static func overlay(_ state: RunState, events: [RunEvent], pauseId: String? = nil) -> RunState {
+        var s = state
+        var pauseId = pauseId?.lowercased()
+        let mine = events.filter { s.effects[$0.id.lowercased()] == nil && $0.type != .next && $0.type != .skip }
+        func inRange(_ e: RunEvent) -> VoidReason? {
+            if e.at < s.startedAt { return .beforeStart }
+            if e.at > s.startedAt + maxRunMs { return .tooLong }
+            return nil
+        }
+        // Pass 1: the terminal by arrival, as in `fold`.
+        var terminal: RunEvent?
+        var accepted: [RunEvent] = []
+        for e in mine where e.type != .start && e.type != .finish {
+            guard e.type == .stop || e.type == .discard else {
+                accepted.append(e)
+                continue
+            }
+            var reason: VoidReason? = e.type == .stop ? inRange(e) : nil
+            if reason == nil, !s.status.isOpen || terminal != nil { reason = .alreadyClosed }
+            if reason == nil { terminal = e }
+            s.effects[e.id.lowercased()] = RunEffect(reason)
+        }
+        // Pass 2: the rest by time, up to the terminal.
+        for e in timeOrdered(accepted) {
+            var reason = inRange(e)
+            if reason == nil, !s.status.isOpen {
+                reason = .alreadyClosed
+            } else if reason == nil, let end = terminal?.at, e.at > end {
+                reason = .afterStop
+            } else if reason == nil {
+                reason = overlayApply(&s, e, &pauseId)
+            }
+            s.effects[e.id.lowercased()] = RunEffect(reason)
+        }
+        guard let terminal else { return s }
+        if terminal.type == .stop {
+            if let since = s.pausedSince { s.pauses.append(RunPause(start: since, end: terminal.at)) }
+            s.pausedSince = nil
+            overlayClose(&s, at: terminal.at)
+            s.status = .stopped
+            s.endedAt = terminal.at
+        } else {
+            s.status = .discarded
+            s.pausedSince = nil
+        }
+        s.open = nil
+        s.nextStep = nil
+        return s
+    }
+
+    /// Apply one in-range pause, resume or lap to an open run's state; its void reason, or nil.
+    private static func overlayApply(_ s: inout RunState, _ e: RunEvent, _ pauseId: inout String?) -> VoidReason? {
+        switch e.type {
+        case .lap:
+            if e.seg != s.segments.count { return .stale }
+            overlayClose(&s, at: e.at)
+            let laps = s.segments.count { $0.kind == .lap }
+            s.open = RunOpenSegment(
+                index: s.segments.count, kind: .lap, step: nil, label: lapLabel(laps + 1), startedAt: e.at)
+        case .pause:
+            if s.pausedSince != nil { return .alreadyPaused }
+            s.pausedSince = e.at
+            s.status = .paused
+            pauseId = e.id.lowercased()
+        case .resume:
+            guard let since = s.pausedSince else { return .notPaused }
+            if let pauseId, (e.pauseId ?? "").lowercased() != pauseId { return .stale }
+            s.pauses.append(RunPause(start: since, end: e.at))
+            s.pausedSince = nil
+            s.status = .running
+            pauseId = nil
+        default:
+            break
+        }
+        return nil
+    }
+
+    /// Close `s`'s open segment at `at`, keeping its kind, step and label.
+    private static func overlayClose(_ s: inout RunState, at: Int) {
+        guard let open = s.open else { return }
+        let paused = overlap(open.startedAt, at, s.pauses, openPause: s.pausedSince)
+        s.segments.append(
+            RunSegment(
+                kind: open.kind, step: open.step, label: open.label, startedAt: open.startedAt, endedAt: at,
+                activeMs: at - open.startedAt - paused, pausedMs: paused))
+        s.open = nil
+    }
+
     /// Pass 2's order: `(at, id)` ascending, ids lowercase, except that a resume at the same
     /// instant as the pause it names comes right after that pause.
     static func timeOrdered(_ accepted: [RunEvent]) -> [RunEvent] {
