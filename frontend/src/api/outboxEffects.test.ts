@@ -1,5 +1,5 @@
 import { QueryClient, type InfiniteData } from '@tanstack/react-query';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { EntryOut, EntryPage, TopicDetail } from '../client';
 import {
@@ -12,7 +12,13 @@ import type { Outbox, OutboxListener } from '../lib/outbox/outbox';
 import type { OutboxEvent, OutboxItem } from '../lib/outbox/types';
 import { T0, ev, runItem, serverRun } from '../test/runs';
 import { connectOutboxEffects } from './outboxEffects';
-import { cachedServerRuns, mergeListed, runsQueryKey, upsertServerRun } from './runs';
+import {
+  cachedServerRuns,
+  clearRunTombstones,
+  mergeListed,
+  runsQueryKey,
+  upsertServerRun,
+} from './runs';
 
 const topic = {
   id: 't1',
@@ -219,6 +225,11 @@ describe('upsertServerRun', () => {
 
 describe('mergeListed', () => {
   const r1 = serverRun('r1', [ev('r1', 'start', T0)], { revision: 3 });
+
+  // Earlier tests closed runs of these ids.
+  beforeEach(() => {
+    clearRunTombstones();
+  });
 
   it("keeps a cached copy that is newer than the list's", () => {
     expect(mergeListed([r1], [{ ...r1, revision: 2 }], 0)).toEqual([r1]);

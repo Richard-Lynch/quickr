@@ -5,7 +5,14 @@ import { client } from '../client/client.gen';
 import { ackedItems, memoryAckedStore, recordAcked, setAckedStore } from '../lib/runs/acked';
 import { T0, ev, runItem, serverRun } from '../test/runs';
 import { FROM_CACHE_HEADER } from './constants';
-import { cachedServerRuns, mergeCachedListed, runsQueryKey, runsQueryOptions } from './runs';
+import {
+  cachedServerRuns,
+  mergeCachedListed,
+  mergeListed,
+  runsQueryKey,
+  runsQueryOptions,
+  upsertServerRun,
+} from './runs';
 
 // Parsed by the generated client (zListRunsResponse): real UUIDs.
 const R1 = '00000000-0000-4000-8000-000000000001';
@@ -71,5 +78,33 @@ describe('the runs query', () => {
     await qc.query({ ...runsQueryOptions(qc), staleTime: 0 });
     expect(cachedServerRuns(qc).map((r) => r.id)).toEqual([R2]);
     expect(await ackedItems()).toEqual([]);
+  });
+});
+
+describe('mergeListed: tombstones of closed runs (M4)', () => {
+  // Ids of their own: tombstones are module state.
+  const R3 = '00000000-0000-4000-8000-000000000003';
+  const R4 = '00000000-0000-4000-8000-000000000004';
+  const R5 = '00000000-0000-4000-8000-000000000005';
+
+  it('a list fetched before a response closed a run doesn’t reopen it', () => {
+    const qc = new QueryClient();
+    qc.setQueryData(runsQueryKey(), [run(R3, 2)]);
+    const fetchStartedAt = Date.now() - 1000;
+    upsertServerRun(qc, run(R3, 3, 'stopped'));
+    expect(cachedServerRuns(qc)).toEqual([]);
+    // The stale list still has R3 open, at its old revision.
+    expect(mergeListed(cachedServerRuns(qc), [run(R3, 2)], fetchStartedAt)).toEqual([]);
+    expect(mergeListed(cachedServerRuns(qc), [run(R3, 3)], fetchStartedAt)).toEqual([]);
+    // A later revision is news (an edit since).
+    expect(mergeListed([], [run(R3, 4)], fetchStartedAt).map((r) => r.revision)).toEqual([4]);
+  });
+
+  it('nor a run merged into another (an alias)', () => {
+    const qc = new QueryClient();
+    const merged = { ...run(R4, 2), aliases: [R5] };
+    upsertServerRun(qc, merged);
+    const listed = mergeListed(cachedServerRuns(qc), [run(R5, 7), run(R4, 2)], Date.now() - 1000);
+    expect(listed.map((r) => r.id)).toEqual([R4]);
   });
 });
