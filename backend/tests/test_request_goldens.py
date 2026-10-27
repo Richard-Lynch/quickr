@@ -37,7 +37,10 @@ from typing import Any
 import httpx
 import pytest
 from pydantic import BaseModel
+from sqlalchemy import select
 
+from app.db import get_sessionmaker
+from app.models import LiveActivityToken
 from app.schemas.api import (
     ApnsDeviceIn,
     ApnsDeviceRef,
@@ -379,3 +382,7 @@ async def test_golden_replays(name: str, replay: tuple[httpx.AsyncClient, Substi
         assert r.json()["channel"] == "ios"
         if op == "createEntry":
             assert r.json()["source"] == request["body"]["source"]
+    if name == "registerLiveActivity.update":  # kept: its run is open
+        async with get_sessionmaker()() as db:
+            kinds = (await db.execute(select(LiveActivityToken.kind))).scalars().all()
+        assert kinds == ["update"]
