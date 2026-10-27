@@ -350,10 +350,12 @@ send the current version's timer to keep it.
 | `GET /api/v1/topics/{ref}/versions` · `POST .../versions/check` · `POST .../versions`         | version history, dry-run, publish                     |
 | `GET/POST /api/v1/topics/{ref}/entries` · `GET .../entries.csv`                               | list/record/export entries                            |
 | `GET/PATCH/DELETE /api/v1/entries/{id}`                                                       | view/correct/delete an entry                          |
+| `POST /api/v1/runs/{run_id}/events` · `GET /api/v1/runs[/{run_id}]?status=&topic=`            | record a run tap · list open/finishing runs, read one |
 | `GET /api/v1/changes?after=&limit=`                                                           | change feed (sync)                                    |
-| `GET /api/v1/topics/{ref}/stats` · `GET .../questions/{key}/series`                           | aggregation and time series                           |
+| `GET /api/v1/topics/{ref}/stats` · `GET .../timing` · `GET .../questions/{key}/series`        | aggregation, run timing stats and time series         |
 | `GET /api/v1/push/config` · `POST /api/v1/push/subscriptions[/delete]` · `POST .../push/test` | Web Push                                              |
 | `POST /api/v1/push/apns/devices[/delete]` · `POST .../push/apns/devices/test`                 | APNs device tokens (the iOS app)                      |
+| `POST /api/v1/push/apns/live-activities[/delete]`                                             | Live Activity push tokens (the iOS app)               |
 | `GET /api/v1/question-types` · `GET /api/v1/limits`                                           | question JSON schemas · validation limits             |
 
 Send `X-QuickR-Channel: ui|api|mcp|ios` to tag the channel (defaults to `api`).
@@ -369,8 +371,11 @@ clients can mirror server-side validation.
 ## Change feed
 
 `GET /api/v1/changes?after=<seq>&limit=<≤500>` lets a client keep a full offline
-copy in step. Every change to a topic, version or entry, made over REST or MCP,
-appends a row to `change_log` in the same transaction. Each page returns the
+copy in step. Every change to a topic, version, entry or run, made over REST or
+MCP, appends a row to `change_log` in the same transaction. Runs appear as items
+only while open or finishing; a run that stops or is discarded leaves as a `run`
+deletion, and a stopped run's data arrives as its entry
+([timers.md §7.1](docs/specs/timers.md#71-the-feed-server)). Each page returns the
 **current** state of every entity changed after the cursor (`items`), the
 deletions (`deleted`), and `{next, has_more, head, epoch, server_id, server_time}`.
 Start from `after=0` and follow `next` while `has_more`.
@@ -382,7 +387,7 @@ Start from `after=0` and follow `next` while `has_more`.
   `DELETE /entries/{id}` is idempotent: it returns `204` even for an id the
   server has never seen, and reserves it, so a create that arrives after its own
   undo gets `409 entry_deleted` and never brings the entry back. A topic
-  deletion also deletes all its versions and entries.
+  deletion also deletes all its versions, entries and runs.
 - **Derived fields.** Entry changes don't re-send their topic, so clients
   recompute `entry_count`, `last_captured_at` and due status from entries.
 - **Revisions.** Topics and entries carry a `revision` that every update bumps.
@@ -396,6 +401,10 @@ Start from `after=0` and follow `next` while `has_more`.
   `X-QuickR-Server-Id` and `X-QuickR-Epoch`. Mutations accept
   `X-QuickR-Expect-Server-Id` / `X-QuickR-Expect-Epoch`; a mismatch is rejected
   with `409 server_mismatch` / `409 epoch_mismatch` before anything is written.
+- **Server time.** Every `/api/v1` response, errors included, also carries
+  `X-QuickR-Server-Time`: the server's clock in integer Unix epoch milliseconds.
+  Clients stamp run events with it (device time plus the measured offset;
+  [timers.md §5.1](docs/specs/timers.md#51-run-event-time-server-clock-monotonic-per-device)).
 
 ## MCP
 

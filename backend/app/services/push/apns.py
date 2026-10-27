@@ -41,12 +41,12 @@ import httpx
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
-from sqlalchemy import delete, func, select
+from sqlalchemy import Connection, delete, event, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
-from app.models import ApnsDevice
+from app.models import ApnsDevice, LiveActivityToken
 from app.schemas.api import ApnsDeviceIn, ApnsDeviceOut, ApnsEnvironment
 from app.services.feed import writer
 from app.services.notification import actions, canonical_instant, category_id, more_suffix, truncate
@@ -434,8 +434,16 @@ async def register_device(db: AsyncSession, body: ApnsDeviceIn) -> ApnsDeviceOut
 
 @writer
 async def unregister_device(db: AsyncSession, token: str) -> None:
-    """Remove a device. Unknown tokens are ignored (idempotent)."""
+    """Remove a device and its Live Activity tokens. Unknown tokens are ignored (idempotent)."""
     await db.execute(delete(ApnsDevice).where(ApnsDevice.token == token))
+    await db.execute(delete(LiveActivityToken).where(LiveActivityToken.device_token == token))
+
+
+@event.listens_for(ApnsDevice, "after_delete")
+def _drop_live_activity_tokens(_mapper: Any, connection: Connection, device: ApnsDevice) -> None:
+    """A device pruned by :func:`~app.services.push.deliver` (gone, or failing for too long) takes
+    its Live Activity tokens with it, at the caller's flush: they would outlive it otherwise."""
+    connection.execute(delete(LiveActivityToken).where(LiveActivityToken.device_token == device.token))
 
 
 async def find_device(db: AsyncSession, token: str) -> ApnsDevice | None:
