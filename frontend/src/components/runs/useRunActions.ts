@@ -42,14 +42,15 @@ export type FinishResult =
   | { status: 'none' };
 
 /**
- * After a tap on a run's controls, its other taps are ignored for this long. The buttons
- * change under the finger ("Next: Teeth" becomes Stop on the last step), so a double tap
- * would otherwise be read as a second, different action.
+ * After a tap on a topic's run controls (Start included), its other taps are ignored for
+ * this long. The buttons change under the finger ("Next: Teeth" becomes Stop on the last
+ * step, Stop becomes Start), so a double tap would otherwise be read as a second, different
+ * action. Keyed by topic, not run: a Stop's run is gone by the time Start shows.
  */
 export const RUN_TAP_COOLDOWN_MS = 450;
 
 let cooldownMs = RUN_TAP_COOLDOWN_MS;
-/** When each run was last tapped (device ms), by lowercase run id. */
+/** When each topic's run controls were last tapped (device ms), by lowercase topic id. */
 const lastTap = new Map<string, number>();
 
 /** Tests: another cooldown (0 turns it off), and forget earlier taps. */
@@ -58,9 +59,9 @@ export function setRunTapCooldown(ms: number): void {
   lastTap.clear();
 }
 
-/** Whether a tap on `runId` now is inside the cooldown; if not, it starts one. */
-function coolingDown(runId: string): boolean {
-  const id = runId.toLowerCase();
+/** Whether a tap on `topicId`'s controls now is inside its cooldown; if not, it starts one. */
+function coolingDown(topicId: string): boolean {
+  const id = topicId.toLowerCase();
   const now = Date.now();
   const last = lastTap.get(id);
   if (last !== undefined && now - last < cooldownMs) return true;
@@ -74,7 +75,7 @@ export interface RunActions {
   start: (ctx: RunContext, opts?: Parameters<typeof startRun>[2]) => Promise<StartResult | null>;
   /**
    * One tap on a run's controls. `expect` is what the control showed (see `TapExpect`); a
-   * tap inside the run's cooldown, or whose target has moved, does nothing (null).
+   * tap inside the topic's cooldown, or whose target has moved, does nothing (null).
    */
   tap: (
     runId: string,
@@ -185,15 +186,13 @@ export function useRunActions(): RunActions {
 
     return {
       busy,
+      // The cooldown starts at the tap, before the await: Start becomes Next under the finger.
       start: (ctx, startOpts) =>
-        guarded(async () => {
-          const r = await startRun(deps, ctx, startOpts);
-          // The Start button becomes Next under the finger: the cooldown covers it.
-          lastTap.set(r.runId, Date.now());
-          return r;
-        }),
+        coolingDown(ctx.topic.id)
+          ? Promise.resolve(null)
+          : guarded(() => startRun(deps, ctx, startOpts)),
       tap: (runId, ctx, type, body, expect) =>
-        coolingDown(runId)
+        coolingDown(ctx.topic.id)
           ? Promise.resolve(null)
           : guarded(() => tapRun(deps, runId, ctx, type, body, expect ? { expect } : {})),
       finish,

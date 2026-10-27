@@ -1026,9 +1026,11 @@ a "Live Activities" switch, on by default.
 - **"Auto" advance** (the Action button, a small widget, Siri "next"): idle →
   Start; a named step remains → Next; otherwise → Stop. The dishwasher is then
   one press to start and one to stop.
-- **Tap cooldown [pwa].** After a tap on a run's controls, other taps on that run
-  within 450 ms are ignored, Start → Next and a fast Lap, Lap included: the
-  buttons change under the finger, so a double tap would read as two actions.
+- **Tap cooldown [both].** A per-topic rule: after a tap on a topic's run
+  controls, Start included, other taps on that topic's controls within 450 ms
+  are ignored (Start → Next, Stop → Start, a fast Lap). It starts at the tap,
+  before the write: the buttons change under the finger, so a double tap would
+  read as two actions.
 - **Home and badge.** A timed topic with an open run shows "Running · 4:12"
   instead of its due state, and is not counted as due. A finishing run shows
   "Add details". These sit above derived due state; the due port itself
