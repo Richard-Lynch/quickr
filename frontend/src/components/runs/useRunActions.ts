@@ -191,8 +191,9 @@ export function useRunActions(): RunActions {
         coolingDown(ctx.topic.id)
           ? Promise.resolve(null)
           : guarded(() => startRun(deps, ctx, startOpts)),
+      // A discard is confirmed in a sheet first: no double tap to guard (as on iOS).
       tap: (runId, ctx, type, body, expect) =>
-        coolingDown(ctx.topic.id)
+        type !== 'discard' && coolingDown(ctx.topic.id)
           ? Promise.resolve(null)
           : guarded(() => tapRun(deps, runId, ctx, type, body, expect ? { expect } : {})),
       finish,

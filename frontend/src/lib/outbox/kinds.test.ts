@@ -72,6 +72,17 @@ describe('run.event kind', () => {
     expect(kind.classify?.(200, noEntry, next)).toBe('retry');
   });
 
+  it('a result without its run’s aliases or revision isn’t one (L-3)', () => {
+    const noAliases: { run: Partial<ReturnType<typeof runEventResult>['run']> } =
+      runEventResult('n1');
+    delete noAliases.run.aliases;
+    expect(kind.classify?.(200, noAliases, next)).toBe('retry');
+    const noRevision: { run: Partial<ReturnType<typeof runEventResult>['run']> } =
+      runEventResult('n1');
+    delete noRevision.run.revision;
+    expect(kind.classify?.(200, noRevision, next)).toBe('retry');
+  });
+
   it('makes an event wait for its run start, and a finish for its pending stops too', () => {
     const stop = runItem('stop', { id: 's1', run: 'r1', at: T0 + 1500 });
     const otherStop = runItem('stop', { id: 's9', run: 'r9', at: T0 + 1500 });

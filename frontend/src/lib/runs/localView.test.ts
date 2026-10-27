@@ -354,6 +354,52 @@ describe('review fixes', () => {
       expect(run?.state.pauses).toEqual([]);
     });
 
+    it('a resume must name the open pause, the one that began at paused_since (M-2, m20)', () => {
+      // Arrival order differs from time order: p2 (the open one) arrived before p1 and u1.
+      const listed = serverRun('r1', [
+        start,
+        ev('p2', 'pause', T0 + 50 * S),
+        ev('p1', 'pause', T0 + 30 * S),
+        ev('u1', 'resume', T0 + 40 * S, { pause_id: 'p1' }),
+      ]);
+      const resume = (id: string, pauseId: string) =>
+        blind(runItem('resume', { id, run: 'r1', at: T0 + 60 * S, pause_id: pauseId }));
+      const [named] = localRuns([listed], [resume('u2', 'p2')]);
+      expect(named?.status).toBe('running');
+      expect(named?.state.effects.u2).toEqual({ effect: 'applied', reason: null });
+      const [wrong] = localRuns([listed], [resume('u3', 'p1')]);
+      expect(wrong?.status).toBe('paused');
+      expect(wrong?.state.effects.u3).toEqual({ effect: 'void', reason: 'stale' });
+    });
+
+    it('a stop while paused ends the pause at the stop (m24)', () => {
+      const pause = blind(runItem('pause', { id: 'p1', run: 'r1', at: T0 + 90 * S }));
+      const stop = blind(runItem('stop', { id: 's1', run: 'r1', at: T0 + 120 * S }));
+      const [run] = localRuns([server], [pause, stop]);
+      expect(run?.status).toBe('stopped');
+      expect(run?.state.paused_since).toBeNull();
+      expect(run?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 120 * S }]);
+      expect(run?.state.segments.at(-1)).toMatchObject({
+        label: 'Breakfast',
+        active_ms: 30 * S,
+        paused_ms: 30 * S,
+      });
+    });
+
+    it('a lap for another segment is stale (m25)', () => {
+      const lap = blind(runItem('lap', { id: 'l1', run: 'r1', at: T0 + 90 * S, seg: 0 }));
+      const [run] = localRuns([server], [lap]);
+      expect(run?.state.effects.l1).toEqual({ effect: 'void', reason: 'stale' });
+      expect(run?.state.open).toMatchObject({ index: 1, step: 'breakfast' });
+    });
+
+    it('a stop more than 7 days after the start is void too_long (m26)', () => {
+      const late = blind(runItem('stop', { id: 's1', run: 'r1', at: T0 + 8 * 24 * 3600 * S }));
+      const [run] = localRuns([server], [late]);
+      expect(run?.status).toBe('running');
+      expect(run?.state.effects.s1).toEqual({ effect: 'void', reason: 'too_long' });
+    });
+
     it('a tap the server lists already isn’t applied twice', () => {
       const listed = serverRun('r1', [start, ev('p1', 'pause', T0 + 30 * S)]);
       const pause = blind(runItem('pause', { id: 'p1', run: 'r1', at: T0 + 30 * S }));

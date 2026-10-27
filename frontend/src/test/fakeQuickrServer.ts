@@ -163,6 +163,7 @@ function runOut(r: FakeRun) {
     topic_id: r.topic_id,
     version: r.version,
     status: r.status ?? 'running',
+    revision: (r.events?.size ?? 0) + 1,
     aliases: [...(r.aliases?.keys() ?? [])],
     events: [],
     state: { effects },

@@ -104,7 +104,7 @@ export function serverOffset(): number {
     const raw = storage()?.getItem(SERVER_OFFSET_KEY);
     if (raw != null) {
       const n = Number(raw);
-      if (Number.isSafeInteger(n)) return n;
+      if (Number.isSafeInteger(n) && Math.abs(n) <= MAX_STORED_OFFSET_MS) return n;
     }
   } catch {
     // blocked storage: memory below

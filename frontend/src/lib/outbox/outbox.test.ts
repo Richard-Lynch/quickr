@@ -373,6 +373,46 @@ describe('outbox', () => {
     expect(await outbox.list()).toEqual([]);
   });
 
+  it('a network error, then a 422: failed, and maybe delivered', async () => {
+    const { outbox } = setup([
+      new TypeError('Failed to fetch'),
+      json(422, problem('invalid', 'nope')),
+    ]);
+    const item = await outbox.enqueue('note.create', { text: 'x' });
+    await outbox.flush();
+    await outbox.flush({ force: true });
+    expect(await outbox.get(item.id)).toMatchObject({
+      status: 'failed',
+      maybe_delivered: true,
+      last_error: { status: 422 },
+    });
+  });
+
+  it('an edit during a send that may have landed keeps the edit, marked maybe delivered', async () => {
+    let fail: (e: Error) => void = () => undefined;
+    const { outbox, fetchMock, advance } = setup([]);
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((_resolve, reject) => {
+          fail = reject;
+        }),
+    );
+    const item = await outbox.enqueue<NotePayload>('note.create', { text: 'x' });
+    const flushing = outbox.flush();
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+    advance(1);
+    await outbox.update<NotePayload>(item.id, { text: 'y' });
+    fail(new TypeError('Failed to fetch'));
+    await flushing;
+    expect(await outbox.get(item.id)).toMatchObject({
+      payload: { text: 'y' },
+      attempts: 0,
+      maybe_delivered: true,
+    });
+  });
+
   it('sendNow resolves with the first outcome of that item', async () => {
     const { outbox } = setup([
       json(201, { id: 's1' }),

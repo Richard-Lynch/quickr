@@ -274,7 +274,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 
 /**
  * Whether `body` has the shape of a `RunEventResult`: the event's id and effect, a run with
- * its id, status, state, events and aliases, and an entry or null.
+ * its id, status, revision, state, events and aliases, and an entry or null.
  */
 export function isRunEventResult(body: unknown): body is RunEventResult {
   if (!isObject(body) || !isObject(body.event) || !isObject(body.run)) return false;
@@ -285,6 +285,7 @@ export function isRunEventResult(body: unknown): body is RunEventResult {
     typeof run.id === 'string' &&
     typeof run.topic_id === 'string' &&
     typeof run.status === 'string' &&
+    typeof run.revision === 'number' &&
     isObject(run.state) &&
     Array.isArray(run.events) &&
     Array.isArray(run.aliases) &&

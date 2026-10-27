@@ -221,6 +221,7 @@ async function onAction(action: string, data: unknown, open: () => Promise<void>
       topicState: cachedTopicState,
       // A Start (timers.md §10.2): stamped with the page's latest offset (no localStorage here).
       acked: () => ackedItems(Date.now()), // no page may have pruned it: fresh ones only
+      // Cached entries only: run tombstones live in the page's memory (#78).
       knownId: cachedEntryKnown,
       offset: loadServerOffset,
       startVersion: cachedStartVersion,

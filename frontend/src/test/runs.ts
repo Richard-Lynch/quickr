@@ -38,7 +38,15 @@ export function runEventResult(
 ) {
   return {
     event: { id, effect, reason },
-    run: { id: 'r1', topic_id: TOPIC.id, status: 'running', state: {}, events: [], aliases: [] },
+    run: {
+      id: 'r1',
+      topic_id: TOPIC.id,
+      status: 'running',
+      revision: 1,
+      state: {},
+      events: [],
+      aliases: [] as string[],
+    },
     entry: null,
   };
 }

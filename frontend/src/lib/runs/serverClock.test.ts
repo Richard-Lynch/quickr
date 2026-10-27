@@ -43,6 +43,11 @@ describe('server clock (timers.md §5.1)', () => {
     expect(recordServerTime(String(10_100 + day), 10_000, 10_200)).toBe(day);
   });
 
+  it('ignores a stored offset more than 24 h off (L-4)', () => {
+    localStorage.setItem(SERVER_OFFSET_KEY, String(24 * 60 * 60 * 1000 + 1));
+    expect(serverOffset()).toBe(0);
+  });
+
   it('reads the offset another tab stored', () => {
     localStorage.setItem(SERVER_OFFSET_KEY, '-250');
     expect(serverOffset()).toBe(-250);

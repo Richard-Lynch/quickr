@@ -299,4 +299,51 @@ describe('Fix of a failed finish (§8.1, L5)', () => {
     expect(await screen.findByRole('button', { name: 'Discard' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Fix' })).toBeNull();
   });
+
+  it('a 422 after an attempt that may have landed has nothing to fix (M-1)', async () => {
+    const FIX_ID = '6f1c0000-0000-4000-8000-0000000000f2';
+    h = renderRunApp(`/t/morning/record?fix=${FIX_ID}`, timedTopic(), (s) =>
+      seedRun(s, [{ type: 'stop', s: 40 }]),
+    );
+    let first = true;
+    h.server.override = (body) => {
+      if (body.type !== 'finish') return undefined;
+      if (first) {
+        first = false;
+        return new Response('{}', { status: 503 });
+      }
+      return new Response(JSON.stringify({ code: 'invalid_answers', detail: 'Invalid answers' }), {
+        status: 422,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    await outbox.enqueue(
+      'run.event',
+      {
+        topic: { id: TOPIC_ID, slug: 'morning', name: 'Morning' },
+        run_id: RUN_ID,
+        version: 1,
+        steps: [],
+        requires_answers: true,
+        makes_entry: true,
+        event: { type: 'finish', at: new Date().toISOString(), answers: { how: 'Meh' } },
+      },
+      { id: FIX_ID },
+    );
+    await waitFor(async () => expect((await outbox.list())[0]?.attempts).toBe(1), {
+      timeout: 4000,
+    });
+    await outbox.retry(FIX_ID);
+    await waitFor(
+      async () =>
+        expect((await outbox.list())[0]).toMatchObject({
+          status: 'failed',
+          maybe_delivered: true,
+          last_error: { status: 422 },
+        }),
+      { timeout: 4000 },
+    );
+    expect(await screen.findByText('Nothing to fix')).toBeInTheDocument();
+    expect(screen.queryByText('These answers were not saved')).toBeNull();
+  });
 });

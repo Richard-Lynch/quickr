@@ -155,11 +155,11 @@ function overlay(server: RunOut, base: RunState, mine: readonly QueuedRunEvent[]
   const segments: Segment[] = [...base.segments];
   const pauses: Pause[] = [...base.pauses];
   let { status, ended_at: endedAt, open, next_step: nextStep, paused_since: pausedSince } = base;
-  // The server's open pause, which a resume must name.
+  // The server's open pause, which a resume must name: the applied pause that began it.
   let pauseId: string | null = null;
   if (pausedSince !== null) {
-    for (const e of server.events) {
-      if (e.type === 'pause' && effects[lc(e.id)]?.effect === 'applied') pauseId = lc(e.id);
+    for (const e of server.events.map(serverEvent)) {
+      if (e.type === 'pause' && e.at === pausedSince && applied(base, e.id)) pauseId = e.id;
     }
   }
   const close = (seg: OpenSegment, at: number) => {

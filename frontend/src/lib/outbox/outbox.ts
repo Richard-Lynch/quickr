@@ -351,7 +351,8 @@ export function createOutbox(opts: OutboxOptions): Outbox {
       }
       const attempts = item.attempts + 1;
       const terminal = res.outcome === 'terminal';
-      const sticky = item.maybe_delivered || res.maybeDelivered ? { maybe_delivered: true } : {};
+      // Sticky: `item` carries an earlier attempt's flag.
+      const sticky = res.maybeDelivered ? { maybe_delivered: true } : {};
       const next: OutboxItem = terminal
         ? { ...item, ...sticky, attempts, status: 'failed', last_error: error, updated_at: iso() }
         : {
@@ -369,6 +370,9 @@ export function createOutbox(opts: OutboxOptions): Outbox {
         if (terminal) total.failed++;
         else total.retrying++;
         emit({ type: terminal ? 'failed' : 'retrying', item: next });
+      } else if (current && res.maybeDelivered && !current.maybe_delivered) {
+        // Edited or retried meanwhile: theirs wins, but this attempt may still have landed.
+        await store.put({ ...current, maybe_delivered: true });
       }
       // Offline: the rest would fail the same way — don't burn their attempts.
       if (!terminal && error.status === null) break;
