@@ -267,6 +267,8 @@ export interface ReminderActionOptions {
   sendTimeoutMs?: number;
   /** A Start: the acked run events (`lib/runs/acked.ts`), read inside the tap lock. */
   acked?: RunTapDeps['acked'];
+  /** A Start: whether the run id is a known entry (`RunTapDeps.knownId`). */
+  knownId?: RunTapDeps['knownId'];
   /** A Start: the server-time offset to stamp it with (the SW loads the page's first). */
   offset?: () => Promise<number>;
   /** A Start: the reminder version's steps and required-question flag, when known. */
@@ -394,6 +396,7 @@ async function handleStartAction(
       // acked events are what it knows; the server merges a second start (§4.5).
       serverRuns: () => [],
       ...(opts.acked ? { acked: opts.acked } : {}),
+      ...(opts.knownId ? { knownId: opts.knownId } : {}),
       ...(opts.now ? { now: opts.now } : {}),
       offset: () => offset,
     };

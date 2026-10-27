@@ -151,7 +151,7 @@ function resolveRun(server: FakeQuickrServer, id: string): FakeRun | undefined {
   return server.runs.get(id) ?? [...server.runs.values()].find((r) => r.aliases?.has(id));
 }
 
-/** Enough of a `RunOut` for the clients: its id, topic, status, aliases and effects. */
+/** Enough of a `RunOut` for the clients: its id, topic, status, aliases and effects (no events). */
 function runOut(r: FakeRun) {
   const effects: Record<string, { effect: string; reason: string | null }> = {
     [r.id]: { effect: 'applied', reason: null },
@@ -163,7 +163,9 @@ function runOut(r: FakeRun) {
     topic_id: r.topic_id,
     version: r.version,
     status: r.status ?? 'running',
+    revision: (r.events?.size ?? 0) + 1,
     aliases: [...(r.aliases?.keys() ?? [])],
+    events: [],
     state: { effects },
   };
 }

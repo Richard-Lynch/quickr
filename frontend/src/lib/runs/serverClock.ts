@@ -104,7 +104,7 @@ export function serverOffset(): number {
     const raw = storage()?.getItem(SERVER_OFFSET_KEY);
     if (raw != null) {
       const n = Number(raw);
-      if (Number.isSafeInteger(n)) return n;
+      if (Number.isSafeInteger(n) && Math.abs(n) <= MAX_STORED_OFFSET_MS) return n;
     }
   } catch {
     // blocked storage: memory below
@@ -112,10 +112,14 @@ export function serverOffset(): number {
   return memory;
 }
 
-/** Record one response's sample (§5.1 item 2: the latest qualifying one wins). */
+/**
+ * Record one response's sample (§5.1 item 2: the latest qualifying one wins). A sample
+ * beyond ±24 h is ignored, as a stored one is (`MAX_STORED_OFFSET_MS`).
+ */
 export function recordServerTime(header: string | null, tSend: number, tRecv: number): number {
   const serverTime = parseServerTime(header);
   const next = nextOffset(serverOffset(), serverTime, tSend, tRecv);
+  if (Math.abs(next) > MAX_STORED_OFFSET_MS) return serverOffset();
   memory = next;
   try {
     storage()?.setItem(SERVER_OFFSET_KEY, String(next));

@@ -241,4 +241,176 @@ describe('review fixes', () => {
     expect(both[0]?.events.map((e) => e.id)).toEqual(['r1', 'r1']);
     expect(both[0]?.state.open?.index).toBe(0);
   });
+
+  describe('a server run whose pinned version’s steps aren’t known here (M3)', () => {
+    const blind = (item: ReturnType<typeof runItem>) => {
+      item.payload = { ...item.payload, steps: null, requires_answers: null };
+      return item;
+    };
+    const server = serverRun('r1', [start, ev('n1', 'next', T0 + 60 * S, { seg: 0 })]);
+
+    it('an offline Pause, then Resume, show over the server’s labels', () => {
+      const pause = blind(runItem('pause', { id: 'p1', run: 'r1', at: T0 + 90 * S }));
+      const [paused] = localRuns([server], [pause]);
+      expect(paused).toMatchObject({ status: 'paused', steps: null });
+      expect(paused?.state.open).toMatchObject({ index: 1, step: 'breakfast', label: 'Breakfast' });
+      expect(paused?.state.paused_since).toBe(T0 + 90 * S);
+      const resume = blind(
+        runItem('resume', { id: 'u1', run: 'r1', at: T0 + 100 * S, pause_id: 'p1' }),
+      );
+      const [running] = localRuns([server], [pause, resume]);
+      expect(running?.status).toBe('running');
+      expect(running?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 100 * S }]);
+    });
+
+    it('an offline Stop closes it; a Next waits for the server', () => {
+      const next = blind(runItem('next', { id: 'n2', run: 'r1', at: T0 + 80 * S, seg: 1 }));
+      const stop = blind(runItem('stop', { id: 's1', run: 'r1', at: T0 + 120 * S }));
+      const [run] = localRuns([server], [next, stop]);
+      expect(run?.status).toBe('stopped');
+      expect(run?.state.open).toBeNull();
+      expect(run?.state.ended_at).toBe(T0 + 120 * S);
+      expect(run?.state.segments.map((x) => [x.label, x.active_ms])).toEqual([
+        ['Shower', 60 * S],
+        ['Breakfast', 60 * S],
+      ]);
+      expect(run?.state.effects.n2).toBeUndefined();
+      expect(run?.state.effects.s1).toEqual({ effect: 'applied', reason: null });
+    });
+
+    it('a Lap opens a lap segment; a Discard discards; taps after the close are void', () => {
+      const lap = blind(runItem('lap', { id: 'l1', run: 'r1', at: T0 + 70 * S, seg: 1 }));
+      const [lapped] = localRuns([server], [lap]);
+      expect(lapped?.state.open).toMatchObject({ index: 2, kind: 'lap', label: 'Lap 1' });
+      const discard = blind(runItem('discard', { id: 'd1', run: 'r1', at: T0 + 80 * S }));
+      const late = blind(runItem('pause', { id: 'p2', run: 'r1', at: T0 + 90 * S }));
+      const [gone] = localRuns([server], [discard, late]);
+      expect(gone?.status).toBe('discarded');
+      expect(gone?.state.effects.p2).toEqual({ effect: 'void', reason: 'after_stop' });
+    });
+
+    it('a stop, pause or lap before the server’s open segment began is stale (#76)', () => {
+      // The server's open segment (Breakfast) began at T0 + 60 s.
+      const early = (type: 'stop' | 'pause' | 'lap', id: string) =>
+        blind(
+          runItem(type, { id, run: 'r1', at: T0 + 50 * S, ...(type === 'lap' ? { seg: 1 } : {}) }),
+        );
+      for (const [type, id] of [
+        ['stop', 's0'],
+        ['pause', 'p0'],
+        ['lap', 'l0'],
+      ] as const) {
+        const [run] = localRuns([server], [early(type, id)]);
+        expect(run?.status).toBe('running');
+        expect(run?.state.effects[id]).toEqual({ effect: 'void', reason: 'stale' });
+        expect(run?.state.segments.every((x) => x.active_ms >= 0)).toBe(true);
+      }
+    });
+
+    it('orders taps by (at, id), and voids those after the stop, whatever the outbox order', () => {
+      // Enqueued (created) in another order than tapped (at): stop, pause, lap, resume, pause.
+      const stop = blind(
+        runItem('stop', { id: 's1', run: 'r1', at: T0 + 120 * S, created: T0 + 200 * S }),
+      );
+      const lap = blind(
+        runItem('lap', { id: 'l1', run: 'r1', at: T0 + 90 * S, seg: 1, created: T0 + 202 * S }),
+      );
+      const pause = blind(
+        runItem('pause', { id: 'p1', run: 'r1', at: T0 + 130 * S, created: T0 + 201 * S }),
+      );
+      const resume = blind(
+        runItem('resume', {
+          id: 'u1',
+          run: 'r1',
+          at: T0 + 80 * S,
+          pause_id: 'p0',
+          created: T0 + 203 * S,
+        }),
+      );
+      const early = blind(
+        runItem('pause', { id: 'p0', run: 'r1', at: T0 + 70 * S, created: T0 + 204 * S }),
+      );
+      const [run] = localRuns([server], [stop, pause, lap, resume, early]);
+      expect(run?.status).toBe('stopped');
+      expect(run?.state.effects.p1).toEqual({ effect: 'void', reason: 'after_stop' });
+      expect(run?.state.effects.l1).toEqual({ effect: 'applied', reason: null });
+      expect(run?.state.effects.u1).toEqual({ effect: 'applied', reason: null });
+      expect(run?.state.pauses).toEqual([{ start: T0 + 70 * S, end: T0 + 80 * S }]);
+      expect(run?.state.segments.map((x) => [x.label, x.active_ms])).toEqual([
+        ['Shower', 60 * S],
+        ['Breakfast', 20 * S],
+        ['Lap 1', 30 * S],
+      ]);
+    });
+
+    it('a resume stamped before its pause began is stale: no negative pause', () => {
+      const listed = serverRun('r1', [start, ev('p1', 'pause', T0 + 30 * S)]);
+      const resume = blind(
+        runItem('resume', { id: 'u1', run: 'r1', at: T0 + 20 * S, pause_id: 'p1' }),
+      );
+      const [run] = localRuns([listed], [resume]);
+      expect(run?.status).toBe('paused');
+      expect(run?.state.effects.u1).toEqual({ effect: 'void', reason: 'stale' });
+      expect(run?.state.pauses).toEqual([]);
+    });
+
+    it('a resume must name the open pause, the one that began at paused_since (M-2, m20)', () => {
+      // Arrival order differs from time order: p2 (the open one) arrived before p1 and u1.
+      const listed = serverRun('r1', [
+        start,
+        ev('p2', 'pause', T0 + 50 * S),
+        ev('p1', 'pause', T0 + 30 * S),
+        ev('u1', 'resume', T0 + 40 * S, { pause_id: 'p1' }),
+      ]);
+      const resume = (id: string, pauseId: string) =>
+        blind(runItem('resume', { id, run: 'r1', at: T0 + 60 * S, pause_id: pauseId }));
+      const [named] = localRuns([listed], [resume('u2', 'p2')]);
+      expect(named?.status).toBe('running');
+      expect(named?.state.effects.u2).toEqual({ effect: 'applied', reason: null });
+      const [wrong] = localRuns([listed], [resume('u3', 'p1')]);
+      expect(wrong?.status).toBe('paused');
+      expect(wrong?.state.effects.u3).toEqual({ effect: 'void', reason: 'stale' });
+    });
+
+    it('a stop while paused ends the pause at the stop (m24)', () => {
+      const pause = blind(runItem('pause', { id: 'p1', run: 'r1', at: T0 + 90 * S }));
+      const stop = blind(runItem('stop', { id: 's1', run: 'r1', at: T0 + 120 * S }));
+      const [run] = localRuns([server], [pause, stop]);
+      expect(run?.status).toBe('stopped');
+      expect(run?.state.paused_since).toBeNull();
+      expect(run?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 120 * S }]);
+      expect(run?.state.segments.at(-1)).toMatchObject({
+        label: 'Breakfast',
+        active_ms: 30 * S,
+        paused_ms: 30 * S,
+      });
+    });
+
+    it('a lap for another segment is stale (m25)', () => {
+      const lap = blind(runItem('lap', { id: 'l1', run: 'r1', at: T0 + 90 * S, seg: 0 }));
+      const [run] = localRuns([server], [lap]);
+      expect(run?.state.effects.l1).toEqual({ effect: 'void', reason: 'stale' });
+      expect(run?.state.open).toMatchObject({ index: 1, step: 'breakfast' });
+    });
+
+    it('a stop more than 7 days after the start is void too_long (m26)', () => {
+      const late = blind(runItem('stop', { id: 's1', run: 'r1', at: T0 + 8 * 24 * 3600 * S }));
+      const [run] = localRuns([server], [late]);
+      expect(run?.status).toBe('running');
+      expect(run?.state.effects.s1).toEqual({ effect: 'void', reason: 'too_long' });
+    });
+
+    it('a tap the server lists already isn’t applied twice', () => {
+      const listed = serverRun('r1', [start, ev('p1', 'pause', T0 + 30 * S)]);
+      const pause = blind(runItem('pause', { id: 'p1', run: 'r1', at: T0 + 30 * S }));
+      const resume = blind(
+        runItem('resume', { id: 'u1', run: 'r1', at: T0 + 40 * S, pause_id: 'p1' }),
+      );
+      const [run] = localRuns([listed], [], [pause]);
+      expect(run?.status).toBe('paused');
+      const [resumed] = localRuns([listed], [resume], [pause]);
+      expect(resumed?.status).toBe('running');
+      expect(resumed?.state.pauses).toEqual([{ start: T0 + 30 * S, end: T0 + 40 * S }]);
+    });
+  });
 });
