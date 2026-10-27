@@ -289,6 +289,60 @@ describe('review fixes', () => {
       expect(gone?.state.effects.p2).toEqual({ effect: 'void', reason: 'after_stop' });
     });
 
+    it('a stop, pause or lap before the server’s open segment began is stale (#76)', () => {
+      // The server's open segment (Breakfast) began at T0 + 60 s.
+      const early = (type: 'stop' | 'pause' | 'lap', id: string) =>
+        blind(
+          runItem(type, { id, run: 'r1', at: T0 + 50 * S, ...(type === 'lap' ? { seg: 1 } : {}) }),
+        );
+      for (const [type, id] of [
+        ['stop', 's0'],
+        ['pause', 'p0'],
+        ['lap', 'l0'],
+      ] as const) {
+        const [run] = localRuns([server], [early(type, id)]);
+        expect(run?.status).toBe('running');
+        expect(run?.state.effects[id]).toEqual({ effect: 'void', reason: 'stale' });
+        expect(run?.state.segments.every((x) => x.active_ms >= 0)).toBe(true);
+      }
+    });
+
+    it('orders taps by (at, id), and voids those after the stop, whatever the outbox order', () => {
+      // Enqueued (created) in another order than tapped (at): stop, pause, lap, resume, pause.
+      const stop = blind(
+        runItem('stop', { id: 's1', run: 'r1', at: T0 + 120 * S, created: T0 + 200 * S }),
+      );
+      const lap = blind(
+        runItem('lap', { id: 'l1', run: 'r1', at: T0 + 90 * S, seg: 1, created: T0 + 202 * S }),
+      );
+      const pause = blind(
+        runItem('pause', { id: 'p1', run: 'r1', at: T0 + 130 * S, created: T0 + 201 * S }),
+      );
+      const resume = blind(
+        runItem('resume', {
+          id: 'u1',
+          run: 'r1',
+          at: T0 + 80 * S,
+          pause_id: 'p0',
+          created: T0 + 203 * S,
+        }),
+      );
+      const early = blind(
+        runItem('pause', { id: 'p0', run: 'r1', at: T0 + 70 * S, created: T0 + 204 * S }),
+      );
+      const [run] = localRuns([server], [stop, pause, lap, resume, early]);
+      expect(run?.status).toBe('stopped');
+      expect(run?.state.effects.p1).toEqual({ effect: 'void', reason: 'after_stop' });
+      expect(run?.state.effects.l1).toEqual({ effect: 'applied', reason: null });
+      expect(run?.state.effects.u1).toEqual({ effect: 'applied', reason: null });
+      expect(run?.state.pauses).toEqual([{ start: T0 + 70 * S, end: T0 + 80 * S }]);
+      expect(run?.state.segments.map((x) => [x.label, x.active_ms])).toEqual([
+        ['Shower', 60 * S],
+        ['Breakfast', 20 * S],
+        ['Lap 1', 30 * S],
+      ]);
+    });
+
     it('a tap the server lists already isn’t applied twice', () => {
       const listed = serverRun('r1', [start, ev('p1', 'pause', T0 + 30 * S)]);
       const pause = blind(runItem('pause', { id: 'p1', run: 'r1', at: T0 + 30 * S }));
