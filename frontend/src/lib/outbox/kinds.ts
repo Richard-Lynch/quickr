@@ -99,6 +99,11 @@ export interface RunEventPayload {
   /** Body for `POST /runs/{run_id}/events` minus `id`: the item id *is* the event id. */
   event: Omit<RunEventIn, 'id'>;
   /**
+   * A finish: the other run ids that routed to its run in the local view at the tap (its
+   * aliases), so it also waits for a stop queued under one of them ({@link waitsFor}).
+   */
+  run_aliases?: string[];
+  /**
    * The server a reminder's Start came from (`X-QuickR-Expect-Server-Id`, as for
    * `entry.create`): another server refuses it with 409 `server_mismatch`.
    */
@@ -112,14 +117,21 @@ const runEvent: OutboxKind<RunEventPayload> = {
    * `run_open` on a finish: it is sent only once this device's stop is in ({@link
    * waitsFor}), so the run has no stop the server knows of (none was tapped here, or it
    * failed or was discarded). It fails with its answers kept, for the user to fix.
+   *
+   * A 2xx is an ack only when its body is a `RunEventResult`: anything else (a proxy's
+   * page, a truncated body) is retried, as one that may have been delivered.
    */
   classify(status, body) {
+    if (status >= 200 && status < 300) {
+      return isRunEventResult(body) ? undefined : 'retry';
+    }
     return status === 409 && problemCode(body) === 'run_deleted' ? 'retired' : undefined;
   },
   /**
    * The ordering rule (§8.2): an event waits for its run's start, pending or failed. A
-   * finish also waits for its run's pending stops, so it doesn't reach the server before
-   * them (a failed stop doesn't hold it: the finish goes, and fails on `run_open`).
+   * finish also waits for its run's pending stops, those queued under an alias of its run
+   * included, so it doesn't reach the server before them (a failed stop doesn't hold it:
+   * the finish goes, and fails on `run_open`).
    *
    * A start waits for the pending stops and discards of the topic's other runs enqueued
    * before it (§8.1): the local view has that run closed, but the server, still having it
@@ -146,10 +158,11 @@ const runEvent: OutboxKind<RunEventPayload> = {
       return closes.map((i) => i.id);
     }
     if (event.type !== 'finish') return [runId];
+    const ids = new Set([runId, ...(item.payload.run_aliases ?? [])].map((id) => id.toLowerCase()));
     const stops = queue.filter(
       (i) =>
         isRunEvent(i) &&
-        i.payload.run_id === runId &&
+        ids.has(i.payload.run_id.toLowerCase()) &&
         i.payload.event.type === 'stop' &&
         i.status === 'pending',
     );
@@ -183,7 +196,8 @@ const runEvent: OutboxKind<RunEventPayload> = {
    * - an entry of the start's topic: already logged. Retire the start, and fail the run's
    *   other taps (nothing to send them to) with that reason, not one by one on 404.
    * - nothing, or another topic's: the refusal stands (`failed/rejected`).
-   * A read that can be retried retries the start (it didn't execute); another 4xx fails it.
+   * A read that can be retried, or one refused with `server_mismatch`, retries the start (it
+   * didn't execute); another 4xx fails it.
    */
   async verify(item, refusal, { read, queue }) {
     const { event, run_id: runId, topic } = item.payload;
@@ -202,7 +216,10 @@ const runEvent: OutboxKind<RunEventPayload> = {
         status: res.status,
         ...(res.body !== undefined ? { body: res.body } : {}),
       };
-      const outcome = res.status === null ? 'retry' : classifyStatus(res.status);
+      // A read refused with `server_mismatch` says nothing about the start (the origin
+      // serves another server now): it stays queued as it was, to be sent again.
+      const mismatch = problemCode(res.body) === 'server_mismatch';
+      const outcome = res.status === null || mismatch ? 'retry' : classifyStatus(res.status);
       if (outcome !== 'ok') return { outcome, error };
       if (!ofTopic(res.body, topic.id)) continue;
       if (i === 0) return { outcome: 'ok', data: knownStart(item, res.body as RunOut) };
@@ -252,6 +269,29 @@ const runEvent: OutboxKind<RunEventPayload> = {
 
 /** Why a start's run's taps fail once its id turns out to be an entry of its topic. */
 export const ALREADY_LOGGED = 'Already logged elsewhere';
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+
+/**
+ * Whether `body` has the shape of a `RunEventResult`: the event's id and effect, a run with
+ * its id, status, revision, state, events and aliases, and an entry or null.
+ */
+export function isRunEventResult(body: unknown): body is RunEventResult {
+  if (!isObject(body) || !isObject(body.event) || !isObject(body.run)) return false;
+  const { event, run } = body;
+  return (
+    typeof event.id === 'string' &&
+    (event.effect === 'applied' || event.effect === 'void') &&
+    typeof run.id === 'string' &&
+    typeof run.topic_id === 'string' &&
+    typeof run.status === 'string' &&
+    typeof run.revision === 'number' &&
+    isObject(run.state) &&
+    Array.isArray(run.events) &&
+    Array.isArray(run.aliases) &&
+    (body.entry === null || isObject(body.entry))
+  );
+}
 
 /** Whether `data` is a `RunEventResult` whose run is closed (`stopped`, `discarded`). */
 function closedRun(data: unknown): boolean {
@@ -309,4 +349,23 @@ export function isEntryCreate(item: OutboxItem): item is OutboxItem<EntryCreateP
 
 export function isRunEvent(item: OutboxItem): item is OutboxItem<RunEventPayload> {
   return item.kind === RUN_EVENT;
+}
+
+/** A run event that carries answers: a finish, or a stop with answers. */
+export function carriesAnswers(item: OutboxItem<RunEventPayload>): boolean {
+  const e = item.payload.event;
+  return e.type === 'finish' || (e.type === 'stop' && e.answers != null);
+}
+
+/**
+ * Whether a failed answers event offers Fix (the answers form, timers.md §8.1): only a 422,
+ * and only when no attempt may have reached the server (it may already hold the answers).
+ */
+export function answersFixable(item: OutboxItem<RunEventPayload>): boolean {
+  return (
+    item.status === 'failed' &&
+    carriesAnswers(item) &&
+    item.last_error?.status === 422 &&
+    !item.maybe_delivered
+  );
 }

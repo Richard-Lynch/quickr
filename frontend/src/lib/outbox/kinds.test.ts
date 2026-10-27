@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { T0, runItem } from '../../test/runs';
+import { T0, runEventResult, runItem } from '../../test/runs';
 import { ENTRY_CREATE, OUTBOX_KINDS, RUN_EVENT, problemCode } from './kinds';
 import type { OutboxItem } from './types';
 
@@ -60,7 +60,27 @@ describe('run.event kind', () => {
     }
     expect(kind.classify?.(404, problem('not_found'), next)).toBeUndefined();
     expect(kind.classify?.(422, problem('invalid_answers'), finish)).toBeUndefined();
-    expect(kind.classify?.(200, { event: { effect: 'void' } }, next)).toBeUndefined();
+    expect(kind.classify?.(200, runEventResult('n1', 'void', 'stale'), next)).toBeUndefined();
+  });
+
+  it('retries a 2xx whose body isn’t a RunEventResult (M7)', () => {
+    expect(kind.classify?.(200, { event: { effect: 'void' } }, next)).toBe('retry');
+    expect(kind.classify?.(200, {}, next)).toBe('retry');
+    expect(kind.classify?.(200, undefined, next)).toBe('retry');
+    const noEntry: Partial<ReturnType<typeof runEventResult>> = runEventResult('n1');
+    delete noEntry.entry;
+    expect(kind.classify?.(200, noEntry, next)).toBe('retry');
+  });
+
+  it('a result without its run’s aliases or revision isn’t one (L-3)', () => {
+    const noAliases: { run: Partial<ReturnType<typeof runEventResult>['run']> } =
+      runEventResult('n1');
+    delete noAliases.run.aliases;
+    expect(kind.classify?.(200, noAliases, next)).toBe('retry');
+    const noRevision: { run: Partial<ReturnType<typeof runEventResult>['run']> } =
+      runEventResult('n1');
+    delete noRevision.run.revision;
+    expect(kind.classify?.(200, noRevision, next)).toBe('retry');
   });
 
   it('makes an event wait for its run start, and a finish for its pending stops too', () => {

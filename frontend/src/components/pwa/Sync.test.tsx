@@ -4,17 +4,25 @@ import { describe, expect, it } from 'vitest';
 import { T0, runItem } from '../../test/runs';
 import { describeOutboxItem } from './Sync';
 
+const invalid = { message: 'Invalid answers', status: 422, body: { code: 'validation_error' } };
+
 describe('describeOutboxItem for run events', () => {
-  it('a finish is "Details", fixed in the answers form', () => {
-    const item = runItem('finish', { id: 'f1', run: 'r1', at: T0, answers: { mood: 2 } });
+  it('a finish refused with a 422 is "Details", fixed in the answers form', () => {
+    const item = {
+      ...runItem('finish', { id: 'f1', run: 'r1', at: T0, answers: { mood: 2 }, status: 'failed' }),
+      last_error: invalid,
+    };
     expect(describeOutboxItem(item)).toMatchObject({
       title: 'Details · Morning',
       fixUrl: '/t/morning/record?fix=f1',
     });
   });
 
-  it('a stop with answers is fixed in the answers form too', () => {
-    const item = runItem('stop', { id: 's1', run: 'r1', at: T0, answers: { mood: 2 } });
+  it('a stop with answers refused with a 422 is fixed in the answers form too', () => {
+    const item = {
+      ...runItem('stop', { id: 's1', run: 'r1', at: T0, answers: { mood: 2 }, status: 'failed' }),
+      last_error: invalid,
+    };
     expect(describeOutboxItem(item).fixUrl).toBe('/t/morning/record?fix=s1');
   });
 
@@ -50,5 +58,28 @@ describe('describeOutboxItem for run events', () => {
       },
     };
     expect(describeOutboxItem(item).fixUrl).toBeNull();
+  });
+
+  it('answers refused other than with a 422 have no Fix (#59)', () => {
+    const item = {
+      ...runItem('finish', { id: 'f1', run: 'r1', at: T0, answers: { mood: 2 }, status: 'failed' }),
+      last_error: { message: 'The run is still open', status: 409, body: { code: 'run_open' } },
+    };
+    expect(describeOutboxItem(item).fixUrl).toBeNull();
+  });
+
+  it('a 422 after an attempt that may have reached the server has no Fix', () => {
+    const answers = {
+      ...runItem('finish', { id: 'f1', run: 'r1', at: T0, answers: { mood: 2 }, status: 'failed' }),
+      last_error: invalid,
+      maybe_delivered: true,
+    };
+    expect(describeOutboxItem(answers).fixUrl).toBeNull();
+    const stop = {
+      ...runItem('stop', { id: 's1', run: 'r1', at: T0, status: 'failed' }),
+      last_error: { message: 'Topic is not timed', status: 409, body: { code: 'topic_not_timed' } },
+      maybe_delivered: true,
+    };
+    expect(describeOutboxItem(stop).fixUrl).toBeNull();
   });
 });

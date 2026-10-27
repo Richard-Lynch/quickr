@@ -3,7 +3,7 @@ import 'fake-indexeddb/auto';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { T0, runItem } from '../../test/runs';
+import { T0, runEventResult, runItem } from '../../test/runs';
 import { getAckedSnapshot, memoryAckedStore, setAckedStore } from '../runs/acked';
 import { outbox, startOutbox } from './client';
 import { RUN_EVENT } from './kinds';
@@ -17,7 +17,11 @@ describe('page outbox', () => {
   it("refreshes the acked snapshot when a run event is sent, so the view doesn't lose it", async () => {
     setAckedStore(memoryAckedStore());
     vi.stubGlobal('fetch', () =>
-      Promise.resolve(new Response('{}', { headers: { 'Content-Type': 'application/json' } })),
+      Promise.resolve(
+        new Response(JSON.stringify(runEventResult('r1')), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
     );
     const stop = startOutbox();
     const start = runItem('start', { id: 'r1', run: 'r1', at: T0 });

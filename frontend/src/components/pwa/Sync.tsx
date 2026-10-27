@@ -1,7 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 
-import { isEntryCreate, isRunEvent, problemCode } from '../../lib/outbox/kinds';
+import {
+  answersFixable,
+  carriesAnswers,
+  isEntryCreate,
+  isRunEvent,
+  problemCode,
+} from '../../lib/outbox/kinds';
 import type { OutboxItem } from '../../lib/outbox/types';
 import { useOutbox } from '../../lib/outbox/useOutbox';
 import { formatDateTime, formatRelative } from '../../lib/dates';
@@ -37,15 +43,20 @@ export function describeOutboxItem(item: OutboxItem): ItemView {
     return {
       title: `${event.type === 'finish' ? 'Details' : `${event.type.charAt(0).toUpperCase()}${event.type.slice(1)}`} · ${topic.name}`,
       when: formatDateTime(event.at),
-      // Answers (a finish, or a stop with answers) are fixed in the answers form; a failed
-      // Stop on the run panel, where the run is open again and can be stopped or discarded.
-      // A 404: the run is gone elsewhere (§8.1 `deleted_elsewhere`); an `id_conflict`: its
-      // start's reminder was logged elsewhere (`ALREADY_LOGGED`). There's nothing to fix.
+      // Answers (a finish, or a stop with answers) refused with a 422 are fixed in the answers
+      // form; a failed Stop on the run panel, where the run is open again and can be stopped
+      // or discarded (§8.1). Not when an attempt may have reached the server. A 404: the run
+      // is gone elsewhere (`deleted_elsewhere`); an `id_conflict`: its start's reminder was
+      // logged elsewhere (`ALREADY_LOGGED`). There's nothing to fix.
       fixUrl:
-        item.last_error?.status === 404 || problemCode(item.last_error?.body) === 'id_conflict'
+        item.maybe_delivered ||
+        item.last_error?.status === 404 ||
+        problemCode(item.last_error?.body) === 'id_conflict'
           ? null
-          : event.type === 'finish' || (event.type === 'stop' && event.answers != null)
-            ? `${base}?fix=${encodeURIComponent(item.id)}`
+          : carriesAnswers(item)
+            ? answersFixable(item)
+              ? `${base}?fix=${encodeURIComponent(item.id)}`
+              : null
             : event.type === 'stop'
               ? base
               : null,

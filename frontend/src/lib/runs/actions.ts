@@ -59,6 +59,11 @@ export interface RunTapDeps {
    * view tries again after it before giving up.
    */
   refresh?: () => Promise<void>;
+  /**
+   * Whether a run id is known here other than as an item, acked event or run: an entry
+   * with it (its run stopped, §3.3). A reminder's Start with such an id was made already.
+   */
+  knownId?: (id: string) => Promise<boolean>;
   /** Device time, epoch ms. */
   now?: () => number;
   /** The server-time offset (`serverClock.ts`). */
@@ -204,8 +209,8 @@ function pendingOpenRun(items: readonly OutboxItem[], topicId: string): string |
  * Start a run of `ctx.topic`, unless the local view already has an open run for it: then
  * the tap routes to that run and nothing is enqueued (§4.5). `id` is the run id (a
  * reminder's Start derives it from the slot, §10.2); a new one by default. A given `id`
- * this device already knows (an item, an acked event or a run with it) was already
- * started: nothing is enqueued either.
+ * this device already knows (an item, an acked event, a run, or `deps.knownId`'s entry
+ * with it) was already started: nothing is enqueued either.
  *
  * A reminder's Start (`reminder`, from the service worker) sees no `listRuns` and nothing
  * prunes its acked record, so only this device's **pending** items count as an open run
@@ -230,7 +235,13 @@ export function startRun(
     const { runs, items, acked } = await view(deps);
     const runId = (opts.id ?? uuid()).toLowerCase();
     const known = (i: OutboxItem) => i.id.toLowerCase() === runId;
-    if (opts.id !== undefined && (items.some(known) || acked.some(known) || runById(runs, runId))) {
+    if (
+      opts.id !== undefined &&
+      (items.some(known) ||
+        acked.some(known) ||
+        runById(runs, runId) ||
+        (await deps.knownId?.(runId).catch(() => false)))
+    ) {
       return { runId, started: false };
     }
     // The page also checks the pending items: a run only they open may not fold (§8.3).
@@ -348,6 +359,8 @@ export function tapRun(
       ...(body.meta != null ? { meta: body.meta } : {}),
     };
     const payload = payloadOf(ctx, run.id, makesEntry(run, ctx, type, body), event);
+    // A finish waits for a stop queued under any id of its run (`waitsFor`).
+    if (type === 'finish' && run.aliases.length > 0) payload.run_aliases = [...run.aliases];
     return deps.outbox.enqueue(RUN_EVENT, payload);
   });
 }
