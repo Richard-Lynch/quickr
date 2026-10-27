@@ -672,6 +672,17 @@ describe('a start the server already has (§8.1, §10.2)', () => {
     expect((await outbox.get('r1'))?.last_error?.status).toBe(400);
   });
 
+  it('a read refused with server_mismatch leaves the start queued, not failed (L6)', async () => {
+    const { outbox, queue, ids } = onFake((_url, init) =>
+      Promise.resolve(
+        init?.method === 'GET' ? problem(409, 'server_mismatch') : problem(409, 'event_conflict'),
+      ),
+    );
+    await queue(start);
+    await outbox.flush();
+    expect(await ids()).toEqual(['r1:pending']);
+  });
+
   it('no run with that id (404): the event_conflict stands', async () => {
     const { outbox, queue, ids } = onFake((_url, init) =>
       Promise.resolve(

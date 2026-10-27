@@ -67,7 +67,8 @@ describe('run.event kind', () => {
     expect(kind.classify?.(200, { event: { effect: 'void' } }, next)).toBe('retry');
     expect(kind.classify?.(200, {}, next)).toBe('retry');
     expect(kind.classify?.(200, undefined, next)).toBe('retry');
-    const { entry: _entry, ...noEntry } = runEventResult('n1');
+    const noEntry: Partial<ReturnType<typeof runEventResult>> = runEventResult('n1');
+    delete noEntry.entry;
     expect(kind.classify?.(200, noEntry, next)).toBe('retry');
   });
 

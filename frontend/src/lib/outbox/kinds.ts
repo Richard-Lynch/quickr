@@ -196,7 +196,8 @@ const runEvent: OutboxKind<RunEventPayload> = {
    * - an entry of the start's topic: already logged. Retire the start, and fail the run's
    *   other taps (nothing to send them to) with that reason, not one by one on 404.
    * - nothing, or another topic's: the refusal stands (`failed/rejected`).
-   * A read that can be retried retries the start (it didn't execute); another 4xx fails it.
+   * A read that can be retried, or one refused with `server_mismatch`, retries the start (it
+   * didn't execute); another 4xx fails it.
    */
   async verify(item, refusal, { read, queue }) {
     const { event, run_id: runId, topic } = item.payload;
@@ -215,7 +216,10 @@ const runEvent: OutboxKind<RunEventPayload> = {
         status: res.status,
         ...(res.body !== undefined ? { body: res.body } : {}),
       };
-      const outcome = res.status === null ? 'retry' : classifyStatus(res.status);
+      // A read refused with `server_mismatch` says nothing about the start (the origin
+      // serves another server now): it stays queued as it was, to be sent again.
+      const mismatch = problemCode(res.body) === 'server_mismatch';
+      const outcome = res.status === null || mismatch ? 'retry' : classifyStatus(res.status);
       if (outcome !== 'ok') return { outcome, error };
       if (!ofTopic(res.body, topic.id)) continue;
       if (i === 0) return { outcome: 'ok', data: knownStart(item, res.body as RunOut) };
