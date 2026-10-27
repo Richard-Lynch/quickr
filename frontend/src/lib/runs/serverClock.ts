@@ -112,10 +112,14 @@ export function serverOffset(): number {
   return memory;
 }
 
-/** Record one response's sample (§5.1 item 2: the latest qualifying one wins). */
+/**
+ * Record one response's sample (§5.1 item 2: the latest qualifying one wins). A sample
+ * beyond ±24 h is ignored, as a stored one is (`MAX_STORED_OFFSET_MS`).
+ */
 export function recordServerTime(header: string | null, tSend: number, tRecv: number): number {
   const serverTime = parseServerTime(header);
   const next = nextOffset(serverOffset(), serverTime, tSend, tRecv);
+  if (Math.abs(next) > MAX_STORED_OFFSET_MS) return serverOffset();
   memory = next;
   try {
     storage()?.setItem(SERVER_OFFSET_KEY, String(next));
