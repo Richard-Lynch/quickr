@@ -348,6 +348,8 @@ export function tapRun(
       ...(body.meta != null ? { meta: body.meta } : {}),
     };
     const payload = payloadOf(ctx, run.id, makesEntry(run, ctx, type, body), event);
+    // A finish waits for a stop queued under any id of its run (`waitsFor`).
+    if (type === 'finish' && run.aliases.length > 0) payload.run_aliases = [...run.aliases];
     return deps.outbox.enqueue(RUN_EVENT, payload);
   });
 }

@@ -99,6 +99,11 @@ export interface RunEventPayload {
   /** Body for `POST /runs/{run_id}/events` minus `id`: the item id *is* the event id. */
   event: Omit<RunEventIn, 'id'>;
   /**
+   * A finish: the other run ids that routed to its run in the local view at the tap (its
+   * aliases), so it also waits for a stop queued under one of them ({@link waitsFor}).
+   */
+  run_aliases?: string[];
+  /**
    * The server a reminder's Start came from (`X-QuickR-Expect-Server-Id`, as for
    * `entry.create`): another server refuses it with 409 `server_mismatch`.
    */
@@ -118,8 +123,9 @@ const runEvent: OutboxKind<RunEventPayload> = {
   },
   /**
    * The ordering rule (§8.2): an event waits for its run's start, pending or failed. A
-   * finish also waits for its run's pending stops, so it doesn't reach the server before
-   * them (a failed stop doesn't hold it: the finish goes, and fails on `run_open`).
+   * finish also waits for its run's pending stops, those queued under an alias of its run
+   * included, so it doesn't reach the server before them (a failed stop doesn't hold it:
+   * the finish goes, and fails on `run_open`).
    *
    * A start waits for the pending stops and discards of the topic's other runs enqueued
    * before it (§8.1): the local view has that run closed, but the server, still having it
@@ -146,10 +152,11 @@ const runEvent: OutboxKind<RunEventPayload> = {
       return closes.map((i) => i.id);
     }
     if (event.type !== 'finish') return [runId];
+    const ids = new Set([runId, ...(item.payload.run_aliases ?? [])].map((id) => id.toLowerCase()));
     const stops = queue.filter(
       (i) =>
         isRunEvent(i) &&
-        i.payload.run_id === runId &&
+        ids.has(i.payload.run_id.toLowerCase()) &&
         i.payload.event.type === 'stop' &&
         i.status === 'pending',
     );

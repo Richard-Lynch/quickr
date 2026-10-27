@@ -252,6 +252,16 @@ describe('review fixes', () => {
     expect(onFinishing?.payload.makes_entry).toBe(true);
   });
 
+  it('a finish carries its run’s aliases, so it waits for a stop queued under one (M2)', async () => {
+    const finishing = serverRun('r9', [ev('r9', 'start', T0), ev('s9', 'stop', T0 + 5000)], {
+      status: 'finishing',
+      aliases: ['r1'],
+    });
+    const { deps } = setup([finishing]);
+    const finish = await tapRun(deps, 'r9', CTX, 'finish', { answers: { mood: 1 } });
+    expect(finish?.payload).toMatchObject({ run_id: 'r9', run_aliases: ['r1'] });
+  });
+
   it('a stop with answers makes the entry even with a required question', async () => {
     const required = { ...CTX, requires_answers: true };
     const { deps } = setup();

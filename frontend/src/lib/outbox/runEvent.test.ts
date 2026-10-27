@@ -237,6 +237,24 @@ describe('finish after stop (L1)', () => {
     expect(await ids()).toEqual(['s1:failed', 'f1:failed']);
   });
 
+  it('waits for a retrying stop queued under an alias of its run (M2)', async () => {
+    // The stop went to the start's id (r1); the server merged r1 into r9, and the finish,
+    // tapped on the local view's r9, carries r1 among its aliases.
+    const aliasFinish = runItem('finish', { id: 'f9', run: 'r9', at: T0 + 2500, answers: {} });
+    aliasFinish.payload.run_aliases = ['r1'];
+    let up = false;
+    const { outbox, sent, queue, ids } = setup((b) =>
+      b.id === 's1' && !up ? problem(503, 'down') : ok(b.id),
+    );
+    await queue(stop, aliasFinish);
+    await outbox.flush();
+    expect(sent).toEqual(['s1']);
+    expect(await ids()).toEqual(['s1:pending', 'f9:pending']);
+    up = true;
+    await outbox.flush({ force: true });
+    expect(sent).toEqual(['s1', 's1', 'f9']);
+  });
+
   it("isn't discarded with its stop", async () => {
     const { outbox, queue, ids } = setup(() => new Error('offline'));
     await queue(stop, finish);
