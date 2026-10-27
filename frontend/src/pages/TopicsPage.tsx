@@ -88,14 +88,16 @@ export function TopicsPage() {
   const filtered = q !== '' || status !== 'active';
   const sectioned = sort === 'due' && !filtered;
   const { openTopics, runs } = useRuns();
-  // Each timed tile's open or finishing run (one per topic, §5).
-  const tileRuns = useMemo(
-    () =>
-      new Map(
-        runs.filter((r) => isOpen(r) || r.status === 'finishing').map((r) => [r.topic_id, r]),
-      ),
-    [runs],
-  );
+  // Each timed tile's run: its open one (one per topic, §5), else a finishing one.
+  const tileRuns = useMemo(() => {
+    const out = new Map<string, LocalRun>();
+    for (const r of runs) {
+      if (!isOpen(r) && r.status !== 'finishing') continue;
+      const held = out.get(r.topic_id);
+      if (!held || (!isOpen(held) && isOpen(r))) out.set(r.topic_id, r);
+    }
+    return out;
+  }, [runs]);
   const sections = useMemo(() => splitByDue(items, now, openTopics), [items, now, openTopics]);
   const dueTotal = useMemo(() => dueCount(items, now, openTopics), [items, now, openTopics]);
 

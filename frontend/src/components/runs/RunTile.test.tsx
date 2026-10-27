@@ -102,6 +102,26 @@ describe('the home tile of a timed topic', () => {
   });
 });
 
+describe('a topic with a finishing run and a newer open one (L3)', () => {
+  it('the tile shows the open run, whatever the order they’re listed in', async () => {
+    const OPEN_ID = '0b5e0000-0000-4000-8000-0000000000b2';
+    h = renderRunApp('/', timedTopic(), (s) => {
+      // Listed first: the open run, started after the other's stop.
+      s.record(OPEN_ID, {
+        id: OPEN_ID,
+        type: 'start',
+        at: new Date(Date.now() - 10_000).toISOString(),
+        topic_id: TOPIC_ID,
+        version: 1,
+      });
+      seedRun(s, [{ type: 'stop', s: 40 }]);
+    });
+    const t = await tile();
+    expect(await within(t).findByText(/^Running/)).toBeInTheDocument();
+    expect(within(t).queryByRole('link', { name: 'Add details to Morning' })).toBeNull();
+  });
+});
+
 describe('a run whose steps aren’t known here (T-PUSH: a reminder’s Start, nothing cached)', () => {
   const unknownSteps = (s: Parameters<typeof seedRun>[0]) => {
     s.versionsDown = true;
