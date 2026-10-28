@@ -354,6 +354,28 @@ async def test_a_reminder_to_a_device_below_the_minimum_is_display_only(
     assert old["quickr"]["topic_id"] == current["quickr"]["topic_id"]
 
 
+async def test_a_timed_topics_reminder_below_the_minimum_has_no_start(
+    client: httpx.AsyncClient, fake_apns: FakeApns, monkeypatch: pytest.MonkeyPatch, raised: Levels
+) -> None:
+    """A timed topic's reminder offers Start (timers.md §10.2); below the minimum it doesn't."""
+    monkeypatch.setattr(web_push, "deliver", lambda *_: None)
+    await client.post(
+        "/push/apns/devices", json={"token": token(1), "environment": "sandbox"}, headers=NEW_IOS
+    )
+    await client.post("/push/apns/devices", json={"token": token(2), "environment": "sandbox"})  # pre-CV: 0
+    await timed(client, "Routine", steps=[{"key": "a", "label": "A"}], schedule=INTERVAL)
+    async with get_sessionmaker()() as db:
+        assert await scheduler.tick(db, now=datetime.now(UTC) + timedelta(hours=1)) == 1
+
+    sent = {s.device: s.body for s in fake_apns.sent}
+    current, old = sent[token(1)], sent[token(2)]
+    assert current["quickr"]["quick_log"] == {"type": "timed"}
+    assert current["aps"]["category"].startswith("quickr.t.")
+    assert "category" not in old["aps"]
+    assert old["quickr"]["quick_log"] is None
+    assert old["aps"]["alert"]["body"].endswith(" · update quickR to log from here")
+
+
 def test_display_only_leaves_other_notifications_alone() -> None:
     from app.services.push import TEST_NOTIFICATION
 

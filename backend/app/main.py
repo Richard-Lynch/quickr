@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from fastmcp.utilities.lifespan import combine_lifespans
 
+from app import client_versions
 from app.api.identity import EPOCH_HEADER, SERVER_ID_HEADER, SERVER_TIME_HEADER, IdentityHeadersMiddleware
 from app.api.routes import router, unchecked_router
 from app.client_versions import API_LEVEL_HEADER, MIN_CLIENT_LEVEL_HEADER, ClientVersionMiddleware
@@ -24,6 +25,8 @@ def _operation_id(route: APIRoute) -> str:
 
 
 def create_app() -> FastAPI:
+    # Resolved now, so a bad QUICKR_MIN_CLIENT_LEVEL_* override warns at boot, not on a request.
+    client_versions.current()
     mcp_app = mcp.http_app(path="/")
     app = FastAPI(
         title="quickR API",

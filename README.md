@@ -78,11 +78,11 @@ is capped at its `api_level`
 Tests use `QUICKR_TEST_DATABASE_URL` (default
 `postgresql+asyncpg://quickr:quickr@localhost:5433/quickr_test`, or
 `quickr_test_<worktree directory>_<path hash>` in a git worktree, so parallel
-worktrees don't share tables). The database is created and migrated
-automatically. `make test-db-reset` drops it, e.g. after a migration was edited
-in place, and `make test-db-prune` drops this checkout's peer databases
-(`*_peer_*`) that a killed test run left behind, once they're an hour old
-(`make test-db-prune all=1`: every checkout's).
+worktrees don't share tables). The database is created and migrated automatically.
+`make test-db-reset` drops it, e.g. after a migration was edited in place, and `make
+test-db-prune` drops this checkout's peer databases (`*_peer_*`) that a killed test
+run left behind, once they're an hour old (`make test-db-prune all=1`: every
+checkout's).
 
 ## Entries
 
@@ -185,7 +185,7 @@ logged (another server, an archived or deleted topic), a follow-up notification
 says why; it never just disappears. Safari and iOS web push show no buttons;
 tapping the notification opens the record screen as before.
 
-_Manual test (Chrome desktop):_ subscribe in Settings, make a topic whose only
+*Manual test (Chrome desktop):* subscribe in Settings, make a topic whose only
 required question is a single-select with 2–4 options and give it a schedule
 that is due now, then wait for the scheduler's next tick
 (`QUICKR_SCHEDULER_INTERVAL_SECONDS`). On the notification, click an option: the
@@ -226,10 +226,10 @@ Screen (iOS/iPadOS 16.4 or later), and permission must be requested from inside
 the installed app. Safari can do this via Share → Add to Home Screen. Chrome on
 iOS can too, via its share menu → Add to Home Screen.
 
-Endpoints: `GET /push/config` (VAPID public key for `PushManager.subscribe`, and
-`apns_enabled`), `POST /push/subscriptions` (upsert `subscription.toJSON()`),
-`POST /push/subscriptions/delete` (`{endpoint}`) and `POST /push/test` (every
-browser and every iOS device).
+Endpoints: `GET /push/config` (VAPID public key for `PushManager.subscribe`,
+and `apns_enabled`), `POST /push/subscriptions` (upsert
+`subscription.toJSON()`), `POST /push/subscriptions/delete` (`{endpoint}`) and
+`POST /push/test` (every browser and every iOS device).
 
 ### APNs (the iOS app)
 
@@ -256,27 +256,26 @@ sent to them.
 
    With Docker, mount the key read-only: copy
    `docker-compose.override.yml.example` to `docker-compose.override.yml` and
-   fill it in. The container runs as uid 10001, so the file must be readable by
-   it (for example `chmod 644`).
+   fill it in. The container runs as uid 10001, so the file must be readable
+   by it (for example `chmod 644`).
 
 3. Restart the API. A key that is set but can't be loaded is logged as an error
    the first time APNs is used, and APNs stays off (`apns_enabled: false`).
 
 Each app install registers its device token on every launch with
-`POST /push/apns/devices`
-(`{token, environment, bundle_id?, app_version?, device_name?}`; an upsert by
-token that resets its failure count). `environment` is `sandbox` for debug
-builds and `production` for TestFlight and App Store builds, and picks
-`api.sandbox.push.apple.com` or `api.push.apple.com`.
+`POST /push/apns/devices` (`{token, environment, bundle_id?, app_version?, device_name?}`;
+an upsert by token that resets its failure count). `environment` is `sandbox`
+for debug builds and `production` for TestFlight and App Store builds, and
+picks `api.sandbox.push.apple.com` or `api.push.apple.com`.
 `POST /push/apns/devices/delete` (`{token}`) unregisters, and
 `POST /push/apns/devices/test` (`{token}`) sends a test to that one device
 ("Test this device"; `409 apns_disabled` when APNs is off).
 
 Requests use HTTP/2 with an ES256 provider token that is cached and re-signed
 every 50 minutes. Responses `410` and `400 BadDeviceToken` delete the device
-(the app registers again on its next launch). `400 DeviceTokenNotForTopic` means
-`QUICKR_APNS_TOPIC` doesn't match the app's bundle id; it and any other `400`
-are logged as errors.
+(the app registers again on its next launch). `400 DeviceTokenNotForTopic`
+means `QUICKR_APNS_TOPIC` doesn't match the app's bundle id; it and any other
+`400` are logged as errors.
 
 To debug without the scheduler, send straight to a token:
 
@@ -301,9 +300,9 @@ make send-reminder-docker t=mood                         # against the docker st
 `t` is a topic slug or id. The notification is built and delivered by the
 scheduler's own code, under the same lock as the test push, so it is exactly
 what a scheduled reminder would be. It is a test send: the topic's slot is not
-marked as notified and its due state doesn't change. `--due-since` (default:
-now, to the second) sets the slot; the entry id a log action uses, and the run
-id a Start uses, derive from it, so give each test a new one to act on the same
+marked as notified and its due state doesn't change. `--due-since` (default: now,
+to the second) sets the slot; the entry id a log action uses, and the run id a
+Start uses, derive from it, so give each test a new one to act on the same
 reminder again. `--channel` is `apns`, `webpush` or `all` (the default). The
 script prints the category, the actions, the action entry id and how many
 targets it reached.
@@ -316,17 +315,13 @@ then marks the slot as notified in the same transaction. A target that fails is
 not retried for that slot. If the tick fails before it commits, nothing is
 marked and the next tick sends the slot again; the duplicate replaces the first
 notification on the device, because both carry the same tag (`due-<topic id>`,
-the APNs collapse id). Delivery stops 30 seconds into a tick, even in the middle
-of a topic. That topic's slot is not marked; the targets it already reached are
-recorded (`push_slot_deliveries`), and the next tick continues with the others,
-so every target gets the slot once even when a fan-out takes several ticks. Due
-topics go oldest slot first, so the topics after it follow. A target is deleted
-when its push service says it is gone, or after 20 failures in a row with no
-success for 30 days.
+the APNs collapse id). Delivery stops 30 seconds into a tick, even in the middle of a topic. That topic's slot is not marked; the targets it already reached are recorded (`push_slot_deliveries`), and the next tick continues with the others, so every target gets the slot once even when a fan-out takes several ticks. Due topics go oldest slot first, so the topics after it follow. A target is deleted when
+its push service says it is gone, or after 20 failures in a row with no success
+for 30 days.
 
-Device tokens and subscription endpoints never appear in the logs: request lines
-from httpx (APNs) and urllib3 (Web Push) are redacted, and delivery errors give
-only the host, the status and the error type.
+Device tokens and subscription endpoints never appear in the logs: request
+lines from httpx (APNs) and urllib3 (Web Push) are redacted, and delivery
+errors give only the host, the status and the error type.
 
 ## Versioning rules
 
@@ -387,11 +382,10 @@ copy in step. Every change to a topic, version, entry or run, made over REST or
 MCP, appends a row to `change_log` in the same transaction. Runs appear as items
 only while open or finishing; a run that stops or is discarded leaves as a `run`
 deletion, and a stopped run's data arrives as its entry
-([timers.md §7.1](docs/specs/timers.md#71-the-feed-server)). Each page returns
-the **current** state of every entity changed after the cursor (`items`), the
-deletions (`deleted`), and
-`{next, has_more, head, epoch, server_id, server_time}`. Start from `after=0`
-and follow `next` while `has_more`.
+([timers.md §7.1](docs/specs/timers.md#71-the-feed-server)). Each page returns the
+**current** state of every entity changed after the cursor (`items`), the
+deletions (`deleted`), and `{next, has_more, head, epoch, server_id, server_time}`.
+Start from `after=0` and follow `next` while `has_more`.
 
 - **Ordering.** Every write takes one advisory lock as its first statement, so
   `seq` order is commit order: a page never skips a change that commits later.
@@ -408,8 +402,8 @@ and follow `next` while `has_more`.
   `expected_revision`; a mismatch is `409 stale_revision`.
 - **Restores.** `epoch` changes when the database is restored or reset; a client
   that sees a new epoch, or a cursor above `head`, rebuilds from `after=0`.
-  After restoring a backup, run `make rotate-epoch` (or
-  `make rotate-epoch-docker`). The `server_id` never changes, restores included.
+  After restoring a backup, run `make rotate-epoch` (or `make rotate-epoch-docker`).
+  The `server_id` never changes, restores included.
 - **Identity headers.** Every `/api/v1` response, errors included, carries
   `X-QuickR-Server-Id` and `X-QuickR-Epoch`. Mutations accept
   `X-QuickR-Expect-Server-Id` / `X-QuickR-Expect-Epoch`; a mismatch is rejected
