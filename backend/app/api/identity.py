@@ -5,7 +5,9 @@ Every ``/api/v1`` response (errors and ``/health`` included) carries
 response that it is still talking to the server, and the database epoch, its
 local store belongs to. It also carries ``X-QuickR-Server-Time``, the server's
 clock in integer Unix epoch milliseconds, from which clients stamp run events
-(docs/specs/timers.md §5.1); it is set even when the identity can't be read.
+(docs/specs/timers.md §5.1), and the API level headers ``X-QuickR-Api-Level`` and
+``X-QuickR-Min-Client-Level`` (docs/specs/client-versions.md §3.2); both are set even when
+the identity can't be read.
 
 Mutating endpoints accept ``X-QuickR-Expect-Server-Id`` / ``X-QuickR-Expect-Epoch``:
 when present and different, the request is rejected with 409 ``server_mismatch`` /
@@ -28,6 +30,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app import client_versions
 from app.db import REQUEST_SESSION_KEY, get_sessionmaker
 from app.schemas.base import Problem
 from app.services.feed import ExpectedIdentity, FeedIdentity, expected_identity, feed_identity
@@ -91,7 +94,8 @@ def _under(path: str, prefix: str) -> bool:
 
 
 class IdentityHeadersMiddleware:
-    """Adds the identity headers and the server time to every response under ``prefix``.
+    """Adds the identity headers, the API levels and the server time to every response under
+    ``prefix``.
 
     The middleware owns the request's database session: it opens it, hands it to the
     handler (``app.db.get_db``), reads the identity on it, and closes it after the
@@ -142,6 +146,7 @@ class IdentityHeadersMiddleware:
                     headers += [
                         (k, v) for k, v in (await _identity_headers(db, scope["path"])) if k not in present
                     ]
+                headers += client_versions.response_headers()
                 headers.append((_SERVER_TIME_KEY, _server_time()))  # read last, closest to sending
                 message = {**message, "headers": headers}
                 started = True

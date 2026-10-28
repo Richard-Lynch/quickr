@@ -67,6 +67,21 @@ SERVER_ID = "11111111-1111-4111-8111-111111111111"
 EPOCH = "22222222-2222-4222-8222-222222222222"
 TOPIC_ID = "33333333-3333-4333-8333-333333333333"
 ENTRY_1 = "44444444-4444-4444-8444-000000000001"
+# X-QuickR-Client's placeholders (docs/specs/client-versions.md §6): the level replayed is this
+# commit's api_level, or QUICKR_REPLAY_CLIENT_LEVEL (a listed client's level, compat/).
+LEVEL_PLACEHOLDER = "<level>"
+BUILD_PLACEHOLDER = "<build>"
+REPLAY_BUILD = "replay"
+API_LEVEL_FILE = FIXTURES_DIR.parent / "api-level.json"
+
+
+def replay_client_level() -> str:
+    level = (
+        os.environ.get("QUICKR_REPLAY_CLIENT_LEVEL") or json.loads(API_LEVEL_FILE.read_text())["api_level"]
+    )
+    return str(int(level))
+
+
 # The server clock for the run goldens: just after their taps, so a start isn't too old.
 RUN_NOW = datetime(2026, 3, 5, 9, 0, tzinfo=UTC)
 
@@ -308,13 +323,20 @@ SETUP: dict[str, Setup] = {
 
 
 class Substituting(httpx.AsyncBaseTransport):
-    """Swaps the golden placeholders in paths, precondition headers and bodies for real values."""
+    """Swaps the golden placeholders in paths, precondition headers and bodies for real values,
+    and fills in the level and build of ``X-QuickR-Client`` when a golden carries it."""
 
     def __init__(self, inner: httpx.AsyncBaseTransport) -> None:
         self.inner = inner
         self.values: dict[str, str] = {}
+        self.client_level = replay_client_level()
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if (client := request.headers.get("x-quickr-client")) is not None:
+            filled = client.replace(LEVEL_PLACEHOLDER, self.client_level).replace(
+                BUILD_PLACEHOLDER, REPLAY_BUILD
+            )
+            request.headers["x-quickr-client"] = filled
         url, body = str(request.url), request.content
         for placeholder, real in self.values.items():
             url = url.replace(placeholder, real)
@@ -386,3 +408,23 @@ async def test_golden_replays(name: str, replay: tuple[httpx.AsyncClient, Substi
         async with get_sessionmaker()() as db:
             kinds = (await db.execute(select(LiveActivityToken.kind))).scalars().all()
         assert kinds == ["update"]
+
+
+async def test_replay_fills_in_the_client_header(
+    replay: tuple[httpx.AsyncClient, Substituting], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A golden's ``X-QuickR-Client`` placeholder replays at this commit's level (or the listed
+    client's), so a raised minimum doesn't refuse it (client-versions.md §6)."""
+    from app import client_versions
+
+    client, transport = replay
+    level = int(transport.client_level)
+    raised = client_versions.Levels(level, {"ios": level, "web": level}, "itms-beta://")
+    monkeypatch.setattr(client_versions, "current", lambda: raised)
+    headers = {"x-quickr-channel": "ios", "x-quickr-client": "ios; level=<level>; build=<build>"}
+    assert (await client.get("/topics", headers=headers)).status_code == 200
+    monkeypatch.setenv("QUICKR_REPLAY_CLIENT_LEVEL", str(level + 1))
+    assert replay_client_level() == str(level + 1)
+    if level > 0:
+        transport.client_level = str(level - 1)
+        assert (await client.get("/topics", headers=headers)).status_code == 426

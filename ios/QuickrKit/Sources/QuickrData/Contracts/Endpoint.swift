@@ -74,6 +74,9 @@ public enum Endpoints {
     public static let listQuestionTypes = Endpoint<EmptyBody, [QuestionTypeInfoDTO]>(
         "listQuestionTypes", .get, "/api/v1/question-types")
     public static let getLimits = Endpoint<EmptyBody, LimitsDTO>("getLimits", .get, "/api/v1/limits")
+    /// Never refused for an outdated client (client-versions.md §3.2).
+    public static let getClientVersions = Endpoint<EmptyBody, ClientVersionsDTO>(
+        "getClientVersions", .get, "/api/v1/client-versions")
 
     public static let listTopics = Endpoint<EmptyBody, PageDTO<TopicSummaryDTO>>("listTopics", .get, "/api/v1/topics")
     public static let createTopic = Endpoint<TopicCreateDTO, TopicDetailDTO>("createTopic", .post, "/api/v1/topics")
@@ -148,7 +151,8 @@ public enum Endpoints {
         "sendApnsTestPush", .post, "/api/v1/push/apns/devices/test")
 
     public static let all: [AnyEndpoint] = [
-        health.erased, listQuestionTypes.erased, getLimits.erased, listTopics.erased, createTopic.erased,
+        health.erased, listQuestionTypes.erased, getLimits.erased, getClientVersions.erased, listTopics.erased,
+        createTopic.erased,
         getTopic.erased, updateTopic.erased, deleteTopic.erased, archiveTopic.erased, unarchiveTopic.erased,
         listTopicVersions.erased, publishTopicVersion.erased, checkTopicVersion.erased, listEntries.erased,
         createEntry.erased, exportEntriesCsv.erased, getEntry.erased, updateEntry.erased, deleteEntry.erased,

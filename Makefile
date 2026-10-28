@@ -68,6 +68,10 @@ openapi: ## Regenerate openapi.json from the FastAPI app
 client: openapi ## Regenerate spec + typed TS client/zod schemas
 	$(FRONTEND) pnpm gen:api
 
+.PHONY: api-level
+api-level: ## Copy shared/api-level.json into each component that reads it (docs/specs/client-versions.md §2)
+	cp shared/api-level.json backend/app/api_level.json
+
 .PHONY: vectors
 vectors: ## Regenerate shared/fixtures (due, quick-log, answer-text, notification, APNs payload, action-entry-id, home, entries, stats, builder, schedule, builder-UI, run-fold, timing-stats, duration-format and Live Activity vectors, API response fixtures) and the iOS casefold table
 	$(BACKEND) QUICKR_UPDATE_VECTORS=1 uv run pytest -q tests/test_due_vectors.py tests/test_quicklog_vectors.py \

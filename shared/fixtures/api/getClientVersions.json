@@ -1,0 +1,19 @@
+{
+  "body": {
+    "api_level": 1,
+    "min_client_level": {
+      "ios": 0,
+      "web": 0
+    },
+    "update_url": {
+      "ios": "itms-beta://"
+    }
+  },
+  "operation_id": "getClientVersions",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/client-versions"
+  },
+  "status": 200
+}
