@@ -37,12 +37,17 @@ from typing import Any
 import httpx
 import pytest
 from pydantic import BaseModel
+from sqlalchemy import select
 
+from app.db import get_sessionmaker
+from app.models import LiveActivityToken
 from app.schemas.api import (
     ApnsDeviceIn,
     ApnsDeviceRef,
     EntryCreate,
     EntryUpdate,
+    LiveActivityIn,
+    LiveActivityRef,
     PushSubscriptionDelete,
     PushSubscriptionIn,
     RunEventIn,
@@ -78,6 +83,8 @@ REQUEST_MODELS: dict[str, type[BaseModel]] = {
     "deleteApnsDevice": ApnsDeviceRef,
     "sendApnsTestPush": ApnsDeviceRef,
     "recordRunEvent": RunEventIn,
+    "registerLiveActivity": LiveActivityIn,
+    "deleteLiveActivity": LiveActivityRef,
 }
 
 # The status each golden gets from a server in the state its setup builds.
@@ -114,6 +121,9 @@ EXPECTED: dict[str, int] = {
     "recordRunEvent.stop": 200,  # no answers, and v2 has required questions: finishing
     "recordRunEvent.finish": 200,  # the finishing run's entry is created
     "recordRunEvent.discard": 200,  # an open run
+    "registerLiveActivity.start": 201,
+    "registerLiveActivity.update": 201,  # for the open run
+    "deleteLiveActivity": 204,
 }
 
 
@@ -149,10 +159,7 @@ def test_goldens_exist_and_have_expectations() -> None:
 
 
 # Mutations the Swift client doesn't send yet. Each one says when it will.
-NO_GOLDEN_YET = {
-    "registerLiveActivity": "the iOS Live Activity writes its goldens (timers-plan.md, I-LA)",
-    "deleteLiveActivity": "the iOS Live Activity writes its goldens (timers-plan.md, I-LA)",
-}
+NO_GOLDEN_YET: dict[str, str] = {}
 
 
 def test_every_mutation_has_a_golden() -> None:
@@ -269,6 +276,10 @@ async def device(client: httpx.AsyncClient) -> None:
     await ok(client, "registerApnsDevice", 201)
 
 
+async def live_activity(client: httpx.AsyncClient) -> None:
+    await ok(client, "registerLiveActivity.start", 201)
+
+
 # By golden name, else by operation.
 SETUP: dict[str, Setup] = {
     **{name: run_until(name) for name, _ in RUN_TAPS},
@@ -290,6 +301,9 @@ SETUP: dict[str, Setup] = {
     "registerApnsDevice": nothing,
     "deleteApnsDevice": device,
     "sendApnsTestPush": device,
+    "registerLiveActivity.start": nothing,
+    "registerLiveActivity.update": run_until("recordRunEvent.next"),  # an open run
+    "deleteLiveActivity": live_activity,
 }
 
 
@@ -368,3 +382,7 @@ async def test_golden_replays(name: str, replay: tuple[httpx.AsyncClient, Substi
         assert r.json()["channel"] == "ios"
         if op == "createEntry":
             assert r.json()["source"] == request["body"]["source"]
+    if name == "registerLiveActivity.update":  # kept: its run is open
+        async with get_sessionmaker()() as db:
+            kinds = (await db.execute(select(LiveActivityToken.kind))).scalars().all()
+        assert kinds == ["update"]

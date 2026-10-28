@@ -213,6 +213,73 @@ import Testing
         #expect(try h.viewEntries().isEmpty, "with no steps known, no optimistic entry")
     }
 
+    @Test("R4 · a server run of a version not stored here: offline Pause, Resume and Lap show over its labels")
+    func unknownStepsTapsOverTheServer() async throws {
+        let h = try OutboxHarness()
+        try h.timed()
+        let server = try h.seedServerRun(
+            version: 7, events: [RunEvent(id: UUID().wireString, type: .next, at: ms(60), seg: 0)])
+        let id = server.id.wireString
+        h.wall.advance(by: 120)
+        _ = try await h.runs().pause(runId: id)
+        let paused = try #require(try h.localRun(id))
+        let pausedSteps: [TopicTimer.Step]? = paused.steps
+        #expect(pausedSteps == nil)
+        #expect(paused.status == .paused)
+        let pausedSince: Int? = paused.state.pausedSince
+        #expect(pausedSince == ms(120))
+        let pauseId: String? = paused.openPauseId
+        #expect(pauseId != nil, "the queued pause is the one a resume ends")
+
+        h.wall.advance(by: 30)
+        _ = try await h.runs().resume(runId: id)
+        h.wall.advance(by: 30)
+        _ = try await h.runs().lap(runId: id)
+        let run = try #require(try h.localRun(id))
+        #expect(run.status == .running)
+        let pauses: [RunPause] = run.state.pauses
+        #expect(pauses == [RunPause(start: ms(120), end: ms(150))])
+        let labels: [String] = run.state.segments.map(\.label)
+        #expect(labels == ["Shower", "Breakfast"], "the server's labels, the open step closed by the lap")
+        let breakfast = try #require(run.state.segments.last)
+        let pausedMs: Int = breakfast.pausedMs
+        #expect(pausedMs == 30_000)
+        let open = try #require(run.state.open)
+        #expect(open.kind == .lap)
+        #expect(open.label == "Lap 1")
+        let nextStep: String? = run.state.nextStep
+        #expect(nextStep == "out", "the server's next step is still to come")
+    }
+
+    @Test(
+        "R4 · a server run of a version not stored here: an offline Stop or Discard shows",
+        arguments: [RunEventType.stop, .discard])
+    func unknownStepsCloseOverTheServer(type: RunEventType) async throws {
+        let h = try OutboxHarness()
+        try h.timed()
+        let id = try h.seedServerRun(version: 7).id.wireString
+        h.wall.advance(by: 90)
+        if type == .stop {
+            _ = try await h.runs().stop(runId: id)
+        } else {
+            _ = try await h.runs().discard(runId: id)
+        }
+        let run = try #require(try h.localRun(id))
+        #expect(run.state.open == nil)
+        let endedAt: Int? = run.state.endedAt
+        let labels: [String] = run.state.segments.map(\.label)
+        if type == .stop {
+            #expect(run.status == .stopped)
+            #expect(endedAt == ms(90))
+            #expect(labels == ["Shower"])
+            #expect(try h.viewEntries().isEmpty, "with no steps known, still no optimistic entry")
+        } else {
+            #expect(run.status == .discarded)
+            #expect(endedAt == nil)
+            #expect(labels.isEmpty)
+        }
+    }
+
     @Test("R4 · the local view folds the run's pinned version's steps, never the topic's current ones")
     func pinnedVersion() async throws {
         let h = try OutboxHarness()

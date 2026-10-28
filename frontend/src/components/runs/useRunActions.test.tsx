@@ -56,6 +56,22 @@ describe('useRunActions', () => {
       'lap',
     ]);
   });
+
+  it('a discard isn’t held by the cooldown (it is confirmed first, as on iOS)', async () => {
+    const { result } = setup();
+    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    // (An earlier test's lap may still be in the shared outbox.)
+    const before = new Set((await outbox.list()).map((i) => i.id));
+    await act(async () => {
+      await result.current.tap('r1', CTX, 'lap');
+      await result.current.tap('r1', CTX, 'discard');
+    });
+    const mine = (await outbox.list()).filter((i) => !before.has(i.id));
+    expect(mine.map((i) => (i.payload as { event: { type: string } }).event.type)).toEqual([
+      'lap',
+      'discard',
+    ]);
+  });
 });
 
 describe('finish', () => {

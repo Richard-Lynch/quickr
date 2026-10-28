@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fakeQuickrServer } from '../../test/fakeQuickrServer';
-import { T0, TOPIC, runItem } from '../../test/runs';
+import { T0, TOPIC, runEventResult, runItem } from '../../test/runs';
 import { ackedItems, memoryAckedStore, setAckedStore } from '../runs/acked';
 import { formatInstant } from '../runs/instant';
 import {
@@ -20,8 +20,9 @@ import type { OutboxEvent, OutboxItem } from './types';
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const problem = (status: number, code: string) => json(status, { code, detail: code, errors: [] });
-const ok = (id: string) =>
-  json(200, { event: { id, effect: 'applied', reason: null }, run: {}, entry: null });
+const result = (id: string, effect: 'applied' | 'void', reason: string | null) =>
+  json(200, runEventResult(id, effect, reason));
+const ok = (id: string) => result(id, 'applied', null);
 
 beforeEach(() => {
   setAckedStore(memoryAckedStore());
@@ -164,11 +165,24 @@ describe('K6', () => {
 
 describe('classification', () => {
   it('acks a void event like any success', async () => {
-    const { outbox, queue, ids } = setup((b) =>
-      json(200, { event: { id: b.id, effect: 'void', reason: 'stale' }, run: {}, entry: null }),
-    );
+    const { outbox, queue, ids } = setup((b) => result(b.id, 'void', 'stale'));
     await queue(next);
     await outbox.flush();
+    expect(await ids()).toEqual([]);
+  });
+
+  it('retries an ack that isn’t a RunEventResult, as maybe delivered, then acks (M7)', async () => {
+    let good = false;
+    const { outbox, events, queue, ids } = setup((b) =>
+      good ? ok(b.id) : json(200, { event: { id: b.id, effect: 'applied' } }),
+    );
+    await queue(start);
+    await outbox.flush();
+    expect(await ids()).toEqual(['r1:pending']);
+    expect((await outbox.list())[0]).toMatchObject({ maybe_delivered: true });
+    expect(events.some((e) => e.type === 'sent')).toBe(false);
+    good = true;
+    await outbox.flush({ force: true });
     expect(await ids()).toEqual([]);
   });
 
@@ -235,6 +249,24 @@ describe('finish after stop (L1)', () => {
     await outbox.flush();
     expect(sent).toEqual(['s1', 'f1']);
     expect(await ids()).toEqual(['s1:failed', 'f1:failed']);
+  });
+
+  it('waits for a retrying stop queued under an alias of its run (M2)', async () => {
+    // The stop went to the start's id (r1); the server merged r1 into r9, and the finish,
+    // tapped on the local view's r9, carries r1 among its aliases.
+    const aliasFinish = runItem('finish', { id: 'f9', run: 'r9', at: T0 + 2500, answers: {} });
+    aliasFinish.payload.run_aliases = ['r1'];
+    let up = false;
+    const { outbox, sent, queue, ids } = setup((b) =>
+      b.id === 's1' && !up ? problem(503, 'down') : ok(b.id),
+    );
+    await queue(stop, aliasFinish);
+    await outbox.flush();
+    expect(sent).toEqual(['s1']);
+    expect(await ids()).toEqual(['s1:pending', 'f9:pending']);
+    up = true;
+    await outbox.flush({ force: true });
+    expect(sent).toEqual(['s1', 's1', 'f9']);
   });
 
   it("isn't discarded with its stop", async () => {
@@ -638,6 +670,17 @@ describe('a start the server already has (§8.1, §10.2)', () => {
     await outbox.flush();
     expect(await ids()).toEqual(['r1:failed']);
     expect((await outbox.get('r1'))?.last_error?.status).toBe(400);
+  });
+
+  it('a read refused with server_mismatch leaves the start queued, not failed (L6)', async () => {
+    const { outbox, queue, ids } = onFake((_url, init) =>
+      Promise.resolve(
+        init?.method === 'GET' ? problem(409, 'server_mismatch') : problem(409, 'event_conflict'),
+      ),
+    );
+    await queue(start);
+    await outbox.flush();
+    expect(await ids()).toEqual(['r1:pending']);
   });
 
   it('no run with that id (404): the event_conflict stands', async () => {

@@ -427,6 +427,39 @@ async def test_a_token_for_an_alias_is_kept_and_its_topic_is_checked(
     assert set(await tokens()) == {la_token(1)}
 
 
+async def test_unregistering_a_device_drops_its_tokens(client: httpx.AsyncClient) -> None:
+    topic = await routine(client)
+    run = Driver(client, topic)
+    await run.start()
+    for phone in (PHONE_A, PHONE_B):
+        r = await client.post("/push/apns/devices", json={"token": phone, "environment": "production"})
+        assert r.status_code == 201
+    await start_token(client, 1, PHONE_A)
+    await update_token(client, 2, PHONE_A, topic["id"], run.id)
+    keep = await start_token(client, 3, PHONE_B)
+    r = await client.post("/push/apns/devices/delete", json={"token": PHONE_A})
+    assert r.status_code == 204
+    assert set(await tokens()) == {keep}
+
+
+async def test_a_gone_device_drops_its_tokens(client: httpx.AsyncClient, fake_apns: FakeApns) -> None:
+    topic = await routine(client)
+    run = Driver(client, topic)
+    await run.start()
+    for phone in (PHONE_A, PHONE_B):
+        r = await client.post("/push/apns/devices", json={"token": phone, "environment": "production"})
+        assert r.status_code == 201
+    await start_token(client, 1, PHONE_A)
+    await update_token(client, 2, PHONE_A, topic["id"], run.id)
+    keep = await start_token(client, 3, PHONE_B)
+    fake_apns.replies[PHONE_A] = [(410, "Unregistered")]
+    r = await client.post("/push/apns/devices/test", json={"token": PHONE_A})
+    assert r.json() == {"sent": 0, "failed": 1}
+    async with get_sessionmaker()() as db:
+        assert await db.scalar(select(ApnsDevice).where(ApnsDevice.token == PHONE_A)) is None
+    assert set(await tokens()) == {keep}
+
+
 async def test_deleting_the_topic_drops_its_tokens(client: httpx.AsyncClient) -> None:
     topic, other = await routine(client), await routine(client, "Other")
     run, kept = Driver(client, topic), Driver(client, other)

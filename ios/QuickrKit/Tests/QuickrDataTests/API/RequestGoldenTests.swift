@@ -20,6 +20,8 @@ import Testing
     static let topicId = UUID(uuidString: "33333333-3333-4333-8333-333333333333")!
     static let entryIds = (1...3).map { UUID(uuidString: String(format: "44444444-4444-4444-8444-%012d", $0))! }
     static let apnsToken = "7c5d0e1fa2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d"
+    /// A Live Activity push token: longer than a device token (timers.md §10.3).
+    static let liveActivityToken = String(repeating: "a1b2c3d4e5f60718", count: 10)
     static let pushEndpoint = "https://web.push.apple.com/QGuQyavXutnMlB5k"
     /// The run of the timed v2 topic; its start event has the run's id (timers.md §3.2).
     static let runId = UUID(uuidString: "55555555-5555-4555-8555-000000000001")!
@@ -258,6 +260,22 @@ import Testing
         Case(name: "sendApnsTestPush") { client in
             _ = try await client.sendApnsTestPush(ApnsDeviceRefDTO(token: apnsToken))
         },
+        // Live Activity tokens, as `LiveActivityTokens` registers them: the device's push-to-start
+        // token, and an activity's update token for the open run (its server id, lowercase).
+        Case(name: "registerLiveActivity.start") { client in
+            _ = try await client.registerLiveActivity(
+                LiveActivityInDTO(token: liveActivityToken, kind: .start, deviceToken: apnsToken, environment: .sandbox)
+            )
+        },
+        Case(name: "registerLiveActivity.update") { client in
+            _ = try await client.registerLiveActivity(
+                LiveActivityInDTO(
+                    token: liveActivityToken, kind: .update, deviceToken: apnsToken, environment: .sandbox,
+                    topicId: topicId.wireString, runId: runId.wireString))
+        },
+        Case(name: "deleteLiveActivity") { client in
+            _ = try await client.deleteLiveActivity(LiveActivityRefDTO(token: liveActivityToken))
+        },
     ]
 
     /// The golden file for one case: `{operation_id, request: {method, path, headers, body}}`.
@@ -311,9 +329,8 @@ import Testing
     /// G1 for requests (PLAN §6a rule 12): every mutation and every operation with a body has at
     /// least one golden, and every golden names a known operation.
     /// Operations the app doesn't send yet; each one gets its goldens with the WP that sends it.
-    /// `registerLiveActivity`, `deleteLiveActivity`: the Live Activity (I-LA). The backend's
-    /// `test_request_goldens.py` lists the same ones.
-    static let noGoldenYet: Set<String> = ["registerLiveActivity", "deleteLiveActivity"]
+    /// The backend's `test_request_goldens.py` lists the same ones.
+    static let noGoldenYet: Set<String> = []
 
     @Test func everyMutationAndBodiedOperationHasAGolden() {
         let covered = Set(Self.cases.map(\.operationId))

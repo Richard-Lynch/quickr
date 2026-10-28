@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { RunOut } from '../../client';
-import { CTX, T0, ev, serverRun } from '../../test/runs';
+import { CTX, T0, ev, runEventResult, serverRun } from '../../test/runs';
 import { OUTBOX_KINDS, type RunEventPayload } from '../outbox/kinds';
 import { createOutbox } from '../outbox/outbox';
 import { memoryOutboxStore } from '../outbox/store';
@@ -219,11 +219,11 @@ describe('review fixes', () => {
         headers: { 'Content-Type': 'application/json' },
       });
     const respond = (_: RequestInfo | URL, init?: RequestInit) => {
-      const body = JSON.parse(init?.body as string) as { type: string };
+      const body = JSON.parse(init?.body as string) as { id: string; type: string };
       return Promise.resolve(
         body.type === 'pause'
           ? json(422, { code: 'invalid_request', detail: 'no', errors: [] })
-          : json(200, {}),
+          : json(200, runEventResult(body.id)),
       );
     };
     const { deps, outbox, queued } = setup([], { now: T0, offset: 0 }, respond);
@@ -250,6 +250,16 @@ describe('review fixes', () => {
     const b = setup([finishing]);
     const onFinishing = await tapRun(b.deps, 'r1', CTX, 'finish', { answers: { mood: 1 } });
     expect(onFinishing?.payload.makes_entry).toBe(true);
+  });
+
+  it('a finish carries its run’s aliases, so it waits for a stop queued under one (M2)', async () => {
+    const finishing = serverRun('r9', [ev('r9', 'start', T0), ev('s9', 'stop', T0 + 5000)], {
+      status: 'finishing',
+      aliases: ['r1'],
+    });
+    const { deps } = setup([finishing]);
+    const finish = await tapRun(deps, 'r9', CTX, 'finish', { answers: { mood: 1 } });
+    expect(finish?.payload).toMatchObject({ run_id: 'r9', run_aliases: ['r1'] });
   });
 
   it('a stop with answers makes the entry even with a required question', async () => {

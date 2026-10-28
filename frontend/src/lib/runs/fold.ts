@@ -91,7 +91,7 @@ const compareKeys = ([a0, a1, a2, a3]: SortKey, [b0, b1, b2, b3]: SortKey): numb
  * Pass 2's order: `(at, id)` ascending, ids lowercase, except that a resume at the same
  * instant as the pause it names comes right after that pause.
  */
-function timeOrder(accepted: readonly RunEvent[]): (a: RunEvent, b: RunEvent) => number {
+export function timeOrder(accepted: readonly RunEvent[]): (a: RunEvent, b: RunEvent) => number {
   const pauses = new Map<string, number>();
   for (const e of accepted) if (e.type === 'pause') pauses.set(e.id.toLowerCase(), e.at);
   const key = (e: RunEvent): SortKey => {
@@ -272,7 +272,7 @@ class Clock {
  * How much of `[start, end)` the pauses cover. `openPause` is the start of a pause not
  * resumed yet, which covers up to `end` (measured to `end`: no "not resumed" sentinel).
  */
-function overlap(
+export function overlap(
   start: number,
   end: number,
   pauses: readonly Pause[],

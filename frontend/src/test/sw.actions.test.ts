@@ -325,6 +325,24 @@ describe('service worker: a timed reminder’s Start (timers.md §10.2)', () => 
     });
   });
 
+  it('a run id the cache shows as an entry (logged already) starts nothing (L6)', async () => {
+    cacheStore.cache.put('/api/v1/topics/mood/entries', {
+      items: [{ id: runId?.toUpperCase(), topic_id: TOPIC }],
+      total: 1,
+    });
+    await click(await push(timed), 'log|t|');
+    expect(server.requests).toEqual([]);
+    expect(await appOutbox().list()).toEqual([]);
+    expect(shown).toHaveLength(1); // no follow-up
+  });
+
+  it('nor does one cached as getEntry', async () => {
+    cacheStore.cache.put(`/api/v1/entries/${runId ?? ''}`, { id: runId, topic_id: TOPIC });
+    await click(await push(timed), 'log|t|');
+    expect(server.requests).toEqual([]);
+    expect(await appOutbox().list()).toEqual([]);
+  });
+
   it('with nothing cached, the start’s steps and questions are unknown (null)', async () => {
     server.offline = true;
     await click(await push(timed), 'log|t|');

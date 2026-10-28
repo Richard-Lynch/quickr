@@ -262,7 +262,7 @@ async def update_entry(db: AsyncSession, entry_id: UUID, body: EntryUpdate) -> E
         # The edit owns the times: later events on the run are void (timers.md §4.4).
         await db.execute(
             update(Run)
-            .where(Run.entry_id == s.id)
+            .where(Run.id == s.id, Run.entry_id == s.id)  # a run's entry has the run's id
             .values(edited=True, revision=Run.revision + 1, updated_at=func.now())
         )
     s.revision += 1
@@ -365,7 +365,7 @@ async def delete_entry(db: AsyncSession, entry_id: UUID) -> None:
         # A run's entry: the run stays, and later events on it are void (timers.md §4.4).
         await db.execute(
             update(Run)
-            .where(Run.entry_id == entry_id)
+            .where(Run.id == entry_id, Run.entry_id == entry_id)
             .values(entry_id=None, revision=Run.revision + 1, updated_at=func.now())
         )
 

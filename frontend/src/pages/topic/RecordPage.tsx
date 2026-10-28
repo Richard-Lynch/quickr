@@ -35,6 +35,8 @@ import {
 } from '../../lib/answerSchema';
 import { toLocalInputValue } from '../../lib/dates';
 import {
+  answersFixable,
+  carriesAnswers,
   isEntryCreate,
   isRunEvent,
   type EntryCreatePayload,
@@ -57,11 +59,13 @@ import {
 import { UNDO_WINDOW_MS } from '../../lib/undo';
 import { useTopic } from './TopicLayout';
 
-/** A queued answers event the Fix flow can correct: a finish, or a stop that carries answers. */
+/**
+ * A queued answers event the Fix flow can correct: a finish, or a stop that carries answers.
+ * A failed one only when it offers Fix (§8.1); a pending one is being sent again from the form.
+ */
 function isAnswersItem(item: OutboxItem): item is OutboxItem<RunEventPayload> {
-  if (!isRunEvent(item)) return false;
-  const e = item.payload.event;
-  return e.type === 'finish' || (e.type === 'stop' && e.answers != null);
+  if (!isRunEvent(item) || !carriesAnswers(item)) return false;
+  return item.status !== 'failed' || answersFixable(item);
 }
 
 export function RecordPage() {

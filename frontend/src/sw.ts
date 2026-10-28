@@ -221,6 +221,8 @@ async function onAction(action: string, data: unknown, open: () => Promise<void>
       topicState: cachedTopicState,
       // A Start (timers.md §10.2): stamped with the page's latest offset (no localStorage here).
       acked: () => ackedItems(Date.now()), // no page may have pruned it: fresh ones only
+      // Cached entries only: run tombstones live in the page's memory (#78).
+      knownId: cachedEntryKnown,
       offset: loadServerOffset,
       startVersion: cachedStartVersion,
       queued: () =>
@@ -279,6 +281,26 @@ async function cachedStartVersion(
     if (found) return found;
   }
   return undefined;
+}
+
+/**
+ * Whether the API cache (the app's last GETs) has an entry with this id: `getEntry`, or any
+ * cached page of a topic's entries. A reminder's Start whose run id is one was logged.
+ */
+async function cachedEntryKnown(id: string): Promise<boolean> {
+  const cache = await caches.open(SW_API_CACHE);
+  if (await cache.match(`${API_PREFIX}/entries/${encodeURIComponent(id)}`)) return true;
+  const lists = new RegExp(`^${API_PREFIX}/topics/[^/]+/entries$`);
+  for (const request of await cache.keys()) {
+    if (!lists.test(new URL(request.url).pathname)) continue;
+    const body: unknown = await (await cache.match(request))?.json().catch(() => null);
+    const items = (body as { items?: unknown } | null)?.items;
+    if (!Array.isArray(items)) continue;
+    if (items.some((e) => String((e as { id?: unknown } | null)?.id).toLowerCase() === id)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

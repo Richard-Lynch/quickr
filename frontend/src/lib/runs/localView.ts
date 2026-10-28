@@ -12,9 +12,29 @@
 import type { RunOut } from '../../client/types.gen';
 import { isRunEvent, type RunEventPayload } from '../outbox/kinds';
 import type { OutboxItem } from '../outbox/types';
-import { eventFromWire, fold, projectTiming, stateFromWire } from './fold';
+import {
+  eventFromWire,
+  fold,
+  lapLabel,
+  MAX_RUN_MS,
+  overlap,
+  projectTiming,
+  stateFromWire,
+  timeOrder,
+} from './fold';
 import { parseInstant } from './instant';
-import type { RunEvent, RunState, RunStatus, TimerStep, Timing } from './types';
+import type {
+  Effect,
+  OpenSegment,
+  Pause,
+  RunEvent,
+  RunState,
+  RunStatus,
+  Segment,
+  TimerStep,
+  Timing,
+  VoidReason,
+} from './types';
 
 type QueuedRunEvent = OutboxItem<RunEventPayload>;
 
@@ -124,6 +144,123 @@ function statusOf(
   return 'finishing';
 }
 
+/**
+ * The server's state with this device's taps that need no step list applied on top, in
+ * outbox order (§8.3): pause, resume, lap, stop and discard, with the fold's rules. A Next
+ * or Skip needs the steps: it shows once the server answers. For a run whose pinned
+ * version's steps this device doesn't know, so an offline Pause or Stop still shows.
+ */
+function overlay(server: RunOut, base: RunState, mine: readonly QueuedRunEvent[]): RunState {
+  const effects: Record<string, Effect> = { ...base.effects };
+  const segments: Segment[] = [...base.segments];
+  const pauses: Pause[] = [...base.pauses];
+  let { status, ended_at: endedAt, open, next_step: nextStep, paused_since: pausedSince } = base;
+  // The server's open pause, which a resume must name: the applied pause that began it.
+  let pauseId: string | null = null;
+  if (pausedSince !== null) {
+    for (const e of server.events.map(serverEvent)) {
+      if (e.type === 'pause' && e.at === pausedSince && applied(base, e.id)) pauseId = e.id;
+    }
+  }
+  const close = (seg: OpenSegment, at: number) => {
+    const paused = overlap(seg.started_at, at, pauses, pausedSince);
+    segments.push({
+      kind: seg.kind,
+      step: seg.step,
+      label: seg.label,
+      started_at: seg.started_at,
+      ended_at: at,
+      active_ms: at - seg.started_at - paused,
+      paused_ms: paused,
+    });
+  };
+  // A tap before the server's open segment began would close it with negative time.
+  const openedAt = base.open?.started_at ?? -Infinity;
+  /** A stop or discard: the run's terminal (the first valid one, in outbox order). */
+  const terminalReason = (e: RunEvent, terminal: RunEvent | null): VoidReason | null => {
+    if (base.open === null || terminal !== null) return 'already_closed';
+    if (e.type === 'stop' && e.at < base.started_at) return 'before_start';
+    if (e.type === 'stop' && e.at > base.started_at + MAX_RUN_MS) return 'too_long';
+    if (e.type === 'stop' && e.at < openedAt) return 'stale';
+    return null;
+  };
+  const apply = (e: RunEvent): VoidReason | null => {
+    if (open === null) return 'after_stop';
+    if (e.type !== 'resume' && e.at < openedAt) return 'stale';
+    if (e.type === 'lap') {
+      if (e.seg !== open.index) return 'stale';
+      close(open, e.at);
+      const laps = segments.filter((x) => x.kind === 'lap').length;
+      open = {
+        index: open.index + 1,
+        kind: 'lap',
+        step: null,
+        label: lapLabel(laps + 1),
+        started_at: e.at,
+      };
+      return null;
+    }
+    if (e.type === 'pause') {
+      if (pausedSince !== null) return 'already_paused';
+      pausedSince = e.at;
+      pauseId = e.id;
+      status = 'paused';
+      return null;
+    }
+    if (pausedSince === null) return 'not_paused';
+    if (e.pause_id !== pauseId) return 'stale';
+    // A resume before its pause began would make a negative pause.
+    if (e.at < pausedSince) return 'stale';
+    pauses.push({ start: pausedSince, end: e.at });
+    pausedSince = null;
+    pauseId = null;
+    status = 'running';
+    return null;
+  };
+  const decide = (e: RunEvent, reason: VoidReason | null) => {
+    effects[e.id] =
+      reason === null ? { effect: 'applied', reason: null } : { effect: 'void', reason };
+  };
+  // As the fold: the terminal by arrival (outbox) order, then the other taps by (at, id),
+  // none later than the terminal (the fold's `timeOrder`). Taps the server lists already (acked) are skipped.
+  const taps = mine.map(queuedEvent).filter((e) => !effects[e.id]);
+  let terminal: RunEvent | null = null;
+  for (const e of taps) {
+    if (e.type !== 'stop' && e.type !== 'discard') continue;
+    const reason = terminalReason(e, terminal);
+    if (reason === null) terminal = e;
+    decide(e, reason);
+  }
+  const rest = taps.filter((e) => e.type === 'pause' || e.type === 'resume' || e.type === 'lap');
+  rest.sort(timeOrder(rest));
+  for (const e of rest)
+    decide(e, terminal !== null && e.at > terminal.at ? 'after_stop' : apply(e));
+  if (terminal !== null && open !== null) {
+    if (terminal.type === 'stop') {
+      if (pausedSince !== null) pauses.push({ start: pausedSince, end: terminal.at });
+      pausedSince = null;
+      close(open, terminal.at);
+      endedAt = terminal.at;
+    }
+    status = terminal.type === 'stop' ? 'stopped' : 'discarded';
+    open = null;
+    nextStep = null;
+    pausedSince = null;
+  }
+  return {
+    status,
+    started_at: base.started_at,
+    ended_at: endedAt,
+    open,
+    next_step: nextStep,
+    paused_since: pausedSince,
+    segments,
+    skipped: base.skipped,
+    pauses,
+    effects,
+  };
+}
+
 function buildRun(
   id: string,
   server: RunOut | null,
@@ -153,7 +290,9 @@ function buildRun(
       state = stateFromWire(server.state);
     }
   } else if (server) {
-    state = stateFromWire(server.state);
+    // The pinned version's steps aren't known here: the server's labels, with this
+    // device's step-independent taps on top.
+    state = overlay(server, stateFromWire(server.state), mine);
   } else if (mine.some((i) => i.payload.event.type === 'start')) {
     // This device's start that didn't know the steps (a reminder's, nothing cached, §10.2):
     // fold over none, so the run shows its clock and can be stopped offline. `steps` stays
