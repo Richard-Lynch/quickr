@@ -1,6 +1,6 @@
 # Spec: client API levels and forced updates
 
-**Status:** draft, revision 3, 2026-10-28 (reviewed against `main` after the
+**Status:** draft, revision 4, 2026-10-28 (reviewed against `main` after the
 timers milestone, v0.3.0). **Milestone CV, a follow-on after the timers
 milestone (T)**; not a prerequisite for it. **Applies to:** the backend, the PWA
 and the iOS app. **Replaces part of:**
@@ -15,6 +15,21 @@ Activity and APNs token registrations are covered, and so are run events (§3.4,
 §4.5, §5.4, V13, V14). The floor WP and the level-0 store migration are gone.
 Builds from before CV are unsupported, so both minimums stay at 0 until the
 first breaking change raises them (§4.2, §4.3).
+
+**Changes in revision 4 (review of revision 3).**
+
+- The level is stored on the Live Activity token itself, so a user who denied
+  notifications still gets Live Activity pushes (§3.4).
+- The emergency override is clamped to `api_level` (§2).
+- The PWA reloads without unregistering its service worker, so the Web Push
+  subscription is kept (§5.2), and it sends nothing while it knows it's
+  outdated (§5.3).
+- The request goldens use a fixed placeholder, and the header is checked only
+  on this commit's goldens. The 426 fixture is kept out of `shared/fixtures/api`
+  (§6).
+- Owed APNs deletions don't age while outdated (§4.1). The level headers are
+  added to the CORS `expose_headers` (§3.2). `timedFetch` merges the header into
+  a `Request` (§3.1).
 
 ## Purpose
 
@@ -83,8 +98,11 @@ when one is stale (§7, V12):
   `min_client_level ≤ api_level` always.
 - An **emergency override**, `QUICKR_MIN_CLIENT_LEVEL_IOS` and
   `QUICKR_MIN_CLIENT_LEVEL_WEB` in the backend's environment, may only **raise**
-  the minimum (a lower value is ignored with a warning). It exists to lock out a
-  bad build without a release. It is not how a breaking change ships.
+  the minimum (a lower value is ignored with a warning). It is clamped to
+  `api_level`: a higher value is used as `api_level`, with a warning, because no
+  client could ever meet it. It exists to refuse every build below level N
+  without a release. It can't single out one build, since builds at the same
+  level are indistinguishable to it. It is not how a breaking change ships.
 
 **When to bump.** Some changes are ones that a client at the current `api_level`
 can't handle. They set `api_level += 1` and
@@ -118,7 +136,10 @@ X-QuickR-Client: <platform>; level=<int>; build=<string>
 - On the PWA, every request goes through `timedFetch`
   (`frontend/src/lib/runs/serverClock.ts`). That covers the generated client,
   the page's outbox and the service worker's outbox (`sw.ts`), so the header is
-  added there too, next to `CHANNEL_HEADERS`.
+  added there too, next to `CHANNEL_HEADERS`. The generated client calls it with
+  a `Request` (`client.gen.ts`, `_fetch(request)`), and the outbox calls it with
+  a URL and an `init`. `timedFetch` merges the header into whichever one it
+  gets, and never drops headers that are already there.
 
 ### 3.2 The server sends
 
@@ -133,7 +154,8 @@ X-QuickR-Min-Client-Level: ios=2, web=2
 
 They are static, so `IdentityHeadersMiddleware` adds them in
 `send_with_identity`, on the same path as `X-QuickR-Server-Time`. That way its
-own 500 answers carry them as well.
+own 500 answers carry them as well. Both are added to the CORS `expose_headers`
+in `backend/app/main.py`, beside the identity and server-time headers.
 
 And one endpoint, which is never refused:
 
@@ -211,12 +233,17 @@ re-registers on every launch, so the column follows updates.
   either, timers.md §10.2), and the body "Time to log · update quickR to log
   from here". Its action handlers would only be refused, and this way the
   reminder is still useful.
-- **Live Activities.** A `live_activity_tokens` row belongs to a device through
-  `device_token`. `push/live_activity.py` `_plan` sends nothing (no
-  push-to-start, `update` or `end`) to a token whose device is below the iOS
-  minimum, or has no `apns_devices` row. Its content state may have changed
-  shape, and its buttons can't sync anyway. That device's own activity keeps
-  updating locally (timers.md §10.3).
+- **Live Activities.** `registerLiveActivity` stores the client level from
+  `X-QuickR-Client` on the token itself, in a new
+  `live_activity_tokens.client_level` column (0 when the header is absent). The
+  level doesn't come from the `apns_devices` row: a user who denied
+  notifications has no such row, because `PushRegistration` deletes it, but
+  their Live Activity tokens still work. `push/live_activity.py` `_plan` sends
+  nothing (no push-to-start, `update` or `end`) to a token whose `client_level`
+  is below the iOS minimum. Its content state may have changed shape, and its
+  buttons can't sync anyway. The app re-registers its tokens after an update,
+  which refreshes the level. That device's own activity keeps updating locally
+  (timers.md §10.3).
 - **Web Push** is not gated. A PWA learns that it's outdated on its next request
   and reloads itself (§5.2). Until then, a notification action handled by its
   old service worker is held, not lost (§5.3).
@@ -250,7 +277,7 @@ While it is set, in every process:
 | Widgets, Controls, App Intents, the Action button, Live Activity buttons | Enqueue as usual, so the tap is kept, and don't flush. The result says "Saved on this iPhone. Update quickR to sync." Widgets show a small "Update quickR" line. The Live Activity keeps updating from the local view of the run.                                                                                                                                                                                                                                                                                               |
 | Notification actions                                                     | The handler enqueues as usual and doesn't flush. It posts "Saved on this iPhone. Update quickR to sync." once per launch.                                                                                                                                                                                                                                                                                                                                                                                                       |
 | NSE                                                                      | No change: it makes no requests.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| APNs and Live Activity token registration                                | Paused, like any other request. A `clientOutdated` outcome is **not settled**. `PushRegistration` and `LiveActivityTokens.Dependencies.api` today treat any `.terminal` as done for good, and they MUST instead keep the registration or deletion owed, so the updated build sends it.                                                                                                                                                                                                                                          |
+| APNs and Live Activity token registration                                | Paused, like any other request, and a `clientOutdated` outcome is **not settled**: the registration or deletion stays owed, so the updated build sends it. `LiveActivityTokens.Dependencies.api`'s `settled` already throws on any outcome that isn't `.success`, `.terminal` or `.notFound`, so the new case needs no change there. `PushRegistration`'s register `default:` branch MUST owe it. Owed APNs deletions don't age towards `pendingLifetime` while `client_outdated_min` is set.                                   |
 
 **Nothing queued is lost.** Items stay `pending` or `uncertain` and are sent by
 the updated build, which reads the same store file. A store migration in a later
@@ -335,13 +362,15 @@ and shows a dismissable "Update available" card. When outdated:
 1. Call `registration.update()` at once.
 2. If a worker is waiting, or becomes waiting within 10 s, post `SKIP_WAITING`
    (`sw.ts` already handles it), and reload when `controllerchange` fires.
-3. If no new worker appears (the browser cached the old `sw.js`, or there is no
-   registration), unregister the service worker and do `location.reload()`. The
-   next load fetches the new bundle from the network.
+3. If no new worker appears, do `location.reload()`. The service worker is
+   **not** unregistered: unregistering deletes the Web Push subscription, and
+   `push.ts` doesn't subscribe again. nginx serves `sw.js` with `no-cache`, so
+   `update()` sees a new worker whenever one has been deployed.
 4. **No reload loop.** A forced reload is recorded in `sessionStorage`. If the
    bundle that loads after one is still outdated, the frontend image is behind
    the backend (or the override locked this bundle out). The app then doesn't
-   reload again, and shows the blocking overlay with a Reload button.
+   reload again, and shows the blocking overlay with a Reload button. Any fresh,
+   not-cached response that doesn't say outdated clears the mark.
 5. Meanwhile a **blocking** "Updating quickR…" overlay replaces the dismissable
    card. If the update can't complete (offline, or step 4), the overlay says
    "quickR needs an update. Connect to the internet and reload." with a Reload
@@ -358,6 +387,10 @@ and shows a dismissable "Update available" card. When outdated:
   body. A held item is restored to `pending` with its attempt not counted and no
   backoff, `maybeDelivered` unchanged, and the pass stops. The updated bundle
   sends it. This covers every kind, `run.event` included (timers.md §8.2).
+- **Nothing is sent while outdated is known**, by the page or by the service
+  worker. Each records the state when it sees it (§5.1) and stops flushing. A
+  Background Sync event that finds the app outdated **resolves** rather than
+  rejects, so the browser doesn't retry it on its own.
 - A notification click handled by an old service worker enqueues as usual. Its
   send is held, and the item is kept for the new bundle.
 - outbox.md §5.1's base table, which is byte-compatible with the PWA's
@@ -373,27 +406,39 @@ a level at or above `__API_LEVEL__`.
 
 ## 6. Tests
 
-| #   | Case                                                                                                                                                                                                                                                                                                | Where           |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| V1  | Every `/api/v1` response (2xx, 4xx, 426, an unhandled 500, `/health`) carries both new headers. A 426 also carries the identity and server-time headers.                                                                                                                                            | pytest          |
-| V2  | Below the minimum: a POST, a PATCH, a DELETE, a GET and a `recordRunEvent` each answer 426 `client_outdated`, and **nothing is written** (row counts, run events, change log, `deleted_ids` unchanged).                                                                                             | pytest          |
-| V3  | Channel `ios` or `ui` without `X-QuickR-Client` is level 0. No headers at all is not checked. `OPTIONS`, `getClientVersions` and `/health` are never refused. A level above `api_level` is not refused.                                                                                             | pytest          |
-| V4  | The env override raises the minimum and is ignored (with a warning) when it would lower it.                                                                                                                                                                                                         | pytest          |
-| V5  | `registerApnsDevice` stores the level. The reminder for a device below the minimum has no category and no `quick_log`. The Live Activity planner sends no start, update or end to its tokens, and still sends to a device at the minimum.                                                           | pytest          |
-| V6  | iOS outbox: a 426 restores the pre-claim state, sets `client_outdated_min`, and refuses later claims. Enqueue still works. A launch at a higher level clears the flag and the item is sent. Covered for an `entry.create` and a `run.event` start with a queued lap.                                | host            |
-| V7  | iOS classifier and registrations: 426 `client_outdated` with matching identity headers is `clientOutdated`, and without them is retryable. An APNs or Live Activity token registration refused with it stays owed.                                                                                  | host            |
-| V8  | Widget, intent, Live Activity button and notification-action writes while outdated: the item is durable, no request is made, and the result text is the update message.                                                                                                                             | host (MP)       |
-| V9  | The "Update required" view appears when a response's minimum is above the build's level, and leaves on **Check again** after the server's minimum drops.                                                                                                                                            | sim (UI)        |
-| V10 | PWA: an outdated response triggers `update()`, then `SKIP_WAITING` and a reload. With no new worker it unregisters and reloads. A second outdated load doesn't reload again. The outbox item (an entry and a run event) is held, not failed, and survives. A cached response's headers are ignored. | vitest          |
-| V11 | CI checks (§7): a fixture repo where `openapi.json` breaks against the tag fails unless `api_level` and both minimums were raised.                                                                                                                                                                  | pytest          |
-| V12 | The generated copies (§2) match `shared/api-level.json`: `backend/app/api_level.json`, `frontend/src/api/apiLevel.json` and `APILevel.swift`.                                                                                                                                                       | CI              |
-| V13 | iOS, server behind: a response with `X-QuickR-Api-Level` below `APILevel.current` sets `server_api_level` and shows the Home banner and the Settings line. The coordinator still pulls and the outbox still flushes. A later response at the level removes the note.                                | host + sim (UI) |
-| V14 | PWA, server behind: a response with `X-QuickR-Api-Level` below `__API_LEVEL__` shows the dismissable banner. No overlay, no reload, and the outbox still sends. A later response at the level removes it.                                                                                           | vitest          |
+| #   | Case                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Where           |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------- |
+| V1  | Every `/api/v1` response (2xx, 4xx, 426, an unhandled 500, `/health`) carries both new headers. A 426 also carries the identity and server-time headers.                                                                                                                                                                                                                                                                                                                                                                                                                 | pytest          |
+| V2  | Below the minimum: a POST, a PATCH, a DELETE, a GET and a `recordRunEvent` each answer 426 `client_outdated`, and **nothing is written** (row counts, run events, change log, `deleted_ids` unchanged).                                                                                                                                                                                                                                                                                                                                                                  | pytest          |
+| V3  | Channel `ios` or `ui` without `X-QuickR-Client` is level 0. No headers at all is not checked. `OPTIONS`, `getClientVersions` and `/health` are never refused. A level above `api_level` is not refused.                                                                                                                                                                                                                                                                                                                                                                  | pytest          |
+| V4  | The env override raises the minimum and is ignored (with a warning) when it would lower it. An override above `api_level` is clamped to `api_level`, with a warning.                                                                                                                                                                                                                                                                                                                                                                                                     | pytest          |
+| V5  | `registerApnsDevice` and `registerLiveActivity` store the level. The reminder for a device below the minimum has no category and no `quick_log`. The Live Activity planner sends no start, update or end to a token below the minimum, and still sends to one at the minimum, including a token whose device has no `apns_devices` row (notifications denied).                                                                                                                                                                                                           | pytest          |
+| V6  | iOS outbox: a 426 restores the pre-claim state, sets `client_outdated_min`, and refuses later claims. Enqueue still works. A launch at a higher level clears the flag and the item is sent. Covered for an `entry.create` and a `run.event` start with a queued lap.                                                                                                                                                                                                                                                                                                     | host            |
+| V7  | iOS classifier and registrations: 426 `client_outdated` with matching identity headers is `clientOutdated`, and without them is retryable. An APNs or Live Activity token registration refused with it stays owed.                                                                                                                                                                                                                                                                                                                                                       | host            |
+| V8  | Widget, intent, Live Activity button and notification-action writes while outdated: the item is durable, no request is made, and the result text is the update message.                                                                                                                                                                                                                                                                                                                                                                                                  | host (MP)       |
+| V9  | The "Update required" view appears when a response's minimum is above the build's level, and leaves on **Check again** after the server's minimum drops.                                                                                                                                                                                                                                                                                                                                                                                                                 | sim (UI)        |
+| V10 | PWA: an outdated response, through the generated client (a `Request`) or the outbox, triggers `update()`, then `SKIP_WAITING` and a reload. With no new worker it reloads without unregistering, and the push subscription survives. A second outdated load doesn't reload again, and a fresh response that isn't outdated clears the guard. While outdated, neither the page nor the service worker sends, and a Background Sync event resolves. The outbox item (an entry and a run event) is held, not failed, and survives. A cached response's headers are ignored. | vitest          |
+| V11 | CI checks (§7): a fixture repo where `openapi.json` breaks against the tag fails unless `api_level` and both minimums were raised.                                                                                                                                                                                                                                                                                                                                                                                                                                       | pytest          |
+| V12 | The generated copies (§2) match `shared/api-level.json`: `backend/app/api_level.json`, `frontend/src/api/apiLevel.json` and `APILevel.swift`.                                                                                                                                                                                                                                                                                                                                                                                                                            | CI              |
+| V13 | iOS, server behind: a response with `X-QuickR-Api-Level` below `APILevel.current` sets `server_api_level` and shows the Home banner and the Settings line. The coordinator still pulls and the outbox still flushes. A later response at the level removes the note.                                                                                                                                                                                                                                                                                                     | host + sim (UI) |
+| V14 | PWA, server behind: a response with `X-QuickR-Api-Level` below `__API_LEVEL__` shows the dismissable banner. No overlay, no reload, and the outbox still sends. A later response at the level removes it.                                                                                                                                                                                                                                                                                                                                                                | vitest          |
 
 The request goldens (`shared/fixtures/requests`) gain the `X-QuickR-Client`
-header on every request. `test_request_goldens.py` and `RequestGoldenTests`
-check its format and that its level equals `shared/api-level.json`, so a bump
-doesn't rewrite every golden.
+header on every request. They are rendered by iOS `RequestGoldenTests`
+(`goldensMatchCommitted`) from the real `APIClient` and compared byte for byte,
+so the test renders a fixed placeholder, `ios; level=<level>; build=<build>`.
+A bump and the build number, which changes with every upload, therefore don't
+change the goldens. `test_request_goldens.py` asserts the header only on this
+commit's goldens, and skips it when `QUICKR_REQUEST_GOLDENS_DIR` is set.
+`compat/old-requests.sh` replays a listed client's goldens through the same
+contract test, and a pre-CV build's goldens (such as `20261026.143027`, once
+#73 merges) have no header. Asserting it there would turn the `old requests`
+gate red.
+
+The 426 `client_outdated` Problem is **not** added to `shared/fixtures/api`.
+An old client's `FixtureCoverageTests` run in the `old clients` job, and they
+would fail on a fixture they don't know. It is tested with an inline body
+instead.
 
 ## 7. The compatibility gate under this policy
 
@@ -448,15 +493,17 @@ gate passes, since CV is additive.
   `IdentityHeadersMiddleware` and the enforcing middleware inside it
   (client-versions.md §3.2–§3.3), including the 426 `client_outdated` Problem;
   `getClientVersions`; the env overrides and `QUICKR_IOS_UPDATE_URL`;
-  `apns_devices.client_level`, display-only reminders and no Live Activity
-  pushes below the iOS minimum (§3.4); request goldens gain `X-QuickR-Client`.
+  `client_level` on `apns_devices` and `live_activity_tokens`, display-only
+  reminders and no Live Activity pushes below the iOS minimum (§3.4); the
+  CORS `expose_headers`; `test_request_goldens.py` asserts `X-QuickR-Client`
+  only on this commit's goldens (§6).
 - **Areas:** `shared/api-level.json`, `Makefile`, `backend/app/api_level.json`
   (generated), `backend/app/client_versions.py` (new),
   `backend/app/api/identity.py` (or a sibling middleware module),
   `backend/app/main.py`, `backend/app/config.py`, `backend/app/models.py`,
   `backend/app/services/push/` (`apns.py`, `live_activity.py`),
-  `backend/app/services/scheduler.py`, `backend/alembic/versions/` (the APNs
-  level column), `shared/fixtures/`, `openapi.json`, `frontend/src/client`
+  `backend/app/services/scheduler.py`, `backend/alembic/versions/` (the two
+  level columns), `shared/fixtures/`, `openapi.json`, `frontend/src/client`
   (regenerated client only).
 - **Depends on:** nothing.
 - **Acceptance:** client-versions.md V1–V5; every existing test passes (they
@@ -486,8 +533,11 @@ gate passes, since CV is additive.
   outbox's restore on `clientOutdated` (never fail), for every kind; APNs and
   Live Activity token registrations kept owed on it (§4.1); tolerant feed
   decoding (§4.4); result texts for widgets, intents, Live Activity buttons and
-  notification actions (§4.1). The one-paragraph amendments to sync-protocol.md
-  §2.2 and §3.1, and to outbox.md §5.1, §5.2 and §6.2.
+  notification actions (§4.1). The request goldens gain `X-QuickR-Client`,
+  rendered as the fixed placeholder of §6 by `RequestGoldenTests`. The 426
+  Problem is tested inline, not added to `shared/fixtures/api` (§6). The
+  one-paragraph amendments to sync-protocol.md §2.2 and §3.1, and to outbox.md
+  §5.1, §5.2 and §6.2.
 - **Areas:** `ios/QuickrKit/Sources/QuickrCore/`,
   `ios/QuickrKit/Sources/QuickrData/API/`, `Contracts/`, `Store/`, `Sync/`,
   `Outbox/`, `Intents/`, `LiveActivity/`, `Notifications/`, `docs/ios/specs/`.
