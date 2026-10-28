@@ -63,12 +63,15 @@ public enum ProblemCode: Sendable, Hashable, RawRepresentable {
     case runTooLong
     /// The run already has 1,000 events.
     case runTooManyEvents
+    /// 426: this build's API level is below the server's minimum (client-versions.md §3.3); nothing
+    /// executed.
+    case clientOutdated
     case unknown(String)
 
     public static let known: [ProblemCode] = [
         .badRequest, .notFound, .conflict, .invalidRequest, .invalidAnswers, .incompatibleVersion, .topicArchived,
         .entryDeleted, .staleRevision, .serverMismatch, .epochMismatch, .internalError, .topicNotTimed, .idConflict,
-        .beforeStart, .eventConflict, .runOpen, .runDeleted, .runTooLong, .runTooManyEvents,
+        .beforeStart, .eventConflict, .runOpen, .runDeleted, .runTooLong, .runTooManyEvents, .clientOutdated,
     ]
 
     public init(rawValue: String) {
@@ -97,6 +100,7 @@ public enum ProblemCode: Sendable, Hashable, RawRepresentable {
         case .runDeleted: "run_deleted"
         case .runTooLong: "run_too_long"
         case .runTooManyEvents: "run_too_many_events"
+        case .clientOutdated: "client_outdated"
         case .unknown(let raw): raw
         }
     }

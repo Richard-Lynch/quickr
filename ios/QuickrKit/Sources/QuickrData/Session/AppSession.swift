@@ -554,7 +554,8 @@ public final class AppSession {
             }
             let sender = APIClient(
                 baseURL: baseURL, transport: configuration.transport, identity: StaticServerIdentity(nil),
-                credentials: configuration.credentials, origin: .app, serverOffset: StoreServerOffset(store: store))
+                credentials: configuration.credentials, origin: .app, serverOffset: StoreServerOffset(store: store),
+                levels: StoreClientLevels(store: store))
             let outbox = Outbox(
                 store: store, sender: sender, owner: owner, onSignal: coordinator.outboxSignalHandler)
             let scheduler = OutboxFlushScheduler(outbox: outbox)

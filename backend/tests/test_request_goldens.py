@@ -10,7 +10,9 @@ Here each golden is checked against the server:
 - its operation exists, with that method and a path that fits the operation's template;
 - its body validates against the operation's Pydantic request model (``extra="forbid"``,
   so an unknown or misspelt key fails), and a bodiless operation has no body;
-- it carries ``X-QuickR-Channel: ios`` and, on a mutation, both precondition headers;
+- it carries ``X-QuickR-Channel: ios``, ``X-QuickR-Client`` with the fixed placeholder
+  ``ios; level=<level>; build=<build>`` (not checked for another set, which may predate it),
+  and, on a mutation, both precondition headers;
 - replayed through the app, with the placeholder identity it is rejected by the F10
   precondition (409 ``server_mismatch``) before any effect, and with the real identity
   and ids substituted it gets the status in ``EXPECTED``. Each golden's setup (``SETUP``)
@@ -71,6 +73,7 @@ ENTRY_1 = "44444444-4444-4444-8444-000000000001"
 # commit's api_level, or QUICKR_REPLAY_CLIENT_LEVEL (a listed client's level, compat/).
 LEVEL_PLACEHOLDER = "<level>"
 BUILD_PLACEHOLDER = "<build>"
+CLIENT_PLACEHOLDER = f"ios; level={LEVEL_PLACEHOLDER}; build={BUILD_PLACEHOLDER}"
 REPLAY_BUILD = "replay"
 API_LEVEL_FILE = FIXTURES_DIR.parent / "api-level.json"
 
@@ -197,6 +200,10 @@ def test_golden_matches_the_contract(name: str) -> None:
 
     headers = request["headers"]
     assert headers["x-quickr-channel"] == "ios"
+    # This commit's goldens carry the fixed placeholder (client-versions.md §6); a listed old
+    # client's (QUICKR_REQUEST_GOLDENS_DIR) may predate the header.
+    if not os.environ.get("QUICKR_REQUEST_GOLDENS_DIR"):
+        assert headers["x-quickr-client"] == CLIENT_PLACEHOLDER
     mutation = method != "GET" and op != "checkTopicVersion"
     assert ("x-quickr-expect-server-id" in headers) == mutation
     assert ("x-quickr-expect-epoch" in headers) == mutation

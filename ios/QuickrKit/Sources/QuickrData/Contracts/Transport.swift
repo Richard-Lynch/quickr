@@ -11,6 +11,13 @@ public enum QuickrHeader {
     public static let expectServerId = "X-QuickR-Expect-Server-Id"
     /// On every mutation the iOS client sends (F10).
     public static let expectEpoch = "X-QuickR-Expect-Epoch"
+    /// On every request: `ios; level=<APILevel.current>; build=<CFBundleVersion>`
+    /// (client-versions.md §3.1).
+    public static let client = "X-QuickR-Client"
+    /// On every `/api/v1` response: the server's API level (client-versions.md §3.2).
+    public static let apiLevel = "X-QuickR-Api-Level"
+    /// On every `/api/v1` response: `ios=<int>, web=<int>`, the lowest level the server accepts.
+    public static let minClientLevel = "X-QuickR-Min-Client-Level"
     public static let cfAccessClientId = "CF-Access-Client-Id"
     public static let cfAccessClientSecret = "CF-Access-Client-Secret"
 }

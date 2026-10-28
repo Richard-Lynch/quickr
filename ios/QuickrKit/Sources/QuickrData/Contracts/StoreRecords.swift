@@ -34,12 +34,25 @@ public struct SyncState: Sendable, Hashable {
     /// The server's clock by this store's skew.
     public var serverClock: ServerClock { ServerClock(skewMilliseconds: skewMilliseconds) }
     public var bootstrapComplete: Bool
+    /// The minimum API level the server demanded for iOS, while it was above this build's
+    /// (client-versions.md §4.1); nil when not outdated. Any process may set or clear it
+    /// (`StoreClientLevels`).
+    public var clientOutdatedMin: Int?
+    /// The `X-QuickR-Api-Level` of the latest response with matching identity headers
+    /// (client-versions.md §4.5); nil before one.
+    public var serverApiLevel: Int?
+
+    /// This build is below the server's minimum: no pulls, claims or requests (§4.1).
+    public var isClientOutdated: Bool { ClientOutdated.refuses(clientOutdatedMin) }
+    /// The server is older than this build: a non-blocking note (§4.5).
+    public var serverIsBehind: Bool { serverApiLevel.map { $0 < APILevel.current } ?? false }
 
     public init(
         serverId: String, baseURL: String, epoch: String? = nil, cursor: Int = 0, headSeen: Int = 0, layerGen: Int = 1,
         rebuilding: String? = nil, epochSuspect: Bool = false, retired: Bool = false, identityMismatch: Bool = false,
         lastPullAt: Date? = nil, skewMilliseconds: Double = 0, skewMeasuredAt: Date? = nil,
-        bootstrapComplete: Bool = false, serverOffsetMs: Int = 0
+        bootstrapComplete: Bool = false, serverOffsetMs: Int = 0, clientOutdatedMin: Int? = nil,
+        serverApiLevel: Int? = nil
     ) {
         self.serverId = serverId
         self.baseURL = baseURL
@@ -56,6 +69,8 @@ public struct SyncState: Sendable, Hashable {
         self.skewMeasuredAt = skewMeasuredAt
         self.bootstrapComplete = bootstrapComplete
         self.serverOffsetMs = serverOffsetMs
+        self.clientOutdatedMin = clientOutdatedMin
+        self.serverApiLevel = serverApiLevel
     }
 }
 

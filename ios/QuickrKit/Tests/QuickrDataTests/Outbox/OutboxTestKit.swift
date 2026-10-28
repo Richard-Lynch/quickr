@@ -42,11 +42,15 @@ final class OutboxHarness: Sendable {
     }
 
     /// An outbox for one process. `origin` is the client's surface; `random` the backoff jitter.
+    /// `levels`: its client keeps the store's API levels and holds requests while outdated, as the
+    /// app's does (client-versions.md §4.1).
     func outbox(
         owner: String = "app:1", store: LocalStore? = nil, random: Double = 0.5,
-        shutdownGrace: Duration = .milliseconds(500)
+        shutdownGrace: Duration = .milliseconds(500), levels: Bool = false
     ) -> Outbox {
-        let client = APIClient(baseURL: FakeServer.base, transport: server, identity: StaticServerIdentity(nil))
+        let client = APIClient(
+            baseURL: FakeServer.base, transport: server, identity: StaticServerIdentity(nil),
+            levels: levels ? StoreClientLevels(store: store ?? self.store) : nil)
         return Outbox(
             store: store ?? self.store, sender: client, owner: owner,
             onSignal: { [self] signal in self.signalLog.withLock { $0.append(signal) } }, random: { random },

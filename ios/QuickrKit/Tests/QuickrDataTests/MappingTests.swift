@@ -160,13 +160,42 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         }
     }
 
-    @Test func unknownFeedKindFailsThePage() throws {
+    /// client-versions.md §4.4 (sync-protocol.md §2.2): an item or deletion of a kind this build
+    /// doesn't know is skipped, not a page failure; the known rows around it still apply.
+    @Test func unknownFeedKindsAreSkipped() throws {
+        let deletion =
+            #"{"kind":"entry","seq":3,"id":"\#(UUID().wireString)","topic_id":"\#(UUID().wireString)","#
+            + #""deleted_at":"2026-06-01T12:00:00Z"}"#
         let json = """
-            {"items":[{"kind":"comment","seq":1}],"deleted":[],"next":1,"has_more":false,"head":1,
+            {"items":[{"kind":"comment","seq":1,"comment":{"text":"hi"}}],
+             "deleted":[{"kind":"comment","seq":2,"id":"c1","topic_id":"t1","deleted_at":"2026-06-01T12:00:00Z"},
+                        \(deletion)],
+             "next":3,"has_more":false,"head":3,"epoch":"e","server_id":"s","server_time":"2026-06-01T12:00:00Z"}
+            """
+        let page = try WireCoding.decoder().decode(ChangePageDTO.self, from: Data(json.utf8)).toDomain()
+        let itemCount = page.items.count
+        let deletedSeqs = page.deleted.map(\.seq)
+        let next = page.next
+        #expect(itemCount == 0)
+        #expect(deletedSeqs == [3])
+        #expect(next == 3)
+    }
+
+    /// A known kind that doesn't decode still fails the page (sync-protocol.md §2.2).
+    @Test func aKnownKindThatDoesNotDecodeFailsThePage() throws {
+        let json = """
+            {"items":[{"kind":"entry","seq":1}],"deleted":[],"next":1,"has_more":false,"head":1,
              "epoch":"e","server_id":"s","server_time":"2026-06-01T12:00:00Z"}
             """
         #expect(throws: DecodingError.self) {
             try WireCoding.decoder().decode(ChangePageDTO.self, from: Data(json.utf8))
+        }
+    }
+
+    /// An unknown kind on its own still doesn't decode as an item: only a page skips it.
+    @Test func anUnknownItemKindAloneFails() throws {
+        #expect(throws: DecodingError.self) {
+            try WireCoding.decoder().decode(FeedItemDTO.self, from: Data(#"{"kind":"comment","seq":1}"#.utf8))
         }
     }
 
@@ -190,7 +219,7 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
             "bad_request", "not_found", "conflict", "invalid_request", "invalid_answers", "incompatible_version",
             "topic_archived", "entry_deleted", "stale_revision", "server_mismatch", "epoch_mismatch", "internal_error",
             "topic_not_timed", "id_conflict", "before_start", "event_conflict", "run_open", "run_deleted",
-            "run_too_long", "run_too_many_events",
+            "run_too_long", "run_too_many_events", "client_outdated",
         ]
         #expect(ProblemCode.known.map(\.rawValue) == raw)
         for code in raw { #expect(ProblemCode(rawValue: code).rawValue == code) }

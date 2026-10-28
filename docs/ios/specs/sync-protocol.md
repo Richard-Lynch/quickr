@@ -259,6 +259,13 @@ These run in order. The first failure decides the outcome.
 A bootstrap, with `cursor = 0` and no epoch yet, accepts whatever `epoch` and
 `server_id` the first page reports.
 
+**Unknown kinds (from the CV build on).** An item or deletion whose `kind` this
+build doesn't know is skipped, not a decode failure: "Every row decodes" applies
+to the known kinds only, and the cursor still moves to `next`. A newer server's
+purely optional kind then doesn't force an update. A kind a build must
+understand still needs an API level bump ([client-versions.md](../../specs/client-versions.md)
+§2, §4.4).
+
 ## 3. The two-layer store
 
 ### 3.1 Tables, and who writes them
@@ -282,7 +289,15 @@ A bootstrap, with `cursor = 0` and no epoch yet, accepts whatever `epoch` and
 - `retired`: 0 or 1 (§12);
 - `identity_mismatch`: 0 or 1;
 - `last_pull_at`, `skew_ms` and `skew_measured_at`;
-- `bootstrap_complete`.
+- `bootstrap_complete`;
+- `client_outdated_min` and `server_api_level` ([client-versions.md](../../specs/client-versions.md)
+  §4.1, §4.5): null, or the minimum level the server demanded while it is above
+  this build's, and the latest response's `X-QuickR-Api-Level`. Unlike the rest,
+  any process writes them, from any response with matching identity headers
+  (§1.4). While `client_outdated_min` is above `APILevel.current`, the
+  coordinator doesn't pull (checked before any request, like
+  `identity_mismatch`), claims are refused (outbox.md §6.2), and no other request
+  is sent but `health` and `getClientVersions`.
 
 The server layer MUST NOT enforce foreign keys between `entry`, `topic` and
 `topic_version`, because a page may contain an entry whose topic arrives on a

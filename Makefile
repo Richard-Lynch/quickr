@@ -71,6 +71,7 @@ client: openapi ## Regenerate spec + typed TS client/zod schemas
 .PHONY: api-level
 api-level: ## Copy shared/api-level.json into each component that reads it (docs/specs/client-versions.md §2)
 	cp shared/api-level.json backend/app/api_level.json
+	python3 ios/scripts/gen-api-level.py
 
 .PHONY: vectors
 vectors: ## Regenerate shared/fixtures (due, quick-log, answer-text, notification, APNs payload, action-entry-id, home, entries, stats, builder, schedule, builder-UI, run-fold, timing-stats, duration-format and Live Activity vectors, API response fixtures) and the iOS casefold table

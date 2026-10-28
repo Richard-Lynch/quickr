@@ -96,6 +96,12 @@ public enum APIClassifier {
             if let problem, problem.code == .entryDeleted { return .entryDeleted(problem) }
             if let problem, problem.code == .staleRevision { return .staleRevision(problem) }
             return .terminal(status: status, problem: problem)
+        case 426 where problem?.code == .clientOutdated:
+            // client-versions.md §4.1: refused before the route ran. A body without the minimum
+            // still means this build is below it.
+            let minimum = (try? ClientOutdatedDTO.decode(response.body, using: WireCoding.decoder()))?
+                .minClientLevel
+            return .clientOutdated(minimum: minimum ?? APILevel.current + 1)
         case 400..<500:
             return .terminal(status: status, problem: problem)
         case 500..<600:

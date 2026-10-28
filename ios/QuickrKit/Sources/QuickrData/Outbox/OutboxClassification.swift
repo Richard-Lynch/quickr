@@ -43,12 +43,18 @@ public enum OutboxResolution: Sendable, Hashable {
     case restore(OutboxMismatch)
     /// Mismatched or missing headers on a response that may have executed: `uncertain`.
     case mismatchUncertain(OutboxMismatch)
+    /// 426 `client_outdated` (client-versions.md §4.1), for every kind: nothing executed. Restore
+    /// the pre-claim state, as for a precondition 409, set `client_outdated_min`, and stop: the
+    /// updated build sends it, a run event with the `at` it was stamped with.
+    case hold(minimum: Int)
 
     /// `runEvent` is a `run.event` item's event type (a start's 404 differs from the others').
     public static func resolve(
         _ kind: OutboxKind, _ outcome: APIOutcome<OutboxSuccess>, runEvent: RunEventType? = nil
     ) -> OutboxResolution {
         switch outcome {
+        case .clientOutdated(let minimum):
+            return .hold(minimum: minimum)
         case .identityMismatch(let evidence):
             return evidence.mayHaveExecuted ? .mismatchUncertain(.identity) : .restore(.identity)
         case .epochMismatch(let evidence):

@@ -53,7 +53,8 @@ extension AppEnvironment {
         let result = try await writes.perform(request)
         await liveActivities.reconcile(startFor: result.started ? result.topicId : nil)
         if result.wrote {
-            await flushAfterActivityTap(store, session: session)
+            // Outdated: kept for the updated build (client-versions.md §4.1).
+            if !result.clientOutdated { await flushAfterActivityTap(store, session: session) }
             reloadWidgetsAndControls()
         }
         return result

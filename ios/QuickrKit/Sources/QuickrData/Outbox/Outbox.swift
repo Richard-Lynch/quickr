@@ -33,6 +33,9 @@ public struct OutboxFlushReport: Sendable, Hashable {
         /// No response: the rest would fail the same way (§5.1 "stop the pass").
         case unreachable
         case mismatch(OutboxMismatch)
+        /// This build is below the server's minimum (client-versions.md §4.1): nothing was
+        /// claimed, or the item sent was restored, and `flush` is released. Enqueue still works.
+        case clientOutdated
     }
 
     public var ending: Ending
@@ -457,6 +460,7 @@ public struct Outbox: Sendable {
             switch step {
             case .leaseLost: return .leaseLost
             case .paused: return .paused
+            case .clientOutdated: return .clientOutdated
             case .drained: return .drained
             case .claimed(let claim):
                 run.current = (claim.item.id, claim.sender.claimToken)
@@ -530,6 +534,8 @@ public struct Outbox: Sendable {
             resolution = .restore(.identity)
         case .epochMismatch:
             resolution = .restore(.epoch)
+        case .clientOutdated(let minimum):
+            resolution = .hold(minimum: minimum)
         case .notFound:
             resolution = OutboxResolution.resolve(item.kind, .notFound(nil))
         case .retryable(.noResponse), .uncertain(.noResponse):
@@ -591,6 +597,8 @@ public struct Outbox: Sendable {
                 resolution = .restore(.identity)
             case .epochMismatch:
                 resolution = .restore(.epoch)
+            case .clientOutdated(let minimum):
+                resolution = .hold(minimum: minimum)
             case .terminal, .entryDeleted, .staleRevision:
                 // The read itself is refused for good: the start fails with the read's error.
                 return try await finish(
@@ -648,6 +656,8 @@ public struct Outbox: Sendable {
         case .restore(let mismatch), .mismatchUncertain(let mismatch):
             run.signal(mismatch == .identity ? .identityMismatch : .epochSuspect)
             return .mismatch(mismatch)
+        case .hold:
+            return .clientOutdated
         default: break
         }
         return stopsPass ? .unreachable : nil

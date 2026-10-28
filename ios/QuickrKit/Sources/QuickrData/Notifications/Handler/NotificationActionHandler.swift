@@ -154,6 +154,9 @@ public struct NotificationActionHandler: Sendable {
     /// local start, none is requested (false).
     let startLiveActivity: @Sendable (NotificationRunStart) async -> Bool
     let liveActivityBudget: Duration
+    /// The "Update quickR" notice, posted once per launch while the store is outdated
+    /// (client-versions.md §4.1).
+    let outdatedNotice: LaunchOnce
     /// Tests: runs at each `TestPoint`, to retire the store or switch servers there.
     var testHook: (@Sendable (TestPoint) async -> Void)?
 
@@ -174,7 +177,7 @@ public struct NotificationActionHandler: Sendable {
         reloadWidgets: @escaping @Sendable () -> Void = {}, flushBudget: Duration = Self.flushBudget,
         gate: (any ActiveStoreGate)? = nil,
         startLiveActivity: @escaping @Sendable (NotificationRunStart) async -> Bool = { _ in false },
-        liveActivityBudget: Duration = Self.liveActivityBudget
+        liveActivityBudget: Duration = Self.liveActivityBudget, outdatedNotice: LaunchOnce = .outdatedNotice
     ) {
         self.partitions = partitions
         self.center = center
@@ -188,6 +191,7 @@ public struct NotificationActionHandler: Sendable {
         self.gate = gate ?? RegistryActiveGate(registry: partitions.registry)
         self.startLiveActivity = startLiveActivity
         self.liveActivityBudget = liveActivityBudget
+        self.outdatedNotice = outdatedNotice
     }
 
     /// `url` (`/t/{slug}/record`, maybe with a query) with its topic named by `topicId`: a slug
@@ -538,10 +542,21 @@ public struct NotificationActionHandler: Sendable {
     }
 
     /// Step 10: a forced flush within the budget, of the active store only: decided before it
-    /// starts, and asked again once the flush holds its lease, before it claims anything.
+    /// starts, and asked again once the flush holds its lease, before it claims anything. None
+    /// while this build is outdated: the write is kept for the updated build, and the user is told
+    /// so once per launch (client-versions.md §4.1).
     private func flush(_ store: LocalStore) async -> OutboxFlushReport.Ending? {
         let scope = store.scope
-        guard await gate.activeScope() == scope, let sender = await sender(store) else { return nil }
+        guard await gate.activeScope() == scope else { return nil }
+        if await ClientOutdated.isOutdated(store) {
+            if outdatedNotice.first() {
+                try? await center.add(
+                    LocalNotificationRequest(
+                        id: Self.outdatedNoticeId, title: "quickR", body: ClientOutdated.savedMessage))
+            }
+            return .clientOutdated
+        }
+        guard let sender = await sender(store) else { return nil }
         let outbox = Outbox(store: store, sender: sender, owner: owner, onSignal: onSignal)
         let gate = gate
         let report = try? await outbox.flush(
@@ -549,6 +564,9 @@ public struct NotificationActionHandler: Sendable {
             shouldProceed: { await gate.activeScope() == scope })
         return report.map(\.ending)
     }
+
+    /// The "Saved on this iPhone. Update quickR to sync." notice.
+    static let outdatedNoticeId = "quickr.outdated"
 
     // MARK: - Failure notifications
 
@@ -574,6 +592,23 @@ public struct NotificationActionHandler: Sendable {
                 kind: "fix", serverId: q.serverId, topicId: topicId, topicSlug: q.topicSlug, url: q.url,
                 prefill: [key: raw]))
         try? await center.add(request)
+    }
+}
+
+/// Something done once per launch (per process): `first()` is true only the first time.
+public final class LaunchOnce: Sendable {
+    /// The notification handler's "Update quickR" notice (client-versions.md §4.1).
+    public static let outdatedNotice = LaunchOnce()
+
+    private let done = Mutex(false)
+
+    public init() {}
+
+    public func first() -> Bool {
+        done.withLock { done in
+            defer { done = true }
+            return !done
+        }
     }
 }
 

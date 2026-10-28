@@ -30,7 +30,7 @@ public struct RepeatLastEntryIntent: AppIntent, UndoableIntent {
             let logged = try await IntentLogging.log(topicId: current.id, answers: answers, in: context)
             let summary = IntentText.summary(logged.answers, topic: logged.topic)
             await IntentUndo.register(undoManager, logged: logged, context: context)
-            return .result(value: summary, dialog: "Logged \(summary) again.")
+            return .result(value: summary, dialog: "\(logged.saying("Logged \(summary) again."))")
         case .openRecord(let prefill):
             let reason =
                 prefill == nil

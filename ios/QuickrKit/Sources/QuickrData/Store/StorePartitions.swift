@@ -231,6 +231,8 @@ public struct StorePartitions: Sendable {
                 try LocalStore.createSyncState(db, serverId: server.id, baseURL: server.baseURL)
             }
         }
+        // The first open after an update clears a flag this build meets (client-versions.md §4.1).
+        await StoreClientLevels(store: store).clearIfMet()
         return store
     }
 
@@ -241,7 +243,7 @@ public struct StorePartitions: Sendable {
                 at: url, migrations: StoreSchema.migrations, notifier: notifier, commitSignal: .dbChanged)
             return LocalStore(
                 serverId: server.id, storeGen: server.storeGen, url: url, writer: pool, leaseClock: leaseClock,
-                wallClock: wallClock)
+                wallClock: wallClock, registry: registry)
         }
     }
 }

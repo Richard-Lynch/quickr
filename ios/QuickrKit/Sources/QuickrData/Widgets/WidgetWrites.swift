@@ -41,16 +41,21 @@ public enum WidgetWrites {
     }
 
     /// One bounded flush of `store` to its server; quiet when it can't (the entry stays queued).
+    /// None while this build is outdated (client-versions.md §4.1).
     static func flush(
         _ store: LocalStore, owner: String, transport: any Transport, credentials: any AccessCredentialsProvider
     ) async {
+        guard !(await ClientOutdated.isOutdated(store)) else {
+            log.info("widget flush: not while quickR is outdated, the entry stays queued")
+            return
+        }
         do {
             guard let state = try await store.syncState.syncState(), let url = URL(string: state.baseURL) else {
                 return
             }
             let sender = APIClient(
                 baseURL: url, transport: transport, identity: StaticServerIdentity(nil), credentials: credentials,
-                origin: .widget, serverOffset: StoreServerOffset(store: store))
+                origin: .widget, serverOffset: StoreServerOffset(store: store), levels: StoreClientLevels(store: store))
             let policy = OutboxFlushPolicy.extensionFlush(budget: flushBudget)
             let report = try await Outbox(store: store, sender: sender, owner: owner).flush(
                 force: policy.force, budget: policy.budget, leaseWait: policy.leaseWait)

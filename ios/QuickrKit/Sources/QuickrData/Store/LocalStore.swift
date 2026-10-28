@@ -15,10 +15,14 @@ public struct LocalStore: Sendable {
     public let writer: any DatabaseWriter
     public let leaseClock: any LeaseClock
     public let wallClock: any WallClock
+    /// The registry the store was opened through, for the app-global state a store change also
+    /// touches (owed APNs deletions when the outdated flag clears, client-versions.md §4.1); nil
+    /// for a test store opened on its own.
+    public let registry: Registry?
 
     public init(
         serverId: String, storeGen: Int, url: URL?, writer: any DatabaseWriter, leaseClock: any LeaseClock,
-        wallClock: any WallClock
+        wallClock: any WallClock, registry: Registry? = nil
     ) {
         self.serverId = serverId
         self.storeGen = storeGen
@@ -26,6 +30,7 @@ public struct LocalStore: Sendable {
         self.writer = writer
         self.leaseClock = leaseClock
         self.wallClock = wallClock
+        self.registry = registry
     }
 
     /// Inserts the `sync_state` row of a new store file (§2.1 step 3) unless it exists.

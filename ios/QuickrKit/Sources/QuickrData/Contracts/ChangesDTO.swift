@@ -19,6 +19,21 @@ public struct ChangePageDTO: Codable, Sendable, Hashable, WireResponse {
         case serverTime = "server_time"
     }
 
+    /// An item or deletion of a kind this build doesn't know is skipped, not a page failure
+    /// (sync-protocol.md §2.2, client-versions.md §4.4): a newer server's optional kind doesn't
+    /// force an update. A known kind that doesn't decode still fails the page.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        items = try container.decode([KnownKind<FeedItemDTO>].self, forKey: .items).compactMap(\.value)
+        deleted = try container.decode([KnownKind<FeedDeletionDTO>].self, forKey: .deleted).compactMap(\.value)
+        next = try container.decode(Int.self, forKey: .next)
+        hasMore = try container.decode(Bool.self, forKey: .hasMore)
+        head = try container.decode(Int.self, forKey: .head)
+        epoch = try container.decode(String.self, forKey: .epoch)
+        serverId = try container.decode(String.self, forKey: .serverId)
+        serverTime = try container.decode(Date.self, forKey: .serverTime)
+    }
+
     public func toDomain() throws -> ChangePage {
         ChangePage(
             serverId: serverId, epoch: epoch, head: head, next: next, hasMore: hasMore, serverTime: serverTime,
@@ -26,9 +41,28 @@ public struct ChangePageDTO: Codable, Sendable, Hashable, WireResponse {
     }
 }
 
-/// A feed item, tagged by `kind`. An unknown kind fails decoding, which fails the page
-/// (sync-protocol.md §2.2, "every row decodes").
-public enum FeedItemDTO: Codable, Sendable, Hashable {
+/// A feed row tagged by `kind`, of the kinds in `knownKinds`.
+protocol FeedRowDTO: Decodable {
+    static var knownKinds: Set<String> { get }
+}
+
+/// One feed row: decoded when its `kind` is known, nil (skipped) when it isn't.
+private struct KnownKind<Row: FeedRowDTO>: Decodable {
+    var value: Row?
+
+    private enum CodingKeys: String, CodingKey { case kind }
+
+    init(from decoder: any Decoder) throws {
+        let kind = try decoder.container(keyedBy: CodingKeys.self).decode(String.self, forKey: .kind)
+        value = Row.knownKinds.contains(kind) ? try Row(from: decoder) : nil
+    }
+}
+
+/// A feed item, tagged by `kind`. An unknown kind fails decoding on its own; on a page it is
+/// skipped (`ChangePageDTO`, sync-protocol.md §2.2).
+public enum FeedItemDTO: Codable, Sendable, Hashable, FeedRowDTO {
+    static let knownKinds: Set<String> = ["topic", "version", "entry", "run"]
+
     case topic(seq: Int, topic: TopicDetailDTO)
     case version(seq: Int, id: String, topicId: String, version: TopicVersionDTO)
     case entry(seq: Int, entry: EntryDTO)
@@ -102,12 +136,14 @@ public enum FeedItemDTO: Codable, Sendable, Hashable {
 }
 
 /// `DeletionKind`.
-public enum FeedDeletionKindDTO: String, Codable, Sendable, Hashable {
+public enum FeedDeletionKindDTO: String, Codable, Sendable, Hashable, CaseIterable {
     case entry, topic, version, run
 }
 
 /// `FeedDeletion`: a tombstone on a feed page.
-public struct FeedDeletionDTO: Codable, Sendable, Hashable {
+public struct FeedDeletionDTO: Codable, Sendable, Hashable, FeedRowDTO {
+    static let knownKinds = Set(FeedDeletionKindDTO.allCases.map(\.rawValue))
+
     public var kind: FeedDeletionKindDTO
     public var seq: Int
     public var id: String

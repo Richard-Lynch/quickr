@@ -87,6 +87,12 @@ public enum IntentLogging {
         /// The store the entry was committed to: undo goes there, whichever store is active by
         /// then (its fences refuse a store reset or retired since).
         public var store: LocalStore
+        /// This build is below the server's minimum (client-versions.md §4.1): the entry is kept
+        /// for the updated build, and no flush sends it; the result says so (`saying`).
+        public var clientOutdated = false
+
+        /// `text`, with "Saved on this iPhone. Update quickR to sync." while outdated.
+        public func saying(_ text: String) -> String { ClientOutdated.saying(text, outdated: clientOutdated) }
 
         /// Which server and generation it went to.
         public var scope: EntryScope { store.scope }
@@ -164,8 +170,12 @@ public enum IntentLogging {
             throw Failure.storeUnavailable
         }
         let created = if case .created = result { true } else { false }
+        // Outdated, `afterCommit`'s flush claims nothing (client-versions.md §4.1).
+        let outdated = await ClientOutdated.isOutdated(store)
         if !Task.isCancelled { await context.afterCommit(store) }
-        return Logged(entryId: entryId, topic: topic, answers: validated, created: created, store: store)
+        return Logged(
+            entryId: entryId, topic: topic, answers: validated, created: created, store: store,
+            clientOutdated: outdated)
     }
 
     /// Undo of an intent's log (`UndoableIntent`): `cancelCreate` (outbox.md §9.1) in the store the

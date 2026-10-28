@@ -12,7 +12,9 @@ import Testing
 ///
 /// Each golden is built by the real `APIClient` (headers, path, query, `WireCoding` body) and
 /// captured from a `FakeTransport`. With `QUICKR_UPDATE_VECTORS=1` the files are rewritten (stale
-/// ones removed); otherwise they must match.
+/// ones removed); otherwise they must match. `X-QuickR-Client` is the fixed placeholder
+/// (client-versions.md §6), so a level bump or a new build number doesn't change them;
+/// `APIClientTests` checks the real header.
 @Suite(.timeLimit(.minutes(5))) struct RequestGoldenTests {
     /// Placeholders the pytest replay swaps for real values.
     static let identity = ServerIdentity(
@@ -284,7 +286,7 @@ import Testing
         transport.enqueue(.failure(.unreachable("golden capture")))
         let client = APIClient(
             baseURL: URL(string: "https://quickr.test")!, transport: transport,
-            identity: StaticServerIdentity(identity), origin: testCase.origin)
+            identity: StaticServerIdentity(identity), origin: testCase.origin, clientHeader: ClientHeader.placeholder)
         try await testCase.call(client)
         let request = try #require(transport.requests.only)
         let target =
