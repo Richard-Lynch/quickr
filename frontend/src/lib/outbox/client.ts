@@ -9,6 +9,7 @@
  *  - Background Sync (`registration.sync.register`) where supported (Chromium): the SW
  *    flushes the same IndexedDB queue even after the tab is closed.
  */
+import { isClientOutdated, subscribeClientVersion } from '../../api/clientVersion';
 import { CHANNEL_HEADERS } from '../../api/constants';
 import { refreshAckedSnapshot } from '../runs/acked';
 import { timedFetch } from '../runs/serverClock';
@@ -20,6 +21,8 @@ export const outbox: Outbox = createOutbox({
   kinds: OUTBOX_KINDS,
   headers: CHANNEL_HEADERS,
   fetch: timedFetch(),
+  // Nothing is sent while the server refuses this bundle (client-versions.md §5.3).
+  hold: isClientOutdated,
 });
 
 /** Longest wait between checks while items are pending. */
@@ -154,6 +157,13 @@ export function startOutbox(): () => void {
   window.addEventListener('online', onOnline);
   document.addEventListener('visibilitychange', onVisible);
   window.addEventListener('pageshow', onPageShow);
+  // The server's minimum dropped again: send what was held.
+  let wasOutdated = isClientOutdated();
+  const unsubscribeVersion = subscribeClientVersion(() => {
+    const outdated = isClientOutdated();
+    if (wasOutdated && !outdated) void kickOutbox(true);
+    wasOutdated = outdated;
+  });
 
   void refreshOutboxSnapshot();
   void refreshAckedSnapshot();
@@ -162,6 +172,7 @@ export function startOutbox(): () => void {
   return () => {
     started = false;
     unsubscribe();
+    unsubscribeVersion();
     clearTimeout(timer);
     window.removeEventListener('online', onOnline);
     document.removeEventListener('visibilitychange', onVisible);

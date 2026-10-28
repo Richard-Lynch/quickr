@@ -24,9 +24,15 @@ import {
 import { NavigationRoute, registerRoute } from 'workbox-routing';
 import { NetworkFirst } from 'workbox-strategies';
 
+import {
+  CLIENT_OUTDATED_MESSAGE,
+  isClientOutdated,
+  subscribeClientVersion,
+} from './api/clientVersion';
 import { API_PREFIX, CHANNEL_HEADERS, FROM_CACHE_HEADER, SW_API_CACHE } from './api/constants';
 import { OUTBOX_KINDS, OUTBOX_SYNC_TAG } from './lib/outbox/kinds';
 import { createOutbox } from './lib/outbox/outbox';
+import { syncOutbox } from './lib/outbox/sync';
 import { ackedItems } from './lib/runs/acked';
 import { SERVER_TIME_HEADER } from './lib/runs/clock';
 import { loadServerOffset, timedFetch } from './lib/runs/serverClock';
@@ -130,19 +136,26 @@ registerRoute(
 
 // ---- Background Sync: flush the outbox -------------------------------------------
 
-const outbox = createOutbox({ kinds: OUTBOX_KINDS, headers: CHANNEL_HEADERS, fetch: timedFetch() });
+const outbox = createOutbox({
+  kinds: OUTBOX_KINDS,
+  headers: CHANNEL_HEADERS,
+  fetch: timedFetch(),
+  // In this worker's memory only: a restart checks again (client-versions.md §5.3).
+  hold: isClientOutdated,
+});
 
 self.addEventListener('sync', (event) => {
   const e = event as SyncEvent;
   if (e.tag !== OUTBOX_SYNC_TAG) return;
-  e.waitUntil(
-    (async () => {
-      await outbox.flush({ force: true });
-      const stillPending = (await outbox.list()).some((i) => i.status === 'pending');
-      // Rejecting asks the browser to retry the sync later (with its own backoff).
-      if (stillPending && !e.lastChance) throw new Error('outbox: items still pending');
-    })(),
-  );
+  e.waitUntil(syncOutbox(outbox, e.lastChance));
+});
+
+// The open pages learn from this worker's sends that the bundle is outdated (§5.1).
+subscribeClientVersion(() => {
+  if (!isClientOutdated()) return;
+  void self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
+    for (const w of windows) w.postMessage(CLIENT_OUTDATED_MESSAGE);
+  });
 });
 
 // ---- Web Push ---------------------------------------------------------------------

@@ -12,7 +12,9 @@
  * on a known run is applied. An event whose id is in `unavailable` gets a 503.
  * `GET /runs/{id}` (an alias resolves) and `GET /entries/{id}` read them back; a read of an
  * id in `unavailableReads` gets a 503.
- * Every response carries the identity headers. Requests are recorded.
+ * Every response carries the identity and level headers (`apiLevel`, `minWebLevel`). A
+ * request whose `X-QuickR-Client` level is below `minWebLevel` gets 426 `client_outdated`
+ * before any effect (client-versions.md §3.3). Requests are recorded.
  */
 export interface FakeEntry {
   id: string;
@@ -57,6 +59,10 @@ export interface FakeQuickrServer {
   /** Run or entry ids whose `GET` is answered 503 while they are in the set. */
   unavailableReads: Set<string>;
   offline: boolean;
+  /** `X-QuickR-Api-Level` (default 1). */
+  apiLevel: number;
+  /** The `web` minimum (default 0). */
+  minWebLevel: number;
   requests: { method: string; url: string; headers: Record<string, string>; body: unknown }[];
   fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
@@ -72,6 +78,8 @@ export function fakeQuickrServer(serverId: string, topicIds: string[]): FakeQuic
     unavailable: new Set(),
     unavailableReads: new Set(),
     offline: false,
+    apiLevel: 1,
+    minWebLevel: 0,
     requests: [],
     fetch: (input, init) => Promise.resolve(handle(server, input, init)),
   };
@@ -85,6 +93,8 @@ function respond(server: FakeQuickrServer, status: number, body: unknown): Respo
       'Content-Type': 'application/json',
       'X-QuickR-Server-Id': server.serverId,
       'X-QuickR-Epoch': 'E1',
+      'X-QuickR-Api-Level': String(server.apiLevel),
+      'X-QuickR-Min-Client-Level': `ios=0, web=${String(server.minWebLevel)}`,
     },
   });
 }
@@ -98,6 +108,15 @@ function handle(server: FakeQuickrServer, input: RequestInfo | URL, init?: Reque
   const headers = Object.fromEntries(new Headers(init?.headers).entries());
   const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
   server.requests.push({ method, url, headers, body });
+
+  const level = /level=(\d+)/.exec(headers['x-quickr-client'] ?? '')?.[1];
+  if (level !== undefined && Number(level) < server.minWebLevel) {
+    return respond(server, 426, {
+      ...problem('client_outdated', 'This version of quickR is too old for the server.'),
+      min_client_level: server.minWebLevel,
+      client_level: Number(level),
+    });
+  }
 
   const expected = headers['x-quickr-expect-server-id'];
   if (method !== 'GET' && expected !== undefined && expected !== server.serverId) {

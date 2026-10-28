@@ -11,6 +11,7 @@
  */
 import { createStore, get, set, type UseStore } from 'idb-keyval';
 
+import { CLIENT_HEADER, CLIENT_HEADER_VALUE, observeResponse } from '../../api/clientVersion';
 import { FROM_CACHE_HEADER } from '../../api/constants';
 import {
   INITIAL_OFFSET_MS,
@@ -143,15 +144,46 @@ export function isCachedResponse(res: Response): boolean {
 }
 
 /**
- * `fetch` that records each fresh response's server time. `base` is read at call time, so
- * a stubbed `globalThis.fetch` (tests) is used, and `window.fetch` keeps its receiver.
+ * `init` with `X-QuickR-Client` added to its headers (client-versions.md §3.1). A plain
+ * object stays one; headers already there are kept, that one included.
+ */
+function withClientHeader(init: RequestInit | undefined): RequestInit {
+  const headers = init?.headers;
+  if (headers === undefined || (!(headers instanceof Headers) && !Array.isArray(headers))) {
+    const own = headers ?? {};
+    const has = Object.keys(own).some((k) => k.toLowerCase() === CLIENT_HEADER.toLowerCase());
+    return { ...init, headers: has ? own : { ...own, [CLIENT_HEADER]: CLIENT_HEADER_VALUE } };
+  }
+  const merged = new Headers(headers);
+  if (!merged.has(CLIENT_HEADER)) merged.set(CLIENT_HEADER, CLIENT_HEADER_VALUE);
+  return { ...init, headers: merged };
+}
+
+/**
+ * `fetch` that sends `X-QuickR-Client` and records each fresh response's server time and
+ * levels (client-versions.md §5.1). The generated client calls it with a `Request`, the
+ * outbox with a URL and an `init`; the header is merged into whichever it gets. `base` is
+ * read at call time, so a stubbed `globalThis.fetch` (tests) is used, and `window.fetch`
+ * keeps its receiver.
  */
 export function timedFetch(base?: typeof fetch): typeof fetch {
   return async (input, init) => {
+    const send = base ?? globalThis.fetch;
     const tSend = Date.now();
-    const res = await (base ?? globalThis.fetch)(input, init);
+    let res: Response;
+    if (input instanceof Request) {
+      const request = new Request(input, init);
+      if (!request.headers.has(CLIENT_HEADER))
+        request.headers.set(CLIENT_HEADER, CLIENT_HEADER_VALUE);
+      res = await send(request);
+    } else {
+      res = await send(input, withClientHeader(init));
+    }
     const tRecv = Date.now();
-    if (!isCachedResponse(res)) recordServerTime(res.headers.get(SERVER_TIME_HEADER), tSend, tRecv);
+    if (!isCachedResponse(res)) {
+      recordServerTime(res.headers.get(SERVER_TIME_HEADER), tSend, tRecv);
+      await observeResponse(res);
+    }
     return res;
   };
 }
