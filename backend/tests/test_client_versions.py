@@ -1,13 +1,16 @@
 """Client API levels and forced updates (docs/specs/client-versions.md): spec cases V1-V5.
 
-The tests raise the minimums by replacing ``client_versions.current`` (the built-in file ships
-both at 0, which refuses nobody); ``resolve`` is tested on its own against ``Settings``.
+The tests raise the minimums by replacing ``client_versions.current``; ``resolve`` is tested on
+its own against ``Settings``. The shipped levels are read from shared/api-level.json, so a bump
+needs no edits here. ``client`` is the bare client: no ``X-QuickR-Client`` unless a test sends one.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -35,8 +38,15 @@ OLD_IOS = {"X-QuickR-Client": "ios; level=1; build=20261028.120000", "X-QuickR-C
 NEW_IOS = {"X-QuickR-Client": "ios; level=2; build=20261029.120000", "X-QuickR-Channel": "ios"}
 OLD_WEB = {"X-QuickR-Client": "web; level=1; build=2026-10-28T12:00:00Z", "X-QuickR-Channel": "ui"}
 LEVEL_HEADERS = ("x-quickr-api-level", "x-quickr-min-client-level")
+SHIPPED = json.loads((Path(__file__).resolve().parents[2] / "shared/api-level.json").read_text())
 QUESTIONS = [{"key": "n", "label": "N", "type": "int"}]
 INTERVAL = {"kind": "interval", "every_minutes": 15, "timezone": "UTC"}
+
+
+@pytest.fixture
+def client(bare_client: httpx.AsyncClient) -> httpx.AsyncClient:
+    """These tests choose each request's client headers themselves."""
+    return bare_client
 
 
 @pytest.fixture
@@ -104,8 +114,9 @@ async def test_level_headers_on_every_response(
 
 async def test_the_shipped_levels_on_the_wire(client: httpx.AsyncClient) -> None:
     r = await client.get("/health")
-    assert r.headers["x-quickr-api-level"] == str(client_versions.API_LEVEL) == "1"
-    assert r.headers["x-quickr-min-client-level"] == "ios=0, web=0"
+    minimums = SHIPPED["min_client_level"]
+    assert r.headers["x-quickr-api-level"] == str(client_versions.API_LEVEL) == str(SHIPPED["api_level"])
+    assert r.headers["x-quickr-min-client-level"] == f"ios={minimums['ios']}, web={minimums['web']}"
     assert "x-quickr-api-level" not in (await client.get("http://test/api/v10/health")).headers
 
 
@@ -118,11 +129,7 @@ async def test_level_headers_are_exposed_to_browsers(client: httpx.AsyncClient) 
 async def test_get_client_versions(client: httpx.AsyncClient) -> None:
     r = await client.get("/client-versions")
     assert r.status_code == 200
-    assert r.json() == {
-        "api_level": 1,
-        "min_client_level": {"ios": 0, "web": 0},
-        "update_url": {"ios": "itms-beta://"},
-    }
+    assert r.json() == {**SHIPPED, "update_url": {"ios": "itms-beta://"}}
 
 
 # --- V2: below the minimum, refused before any effect -----------------------------------------
@@ -160,10 +167,19 @@ async def test_at_or_above_the_minimum_is_served(client: httpx.AsyncClient, rais
     assert (await client.get("/topics", headers=above)).status_code == 200
 
 
-async def test_the_shipped_minimums_refuse_nobody(client: httpx.AsyncClient) -> None:
-    pre_cv = {"X-QuickR-Channel": "ios"}  # level 0
-    r = await client.post("/topics", json={"name": "New", "questions": QUESTIONS}, headers=pre_cv)
+@pytest.mark.parametrize("platform", ["ios", "web"])
+async def test_the_shipped_minimums(client: httpx.AsyncClient, platform: str) -> None:
+    """A client at its shipped minimum is served; one below it (if any can be) is refused."""
+    minimum = SHIPPED["min_client_level"][platform]
+    at_minimum = {"X-QuickR-Client": f"{platform}; level={minimum}; build=x"}
+    r = await client.post("/topics", json={"name": "New", "questions": QUESTIONS}, headers=at_minimum)
     assert r.status_code == 201, r.text
+    pre_cv = {"X-QuickR-Channel": "ios" if platform == "ios" else "ui"}  # level 0
+    r = await client.get("/topics", headers=pre_cv)
+    if minimum == 0:
+        assert r.status_code == 200, r.text
+    else:
+        assert_outdated(r, client_level=0, minimum=minimum)
 
 
 # --- V3: who is checked -----------------------------------------------------------------------
@@ -261,30 +277,36 @@ def test_an_override_above_the_api_level_is_clamped(caplog: pytest.LogCaptureFix
     assert "QUICKR_MIN_CLIENT_LEVEL_IOS=9 is above the API level 3" in warning.getMessage()
 
 
+@pytest.mark.usefixtures("built_in")
 def test_overrides_and_the_update_url_come_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("QUICKR_MIN_CLIENT_LEVEL_IOS", "1")
+    monkeypatch.setenv("QUICKR_MIN_CLIENT_LEVEL_IOS", "3")
     monkeypatch.setenv("QUICKR_IOS_UPDATE_URL", "https://testflight.apple.com/join/abc")
     levels = client_versions.resolve(Settings(_env_file=None))
-    assert dict(levels.min_client_level) == {"ios": 1, "web": 0}
+    assert dict(levels.min_client_level) == {"ios": 3, "web": 2}
     assert levels.ios_update_url == "https://testflight.apple.com/join/abc"
 
 
+@pytest.mark.usefixtures("built_in")
 async def test_get_client_versions_reports_the_overrides(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    levels = client_versions.resolve(settings(min_client_level_ios=1, ios_update_url="itms-beta://x"))
+    levels = client_versions.resolve(settings(min_client_level_ios=3, ios_update_url="itms-beta://x"))
     monkeypatch.setattr(client_versions, "current", lambda: levels)
     r = await client.get("/client-versions")
     assert r.json() == {
-        "api_level": 1,
-        "min_client_level": {"ios": 1, "web": 0},
+        "api_level": 3,
+        "min_client_level": {"ios": 3, "web": 2},
         "update_url": {"ios": "itms-beta://x"},
     }
-    assert r.headers["x-quickr-min-client-level"] == "ios=1, web=0"
+    assert r.headers["x-quickr-min-client-level"] == "ios=3, web=2"
     assert_outdated(
-        await client.get("/topics", headers={"X-QuickR-Channel": "ios"}), client_level=0, minimum=1
+        await client.get("/topics", headers={"X-QuickR-Client": "ios; level=2; build=x"}),
+        client_level=2,
+        minimum=3,
     )
-    assert (await client.get("/topics", headers={"X-QuickR-Channel": "ui"})).status_code == 200
+    assert (
+        await client.get("/topics", headers={"X-QuickR-Client": "web; level=2; build=x"})
+    ).status_code == 200
 
 
 def test_the_built_in_file_is_checked(tmp_path: Any) -> None:

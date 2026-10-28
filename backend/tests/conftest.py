@@ -34,6 +34,7 @@ from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine  # noqa: E402
 
 from alembic import command  # noqa: E402
+from app.client_versions import API_LEVEL, CLIENT_HEADER  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.db import get_engine, get_sessionmaker  # noqa: E402
 from app.services.push import apns  # noqa: E402
@@ -103,13 +104,26 @@ async def db(clean_db: None) -> AsyncIterator[AsyncSession]:
         yield session
 
 
+# The shared client is a current build (docs/specs/client-versions.md §3.3), so a bump that
+# raises the minimums refuses none of the tests; tests of the check itself use ``bare_client``.
+CURRENT_CLIENT = {CLIENT_HEADER: f"web; level={API_LEVEL}; build=test"}
+
+
 @pytest.fixture
-async def client(clean_db: None) -> AsyncIterator[httpx.AsyncClient]:
+async def bare_client(clean_db: None) -> AsyncIterator[httpx.AsyncClient]:
+    """The API with no ``X-QuickR-Client``: not checked, or level 0 with an ``X-QuickR-Channel``."""
     from app.main import app
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test/api/v1") as c:
         yield c
+
+
+@pytest.fixture
+async def client(bare_client: httpx.AsyncClient) -> httpx.AsyncClient:
+    """The API as a client at this server's level."""
+    bare_client.headers.update(CURRENT_CLIENT)
+    return bare_client
 
 
 @pytest.fixture

@@ -1,7 +1,8 @@
 # Spec: client API levels and forced updates
 
-**Status:** draft, revision 5, 2026-10-28 (reviewed against `main` after the
-timers milestone, v0.3.0). **Milestone CV, a follow-on after the timers
+**Status:** implemented (milestone CV, on `feat/client-versions`), revision 5,
+2026-10-28 (reviewed against `main` after the timers milestone, v0.3.0). Before
+the first bump, see the release note at the end of §8. **Milestone CV, a follow-on after the timers
 milestone (T)**; not a prerequisite for it. **Applies to:** the backend, the PWA
 and the iOS app. **Replaces part of:**
 [compatibility.md](../ios/specs/compatibility.md) (§7 here says how).
@@ -122,6 +123,10 @@ Activity content state and attributes (`live-activity-vectors.json`,
 bump nothing. CI enforces the API part (§7). Push payloads stay pinned by their
 vectors and the `old clients` job.
 
+**A bump PR** edits `shared/api-level.json`, then runs `make api-level` (the
+generated copies above) and `make vectors` (the `getClientVersions` fixture).
+The tests read the levels from these files, so the bump needs no test edits.
+
 ## 3. On the wire
 
 ### 3.1 Clients send
@@ -203,11 +208,14 @@ A checked request whose level is below `min_client_level[platform]` gets:
 ```
 426 Upgrade Required
 Content-Type: application/problem+json
-{ "type": "…/client_outdated", "code": "client_outdated", "status": 426,
-  "title": "Update quickR",
+{ "code": "client_outdated",
   "detail": "This version of quickR is too old for the server. Update it from TestFlight (or reload the web app) to keep syncing. Nothing on this device has been lost.",
+  "errors": [],
   "min_client_level": 2, "client_level": 1 }
 ```
+
+This is the repo's Problem envelope (`code`, `detail`, `errors`), with no
+`type`, `title` or `status`.
 
 **Reads and writes are both refused.** It is simpler, and safer: an outdated
 client that can still read may misread new shapes and advance its cursor past
@@ -502,9 +510,8 @@ queued writes. That window is the cost of this policy, and the user accepted it.
 
 Branch `feat/client-versions`, cut from `main` (T merged as v0.3.0). The scope
 guard and conventions of [timers-plan.md](timers-plan.md) apply, with issues
-labelled `cv-followup`. `compat/supported-clients.json` is empty on `main`.
-Record PR #73 would list the timers build, at level 0 under §7. Either way, the
-gate passes, since CV is additive.
+labelled `cv-followup`. `compat/supported-clients.json` lists the timers build
+`20261026.143027` at level 0 (§7). The gate passes, since CV is additive.
 
 ### CV-SERVER · API level, headers and enforcement · be · M
 
@@ -597,6 +604,14 @@ gate passes, since CV is additive.
 - **Depends on:** CV-SERVER.
 - **Acceptance:** client-versions.md V10 and V14; the outbox parity tests pass.
 - **Tests:** V10, V14.
+
+### Release note
+
+**Install the CV build on the phone before any PR raises the minimum.** The
+timers build is level 0 and predates this mechanism: once a bump refuses it, it
+gets a 426 it can't read and shows ordinary sync errors, not "Update required".
+The CV build (the first at `api_level` 1) understands the 426, holds its queue
+and offers the update (§4).
 
 ## Open questions
 

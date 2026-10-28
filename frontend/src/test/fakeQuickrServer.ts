@@ -59,7 +59,7 @@ export interface FakeQuickrServer {
   /** Run or entry ids whose `GET` is answered 503 while they are in the set. */
   unavailableReads: Set<string>;
   offline: boolean;
-  /** `X-QuickR-Api-Level` (default 1). */
+  /** `X-QuickR-Api-Level` (default: this bundle's level). */
   apiLevel: number;
   /** The `web` minimum (default 0). */
   minWebLevel: number;
@@ -78,7 +78,7 @@ export function fakeQuickrServer(serverId: string, topicIds: string[]): FakeQuic
     unavailable: new Set(),
     unavailableReads: new Set(),
     offline: false,
-    apiLevel: 1,
+    apiLevel: __API_LEVEL__,
     minWebLevel: 0,
     requests: [],
     fetch: (input, init) => Promise.resolve(handle(server, input, init)),

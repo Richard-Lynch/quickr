@@ -7,6 +7,7 @@ import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  API_LEVEL,
   isClientOutdated,
   isServerBehind,
   markClientOutdated,
@@ -47,7 +48,7 @@ afterEach(async () => {
 
 describe('page outbox, outdated (V10)', () => {
   it('holds an entry and a run event, sends nothing more, and sends them once updated', async () => {
-    server.minWebLevel = 2;
+    server.minWebLevel = API_LEVEL + 1;
     const before = await outbox.list();
     const r = await outbox.flush({ force: true });
     expect(r).toMatchObject({ sent: 0, failed: 0, retrying: 0, remaining: 2 });

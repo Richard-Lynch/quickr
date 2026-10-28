@@ -394,11 +394,13 @@ describe('service worker: an outdated bundle (client-versions.md §5.3, V10)', (
 
   it('a notification action is held, kept, and nothing more is sent', async () => {
     const posted = openPage();
-    server.minWebLevel = 2;
+    server.minWebLevel = __API_LEVEL__ + 1;
     await click(await push(reminder), 'log|o|ok');
     expect(server.entries.size).toBe(0);
     expect(server.requests).toHaveLength(1);
-    expect(server.requests[0]?.headers['x-quickr-client']).toMatch(/^web; level=1; build=/);
+    expect(server.requests[0]?.headers['x-quickr-client']).toMatch(
+      new RegExp(`^web; level=${String(__API_LEVEL__)}; build=`),
+    );
     // Held, not failed: pending as enqueued, for the updated bundle.
     expect(await appOutbox().list()).toMatchObject([{ status: 'pending', attempts: 0 }]);
     await vi.waitFor(() => {
@@ -422,7 +424,7 @@ describe('service worker: an outdated bundle (client-versions.md §5.3, V10)', (
     const app = appOutbox();
     const start = runItem('start', { id: 'r1', run: 'r1', at: Date.now() });
     await app.enqueue(start.kind, start.payload, { id: 'r1' });
-    server.minWebLevel = 2;
+    server.minWebLevel = __API_LEVEL__ + 1;
     await expect(fire('sync', { tag: 'quickr-outbox', lastChance: false })).resolves.toBe(
       undefined,
     );

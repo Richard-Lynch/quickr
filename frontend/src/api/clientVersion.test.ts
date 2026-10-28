@@ -50,13 +50,16 @@ function answer(
   return new Response(JSON.stringify(opts.body ?? {}), { status: opts.status ?? 200, headers });
 }
 
+/** A level above this bundle's, so a minimum at it makes the bundle outdated. */
+const ABOVE = API_LEVEL + 1;
+
 /** The 426 body: the repo's Problem envelope (CV-SERVER), no type/title/status. */
 const outdatedProblem = {
   code: 'client_outdated',
   detail: 'This version of quickR is too old for the server.',
   errors: [],
-  min_client_level: 2,
-  client_level: 1,
+  min_client_level: ABOVE,
+  client_level: API_LEVEL,
 };
 
 const VERSIONS = {
@@ -180,7 +183,7 @@ describe('detection (§5.1)', () => {
   it('a minimum above the bundle is outdated, through the generated client', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve(answer({ level: 2, min: 2, body: VERSIONS }))),
+      vi.fn(() => Promise.resolve(answer({ level: ABOVE, min: ABOVE, body: VERSIONS }))),
     );
     await getClientVersions();
     expect(isClientOutdated()).toBe(true);
@@ -209,17 +212,17 @@ describe('detection (§5.1)', () => {
 
   it('a fresh response that is not outdated clears the state and the reload mark', async () => {
     markForcedReload();
-    await fetchOnce(answer({ level: 1, min: 2 }));
+    await fetchOnce(answer({ level: API_LEVEL, min: ABOVE }));
     expect(isClientOutdated()).toBe(true);
     expect(hasForcedReload()).toBe(true);
-    await fetchOnce(answer({ level: 1, min: 0 }));
+    await fetchOnce(answer({ level: API_LEVEL, min: 0 }));
     expect(isClientOutdated()).toBe(false);
     expect(sessionStorage.getItem(FORCED_RELOAD_KEY)).toBeNull();
   });
 
   it("a response without the level headers (a proxy's page) says nothing", async () => {
     markForcedReload();
-    await fetchOnce(answer({ level: 1, min: 2 }));
+    await fetchOnce(answer({ level: API_LEVEL, min: ABOVE }));
     await fetchOnce(new Response('Bad gateway', { status: 502 }));
     expect(isClientOutdated()).toBe(true);
     expect(hasForcedReload()).toBe(true);
@@ -227,7 +230,7 @@ describe('detection (§5.1)', () => {
 
   it('a cached response that is not outdated keeps the reload mark', async () => {
     markForcedReload();
-    await fetchOnce(answer({ level: 1, min: 0, extra: { [FROM_CACHE_HEADER]: '1' } }));
+    await fetchOnce(answer({ level: API_LEVEL, min: 0, extra: { [FROM_CACHE_HEADER]: '1' } }));
     expect(hasForcedReload()).toBe(true);
   });
 });

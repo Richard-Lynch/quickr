@@ -39,8 +39,10 @@ RFC 2119.
    raises `api_level` by one and sets `min_client_level.ios` and `.web` to it.
    Every build from before the bump is then below the minimum, so the server
    refuses it and the app asks the user to update
-   ([client-versions.md](../../specs/client-versions.md) §2, §4). A listed
-   build below the new minimum **MAY** be removed in the same PR.
+   ([client-versions.md](../../specs/client-versions.md) §2, §4). The bump PR
+   runs `make api-level` and `make vectors`, which update the generated copies
+   and the `getClientVersions` fixture. A listed build below the new minimum
+   **MAY** be removed in the same PR.
 
 **Note, 2026-10-28: the timers build.** The timers milestone supported no
 earlier build, so the list restarted with the timers build `20261026.143027`,
