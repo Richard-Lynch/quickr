@@ -25,8 +25,8 @@ import Testing
         /// What the Live Activity seam was asked, and what it answers.
         let requests = Mutex<[NotificationRunStart]>([])
         let shows = Mutex(false)
-        /// The seam answers only after 30 s, whatever cancellation says.
-        let hangs = Mutex(false)
+        /// The seam answers only once this gate opens, whatever cancellation says.
+        let hang = Mutex<Gate?>(nil)
         /// The seam moves the device clock on by 5 s while it runs.
         let takesTime = Mutex(false)
 
@@ -66,11 +66,7 @@ import Testing
                 startLiveActivity: { [self] start in
                     requests.withLock { $0.append(start) }
                     if takesTime.withLock({ $0 }) { w.wall.set(w.wall.now().addingTimeInterval(5)) }
-                    if hangs.withLock({ $0 }) {
-                        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                            DispatchQueue.global().asyncAfter(deadline: .now() + 30) { done.resume() }
-                        }
-                    }
+                    if let gate = hang.withLock({ $0 }) { await gate.arrive() }
                     return shows.withLock { $0 }
                 }, liveActivityBudget: .milliseconds(200))
         }
@@ -259,16 +255,22 @@ import Testing
     }
 
     /// A seam that doesn't answer within the budget counts as not shown: the start is still
-    /// enqueued and flushed, promptly.
+    /// enqueued and flushed, while the request still hangs. No clock: the request answers only
+    /// once the start is back, so a start that waited for it would hang until the suite's time
+    /// limit cancels the test (which then releases the request, to fail rather than hang).
     @Test func aHangingLiveActivityRequestDoesntHoldTheStartBack() async throws {
         let world = try await World()
-        world.hangs.withLock { $0 = true }
+        let gate = Gate()
+        world.hang.withLock { $0 = gate }
+        defer { gate.releaseAll() }
         let id = world.runId()
-        let began = ContinuousClock.now
-        let outcome = await world.start(world.reminder())
-        let took = ContinuousClock.now - began
+        let outcome = await withTaskCancellationHandler {
+            await world.start(world.reminder())
+        } onCancel: {
+            gate.releaseAll()
+        }
+        #expect(!Task.isCancelled, "the start waited for the hanging request")
         #expect(outcome == .started(runId: id, serverId: Self.serverA, flush: .drained))
-        #expect(took < .seconds(5))
         #expect(world.requests.withLock { $0.count } == 1)
         let device = try #require(world.w.server.run(id)?.bodies[id]?.device)
         #expect(device.liveActivity == false)

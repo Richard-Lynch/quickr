@@ -1,6 +1,6 @@
 import Foundation
 import QuickrCore
-import QuickrUI
+@_spi(Testing) import QuickrUI
 import Testing
 
 /// The design loop's Workout topic: a chip question, two numbers (one optional) and a note.
@@ -44,7 +44,8 @@ private let monday = Date(timeIntervalSince1970: 1_760_000_000)
         let request = try #require(model.voiceOverRequest)
         #expect(request.target == .question("type") && request.toError)
         // Spent after its lifetime, so correcting the field never replays it.
-        try await Task.sleep(for: FormModel.voiceOverRequestLifetime + .milliseconds(200))
+        let expiry = try #require(model.voiceOverExpiryForTesting)
+        await expiry.value
         #expect(model.voiceOverRequest == nil)
         #expect(model.submit() == nil)
         #expect(try #require(model.voiceOverRequest).serial > request.serial, "a new attempt, a new request")

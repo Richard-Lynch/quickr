@@ -76,6 +76,10 @@ public final class FormModel {
     private var autoSaved: AnswerInput?
     /// The screen has run ``appear()``, or the user acted first; either way it never runs again.
     private var settled = false
+    /// Spends the current ``voiceOverRequest`` once its lifetime is up.
+    @ObservationIgnored private var voiceOverExpiry: Task<Void, Never>?
+    /// Tests: the pending expiry, to await instead of sleeping past the lifetime.
+    @_spi(Testing) public var voiceOverExpiryForTesting: Task<Void, Never>? { voiceOverExpiry }
 
     public init(questions: [Question], mode: Mode = .create()) {
         self.questions = questions
@@ -351,7 +355,7 @@ public final class FormModel {
         scrollSerial += 1
         let request = FormVoiceOverRequest(target: target, serial: scrollSerial, toError: toError)
         voiceOverRequest = request
-        Task { [weak self] in
+        voiceOverExpiry = Task { [weak self] in
             try? await Task.sleep(for: Self.voiceOverRequestLifetime)
             if self?.voiceOverRequest == request { self?.voiceOverRequest = nil }
         }
