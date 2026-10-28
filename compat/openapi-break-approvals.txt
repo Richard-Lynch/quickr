@@ -9,20 +9,3 @@
 #   <METHOD> <path> <message>
 # with a comment above it naming the PR and why no supported client is affected. Remove the
 # lines once a v* tag includes the change.
-
-# --- Timers milestone (docs/specs/timers-plan.md, T-UNGATE) ---------------------------------
-# The timers milestone supports no earlier build: compat/supported-clients.json lists none, so
-# these breaks are checked against the latest v* tag only. Each T WP that breaks the API against
-# that tag adds its own lines here, each with the comment
-#   # timers milestone, no old builds supported (T-UNGATE)
-# above it. Remove them all once a v* tag includes the milestone (docs/ios/specs/compatibility.md §2).
-
-# T-DB: publishTopicVersion requires `timer` (docs/specs/timers.md §2.1).
-# timers milestone, no old builds supported (T-UNGATE)
-POST /api/v1/topics/{ref}/versions added the new required request property `timer`
-
-# T-FEED: listChanges carries `run` items and `run` deletions (docs/specs/timers.md §7.1).
-# timers milestone, no old builds supported (T-UNGATE)
-GET /api/v1/changes added the new `run` enum value to the `deleted/items/kind` response property for the response status `200`
-# timers milestone, no old builds supported (T-UNGATE)
-GET /api/v1/changes added `#/components/schemas/FeedRun` to the `items/items/` response property `oneOf` list for the response status `200`

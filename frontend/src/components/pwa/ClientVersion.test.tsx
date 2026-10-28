@@ -338,7 +338,10 @@ describe('UpdatePrompt, outdated (V10)', () => {
       vi.fn(() =>
         Promise.resolve(
           new Response('{}', {
-            headers: { 'X-QuickR-Api-Level': '2', 'X-QuickR-Min-Client-Level': 'ios=2, web=2' },
+            headers: {
+              'X-QuickR-Api-Level': String(API_LEVEL + 1),
+              'X-QuickR-Min-Client-Level': `ios=0, web=${String(API_LEVEL + 1)}`,
+            },
           }),
         ),
       ),
