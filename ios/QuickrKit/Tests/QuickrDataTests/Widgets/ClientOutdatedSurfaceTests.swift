@@ -14,6 +14,10 @@ import Testing
 @Suite(.timeLimit(.minutes(2))) struct ClientOutdatedSurfaceTests {
     static let mood = WidgetWritesTests.mood
 
+    static func good(_ topic: Topic) -> QuestionOptionEntity {
+        QuestionOptionEntity(topicId: topic.id, key: "mood", option: EnumOption(value: "good", label: "Good"))
+    }
+
     static func outdate(_ store: LocalStore) async throws {
         try await store.writer.write { db in
             try db.execute(sql: "UPDATE sync_state SET client_outdated_min = ?", arguments: [APILevel.current + 1])
@@ -39,6 +43,24 @@ import Testing
         #expect(items.map(\.state) == [.pending])
         #expect(server.requests.isEmpty, "no request")
         #expect(reloads.count == 2, "the widgets still show it queued")
+    }
+
+    /// The first log after a bump: its own flush meets the 426, and the result already says so.
+    @Test func theFirstWidgetLogAfterABumpSaysToUpdate() async throws {
+        let server = FakeServer()
+        server.with { $0.minClientLevelIOS = APILevel.current + 1 }
+        let w = try await WidgetWritesTests.World(server: server)
+        defer { w.directory.cleanup() }
+        let context = WidgetWrites.context(
+            location: w.location, transport: server, credentials: StaticAccessCredentials(nil), reload: {})
+        let said = try await WidgetLogging.perform(
+            topicId: w.topic.id,
+            option: Self.good(w.topic), number: nil, scope: w.store.scope, context: context, reload: {})
+        #expect(said == "Logged Mood: Good. \(ClientOutdated.savedMessage)")
+        let items = try await w.items()
+        #expect(items.map(\.state) == [.pending])
+        let minimum = try await w.store.syncState.syncState()?.clientOutdatedMin
+        #expect(minimum == APILevel.current + 1)
     }
 
     @Test func anIntentLogIsKeptNotSentAndSaysToUpdate() async throws {

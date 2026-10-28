@@ -48,6 +48,11 @@ public enum OutboxResolution: Sendable, Hashable {
     /// updated build sends it, a run event with the `at` it was stamped with.
     case hold(minimum: Int)
 
+    var isHold: Bool {
+        if case .hold = self { return true }
+        return false
+    }
+
     /// `runEvent` is a `run.event` item's event type (a start's 404 differs from the others').
     public static func resolve(
         _ kind: OutboxKind, _ outcome: APIOutcome<OutboxSuccess>, runEvent: RunEventType? = nil

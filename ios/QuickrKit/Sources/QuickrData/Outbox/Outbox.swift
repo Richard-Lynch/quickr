@@ -46,6 +46,8 @@ public struct OutboxFlushReport: Sendable, Hashable {
     public var retried = 0
     /// Retired, cancelled (S8) or restored after a precondition 409.
     public var settled = 0
+    /// Restored after a 426 `client_outdated`, for the updated build (client-versions.md §4.1).
+    public var held = 0
     /// Acked run events the server voided for a reason the user is told about (timers.md §8.1,
     /// §11.4), in ack order.
     public var runVoids: [RunVoid] = []
@@ -649,6 +651,7 @@ public struct Outbox: Sendable {
             }
         case .failed: run.report.failed += 1
         case .retried: run.report.retried += 1
+        case .restored where resolution.isHold: run.report.held += 1
         case .retired, .restored, .cancelled: run.report.settled += 1
         }
         switch resolution {

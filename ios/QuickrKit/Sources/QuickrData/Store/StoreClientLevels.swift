@@ -24,26 +24,38 @@ public struct StoreClientLevels: ClientLevelGate {
     }
 
     public func record(_ levels: ServerLevels, outdatedMinimum: Int?) async {
+        // A first read decides whether the flag is clearing, so the owed deletions are reset before
+        // the store's write; the write decides again from what it reads, so two processes never
+        // overwrite each other's minimum. A reset whose write then clears nothing is harmless.
         guard let stored = try? await read() else { return }
-        var minimum = stored.minimum
-        if let outdatedMinimum {
-            // Refused: whatever it says, this build is below it.
-            minimum = max(outdatedMinimum, levels.minClientLevelIOS ?? 0, APILevel.current + 1)
-        } else if let demanded = levels.minClientLevelIOS {
-            minimum = demanded > APILevel.current ? demanded : nil
-        }
-        let apiLevel = levels.apiLevel ?? stored.apiLevel
-        guard minimum != stored.minimum || apiLevel != stored.apiLevel else { return }
-        if stored.minimum != nil, minimum == nil { await resetOwedDeletions() }
-        let (newMinimum, newApiLevel) = (minimum, apiLevel)
+        let planned = Self.next(stored, levels, outdatedMinimum: outdatedMinimum)
+        guard planned.minimum != stored.minimum || planned.apiLevel != stored.apiLevel else { return }
+        if stored.minimum != nil, planned.minimum == nil { await resetOwedDeletions() }
         _ = try? await store.writer.write { db in
+            guard let current = try Self.read(db) else { return }
+            let next = Self.next(current, levels, outdatedMinimum: outdatedMinimum)
+            guard next.minimum != current.minimum || next.apiLevel != current.apiLevel else { return }
             try db.execute(
                 sql: """
                     UPDATE sync_state SET client_outdated_min = ?, server_api_level = ?
                     WHERE id = 1 AND retired = 0
                     """,
-                arguments: [newMinimum, newApiLevel])
+                arguments: [next.minimum, next.apiLevel])
         }
+    }
+
+    /// The state after one response's levels: a 426 sets the minimum whatever else it says; a
+    /// minimum above this build sets it; one this build meets clears it.
+    private static func next(
+        _ stored: (minimum: Int?, apiLevel: Int?), _ levels: ServerLevels, outdatedMinimum: Int?
+    ) -> (minimum: Int?, apiLevel: Int?) {
+        var minimum = stored.minimum
+        if let outdatedMinimum {
+            minimum = max(outdatedMinimum, levels.minClientLevelIOS ?? 0, APILevel.current + 1)
+        } else if let demanded = levels.minClientLevelIOS {
+            minimum = demanded > APILevel.current ? demanded : nil
+        }
+        return (minimum, levels.apiLevel ?? stored.apiLevel)
     }
 
     /// Clears a flag this build meets: the first open after an update.
@@ -60,11 +72,13 @@ public struct StoreClientLevels: ClientLevelGate {
     }
 
     private func read() async throws -> (minimum: Int?, apiLevel: Int?)? {
-        try await store.writer.read { db in
-            try Row.fetchOne(
-                db, sql: "SELECT client_outdated_min, server_api_level FROM sync_state WHERE id = 1 AND retired = 0"
-            ).map { ($0["client_outdated_min"], $0["server_api_level"]) }
-        }
+        try await store.writer.read { db in try Self.read(db) }
+    }
+
+    private static func read(_ db: Database) throws -> (minimum: Int?, apiLevel: Int?)? {
+        try Row.fetchOne(
+            db, sql: "SELECT client_outdated_min, server_api_level FROM sync_state WHERE id = 1 AND retired = 0"
+        ).map { ($0["client_outdated_min"], $0["server_api_level"]) }
     }
 
     private func resetOwedDeletions() async {

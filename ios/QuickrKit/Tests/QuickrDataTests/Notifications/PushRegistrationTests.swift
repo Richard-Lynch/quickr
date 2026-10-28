@@ -648,6 +648,14 @@ extension PushRegistrationTests {
         #expect(owed.count == 1)
         let attempts: Int? = owed.first?.attempts
         #expect(attempts == 1)
+
+        // Refused again 20 days on: still owed, and it doesn't age while that server refuses it.
+        w.wall.advance(by: 20 * 24 * 3600)
+        w.lease.advance(by: .seconds(600))
+        await w.registration.retryOwed()
+        let first = try #require(try await w.owed.first?.firstAttemptAt)
+        let now = w.wall.now()
+        #expect(abs(first.timeIntervalSince(now)) < 0.001)
     }
 
     @Test func owedDeletionsAreNotSentAndDontAgeWhileOutdated() async throws {

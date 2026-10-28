@@ -368,9 +368,14 @@ public final class PushRegistration {
                 try? await forget(row)
             case .identityMismatch, .terminal:
                 try? await forget(row)
-            case .retryable, .uncertain, .epochMismatch, .none, .entryDeleted, .staleRevision, .clientOutdated:
+            case .retryable, .uncertain, .epochMismatch, .none, .entryDeleted, .staleRevision:
                 let delay = OutboxBackoff.delay(attempts: row.attempts + 1, random: dependencies.random())
                 try? await reschedule(row, due: now.adding(delay), epoch: identity.epoch)
+            case .clientOutdated:
+                // That server refuses this build (its store may not be open here): still owed, and
+                // its 30 days start again, so it doesn't age while outdated (§4.1).
+                let delay = OutboxBackoff.delay(attempts: row.attempts + 1, random: dependencies.random())
+                try? await reschedule(row, due: now.adding(delay), epoch: identity.epoch, restartAge: wall)
             }
         }
     }
@@ -526,15 +531,19 @@ public final class PushRegistration {
         }
     }
 
-    private func reschedule(_ row: Owed, due: LeaseInstant, epoch: String) async throws {
+    /// `restartAge`: the row's `first_attempt_at` becomes that instant.
+    private func reschedule(_ row: Owed, due: LeaseInstant, epoch: String, restartAge: Date? = nil) async throws {
         try await dependencies.registry.writer.write { db in
             try db.execute(
                 sql: """
                     UPDATE pending_unregister SET attempts = attempts + 1, due_boot_id = ?, due_ct = ?,
-                      expect_epoch = ?
+                      expect_epoch = ?, first_attempt_at = COALESCE(?, first_attempt_at)
                     WHERE server_id = ? AND token = ?
                     """,
-                arguments: [due.bootId, due.ct, epoch == "unknown" ? row.expectEpoch : epoch, row.serverId, row.token])
+                arguments: [
+                    due.bootId, due.ct, epoch == "unknown" ? row.expectEpoch : epoch,
+                    restartAge?.timeIntervalSince1970, row.serverId, row.token,
+                ])
         }
     }
 

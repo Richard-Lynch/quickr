@@ -549,11 +549,7 @@ public struct NotificationActionHandler: Sendable {
         let scope = store.scope
         guard await gate.activeScope() == scope else { return nil }
         if await ClientOutdated.isOutdated(store) {
-            if outdatedNotice.first() {
-                try? await center.add(
-                    LocalNotificationRequest(
-                        id: Self.outdatedNoticeId, title: "quickR", body: ClientOutdated.savedMessage))
-            }
+            await postOutdatedNotice()
             return .clientOutdated
         }
         guard let sender = await sender(store) else { return nil }
@@ -562,7 +558,16 @@ public struct NotificationActionHandler: Sendable {
         let report = try? await outbox.flush(
             force: true, budget: flushBudget, leaseWait: flushBudget,
             shouldProceed: { await gate.activeScope() == scope })
+        // The first action after a bump: its own flush met the 426.
+        if report?.ending == .clientOutdated { await postOutdatedNotice() }
         return report.map(\.ending)
+    }
+
+    /// "Saved on this iPhone. Update quickR to sync.", once per launch.
+    private func postOutdatedNotice() async {
+        guard outdatedNotice.first() else { return }
+        try? await center.add(
+            LocalNotificationRequest(id: Self.outdatedNoticeId, title: "quickR", body: ClientOutdated.savedMessage))
     }
 
     /// The "Saved on this iPhone. Update quickR to sync." notice.

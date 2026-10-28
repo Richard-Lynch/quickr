@@ -779,4 +779,18 @@ extension NotificationActionHandlerTests {
         #expect(both.count == 2)
         #expect(w.server.requests.isEmpty)
     }
+
+    /// The first action after a bump: its flush meets the 426, and the notice is posted then.
+    @Test func theFirstActionAfterABumpPostsTheNotice() async throws {
+        let w = try await World()
+        w.server.with { $0.minClientLevelIOS = APILevel.current + 1 }
+        let r = w.reminder(w.moodTopic)
+        let outcome = await w.tap(r, 1)
+        let id = w.entryId(w.moodTopic)
+        #expect(outcome == .logged(entryId: id, serverId: Self.serverA, flush: .clientOutdated))
+        let items = try await w.items()
+        #expect(items.map(\.state) == [.pending])
+        let added = w.center.withState { $0.added }
+        #expect(added.map(\.body) == [ClientOutdated.savedMessage])
+    }
 }

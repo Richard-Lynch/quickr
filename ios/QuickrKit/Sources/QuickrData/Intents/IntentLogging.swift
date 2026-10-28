@@ -170,9 +170,10 @@ public enum IntentLogging {
             throw Failure.storeUnavailable
         }
         let created = if case .created = result { true } else { false }
-        // Outdated, `afterCommit`'s flush claims nothing (client-versions.md §4.1).
-        let outdated = await ClientOutdated.isOutdated(store)
+        // Outdated, `afterCommit`'s flush claims nothing (client-versions.md §4.1). Read after it,
+        // so the first log after a bump, whose flush met the 426, already says so.
         if !Task.isCancelled { await context.afterCommit(store) }
+        let outdated = await ClientOutdated.isOutdated(store)
         return Logged(
             entryId: entryId, topic: topic, answers: validated, created: created, store: store,
             clientOutdated: outdated)
