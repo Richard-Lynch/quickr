@@ -382,3 +382,61 @@ describe('service worker: a timed reminder’s Start (timers.md §10.2)', () => 
     expect([...server.runs.keys()]).toEqual([runId]);
   });
 });
+
+describe('service worker: an outdated bundle (client-versions.md §5.3, V10)', () => {
+  /** The open pages' messages from the SW. */
+  function openPage() {
+    const posted: unknown[] = [];
+    (self as unknown as { clients: { matchAll: () => Promise<unknown[]> } }).clients.matchAll =
+      () => Promise.resolve([{ postMessage: (m: unknown) => posted.push(m) }]);
+    return posted;
+  }
+
+  it('a notification action is held, kept, and nothing more is sent', async () => {
+    const posted = openPage();
+    server.minWebLevel = 2;
+    await click(await push(reminder), 'log|o|ok');
+    expect(server.entries.size).toBe(0);
+    expect(server.requests).toHaveLength(1);
+    expect(server.requests[0]?.headers['x-quickr-client']).toMatch(/^web; level=1; build=/);
+    // Held, not failed: pending as enqueued, for the updated bundle.
+    expect(await appOutbox().list()).toMatchObject([{ status: 'pending', attempts: 0 }]);
+    await vi.waitFor(() => {
+      expect(posted).toEqual([{ type: 'quickr:client-outdated' }]);
+    });
+
+    // A Background Sync event resolves without a request, so the browser doesn't retry it.
+    await expect(fire('sync', { tag: 'quickr-outbox', lastChance: false })).resolves.toBe(
+      undefined,
+    );
+    expect(server.requests).toHaveLength(1);
+
+    // The updated bundle (a fresh worker) sends it.
+    server.minWebLevel = 0;
+    await loadServiceWorker();
+    await fire('sync', { tag: 'quickr-outbox', lastChance: false });
+    expect(server.entries.size).toBe(1);
+  });
+
+  it('a Background Sync whose send is held resolves, and the item survives', async () => {
+    const app = appOutbox();
+    const start = runItem('start', { id: 'r1', run: 'r1', at: Date.now() });
+    await app.enqueue(start.kind, start.payload, { id: 'r1' });
+    server.minWebLevel = 2;
+    await expect(fire('sync', { tag: 'quickr-outbox', lastChance: false })).resolves.toBe(
+      undefined,
+    );
+    expect(server.requests).toHaveLength(1);
+    expect(await app.list()).toMatchObject([{ id: 'r1', status: 'pending', attempts: 0 }]);
+  });
+
+  it('still rejects a sync that leaves items pending for another reason', async () => {
+    const app = appOutbox();
+    const start = runItem('start', { id: 'r1', run: 'r1', at: Date.now() });
+    await app.enqueue(start.kind, start.payload, { id: 'r1' });
+    server.offline = true;
+    await expect(fire('sync', { tag: 'quickr-outbox', lastChance: false })).rejects.toThrow(
+      'still pending',
+    );
+  });
+});

@@ -20,6 +20,11 @@ const apiHash = createHash('sha256')
   .update(readFileSync(new URL('./src/client/types.gen.ts', import.meta.url)))
   .digest('hex')
   .slice(0, 10);
+// The API level this bundle speaks: a generated copy of shared/api-level.json (`make api-level`,
+// docs/specs/client-versions.md §2), since the image is built from frontend/ alone.
+const apiLevel = JSON.parse(
+  readFileSync(new URL('./src/api/apiLevel.json', import.meta.url), 'utf8'),
+) as { api_level: number };
 
 const proxy = {
   '/api': { target: backend, changeOrigin: true },
@@ -34,6 +39,7 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
     __API_HASH__: JSON.stringify(apiHash),
+    __API_LEVEL__: JSON.stringify(apiLevel.api_level),
   },
   plugins: [
     react(),

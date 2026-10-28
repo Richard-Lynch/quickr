@@ -459,3 +459,85 @@ describe('outbox', () => {
     expect(await outbox.nextDueAt()).toBe(now() + BACKOFF_BASE_MS);
   });
 });
+
+describe('held: the bundle is outdated (client-versions.md §5.3)', () => {
+  const outdated = {
+    code: 'client_outdated',
+    detail: 'This version of quickR is too old for the server.',
+    errors: [],
+    min_client_level: 2,
+    client_level: 1,
+  };
+
+  it('a 426 client_outdated holds the item as it was and stops the pass', async () => {
+    const classify = vi.fn(() => 'terminal' as const);
+    const { outbox, fetchMock, events, advance } = setup([json(426, outdated)], {
+      kinds: { 'note.create': { ...noteCreate, classify } },
+    });
+    await outbox.enqueue('note.create', { text: '1' });
+    advance(1);
+    await outbox.enqueue('note.create', { text: '2' });
+    const before = await outbox.list();
+    const r = await outbox.flush();
+    expect(r).toMatchObject({ sent: 0, failed: 0, retrying: 0, remaining: 2 });
+    // Checked before the kind's classify; the second item isn't attempted.
+    expect(classify).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    // Pending, attempt not counted, no backoff, maybe_delivered unchanged: as it was.
+    expect(await outbox.list()).toEqual(before);
+    // Both are held: the unsent one too, so a sendNow waiting on it answers at once.
+    expect(events.filter((e) => e.type !== 'enqueued').map((e) => e.type)).toEqual([
+      'held',
+      'held',
+    ]);
+  });
+
+  it('a sendNow waiting on a later item answers "queued" when the pass is held', async () => {
+    const { outbox, advance } = setup([json(426, outdated)]);
+    await outbox.enqueue('note.create', { text: '1' });
+    advance(1);
+    const second = await outbox.enqueue('note.create', { text: '2' });
+    expect(await outbox.sendNow(second.id, 60_000)).toEqual({ status: 'queued', item: second });
+  });
+
+  it('a 426 with another code is an ordinary 4xx', async () => {
+    const { outbox } = setup([json(426, problem('other', 'Upgrade'))]);
+    await outbox.enqueue('note.create', { text: '1' });
+    expect(await outbox.flush()).toMatchObject({ failed: 1 });
+  });
+
+  it('sends nothing while hold() says outdated, then sends when it clears', async () => {
+    let outdatedNow = true;
+    const { outbox, fetchMock } = setup([json(201, {})], { hold: () => outdatedNow });
+    const item = await outbox.enqueue('note.create', { text: '1' });
+    expect(await outbox.flush({ force: true })).toMatchObject({ sent: 0, remaining: 1 });
+    // sendNow answers at once rather than waiting out its timeout.
+    expect(await outbox.sendNow(item.id, 60_000)).toEqual({ status: 'queued', item });
+    expect(fetchMock).not.toHaveBeenCalled();
+    outdatedNow = false;
+    expect(await outbox.flush()).toMatchObject({ sent: 1, remaining: 0 });
+  });
+
+  it('sendNow resolves "queued" when its send is held', async () => {
+    const { outbox } = setup([json(426, outdated)]);
+    const item = await outbox.enqueue('note.create', { text: '1' });
+    expect(await outbox.sendNow(item.id, 60_000)).toMatchObject({
+      status: 'queued',
+      item: { id: item.id, status: 'pending', attempts: 0 },
+    });
+  });
+
+  it('stops mid-pass when another request learns the bundle is outdated', async () => {
+    let outdatedNow = false;
+    const { outbox, fetchMock, advance } = setup([], { hold: () => outdatedNow });
+    fetchMock.mockImplementation(() => {
+      outdatedNow = true;
+      return Promise.resolve(json(201, {}));
+    });
+    await outbox.enqueue('note.create', { text: '1' });
+    advance(1);
+    await outbox.enqueue('note.create', { text: '2' });
+    expect(await outbox.flush()).toMatchObject({ sent: 1, remaining: 1 });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
