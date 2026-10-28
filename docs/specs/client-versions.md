@@ -1,6 +1,6 @@
 # Spec: client API levels and forced updates
 
-**Status:** draft, revision 4, 2026-10-28 (reviewed against `main` after the
+**Status:** draft, revision 5, 2026-10-28 (reviewed against `main` after the
 timers milestone, v0.3.0). **Milestone CV, a follow-on after the timers
 milestone (T)**; not a prerequisite for it. **Applies to:** the backend, the PWA
 and the iOS app. **Replaces part of:**
@@ -30,6 +30,13 @@ first breaking change raises them (§4.2, §4.3).
 - Owed APNs deletions don't age while outdated (§4.1). The level headers are
   added to the CORS `expose_headers` (§3.2). `timedFetch` merges the header into
   a `Request` (§3.1).
+
+**Changes in revision 5.**
+
+- The goldens' header assertion moves to CV-IOS-DATA. The replay fills in
+  `<level>` and `<build>` (§6).
+- The PWA's outdated state is in memory only (§5.3).
+- Clearing the flag resets owed deletions' `firstAttemptAt` (§4.1).
 
 ## Purpose
 
@@ -269,15 +276,15 @@ store, so switching servers starts clean.
 
 While it is set, in every process:
 
-| Part                                                                     | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| App UI                                                                   | A blocking full-screen **"Update required"** view over everything else: "quickR needs an update to keep syncing with your server. Your unsynced changes (_N_) are safe on this iPhone." Buttons: **Open TestFlight** (`update_url.ios`) and **Check again** (`getClientVersions`, also called on every foreground). Settings ▸ Server stays reachable from it, so the user can switch servers.                                                                                                                                  |
-| Coordinator                                                              | Doesn't pull. `client_outdated_min` is checked before any request, like `identity_mismatch` (sync-protocol.md §5.4). Online-only reads (sync-protocol.md §11: stats, timing, export) aren't made either.                                                                                                                                                                                                                                                                                                                        |
-| Outbox                                                                   | Claims are refused (a new condition in outbox.md §6.2). **Enqueue still works.** A `clientOutdated` outcome restores the item's pre-claim state and clears its claim fields, like 409 `epoch_mismatch` (outbox.md §5.2): the server refused it before any effect. Then the flusher releases `flush`. This holds for every kind, `run.event` included. A held start keeps its run's later events waiting by the ordering rule (timers.md §8.1), and each event keeps the `at` it was stamped with, so the run replays as tapped. |
-| Widgets, Controls, App Intents, the Action button, Live Activity buttons | Enqueue as usual, so the tap is kept, and don't flush. The result says "Saved on this iPhone. Update quickR to sync." Widgets show a small "Update quickR" line. The Live Activity keeps updating from the local view of the run.                                                                                                                                                                                                                                                                                               |
-| Notification actions                                                     | The handler enqueues as usual and doesn't flush. It posts "Saved on this iPhone. Update quickR to sync." once per launch.                                                                                                                                                                                                                                                                                                                                                                                                       |
-| NSE                                                                      | No change: it makes no requests.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| APNs and Live Activity token registration                                | Paused, like any other request, and a `clientOutdated` outcome is **not settled**: the registration or deletion stays owed, so the updated build sends it. `LiveActivityTokens.Dependencies.api`'s `settled` already throws on any outcome that isn't `.success`, `.terminal` or `.notFound`, so the new case needs no change there. `PushRegistration`'s register `default:` branch MUST owe it. Owed APNs deletions don't age towards `pendingLifetime` while `client_outdated_min` is set.                                   |
+| Part                                                                     | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App UI                                                                   | A blocking full-screen **"Update required"** view over everything else: "quickR needs an update to keep syncing with your server. Your unsynced changes (_N_) are safe on this iPhone." Buttons: **Open TestFlight** (`update_url.ios`) and **Check again** (`getClientVersions`, also called on every foreground). Settings ▸ Server stays reachable from it, so the user can switch servers.                                                                                                                                                                                           |
+| Coordinator                                                              | Doesn't pull. `client_outdated_min` is checked before any request, like `identity_mismatch` (sync-protocol.md §5.4). Online-only reads (sync-protocol.md §11: stats, timing, export) aren't made either.                                                                                                                                                                                                                                                                                                                                                                                 |
+| Outbox                                                                   | Claims are refused (a new condition in outbox.md §6.2). **Enqueue still works.** A `clientOutdated` outcome restores the item's pre-claim state and clears its claim fields, like 409 `epoch_mismatch` (outbox.md §5.2): the server refused it before any effect. Then the flusher releases `flush`. This holds for every kind, `run.event` included. A held start keeps its run's later events waiting by the ordering rule (timers.md §8.1), and each event keeps the `at` it was stamped with, so the run replays as tapped.                                                          |
+| Widgets, Controls, App Intents, the Action button, Live Activity buttons | Enqueue as usual, so the tap is kept, and don't flush. The result says "Saved on this iPhone. Update quickR to sync." Widgets show a small "Update quickR" line. The Live Activity keeps updating from the local view of the run.                                                                                                                                                                                                                                                                                                                                                        |
+| Notification actions                                                     | The handler enqueues as usual and doesn't flush. It posts "Saved on this iPhone. Update quickR to sync." once per launch.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| NSE                                                                      | No change: it makes no requests.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| APNs and Live Activity token registration                                | Paused, like any other request, and a `clientOutdated` outcome is **not settled**: the registration or deletion stays owed, so the updated build sends it. `LiveActivityTokens.Dependencies.api`'s `settled` already throws on any outcome that isn't `.success`, `.terminal` or `.notFound`, so the new case needs no change there. `PushRegistration`'s register `default:` branch MUST owe it. Owed APNs deletions don't age towards `pendingLifetime` while outdated: when `client_outdated_min` clears, every owed row's `firstAttemptAt` is reset to now, in the same transaction. |
 
 **Nothing queued is lost.** Items stay `pending` or `uncertain` and are sent by
 the updated build, which reads the same store file. A store migration in a later
@@ -388,7 +395,10 @@ and shows a dismissable "Update available" card. When outdated:
   backoff, `maybeDelivered` unchanged, and the pass stops. The updated bundle
   sends it. This covers every kind, `run.event` included (timers.md §8.2).
 - **Nothing is sent while outdated is known**, by the page or by the service
-  worker. Each records the state when it sees it (§5.1) and stops flushing. A
+  worker. Each records the state when it sees it (§5.1) and stops flushing. The
+  state is kept **in memory only**, so a reload or a service worker restart
+  checks again with its next request. A persisted flag could never clear once
+  the server's minimum dropped, since nothing would be sent to find out. A
   Background Sync event that finds the app outdated **resolves** rather than
   rejects, so the browser doesn't retry it on its own.
 - A notification click handled by an old service worker enqueues as usual. Its
@@ -414,7 +424,7 @@ a level at or above `__API_LEVEL__`.
 | V4  | The env override raises the minimum and is ignored (with a warning) when it would lower it. An override above `api_level` is clamped to `api_level`, with a warning.                                                                                                                                                                                                                                                                                                                                                                                                     | pytest          |
 | V5  | `registerApnsDevice` and `registerLiveActivity` store the level. The reminder for a device below the minimum has no category and no `quick_log`. The Live Activity planner sends no start, update or end to a token below the minimum, and still sends to one at the minimum, including a token whose device has no `apns_devices` row (notifications denied).                                                                                                                                                                                                           | pytest          |
 | V6  | iOS outbox: a 426 restores the pre-claim state, sets `client_outdated_min`, and refuses later claims. Enqueue still works. A launch at a higher level clears the flag and the item is sent. Covered for an `entry.create` and a `run.event` start with a queued lap.                                                                                                                                                                                                                                                                                                     | host            |
-| V7  | iOS classifier and registrations: 426 `client_outdated` with matching identity headers is `clientOutdated`, and without them is retryable. An APNs or Live Activity token registration refused with it stays owed.                                                                                                                                                                                                                                                                                                                                                       | host            |
+| V7  | iOS classifier and registrations: 426 `client_outdated` with matching identity headers is `clientOutdated`, and without them is retryable. An APNs or Live Activity token registration refused with it stays owed, and clearing the flag resets owed deletions' `firstAttemptAt`. `APIClient` sends `X-QuickR-Client` with `level=APILevel.current`.                                                                                                                                                                                                                     | host            |
 | V8  | Widget, intent, Live Activity button and notification-action writes while outdated: the item is durable, no request is made, and the result text is the update message.                                                                                                                                                                                                                                                                                                                                                                                                  | host (MP)       |
 | V9  | The "Update required" view appears when a response's minimum is above the build's level, and leaves on **Check again** after the server's minimum drops.                                                                                                                                                                                                                                                                                                                                                                                                                 | sim (UI)        |
 | V10 | PWA: an outdated response, through the generated client (a `Request`) or the outbox, triggers `update()`, then `SKIP_WAITING` and a reload. With no new worker it reloads without unregistering, and the push subscription survives. A second outdated load doesn't reload again, and a fresh response that isn't outdated clears the guard. While outdated, neither the page nor the service worker sends, and a Background Sync event resolves. The outbox item (an entry and a run event) is held, not failed, and survives. A cached response's headers are ignored. | vitest          |
@@ -428,12 +438,23 @@ header on every request. They are rendered by iOS `RequestGoldenTests`
 (`goldensMatchCommitted`) from the real `APIClient` and compared byte for byte,
 so the test renders a fixed placeholder, `ios; level=<level>; build=<build>`.
 A bump and the build number, which changes with every upload, therefore don't
-change the goldens. `test_request_goldens.py` asserts the header only on this
-commit's goldens, and skips it when `QUICKR_REQUEST_GOLDENS_DIR` is set.
-`compat/old-requests.sh` replays a listed client's goldens through the same
-contract test, and a pre-CV build's goldens (such as `20261026.143027`, once
-#73 merges) have no header. Asserting it there would turn the `old requests`
-gate red.
+change the goldens. Because of the placeholder, V7 also checks with a one-line
+unit test that `APIClient` sends `APILevel.current`.
+
+The goldens gain the header in CV-IOS-DATA, so that WP also adds the
+assertion: `test_request_goldens.py` checks that every golden of this commit
+carries `X-QuickR-Client` with the placeholder. It skips the check when
+`QUICKR_REQUEST_GOLDENS_DIR` is set: `compat/old-requests.sh` replays a listed
+client's goldens through the same contract test, and a pre-CV build's goldens
+(such as `20261026.143027`, once #73 merges) have no header. Asserting it there
+would turn the `old requests` gate red. CV-SERVER asserts nothing about the
+header in the goldens, which don't have it yet.
+
+The replay's `Substituting` transport replaces `<level>` and `<build>` in
+`X-QuickR-Client` along with its other placeholders. `<level>` is the
+`api_level` of `shared/api-level.json`, or, when replaying a listed client, its
+`api_level` in `compat/supported-clients.json`. `<build>` is any fixed string.
+Without this, every replay would get a 426 after the first bump.
 
 The 426 `client_outdated` Problem is **not** added to `shared/fixtures/api`.
 An old client's `FixtureCoverageTests` run in the `old clients` job, and they
@@ -495,8 +516,9 @@ gate passes, since CV is additive.
   `getClientVersions`; the env overrides and `QUICKR_IOS_UPDATE_URL`;
   `client_level` on `apns_devices` and `live_activity_tokens`, display-only
   reminders and no Live Activity pushes below the iOS minimum (§3.4); the
-  CORS `expose_headers`; `test_request_goldens.py` asserts `X-QuickR-Client`
-  only on this commit's goldens (§6).
+  CORS `expose_headers`; the `Substituting` transport fills in
+  `X-QuickR-Client` when a golden has it (§6). It asserts nothing about the
+  header, since the goldens gain it in CV-IOS-DATA.
 - **Areas:** `shared/api-level.json`, `Makefile`, `backend/app/api_level.json`
   (generated), `backend/app/client_versions.py` (new),
   `backend/app/api/identity.py` (or a sibling middleware module),
@@ -534,13 +556,16 @@ gate passes, since CV is additive.
   Live Activity token registrations kept owed on it (§4.1); tolerant feed
   decoding (§4.4); result texts for widgets, intents, Live Activity buttons and
   notification actions (§4.1). The request goldens gain `X-QuickR-Client`,
-  rendered as the fixed placeholder of §6 by `RequestGoldenTests`. The 426
+  rendered as the fixed placeholder of §6 by `RequestGoldenTests`, and the
+  `test_request_goldens.py` assertion that this commit's goldens carry it
+  (skipped under `QUICKR_REQUEST_GOLDENS_DIR`, §6). The 426
   Problem is tested inline, not added to `shared/fixtures/api` (§6). The
   one-paragraph amendments to sync-protocol.md §2.2 and §3.1, and to outbox.md
   §5.1, §5.2 and §6.2.
 - **Areas:** `ios/QuickrKit/Sources/QuickrCore/`,
   `ios/QuickrKit/Sources/QuickrData/API/`, `Contracts/`, `Store/`, `Sync/`,
-  `Outbox/`, `Intents/`, `LiveActivity/`, `Notifications/`, `docs/ios/specs/`.
+  `Outbox/`, `Intents/`, `LiveActivity/`, `Notifications/`, `docs/ios/specs/`,
+  `shared/fixtures/requests/`, `backend/tests/test_request_goldens.py`.
 - **Depends on:** CV-SERVER.
 - **Acceptance:** client-versions.md V6–V8 and the host part of V13; an unknown
   feed kind is skipped, not a page failure; every existing outbox, sync and Live
