@@ -24,6 +24,9 @@ struct RootView: View {
                 Task { await environment.push?.bindingChanged() }
             }
             .onChange(of: environment.clientUpdate.isOutdated, initial: true) { _, outdated in
+                // The sync sheet goes: its Fix and Retry would act under the view. Other
+                // presentations stay, covered, and come back when it leaves.
+                if outdated { environment.sync.isSheetPresented = false }
                 updateWindow.update(outdated: outdated, environment: environment)
             }
     }

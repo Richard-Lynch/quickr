@@ -76,6 +76,9 @@ public actor SyncCoordinator {
         case failed(SyncFailure)
         /// The response wasn't quickR's (a proxy's 200 without the identity headers).
         case notQuickr
+        /// The server refuses this build (426 `client_outdated`, client-versions.md §4.1). No
+        /// store was created or switched to: there is no flag to set, so the caller says it.
+        case clientOutdated(minimum: Int)
     }
 
     private let partitions: StorePartitions
@@ -193,9 +196,12 @@ public actor SyncCoordinator {
         let wall = partitions.wallClock
         let sentAt = wall.now()
         let response: APIResponse<ChangePage>
+        // There is no store yet: the page's API levels are kept here, and go to the store once
+        // it is known (client-versions.md §4.1, §4.5).
+        let levels = ConnectLevels()
         do {
-            response = try await makeFeed(baseURL).listChanges(
-                after: 0, limit: configuration.pageLimit, options: RequestOptions(expecting: nil))
+            response = try await makeFeed(baseURL).recording(serverOffset: NoServerOffset(), levels: levels)
+                .listChanges(after: 0, limit: configuration.pageLimit, options: RequestOptions(expecting: nil))
         } catch {
             return .failed(.unreachable(String(describing: error)))
         }
@@ -204,6 +210,7 @@ public actor SyncCoordinator {
         switch response.outcome {
         case .success(let value): page = value
         case .identityMismatch: return .notQuickr
+        case .clientOutdated(let minimum): return .clientOutdated(minimum: minimum)
         default: return .failed(Self.failure(response) ?? .unreachable("no page"))
         }
         do {
@@ -217,6 +224,9 @@ public actor SyncCoordinator {
             try await partitions.registry.setActive(page.serverId)
             if !isNew, let known = try await activeStore(resumingReset: false) {
                 try await known.writer.write { db in try LocalStore.setBaseURL(db, baseURL.absoluteString) }
+            }
+            if let recorded = levels.recorded, let active = try await activeStore(resumingReset: false) {
+                await StoreClientLevels(store: active).record(recorded, outdatedMinimum: nil)
             }
             let result = await runLocked(prefetched: isNew ? (page, timing) : nil)
             return .connected(serverId: page.serverId, isNew: isNew, sync: result)
@@ -924,4 +934,24 @@ extension Optional {
         defer { self = nil }
         return self
     }
+}
+
+/// The connect page's API levels, before there is a store to keep them: never holds the request
+/// back (an outdated build learns it from the 426), and keeps the last levels it was handed.
+private final class ConnectLevels: ClientLevelGate {
+    private let state = Mutex<ServerLevels?>(nil)
+
+    var recorded: ServerLevels? { state.withLock { $0 } }
+
+    func outdatedMinimum() async -> Int? { nil }
+
+    func record(_ levels: ServerLevels, outdatedMinimum: Int?) async {
+        guard !levels.isEmpty else { return }
+        state.withLock { $0 = levels }
+    }
+}
+
+/// No offset samples (the connect page's go nowhere: there is no store yet).
+private struct NoServerOffset: ServerOffsetRecorder {
+    func record(offsetMs: Int) async {}
 }

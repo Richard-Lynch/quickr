@@ -55,8 +55,8 @@ final class ClientVersionUITests: XCTestCase {
         XCTAssertTrue(pill.waitForNonExistence(timeout: 20), "the held entry stays: \(pill.label)")
     }
 
-    /// "Update required" covers a sheet that was already open (the sync sheet): a retry from it is
-    /// refused with 426, and the view comes up above the sheet, which is back once it leaves.
+    /// "Update required" comes up over the sync sheet that was open: a retry from it is refused
+    /// with 426, the view is on top and the sheet is gone (its Fix and Retry would act under it).
     @MainActor
     func testUpdateRequiredCoversAnOpenSheet() {
         let app = launch()
@@ -72,15 +72,33 @@ final class ClientVersionUITests: XCTestCase {
 
         let required = app.descendants(matching: .any)["update.required"]
         XCTAssertTrue(required.waitForExistence(timeout: 15))
-        let done = app.buttons["sync.done"]
-        XCTAssertTrue(done.exists, "the sheet is still open, under it")
-        XCTAssertFalse(done.isHittable, "the sheet is covered")
-        XCTAssertTrue(app.buttons["update.check"].isHittable)
+        XCTAssertTrue(app.buttons["update.check"].isHittable, "the view is on top")
+        XCTAssertTrue(app.buttons["sync.done"].waitForNonExistence(timeout: 5), "the sheet is gone")
 
         app.buttons["debug.current"].tap()
         app.buttons["update.check"].tap()
         XCTAssertTrue(required.waitForNonExistence(timeout: 15))
-        XCTAssertTrue(done.waitForHittable(), "the sheet is back on top")
+        XCTAssertTrue(app.buttons["home.settings"].waitForHittable())
+    }
+
+    /// A fresh install whose first connect is refused (426 `client_outdated`): onboarding says to
+    /// update, with Open TestFlight to the server's link, instead of a generic error.
+    @MainActor
+    func testAFirstConnectRefusedSaysToUpdate() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-QuickrUITest", "-QuickrServerOutdated"]
+        app.launch()
+        let address = app.textFields["server.address"]
+        XCTAssertTrue(address.waitForExistence(timeout: 15))
+        address.tap()
+        address.typeText("https://quickr.test")
+        app.buttons["server.connect"].tap()
+        let error = app.descendants(matching: .any)["server.error"]
+        XCTAssertTrue(error.waitForExistence(timeout: 15))
+        XCTAssertTrue(error.label.contains("needs an update"), error.label)
+        let open = app.buttons["server.openTestFlight"]
+        XCTAssertTrue(open.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["update.required"].exists, "no store, so no flag")
     }
 
     /// Check again without the server: an inline error, and the view stays. Online again, the

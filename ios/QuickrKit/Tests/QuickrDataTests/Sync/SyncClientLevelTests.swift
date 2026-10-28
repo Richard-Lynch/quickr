@@ -25,6 +25,32 @@ import Testing
             body: Data(body.utf8))
     }
 
+    @Test("§4.5 · the connect page's levels go to the store it creates, with no other request")
+    func theConnectPagesLevelsAreRecorded() async throws {
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        env.server.extraHeaders = [QuickrHeader.apiLevel: String(APILevel.current - 1)]
+        let coordinator = env.coordinator()
+        let result = await coordinator.connect(baseURL: SyncEnv.baseURL)
+        #expect(result == .connected(serverId: FakeFeedServer.defaultServerId, isNew: true, sync: .synced))
+        #expect(env.afters() == [0], "only the connect page was fetched")
+        let level = try await env.activeStore().state().serverApiLevel
+        #expect(level == APILevel.current - 1)
+    }
+
+    @Test("§4.1 · a first connect refused with 426 says so, and creates no store")
+    func aRefusedFirstConnectIsClientOutdated() async throws {
+        let env = try SyncEnv()
+        defer { env.cleanup() }
+        let refusal = Self.refusal(env)
+        env.server.intercept { _ in refusal }
+        let result = await env.coordinator().connect(baseURL: SyncEnv.baseURL)
+        #expect(result == .clientOutdated(minimum: Self.above))
+        #expect(result.outcome == .failed(.clientOutdated(minimum: Self.above)))
+        let servers = try await env.partitions.registry.repository.servers()
+        #expect(servers.isEmpty)
+    }
+
     @Test("V6 · a 426 stops the pull and sets the flag; no request is made while it is set; clearing it resumes")
     func aRefusedPullStopsAndThePausedCoordinatorMakesNoRequest() async throws {
         let env = try SyncEnv()

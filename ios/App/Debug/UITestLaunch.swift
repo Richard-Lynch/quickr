@@ -23,7 +23,9 @@ import Synchronization
 ///   `UITestLaunch.network`, which the controls switch together with the fake server;
 /// - `-QuickrServerBehind`: the fake server reports an API level below this build's
 ///   (client-versions.md §4.5). Without it, or the controls' level switches, the fake server sends
-///   no level headers and refuses nothing.
+///   no level headers and refuses nothing;
+/// - `-QuickrServerOutdated`: the fake server refuses this build from the start (a fresh install's
+///   first connect, client-versions.md §4.1).
 enum UITestLaunch {
     static let argument = "-QuickrUITest"
     static let fakeServer = URL(string: "https://quickr.test")!
@@ -61,6 +63,7 @@ enum UITestLaunch {
         environment.settings.serverURL = value(after: "-QuickrServer").flatMap(URL.init(string:))
         if ProcessInfo.processInfo.arguments.contains("-QuickrStalePublish") { server.publishElsewhereFirst() }
         if ProcessInfo.processInfo.arguments.contains("-QuickrServerBehind") { server.levels = .behind }
+        if ProcessInfo.processInfo.arguments.contains("-QuickrServerOutdated") { server.levels = .outdated }
         return environment
     }
 
