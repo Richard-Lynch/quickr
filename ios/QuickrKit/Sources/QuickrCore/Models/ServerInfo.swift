@@ -137,6 +137,22 @@ public struct PushConfig: Sendable, Hashable {
     }
 }
 
+/// The server's API level, the lowest client level it accepts per platform, and where the iOS
+/// app updates (`getClientVersions`, client-versions.md §3.2).
+public struct ClientVersions: Sendable, Hashable {
+    public var apiLevel: Int
+    public var minClientLevelIOS: Int
+    public var minClientLevelWeb: Int
+    public var iosUpdateURL: String
+
+    public init(apiLevel: Int, minClientLevelIOS: Int, minClientLevelWeb: Int, iosUpdateURL: String) {
+        self.apiLevel = apiLevel
+        self.minClientLevelIOS = minClientLevelIOS
+        self.minClientLevelWeb = minClientLevelWeb
+        self.iosUpdateURL = iosUpdateURL
+    }
+}
+
 /// The APNs environment a device token belongs to (notifications.md §9.1).
 public enum ApnsEnvironment: String, Sendable, Hashable, CaseIterable, Codable {
     case sandbox

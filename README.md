@@ -67,6 +67,13 @@ Configuration is via `QUICKR_*` environment variables (or `backend/.env`):
 | `QUICKR_SCHEDULER_ENABLED`          | `true`                                                     |
 | `QUICKR_SCHEDULER_INTERVAL_SECONDS` | `60`                                                       |
 | `QUICKR_PUSH_ALLOWED_HOSTS`         | `[]`: extra push-service hosts (JSON list), see below      |
+| `QUICKR_MIN_CLIENT_LEVEL_IOS`       | unset: an emergency raise of the iOS minimum level (\*)    |
+| `QUICKR_MIN_CLIENT_LEVEL_WEB`       | unset: the same for the PWA (\*)                           |
+| `QUICKR_IOS_UPDATE_URL`             | `itms-beta://` (opens TestFlight)                          |
+
+(\*) Raises, never lowers, `min_client_level` from `shared/api-level.json`, and
+is capped at its `api_level`
+([client-versions.md §2](docs/specs/client-versions.md#2-the-source-of-truth)).
 
 Tests use `QUICKR_TEST_DATABASE_URL` (default
 `postgresql+asyncpg://quickr:quickr@localhost:5433/quickr_test`, or

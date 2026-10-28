@@ -284,6 +284,9 @@ class LiveActivityToken(Base):
     # Update tokens: the topic, and the run it was registered for.
     topic_id: Mapped[UUID | None] = mapped_column(default=None)
     run_id: Mapped[UUID | None] = mapped_column(default=None)
+    # The registering app's API level (X-QuickR-Client; 0 when absent): no pushes below the iOS
+    # minimum (docs/specs/client-versions.md §3.4).
+    client_level: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
@@ -324,6 +327,9 @@ class ApnsDevice(Base):
     bundle_id: Mapped[str | None] = mapped_column(String(155), default=None)
     app_version: Mapped[str | None] = mapped_column(String(64), default=None)
     device_name: Mapped[str | None] = mapped_column(String(200), default=None)
+    # The app's API level at its last registration (X-QuickR-Client; 0 when absent): a device
+    # below the iOS minimum gets display-only reminders (docs/specs/client-versions.md §3.4).
+    client_level: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

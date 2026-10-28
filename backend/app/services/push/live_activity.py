@@ -13,7 +13,9 @@ background task, never inside the feed writer) pushes to them:
   registered for the run (or for a run id merged into it), except the originating device's:
   that device already updated locally.
 
-Only an event that changed the run pushes (not a void event, not a replay). Sends are serialised
+Only an event that changed the run pushes (not a void event, not a replay). A token whose
+``client_level`` (the app's API level when it registered) is below the iOS minimum gets nothing
+(docs/specs/client-versions.md §3.4). Sends are serialised
 per topic **in this process** (the server runs one worker; a second process would serialise
 separately): one in flight at a time, and a newer change
 replaces a queued one for the same run, merging what it owes (a push-to-start is never lost;
@@ -53,6 +55,7 @@ from sqlalchemy import delete, exists, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import client_versions
 from app.db import get_sessionmaker
 from app.errors import InvalidRequest
 from app.models import LiveActivityToken, Run, RunAlias, RunStatus, Topic, TopicVersion
@@ -220,12 +223,13 @@ async def _resolve_run(db: AsyncSession, run_id: UUID) -> Run | None:
 
 
 @writer
-async def register(db: AsyncSession, body: LiveActivityIn) -> Registered:
-    """Create or refresh (by token) a Live Activity token. A device has one push-to-start token:
-    a new one replaces its older ones, so a start never reaches the device twice. An update
-    token is kept only for an open run of its topic (``run_id`` may be an alias); otherwise
-    it is answered the same, not kept, and a closed run's is owed its ``end``. Raises
-    :class:`InvalidRequest` when the run is another topic's."""
+async def register(db: AsyncSession, body: LiveActivityIn, *, client_level: int = 0) -> Registered:
+    """Create or refresh (by token) a Live Activity token, with the app's API level
+    (``client_level``). A device has one push-to-start token: a new one replaces its older ones,
+    so a start never reaches the device twice. An update token is kept only for an open run of
+    its topic (``run_id`` may be an alias); otherwise it is answered the same, not kept, and a
+    closed run's is owed its ``end`` (unless the app is below the iOS minimum, like any push).
+    Raises :class:`InvalidRequest` when the run is another topic's."""
     if body.kind == "update":
         assert body.run_id is not None  # LiveActivityIn requires both for an update token
         run = await _resolve_run(db, body.run_id)
@@ -237,7 +241,9 @@ async def register(db: AsyncSession, body: LiveActivityIn) -> Registered:
         if run is None or run.status not in OPEN:
             await db.execute(delete(LiveActivityToken).where(LiveActivityToken.token == body.token))
             out = LiveActivityOut(**body.model_dump(), created_at=datetime.now(UTC))
-            return Registered(out, ended_run=None if run is None else run.id)
+            if run is None or client_level < _minimum():
+                return Registered(out)
+            return Registered(out, ended_run=run.id)
     else:
         await db.execute(
             delete(LiveActivityToken).where(
@@ -246,7 +252,7 @@ async def register(db: AsyncSession, body: LiveActivityIn) -> Registered:
                 LiveActivityToken.token != body.token,
             )
         )
-    values = body.model_dump(exclude={"token"})
+    values = {**body.model_dump(exclude={"token"}), "client_level": client_level}
     stmt = (
         insert(LiveActivityToken)
         .values(token=body.token, **values)
@@ -382,10 +388,13 @@ async def _plan(
     state = await _state(db, run)
     now = sender.now()
 
+    # A token below the iOS minimum gets nothing: its content state may have changed shape, and
+    # its buttons can't sync (client-versions.md §3.4).
+    supported = LiveActivityToken.client_level >= _minimum()
     sends: list[_Send] = []
     update = encode(payload("end" if ended else "update", state, timestamp=now))
     stmt = select(LiveActivityToken).where(
-        LiveActivityToken.kind == "update", LiveActivityToken.run_id.in_(ids)
+        LiveActivityToken.kind == "update", LiveActivityToken.run_id.in_(ids), supported
     )
     for t in (await db.execute(stmt)).scalars():
         if t.device_token != job.except_device:
@@ -393,11 +402,15 @@ async def _plan(
     if job.start and not ended:
         attrs = attributes(server_id, topic.id, topic.name)
         start = encode(payload("start", state, timestamp=now, attrs=attrs))
-        stmt = select(LiveActivityToken).where(LiveActivityToken.kind == "start")
+        stmt = select(LiveActivityToken).where(LiveActivityToken.kind == "start", supported)
         for t in (await db.execute(stmt)).scalars():
             if t.device_token != job.start_except:
                 sends.append(_Send(t.token, _environment(t.environment), "start", start))
     return sends, run.topic_id, ended
+
+
+def _minimum() -> int:
+    return client_versions.current().minimum("ios")
 
 
 def _environment(value: str) -> ApnsEnvironment:

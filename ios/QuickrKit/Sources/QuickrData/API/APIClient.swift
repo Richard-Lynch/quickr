@@ -173,6 +173,10 @@ public struct APIClient: Sendable {
         try await send(Endpoints.getLimits, options: options)
     }
 
+    public func getClientVersions(_ options: RequestOptions = .init()) async throws -> APIResponse<ClientVersions> {
+        try await send(Endpoints.getClientVersions, options: options)
+    }
+
     // MARK: Topics
 
     /// `status` is `active`, `archived` or `all`; `sort` one of the server's `TopicSort` values.

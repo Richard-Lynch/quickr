@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     apns_sandbox_private_key: str | None = None
     apns_sandbox_private_key_file: str | None = None
 
+    # Client levels (docs/specs/client-versions.md §2): an emergency raise of a platform's
+    # minimum, without a release. Clamped to the server's api_level.
+    min_client_level_ios: int | None = None
+    min_client_level_web: int | None = None
+    # Where the iOS "Update required" screen sends the user (itms-beta:// opens TestFlight).
+    ios_update_url: str = "itms-beta://"
+
     # Background task that sends "topic due" notifications.
     scheduler_enabled: bool = True
     scheduler_interval_seconds: float = 60.0

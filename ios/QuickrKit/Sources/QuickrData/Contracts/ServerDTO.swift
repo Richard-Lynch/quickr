@@ -146,6 +146,36 @@ public struct FieldIssueDTO: Codable, Sendable, Hashable {
     }
 }
 
+// MARK: - Client versions
+
+/// `ClientVersions` (getClientVersions, client-versions.md §3.2).
+public struct ClientVersionsDTO: Codable, Sendable, Hashable, WireResponse {
+    public struct Levels: Codable, Sendable, Hashable {
+        public var ios: Int
+        public var web: Int
+    }
+
+    public struct UpdateURLs: Codable, Sendable, Hashable {
+        public var ios: String
+    }
+
+    public var apiLevel: Int
+    public var minClientLevel: Levels
+    public var updateURL: UpdateURLs
+
+    enum CodingKeys: String, CodingKey {
+        case apiLevel = "api_level"
+        case minClientLevel = "min_client_level"
+        case updateURL = "update_url"
+    }
+
+    public func toDomain() -> ClientVersions {
+        ClientVersions(
+            apiLevel: apiLevel, minClientLevelIOS: minClientLevel.ios, minClientLevelWeb: minClientLevel.web,
+            iosUpdateURL: updateURL.ios)
+    }
+}
+
 // MARK: - Web Push
 
 /// `PushConfig` (getPushConfig).

@@ -1022,6 +1022,36 @@ class LiveActivityRef(StrictModel):
 
 
 # ---------------------------------------------------------------------------
+# Client versions (docs/specs/client-versions.md §3)
+# ---------------------------------------------------------------------------
+
+
+class ClientLevels(StrictModel):
+    ios: int
+    web: int
+
+
+class UpdateUrls(StrictModel):
+    ios: str = Field(description="Where the iOS app sends the user to update (default: TestFlight).")
+
+
+class ClientVersions(StrictModel):
+    """The API level this server speaks, and the lowest client level it accepts per platform."""
+
+    api_level: int
+    min_client_level: ClientLevels
+    update_url: UpdateUrls
+
+
+class ClientOutdatedProblem(Problem):
+    """426 ``client_outdated``: the client's level is below the server's minimum for its platform.
+    Nothing was done; the client keeps its unsent data and asks the user to update."""
+
+    min_client_level: int
+    client_level: int
+
+
+# ---------------------------------------------------------------------------
 # Runs (docs/specs/timers.md §3)
 # ---------------------------------------------------------------------------
 

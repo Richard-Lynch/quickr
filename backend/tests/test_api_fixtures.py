@@ -237,6 +237,7 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
     # --- meta -----------------------------------------------------------------
     await rec("health", "GET", "/health", status=200)
     await rec("getLimits", "GET", "/limits", status=200)
+    await rec("getClientVersions", "GET", "/client-versions", status=200)
     await rec("listQuestionTypes", "GET", "/question-types", status=200)
 
     # --- topics -----------------------------------------------------------------

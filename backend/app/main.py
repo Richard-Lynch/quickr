@@ -8,8 +8,10 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from fastmcp.utilities.lifespan import combine_lifespans
 
+from app import client_versions
 from app.api.identity import EPOCH_HEADER, SERVER_ID_HEADER, SERVER_TIME_HEADER, IdentityHeadersMiddleware
-from app.api.routes import router
+from app.api.routes import router, unchecked_router
+from app.client_versions import API_LEVEL_HEADER, MIN_CLIENT_LEVEL_HEADER, ClientVersionMiddleware
 from app.config import get_settings
 from app.errors import DomainError
 from app.mcp_server import mcp
@@ -23,6 +25,8 @@ def _operation_id(route: APIRoute) -> str:
 
 
 def create_app() -> FastAPI:
+    # Resolved now, so a bad QUICKR_MIN_CLIENT_LEVEL_* override warns at boot, not on a request.
+    client_versions.current()
     mcp_app = mcp.http_app(path="/")
     app = FastAPI(
         title="quickR API",
@@ -33,16 +37,25 @@ def create_app() -> FastAPI:
         generate_unique_id_function=_operation_id,
     )
     # Innermost first. Feed pages and entry lists are large, repetitive JSON (~10x smaller
-    # compressed). The identity middleware answers unhandled errors itself, so they carry
-    # its headers; CORS wraps it, so those answers get CORS headers too.
+    # compressed). The client-version check refuses an outdated client before any route runs,
+    # inside the identity middleware, so a 426 carries the identity and level headers. The
+    # identity middleware answers unhandled errors itself, so they carry its headers; CORS
+    # wraps it, so those answers get CORS headers too.
     app.add_middleware(GZipMiddleware, minimum_size=1024)
+    app.add_middleware(ClientVersionMiddleware)
     app.add_middleware(IdentityHeadersMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=get_settings().cors_origins,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=[SERVER_ID_HEADER, EPOCH_HEADER, SERVER_TIME_HEADER],
+        expose_headers=[
+            SERVER_ID_HEADER,
+            EPOCH_HEADER,
+            SERVER_TIME_HEADER,
+            API_LEVEL_HEADER,
+            MIN_CLIENT_LEVEL_HEADER,
+        ],
     )
 
     @app.exception_handler(RequestValidationError)
@@ -62,6 +75,7 @@ def create_app() -> FastAPI:
         body = Problem(code=exc.code, detail=exc.detail, errors=exc.errors)
         return JSONResponse(status_code=exc.status_code, content=body.model_dump(mode="json"))
 
+    app.include_router(unchecked_router, prefix="/api/v1")
     app.include_router(router, prefix="/api/v1")
     app.mount("/mcp", mcp_app)
     return app

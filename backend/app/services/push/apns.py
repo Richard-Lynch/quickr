@@ -33,7 +33,7 @@ import re
 import time
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +45,7 @@ from sqlalchemy import Connection, delete, event, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import client_versions
 from app.config import Settings, get_settings
 from app.models import ApnsDevice, LiveActivityToken
 from app.schemas.api import ApnsDeviceIn, ApnsDeviceOut, ApnsEnvironment
@@ -63,6 +64,8 @@ TOKEN_MIN_REFRESH_SECONDS = 20 * 60  # Apple's TooManyProviderTokenUpdates thres
 MAX_PAYLOAD_BYTES = 4096
 MAX_TITLE_LENGTH = 120
 RELEVANCE_SCORE = 0.8
+# The body of a reminder to a device below the iOS minimum ends with this.
+OUTDATED_SUFFIX = " · update quickR to log from here"
 TIMEOUT = httpx.Timeout(10, connect=5)
 
 _DEVICE_PATH = re.compile(r"/3/device/[0-9A-Fa-f]+")
@@ -125,6 +128,15 @@ def render(n: Notification) -> dict[str, Any]:
             "quick_log": n.quick_log.model_dump(mode="json") if n.quick_log else None,
         },
     }
+
+
+def display_only(n: Notification) -> Notification:
+    """``n`` for a device below the iOS minimum (docs/specs/client-versions.md §3.4): a due
+    reminder loses its actions (no ``quick_log``, so no category) and says to update, since the
+    server would refuse what they send. Anything else is unchanged."""
+    if n.kind != "due":
+        return n
+    return replace(n, body=f"{n.body}{OUTDATED_SUFFIX}", quick_log=None)
 
 
 def encode(n: Notification) -> bytes:
@@ -285,6 +297,8 @@ class ApnsSender:
 
     async def send(self, target: ApnsDevice, n: Notification, ttl: int) -> None:
         environment: ApnsEnvironment = "sandbox" if target.environment == "sandbox" else "production"
+        if target.client_level < client_versions.current().minimum("ios"):
+            n = display_only(n)
         await self.post(target.token, environment, n, ttl)
 
     async def post(self, token: str, environment: ApnsEnvironment, n: Notification, ttl: int) -> str:
@@ -417,9 +431,10 @@ def _out(device: ApnsDevice) -> ApnsDeviceOut:
 
 
 @writer
-async def register_device(db: AsyncSession, body: ApnsDeviceIn) -> ApnsDeviceOut:
-    """Create or refresh (by token) a device, resetting its failure count."""
-    values = body.model_dump(exclude={"token"})
+async def register_device(db: AsyncSession, body: ApnsDeviceIn, *, client_level: int = 0) -> ApnsDeviceOut:
+    """Create or refresh (by token) a device, resetting its failure count and recording the
+    app's API level (``client_level``)."""
+    values = {**body.model_dump(exclude={"token"}), "client_level": client_level}
     stmt = (
         insert(ApnsDevice)
         .values(token=body.token, **values)

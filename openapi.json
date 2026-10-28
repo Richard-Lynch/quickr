@@ -71,6 +71,68 @@
         }
       }
     },
+    "/api/v1/client-versions": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Client Versions Info",
+        "description": "The API level this server speaks, the lowest client level it accepts per platform, and\nwhere each platform updates. Never refused, so an outdated client can check again.",
+        "operationId": "getClientVersions",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientVersions"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/question-types": {
       "get": {
         "tags": [
@@ -133,6 +195,16 @@
                 }
               }
             }
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -192,6 +264,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
                 }
               }
             }
@@ -350,6 +432,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       },
@@ -457,6 +549,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -534,6 +636,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       },
@@ -655,6 +767,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       },
@@ -760,6 +882,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -892,6 +1024,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -1024,6 +1166,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -1105,6 +1257,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       },
@@ -1226,6 +1388,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -1314,6 +1486,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -1518,6 +1700,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       },
@@ -1657,6 +1849,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -1822,6 +2024,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -1895,6 +2107,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       },
@@ -2012,6 +2234,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       },
@@ -2113,6 +2345,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -2252,6 +2494,16 @@
             },
             "description": "Unprocessable Content"
           },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
+          },
           "201": {
             "description": "The call created the run (or merged it).",
             "content": {
@@ -2370,6 +2622,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -2444,6 +2706,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -2535,6 +2807,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -2700,6 +2982,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -2866,6 +3158,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -3068,6 +3370,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -3127,6 +3439,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
                 }
               }
             }
@@ -3240,6 +3562,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -3343,6 +3675,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -3443,6 +3785,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -3453,7 +3805,7 @@
           "push"
         ],
         "summary": "Register Apns Device",
-        "description": "Register (or refresh, keyed by token) the iOS app's APNs device token. Resets its failure\ncount. The app calls this on every launch; it works whether or not APNs is enabled.",
+        "description": "Register (or refresh, keyed by token) the iOS app's APNs device token. Resets its failure\ncount, and stores the client level from ``X-QuickR-Client``: a device below the minimum gets\ndisplay-only reminders. The app calls this on every launch; it works whether or not APNs is\nenabled.",
         "operationId": "registerApnsDevice",
         "parameters": [
           {
@@ -3553,6 +3905,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -3656,6 +4018,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -3666,7 +4038,7 @@
           "push"
         ],
         "summary": "Register Live Activity",
-        "description": "Register (or refresh, keyed by token) a Live Activity push token: the device's push-to-start\ntoken (``kind: start``; it replaces the device's older ones), or one activity's update token\n(``kind: update``, with its topic and its open run; ``run_id`` may be an alias). An update\ntoken for a run that is closed or unknown is answered the same but not kept; a closed run's\ngets its ``end`` push. 422 ``invalid_request`` when the run belongs to another topic. Works\nwhether or not APNs is enabled.",
+        "description": "Register (or refresh, keyed by token) a Live Activity push token: the device's push-to-start\ntoken (``kind: start``; it replaces the device's older ones), or one activity's update token\n(``kind: update``, with its topic and its open run; ``run_id`` may be an alias). An update\ntoken for a run that is closed or unknown is answered the same but not kept; a closed run's\ngets its ``end`` push. 422 ``invalid_request`` when the run belongs to another topic. Stores\nthe client level from ``X-QuickR-Client``: a token below the minimum gets no pushes. Works\nwhether or not APNs is enabled.",
         "operationId": "registerLiveActivity",
         "parameters": [
           {
@@ -3766,6 +4138,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -3869,6 +4251,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -3979,6 +4371,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "426": {
+            "description": "The client is below the server's minimum level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOutdatedProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -4236,6 +4638,90 @@
         ],
         "title": "Channel",
         "description": "How an entry reached the system. Set server-side."
+      },
+      "ClientLevels": {
+        "properties": {
+          "ios": {
+            "type": "integer",
+            "title": "Ios"
+          },
+          "web": {
+            "type": "integer",
+            "title": "Web"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ios",
+          "web"
+        ],
+        "title": "ClientLevels"
+      },
+      "ClientOutdatedProblem": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "examples": [
+              "not_found"
+            ]
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/FieldIssue"
+            },
+            "type": "array",
+            "title": "Errors",
+            "default": []
+          },
+          "min_client_level": {
+            "type": "integer",
+            "title": "Min Client Level"
+          },
+          "client_level": {
+            "type": "integer",
+            "title": "Client Level"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "detail",
+          "errors",
+          "min_client_level",
+          "client_level"
+        ],
+        "title": "ClientOutdatedProblem",
+        "description": "426 ``client_outdated``: the client's level is below the server's minimum for its platform.\nNothing was done; the client keeps its unsent data and asks the user to update."
+      },
+      "ClientVersions": {
+        "properties": {
+          "api_level": {
+            "type": "integer",
+            "title": "Api Level"
+          },
+          "min_client_level": {
+            "$ref": "#/components/schemas/ClientLevels"
+          },
+          "update_url": {
+            "$ref": "#/components/schemas/UpdateUrls"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "api_level",
+          "min_client_level",
+          "update_url"
+        ],
+        "title": "ClientVersions",
+        "description": "The API level this server speaks, and the lowest client level it accepts per platform."
       },
       "CompatibilityIssue": {
         "properties": {
@@ -9126,6 +9612,21 @@
           "entry_count"
         ],
         "title": "TopicVersionOut"
+      },
+      "UpdateUrls": {
+        "properties": {
+          "ios": {
+            "type": "string",
+            "title": "Ios",
+            "description": "Where the iOS app sends the user to update (default: TestFlight)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ios"
+        ],
+        "title": "UpdateUrls"
       },
       "ValueCount": {
         "properties": {
