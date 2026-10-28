@@ -19,7 +19,7 @@ import { client } from '../../client/client.gen';
 import { ToastProvider } from '../ui/Toast';
 import { ClientOutdated, ServerBehindBanner, SERVER_BEHIND_DISMISSED_KEY } from './ClientVersion';
 import { forceUpdate, type ForceUpdateDeps } from './forceUpdate';
-import { setRegistration } from './swRegistration';
+import { awaitRegistration, setRegistration } from './swRegistration';
 import { UpdatePrompt } from './UpdatePrompt';
 
 const unsaved = vi.hoisted(() => ({ value: false }));
@@ -150,6 +150,50 @@ describe('forceUpdate (§5.2)', () => {
     expect(sessionStorage.getItem(FORCED_RELOAD_KEY)).toBeNull();
   });
 
+  it('a 426 before the worker is registered still calls update() (cold start)', async () => {
+    const { reg, container, reload, deps } = setup();
+    const worker = new FakeWorker();
+    worker.onSkip = () => container.dispatchEvent(new Event('controllerchange'));
+    reg.waiting = worker as unknown as ServiceWorker;
+    const findRegistration = vi.fn(() =>
+      Promise.resolve(reg as unknown as ServiceWorkerRegistration),
+    );
+    expect(await forceUpdate({ ...deps, registration: null, findRegistration })).toBe('reloading');
+    expect(findRegistration).toHaveBeenCalledWith(10_000);
+    expect(reg.update).toHaveBeenCalledOnce();
+    expect(worker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it("awaitRegistration: the browser's, else the one UpdatePrompt sets in time, else null", async () => {
+    const reg = new FakeRegistration() as unknown as ServiceWorkerRegistration;
+    expect(await awaitRegistration(10, () => Promise.resolve(reg))).toBe(reg);
+    vi.useFakeTimers();
+    const none = awaitRegistration(10_000, () => Promise.resolve(undefined));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await none).toBeNull();
+    const later = awaitRegistration(10_000, () => Promise.resolve(undefined));
+    await vi.advanceTimersByTimeAsync(2_000);
+    setRegistration(reg);
+    expect(await later).toBe(reg);
+  });
+
+  it('without sessionStorage: no reload of its own (no loop), but Reload works', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    try {
+      const { reload, deps } = setup({ registration: null, container: null });
+      expect(await forceUpdate(deps)).toBe('failed');
+      expect(reload).not.toHaveBeenCalled();
+      expect(hasForcedReload()).toBe(true);
+      expect(await forceUpdate({ ...deps, ignoreGuard: true })).toBe('reloading');
+      expect(reload).toHaveBeenCalledOnce();
+    } finally {
+      setItem.mockRestore();
+    }
+  });
+
   it('without a service worker: reloads', async () => {
     const { reload, deps } = setup({ registration: null, container: null });
     expect(await forceUpdate(deps)).toBe('reloading');
@@ -179,6 +223,27 @@ describe('ClientOutdated', () => {
     await vi.waitFor(() => {
       expect(reload).toHaveBeenCalledOnce();
     });
+  });
+
+  it('failed after a forced reload: a newly deployed worker is taken at once', async () => {
+    markForcedReload();
+    const { reg, container, reload, deps } = setup();
+    render(<ClientOutdated deps={() => deps} />);
+    expect(await screen.findByText(/Connect to the internet and reload/)).toBeInTheDocument();
+    expect(reload).not.toHaveBeenCalled();
+    // The hourly or on-resume update() finds the new frontend.
+    const worker = new FakeWorker();
+    worker.onSkip = () => container.dispatchEvent(new Event('controllerchange'));
+    reg.installing = worker as unknown as ServiceWorker;
+    reg.dispatchEvent(new Event('updatefound'));
+    act(() => {
+      worker.install(reg);
+    });
+    await vi.waitFor(() => {
+      expect(reload).toHaveBeenCalledOnce();
+    });
+    expect(worker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+    expect(reg.unregister).not.toHaveBeenCalled();
   });
 
   it('offline: the overlay asks to connect and reload', async () => {

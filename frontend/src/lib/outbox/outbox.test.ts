@@ -485,7 +485,19 @@ describe('held: the bundle is outdated (client-versions.md §5.3)', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     // Pending, attempt not counted, no backoff, maybe_delivered unchanged: as it was.
     expect(await outbox.list()).toEqual(before);
-    expect(events.filter((e) => e.type !== 'enqueued').map((e) => e.type)).toEqual(['held']);
+    // Both are held: the unsent one too, so a sendNow waiting on it answers at once.
+    expect(events.filter((e) => e.type !== 'enqueued').map((e) => e.type)).toEqual([
+      'held',
+      'held',
+    ]);
+  });
+
+  it('a sendNow waiting on a later item answers "queued" when the pass is held', async () => {
+    const { outbox, advance } = setup([json(426, outdated)]);
+    await outbox.enqueue('note.create', { text: '1' });
+    advance(1);
+    const second = await outbox.enqueue('note.create', { text: '2' });
+    expect(await outbox.sendNow(second.id, 60_000)).toEqual({ status: 'queued', item: second });
   });
 
   it('a 426 with another code is an ordinary 4xx', async () => {

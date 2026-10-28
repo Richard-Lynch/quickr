@@ -6,11 +6,17 @@ import 'fake-indexeddb/auto';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { isClientOutdated, isServerBehind, resetClientVersion } from '../../api/clientVersion';
+import {
+  isClientOutdated,
+  isServerBehind,
+  markClientOutdated,
+  observeResponse,
+  resetClientVersion,
+} from '../../api/clientVersion';
 import { fakeQuickrServer, type FakeQuickrServer } from '../../test/fakeQuickrServer';
 import { T0, TOPIC as RUN_TOPIC, runItem } from '../../test/runs';
 import { memoryAckedStore, setAckedStore } from '../runs/acked';
-import { outbox } from './client';
+import { kickOutbox, outbox, startOutbox } from './client';
 import { ENTRY_CREATE, RUN_EVENT, type EntryCreatePayload } from './kinds';
 
 const SERVER = '0b9e0000-0000-4000-8000-0000000000aa';
@@ -71,5 +77,25 @@ describe('page outbox, server behind (V14)', () => {
     expect(await outbox.list()).toEqual([]);
     expect(isServerBehind()).toBe(true);
     expect(isClientOutdated()).toBe(false);
+  });
+});
+
+describe('page outbox scheduling while outdated', () => {
+  it('arms no timer while outdated, and is kicked when the minimum drops', async () => {
+    markClientOutdated();
+    const nextDueAt = vi.spyOn(outbox, 'nextDueAt');
+    const stop = startOutbox();
+    await kickOutbox(true);
+    expect(nextDueAt).not.toHaveBeenCalled();
+    expect(server.requests).toEqual([]);
+
+    await observeResponse(
+      new Response('{}', { headers: { 'X-QuickR-Min-Client-Level': 'ios=0, web=0' } }),
+    );
+    await vi.waitFor(() => {
+      expect(server.entries.size).toBe(1);
+    });
+    stop();
+    nextDueAt.mockRestore();
   });
 });

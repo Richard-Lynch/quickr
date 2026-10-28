@@ -106,6 +106,8 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 async function schedule(): Promise<void> {
   clearTimeout(timer);
   timer = undefined;
+  // Nothing would be sent; the client-version subscription kicks the outbox once it clears.
+  if (isClientOutdated()) return;
   const due = await outbox.nextDueAt();
   if (due === null) return;
   const delay = Math.min(Math.max(due - Date.now(), 1_000), MAX_POLL_MS);

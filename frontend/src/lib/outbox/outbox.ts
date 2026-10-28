@@ -332,9 +332,19 @@ export function createOutbox(opts: OutboxOptions): Outbox {
     const due = (await list()).filter(
       (i) => i.status === 'pending' && (force || i.next_attempt_at <= now()),
     );
-    for (const snapshot of due) {
+    /** Every item left in this pass is held: a waiting `sendNow` answers at once. */
+    const holdRest = async (from: number) => {
+      for (const rest of due.slice(from)) {
+        const item = await store.get(rest.id);
+        if (item?.status === 'pending') emit({ type: 'held', item });
+      }
+    };
+    for (const [index, snapshot] of due.entries()) {
       // Outdated, maybe learnt from another request during this pass: send nothing more.
-      if (held()) break;
+      if (held()) {
+        await holdRest(index);
+        break;
+      }
       const item = await store.get(snapshot.id);
       if (item?.status !== 'pending') continue;
       // Waits for an item still queued (e.g. its run's start): not attempted, no backoff.
@@ -355,8 +365,8 @@ export function createOutbox(opts: OutboxOptions): Outbox {
       }
 
       if (res.outcome === 'held') {
-        // Refused before any effect: the item stays as it was, for the updated bundle.
-        emit({ type: 'held', item });
+        // Refused before any effect: the items stay as they were, for the updated bundle.
+        await holdRest(index);
         break;
       }
       const error = res.error;

@@ -13,6 +13,11 @@ export const UPDATE_WAIT_MS = 10_000;
 export interface ForceUpdateDeps {
   /** The app's registration (`swRegistration.ts`), or null without a service worker. */
   registration: ServiceWorkerRegistration | null;
+  /**
+   * Looks the registration up when `registration` is still null: a 426 can arrive before
+   * `UpdatePrompt` has registered the worker (a cold start).
+   */
+  findRegistration?: (waitMs: number) => Promise<ServiceWorkerRegistration | null>;
   /** Fires `controllerchange` once the waiting worker takes over. */
   container: Pick<ServiceWorkerContainer, 'addEventListener' | 'removeEventListener'> | null;
   reload: () => void;
@@ -40,7 +45,7 @@ export async function forceUpdate(deps: ForceUpdateDeps): Promise<ForceUpdateRes
   if (!deps.ignoreGuard && hasForcedReload()) return 'failed';
   if (!deps.online()) return 'failed';
   const waitMs = deps.waitMs ?? UPDATE_WAIT_MS;
-  const reg = deps.registration;
+  const reg = deps.registration ?? (await deps.findRegistration?.(waitMs)) ?? null;
   if (reg) {
     try {
       await reg.update();
@@ -55,9 +60,35 @@ export async function forceUpdate(deps: ForceUpdateDeps): Promise<ForceUpdateRes
       await changed;
     }
   }
-  markForcedReload();
+  // A mark that can't be stored would not stop the next load reloading too: the user does it.
+  if (!markForcedReload() && !deps.ignoreGuard) return 'failed';
   deps.reload();
   return 'reloading';
+}
+
+/**
+ * Calls `onWaiting` each time a new worker becomes waiting (an update found by the hourly or
+ * on-resume check), not for one already waiting. Returns the unsubscribe.
+ */
+export function onNewWaitingWorker(
+  reg: ServiceWorkerRegistration,
+  onWaiting: () => void,
+): () => void {
+  const tracked = new Set<ServiceWorker>();
+  const installed = () => {
+    if (reg.waiting && [...tracked].includes(reg.waiting)) onWaiting();
+  };
+  const found = () => {
+    const installing = reg.installing;
+    if (!installing || tracked.has(installing)) return;
+    tracked.add(installing);
+    installing.addEventListener('statechange', installed);
+  };
+  reg.addEventListener('updatefound', found);
+  return () => {
+    reg.removeEventListener('updatefound', found);
+    for (const t of tracked) t.removeEventListener('statechange', installed);
+  };
 }
 
 /** The worker that becomes waiting within `ms`, or null. */

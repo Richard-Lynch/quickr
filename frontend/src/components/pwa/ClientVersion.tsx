@@ -11,8 +11,8 @@ import { Button } from '../ui/Button';
 import { Icon } from '../ui/Icon';
 import { ConfirmSheet } from '../ui/Sheet';
 import { Spinner } from '../ui/Spinner';
-import { forceUpdate, type ForceUpdateDeps } from './forceUpdate';
-import { getRegistration } from './swRegistration';
+import { forceUpdate, onNewWaitingWorker, type ForceUpdateDeps } from './forceUpdate';
+import { awaitRegistration, getRegistration } from './swRegistration';
 
 /** What responses said about this bundle and the server (docs/specs/client-versions.md §5). */
 export function useClientVersion() {
@@ -23,6 +23,7 @@ function browserDeps(): ForceUpdateDeps {
   const sw = 'serviceWorker' in navigator ? navigator.serviceWorker : null;
   return {
     registration: getRegistration(),
+    findRegistration: (ms) => awaitRegistration(ms),
     container: sw,
     reload: () => {
       window.location.reload();
@@ -58,6 +59,18 @@ export function ClientOutdated({ deps = browserDeps }: { deps?: () => ForceUpdat
     run(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on mount
   }, []);
+
+  // The frontend deployed after the backend: a new worker found by the hourly or on-resume
+  // check is the update this page waits for, so take it (the guard was for this bundle).
+  useEffect(() => {
+    if (phase !== 'failed') return;
+    const reg = deps().registration;
+    if (!reg) return;
+    return onNewWaitingWorker(reg, () => {
+      run(true);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- per phase
+  }, [phase]);
 
   if (phase === 'confirm') {
     return (

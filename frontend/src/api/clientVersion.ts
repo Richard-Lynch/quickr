@@ -131,6 +131,7 @@ export async function observeResponse(res: Response): Promise<void> {
 /** Tests: forget what responses said. */
 export function resetClientVersion(): void {
   state = { outdated: false, serverApiLevel: null };
+  unstoredMark = false;
 }
 
 // ---- the forced-reload mark (§5.2 step 4) ----------------------------------------------
@@ -150,7 +151,11 @@ function session(): MarkStorage | null {
   }
 }
 
+/** Set when the mark couldn't be stored: this page then never reloads on its own. */
+let unstoredMark = false;
+
 export function hasForcedReload(): boolean {
+  if (unstoredMark) return true;
   try {
     return session()?.getItem(FORCED_RELOAD_KEY) != null;
   } catch {
@@ -158,15 +163,27 @@ export function hasForcedReload(): boolean {
   }
 }
 
-export function markForcedReload(): void {
+/**
+ * Record a forced reload. False when it can't be stored (no or blocked `sessionStorage`):
+ * the reloaded page couldn't see it, so the caller mustn't reload on its own (a loop). The
+ * mark is then kept in memory.
+ */
+export function markForcedReload(): boolean {
   try {
-    session()?.setItem(FORCED_RELOAD_KEY, String(Date.now()));
+    const store = session();
+    if (store) {
+      store.setItem(FORCED_RELOAD_KEY, String(Date.now()));
+      return true;
+    }
   } catch {
-    // blocked storage: no loop guard, but the overlay still shows
+    // blocked storage
   }
+  unstoredMark = true;
+  return false;
 }
 
 export function clearForcedReload(): void {
+  unstoredMark = false;
   try {
     session()?.removeItem(FORCED_RELOAD_KEY);
   } catch {
