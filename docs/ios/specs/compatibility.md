@@ -1,11 +1,15 @@
 # Spec: server and client compatibility
 
-**Status:** 2026-10-22 (issue #13, phase 1: the PR-time gate). **Enforced by:**
+**Status:** 2026-10-22 (issue #13, phase 1: the PR-time gate), revised
+2026-10-28 for API levels and forced updates
+([client-versions.md](../../specs/client-versions.md) §7). **Enforced by:**
 `.github/workflows/compat.yml` and the files in `compat/`.
 
 iOS builds stay installed long after the server moves on, so the server can't
 assume every client runs the latest code. This spec sets the rule and the checks
-that enforce it on every PR.
+that enforce it on every PR. Since milestone CV, a build below the server's
+minimum API level is refused (426 `client_outdated`) and asked to update, so the
+rule covers only the builds at or above it.
 
 **Normative language.** **MUST**, **MUST NOT**, **SHOULD** and **MAY** follow
 RFC 2119.
@@ -13,57 +17,89 @@ RFC 2119.
 ## 1. The rule
 
 1. `compat/supported-clients.json` lists the iOS builds the server must keep
-   serving: each one's build number and the commit it was archived from.
-2. The server **MUST** stay compatible with every listed client: the API
-   requests they send, the responses they read and the push payloads they
-   receive.
+   serving: each one's build number, the commit it was archived from and its
+   `api_level` (the one in `shared/api-level.json` at that commit). A build
+   without an `api_level`, from before milestone CV, is level 0.
+2. The server **MUST** stay compatible with every listed client **whose API
+   level is at least `min_client_level.ios`** in `shared/api-level.json`: the
+   API requests they send, the responses they read and the push payloads they
+   receive. These are the **supported** clients. The server refuses the ones
+   below the minimum, so they aren't checked; the gate prints each one it
+   skips.
 3. Clients **MUST** ignore unknown fields. For an unknown enum case they
    **MUST** fall back (for example, an unknown `quick_log` type is a plain
    reminder), never fail. A new enum case is therefore additive, but only for
    builds that have the fallback. An older build's behaviour is declared per
    case (§3).
 4. When a change needs both sides, the server ships first. The client that
-   relies on it ships after that, and the server keeps serving the older listed
-   builds.
+   relies on it ships after that, and the server keeps serving the older
+   supported builds.
+5. A change that a client at the current `api_level` can't handle (a breaking
+   change) is allowed if the same PR **bumps** `shared/api-level.json`: it
+   raises `api_level` by one and sets `min_client_level.ios` and `.web` to it.
+   Every build from before the bump is then below the minimum, so the server
+   refuses it and the app asks the user to update
+   ([client-versions.md](../../specs/client-versions.md) §2, §4). The bump PR
+   runs `make api-level` and `make vectors`, which update the generated copies
+   and the `getClientVersions` fixture. A listed build below the new minimum
+   **MAY** be removed in the same PR.
 
-**Note, 2026-10-23: the timers milestone.** The timers milestone
-([timers-plan.md](../../specs/timers-plan.md), T-UNGATE) supports no earlier
-build, so `compat/supported-clients.json` lists no clients (`"clients": []`).
-With an empty list, `old clients` and `old requests` check nothing, and
-`openapi breaking` compares only with the newest `v*` tag; the milestone's
-breaks against it are approved under its own header in
-`compat/openapi-break-approvals.txt`. The list stays empty until a timers build
-is added by the usual TestFlight PR (§5). Forced updates, for builds the server
-no longer serves, come with milestone CV
-([client-versions.md](../../specs/client-versions.md)).
+**Note, 2026-10-28: the timers build.** The timers milestone supported no
+earlier build, so the list restarted with the timers build `20261026.143027`,
+from before CV and so level 0. CV ships with both minimums at 0, so it is still
+supported and checked. The first breaking change raises the minimums above it,
+which stops checking it.
 
 ## 2. OpenAPI breaking changes (`openapi breaking`, ubuntu)
 
 `compat/openapi-breaking.sh` compares `openapi.json` with the one at the newest
-`v*` tag and with each listed client's own `openapi.json` (at its sha), so a
-break is caught whichever build relies on what changed. It uses oasdiff, pinned by version and checksum in the workflow. It
-fails on any breaking change at the ERR level, such as a removed operation or
-response field, a new required request field, or a narrower type. Warnings are
-printed but don't fail the check; a response enum value added is one (§1 rule
-3).
+`v*` tag and with each supported client's own `openapi.json` (at its sha), so a
+break is caught whichever build relies on what changed. It uses oasdiff, pinned
+by version and checksum in the workflow. A breaking change is one at the ERR
+level, such as a removed operation or response field, a new required request
+field, or a narrower type. Warnings are printed but don't fail the check; a
+response enum value added is one (§1 rule 3).
 
-**Override.** A break passes only if every one of its lines is approved in
-`compat/openapi-break-approvals.txt`. That file is oasdiff's `--err-ignore`
-file: one `METHOD /path message` line per break, as oasdiff prints it. Each line
-has a comment above it that names the PR and explains why no listed client is
-affected. The approval is part of the PR's diff, so review sees it. Remove the
-lines once no compared spec (the tag or a listed client) has what they break.
+- **Against a supported client**, a break fails. The only way to break such a
+  client is to raise the minimum above its level, which takes it off the
+  comparison.
+- **Against the tag**, which stands for the deployed PWA and any unlisted
+  build, a break passes **only if** this PR bumps `shared/api-level.json`
+  compared with the tag's (§1 rule 5; `compat/api_level.py bumped`). Otherwise
+  it fails with "a breaking change must bump shared/api-level.json". A tag from
+  before CV has no file, which counts as level 0 with both minimums at 0.
+
+**Approvals.** A break also passes if every one of its lines is approved in
+`compat/openapi-break-approvals.txt`. This is for a break that is deliberately
+not breaking for any client, such as a field no client reads; bumping is the
+normal path. That file is oasdiff's `--err-ignore` file: one
+`METHOD /path message` line per break, as oasdiff prints it. Each line has a
+comment above it that names the PR and explains why no client is affected. The
+approval is part of the PR's diff, so review sees it. Remove the lines once no
+compared spec (the tag or a supported client) has what they break.
+
+**The API level (`api level`, ubuntu, every PR).** `compat/api_level.py check`
+checks that `min_client_level` is at most `api_level` on both platforms, that
+none of the three went down compared with the base branch, and that `api_level`
+went up by at most one. `compat/client_fixtures.py check` checks that each
+listed client is well formed and that its `api_level` is the one in
+`shared/api-level.json` at its sha (missing only where that file didn't exist).
+The job then runs `make api-level` and fails if any generated copy of
+`shared/api-level.json` changed
+([client-versions.md](../../specs/client-versions.md) §2, V12).
 
 ## 3. Old clients against this server (`old clients`, macos-26; `old requests`, ubuntu)
 
 Schema checks can't see rules that live in code. `old requests` (ubuntu,
-`compat/old-requests.sh`) replays each listed client's request goldens
+`compat/old-requests.sh`) replays each supported client's request goldens
 (`shared/fixtures/requests` at its sha) through this PR's backend: the contract
 and replay tests of `backend/tests/test_request_goldens.py`, pointed at them by
 `QUICKR_REQUEST_GOLDENS_DIR`. Each must still validate and get its expected
-status (`EXPECTED` in that test).
+status (`EXPECTED` in that test). Each client replays at its own `api_level`
+(`QUICKR_REPLAY_CLIENT_LEVEL`), so a server that refuses it fails the check
+rather than passing its goldens at this commit's level.
 
-For each listed client, `compat/old-client.sh <sha>` does three things:
+For each supported client, `compat/old-client.sh <sha>` does three things:
 
 1. It extracts the client's `ios/QuickrKit` at its commit.
 2. It runs the client's own wire suites against this PR's `shared/fixtures`,
@@ -100,7 +136,8 @@ code:
 The cases aren't skipped. Each one moves from the exact-match suites to its
 declared fallback. A declared case missing from the fixtures is an error, so the
 list can't go stale. A new fallback kind needs a branch in
-`CompatFallbackTests`, and that branch must compile against every listed client.
+`CompatFallbackTests`, and that branch must compile against every supported
+client.
 
 **Why macOS.** On Linux (swift:6.2), QuickrCore builds but QuickrData doesn't:
 its GRDB dependency needs `sqlite3.h`, and it imports Apple-only modules
@@ -130,13 +167,13 @@ deploy).
 ## 5. Adding and pruning builds
 
 **Adding.** A TestFlight upload from CI (`.github/workflows/testflight.yml`)
-opens a PR that lists the new build first, with no fallbacks. A newer build
-needs none for cases it already knows. Merge it like any other PR. A local
-upload (`make ios-testflight`) is added by hand:
-`python3 compat/client_fixtures.py add <build> <sha> "<source>"`, and its
-commit tagged `clients/ios/<build>` and pushed. A listed sha must stay
-reachable from a tag (`old requests` checks): a squash merge deletes its branch,
-and an unreachable sha can't be fetched or tested. CI uploads build from a `v*`
+opens a PR that lists the new build first, with no fallbacks and the
+`api_level` at its commit. A newer build needs none for cases it already knows.
+Merge it like any other PR. A local upload (`make ios-testflight`) is added by
+hand: `python3 compat/client_fixtures.py add <build> <sha> "<source>"`, and its
+commit tagged `clients/ios/<build>` and pushed. A supported client's sha must
+stay reachable from a tag (`old requests` checks): a squash merge deletes its
+branch, and an unreachable sha can't be fetched or tested. CI uploads build from a `v*`
 tag, which already covers them.
 
 **Drafts.** A gate whose run started while the PR was a draft fails: its slow
@@ -148,4 +185,5 @@ TestFlight expires a build 90 days after upload, and an expired build can't be
 opened; expiring it early in App Store Connect (TestFlight ▸ the build ▸ Expire
 Build) counts too. Remove its entry, fallbacks included, in a PR of its own.
 Lines in `compat/openapi-break-approvals.txt` that only it needed can go in the
-same PR (§2).
+same PR (§2). A build below `min_client_level.ios` is no longer checked, so it
+may also be removed in the PR that raises the minimum above it (§1).

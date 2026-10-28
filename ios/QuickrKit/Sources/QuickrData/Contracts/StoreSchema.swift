@@ -21,7 +21,7 @@ import GRDB
 public enum StoreSchema {
     /// The append-only migrations, in order: `(identifier, statements)`.
     public static let migrations: [(identifier: String, statements: [String])] = [
-        ("v1", v1), ("v2", v2), ("v3", v3), ("v4", v4), ("v5", v5),
+        ("v1", v1), ("v2", v2), ("v3", v3), ("v4", v4), ("v5", v5), ("v6", v6),
     ]
 
     public static func migrator() -> DatabaseMigrator { DatabaseMigrator(steps: migrations) }
@@ -204,6 +204,15 @@ public enum StoreSchema {
           created_at REAL NOT NULL
         )
         """
+    ]
+
+    /// Client API levels (client-versions.md §4.1, §4.5): `client_outdated_min`, the minimum the
+    /// server demanded while it was above this build's level (null when not outdated), and
+    /// `server_api_level`, the latest response's API level (null before one). Local state, so no
+    /// rebuild.
+    static let v6: [String] = [
+        "ALTER TABLE sync_state ADD COLUMN client_outdated_min INTEGER",
+        "ALTER TABLE sync_state ADD COLUMN server_api_level INTEGER",
     ]
 
     static let v1: [String] =

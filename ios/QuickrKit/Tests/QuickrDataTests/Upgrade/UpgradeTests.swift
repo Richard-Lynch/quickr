@@ -91,13 +91,14 @@ import Testing
                 """)
     }
 
-    /// The store's columns that "nothing lost" compares: v2's `timer_json`, v3's `timing_json` and
-    /// v4's `sync_state.server_offset_ms` are new, and v2 and v3 set `sync_state.rebuilding`
-    /// (checked on their own).
+    /// The store's columns that "nothing lost" compares: v2's `timer_json`, v3's `timing_json`,
+    /// v4's `sync_state.server_offset_ms` and v6's `client_outdated_min` and `server_api_level` are
+    /// new, and v2 and v3 set `sync_state.rebuilding` (checked on their own).
     static func storeV1Columns(_ db: Database, tables: [String]) throws -> [String: [String]] {
         let added: [String: Set<String>] = [
             "topic_version": ["timer_json"], "stage_topic_version": ["timer_json"], "entry": ["timing_json"],
-            "stage_entry": ["timing_json"], "sync_state": ["rebuilding", "server_offset_ms"],
+            "stage_entry": ["timing_json"],
+            "sync_state": ["rebuilding", "server_offset_ms", "client_outdated_min", "server_api_level"],
         ]
         var columns: [String: [String]] = [:]
         for table in tables {

@@ -11,6 +11,8 @@ struct RootView: View {
     /// Onboarding stays up from "no server" until it finishes (its reminders step comes after
     /// the connect has already made the session ready).
     @State private var onboarding = false
+    /// "Update required", above every window and presentation (client-versions.md §4.1).
+    @State private var updateWindow = UpdateRequiredWindow()
 
     var body: some View {
         content
@@ -21,6 +23,12 @@ struct RootView: View {
             .onChange(of: environment.session?.binding) { _, _ in
                 Task { await environment.push?.bindingChanged() }
             }
+            .onChange(of: environment.clientUpdate.isOutdated, initial: true) { _, outdated in
+                // The sync sheet goes: its Fix and Retry would act under the view. Other
+                // presentations stay, covered, and come back when it leaves.
+                if outdated { environment.sync.isSheetPresented = false }
+                updateWindow.update(outdated: outdated, environment: environment)
+            }
     }
 
     @ViewBuilder
@@ -29,7 +37,7 @@ struct RootView: View {
         if let page = Self.catalogPage {
             DesignCatalogView(page: page)
         } else if let gallery = Self.widgetGallery {
-            WidgetGalleryView(page: gallery.page, tinted: gallery.tinted)
+            WidgetGalleryView(page: gallery.page, tinted: gallery.tinted, outdated: gallery.outdated)
         } else if let demo = Self.formDemo {
             FormDemoView(demo: demo)
         } else if Self.snippetGallery {
@@ -51,12 +59,13 @@ struct RootView: View {
         return DesignCatalogView.Page(rawValue: raw) ?? .colors
     }
 
-    /// `-QuickrWidgetGallery <home|lock> [tinted]` shows the widget views (screenshots, UI checks).
-    private static var widgetGallery: (page: WidgetGalleryView.Page, tinted: Bool)? {
+    /// `-QuickrWidgetGallery <home|lock> [tinted] [outdated]` shows the widget views (screenshots,
+    /// UI checks).
+    private static var widgetGallery: (page: WidgetGalleryView.Page, tinted: Bool, outdated: Bool)? {
         let args = ProcessInfo.processInfo.arguments
         guard let i = args.firstIndex(of: "-QuickrWidgetGallery") else { return nil }
         let raw = i + 1 < args.count ? args[i + 1] : ""
-        return (WidgetGalleryView.Page(rawValue: raw) ?? .home, args.contains("tinted"))
+        return (WidgetGalleryView.Page(rawValue: raw) ?? .home, args.contains("tinted"), args.contains("outdated"))
     }
 
     /// `-QuickrSnippetGallery` shows the Siri confirmation snippet over demo drafts (screenshots).
@@ -104,6 +113,14 @@ struct RootView: View {
         .task(id: environment.session?.binding) {
             if let session = environment.session { await environment.sync.observe(session) }
         }
+        // So does "Update required" (client-versions.md §4.1, §4.5).
+        .task(id: environment.session?.binding) {
+            if let session = environment.session {
+                await environment.clientUpdate.observe(session)
+            } else {
+                environment.clientUpdate.reset()
+            }
+        }
         // The run clocks' server offset (timers.md §5.1).
         .task(id: environment.session?.binding) {
             if let session = environment.session { await environment.runTicker.observe(session) }
@@ -122,7 +139,10 @@ struct RootView: View {
         }
         #if DEBUG
         .overlay(alignment: .bottom) {
-            if UITestLaunch.showsSyncControls { UITestSyncControls().padding(.bottom, 24) }
+            // While "Update required" is up, its window has the controls.
+            if UITestLaunch.showsSyncControls, !environment.clientUpdate.isOutdated {
+                UITestSyncControls().padding(.bottom, 24)
+            }
         }
         #endif
         #if DEBUG || QUICKR_PERF

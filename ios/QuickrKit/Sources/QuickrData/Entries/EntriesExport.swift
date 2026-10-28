@@ -148,11 +148,11 @@ public struct EntriesExport: Sendable {
     public func export(
         scope: Scope, transport: any Transport, credentials: any AccessCredentialsProvider, slug: String,
         filters: EntryFilters, now: Date, calendar: Calendar, serverOffset: (any ServerOffsetRecorder)? = nil,
-        isCurrent: @MainActor @Sendable () -> Bool
+        levels: (any ClientLevelGate)? = nil, isCurrent: @MainActor @Sendable () -> Bool
     ) async -> Outcome {
         let client = APIClient(
             baseURL: scope.binding.baseURL, transport: transport, identity: StaticServerIdentity(scope.identity),
-            credentials: credentials, origin: .app, serverOffset: serverOffset)
+            credentials: credentials, origin: .app, serverOffset: serverOffset, levels: levels)
         let name = UUID().uuidString
         ledger.created(name)
         let folder = root.appending(path: name, directoryHint: .isDirectory)
@@ -185,6 +185,9 @@ public struct EntriesExport: Sendable {
         case .identityMismatch:
             file.remove()
             return .failed("This address now answers as another server.")
+        case .clientOutdated:
+            file.remove()
+            return .failed(ClientOutdated.updateMessage)
         default:
             file.remove()
             return .failed(outcome.problem?.detail ?? "The server couldn’t export the entries.")

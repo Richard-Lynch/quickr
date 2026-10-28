@@ -11,6 +11,7 @@ struct ServerForm: View {
     /// Counts Connect taps, so the same failure twice is announced twice.
     @State private var attempt = 0
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.openURL) private var openURL
 
     private enum Field: Hashable {
         case address, clientId, clientSecret
@@ -123,6 +124,11 @@ struct ServerForm: View {
                 .accessibilityElement(children: .combine)
                 .qrAnnouncesError(failure.message, trigger: attempt)
                 .accessibilityIdentifier("server.error")
+                if let link = failure.updateURL {
+                    PrimaryButton("Open TestFlight", icon: .download, size: .medium) { openURL(link) }
+                        .accessibilityIdentifier("server.openTestFlight")
+                        .padding(.top, 8)
+                }
                 if let detail = failure.detail {
                     DisclosureGroup("Details") {
                         Text(detail)

@@ -1,4 +1,5 @@
 import Foundation
+import QuickrCore
 import Synchronization
 
 /// Why a sync runs (sync-protocol.md §9). Recorded in the status; the loop is the same.
@@ -44,6 +45,9 @@ public enum SyncResult: Sendable, Hashable {
     case noActiveStore
     /// The store is in identity mismatch (§8.3): nothing is pulled until it is resolved.
     case identityMismatch
+    /// This build is below the server's minimum (client-versions.md §4.1): nothing is pulled until
+    /// quickR is updated, or the server's minimum drops.
+    case clientOutdated
     /// A fence failed or the lease was lost: a newer coordinator owns the store (§5.5). The
     /// work stopped and wrote nothing.
     case superseded
@@ -82,6 +86,12 @@ public struct SyncStatus: Sendable, Hashable {
     public var identityMismatch = false
     /// `server_time − device_time` (§10).
     public var skewMilliseconds: Double = 0
+    /// `sync_state.client_outdated_min` while it refuses this build: "Update required"
+    /// (client-versions.md §4.1).
+    public var clientOutdatedMin: Int?
+    /// `sync_state.server_api_level`: below `APILevel.current`, the "server needs updating" note
+    /// (client-versions.md §4.5).
+    public var serverApiLevel: Int?
     /// The last run's failure, cleared by a drained run.
     public var lastFailure: SyncFailure?
     public var consecutiveFailures = 0
@@ -92,6 +102,11 @@ public struct SyncStatus: Sendable, Hashable {
 
     /// More changes are known to exist, or the last run failed.
     public var isBehind: Bool { cursor < headSeen || lastFailure != nil || rebuilding }
+
+    public var isClientOutdated: Bool { clientOutdatedMin != nil }
+
+    /// The server is older than this build (client-versions.md §4.5).
+    public var serverIsBehind: Bool { serverApiLevel.map { $0 < APILevel.current } ?? false }
 
     /// Settings shows "Your iPhone's clock is off by X" past 5 minutes (§10).
     public var clockIsOff: Bool { abs(skewMilliseconds) > 300_000 }

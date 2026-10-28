@@ -13,6 +13,7 @@ import Testing
         "health": { try await $0.health().erased },
         "listQuestionTypes": { try await $0.listQuestionTypes().erased },
         "getLimits": { try await $0.getLimits().erased },
+        "getClientVersions": { try await $0.getClientVersions().erased },
         "listTopics": { try await $0.listTopics(status: "all").erased },
         "createTopic": {
             try await $0.createTopic(

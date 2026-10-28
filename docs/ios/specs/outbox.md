@@ -185,19 +185,26 @@ the table without being sent: by coalescing, undo or retirement.
 
 ### 5.1 Base table (byte-compatible with PWA `classifyStatus` and `attempt()`)
 
-| Response                                                                                                          | Base outcome                         | `maybe_delivered`                        | Message (PWA text)                                      |
-| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------- | ------------------------------------------------------- |
-| No response (offline, DNS, TLS, timeout, cancelled)                                                               | retry, **stop the pass**             | → 1 if the request was started           | "Could not reach the server"                            |
-| 2xx whose body decodes as the kind's success type (`EntryOut`, `TopicDetail`, `RunEventResult`; empty for DELETE) | ok (after the header checks in §5.2) | —                                        | —                                                       |
-| 2xx whose body is not JSON, doesn't decode, or lacks required fields (including a captive portal page)            | retry                                | **→ 1** (the request may have committed) | "Unexpected response from the server"                   |
-| 3xx                                                                                                               | retry                                | unchanged                                | "The server redirected the request (sign-in required?)" |
-| 401, 403, 408, 425, 429                                                                                           | retry                                | unchanged                                | Problem `detail`, or "Request failed (_status_)"        |
-| Any other 4xx                                                                                                     | terminal                             | unchanged                                | Problem `detail`, or "Request failed (_status_)"        |
-| 5xx                                                                                                               | retry                                | → 1                                      | "Server error (_status_)"                               |
+| Response                                                                                                          | Base outcome                                                    | `maybe_delivered`                        | Message (PWA text)                                      |
+| ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------- |
+| No response (offline, DNS, TLS, timeout, cancelled)                                                               | retry, **stop the pass**                                        | → 1 if the request was started           | "Could not reach the server"                            |
+| 2xx whose body decodes as the kind's success type (`EntryOut`, `TopicDetail`, `RunEventResult`; empty for DELETE) | ok (after the header checks in §5.2)                            | —                                        | —                                                       |
+| 2xx whose body is not JSON, doesn't decode, or lacks required fields (including a captive portal page)            | retry                                                           | **→ 1** (the request may have committed) | "Unexpected response from the server"                   |
+| 3xx                                                                                                               | retry                                                           | unchanged                                | "The server redirected the request (sign-in required?)" |
+| 401, 403, 408, 425, 429                                                                                           | retry                                                           | unchanged                                | Problem `detail`, or "Request failed (_status_)"        |
+| 426 `client_outdated`                                                                                             | **hold**: restore the pre-claim state, **stop the pass** (§5.2) | unchanged                                | —                                                       |
+| Any other 4xx                                                                                                     | terminal                                                        | unchanged                                | Problem `detail`, or "Request failed (_status_)"        |
+| 5xx                                                                                                               | retry                                                           | → 1                                      | "Server error (_status_)"                               |
 
 The outcomes match the PWA's. The one difference is that an undecodable 2xx also
 sets `maybe_delivered`, which the PWA doesn't track. A committed POST whose
 response was garbled is therefore never silently dropped by Undo.
+
+The 426 row is checked before "any other 4xx", on both clients
+([client-versions.md](../../specs/client-versions.md) §5.3): the server refused
+an outdated build before any effect, so the item is held for the updated build
+and never failed. The code is in the body, so iOS reads it only with the identity
+headers present (§5.2 step 0); without them a 426 is "any other status", a retry.
 
 ### 5.2 Per-kind overrides
 
@@ -210,6 +217,7 @@ A response that fails them is **never** read as "entity gone", "rejected" or
 | Response                                                               | Item                                                                                                                                                                                                                        | Store and process                                                                                                                                                                                          |
 | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 409 `server_mismatch`, or 409 `epoch_mismatch`                         | **Not executed.** Restore `pre_claim_json` (state, attempts, deadline), and **clear every claim field** (`claim_token`, `claim_owner`, `claim_layer_gen`, `claim_epoch`, `pre_claim_json`). `maybe_delivered` is unchanged. | Set `identity_mismatch` or `epoch_suspect`. Stop the pass. **Release `flush`, then** signal the coordinator ([sync-protocol.md §5.6](sync-protocol.md#56-mismatch-signalling-never-a-reverse-lock-order)). |
+| 426 `client_outdated`, with both headers matching                      | **Not executed** ([client-versions.md](../../specs/client-versions.md) §4.1), for every kind, `run.event` included. Restore and clear the claim fields as for the 409s. A run event keeps the `at` it was stamped with.     | Set `client_outdated_min` in the same transaction. Stop the pass and release `flush`. No signal: nothing is claimed until quickR is updated (§6.2).                                                        |
 | Any other status whose server or epoch header is present and different | `uncertain` (S3). The request was not rejected by its precondition, so it may have executed. Claim fields are cleared.                                                                                                      | The same as above                                                                                                                                                                                          |
 | 2xx without the headers                                                | `uncertain`, with claim fields cleared                                                                                                                                                                                      | Identity mismatch, as above                                                                                                                                                                                |
 | Non-2xx without the headers                                            | §5.1 base classification for 3xx, 401, 403, 408, 425, 429 and 5xx. **Any other status is a retry** ("Unexpected response from the server"), never terminal.                                                                 | —                                                                                                                                                                                                          |
@@ -267,8 +275,10 @@ transaction is open while a request is in flight.**
 
 A claim transaction reads `sync_state`. It claims nothing if any of these is set:
 `rebuilding`, `retired`, `identity_mismatch` or `epoch_suspect`
-([sync-protocol.md §5.6](sync-protocol.md#56-mismatch-signalling-never-a-reverse-lock-order)).
-Enqueueing is never blocked by these flags.
+([sync-protocol.md §5.6](sync-protocol.md#56-mismatch-signalling-never-a-reverse-lock-order)),
+or `client_outdated_min` is above this build's `APILevel.current`
+([client-versions.md](../../specs/client-versions.md) §4.1; the flush then ends
+`clientOutdated`). Enqueueing is never blocked by these flags.
 
 ### 6.3 Expiry recovery
 

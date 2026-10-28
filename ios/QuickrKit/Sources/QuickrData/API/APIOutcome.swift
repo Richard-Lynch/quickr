@@ -75,6 +75,7 @@ public struct ObservedIdentity: Sendable, Hashable {
 /// | 3xx                                                             | `retryable(.redirect)`                   |
 /// | 401, 403, 408, 425, 429                                         | `retryable(.status)`                     |
 /// | 404                                                             | `notFound`                               |
+/// | 426 `client_outdated`                                           | `clientOutdated`                         |
 /// | 409 `entry_deleted`                                             | `entryDeleted`                           |
 /// | 409 `stale_revision`                                            | `staleRevision`                          |
 /// | Any other 4xx                                                   | `terminal`                               |
@@ -87,6 +88,9 @@ public struct ObservedIdentity: Sendable, Hashable {
 /// whenever the response is a 409 `server_mismatch` or `epoch_mismatch`, whichever mismatch
 /// takes priority. Without an expected identity (before the store is bootstrapped) the header
 /// comparisons are skipped; the missing-header rows still apply.
+///
+/// `clientOutdated` also comes without a response: `APIClient` refuses to send while the store
+/// knows this build is below the server's minimum (client-versions.md §4.1).
 public enum APIOutcome<Success: Sendable>: Sendable {
     /// A 2xx from the expected server and epoch whose body decoded and mapped to the domain.
     case success(Success)
@@ -112,6 +116,11 @@ public enum APIOutcome<Success: Sendable>: Sendable {
     /// The response is from another epoch. Never interpret it; set `epoch_suspect`
     /// (sync-protocol.md §5.6).
     case epochMismatch(MismatchEvidence)
+    /// 426 `client_outdated` (client-versions.md §3.3): this build's API level is below the
+    /// server's minimum for iOS, `minimum`. Refused before the route ran, so **nothing executed**;
+    /// or not sent at all, because the store already knows it (§4.1). Never fails anything:
+    /// whatever was sent waits for the updated build.
+    case clientOutdated(minimum: Int)
 
     /// The outbox's retry class (S4): `retryable` and `uncertain`.
     public var isRetry: Bool {
@@ -134,7 +143,8 @@ public enum APIOutcome<Success: Sendable>: Sendable {
     /// Whether a flush pass stops here (outbox.md §5.1 "stop the pass", §5.2 mismatches).
     public var stopsPass: Bool {
         switch self {
-        case .retryable(.noResponse), .uncertain(.noResponse), .identityMismatch, .epochMismatch: true
+        case .retryable(.noResponse), .uncertain(.noResponse), .identityMismatch, .epochMismatch, .clientOutdated:
+            true
         default: false
         }
     }
@@ -161,6 +171,7 @@ public enum APIOutcome<Success: Sendable>: Sendable {
         case .staleRevision(let problem): .staleRevision(problem)
         case .identityMismatch(let evidence): .identityMismatch(evidence)
         case .epochMismatch(let evidence): .epochMismatch(evidence)
+        case .clientOutdated(let minimum): .clientOutdated(minimum: minimum)
         }
     }
 }
@@ -263,6 +274,7 @@ public struct APIResponse<Success: Sendable>: Sendable {
             "Unexpected response from the server"
         case .identityMismatch: "The server address now reaches a different quickR server"
         case .epochMismatch: "The server's data was restored or reset"
+        case .clientOutdated: ClientOutdated.updateMessage
         default: Self.errorMessage(status: status ?? 0, body: bodyIsTrusted ? body : Data())
         }
     }

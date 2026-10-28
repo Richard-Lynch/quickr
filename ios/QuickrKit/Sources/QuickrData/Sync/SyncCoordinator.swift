@@ -76,6 +76,9 @@ public actor SyncCoordinator {
         case failed(SyncFailure)
         /// The response wasn't quickR's (a proxy's 200 without the identity headers).
         case notQuickr
+        /// The server refuses this build (426 `client_outdated`, client-versions.md §4.1). No
+        /// store was created or switched to: there is no flag to set, so the caller says it.
+        case clientOutdated(minimum: Int)
     }
 
     private let partitions: StorePartitions
@@ -193,9 +196,12 @@ public actor SyncCoordinator {
         let wall = partitions.wallClock
         let sentAt = wall.now()
         let response: APIResponse<ChangePage>
+        // There is no store yet: the page's API levels are kept here, and go to the store once
+        // it is known (client-versions.md §4.1, §4.5).
+        let levels = ConnectLevels()
         do {
-            response = try await makeFeed(baseURL).listChanges(
-                after: 0, limit: configuration.pageLimit, options: RequestOptions(expecting: nil))
+            response = try await makeFeed(baseURL).recording(serverOffset: NoServerOffset(), levels: levels)
+                .listChanges(after: 0, limit: configuration.pageLimit, options: RequestOptions(expecting: nil))
         } catch {
             return .failed(.unreachable(String(describing: error)))
         }
@@ -204,6 +210,7 @@ public actor SyncCoordinator {
         switch response.outcome {
         case .success(let value): page = value
         case .identityMismatch: return .notQuickr
+        case .clientOutdated(let minimum): return .clientOutdated(minimum: minimum)
         default: return .failed(Self.failure(response) ?? .unreachable("no page"))
         }
         do {
@@ -217,6 +224,9 @@ public actor SyncCoordinator {
             try await partitions.registry.setActive(page.serverId)
             if !isNew, let known = try await activeStore(resumingReset: false) {
                 try await known.writer.write { db in try LocalStore.setBaseURL(db, baseURL.absoluteString) }
+            }
+            if let recorded = levels.recorded, let active = try await activeStore(resumingReset: false) {
+                await StoreClientLevels(store: active).record(recorded, outdatedMinimum: nil)
             }
             let result = await runLocked(prefetched: isNew ? (page, timing) : nil)
             return .connected(serverId: page.serverId, isNew: isNew, sync: result)
@@ -465,6 +475,8 @@ public actor SyncCoordinator {
             refresh(state)
             if state.retired { return .reopen }
             if state.identityMismatch { return .result(.identityMismatch) }
+            // Checked before any request, like identity mismatch (client-versions.md §4.1).
+            if state.isClientOutdated { return .result(.clientOutdated) }
             let step: Step
             if let target = state.rebuilding {
                 step = try await stageStep(store, state: state, target: target, claim: claim, effects: &effects)
@@ -520,6 +532,8 @@ public actor SyncCoordinator {
                 return try await enterIdentityMismatch(store, state: state, claim: claim)
             case .epochMismatch:
                 return try await epochMismatch(store, response: response, conditions: context.fence)
+            case .clientOutdated(let minimum):
+                return await clientOutdated(store, minimum: minimum)
             default:
                 return .stop(.failed(Self.failure(response) ?? .unreachable("no page")))
             }
@@ -578,6 +592,8 @@ public actor SyncCoordinator {
         case .epochMismatch:
             // Only a *different* epoch restarts staging (§5.4, S15).
             return try await epochMismatch(store, response: response, conditions: context.fence)
+        case .clientOutdated(let minimum):
+            return await clientOutdated(store, minimum: minimum)
         default:
             return .stop(.failed(Self.failure(response) ?? .unreachable("no page")))
         }
@@ -684,6 +700,15 @@ public actor SyncCoordinator {
         return .stop(.failed(.protocolError("epoch mismatch without an epoch header")))
     }
 
+    /// A 426 `client_outdated` (client-versions.md §4.1): nothing was applied. The flag is set
+    /// here too, whichever feed answered (the API client's own record may not have run).
+    private func clientOutdated(_ store: LocalStore, minimum: Int) async -> Step {
+        let levels = StoreClientLevels(store: store)
+        await levels.record(ServerLevels(apiLevel: nil, minClientLevelIOS: nil), outdatedMinimum: minimum)
+        broadcaster.update { $0.clientOutdatedMin = max(minimum, APILevel.current + 1) }
+        return .stop(.clientOutdated)
+    }
+
     /// One page of `store`'s feed. The response's server time is also `store`'s run-event offset
     /// sample (timers.md §5.1).
     private func fetch(_ store: LocalStore, _ state: SyncState, after cursor: Int, expecting: ServerIdentity?)
@@ -692,7 +717,8 @@ public actor SyncCoordinator {
         guard let url = URL(string: state.baseURL) else { return nil }
         let wall = partitions.wallClock
         let sentAt = wall.now()
-        let feed = makeFeed(url).recordingServerOffset(StoreServerOffset(store: store))
+        let feed = makeFeed(url).recording(
+            serverOffset: StoreServerOffset(store: store), levels: StoreClientLevels(store: store))
         let response = try await feed.listChanges(
             after: cursor, limit: configuration.pageLimit, options: RequestOptions(expecting: expecting))
         return (response, FeedTiming(sentAt: sentAt, receivedAt: wall.now()))
@@ -849,6 +875,8 @@ public actor SyncCoordinator {
             status.epochSuspect = state.epochSuspect
             status.identityMismatch = state.identityMismatch
             status.skewMilliseconds = state.skewMilliseconds
+            status.clientOutdatedMin = state.isClientOutdated ? state.clientOutdatedMin : nil
+            status.serverApiLevel = state.serverApiLevel
         }
     }
 
@@ -895,6 +923,7 @@ public actor SyncCoordinator {
         case .notFound, .entryDeleted, .staleRevision:
             .rejected(status: response.status ?? 0, message: response.message)
         case .identityMismatch, .epochMismatch: .protocolError(response.message ?? "mismatch")
+        case .clientOutdated: .rejected(status: response.status ?? 426, message: response.message)
         }
     }
 }
@@ -905,4 +934,24 @@ extension Optional {
         defer { self = nil }
         return self
     }
+}
+
+/// The connect page's API levels, before there is a store to keep them: never holds the request
+/// back (an outdated build learns it from the 426), and keeps the last levels it was handed.
+private final class ConnectLevels: ClientLevelGate {
+    private let state = Mutex<ServerLevels?>(nil)
+
+    var recorded: ServerLevels? { state.withLock { $0 } }
+
+    func outdatedMinimum() async -> Int? { nil }
+
+    func record(_ levels: ServerLevels, outdatedMinimum: Int?) async {
+        guard !levels.isEmpty else { return }
+        state.withLock { $0 = levels }
+    }
+}
+
+/// No offset samples (the connect page's go nowhere: there is no store yet).
+private struct NoServerOffset: ServerOffsetRecorder {
+    func record(offsetMs: Int) async {}
 }

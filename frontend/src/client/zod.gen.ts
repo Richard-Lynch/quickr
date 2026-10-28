@@ -51,6 +51,14 @@ export const zChannel = z.enum([
 ]);
 
 /**
+ * ClientLevels
+ */
+export const zClientLevels = z.object({
+    ios: z.int(),
+    web: z.int()
+});
+
+/**
  * CompatibilityIssue
  */
 export const zCompatibilityIssue = z.object({
@@ -305,6 +313,20 @@ export const zFeedDeletion = z.object({
 export const zFieldIssue = z.object({
     loc: z.array(z.union([z.string(), z.int()])),
     message: z.string()
+});
+
+/**
+ * ClientOutdatedProblem
+ *
+ * 426 ``client_outdated``: the client's level is below the server's minimum for its platform.
+ * Nothing was done; the client keeps its unsent data and asks the user to update.
+ */
+export const zClientOutdatedProblem = z.object({
+    code: z.string(),
+    detail: z.string(),
+    errors: z.array(zFieldIssue).default([]),
+    min_client_level: z.int(),
+    client_level: z.int()
 });
 
 /**
@@ -1254,6 +1276,24 @@ export const zChangesPage = z.object({
 });
 
 /**
+ * UpdateUrls
+ */
+export const zUpdateUrls = z.object({
+    ios: z.string()
+});
+
+/**
+ * ClientVersions
+ *
+ * The API level this server speaks, and the lowest client level it accepts per platform.
+ */
+export const zClientVersions = z.object({
+    api_level: z.int(),
+    min_client_level: zClientLevels,
+    update_url: zUpdateUrls
+});
+
+/**
  * ValueCount
  */
 export const zValueCount = z.object({
@@ -1326,6 +1366,11 @@ export const zVersionDraft = z.object({
  * Successful Response
  */
 export const zHealthResponse = z.record(z.string(), z.string());
+
+/**
+ * Successful Response
+ */
+export const zGetClientVersionsResponse = zClientVersions;
 
 /**
  * Response Listquestiontypes

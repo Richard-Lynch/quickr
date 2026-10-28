@@ -18,6 +18,9 @@ public enum ConnectProblem: Error, Sendable, Hashable, CustomStringConvertible {
     case storage(String)
     /// Another sync held the store; trying again works.
     case busy
+    /// The server refuses this build (426 `client_outdated`, client-versions.md §4.1): it needs
+    /// an update before it can connect.
+    case clientOutdated(minimum: Int)
 
     public var description: String {
         switch self {
@@ -33,6 +36,8 @@ public enum ConnectProblem: Error, Sendable, Hashable, CustomStringConvertible {
             "The server’s answer wasn’t understood. Is it running a recent quickR?"
         case .storage(let detail): "Couldn’t save on this iPhone: \(detail)"
         case .busy: "quickR is busy syncing. Try again in a moment."
+        case .clientOutdated:
+            "quickR needs an update to connect to this server. Update it from TestFlight, then connect again."
         }
     }
 
@@ -41,7 +46,7 @@ public enum ConnectProblem: Error, Sendable, Hashable, CustomStringConvertible {
         switch self {
         case .unreachable(let detail), .protocolError(let detail), .storage(let detail): detail
         case .rejected(_, let message): message
-        case .notQuickr, .accessDenied, .busy: nil
+        case .notQuickr, .accessDenied, .busy, .clientOutdated: nil
         }
     }
 
@@ -85,6 +90,7 @@ extension SyncCoordinator.ConnectResult {
             return .connected(serverId: serverId, isNew: isNew, note: note)
         case .failed(let failure): return .failed(ConnectProblem(failure))
         case .notQuickr: return .failed(.notQuickr)
+        case .clientOutdated(let minimum): return .failed(.clientOutdated(minimum: minimum))
         }
     }
 }
@@ -114,6 +120,7 @@ public enum ServerProbe {
         switch response.outcome {
         case .success(let page): return .success(page.serverId)
         case .identityMismatch: return .failure(.notQuickr)
+        case .clientOutdated(let minimum): return .failure(.clientOutdated(minimum: minimum))
         default:
             return .failure(SyncCoordinator.failure(response).map(ConnectProblem.init) ?? .unreachable("no page"))
         }

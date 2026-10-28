@@ -5,10 +5,12 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router/dom';
 
+import { isClientOutdatedMessage, markClientOutdated } from './api/clientVersion';
 import { connectDueBadge } from './api/dueBadge';
 import { connectOutboxEffects } from './api/outboxEffects';
 import { persistOptions } from './api/persist';
 import { createQueryClient } from './api/queryClient';
+import { ServerBehindBanner } from './components/pwa/ClientVersion';
 import { UpdatePrompt } from './components/pwa/UpdatePrompt';
 import { ToastProvider } from './components/ui/Toast';
 import { captureInstallPrompt } from './lib/install';
@@ -31,6 +33,8 @@ connectDueBadge(queryClient);
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', (e: MessageEvent) => {
     if (isNavigateMessage(e.data)) void router.navigate(e.data.url);
+    // The SW's own send was refused: this bundle is outdated (client-versions.md §5.1).
+    else if (isClientOutdatedMessage(e.data)) markClientOutdated();
   });
 }
 
@@ -51,6 +55,7 @@ createRoot(root).render(
       <ToastProvider>
         <RouterProvider router={router} />
         <UpdatePrompt />
+        <ServerBehindBanner />
       </ToastProvider>
     </PersistQueryClientProvider>
   </StrictMode>,

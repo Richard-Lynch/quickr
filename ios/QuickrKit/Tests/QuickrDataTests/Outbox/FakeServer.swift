@@ -33,6 +33,12 @@ final class FakeServer: Transport {
         var deletedRuns: Set<String> = []
         /// `X-QuickR-Server-Time` on every response (timers.md §5.1), when set.
         var serverTime: Int?
+        /// The iOS minimum (client-versions.md §3.3), when set: in `X-QuickR-Min-Client-Level` on
+        /// every response, and a request whose `X-QuickR-Client` level is below it is refused
+        /// with 426 `client_outdated` before it executes (`/health` and `/client-versions` never).
+        var minClientLevelIOS: Int?
+        /// `X-QuickR-Api-Level` on every response, when set.
+        var apiLevel: Int?
     }
 
     enum Action: Sendable {
@@ -210,7 +216,11 @@ final class FakeServer: Transport {
 
     private func handle(_ request: HTTPRequest) -> HTTPResponse {
         let response = state.withLock { state in
-            var response = Self.route(request, &state)
+            var response = Self.outdated(request, state) ?? Self.route(request, &state)
+            if let apiLevel = state.apiLevel { response.headers[QuickrHeader.apiLevel] = String(apiLevel) }
+            if let minimum = state.minClientLevelIOS {
+                response.headers[QuickrHeader.minClientLevel] = "ios=\(minimum), web=0"
+            }
             if !state.omitHeaders {
                 response.headers[QuickrHeader.serverId] = state.serverId
                 response.headers[QuickrHeader.epoch] = state.epoch
@@ -407,6 +417,27 @@ final class FakeServer: Transport {
         entry.revision += 1
         state.entries[id] = entry
         return ok(200, entry)
+    }
+
+    /// 426 `client_outdated` for a request below `minClientLevelIOS` (the real server's Problem
+    /// envelope: no `type`, `title` or `status`).
+    private static func outdated(_ request: HTTPRequest, _ state: State) -> HTTPResponse? {
+        guard let minimum = state.minClientLevelIOS,
+            !request.url.path.hasSuffix("/health"), !request.url.path.hasSuffix("/client-versions")
+        else { return nil }
+        let header = request.headers[QuickrHeader.client] ?? ""
+        let level =
+            header.split(separator: ";").compactMap { part -> Int? in
+                let pair = part.split(separator: "=", maxSplits: 1)
+                guard pair.count == 2, pair[0].trimmingCharacters(in: .whitespaces) == "level" else { return nil }
+                return Int(pair[1].trimmingCharacters(in: .whitespaces))
+            }.first ?? 0
+        guard level < minimum else { return nil }
+        let body = try! JSONSerialization.data(withJSONObject: [
+            "code": "client_outdated", "detail": "This version of quickR is too old for the server.", "errors": [],
+            "min_client_level": minimum, "client_level": level,
+        ])
+        return HTTPResponse(status: 426, headers: ["Content-Type": "application/problem+json"], body: body)
     }
 
     // MARK: Bodies

@@ -1,7 +1,8 @@
 # Spec: client API levels and forced updates
 
-**Status:** draft, revision 5, 2026-10-28 (reviewed against `main` after the
-timers milestone, v0.3.0). **Milestone CV, a follow-on after the timers
+**Status:** implemented (milestone CV, on `feat/client-versions`), revision 5,
+2026-10-28 (reviewed against `main` after the timers milestone, v0.3.0). Before
+the first bump, see the release note at the end of §8. **Milestone CV, a follow-on after the timers
 milestone (T)**; not a prerequisite for it. **Applies to:** the backend, the PWA
 and the iOS app. **Replaces part of:**
 [compatibility.md](../ios/specs/compatibility.md) (§7 here says how).
@@ -122,6 +123,10 @@ Activity content state and attributes (`live-activity-vectors.json`,
 bump nothing. CI enforces the API part (§7). Push payloads stay pinned by their
 vectors and the `old clients` job.
 
+**A bump PR** edits `shared/api-level.json`, then runs `make api-level` (the
+generated copies above) and `make vectors` (the `getClientVersions` fixture).
+The tests read the levels from these files, so the bump needs no test edits.
+
 ## 3. On the wire
 
 ### 3.1 Clients send
@@ -203,11 +208,14 @@ A checked request whose level is below `min_client_level[platform]` gets:
 ```
 426 Upgrade Required
 Content-Type: application/problem+json
-{ "type": "…/client_outdated", "code": "client_outdated", "status": 426,
-  "title": "Update quickR",
+{ "code": "client_outdated",
   "detail": "This version of quickR is too old for the server. Update it from TestFlight (or reload the web app) to keep syncing. Nothing on this device has been lost.",
+  "errors": [],
   "min_client_level": 2, "client_level": 1 }
 ```
+
+This is the repo's Problem envelope (`code`, `detail`, `errors`), with no
+`type`, `title` or `status`.
 
 **Reads and writes are both refused.** It is simpler, and safer: an outdated
 client that can still read may misread new shapes and advance its cursor past
@@ -276,15 +284,15 @@ store, so switching servers starts clean.
 
 While it is set, in every process:
 
-| Part                                                                     | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| App UI                                                                   | A blocking full-screen **"Update required"** view over everything else: "quickR needs an update to keep syncing with your server. Your unsynced changes (_N_) are safe on this iPhone." Buttons: **Open TestFlight** (`update_url.ios`) and **Check again** (`getClientVersions`, also called on every foreground). Settings ▸ Server stays reachable from it, so the user can switch servers.                                                                                                                                                                                           |
-| Coordinator                                                              | Doesn't pull. `client_outdated_min` is checked before any request, like `identity_mismatch` (sync-protocol.md §5.4). Online-only reads (sync-protocol.md §11: stats, timing, export) aren't made either.                                                                                                                                                                                                                                                                                                                                                                                 |
-| Outbox                                                                   | Claims are refused (a new condition in outbox.md §6.2). **Enqueue still works.** A `clientOutdated` outcome restores the item's pre-claim state and clears its claim fields, like 409 `epoch_mismatch` (outbox.md §5.2): the server refused it before any effect. Then the flusher releases `flush`. This holds for every kind, `run.event` included. A held start keeps its run's later events waiting by the ordering rule (timers.md §8.1), and each event keeps the `at` it was stamped with, so the run replays as tapped.                                                          |
-| Widgets, Controls, App Intents, the Action button, Live Activity buttons | Enqueue as usual, so the tap is kept, and don't flush. The result says "Saved on this iPhone. Update quickR to sync." Widgets show a small "Update quickR" line. The Live Activity keeps updating from the local view of the run.                                                                                                                                                                                                                                                                                                                                                        |
-| Notification actions                                                     | The handler enqueues as usual and doesn't flush. It posts "Saved on this iPhone. Update quickR to sync." once per launch.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| NSE                                                                      | No change: it makes no requests.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| APNs and Live Activity token registration                                | Paused, like any other request, and a `clientOutdated` outcome is **not settled**: the registration or deletion stays owed, so the updated build sends it. `LiveActivityTokens.Dependencies.api`'s `settled` already throws on any outcome that isn't `.success`, `.terminal` or `.notFound`, so the new case needs no change there. `PushRegistration`'s register `default:` branch MUST owe it. Owed APNs deletions don't age towards `pendingLifetime` while outdated: when `client_outdated_min` clears, every owed row's `firstAttemptAt` is reset to now, in the same transaction. |
+| Part                                                                     | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| App UI                                                                   | A blocking full-screen **"Update required"** view over everything else: "quickR needs an update to keep syncing with your server. Your unsynced changes (_N_) are safe on this iPhone." Buttons: **Open TestFlight** (`update_url.ios`) and **Check again** (`getClientVersions`, also called on every foreground). Settings ▸ Server stays reachable from it, so the user can switch servers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Coordinator                                                              | Doesn't pull. `client_outdated_min` is checked before any request, like `identity_mismatch` (sync-protocol.md §5.4). Online-only reads (sync-protocol.md §11: stats, timing, export) aren't made either.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Outbox                                                                   | Claims are refused (a new condition in outbox.md §6.2). **Enqueue still works.** A `clientOutdated` outcome restores the item's pre-claim state and clears its claim fields, like 409 `epoch_mismatch` (outbox.md §5.2): the server refused it before any effect. Then the flusher releases `flush`. This holds for every kind, `run.event` included. A held start keeps its run's later events waiting by the ordering rule (timers.md §8.1), and each event keeps the `at` it was stamped with, so the run replays as tapped.                                                                                                                                                                                                                                                                                                                                    |
+| Widgets, Controls, App Intents, the Action button, Live Activity buttons | Enqueue as usual, so the tap is kept, and don't flush. The result says "Saved on this iPhone. Update quickR to sync." Widgets show a small "Update quickR" line. The Live Activity keeps updating from the local view of the run.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Notification actions                                                     | The handler enqueues as usual and doesn't flush. It posts "Saved on this iPhone. Update quickR to sync." once per launch.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| NSE                                                                      | No change: it makes no requests.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| APNs and Live Activity token registration                                | Paused, like any other request, and a `clientOutdated` outcome is **not settled**: the registration or deletion stays owed, so the updated build sends it. `LiveActivityTokens.Dependencies.api`'s `settled` already throws on any outcome that isn't `.success`, `.terminal` or `.notFound`, so the new case needs no change there. `PushRegistration`'s register `default:` branch MUST owe it. Owed APNs deletions don't age towards `pendingLifetime` while outdated: when `client_outdated_min` clears, every owed row's `firstAttemptAt` is reset to now. The rows live in the registry (`pending_unregister`), which is never written in a store transaction, so the reset is a separate registry write just before the store write that clears the flag. A deletion refused with 426 by a server whose store isn't open restarts its `firstAttemptAt` too. |
 
 **Nothing queued is lost.** Items stay `pending` or `uncertain` and are sent by
 the updated build, which reads the same store file. A store migration in a later
@@ -502,9 +510,8 @@ queued writes. That window is the cost of this policy, and the user accepted it.
 
 Branch `feat/client-versions`, cut from `main` (T merged as v0.3.0). The scope
 guard and conventions of [timers-plan.md](timers-plan.md) apply, with issues
-labelled `cv-followup`. `compat/supported-clients.json` is empty on `main`.
-Record PR #73 would list the timers build, at level 0 under §7. Either way, the
-gate passes, since CV is additive.
+labelled `cv-followup`. `compat/supported-clients.json` lists the timers build
+`20261026.143027` at level 0 (§7). The gate passes, since CV is additive.
 
 ### CV-SERVER · API level, headers and enforcement · be · M
 
@@ -597,6 +604,14 @@ gate passes, since CV is additive.
 - **Depends on:** CV-SERVER.
 - **Acceptance:** client-versions.md V10 and V14; the outbox parity tests pass.
 - **Tests:** V10, V14.
+
+### Release note
+
+**Install the CV build on the phone before any PR raises the minimum.** The
+timers build is level 0 and predates this mechanism: once a bump refuses it, it
+gets a 426 it can't read and shows ordinary sync errors, not "Update required".
+The CV build (the first at `api_level` 1) understands the 426, holds its queue
+and offers the update (§4).
 
 ## Open questions
 

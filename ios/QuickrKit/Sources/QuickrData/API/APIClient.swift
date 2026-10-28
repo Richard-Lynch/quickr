@@ -120,10 +120,15 @@ public struct EntryFilters: Sendable, Hashable {
 
 /// The typed quickR API client: one method per `operationId` (`Endpoints`), over a `Transport`.
 ///
-/// Every request carries `Accept`, `Cache-Control: no-store`, `X-QuickR-Channel: ios` and, when
-/// configured, the Access headers; a body adds `Content-Type`. Every mutation also carries
+/// Every request carries `Accept`, `Cache-Control: no-store`, `X-QuickR-Channel: ios`,
+/// `X-QuickR-Client` (client-versions.md §3.1) and, when configured, the Access headers; a body
+/// adds `Content-Type`. Every mutation also carries
 /// `X-QuickR-Expect-Server-Id` and `X-QuickR-Expect-Epoch` (F10). Every response is checked against
 /// the expected identity before it is interpreted, and classified into an `APIOutcome`.
+///
+/// While `levels` knows this build is below the server's minimum, nothing is sent but `health`
+/// and `getClientVersions`: every other call answers `clientOutdated` at once (client-versions.md
+/// §4.1).
 ///
 /// `createEntry` fills a missing `source` from `origin`, the surface the client runs in.
 public struct APIClient: Sendable {
@@ -143,11 +148,20 @@ public struct APIClient: Sendable {
     public var serverOffset: (any ServerOffsetRecorder)?
     /// The device clock, epoch milliseconds, read just before a request and just after its answer.
     public var deviceNow: @Sendable () -> Int
+    /// The outdated state, asked before every request, and where every response's API levels go
+    /// (client-versions.md §4.1); nil sends always and keeps nothing.
+    public var levels: (any ClientLevelGate)?
+    /// `X-QuickR-Client`: this build's, or the goldens' placeholder.
+    public var clientHeader: String
+
+    /// The calls an outdated build still makes: the server never refuses them (§3.3).
+    static let sentWhileOutdated: Set<String> = [Endpoints.health.operationId, Endpoints.getClientVersions.operationId]
 
     public init(
         baseURL: URL, transport: any Transport, identity: any ServerIdentityProvider,
         credentials: any AccessCredentialsProvider = StaticAccessCredentials(nil), origin: OutboxOrigin = .app,
-        serverOffset: (any ServerOffsetRecorder)? = nil,
+        serverOffset: (any ServerOffsetRecorder)? = nil, levels: (any ClientLevelGate)? = nil,
+        clientHeader: String = ClientHeader.current,
         deviceNow: @escaping @Sendable () -> Int = { RunInstant.milliseconds(Date()) }
     ) {
         self.baseURL = baseURL
@@ -156,6 +170,8 @@ public struct APIClient: Sendable {
         self.credentials = credentials
         self.origin = origin
         self.serverOffset = serverOffset
+        self.levels = levels
+        self.clientHeader = clientHeader
         self.deviceNow = deviceNow
     }
 
@@ -171,6 +187,10 @@ public struct APIClient: Sendable {
 
     public func getLimits(_ options: RequestOptions = .init()) async throws -> APIResponse<Limits> {
         try await send(Endpoints.getLimits, options: options)
+    }
+
+    public func getClientVersions(_ options: RequestOptions = .init()) async throws -> APIResponse<ClientVersions> {
+        try await send(Endpoints.getClientVersions, options: options)
     }
 
     // MARK: Topics
@@ -291,6 +311,9 @@ public struct APIClient: Sendable {
         var options = options
         options.timeout = options.timeout ?? Self.exportTimeout
         let expected = try await expectedIdentity(options)
+        if let refused = await refusedWhileOutdated(Endpoints.exportEntriesCsv, expected: expected, as: URL.self) {
+            return refused
+        }
         let request = try await build(
             Endpoints.exportEntriesCsv, path: ["ref": ref], query: filters.queryItems, body: nil, options: options,
             expected: expected)
@@ -306,6 +329,9 @@ public struct APIClient: Sendable {
             let type = response.headers["Content-Type"]?.lowercased() ?? ""
             guard type.hasPrefix("text/csv") else { throw ContractError.invalid("not text/csv: \(type)") }
             return destination
+        }
+        if case .success(let value) = result {
+            await recordLevels(value, outcome: response.outcome, expected: expected)
         }
         if case .success = response.outcome {} else { try? FileManager.default.removeItem(at: destination) }
         return response
@@ -456,6 +482,9 @@ public struct APIClient: Sendable {
         body: Body? = nil, options: RequestOptions = .init()
     ) async throws -> APIResponse<Response.Domain> {
         let expected = try await expectedIdentity(options)
+        if let refused = await refusedWhileOutdated(endpoint, expected: expected, as: Response.Domain.self) {
+            return refused
+        }
         let request = try await build(
             endpoint, path: parameters, query: query, body: body, options: options, expected: expected)
         let result: Result<HTTPResponse, TransportError>
@@ -469,25 +498,61 @@ public struct APIClient: Sendable {
         } catch {
             result = .failure(.failed(String(describing: error), requestStarted: true))
         }
-        return APIClassifier.classify(result, expected: expected) { response in
+        let response = APIClassifier.classify(result, expected: expected) { response in
             if Response.self == CSVBody.self {
                 let type = response.headers["Content-Type"]?.lowercased() ?? ""
                 guard type.hasPrefix("text/csv") else { throw ContractError.invalid("not text/csv: \(type)") }
             }
             return try Response.decode(response.body, using: WireCoding.decoder()).toDomain()
         }
+        if case .success(let value) = result {
+            await recordLevels(value, outcome: response.outcome, expected: expected)
+        }
+        return response
+    }
+
+    /// `clientOutdated`, without a request, while `levels` knows this build is too old; nil sends.
+    private func refusedWhileOutdated<Body, Response, Success>(
+        _ endpoint: Endpoint<Body, Response>, expected: ServerIdentity?, as: Success.Type
+    ) async -> APIResponse<Success>? {
+        guard let levels, !Self.sentWhileOutdated.contains(endpoint.operationId),
+            let minimum = await levels.outdatedMinimum()
+        else { return nil }
+        return APIResponse(
+            outcome: .clientOutdated(minimum: minimum), status: nil,
+            observed: ObservedIdentity(serverId: nil, epoch: nil),
+            expected: expected, bodyIsTrusted: false)
+    }
+
+    /// Hands `response`'s API levels to `levels` (client-versions.md §4.1, §4.5), from a response
+    /// naming the expected server and epoch, as for the offset: another server's minimum says
+    /// nothing about this one.
+    private func recordLevels<Success>(
+        _ response: HTTPResponse, outcome: APIOutcome<Success>, expected: ServerIdentity?
+    )
+        async
+    {
+        guard let levels, Self.fromExpected(response, expected: expected) else { return }
+        let outdated: Int? = if case .clientOutdated(let minimum) = outcome { minimum } else { nil }
+        let found = ServerLevels(headers: response.headers)
+        guard !found.isEmpty || outdated != nil else { return }
+        await levels.record(found, outdatedMinimum: outdated)
+    }
+
+    /// Whether `response` carries both identity headers, naming `expected` when there is one.
+    private static func fromExpected(_ response: HTTPResponse, expected: ServerIdentity?) -> Bool {
+        guard let observed = ObservedIdentity(response: response.headers).complete else { return false }
+        return expected.map {
+            $0.serverId.lowercased() == observed.serverId.lowercased()
+                && $0.epoch.lowercased() == observed.epoch.lowercased()
+        } ?? true
     }
 
     /// Hands `response`'s offset sample to `serverOffset` when it qualifies (§5.1 item 2): from a
     /// response with both identity headers, naming the expected server and epoch when there is one
     /// (another server's clock is no sample of this one's).
     private func recordOffset(_ response: HTTPResponse, expected: ServerIdentity?, sent: Int, received: Int) async {
-        guard let observed = ObservedIdentity(response: response.headers).complete,
-            expected.map({
-                $0.serverId.lowercased() == observed.serverId.lowercased()
-                    && $0.epoch.lowercased() == observed.epoch.lowercased()
-            }) ?? true
-        else { return }
+        guard Self.fromExpected(response, expected: expected) else { return }
         guard let serverOffset, let serverTime = RunClock.parseServerTime(response.headers[RunClock.serverTimeHeader]),
             let sample = RunClock.offsetSample(serverTime: serverTime, sent: sent, received: received)
         else { return }
@@ -521,6 +586,7 @@ public struct APIClient: Sendable {
             "Accept": Response.self == CSVBody.self ? "text/csv" : "application/json",
             "Cache-Control": "no-store",
             QuickrHeader.channel: Channel.ios.rawValue,
+            QuickrHeader.client: clientHeader,
         ]
         let access: AccessCredentials?
         do {

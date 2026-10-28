@@ -97,8 +97,12 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: missing.path()))
     }
 
+    /// URLSession's failure to connect (stubbed: a real refused socket can stall for minutes on a
+    /// loaded runner) is unreachable, and never started.
     @Test func aRefusedConnectionIsUnreachable() async throws {
-        let transport = URLSessionTransport()
+        let configuration = URLSessionTransport.configuration()
+        configuration.protocolClasses = [RefusingProtocol.self]
+        let transport = URLSessionTransport(configuration: configuration)
         let request = HTTPRequest(
             method: .post, url: URL(string: "http://127.0.0.1:1/api/v1/health")!, timeout: .seconds(5))
         do {
@@ -182,6 +186,14 @@ import Testing
         #expect(bounced.outcome == .retryable(.redirect(status: 302)))
         #expect(server.requests.count == 2)
     }
+}
+
+/// Refuses every connection, as URLSession reports a closed port.
+private final class RefusingProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost)) }
+    override func stopLoading() {}
 }
 
 private final class Counter: Sendable {

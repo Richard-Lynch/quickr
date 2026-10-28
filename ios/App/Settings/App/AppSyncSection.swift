@@ -6,6 +6,7 @@ import SwiftUI
 /// last pull and why pulls keep failing; "Sync now", and the sync sheet (SYNC-UX) for the items.
 struct AppSyncSection: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(\.fromUpdateRequired) private var fromUpdateRequired
     @State private var syncing = false
 
     private var summary: SettingsSyncSummary {
@@ -53,7 +54,8 @@ struct AppSyncSection: View {
             }
             .disabled(syncing || environment.session?.binding == nil)
             .accessibilityIdentifier("settings.syncNow")
-            if summary.hasItems {
+            // Not under "Update required": the sync sheet would open beneath it.
+            if summary.hasItems, !fromUpdateRequired {
                 Button("Review changes…") { environment.sync.isSheetPresented = true }
                     .accessibilityIdentifier("settings.sync.review")
             }

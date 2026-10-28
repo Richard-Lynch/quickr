@@ -149,6 +149,63 @@ export type ChangesPage = {
 export type Channel = 'ui' | 'api' | 'mcp' | 'ios';
 
 /**
+ * ClientLevels
+ */
+export type ClientLevels = {
+    /**
+     * Ios
+     */
+    ios: number;
+    /**
+     * Web
+     */
+    web: number;
+};
+
+/**
+ * ClientOutdatedProblem
+ *
+ * 426 ``client_outdated``: the client's level is below the server's minimum for its platform.
+ * Nothing was done; the client keeps its unsent data and asks the user to update.
+ */
+export type ClientOutdatedProblem = {
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Detail
+     */
+    detail: string;
+    /**
+     * Errors
+     */
+    errors: Array<FieldIssue>;
+    /**
+     * Min Client Level
+     */
+    min_client_level: number;
+    /**
+     * Client Level
+     */
+    client_level: number;
+};
+
+/**
+ * ClientVersions
+ *
+ * The API level this server speaks, and the lowest client level it accepts per platform.
+ */
+export type ClientVersions = {
+    /**
+     * Api Level
+     */
+    api_level: number;
+    min_client_level: ClientLevels;
+    update_url: UpdateUrls;
+};
+
+/**
  * CompatibilityIssue
  */
 export type CompatibilityIssue = {
@@ -2795,6 +2852,18 @@ export type TopicVersionOut = {
 };
 
 /**
+ * UpdateUrls
+ */
+export type UpdateUrls = {
+    /**
+     * Ios
+     *
+     * Where the iOS app sends the user to update (default: TestFlight).
+     */
+    ios: string;
+};
+
+/**
  * ValueCount
  */
 export type ValueCount = {
@@ -2893,6 +2962,43 @@ export type HealthResponses = {
 
 export type HealthResponse = HealthResponses[keyof HealthResponses];
 
+export type GetClientVersionsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/client-versions';
+};
+
+export type GetClientVersionsErrors = {
+    /**
+     * Bad Request
+     */
+    400: Problem;
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Unprocessable Content
+     */
+    422: Problem;
+};
+
+export type GetClientVersionsError = GetClientVersionsErrors[keyof GetClientVersionsErrors];
+
+export type GetClientVersionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: ClientVersions;
+};
+
+export type GetClientVersionsResponse = GetClientVersionsResponses[keyof GetClientVersionsResponses];
+
 export type ListQuestionTypesData = {
     body?: never;
     path?: never;
@@ -2917,6 +3023,10 @@ export type ListQuestionTypesErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type ListQuestionTypesError = ListQuestionTypesErrors[keyof ListQuestionTypesErrors];
@@ -2956,6 +3066,10 @@ export type GetLimitsErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type GetLimitsError = GetLimitsErrors[keyof GetLimitsErrors];
@@ -3024,6 +3138,10 @@ export type ListTopicsErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type ListTopicsError = ListTopicsErrors[keyof ListTopicsErrors];
@@ -3075,6 +3193,10 @@ export type CreateTopicErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type CreateTopicError = CreateTopicErrors[keyof CreateTopicErrors];
@@ -3133,6 +3255,10 @@ export type DeleteTopicErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type DeleteTopicError = DeleteTopicErrors[keyof DeleteTopicErrors];
@@ -3177,6 +3303,10 @@ export type GetTopicErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type GetTopicError = GetTopicErrors[keyof GetTopicErrors];
@@ -3235,6 +3365,10 @@ export type UpdateTopicErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type UpdateTopicError = UpdateTopicErrors[keyof UpdateTopicErrors];
@@ -3300,6 +3434,10 @@ export type ArchiveTopicErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type ArchiveTopicError = ArchiveTopicErrors[keyof ArchiveTopicErrors];
@@ -3365,6 +3503,10 @@ export type UnarchiveTopicErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type UnarchiveTopicError = UnarchiveTopicErrors[keyof UnarchiveTopicErrors];
@@ -3409,6 +3551,10 @@ export type ListTopicVersionsErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type ListTopicVersionsError = ListTopicVersionsErrors[keyof ListTopicVersionsErrors];
@@ -3469,6 +3615,10 @@ export type PublishTopicVersionErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type PublishTopicVersionError = PublishTopicVersionErrors[keyof PublishTopicVersionErrors];
@@ -3513,6 +3663,10 @@ export type CheckTopicVersionErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type CheckTopicVersionError = CheckTopicVersionErrors[keyof CheckTopicVersionErrors];
@@ -3594,6 +3748,10 @@ export type ListEntriesErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type ListEntriesError = ListEntriesErrors[keyof ListEntriesErrors];
@@ -3658,6 +3816,10 @@ export type CreateEntryErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type CreateEntryError = CreateEntryErrors[keyof CreateEntryErrors];
@@ -3727,6 +3889,10 @@ export type ExportEntriesCsvErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type ExportEntriesCsvError = ExportEntriesCsvErrors[keyof ExportEntriesCsvErrors];
@@ -3783,6 +3949,10 @@ export type DeleteEntryErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type DeleteEntryError = DeleteEntryErrors[keyof DeleteEntryErrors];
@@ -3825,6 +3995,10 @@ export type GetEntryErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type GetEntryError = GetEntryErrors[keyof GetEntryErrors];
@@ -3881,6 +4055,10 @@ export type UpdateEntryErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type UpdateEntryError = UpdateEntryErrors[keyof UpdateEntryErrors];
@@ -3943,6 +4121,10 @@ export type RecordRunEventErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type RecordRunEventError = RecordRunEventErrors[keyof RecordRunEventErrors];
@@ -3997,6 +4179,10 @@ export type ListRunsErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type ListRunsError = ListRunsErrors[keyof ListRunsErrors];
@@ -4041,6 +4227,10 @@ export type GetRunErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type GetRunError = GetRunErrors[keyof GetRunErrors];
@@ -4091,6 +4281,10 @@ export type ListChangesErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type ListChangesError = ListChangesErrors[keyof ListChangesErrors];
@@ -4160,6 +4354,10 @@ export type GetTopicStatsErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type GetTopicStatsError = GetTopicStatsErrors[keyof GetTopicStatsErrors];
@@ -4229,6 +4427,10 @@ export type GetTopicTimingErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type GetTopicTimingError = GetTopicTimingErrors[keyof GetTopicTimingErrors];
@@ -4312,6 +4514,10 @@ export type GetQuestionSeriesErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type GetQuestionSeriesError = GetQuestionSeriesErrors[keyof GetQuestionSeriesErrors];
@@ -4349,6 +4555,10 @@ export type GetPushConfigErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type GetPushConfigError = GetPushConfigErrors[keyof GetPushConfigErrors];
@@ -4400,6 +4610,10 @@ export type CreatePushSubscriptionErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type CreatePushSubscriptionError = CreatePushSubscriptionErrors[keyof CreatePushSubscriptionErrors];
@@ -4451,6 +4665,10 @@ export type DeletePushSubscriptionErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type DeletePushSubscriptionError = DeletePushSubscriptionErrors[keyof DeletePushSubscriptionErrors];
@@ -4502,6 +4720,10 @@ export type SendTestPushErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type SendTestPushError = SendTestPushErrors[keyof SendTestPushErrors];
@@ -4553,6 +4775,10 @@ export type RegisterApnsDeviceErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type RegisterApnsDeviceError = RegisterApnsDeviceErrors[keyof RegisterApnsDeviceErrors];
@@ -4604,6 +4830,10 @@ export type DeleteApnsDeviceErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type DeleteApnsDeviceError = DeleteApnsDeviceErrors[keyof DeleteApnsDeviceErrors];
@@ -4655,6 +4885,10 @@ export type RegisterLiveActivityErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type RegisterLiveActivityError = RegisterLiveActivityErrors[keyof RegisterLiveActivityErrors];
@@ -4706,6 +4940,10 @@ export type DeleteLiveActivityErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type DeleteLiveActivityError = DeleteLiveActivityErrors[keyof DeleteLiveActivityErrors];
@@ -4757,6 +4995,10 @@ export type SendApnsTestPushErrors = {
      * Unprocessable Content
      */
     422: Problem;
+    /**
+     * The client is below the server's minimum level.
+     */
+    426: ClientOutdatedProblem;
 };
 
 export type SendApnsTestPushError = SendApnsTestPushErrors[keyof SendApnsTestPushErrors];

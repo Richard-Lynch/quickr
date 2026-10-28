@@ -57,6 +57,8 @@ import Testing
             var epoch: String
             var devices: Set<String> = []
             var apnsEnabled = true
+            /// Refuses every request with 426 `client_outdated` (client-versions.md §3.3).
+            var minClientLevel: Int?
         }
 
         let state = Mutex<[String: Server]>([:])
@@ -79,6 +81,14 @@ import Testing
                 }
                 func problem(_ status: Int, _ code: String) -> HTTPResponse {
                     reply(status, ["code": code, "detail": code, "errors": []])
+                }
+                if let minimum = server.minClientLevel {
+                    return reply(
+                        426,
+                        [
+                            "code": "client_outdated", "detail": "update", "errors": [], "min_client_level": minimum,
+                            "client_level": APILevel.current,
+                        ])
                 }
                 // ExpectIdentity (B6): the server id first, then the epoch.
                 guard request.headers[QuickrHeader.expectServerId] == server.serverId else {
@@ -176,10 +186,13 @@ import Testing
         let authorization = Box(NotificationAuthorization.authorized)
         let environment = Box(Result<ApnsEnvironment, ProvisioningProfile.Failure>.success(.sandbox))
         let requests = Box(0)
+        /// The servers whose store says this build is outdated (client-versions.md §4.1).
+        let outdated = Box<Set<String>>([])
         let registration: PushRegistration
 
         init() async throws {
             let (servers, authorization, environment, requests) = (servers, authorization, environment, requests)
+            let outdated = outdated
             transport.stub(where: { _ in true }, { try servers.respond($0) })
             for server in [PushRegistrationTests.a, PushRegistrationTests.b] {
                 servers.state.withLock {
@@ -194,7 +207,11 @@ import Testing
                     environment: { environment.withLock { $0 } },
                     authorization: { authorization.withLock { $0 } }, requestToken: { requests.withLock { $0 += 1 } },
                     bundleId: "com.bahumia.quickr", appVersion: "1.0 (7)", deviceName: "Test iPhone", wallClock: wall,
-                    leaseClock: lease, random: { 0.5 }))
+                    leaseClock: lease, random: { 0.5 },
+                    levels: { serverId in
+                        FixedClientLevels(
+                            minimum: outdated.withLock { $0.contains(serverId) } ? APILevel.current + 1 : nil)
+                    }))
         }
 
         func devices(_ server: PushRegistration.Server) -> Set<String> {
@@ -581,5 +598,127 @@ import Testing
         let token = PushRegistration.hex(Self.token1)
         #expect(PushRegistration.redacted(token) == "abcd…0708")
         #expect(PushRegistration.redacted("short") == "<redacted>")
+    }
+}
+
+/// A fixed outdated state: `minimum` nil sends.
+struct FixedClientLevels: ClientLevelGate {
+    var minimum: Int?
+
+    func outdatedMinimum() async -> Int? { minimum }
+
+    func record(_ levels: ServerLevels, outdatedMinimum: Int?) async {}
+}
+
+/// V7 (client-versions.md §4.1): an APNs registration or owed deletion refused with 426
+/// `client_outdated`, or not sent while outdated, stays owed; owed deletions don't age while
+/// outdated, and clearing the flag resets their `firstAttemptAt`.
+extension PushRegistrationTests {
+    static func refuseEveryRequest(_ w: World, _ server: PushRegistration.Server) {
+        w.servers.with(server.baseURL.host!) { $0.minClientLevel = APILevel.current + 1 }
+    }
+
+    @Test func aRegistrationRefusedAsOutdatedStaysOwed() async throws {
+        let w = try await World()
+        Self.refuseEveryRequest(w, Self.a)
+        await w.registration.didRegister(token: Self.token1, active: Self.a)
+        let status = w.registration.status
+        #expect(status == .failed(ClientOutdated.updateMessage))
+        let state = try await w.state
+        #expect(state.registeredServerId == nil)
+        #expect(state.registerAttempts == 1, "owed: the updated build registers")
+        #expect(state.registerDue != nil)
+    }
+
+    @Test func aRegistrationIsNotSentWhileOutdatedAndStaysOwed() async throws {
+        let w = try await World()
+        w.outdated.withLock { $0 = [Self.a.identity.serverId] }
+        await w.registration.didRegister(token: Self.token1, active: Self.a)
+        #expect(w.transport.requests.isEmpty)
+        let attempts = try await w.state.registerAttempts
+        #expect(attempts == 1)
+    }
+
+    @Test func anOwedDeletionRefusedAsOutdatedStaysOwed() async throws {
+        let w = try await World()
+        await w.registration.didRegister(token: Self.token1, active: Self.a)
+        Self.refuseEveryRequest(w, Self.a)
+        await w.registration.serverSwitched(from: Self.a)
+        let owed = try await w.owed
+        #expect(owed.count == 1)
+        let attempts: Int? = owed.first?.attempts
+        #expect(attempts == 1)
+
+        // Refused again 20 days on: still owed, and it doesn't age while that server refuses it.
+        w.wall.advance(by: 20 * 24 * 3600)
+        w.lease.advance(by: .seconds(600))
+        await w.registration.retryOwed()
+        let first = try #require(try await w.owed.first?.firstAttemptAt)
+        let now = w.wall.now()
+        #expect(abs(first.timeIntervalSince(now)) < 0.001)
+    }
+
+    @Test func owedDeletionsAreNotSentAndDontAgeWhileOutdated() async throws {
+        let w = try await World()
+        await w.registration.didRegister(token: Self.token1, active: Self.a)
+        w.outdated.withLock { $0 = [Self.a.identity.serverId] }
+        let before = w.transport.requests.count
+        await w.registration.serverSwitched(from: Self.a)
+        w.wall.advance(by: PushRegistration.pendingLifetime + 1)
+        w.lease.advance(by: .seconds(600))
+        await w.registration.retryOwed()
+        #expect(w.transport.requests.count == before, "nothing sent to a server this build is outdated for")
+        let owed = try await w.owed
+        #expect(owed.count == 1, "not given up while outdated")
+    }
+
+    @Test func clearingTheFlagResetsOwedDeletionsFirstAttempt() async throws {
+        let w = try await World()
+        await w.registration.didRegister(token: Self.token1, active: Self.a)
+        w.servers.state.withLock { $0.removeValue(forKey: Self.a.baseURL.host!) }  // unreachable
+        await w.registration.serverSwitched(from: Self.a)
+        let first = try #require(try await w.owed.first?.firstAttemptAt)
+
+        let store = LocalStore(
+            serverId: Self.a.identity.serverId, storeGen: 1, url: nil, writer: try TestDatabase.store(),
+            leaseClock: w.lease, wallClock: w.wall, registry: w.registry)
+        let (serverId, baseURL) = (Self.a.identity.serverId, Self.a.baseURL.absoluteString)
+        try await store.writer.write { db in try LocalStore.createSyncState(db, serverId: serverId, baseURL: baseURL) }
+        let levels = StoreClientLevels(store: store)
+        await levels.record(ServerLevels(apiLevel: nil, minClientLevelIOS: APILevel.current + 1), outdatedMinimum: nil)
+        w.wall.advance(by: 20 * 24 * 3600)
+        let unchanged = try #require(try await w.owed.first?.firstAttemptAt)
+        #expect(unchanged == first, "setting the flag changes nothing")
+
+        // The server's minimum drops back: the flag clears and the owed rows start their 30 days again.
+        await levels.record(ServerLevels(apiLevel: nil, minClientLevelIOS: APILevel.current), outdatedMinimum: nil)
+        let minimum = await levels.outdatedMinimum()
+        #expect(minimum == nil)
+        let reset = try #require(try await w.owed.first?.firstAttemptAt)
+        let now = w.wall.now()
+        #expect(abs(reset.timeIntervalSince(now)) < 0.001)
+    }
+
+    @Test func anUpdatedBuildsFirstOpenClearsTheFlagAndResetsOwedDeletions() async throws {
+        let w = try await World()
+        await w.registration.didRegister(token: Self.token1, active: Self.a)
+        w.servers.state.withLock { $0.removeValue(forKey: Self.a.baseURL.host!) }
+        await w.registration.serverSwitched(from: Self.a)
+        let store = LocalStore(
+            serverId: Self.a.identity.serverId, storeGen: 1, url: nil, writer: try TestDatabase.store(),
+            leaseClock: w.lease, wallClock: w.wall, registry: w.registry)
+        let (serverId, baseURL) = (Self.a.identity.serverId, Self.a.baseURL.absoluteString)
+        try await store.writer.write { db in
+            try LocalStore.createSyncState(db, serverId: serverId, baseURL: baseURL)
+            // Set by an older build, at the level this one has.
+            try db.execute(sql: "UPDATE sync_state SET client_outdated_min = ?", arguments: [APILevel.current])
+        }
+        w.wall.advance(by: 40 * 24 * 3600)
+        await StoreClientLevels(store: store).clearIfMet()
+        let stored = try await store.syncState.syncState()?.clientOutdatedMin
+        #expect(stored == nil)
+        let reset = try #require(try await w.owed.first?.firstAttemptAt)
+        let now = w.wall.now()
+        #expect(abs(reset.timeIntervalSince(now)) < 0.001)
     }
 }

@@ -67,7 +67,8 @@ extension AppEnvironment {
                 else { return nil }
                 return APIClient(
                     baseURL: url, transport: transport, identity: StaticServerIdentity(nil), credentials: credentials,
-                    origin: .notification, serverOffset: StoreServerOffset(store: store))
+                    origin: .notification, serverOffset: StoreServerOffset(store: store),
+                    levels: StoreClientLevels(store: store))
             },
             owner: LeaseClaim.owner(kind: "app", launchId: UUID()), wallClock: configuration.wallClock,
             isProtectedDataAvailable: { await UIApplication.shared.isProtectedDataAvailable },

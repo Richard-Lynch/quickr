@@ -55,7 +55,8 @@
       "accept": "application/json",
       "cache-control": "no-store",
       "content-type": "application/json",
-      "x-quickr-channel": "ios"
+      "x-quickr-channel": "ios",
+      "x-quickr-client": "ios; level=<level>; build=<build>"
     },
     "method": "POST",
     "path": "/api/v1/topics/33333333-3333-4333-8333-333333333333/versions/check"

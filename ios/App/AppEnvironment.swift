@@ -21,6 +21,8 @@ final class AppEnvironment {
     let router = Router()
     /// The sync pill and sheet's state, and the network and timer flush triggers (SYNC-UX).
     let sync: SyncController
+    /// "Update required" and the "server needs updating" note (client-versions.md §4.1, §4.5).
+    let clientUpdate = ClientUpdate()
     /// Reloads the widgets when what they show changes (WIDGETS).
     let widgets = WidgetReloader()
     /// Every screen's toasts, hosted once at the root so a toast outlives navigation.
@@ -337,6 +339,7 @@ final class AppEnvironment {
         switch phase {
         case .active:
             sync.didBecomeActive()
+            clientUpdate.didBecomeActive()
             let trip = foregroundTrip
             Task {
                 await session.didBecomeActive()

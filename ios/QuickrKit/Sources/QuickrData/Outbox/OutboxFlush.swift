@@ -129,6 +129,8 @@ enum OutboxFlush {
         case claimed(OutboxClaim)
         case drained
         case paused
+        /// `client_outdated_min` refuses this build (client-versions.md §4.1).
+        case clientOutdated
         case leaseLost
     }
 
@@ -143,6 +145,8 @@ enum OutboxFlush {
             !state.retired, !state.identityMismatch, !state.epochSuspect, state.rebuilding == nil,
             let epoch = state.epoch
         else { return .paused }
+        // Enqueue still works; nothing is sent until quickR is updated (client-versions.md §4.1).
+        if state.isClientOutdated { return .clientOutdated }
         try OutboxSyncEffects.removeCancelledCreates(db)
         let serverNow = state.serverClock.now(at: wall)
         let items = try OutboxStorage.items(db)
@@ -300,6 +304,15 @@ enum OutboxFlush {
             try retry(db, item, maybeDelivered: true, error: error, random: random, now: now, wall: wall)
             try flag(db, mismatch)
             applied = .retried
+        case .hold(let minimum):
+            try restore(db, item, wall: wall)
+            try db.execute(
+                sql: """
+                    UPDATE sync_state SET client_outdated_min = MAX(COALESCE(client_outdated_min, 0), ?)
+                    WHERE id = 1
+                    """,
+                arguments: [max(minimum, APILevel.current + 1)])
+            applied = .restored
         }
         try OutboxSyncEffects.removeCancelledCreates(db)
         if item.kind == .entryCreate, applied != .acked, try OutboxStorage.item(db, id: itemId) == nil,
@@ -446,8 +459,8 @@ enum OutboxFlush {
             ])
     }
 
-    /// §5.2 precondition 409: nothing executed. State, attempts and deadline as before the claim;
-    /// every claim field cleared; `maybe_delivered` unchanged.
+    /// §5.2 precondition 409, and a 426 `client_outdated`: nothing executed. State, attempts and
+    /// deadline as before the claim; every claim field cleared; `maybe_delivered` unchanged.
     private static func restore(_ db: Database, _ item: OutboxItem, wall: Date) throws {
         let pre =
             try item.preClaimJSON.map { try StoreJSON.decode(PreClaim.self, $0) }

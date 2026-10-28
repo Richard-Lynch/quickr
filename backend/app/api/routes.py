@@ -10,6 +10,7 @@ from pydantic import AwareDatetime, TypeAdapter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import client_versions
 from app.api.identity import ExpectIdentity, identity_headers
 from app.db import get_db
 from app.models import Channel
@@ -19,6 +20,9 @@ from app.schemas.api import (
     ApnsDeviceRef,
     Bucket,
     ChangesPage,
+    ClientLevels,
+    ClientOutdatedProblem,
+    ClientVersions,
     CompatibilityReport,
     EntryCreate,
     EntryFilters,
@@ -51,6 +55,7 @@ from app.schemas.api import (
     TopicTiming,
     TopicUpdate,
     TopicVersionOut,
+    UpdateUrls,
     VersionCreate,
     VersionDraft,
 )
@@ -74,19 +79,28 @@ ExpectedRevision = Annotated[
         description="Optional: the topic revision this change was based on; 409 stale_revision on mismatch.",
     ),
 ]
+# The level of the client that sent the request, from X-QuickR-Client (0 when absent).
+ClientLevel = Annotated[int, Depends(client_versions.client_level)]
 ChannelHeader = Annotated[
     Channel | None,
     Header(alias="X-QuickR-Channel", description="Client channel; defaults to 'api'."),
 ]
 
-ERRORS: dict[int | str, dict[str, object]] = {
+COMMON_ERRORS: dict[int | str, dict[str, object]] = {
     400: {"model": Problem},
     404: {"model": Problem},
     409: {"model": Problem},
     # Replaces FastAPI's default HTTPValidationError: every error uses one envelope.
     422: {"model": Problem},
 }
+ERRORS: dict[int | str, dict[str, object]] = {
+    **COMMON_ERRORS,
+    # app.client_versions.ClientVersionMiddleware, before the route runs.
+    426: {"model": ClientOutdatedProblem, "description": "The client is below the server's minimum level."},
+}
 
+# The operations a client below the minimum may still call (client-versions.md §3.3).
+unchecked_router = APIRouter(responses=COMMON_ERRORS)
 router = APIRouter(responses=ERRORS)
 
 
@@ -112,10 +126,22 @@ Filters = Annotated[EntryFilters, Depends(entry_filters)]
 # --- meta -------------------------------------------------------------------
 
 
-@router.get("/health", tags=["meta"], operation_id="health")
+@unchecked_router.get("/health", tags=["meta"], operation_id="health")
 async def health(db: Db) -> dict[str, str]:
     await db.execute(text("select 1"))
     return {"status": "ok"}
+
+
+@unchecked_router.get("/client-versions", tags=["meta"], operation_id="getClientVersions")
+async def client_versions_info() -> ClientVersions:
+    """The API level this server speaks, the lowest client level it accepts per platform, and
+    where each platform updates. Never refused, so an outdated client can check again."""
+    levels = client_versions.current()
+    return ClientVersions(
+        api_level=levels.api_level,
+        min_client_level=ClientLevels(ios=levels.min_client_level["ios"], web=levels.min_client_level["web"]),
+        update_url=UpdateUrls(ios=levels.ios_update_url),
+    )
 
 
 @router.get("/question-types", tags=["meta"], operation_id="listQuestionTypes")
@@ -478,10 +504,12 @@ async def send_test_push(db: Db) -> PushTestResult:
     dependencies=[ExpectIdentity],
     status_code=status.HTTP_201_CREATED,
 )
-async def register_apns_device(db: Db, body: ApnsDeviceIn) -> ApnsDeviceOut:
+async def register_apns_device(db: Db, body: ApnsDeviceIn, level: ClientLevel) -> ApnsDeviceOut:
     """Register (or refresh, keyed by token) the iOS app's APNs device token. Resets its failure
-    count. The app calls this on every launch; it works whether or not APNs is enabled."""
-    return await push_svc.register_device(db, body)
+    count, and stores the client level from ``X-QuickR-Client``: a device below the minimum gets
+    display-only reminders. The app calls this on every launch; it works whether or not APNs is
+    enabled."""
+    return await push_svc.register_device(db, body, client_level=level)
 
 
 @router.post(
@@ -505,15 +533,16 @@ async def delete_apns_device(db: Db, body: ApnsDeviceRef) -> Response:
     status_code=status.HTTP_201_CREATED,
 )
 async def register_live_activity(
-    db: Db, body: LiveActivityIn, background: BackgroundTasks
+    db: Db, body: LiveActivityIn, background: BackgroundTasks, level: ClientLevel
 ) -> LiveActivityOut:
     """Register (or refresh, keyed by token) a Live Activity push token: the device's push-to-start
     token (``kind: start``; it replaces the device's older ones), or one activity's update token
     (``kind: update``, with its topic and its open run; ``run_id`` may be an alias). An update
     token for a run that is closed or unknown is answered the same but not kept; a closed run's
-    gets its ``end`` push. 422 ``invalid_request`` when the run belongs to another topic. Works
+    gets its ``end`` push. 422 ``invalid_request`` when the run belongs to another topic. Stores
+    the client level from ``X-QuickR-Client``: a token below the minimum gets no pushes. Works
     whether or not APNs is enabled."""
-    registered = await live_activity.register(db, body)
+    registered = await live_activity.register(db, body, client_level=level)
     if registered.ended_run is not None:
         background.add_task(live_activity.send_late_end, body, registered.ended_run)
     return registered.out

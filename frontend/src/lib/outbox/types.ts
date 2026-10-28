@@ -54,8 +54,11 @@ export interface OutboxRequest {
  * What to do with an item after an attempt. `retired`: the server says the operation can
  * never happen and needn't (e.g. creating an entry whose id was deleted): the item is
  * removed without counting as a failure, and effects roll back its optimistic patch.
+ * `held`: the server refused this bundle before any effect (426 `client_outdated`,
+ * client-versions.md §5.3): the item stays `pending` as it was, the attempt isn't counted,
+ * and the pass stops. The updated bundle sends it.
  */
-export type Outcome = 'ok' | 'retry' | 'terminal' | 'retired';
+export type Outcome = 'ok' | 'retry' | 'terminal' | 'retired' | 'held';
 
 export interface OutboxKind<P = unknown> {
   /**
@@ -150,6 +153,8 @@ export type OutboxEvent =
   | { type: 'failed'; item: OutboxItem }
   | { type: 'discarded'; item: OutboxItem }
   | { type: 'retired'; item: OutboxItem; error: OutboxError }
+  /** Not sent: the bundle is outdated (`held`); the item is unchanged. */
+  | { type: 'held'; item: OutboxItem }
   | { type: 'cleared' };
 
 export interface FlushResult {

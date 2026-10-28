@@ -122,12 +122,21 @@ public struct RunIntentResult: Sendable, Hashable {
     public var topicId: UUID?
     /// One `run.event` item was enqueued (the caller flushes).
     public var wrote: Bool
+    /// It was enqueued while this build is below the server's minimum (client-versions.md §4.1):
+    /// kept for the updated build, not flushed.
+    public var clientOutdated = false
 
     public init(_ outcome: RunIntentOutcome, topicId: UUID? = nil, wrote: Bool = false) {
         self.outcome = outcome
         self.topicId = topicId
         self.wrote = wrote
     }
+
+    /// On screen, with "Saved on this iPhone. Update quickR to sync." while outdated.
+    public var shownText: String { ClientOutdated.saying(outcome.shownText, outdated: clientOutdated) }
+
+    /// Spoken, likewise.
+    public var spokenText: String { ClientOutdated.saying(outcome.spokenText, outdated: clientOutdated) }
 
     /// A start was enqueued: this device requests the run's Live Activity (I-LA).
     public var started: Bool {
@@ -146,7 +155,7 @@ extension RunWrites {
         let tapAt = now()
         let device = await device()
         let origin = origin
-        return try await write { db, now, wall in
+        var written = try await write { db, now, wall -> RunIntentResult in
             if try StoreFence.isRetired(db) { throw StoreError.retired }
             let topic: Topic
             switch try Self.resolve(db, request) {
@@ -237,6 +246,8 @@ extension RunWrites {
             }
             return result(outcome, wrote: true)
         }
+        if written.wrote { written.clientOutdated = await ClientOutdated.isOutdated(store) }
+        return written
     }
 
     /// The topic `request` acts on, read before the write so the caller can apply the topic's

@@ -10,7 +10,9 @@ Here each golden is checked against the server:
 - its operation exists, with that method and a path that fits the operation's template;
 - its body validates against the operation's Pydantic request model (``extra="forbid"``,
   so an unknown or misspelt key fails), and a bodiless operation has no body;
-- it carries ``X-QuickR-Channel: ios`` and, on a mutation, both precondition headers;
+- it carries ``X-QuickR-Channel: ios``, ``X-QuickR-Client`` with the fixed placeholder
+  ``ios; level=<level>; build=<build>`` (not checked for another set, which may predate it),
+  and, on a mutation, both precondition headers;
 - replayed through the app, with the placeholder identity it is rejected by the F10
   precondition (409 ``server_mismatch``) before any effect, and with the real identity
   and ids substituted it gets the status in ``EXPECTED``. Each golden's setup (``SETUP``)
@@ -67,6 +69,22 @@ SERVER_ID = "11111111-1111-4111-8111-111111111111"
 EPOCH = "22222222-2222-4222-8222-222222222222"
 TOPIC_ID = "33333333-3333-4333-8333-333333333333"
 ENTRY_1 = "44444444-4444-4444-8444-000000000001"
+# X-QuickR-Client's placeholders (docs/specs/client-versions.md §6): the level replayed is this
+# commit's api_level, or QUICKR_REPLAY_CLIENT_LEVEL (a listed client's level, compat/).
+LEVEL_PLACEHOLDER = "<level>"
+BUILD_PLACEHOLDER = "<build>"
+CLIENT_PLACEHOLDER = f"ios; level={LEVEL_PLACEHOLDER}; build={BUILD_PLACEHOLDER}"
+REPLAY_BUILD = "replay"
+API_LEVEL_FILE = FIXTURES_DIR.parent / "api-level.json"
+
+
+def replay_client_level() -> str:
+    level = (
+        os.environ.get("QUICKR_REPLAY_CLIENT_LEVEL") or json.loads(API_LEVEL_FILE.read_text())["api_level"]
+    )
+    return str(int(level))
+
+
 # The server clock for the run goldens: just after their taps, so a start isn't too old.
 RUN_NOW = datetime(2026, 3, 5, 9, 0, tzinfo=UTC)
 
@@ -182,6 +200,10 @@ def test_golden_matches_the_contract(name: str) -> None:
 
     headers = request["headers"]
     assert headers["x-quickr-channel"] == "ios"
+    # This commit's goldens carry the fixed placeholder (client-versions.md §6); a listed old
+    # client's (QUICKR_REQUEST_GOLDENS_DIR) may predate the header.
+    if not os.environ.get("QUICKR_REQUEST_GOLDENS_DIR"):
+        assert headers["x-quickr-client"] == CLIENT_PLACEHOLDER
     mutation = method != "GET" and op != "checkTopicVersion"
     assert ("x-quickr-expect-server-id" in headers) == mutation
     assert ("x-quickr-expect-epoch" in headers) == mutation
@@ -308,13 +330,20 @@ SETUP: dict[str, Setup] = {
 
 
 class Substituting(httpx.AsyncBaseTransport):
-    """Swaps the golden placeholders in paths, precondition headers and bodies for real values."""
+    """Swaps the golden placeholders in paths, precondition headers and bodies for real values,
+    and fills in the level and build of ``X-QuickR-Client`` when a golden carries it."""
 
     def __init__(self, inner: httpx.AsyncBaseTransport) -> None:
         self.inner = inner
         self.values: dict[str, str] = {}
+        self.client_level = replay_client_level()
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if (client := request.headers.get("x-quickr-client")) is not None:
+            filled = client.replace(LEVEL_PLACEHOLDER, self.client_level).replace(
+                BUILD_PLACEHOLDER, REPLAY_BUILD
+            )
+            request.headers["x-quickr-client"] = filled
         url, body = str(request.url), request.content
         for placeholder, real in self.values.items():
             url = url.replace(placeholder, real)
@@ -386,3 +415,54 @@ async def test_golden_replays(name: str, replay: tuple[httpx.AsyncClient, Substi
         async with get_sessionmaker()() as db:
             kinds = (await db.execute(select(LiveActivityToken.kind))).scalars().all()
         assert kinds == ["update"]
+
+
+async def test_replay_fills_in_the_client_header(
+    replay: tuple[httpx.AsyncClient, Substituting], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A golden's ``X-QuickR-Client`` placeholder replays at this commit's level (or the listed
+    client's), so a raised minimum doesn't refuse it (client-versions.md §6)."""
+    from app import client_versions
+
+    client, transport = replay
+    level = int(transport.client_level)
+    raised = client_versions.Levels(level, {"ios": level, "web": level}, "itms-beta://")
+    monkeypatch.setattr(client_versions, "current", lambda: raised)
+    headers = {"x-quickr-channel": "ios", "x-quickr-client": "ios; level=<level>; build=<build>"}
+    assert (await client.get("/topics", headers=headers)).status_code == 200
+    monkeypatch.setenv("QUICKR_REPLAY_CLIENT_LEVEL", str(level + 1))
+    assert replay_client_level() == str(level + 1)
+    if level > 0:
+        transport.client_level = str(level - 1)
+        assert (await client.get("/topics", headers=headers)).status_code == 426
+
+
+async def test_a_listed_client_below_the_minimum_gets_426_on_replay(
+    replay: tuple[httpx.AsyncClient, Substituting], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """compat/old-requests.sh replays each listed client at its own level, through
+    QUICKR_REPLAY_CLIENT_LEVEL. A server whose minimum is above that level refuses the client's
+    goldens with 426, so the gate fails rather than passing them at this commit's level
+    (client-versions.md §6, §7)."""
+    from app import client_versions
+
+    _, transport = replay
+    raised = client_versions.Levels(1, {"ios": 1, "web": 1}, "itms-beta://")
+    monkeypatch.setattr(client_versions, "current", lambda: raised)
+    golden = load("createTopic")["request"]
+    request = {
+        **golden,
+        "headers": {**golden["headers"], "x-quickr-client": "ios; level=<level>; build=<build>"},
+    }
+
+    statuses = {}
+    for listed in ("0", "1"):
+        monkeypatch.setenv("QUICKR_REPLAY_CLIENT_LEVEL", listed)
+        as_listed = Substituting(transport.inner)
+        as_listed.values = transport.values
+        async with httpx.AsyncClient(transport=as_listed, base_url=f"http://test{PREFIX}") as client:
+            r = await send(client, request)
+        statuses[listed] = r.status_code
+        if r.status_code == 426:
+            assert r.json()["code"] == "client_outdated"
+    assert statuses == {"0": 426, "1": 201}

@@ -78,7 +78,7 @@ public enum RunActionKind: String, AppEnum, Sendable {
 /// The dialog of Siri's and the Action button's intents, with natural durations ("4 minutes 12
 /// seconds"): Siri speaks it, so `m:ss` would be read as a time of day.
 enum RunIntentDialog {
-    static func make(_ outcome: RunIntentOutcome) -> IntentDialog { IntentDialog("\(outcome.spokenText)") }
+    static func make(_ result: RunIntentResult) -> IntentDialog { IntentDialog("\(result.spokenText)") }
 
     static func make(_ message: String) -> IntentDialog { IntentDialog(stringLiteral: message) }
 }
@@ -171,7 +171,7 @@ public struct AdvanceRunIntent: LiveActivityIntent {
     public func perform() async throws -> some IntentResult & ProvidesDialog {
         do {
             let result = try await RunIntents.perform(request)
-            return .result(dialog: RunIntentDialog.make(result.outcome))
+            return .result(dialog: RunIntentDialog.make(result))
         } catch {
             guard let message = RunIntents.message(for: error) else { throw error }
             return .result(dialog: RunIntentDialog.make(message))
@@ -215,7 +215,7 @@ public struct RunActionIntent: LiveActivityIntent {
                 result = try await RunIntents.perform(
                     RunIntentRequest(action: action.action, topicId: chosen.id, origin: .siri))
             }
-            return .result(dialog: RunIntentDialog.make(result.outcome))
+            return .result(dialog: RunIntentDialog.make(result))
         } catch {
             guard let message = RunIntents.message(for: error) else { throw error }
             return .result(dialog: RunIntentDialog.make(message))

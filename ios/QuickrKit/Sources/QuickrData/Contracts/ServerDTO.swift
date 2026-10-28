@@ -146,6 +146,51 @@ public struct FieldIssueDTO: Codable, Sendable, Hashable {
     }
 }
 
+// MARK: - Client versions
+
+/// `ClientVersions` (getClientVersions, client-versions.md §3.2).
+public struct ClientVersionsDTO: Codable, Sendable, Hashable, WireResponse {
+    public struct Levels: Codable, Sendable, Hashable {
+        public var ios: Int
+        public var web: Int
+    }
+
+    public struct UpdateURLs: Codable, Sendable, Hashable {
+        public var ios: String
+    }
+
+    public var apiLevel: Int
+    public var minClientLevel: Levels
+    public var updateURL: UpdateURLs
+
+    enum CodingKeys: String, CodingKey {
+        case apiLevel = "api_level"
+        case minClientLevel = "min_client_level"
+        case updateURL = "update_url"
+    }
+
+    public func toDomain() -> ClientVersions {
+        ClientVersions(
+            apiLevel: apiLevel, minClientLevelIOS: minClientLevel.ios, minClientLevelWeb: minClientLevel.web,
+            iosUpdateURL: updateURL.ios)
+    }
+}
+
+/// The fields a 426 `client_outdated` Problem adds to the envelope (client-versions.md §3.3).
+public struct ClientOutdatedDTO: Codable, Sendable, Hashable {
+    public var minClientLevel: Int
+    public var clientLevel: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case minClientLevel = "min_client_level"
+        case clientLevel = "client_level"
+    }
+
+    static func decode(_ data: Data, using decoder: JSONDecoder) throws -> Self {
+        try decoder.decode(Self.self, from: data)
+    }
+}
+
 // MARK: - Web Push
 
 /// `PushConfig` (getPushConfig).

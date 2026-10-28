@@ -127,6 +127,8 @@ jobs:
           set -euo pipefail
           [[ -f compat/supported-clients.json ]] \
             || { echo "::error::$RECORD_BASE has no compat/supported-clients.json; set the TESTFLIGHT_RECORD_BASE variable"; exit 1; }
+          # client_fixtures.py add records the API level at the build's commit.
+          git fetch -q --no-tags --depth=1 origin "$SHA"
           version="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*"?([0-9.]+)"?.*/\1/p' ios/project.yml | head -1)"
           python3 compat/client_fixtures.py add "$BUILD" "$SHA" "TestFlight $version ($BUILD), uploaded by CI from $REF ${SHA:0:7}"
           if git diff --quiet; then echo "nothing to record"; exit 0; fi

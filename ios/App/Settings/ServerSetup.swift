@@ -16,6 +16,14 @@ protocol ServerSwitcher: AnyObject {
     func flush() async
     /// Connects (switching stores), sending the stored token.
     func connect(_ url: URL) async -> ConnectOutcome
+    /// Where the server at `url` says to update this app (`update_url.ios`), or the default.
+    func updateURL(at url: URL, credentials: any AccessCredentialsProvider) async -> URL
+}
+
+extension ServerSwitcher {
+    func updateURL(at url: URL, credentials: any AccessCredentialsProvider) async -> URL {
+        ClientUpdate.defaultUpdateURL
+    }
 }
 
 extension AppSession: ServerSwitcher {
@@ -35,6 +43,16 @@ extension AppSession: ServerSwitcher {
 
     func connect(_ url: URL) async -> ConnectOutcome {
         await connect(baseURL: url).outcome
+    }
+
+    func updateURL(at url: URL, credentials: any AccessCredentialsProvider) async -> URL {
+        let client = APIClient(
+            baseURL: url, transport: configuration.transport, identity: StaticServerIdentity(nil),
+            credentials: credentials)
+        guard case .success(let versions)? = try? await client.getClientVersions().outcome else {
+            return ClientUpdate.defaultUpdateURL
+        }
+        return ClientUpdate.updateURL(from: versions.iosUpdateURL)
     }
 }
 
@@ -70,6 +88,8 @@ final class ServerSetup {
         var message: String
         var detail: String?
         var suggestsAccessToken: Bool
+        /// The server refuses this build (client-versions.md §4.1): where Open TestFlight goes.
+        var updateURL: URL? = nil
     }
 
     var address: String
@@ -156,7 +176,7 @@ final class ServerSetup {
         switch await switcher.probe(url, credentials: StaticAccessCredentials(probeToken)) {
         case .success(let id): serverId = id
         case .failure(let problem):
-            fail(problem)
+            await fail(problem, at: url, credentials: StaticAccessCredentials(probeToken))
             return
         }
         if let current = switcher.activeServer, current.id != serverId {
@@ -227,15 +247,26 @@ final class ServerSetup {
             // reused one would send this typed token with a later connect to another address.
             state = .connected(note: note)
         case .failed(let problem):
-            fail(problem)
+            await fail(problem, at: url, credentials: StaticAccessCredentials(token))
         }
     }
 
-    private func fail(_ problem: ConnectProblem) {
+    /// A server that refuses this build also says where to update it (a fresh install's first
+    /// connect, client-versions.md §4.1): there is no store yet for "Update required".
+    private func fail(
+        _ problem: ConnectProblem, at url: URL, credentials: any AccessCredentialsProvider
+    ) async {
+        var link: URL?
+        if case .clientOutdated = problem { link = await switcher.updateURL(at: url, credentials: credentials) }
+        fail(problem, updateURL: link)
+    }
+
+    private func fail(_ problem: ConnectProblem, updateURL: URL? = nil) {
         if problem.suggestsAccessToken { showsAccessToken = true }
         state = .failed(
             Failure(
-                message: problem.description, detail: problem.detail, suggestsAccessToken: problem.suggestsAccessToken))
+                message: problem.description, detail: problem.detail, suggestsAccessToken: problem.suggestsAccessToken,
+                updateURL: updateURL))
     }
 
     private func fail(_ message: String, detail: String? = nil) {
