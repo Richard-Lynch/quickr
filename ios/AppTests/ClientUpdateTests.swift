@@ -10,7 +10,7 @@ import Testing
         "itms-beta://", "itms-beta://beta.itunes.apple.com/v1/app/1", "https://testflight.apple.com/join/x",
     ])
     func aTestFlightOrHttpsLinkIsUsed(_ value: String) {
-        let url = ClientUpdate.updateURL(from: value)
+        let url: URL = ClientUpdate.updateURL(from: value)
         #expect(url.absoluteString == value)
     }
 
@@ -18,7 +18,7 @@ import Testing
         nil, "", "not a url", "http://example.com", "javascript:alert(1)", "quickr://settings", "file:///etc",
     ])
     func anythingElseIsTheDefault(_ value: String?) {
-        let url = ClientUpdate.updateURL(from: value)
+        let url: URL = ClientUpdate.updateURL(from: value)
         #expect(url == ClientUpdate.defaultUpdateURL)
     }
 }

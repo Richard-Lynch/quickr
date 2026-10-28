@@ -27,6 +27,8 @@ final class UpdateRequiredWindow {
         window.rootViewController = host
         // VoiceOver reads this window only.
         window.accessibilityViewIsModal = true
+        // The keyboard goes: it would stay over the view, typing into a field under it.
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         window.makeKeyAndVisible()
         self.window = window
     }
