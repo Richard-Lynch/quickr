@@ -22,8 +22,11 @@ oasdiff="${OASDIFF:-oasdiff}"
 if (($# == 0)); then
   tag="$(git tag --list 'v*' --sort=-creatordate | head -n 1)"
   [[ -n "$tag" ]] || { echo "compat: no v* tag to compare openapi.json with" >&2; exit 1; }
+  # Captured first: a failing command in a process substitution or for-list wouldn't stop the
+  # script (set -e ignores it), and would leave no clients to check.
+  shas="$(python3 compat/client_fixtures.py shas)"
   clients=()
-  while IFS= read -r sha; do clients+=("$sha"); done < <(python3 compat/client_fixtures.py shas)
+  while IFS= read -r sha; do if [[ -n "$sha" ]]; then clients+=("$sha"); fi; done <<< "$shas"
   # No listed clients is allowed (compat/supported-clients.json); bash < 4.4 needs the guard.
   set -- "$tag" ${clients[@]+"${clients[@]}"}
 fi
@@ -38,7 +41,16 @@ for base in "$@"; do
   args=(breaking "$old" openapi.json --fail-on ERR --err-ignore compat/openapi-break-approvals.txt)
   # Warnings (an enum value added to a response, say) print but don't fail: clients fall back
   # on unknown values (§1).
-  "$oasdiff" "${args[@]}" --format text && continue
+  status=0
+  "$oasdiff" "${args[@]}" --format text || status=$?
+  ((status == 0)) && continue
+  # oasdiff exits 1 for breaking changes, and 100 or more when it can't run (an unreadable spec
+  # or approvals file, say), which no bump excuses.
+  if ((status != 1)); then
+    echo "compat: oasdiff failed against $base (exit $status)" >&2
+    rc=1
+    continue
+  fi
   if [[ "$base" == "$tag" ]] && python3 compat/api_level.py bumped "$tag"; then
     echo "compat: so the break passes: the server refuses every client built before it."
     continue

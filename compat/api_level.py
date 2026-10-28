@@ -1,7 +1,8 @@
 """Checks on ``shared/api-level.json`` (docs/specs/client-versions.md §2, §7).
 
 ``check <base ref>`` is the ``api level`` job: ``min_client_level`` is at most ``api_level`` on
-both platforms, and none of the three went down compared with the base branch. (The job also
+both platforms, none of the three went down compared with the base branch, and ``api_level``
+went up by at most one (a bump is ``api_level += 1``, §2). (The job also
 checks that the generated copies are fresh, by running ``make api-level``.)
 
 ``bumped <tag>`` is the ``openapi breaking`` rule for the newest ``v*`` tag: openapi.json may break
@@ -80,6 +81,8 @@ def check(base: str) -> None:
     ]
     if now.api_level < before.api_level:
         errors.append(f"api_level went down from {before.api_level} to {now.api_level}")
+    if now.api_level > before.api_level + 1:
+        errors.append(f"api_level went up by more than one, from {before.api_level} to {now.api_level}")
     errors += [
         f"min_client_level.{p} went down from {before.minimums[p]} to {now.minimums[p]}"
         for p in PLATFORMS

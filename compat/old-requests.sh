@@ -15,8 +15,11 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+# Captured first: a failing command in a for-list doesn't stop the script (set -e ignores it),
+# and would leave nothing to replay.
+shas="$(python3 "$root/compat/client_fixtures.py" shas)"
 rc=0
-for sha in $(python3 "$root/compat/client_fixtures.py" shas); do
+for sha in $shas; do
   mkdir -p "$work/$sha"
   git -C "$root" archive "$sha" shared/fixtures/requests | tar -x -C "$work/$sha"
   level="$(python3 "$root/compat/client_fixtures.py" level "$sha")"

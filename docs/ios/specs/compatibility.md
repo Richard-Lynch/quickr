@@ -77,10 +77,14 @@ approval is part of the PR's diff, so review sees it. Remove the lines once no
 compared spec (the tag or a supported client) has what they break.
 
 **The API level (`api level`, ubuntu, every PR).** `compat/api_level.py check`
-checks that `min_client_level` is at most `api_level` on both platforms, and
-that none of the three went down compared with the base branch. The job then
-runs `make api-level` and fails if any generated copy of `shared/api-level.json`
-changed ([client-versions.md](../../specs/client-versions.md) §2, V12).
+checks that `min_client_level` is at most `api_level` on both platforms, that
+none of the three went down compared with the base branch, and that `api_level`
+went up by at most one. `compat/client_fixtures.py check` checks that each
+listed client is well formed and that its `api_level` is the one in
+`shared/api-level.json` at its sha (missing only where that file didn't exist).
+The job then runs `make api-level` and fails if any generated copy of
+`shared/api-level.json` changed
+([client-versions.md](../../specs/client-versions.md) §2, V12).
 
 ## 3. Old clients against this server (`old clients`, macos-26; `old requests`, ubuntu)
 
@@ -165,9 +169,9 @@ opens a PR that lists the new build first, with no fallbacks and the
 `api_level` at its commit. A newer build needs none for cases it already knows.
 Merge it like any other PR. A local upload (`make ios-testflight`) is added by
 hand: `python3 compat/client_fixtures.py add <build> <sha> "<source>"`, and its
-commit tagged `clients/ios/<build>` and pushed. A listed sha must stay
-reachable from a tag (`old requests` checks): a squash merge deletes its branch,
-and an unreachable sha can't be fetched or tested. CI uploads build from a `v*`
+commit tagged `clients/ios/<build>` and pushed. A supported client's sha must
+stay reachable from a tag (`old requests` checks): a squash merge deletes its
+branch, and an unreachable sha can't be fetched or tested. CI uploads build from a `v*`
 tag, which already covers them.
 
 **Drafts.** A gate whose run started while the PR was a draft fails: its slow

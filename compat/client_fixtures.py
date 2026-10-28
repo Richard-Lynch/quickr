@@ -17,6 +17,7 @@ fallback it must take instead (docs/ios/specs/compatibility.md). Only the client
 A declared case that isn't in the fixtures (or is there twice) is an error, so the list
 can't go stale. Usage::
 
+    python3 compat/client_fixtures.py check
     python3 compat/client_fixtures.py shas
     python3 compat/client_fixtures.py level <sha>
     python3 compat/client_fixtures.py suites
@@ -24,7 +25,9 @@ can't go stale. Usage::
     python3 compat/client_fixtures.py fixtures <sha> <out>
     python3 compat/client_fixtures.py add <build> <sha> <source>
 
-``add`` lists a new build, newest first, with no fallbacks and the ``api_level`` of
+``check`` (the ``api level`` job) fails unless every listed client has a build, a full sha that is
+a commit here, and the ``api_level`` of ``shared/api-level.json`` at that sha (missing only where
+the file didn't exist, which is level 0). ``add`` lists a new build, newest first, with no fallbacks and the ``api_level`` of
 ``shared/api-level.json`` at its sha (testflight.yml, after an upload).
 """
 
@@ -90,6 +93,30 @@ def level_at(sha: str) -> int:
         return 0
     value: int = json.loads(shown.stdout)["api_level"]
     return value
+
+
+def check() -> None:
+    """Every listed client is well formed, and its level is the one its commit speaks."""
+    errors = []
+    for i, entry in enumerate(policy()["clients"]):
+        build, sha = entry.get("build"), entry.get("sha")
+        where = f"clients[{i}] ({build})"
+        if not isinstance(build, str) or not build:
+            errors.append(f"{where}: no build")
+        if not isinstance(sha, str) or len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha):
+            errors.append(f"{where}: {sha!r} isn't a full commit sha")
+            continue
+        listed = entry.get("api_level")
+        if listed is not None and (type(listed) is not int or listed < 0):
+            errors.append(f"{where}: api_level {listed!r} isn't a non-negative integer")
+            continue
+        actual = level_at(sha)
+        if (0 if listed is None else listed) != actual:
+            shown = "missing (0)" if listed is None else listed
+            errors.append(f"{where}: api_level is {shown}, but {sha[:7]}'s {API_LEVEL_PATH} says {actual}")
+    if errors:
+        sys.exit("\n".join(f"{POLICY.name}: {e}" for e in errors))
+    print(f"{POLICY.name}: {len(policy()['clients'])} client(s), each at its commit's level")
 
 
 def client(sha: str) -> dict[str, Any]:
@@ -195,6 +222,8 @@ def main(argv: list[str]) -> None:
     match argv:
         # One per line, and nothing at all for an empty list (not a blank line, which a reader
         # would take for a client).
+        case ["check"]:
+            check()
         case ["shas"]:
             lines(c["sha"] for c in supported())
         case ["level", sha]:

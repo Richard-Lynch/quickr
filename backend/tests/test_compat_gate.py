@@ -25,8 +25,11 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ["client_fixtures.py", "api_level.py", "openapi-breaking.sh", "old-requests.sh"]
 GIT = ["git", "-c", "user.name=compat", "-c", "user.email=compat@example.com", "-c", "commit.gpgsign=false"]
 
+# Like oasdiff, it exits 1 for a break and 100 or more when it can't run: here, for a spec that
+# says "unreadable".
 STUB_OASDIFF = """#!/usr/bin/env bash
 if [[ "$1" == --version ]]; then echo "oasdiff version stub"; exit 0; fi
+grep -q unreadable "$3" && { echo "Error: failed to load revision spec"; exit 102; }
 cmp -s "$2" "$3" && exit 0
 echo "error [stub-break] openapi.json changed"
 exit 1
@@ -168,6 +171,16 @@ def test_the_newest_tag_is_compared(repo: Repo) -> None:
     assert "against v2" in r.stdout
 
 
+def test_a_bump_does_not_excuse_oasdiff_failing_to_run(repo: Repo) -> None:
+    repo.commit(api_level=levels(1, 0), openapi=OPENAPI)
+    repo.git("tag", "v1")
+    repo.commit(api_level=levels(2, 2), openapi={"unreadable": True})
+    r = repo.breaking()
+    assert r.returncode == 1
+    assert "oasdiff failed against v1 (exit 102)" in r.stderr
+    assert "so the break passes" not in r.stdout
+
+
 # --- V11: openapi breaking, against supported clients ---------------------------------------
 
 
@@ -220,6 +233,44 @@ def test_add_records_the_level_at_the_builds_sha(repo: Repo) -> None:
     assert [(c["build"], c["api_level"]) for c in listed] == [("2", 2), ("1", 0)]
 
 
+MALFORMED: list[tuple[str, Any]] = [("a string level", "1"), ("a negative level", -1)]
+
+
+@pytest.mark.parametrize(("_", "bad"), MALFORMED)
+def test_a_malformed_client_fails_the_gate(repo: Repo, _: str, bad: Any) -> None:
+    """A client list that can't be read stops each script, rather than leaving no clients to check
+    (a failing command in a for-list or process substitution doesn't stop bash, even with set -e)."""
+    sha = repo.commit(api_level=levels(1, 0), openapi=OPENAPI)
+    repo.git("tag", "v1")
+    repo.policy([client("1", sha, bad)])
+    repo.commit()
+    assert repo.fixtures("shas").returncode == 1
+    assert repo.fixtures("check").returncode == 1
+    assert repo.breaking().returncode == 1
+    log = repo.path.parent / "uv.log"
+    assert repo.run("compat/old-requests.sh", UV_LOG=str(log)).returncode == 1
+    assert not log.exists()
+
+
+def test_check_needs_each_clients_level_at_its_sha(repo: Repo) -> None:
+    before = repo.commit(api_level=None)
+    after = repo.commit(api_level=levels(2, 1))
+    good = [client("2", after, 2), client("1", before)]  # missing: no file at that sha, so 0
+    for clients, error in [
+        (good, None),
+        ([client("2", after, 1)], "api_level is 1, but"),
+        ([client("2", after)], "api_level is missing (0), but"),
+        ([client("1", before, 1)], "api_level is 1, but"),
+        ([client("1", before[:7], 0)], "isn't a full commit sha"),
+        ([{**client("1", before, 0), "build": ""}], "no build"),
+    ]:
+        repo.policy(clients)
+        r = repo.fixtures("check")
+        assert (r.returncode == 0) == (error is None), (clients, r.stdout + r.stderr)
+        if error is not None:
+            assert error in r.stderr
+
+
 def test_add_refuses_a_sha_it_cannot_read(repo: Repo) -> None:
     repo.commit(api_level=levels(1, 0))
     r = repo.fixtures("add", "1", "f" * 40, "test")
@@ -240,6 +291,7 @@ def test_add_refuses_a_sha_it_cannot_read(repo: Repo) -> None:
         (levels(2, 2), levels(1, 1), "api_level went down from 2 to 1"),
         (levels(2, 2), levels(2, 2, 1), "min_client_level.web went down from 2 to 1"),
         (levels(2, 2), levels(2, 1, 2), "min_client_level.ios went down from 2 to 1"),
+        (levels(1, 0), levels(3, 3), "api_level went up by more than one, from 1 to 3"),
     ],
 )
 def test_api_level_check(
