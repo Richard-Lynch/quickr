@@ -1,8 +1,12 @@
 """Fixtures for one supported client, from this checkout's ``shared/fixtures``.
 
-``compat/supported-clients.json`` lists the iOS builds the server must keep serving, and for
-each one the vector cases it predates (a new enum case, say) with the fallback it must take
-instead (docs/ios/specs/compatibility.md). This writes, for the client with ``sha``:
+``compat/supported-clients.json`` lists the iOS builds the server must keep serving, each with
+its API level (missing means 0) and the vector cases it predates (a new enum case, say) with the
+fallback it must take instead (docs/ios/specs/compatibility.md). Only the clients at or above
+``min_client_level.ios`` in ``shared/api-level.json`` are supported: the server refuses the others
+(docs/specs/client-versions.md §7), so ``shas`` leaves them out and says so on stderr.
+
+``fixtures`` writes, for the client with ``sha``:
 
 - ``<out>/fixtures``: ``shared/fixtures`` without those cases, and without the API fixtures of
   operations the client's ``openapi.json`` doesn't have (it never calls them), for the
@@ -14,12 +18,14 @@ A declared case that isn't in the fixtures (or is there twice) is an error, so t
 can't go stale. Usage::
 
     python3 compat/client_fixtures.py shas
+    python3 compat/client_fixtures.py level <sha>
     python3 compat/client_fixtures.py suites
     python3 compat/client_fixtures.py skip
     python3 compat/client_fixtures.py fixtures <sha> <out>
     python3 compat/client_fixtures.py add <build> <sha> <source>
 
-``add`` lists a new build, newest first, with no fallbacks (testflight.yml, after an upload).
+``add`` lists a new build, newest first, with no fallbacks and the ``api_level`` of
+``shared/api-level.json`` at its sha (testflight.yml, after an upload).
 """
 
 from __future__ import annotations
@@ -34,6 +40,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 POLICY = ROOT / "compat" / "supported-clients.json"
+API_LEVEL_PATH = "shared/api-level.json"
 FIXTURES = ROOT / "shared" / "fixtures"
 EXPECTATIONS = {"unread", "plain", "no-category"}
 
@@ -41,6 +48,48 @@ EXPECTATIONS = {"unread", "plain", "no-category"}
 def policy() -> dict[str, Any]:
     data: dict[str, Any] = json.loads(POLICY.read_text())
     return data
+
+
+def level(entry: dict[str, Any]) -> int:
+    """A listed client's API level: a build from before client-versions.md has none, so 0."""
+    value = entry.get("api_level", 0)
+    if type(value) is not int or value < 0:
+        sys.exit(f"{POLICY.name}: {entry['build']}: api_level must be a non-negative integer")
+    return value
+
+
+def minimum() -> int:
+    """The lowest iOS level this checkout's server accepts."""
+    value: int = json.loads((ROOT / API_LEVEL_PATH).read_text())["min_client_level"]["ios"]
+    return value
+
+
+def supported() -> list[dict[str, Any]]:
+    """The listed clients the server must keep serving: those at or above the minimum."""
+    floor = minimum()
+    kept = []
+    for entry in policy()["clients"]:
+        if level(entry) < floor:
+            print(
+                f"compat: skips build {entry['build']} ({entry['sha'][:7]}): level {level(entry)} is below "
+                f"min_client_level.ios {floor}, so the server refuses it",
+                file=sys.stderr,
+            )
+        else:
+            kept.append(entry)
+    return kept
+
+
+def level_at(sha: str) -> int:
+    """The ``api_level`` a build from ``sha`` speaks: 0 if that commit predates the file."""
+    git = ["git", "-C", str(ROOT)]
+    if subprocess.run([*git, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode:
+        sys.exit(f"{sha} isn't a commit in this checkout (fetch it first)")
+    shown = subprocess.run([*git, "show", f"{sha}:{API_LEVEL_PATH}"], capture_output=True)
+    if shown.returncode:
+        return 0
+    value: int = json.loads(shown.stdout)["api_level"]
+    return value
 
 
 def client(sha: str) -> dict[str, Any]:
@@ -121,7 +170,8 @@ def add(build: str, sha: str, source: str) -> None:
         print(f"{POLICY.name}: {sha[:7]} is already listed; not adding {build}")
         return
     # Inserted as text, so the rest of the file keeps its formatting.
-    fields = [f'"{k}": {json.dumps(v)}' for k, v in (("build", build), ("sha", sha), ("source", source))]
+    values = (("build", build), ("sha", sha), ("api_level", level_at(sha)), ("source", source))
+    fields = [f'"{k}": {json.dumps(v)}' for k, v in values]
     entry = "    {\n" + "".join(f"      {f},\n" for f in fields) + '      "fallbacks": {}\n    },\n'
     text = POLICY.read_text()
     if data["clients"]:
@@ -146,7 +196,9 @@ def main(argv: list[str]) -> None:
         # One per line, and nothing at all for an empty list (not a blank line, which a reader
         # would take for a client).
         case ["shas"]:
-            lines(c["sha"] for c in policy()["clients"])
+            lines(c["sha"] for c in supported())
+        case ["level", sha]:
+            print(level(client(sha)))
         case ["suites"]:
             lines(policy()["suites"])
         case ["skip"]:

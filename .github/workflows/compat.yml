@@ -1,9 +1,12 @@
 name: Compat
 
 # The PR-time compatibility gate (docs/ios/specs/compatibility.md): this server must keep serving
-# every iOS build in compat/supported-clients.json.
+# every iOS build in compat/supported-clients.json at or above min_client_level.ios
+# (docs/specs/client-versions.md §7).
 # - openapi breaking (ubuntu, every PR): openapi.json against the latest v* tag, with oasdiff,
-#   and against each listed client's own openapi.json.
+#   where a break needs an API level bump, and against each supported client's own openapi.json.
+# - api level (ubuntu, every PR): shared/api-level.json is consistent, its levels didn't go down,
+#   and its generated copies are fresh.
 # - old requests (ubuntu, PRs that touch the server side): each listed build's request goldens
 #   replayed through this PR's backend.
 # - old clients (macos-26, non-draft PRs that touch the server side): each listed build's own
@@ -77,6 +80,29 @@ jobs:
           tar -xzf "$RUNNER_TEMP/oasdiff.tar.gz" -C "$RUNNER_TEMP" oasdiff
           echo "OASDIFF=$RUNNER_TEMP/oasdiff" >> "$GITHUB_ENV"
       - run: compat/openapi-breaking.sh
+
+  api-level:
+    name: api level
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      # min_client_level <= api_level, and none of them went down. A PR checks out its merge
+      # commit, so HEAD^1 is the base it merges into; a push compares with the commit before.
+      - run: python3 compat/api_level.py check HEAD^1
+      # The copies each component reads (client-versions.md §2, V12): regenerated, nothing changes.
+      - name: Generated copies are fresh
+        run: |
+          set -euo pipefail
+          make api-level
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git status --porcelain
+            git diff
+            echo "::error title=api level::a copy of shared/api-level.json is stale; run 'make api-level' and commit"
+            exit 1
+          fi
 
   old-requests:
     name: old requests
@@ -161,7 +187,7 @@ jobs:
   compat:
     name: compat gate
     if: always()
-    needs: [changes, openapi, old-requests, old-clients]
+    needs: [changes, openapi, api-level, old-requests, old-clients]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
