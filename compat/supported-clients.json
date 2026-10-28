@@ -14,6 +14,13 @@
   },
   "clients": [
     {
+      "build": "20261028.170408",
+      "sha": "396be80f51275dd14da959bafc548538d09ffeda",
+      "api_level": 1,
+      "source": "TestFlight 0.1.0 (20261028.170408), uploaded by CI from v0.3.1 396be80",
+      "fallbacks": {}
+    },
+    {
       "build": "20261026.143027",
       "sha": "0d7ba41f59119d4052bb7292fa4db73e974047f0",
       "api_level": 0,
