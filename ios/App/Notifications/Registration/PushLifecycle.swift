@@ -47,6 +47,13 @@ final class PushLifecycle {
                     await MainActor.run {
                         session?.store.flatMap { $0.serverId == serverId ? StoreServerOffset(store: $0) : nil }
                     }
+                },
+                // And its outdated state: nothing is sent to a server this build is too old for
+                // (client-versions.md §4.1).
+                levels: { [weak session] serverId in
+                    await MainActor.run {
+                        session?.store.flatMap { $0.serverId == serverId ? StoreClientLevels(store: $0) : nil }
+                    }
                 }))
         registration.recoverActiveEpoch = { [weak self] in await self?.rebuild() }
         RemoteNotificationTokens.shared.receiver = self

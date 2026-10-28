@@ -77,15 +77,22 @@ extension AppEnvironment {
     /// outbox.md §10: a forced flush within the intent's 4 s budget, by its own owner (it may run
     /// beside the session's scheduler, which is paused while the app is in the background). The
     /// run intents' too.
+    /// None while this build is outdated: the tap is kept for the updated build
+    /// (client-versions.md §4.1).
     func flushAfterActivityTap(_ store: LocalStore, session: AppSession) async {
         guard let state = try? await store.syncState.syncState(), let url = URL(string: state.baseURL) else {
             lastActivityTapFlush = "no server address"
             return
         }
+        guard !state.isClientOutdated else {
+            lastActivityTapFlush = ClientOutdated.savedMessage
+            return
+        }
         let configuration = session.configuration
         let sender = APIClient(
             baseURL: url, transport: configuration.transport, identity: StaticServerIdentity(nil),
-            credentials: configuration.credentials, origin: .app, serverOffset: StoreServerOffset(store: store))
+            credentials: configuration.credentials, origin: .app, serverOffset: StoreServerOffset(store: store),
+            levels: StoreClientLevels(store: store))
         let outbox = Outbox(
             store: store, sender: sender, owner: LeaseClaim.owner(kind: "app", launchId: UUID()),
             onSignal: session.coordinator.outboxSignalHandler)
@@ -155,7 +162,8 @@ final class SessionBox {
         let configuration = session.configuration
         return APIClient(
             baseURL: url, transport: configuration.transport, identity: StaticServerIdentity(nil),
-            credentials: configuration.credentials, origin: .app, serverOffset: StoreServerOffset(store: store))
+            credentials: configuration.credentials, origin: .app, serverOffset: StoreServerOffset(store: store),
+            levels: StoreClientLevels(store: store))
     }
 
     /// Keeps the databases resumed for a token pass (it can run in the background, like a tap),

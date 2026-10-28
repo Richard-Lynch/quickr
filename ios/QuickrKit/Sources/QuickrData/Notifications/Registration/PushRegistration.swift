@@ -61,6 +61,9 @@ public final class PushRegistration {
         /// Where a server's responses leave their run-event offset samples (timers.md §5.1): its
         /// store's, when the app has it open. Nil keeps none.
         public var serverOffset: @Sendable (_ serverId: String) async -> (any ServerOffsetRecorder)?
+        /// A server's outdated state (client-versions.md §4.1): its store's, when the app has it
+        /// open. While it is set nothing is sent to that server, and what was owed stays owed.
+        public var levels: @Sendable (_ serverId: String) async -> (any ClientLevelGate)?
 
         public init(
             registry: Registry, transport: any Transport,
@@ -71,7 +74,8 @@ public final class PushRegistration {
             deviceName: String? = nil, wallClock: any WallClock = SystemWallClock(),
             leaseClock: any LeaseClock = SystemLeaseClock(),
             random: @escaping @Sendable () -> Double = { .random(in: 0..<1) },
-            serverOffset: @escaping @Sendable (_ serverId: String) async -> (any ServerOffsetRecorder)? = { _ in nil }
+            serverOffset: @escaping @Sendable (_ serverId: String) async -> (any ServerOffsetRecorder)? = { _ in nil },
+            levels: @escaping @Sendable (_ serverId: String) async -> (any ClientLevelGate)? = { _ in nil }
         ) {
             self.registry = registry
             self.transport = transport
@@ -86,6 +90,7 @@ public final class PushRegistration {
             self.leaseClock = leaseClock
             self.random = random
             self.serverOffset = serverOffset
+            self.levels = levels
         }
     }
 
@@ -275,6 +280,10 @@ public final class PushRegistration {
         case .retryable, .uncertain:
             status = .failed(outcome.problem?.detail ?? "Couldn't register this device for reminders")
             await oweRegistration()
+        case .clientOutdated:
+            // Refused before any effect (or not sent): the updated build registers (§4.1).
+            status = .failed(ClientOutdated.updateMessage)
+            await oweRegistration()
         default:
             status = .failed(outcome.problem?.detail ?? "Couldn't register this device for reminders")
         }
@@ -329,12 +338,15 @@ public final class PushRegistration {
     /// Retries every due deletion (§9.2): done on success or 404; one retry with the server's own
     /// epoch on `epoch_mismatch` (the registration belongs to the server, not to an epoch); dropped
     /// on `server_mismatch` (the old server is gone from that URL), on a refusal, or after 30
-    /// days; otherwise retried later with the outbox backoff.
+    /// days; otherwise retried later with the outbox backoff. A server this build is outdated for
+    /// is skipped (client-versions.md §4.1): nothing is sent and the row doesn't age, and a 426
+    /// keeps it owed.
     private func performRetryOwed() async {
         let now = dependencies.leaseClock.now()
         let wall = dependencies.wallClock.now()
         guard let rows = try? await owedRows() else { return }
         for row in rows where row.due.map(now.hasPassed(deadline:)) ?? true {
+            if await dependencies.levels(row.serverId)?.outdatedMinimum() != nil { continue }
             guard wall.timeIntervalSince(row.firstAttemptAt) <= Self.pendingLifetime,
                 let server = try? await dependencies.registry.repository.server(id: row.serverId),
                 let baseURL = URL(string: server.baseURL)
@@ -359,6 +371,11 @@ public final class PushRegistration {
             case .retryable, .uncertain, .epochMismatch, .none, .entryDeleted, .staleRevision:
                 let delay = OutboxBackoff.delay(attempts: row.attempts + 1, random: dependencies.random())
                 try? await reschedule(row, due: now.adding(delay), epoch: identity.epoch)
+            case .clientOutdated:
+                // That server refuses this build (its store may not be open here): still owed, and
+                // its 30 days start again, so it doesn't age while outdated (§4.1).
+                let delay = OutboxBackoff.delay(attempts: row.attempts + 1, random: dependencies.random())
+                try? await reschedule(row, due: now.adding(delay), epoch: identity.epoch, restartAge: wall)
             }
         }
     }
@@ -372,8 +389,9 @@ public final class PushRegistration {
     private func client(_ baseURL: URL, serverId: String) async -> APIClient {
         APIClient(
             baseURL: baseURL, transport: dependencies.transport, identity: StaticServerIdentity(nil),
-            credentials: dependencies.credentials, origin: .app, serverOffset: await dependencies.serverOffset(serverId)
-        )
+            credentials: dependencies.credentials, origin: .app,
+            serverOffset: await dependencies.serverOffset(serverId),
+            levels: await dependencies.levels(serverId))
     }
 
     // MARK: - Registry
@@ -498,6 +516,13 @@ public final class PushRegistration {
         }
     }
 
+    /// Every owed deletion starts its 30 days again: they don't age while this build is outdated
+    /// (client-versions.md §4.1), so the flag clearing resets them (`StoreClientLevels`).
+    nonisolated static func resetOwedAge(_ db: Database, now: Date) throws {
+        try db.execute(
+            sql: "UPDATE pending_unregister SET first_attempt_at = ?", arguments: [now.timeIntervalSince1970])
+    }
+
     private func forget(_ row: Owed) async throws {
         try await dependencies.registry.writer.write { db in
             try db.execute(
@@ -506,15 +531,19 @@ public final class PushRegistration {
         }
     }
 
-    private func reschedule(_ row: Owed, due: LeaseInstant, epoch: String) async throws {
+    /// `restartAge`: the row's `first_attempt_at` becomes that instant.
+    private func reschedule(_ row: Owed, due: LeaseInstant, epoch: String, restartAge: Date? = nil) async throws {
         try await dependencies.registry.writer.write { db in
             try db.execute(
                 sql: """
                     UPDATE pending_unregister SET attempts = attempts + 1, due_boot_id = ?, due_ct = ?,
-                      expect_epoch = ?
+                      expect_epoch = ?, first_attempt_at = COALESCE(?, first_attempt_at)
                     WHERE server_id = ? AND token = ?
                     """,
-                arguments: [due.bootId, due.ct, epoch == "unknown" ? row.expectEpoch : epoch, row.serverId, row.token])
+                arguments: [
+                    due.bootId, due.ct, epoch == "unknown" ? row.expectEpoch : epoch,
+                    restartAge?.timeIntervalSince1970, row.serverId, row.token,
+                ])
         }
     }
 

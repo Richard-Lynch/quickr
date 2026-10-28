@@ -33,6 +33,9 @@ public struct OutboxFlushReport: Sendable, Hashable {
         /// No response: the rest would fail the same way (§5.1 "stop the pass").
         case unreachable
         case mismatch(OutboxMismatch)
+        /// This build is below the server's minimum (client-versions.md §4.1): nothing was
+        /// claimed, or the item sent was restored, and `flush` is released. Enqueue still works.
+        case clientOutdated
     }
 
     public var ending: Ending
@@ -43,6 +46,8 @@ public struct OutboxFlushReport: Sendable, Hashable {
     public var retried = 0
     /// Retired, cancelled (S8) or restored after a precondition 409.
     public var settled = 0
+    /// Restored after a 426 `client_outdated`, for the updated build (client-versions.md §4.1).
+    public var held = 0
     /// Acked run events the server voided for a reason the user is told about (timers.md §8.1,
     /// §11.4), in ack order.
     public var runVoids: [RunVoid] = []
@@ -457,6 +462,7 @@ public struct Outbox: Sendable {
             switch step {
             case .leaseLost: return .leaseLost
             case .paused: return .paused
+            case .clientOutdated: return .clientOutdated
             case .drained: return .drained
             case .claimed(let claim):
                 run.current = (claim.item.id, claim.sender.claimToken)
@@ -530,6 +536,8 @@ public struct Outbox: Sendable {
             resolution = .restore(.identity)
         case .epochMismatch:
             resolution = .restore(.epoch)
+        case .clientOutdated(let minimum):
+            resolution = .hold(minimum: minimum)
         case .notFound:
             resolution = OutboxResolution.resolve(item.kind, .notFound(nil))
         case .retryable(.noResponse), .uncertain(.noResponse):
@@ -591,6 +599,8 @@ public struct Outbox: Sendable {
                 resolution = .restore(.identity)
             case .epochMismatch:
                 resolution = .restore(.epoch)
+            case .clientOutdated(let minimum):
+                resolution = .hold(minimum: minimum)
             case .terminal, .entryDeleted, .staleRevision:
                 // The read itself is refused for good: the start fails with the read's error.
                 return try await finish(
@@ -641,6 +651,7 @@ public struct Outbox: Sendable {
             }
         case .failed: run.report.failed += 1
         case .retried: run.report.retried += 1
+        case .restored where resolution.isHold: run.report.held += 1
         case .retired, .restored, .cancelled: run.report.settled += 1
         }
         switch resolution {
@@ -648,6 +659,8 @@ public struct Outbox: Sendable {
         case .restore(let mismatch), .mismatchUncertain(let mismatch):
             run.signal(mismatch == .identity ? .identityMismatch : .epochSuspect)
             return .mismatch(mismatch)
+        case .hold:
+            return .clientOutdated
         default: break
         }
         return stopsPass ? .unreachable : nil

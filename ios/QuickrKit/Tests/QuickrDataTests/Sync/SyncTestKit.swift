@@ -39,6 +39,8 @@ final class FakeFeedServer: @unchecked Sendable {
     private var templates: (topic: [String: Any], version: [String: Any], entry: [String: Any])
     /// Answers a request before the feed does (a 500, a proxy page, a different header).
     private var interceptor: (@Sendable (Int) -> HTTPResponse?)?
+    /// Added to every page (the API level headers, client-versions.md §3.2).
+    private var extraHeadersValue: [String: String] = [:]
 
     init(seedFixture: Bool = true) throws {
         let fixture = try Fixtures.api("listChanges.bootstrap")
@@ -93,6 +95,11 @@ final class FakeFeedServer: @unchecked Sendable {
     var head: Int { locked { state.log.last?.seq ?? 0 } }
 
     func intercept(_ body: (@Sendable (Int) -> HTTPResponse?)?) { locked { interceptor = body } }
+
+    var extraHeaders: [String: String] {
+        get { locked { extraHeadersValue } }
+        set { locked { extraHeadersValue = newValue } }
+    }
 
     // MARK: Mutations (each logs one change_log row, as the service does)
 
@@ -296,8 +303,11 @@ final class FakeFeedServer: @unchecked Sendable {
                 "items": items["topic"]! + items["version"]! + items["entry"]! + items["run"]!,
                 "deleted": deleted["run"]! + deleted["entry"]! + deleted["version"]! + deleted["topic"]!,
             ]
+            var headers = HTTPHeaders(extraHeadersValue)
+            headers[QuickrHeader.serverId] = serverIdValue
+            headers[QuickrHeader.epoch] = state.epoch
             return HTTPResponse(
-                status: 200, headers: [QuickrHeader.serverId: serverIdValue, QuickrHeader.epoch: state.epoch],
+                status: 200, headers: headers,
                 body: try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]))
         }
     }
@@ -346,6 +356,13 @@ struct GatedFeed: FeedFetcher {
         let response = try await inner.listChanges(after: cursor, limit: limit, options: options)
         await gate.park(after: cursor)
         return response
+    }
+
+    func recording(serverOffset: any ServerOffsetRecorder, levels: any ClientLevelGate) -> any FeedFetcher {
+        var inner = inner
+        inner.serverOffset = serverOffset
+        inner.levels = levels
+        return GatedFeed(inner: inner, gate: gate)
     }
 }
 

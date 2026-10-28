@@ -13,19 +13,24 @@ import QuickrCore
 /// bootstrap from `after=0` (which adopts whatever the page reports, §2.2).
 public protocol FeedFetcher: Sendable {
     func listChanges(after cursor: Int, limit: Int, options: RequestOptions) async throws -> APIResponse<ChangePage>
-    /// The same feed, handing its responses' offset samples to `recorder` (timers.md §5.1).
-    func recordingServerOffset(_ recorder: any ServerOffsetRecorder) -> any FeedFetcher
+    /// The same feed, handing its responses' offset samples to `serverOffset` (timers.md §5.1)
+    /// and their API levels to `levels`, which also holds requests back while this build is
+    /// outdated (client-versions.md §4.1).
+    func recording(serverOffset: any ServerOffsetRecorder, levels: any ClientLevelGate) -> any FeedFetcher
 }
 
 extension FeedFetcher {
     /// A feed that keeps no samples (test fakes).
-    public func recordingServerOffset(_ recorder: any ServerOffsetRecorder) -> any FeedFetcher { self }
+    public func recording(serverOffset: any ServerOffsetRecorder, levels: any ClientLevelGate) -> any FeedFetcher {
+        self
+    }
 }
 
 extension APIClient: FeedFetcher {
-    public func recordingServerOffset(_ recorder: any ServerOffsetRecorder) -> any FeedFetcher {
+    public func recording(serverOffset: any ServerOffsetRecorder, levels: any ClientLevelGate) -> any FeedFetcher {
         var client = self
-        client.serverOffset = recorder
+        client.serverOffset = serverOffset
+        client.levels = levels
         return client
     }
 }

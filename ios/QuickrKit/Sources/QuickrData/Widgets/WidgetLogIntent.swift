@@ -121,6 +121,6 @@ enum WidgetLogging {
             return "\(current.name) has more than one question: log it in quickR."
         }
         let logged = try await IntentLogging.log(topicId: current.id, answers: answers, in: pinned)
-        return "Logged \(IntentText.summary(logged.answers, topic: logged.topic))."
+        return logged.saying("Logged \(IntentText.summary(logged.answers, topic: logged.topic)).")
     }
 }

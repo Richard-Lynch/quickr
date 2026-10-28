@@ -95,7 +95,8 @@ public struct TopicWrites: Sendable {
         self.requestSync = requestSync
         client = APIClient(
             baseURL: scope.binding.baseURL, transport: transport, identity: StaticServerIdentity(scope.identity),
-            credentials: credentials, origin: .app, serverOffset: StoreServerOffset(store: store))
+            credentials: credentials, origin: .app, serverOffset: StoreServerOffset(store: store),
+            levels: StoreClientLevels(store: store))
     }
 
     /// The scope of a write starting now: the binding, its store's request context and identity.
@@ -310,6 +311,9 @@ public struct TopicWrites: Sendable {
             return .failed(problem?.detail ?? Self.statusMessage(status))
         case .retryable(.redirect(let status)), .retryable(.unexpectedResponse(let status)):
             return .failed(Self.statusMessage(status))
+        case .clientOutdated:
+            // Refused before any effect, or not sent (client-versions.md §4.1).
+            return .failed(ClientOutdated.updateMessage)
         }
     }
 

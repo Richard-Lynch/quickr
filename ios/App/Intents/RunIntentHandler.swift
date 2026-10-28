@@ -50,10 +50,15 @@ extension AppEnvironment {
         if let topicId = request.topicId, !runActions.admits(topicId: topicId) {
             return RunIntentResult(.ignored(topic: nil), topicId: topicId)
         }
-        let result = try await writes.perform(request)
+        var result = try await writes.perform(request)
         await liveActivities.reconcile(startFor: result.started ? result.topicId : nil)
         if result.wrote {
-            await flushAfterActivityTap(store, session: session)
+            // Outdated: kept for the updated build (client-versions.md §4.1). A flush that meets
+            // the 426 first makes this result say so too.
+            if !result.clientOutdated {
+                await flushAfterActivityTap(store, session: session)
+                result.clientOutdated = await ClientOutdated.isOutdated(store)
+            }
             reloadWidgetsAndControls()
         }
         return result

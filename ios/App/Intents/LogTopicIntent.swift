@@ -50,7 +50,7 @@ struct LogTopicIntent: AppIntent, UndoableIntent {
         if current.questions.isEmpty {
             let logged = try await IntentLogging.log(topicId: current.id, answers: [:], in: context)
             await IntentUndo.register(undoManager, logged: logged, context: context)
-            return .result(value: current.name, dialog: "Logged \(current.name).")
+            return .result(value: current.name, dialog: "\(logged.saying("Logged \(current.name)."))")
         }
         var draft = IntentDraft(topic: current)
 
@@ -73,7 +73,7 @@ struct LogTopicIntent: AppIntent, UndoableIntent {
         let logged = try await IntentLogging.log(topicId: current.id, answers: answers, in: context)
         let summary = IntentText.summary(logged.answers, topic: logged.topic)
         await IntentUndo.register(undoManager, logged: logged, context: context)
-        return .result(value: summary, dialog: "Logged \(summary).")
+        return .result(value: summary, dialog: "\(logged.saying("Logged \(summary)."))")
     }
 
     /// Step 3: the snippet until the user confirms a valid draft. The system's Log button can't be

@@ -39,6 +39,8 @@ import Testing
         let wall = FakeClock(Make.t0)
         let reloads = Mutex(0)
         let unlocked = Mutex(true)
+        /// This test's "launch", for the once-per-launch "Update quickR" notice.
+        let launch = LaunchOnce()
         let moodTopic: Topic
         let water: Topic
         let sleep: Topic
@@ -87,7 +89,7 @@ import Testing
                 owner: "app:test", wallClock: wall,
                 isProtectedDataAvailable: { [self] in self.unlocked.withLock { $0 } },
                 reloadWidgets: { [self] in self.reloads.withLock { $0 += 1 } }, flushBudget: .seconds(5),
-                gate: gate.withLock { $0 })
+                gate: gate.withLock { $0 }, outdatedNotice: launch)
         }
 
         func items(_ serverId: String = NotificationActionHandlerTests.serverA) async throws -> [OutboxItem] {
@@ -747,4 +749,48 @@ struct BadgeHookCenter: NotificationCenterProtocol {
 struct FixedGate: ActiveStoreGate {
     var scope: EntryScope?
     func activeScope() async -> EntryScope? { scope }
+}
+
+/// V8 (client-versions.md §4.1), notification actions: while this build is outdated the action
+/// enqueues as usual, nothing is flushed or sent, and "Saved on this iPhone. Update quickR to
+/// sync." is posted once per launch.
+extension NotificationActionHandlerTests {
+    @Test func whileOutdatedAnActionIsKeptNotSentAndTheNoticeIsPostedOncePerLaunch() async throws {
+        let w = try await World()
+        try await w.stores[Self.serverA]!.writer.write { db in
+            try db.execute(sql: "UPDATE sync_state SET client_outdated_min = ?", arguments: [APILevel.current + 1])
+        }
+        let r = w.reminder(w.moodTopic)
+        let outcome = await w.tap(r, 1)
+        let id = w.entryId(w.moodTopic)
+        #expect(outcome == .logged(entryId: id, serverId: Self.serverA, flush: .clientOutdated))
+        let items = try await w.items()
+        #expect(items.map(\.state) == [.pending], "durable, for the updated build")
+        #expect(w.server.requests.isEmpty, "no request")
+        let added = w.center.withState { $0.added }
+        #expect(added.map(\.body) == [ClientOutdated.savedMessage])
+        #expect(added.map(\.id) == [NotificationActionHandler.outdatedNoticeId])
+
+        let earlier = w.reminder(w.moodTopic, dueSince: "2026-03-04T10:00:00Z")
+        _ = await w.tap(earlier, 0)
+        let again = w.center.withState { $0.added }
+        #expect(again.count == 1, "once per launch")
+        let both = try await w.items()
+        #expect(both.count == 2)
+        #expect(w.server.requests.isEmpty)
+    }
+
+    /// The first action after a bump: its flush meets the 426, and the notice is posted then.
+    @Test func theFirstActionAfterABumpPostsTheNotice() async throws {
+        let w = try await World()
+        w.server.with { $0.minClientLevelIOS = APILevel.current + 1 }
+        let r = w.reminder(w.moodTopic)
+        let outcome = await w.tap(r, 1)
+        let id = w.entryId(w.moodTopic)
+        #expect(outcome == .logged(entryId: id, serverId: Self.serverA, flush: .clientOutdated))
+        let items = try await w.items()
+        #expect(items.map(\.state) == [.pending])
+        let added = w.center.withState { $0.added }
+        #expect(added.map(\.body) == [ClientOutdated.savedMessage])
+    }
 }

@@ -176,6 +176,21 @@ public struct ClientVersionsDTO: Codable, Sendable, Hashable, WireResponse {
     }
 }
 
+/// The fields a 426 `client_outdated` Problem adds to the envelope (client-versions.md §3.3).
+public struct ClientOutdatedDTO: Codable, Sendable, Hashable {
+    public var minClientLevel: Int
+    public var clientLevel: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case minClientLevel = "min_client_level"
+        case clientLevel = "client_level"
+    }
+
+    static func decode(_ data: Data, using decoder: JSONDecoder) throws -> Self {
+        try decoder.decode(Self.self, from: data)
+    }
+}
+
 // MARK: - Web Push
 
 /// `PushConfig` (getPushConfig).
