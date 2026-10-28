@@ -10,7 +10,7 @@ import QuickrData
 @MainActor @Observable
 final class ClientUpdate {
     /// Where Open TestFlight goes until the server names its own (`update_url.ios`, §3.2).
-    static let defaultUpdateURL = URL(string: "itms-beta://")!
+    nonisolated static let defaultUpdateURL = URL(string: "itms-beta://")!
     /// The note of §3.3, on Home and in Settings ▸ Server.
     static let serverBehindMessage =
         "The quickR server is older than this app. It keeps working, but deploy the server to finish the update."
@@ -23,7 +23,10 @@ final class ClientUpdate {
     private(set) var updateURL = ClientUpdate.defaultUpdateURL
     /// A Check again is in flight.
     private(set) var checking = false
-    /// The Home banner was dismissed: it stays away for this launch (Settings still says it).
+    /// The last Check again got no answer from the server ("Couldn't reach the server").
+    private(set) var checkFailed = false
+    /// The Home banner was dismissed: it stays away while this store is bound (Settings still
+    /// says it).
     var serverNoteDismissed = false
 
     @ObservationIgnored private weak var session: AppSession?
@@ -37,12 +40,29 @@ final class ClientUpdate {
         "quickR needs an update to keep syncing with your server. Your unsynced changes (\(unsynced)) are safe on this iPhone."
     }
 
+    /// `update_url.ios` when it opens TestFlight or a web page (`itms-beta:` or `https:`);
+    /// anything else is the default.
+    nonisolated static func updateURL(from value: String?) -> URL {
+        guard let value, let url = URL(string: value), let scheme = url.scheme?.lowercased(),
+            scheme == "itms-beta" || scheme == "https"
+        else { return defaultUpdateURL }
+        return url
+    }
+
+    /// No store: nothing to show, and the next one starts clean.
+    func reset() {
+        outdatedMinimum = nil
+        serverApiLevel = nil
+        updateURL = Self.defaultUpdateURL
+        serverNoteDismissed = false
+        checkFailed = false
+    }
+
     /// Follows the bound store's `sync_state` until the task is cancelled (a new binding) or the
     /// store closes. The flag is per store, so another binding starts from its own.
     func observe(_ session: AppSession) async {
         self.session = session
-        outdatedMinimum = nil
-        serverApiLevel = nil
+        reset()
         guard let store = session.store else { return }
         do {
             for try await state in store.observeSyncState(refresh: session.refresh.stream()) {
@@ -62,19 +82,22 @@ final class ClientUpdate {
             let state = try? await store.syncState.syncState(), let baseURL = URL(string: state.baseURL)
         else { return }
         checking = true
+        checkFailed = false
         defer { checking = false }
         let wasOutdated = state.isClientOutdated
         let configuration = session.configuration
+        let expected = state.epoch.map { ServerIdentity(serverId: state.serverId, epoch: $0) }
+        // Without a stored epoch the answer can't be tied to this store's server: its levels are
+        // left alone (only the link is read).
         let client = APIClient(
-            baseURL: baseURL, transport: configuration.transport,
-            identity: StaticServerIdentity(state.epoch.map { ServerIdentity(serverId: state.serverId, epoch: $0) }),
+            baseURL: baseURL, transport: configuration.transport, identity: StaticServerIdentity(expected),
             credentials: configuration.credentials, origin: .app, serverOffset: StoreServerOffset(store: store),
-            levels: StoreClientLevels(store: store))
-        if case .success(let versions)? = try? await client.getClientVersions().outcome,
-            let url = URL(string: versions.iosUpdateURL)
-        {
-            updateURL = url
+            levels: expected == nil ? nil : StoreClientLevels(store: store))
+        guard case .success(let versions)? = try? await client.getClientVersions().outcome else {
+            checkFailed = true
+            return
         }
+        updateURL = Self.updateURL(from: versions.iosUpdateURL)
         guard wasOutdated, await StoreClientLevels(store: store).outdatedMinimum() == nil,
             session.store?.scope == store.scope
         else { return }

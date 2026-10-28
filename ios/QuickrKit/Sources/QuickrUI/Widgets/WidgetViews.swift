@@ -549,17 +549,24 @@ struct RunWidgetTimer: View {
 }
 
 /// "Update quickR": this build is too old for the server (client-versions.md §4.1). Taps are
-/// still kept on the iPhone; they sync once quickR is updated.
+/// still kept on the iPhone; they sync once quickR is updated. Shown by the Home Screen families
+/// and, as a plain line, the topic widget's Lock Screen rectangle. The circular and inline
+/// families and the due list's rectangle have no line to spare: they show their usual content,
+/// and a tap still saves (the result text says to update).
 struct UpdateMark: View {
     static let text = "Update quickR"
 
     var body: some View {
-        Label(Self.text, systemImage: "arrow.down.app")
-            .font(.qr(.caption))
-            .foregroundStyle(.qr.warn)
-            .labelStyle(.titleAndIcon)
-            .lineLimit(1)
-            .accessibilityLabel("Update quickR to sync")
+        Label {
+            Text(Self.text)
+        } icon: {
+            QIcon.download.view(size: 14)
+        }
+        .font(.qr(.caption))
+        .foregroundStyle(.qr.warn)
+        .labelStyle(.titleAndIcon)
+        .lineLimit(1)
+        .accessibilityLabel("Update quickR to sync")
     }
 }
 

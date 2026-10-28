@@ -31,7 +31,9 @@ final class ClientVersionUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["update.title"].exists)
         let message = app.staticTexts["update.message"]
         XCTAssertTrue(message.waitForLabel(Self.updateMessage), message.label)
-        XCTAssertFalse(app.buttons["home.settings"].isHittable, "Home is covered")
+        let homeSettings = app.buttons["home.settings"]
+        XCTAssertTrue(homeSettings.exists, "Home is still there, under it")
+        XCTAssertFalse(homeSettings.isHittable, "Home is covered")
         // The view's check on appearing (getClientVersions) has answered: the minimum stands.
         let open = app.buttons["update.open"]
         XCTAssertTrue(open.waitForValue("itms-beta://quickr.test/update"), "\(String(describing: open.value))")
@@ -51,6 +53,69 @@ final class ClientVersionUITests: XCTestCase {
         XCTAssertTrue(app.buttons["home.settings"].waitForHittable())
         let pill = app.buttons["sync.pill"]
         XCTAssertTrue(pill.waitForNonExistence(timeout: 20), "the held entry stays: \(pill.label)")
+    }
+
+    /// "Update required" covers a sheet that was already open (the sync sheet): a retry from it is
+    /// refused with 426, and the view comes up above the sheet, which is back once it leaves.
+    @MainActor
+    func testUpdateRequiredCoversAnOpenSheet() {
+        let app = launch()
+        let pill = app.buttons["sync.pill"]
+        app.buttons["debug.reject"].tap()
+        app.buttons["debug.log"].tap()
+        XCTAssertTrue(pill.waitForLabel("1 failed to sync", timeout: 15), pill.label)
+        app.buttons["debug.outdated"].tap()
+        pill.tap()
+        let retry = app.buttons["sync.row.0.retry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 5))
+        retry.tap()
+
+        let required = app.descendants(matching: .any)["update.required"]
+        XCTAssertTrue(required.waitForExistence(timeout: 15))
+        let done = app.buttons["sync.done"]
+        XCTAssertTrue(done.exists, "the sheet is still open, under it")
+        XCTAssertFalse(done.isHittable, "the sheet is covered")
+        XCTAssertTrue(app.buttons["update.check"].isHittable)
+
+        app.buttons["debug.current"].tap()
+        app.buttons["update.check"].tap()
+        XCTAssertTrue(required.waitForNonExistence(timeout: 15))
+        XCTAssertTrue(done.waitForHittable(), "the sheet is back on top")
+    }
+
+    /// Check again without the server: an inline error, and the view stays. Online again, the
+    /// error goes with the next check. Settings from the view offers no "Review changes…", which
+    /// would open the sync sheet beneath it.
+    @MainActor
+    func testCheckAgainOfflineSaysSoAndStays() {
+        let app = launch()
+        app.buttons["debug.outdated"].tap()
+        app.buttons["debug.log"].tap()
+        let required = app.descendants(matching: .any)["update.required"]
+        XCTAssertTrue(required.waitForExistence(timeout: 15))
+        let check = app.buttons["update.check"]
+        XCTAssertTrue(check.waitForEnabled())
+
+        app.buttons["update.settings"].tap()
+        XCTAssertTrue(app.buttons["settings.changeServer"].waitForExistence(timeout: 5))
+        let syncNow = app.buttons["settings.syncNow"]
+        for _ in 0..<6 where !syncNow.isHittable { app.swipeUp() }
+        XCTAssertTrue(syncNow.isHittable, "Offline & sync is on screen")
+        XCTAssertFalse(app.buttons["settings.sync.review"].exists, "the held entry is there, but not its review")
+        app.buttons["update.settingsDone"].tap()
+        XCTAssertTrue(app.buttons["settings.changeServer"].waitForNonExistence(timeout: 5))
+
+        app.buttons["debug.offline"].tap()
+        check.tap()
+        let error = app.staticTexts["update.checkError"]
+        XCTAssertTrue(error.waitForExistence(timeout: 15))
+        XCTAssertTrue(required.exists)
+
+        app.buttons["debug.online"].tap()
+        XCTAssertTrue(check.waitForEnabled())
+        check.tap()
+        XCTAssertTrue(error.waitForNonExistence(timeout: 15))
+        XCTAssertTrue(required.exists, "online, the minimum still stands")
     }
 
     /// V13 (UI): a server behind this build shows the Home banner and the Settings

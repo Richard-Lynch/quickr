@@ -11,6 +11,8 @@ struct RootView: View {
     /// Onboarding stays up from "no server" until it finishes (its reminders step comes after
     /// the connect has already made the session ready).
     @State private var onboarding = false
+    /// "Update required", above every window and presentation (client-versions.md §4.1).
+    @State private var updateWindow = UpdateRequiredWindow()
 
     var body: some View {
         content
@@ -20,6 +22,9 @@ struct RootView: View {
             // A server switch or a reset: the APNs token follows the bound store (REG).
             .onChange(of: environment.session?.binding) { _, _ in
                 Task { await environment.push?.bindingChanged() }
+            }
+            .onChange(of: environment.clientUpdate.isOutdated, initial: true) { _, outdated in
+                updateWindow.update(outdated: outdated, environment: environment)
             }
     }
 
@@ -96,15 +101,9 @@ struct RootView: View {
 
     private var navigation: some View {
         @Bindable var router = environment.router
-        let outdated = environment.clientUpdate.isOutdated
         return NavigationStack(path: $router.path) {
             home
                 .navigationDestination(for: Route.self) { RouteDestination(route: $0) }
-        }
-        .accessibilityHidden(outdated)
-        // Over every screen while this build is too old for the server (client-versions.md §4.1).
-        .overlay {
-            if outdated { UpdateRequiredView() }
         }
         .syncSheet(environment)
         // The sync pill and sheet follow the active store (SYNC-UX).
@@ -113,7 +112,11 @@ struct RootView: View {
         }
         // So does "Update required" (client-versions.md §4.1, §4.5).
         .task(id: environment.session?.binding) {
-            if let session = environment.session { await environment.clientUpdate.observe(session) }
+            if let session = environment.session {
+                await environment.clientUpdate.observe(session)
+            } else {
+                environment.clientUpdate.reset()
+            }
         }
         // The run clocks' server offset (timers.md §5.1).
         .task(id: environment.session?.binding) {
@@ -133,7 +136,10 @@ struct RootView: View {
         }
         #if DEBUG
         .overlay(alignment: .bottom) {
-            if UITestLaunch.showsSyncControls { UITestSyncControls().padding(.bottom, 24) }
+            // While "Update required" is up, its window has the controls.
+            if UITestLaunch.showsSyncControls, !environment.clientUpdate.isOutdated {
+                UITestSyncControls().padding(.bottom, 24)
+            }
         }
         #endif
         #if DEBUG || QUICKR_PERF
