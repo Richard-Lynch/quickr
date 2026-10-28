@@ -12,25 +12,28 @@ public struct WidgetReader: Sendable {
     /// One topic (nil once it's gone: deleted, or another server's).
     public func topic(id: UUID) async throws -> WidgetTopic? {
         guard let view = try await store.topics.topic(id: id) else { return nil }
-        return try await widgetTopic(view.topic, skew: skew(), runs: runs(topicId: id))
+        return try await widgetTopic(view.topic, state: storeState(), runs: runs(topicId: id))
     }
 
     /// Active topics, due first (the home list's order at device time `now`, in server time), for
     /// the due-list widget.
     public func dueList(now: Date) async throws -> [WidgetTopic] {
-        let skew = try await skew()
+        let state = try await storeState()
         let topics = try await store.topics.topics().map(\.topic)
         let runs = try await runs(topicId: nil)
         let listed = TopicListing.list(
-            topics, topic: { $0 }, now: ServerClock(skew: skew).now(at: now), status: .active, sort: .due, query: "")
+            topics, topic: { $0 }, now: ServerClock(skew: state.skew).now(at: now), status: .active, sort: .due,
+            query: "")
         var result: [WidgetTopic] = []
-        for item in listed { result.append(try await widgetTopic(item.topic, skew: skew, runs: runs)) }
+        for item in listed { result.append(try await widgetTopic(item.topic, state: state, runs: runs)) }
         return result
     }
 
-    /// The store's measured skew in seconds (0 before the first pull, sync-protocol.md §10).
-    private func skew() async throws -> TimeInterval {
-        (try await store.syncState.syncState()?.serverClock ?? .device).skew
+    /// The store's measured skew in seconds (0 before the first pull, sync-protocol.md §10), and
+    /// whether this build is too old for its server (client-versions.md §4.1).
+    private func storeState() async throws -> (skew: TimeInterval, updateRequired: Bool) {
+        let state = try await store.syncState.syncState()
+        return ((state?.serverClock ?? .device).skew, state?.isClientOutdated ?? false)
     }
 
     /// The local view of runs (of one topic, or all).
@@ -47,7 +50,9 @@ public struct WidgetReader: Sendable {
         return RunActivitySnapshot.state(run) ?? RunActivitySnapshot.stateWithoutSteps(run)
     }
 
-    private func widgetTopic(_ topic: Topic, skew: TimeInterval, runs: [LocalRun]) async throws -> WidgetTopic {
+    private func widgetTopic(
+        _ topic: Topic, state: (skew: TimeInterval, updateRequired: Bool), runs: [LocalRun]
+    ) async throws -> WidgetTopic {
         let quick = QuickLog(questions: topic.questions)
         var lastAnswer: AnswerValue?
         if let question = quick?.question, let latest = try await store.entries.latestEntry(topicId: topic.id) {
@@ -68,7 +73,7 @@ public struct WidgetReader: Sendable {
         }
         return WidgetTopic(
             topic: topic, quick: quick, lastAnswer: lastAnswer, queued: queued, failed: failed, scope: store.scope,
-            skew: skew, hasOpenRun: RunOverlay.openRunTopics(runs).contains(topic.id),
-            run: Self.shownRun(topic.id, in: runs))
+            skew: state.skew, hasOpenRun: RunOverlay.openRunTopics(runs).contains(topic.id),
+            run: Self.shownRun(topic.id, in: runs), updateRequired: state.updateRequired)
     }
 }

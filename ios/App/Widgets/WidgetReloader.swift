@@ -34,12 +34,13 @@ final class WidgetReloader {
     /// has one consumer.
     func observe(_ store: LocalStore, refresh: (() -> AsyncStream<Void>)? = nil) async {
         let reader = WidgetReader(store: store)
-        let (topicsRefresh, runsRefresh) = (refresh?(), refresh?())
+        let (topicsRefresh, runsRefresh, syncRefresh) = (refresh?(), refresh?(), refresh?())
         async let topics: Void = follow(store.observeTopics(refresh: topicsRefresh), reader)
         async let outbox: Void = follow(store.observeOutbox(), reader)
         // The skew moves due state (sync-protocol.md §10): a pull that changes only it reloads too.
-        // Only this process's pulls write it, so it needs no cross-process refresh.
-        async let syncState: Void = follow(store.observeSyncState(), reader)
+        // So does `client_outdated_min` ("Update quickR", client-versions.md §4.1), which another
+        // process may write (a widget's or intent's send refused with 426): hence the refresh.
+        async let syncState: Void = follow(store.observeSyncState(refresh: syncRefresh), reader)
         // A run another device moved (a sync) changes the timed widgets too (timers.md §11.3).
         async let runs: Void = follow(store.observeLocalRuns(refresh: runsRefresh), reader)
         _ = await (topics, outbox, syncState, runs)

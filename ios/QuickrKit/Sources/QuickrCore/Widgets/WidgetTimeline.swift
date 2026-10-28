@@ -73,6 +73,7 @@ public struct WidgetFingerprint: Sendable, Hashable {
         var failed: Int
         var scope: EntryScope?
         var run: RunActivityState?
+        var updateRequired: Bool
     }
 
     let topics: [Topic]
@@ -88,7 +89,7 @@ public struct WidgetFingerprint: Sendable, Hashable {
                 currentVersion: $0.topic.currentVersion, schedule: $0.topic.schedule,
                 scheduleUpdatedAt: $0.topic.scheduleUpdatedAt, lastCapturedAt: $0.topic.lastCapturedAt,
                 entryCount: $0.topic.entryCount, lastAnswer: $0.lastAnswer, queued: $0.queued, failed: $0.failed,
-                scope: $0.scope, run: $0.run)
+                scope: $0.scope, run: $0.run, updateRequired: $0.updateRequired)
         }
         .sorted { $0.id.uuidString < $1.id.uuidString }
     }

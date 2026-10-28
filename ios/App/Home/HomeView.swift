@@ -93,6 +93,9 @@ struct HomeView: View {
     // MARK: - Content
 
     @ViewBuilder private var content: some View {
+        if environment.clientUpdate.showsServerBanner {
+            ServerBehindBanner { environment.clientUpdate.serverNoteDismissed = true }
+        }
         if let error = bannerError {
             ErrorBanner(message: error) { Task { await model.retry() } }
         }
