@@ -19,14 +19,19 @@ import Synchronization
 /// - `-QuickrSecondServer` also registers a second server, "Other" (`secondServerId`), that isn't
 ///   active: links from it are refused (notifications.md §7.5);
 /// - `-QuickrSyncControls` shows `UITestSyncControls` (go offline or online, log an entry, reject
-///   the next one) for the sync UI tests. The network path is `UITestLaunch.network`, which the
-///   controls switch together with the fake server.
+///   the next one, switch the server's API levels) for the sync UI tests. The network path is
+///   `UITestLaunch.network`, which the controls switch together with the fake server;
+/// - `-QuickrServerBehind`: the fake server reports an API level below this build's
+///   (client-versions.md §4.5). Without it, or the controls' level switches, the fake server sends
+///   no level headers and refuses nothing.
 enum UITestLaunch {
     static let argument = "-QuickrUITest"
     static let fakeServer = URL(string: "https://quickr.test")!
     static let fakeServerId = "00000000-0000-4000-8000-0000000000aa"
     static let rejectedEntryId = UUID(uuidString: "0f1e2d3c-4b5a-4968-8778-0000000000f1")!
     static let secondServerId = "00000000-0000-4000-8000-0000000000bb"
+    /// The fake server's `update_url.ios`, so a test can tell it from the app's default.
+    static let updateURL = "itms-beta://quickr.test/update"
 
     static var isActive: Bool { ProcessInfo.processInfo.arguments.contains(argument) }
 
@@ -55,6 +60,7 @@ enum UITestLaunch {
             categoryCenter: categoryCenter, notificationCenter: notificationCenter)
         environment.settings.serverURL = value(after: "-QuickrServer").flatMap(URL.init(string:))
         if ProcessInfo.processInfo.arguments.contains("-QuickrStalePublish") { server.publishElsewhereFirst() }
+        if ProcessInfo.processInfo.arguments.contains("-QuickrServerBehind") { server.levels = .behind }
         return environment
     }
 
@@ -105,11 +111,35 @@ enum UITestLaunch {
     }
 }
 
-/// The fake server's switches: unreachable, whether the next create is rejected (422), and
-/// whether feed requests are held (unit tests of interrupted startups). Counts requests.
+/// The API levels the fake server reports and enforces (client-versions.md §3.2, §3.3).
+struct FakeServerLevels: Sendable, Hashable {
+    var apiLevel: Int
+    /// `min_client_level.ios`: a request whose `X-QuickR-Client` level is below it is refused with
+    /// 426 `client_outdated`, except `/health` and `getClientVersions`.
+    var minIOS: Int
+
+    /// The server and this build at the same level.
+    static let current = FakeServerLevels(apiLevel: APILevel.current, minIOS: 0)
+    /// A server one level behind this build (§4.5's note).
+    static let behind = FakeServerLevels(apiLevel: APILevel.current - 1, minIOS: 0)
+    /// A server one level ahead whose minimum this build doesn't meet (§4.1's "Update required").
+    static let outdated = FakeServerLevels(apiLevel: APILevel.current + 1, minIOS: APILevel.current + 1)
+
+    /// Adds `X-QuickR-Api-Level` and `X-QuickR-Min-Client-Level`.
+    func add(to headers: inout HTTPHeaders) {
+        headers[QuickrHeader.apiLevel] = String(apiLevel)
+        headers[QuickrHeader.minClientLevel] = "ios=\(minIOS), web=0"
+    }
+}
+
+/// The fake server's switches: unreachable, whether the next create is rejected (422), whether
+/// feed requests are held (unit tests of interrupted startups), and its API levels. Counts
+/// requests.
 final class FakeServerState: Sendable {
     private struct State {
         var offline = false
+        /// Nil: no level headers and nothing refused (every test from before client versions).
+        var levels: FakeServerLevels?
         var rejectNext = false
         var holdFeed = false
         var requests = 0
@@ -139,6 +169,11 @@ final class FakeServerState: Sendable {
     var offline: Bool {
         get { state.withLock { $0.offline } }
         set { state.withLock { $0.offline = newValue } }
+    }
+
+    var levels: FakeServerLevels? {
+        get { state.withLock { $0.levels } }
+        set { state.withLock { $0.levels = newValue } }
     }
 
     /// Requests that reached the server (any host path), held ones included.
@@ -503,8 +538,10 @@ enum FakeServer {
 
 /// `https://quickr.test`: the feed above, run events (`FakeRuns`), entry creates (201, or 422 for a duration over 600 or
 /// when `state` is told to reject the next, so a rejection can be shown), deletes (204, for
-/// Undo after a send), stats and series (`FakeStats`), TOPIC's topic writes (`topicRoute`), and
-/// BUILDER-UI's topic reads and versions (`topicDetail`, `versionRoute`).
+/// Undo after a send), stats and series (`FakeStats`), TOPIC's topic writes (`topicRoute`),
+/// BUILDER-UI's topic reads and versions (`topicDetail`, `versionRoute`), and `getClientVersions`.
+/// With `state.levels`, every response carries the level headers and a request below the iOS
+/// minimum is refused with 426 `client_outdated` before any route (`levelsRoute`).
 /// Offline (`state`), every request there fails before it is sent; held feed
 /// requests wait. Any other host goes to `fallback`.
 private struct FakeServerTransport: Transport {
@@ -515,11 +552,14 @@ private struct FakeServerTransport: Transport {
         guard request.url.host() == UITestLaunch.fakeServer.host() else { return try await fallback.send(request) }
         state.counted(request)
         if state.offline { throw TransportError.unreachable("offline (UI test)") }
-        let headers: HTTPHeaders = [
+        var headers: HTTPHeaders = [
             QuickrHeader.serverId: UITestLaunch.fakeServerId, QuickrHeader.epoch: FakeServer.epoch,
             "Content-Type": "application/json", RunClock.serverTimeHeader: String(RunInstant.milliseconds(Date())),
         ]
+        let levels = state.levels
+        levels?.add(to: &headers)
         let path = request.url.path()
+        if let response = levelsRoute(request, path: path, levels: levels, headers: headers) { return response }
         if let response = FakeTiming.route(request, headers: headers, appendToFeed: state.appendItem) {
             return response
         }
@@ -557,6 +597,47 @@ private struct FakeServerTransport: Transport {
         }
         return HTTPResponse(
             status: 404, headers: headers, body: Data(#"{"code":"not_found","detail":"Not found","errors":[]}"#.utf8))
+    }
+
+    /// `getClientVersions`, and the 426 `client_outdated` of a request below the iOS minimum (as the
+    /// backend's middleware: before the route, `/health` and `getClientVersions` never refused; no
+    /// `X-QuickR-Client` is level 0, as for a build from before client versions).
+    private func levelsRoute(
+        _ request: HTTPRequest, path: String, levels: FakeServerLevels?, headers: HTTPHeaders
+    ) -> HTTPResponse? {
+        let current = levels ?? .current
+        if request.method == .get, path == "/api/v1/client-versions" {
+            let body: [String: Any] = [
+                "api_level": current.apiLevel, "min_client_level": ["ios": current.minIOS, "web": 0],
+                "update_url": ["ios": UITestLaunch.updateURL],
+            ]
+            return HTTPResponse(
+                status: 200, headers: headers, body: (try? JSONSerialization.data(withJSONObject: body)) ?? Data())
+        }
+        guard let levels, path != "/api/v1/health" else { return nil }
+        let client = request.headers[QuickrHeader.client].flatMap(Self.clientLevel) ?? 0
+        guard client < levels.minIOS else { return nil }
+        var problem = headers
+        problem["Content-Type"] = "application/problem+json"
+        let body: [String: Any] = [
+            "code": "client_outdated",
+            "detail":
+                "This version of quickR is too old for the server. Update it from TestFlight (or reload the web app) to keep syncing. Nothing on this device has been lost.",
+            "errors": [Any](), "min_client_level": levels.minIOS, "client_level": client,
+        ]
+        return HTTPResponse(
+            status: 426, headers: problem, body: (try? JSONSerialization.data(withJSONObject: body)) ?? Data())
+    }
+
+    /// The `level` of `ios; level=<int>; build=<string>`; 0 when it doesn't parse, as the backend's.
+    private static func clientLevel(_ value: String) -> Int {
+        for part in value.split(separator: ";") {
+            let pair = part.split(separator: "=", maxSplits: 1)
+            if pair.count == 2, pair[0].trimmingCharacters(in: .whitespaces) == "level" {
+                return Int(pair[1].trimmingCharacters(in: .whitespaces)) ?? 0
+            }
+        }
+        return 0
     }
 
     /// TOPIC's online-only writes and the outbox's archive/unarchive, over `state`'s topics:

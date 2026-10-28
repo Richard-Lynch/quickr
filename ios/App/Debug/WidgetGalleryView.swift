@@ -4,16 +4,18 @@ import QuickrUI
 import SwiftUI
 import WidgetKit
 
-/// `-QuickrWidgetGallery <home|lock> [tinted]`: the widget views at their sizes over the demo
+/// `-QuickrWidgetGallery <home|lock> [tinted] [outdated]`: the widget views at their sizes over the demo
 /// topics, for screenshots and UI checks without SpringBoard (whose automation stalls). Same views
 /// and styles as the extension. "tinted" approximates the system's one-colour modes (Home Screen
 /// tinted, Lock Screen): the accented style on a dark tinted plate, desaturated; the system's own
-/// rendering is checked on a device (M4-DEV).
+/// rendering is checked on a device (M4-DEV). "outdated" shows them while this build is too old for
+/// the server ("Update quickR", client-versions.md §4.1).
 struct WidgetGalleryView: View {
     enum Page: String { case home, lock }
 
     let page: Page
     let tinted: Bool
+    var outdated = false
     let now = Date()
 
     private var topics: [WidgetTopic] {
@@ -22,7 +24,7 @@ struct WidgetGalleryView: View {
             return WidgetTopic(
                 topic: topic, quick: quick,
                 lastAnswer: quick?.question.flatMap { DemoStore.answers[topic.slug]?[$0.key] },
-                queued: topic.slug == "water" ? 1 : 0)
+                queued: topic.slug == "water" ? 1 : 0, updateRequired: outdated)
         }
     }
 

@@ -29,7 +29,7 @@ struct RootView: View {
         if let page = Self.catalogPage {
             DesignCatalogView(page: page)
         } else if let gallery = Self.widgetGallery {
-            WidgetGalleryView(page: gallery.page, tinted: gallery.tinted)
+            WidgetGalleryView(page: gallery.page, tinted: gallery.tinted, outdated: gallery.outdated)
         } else if let demo = Self.formDemo {
             FormDemoView(demo: demo)
         } else if Self.snippetGallery {
@@ -51,12 +51,13 @@ struct RootView: View {
         return DesignCatalogView.Page(rawValue: raw) ?? .colors
     }
 
-    /// `-QuickrWidgetGallery <home|lock> [tinted]` shows the widget views (screenshots, UI checks).
-    private static var widgetGallery: (page: WidgetGalleryView.Page, tinted: Bool)? {
+    /// `-QuickrWidgetGallery <home|lock> [tinted] [outdated]` shows the widget views (screenshots,
+    /// UI checks).
+    private static var widgetGallery: (page: WidgetGalleryView.Page, tinted: Bool, outdated: Bool)? {
         let args = ProcessInfo.processInfo.arguments
         guard let i = args.firstIndex(of: "-QuickrWidgetGallery") else { return nil }
         let raw = i + 1 < args.count ? args[i + 1] : ""
-        return (WidgetGalleryView.Page(rawValue: raw) ?? .home, args.contains("tinted"))
+        return (WidgetGalleryView.Page(rawValue: raw) ?? .home, args.contains("tinted"), args.contains("outdated"))
     }
 
     /// `-QuickrSnippetGallery` shows the Siri confirmation snippet over demo drafts (screenshots).
@@ -95,14 +96,24 @@ struct RootView: View {
 
     private var navigation: some View {
         @Bindable var router = environment.router
+        let outdated = environment.clientUpdate.isOutdated
         return NavigationStack(path: $router.path) {
             home
                 .navigationDestination(for: Route.self) { RouteDestination(route: $0) }
+        }
+        .accessibilityHidden(outdated)
+        // Over every screen while this build is too old for the server (client-versions.md §4.1).
+        .overlay {
+            if outdated { UpdateRequiredView() }
         }
         .syncSheet(environment)
         // The sync pill and sheet follow the active store (SYNC-UX).
         .task(id: environment.session?.binding) {
             if let session = environment.session { await environment.sync.observe(session) }
+        }
+        // So does "Update required" (client-versions.md §4.1, §4.5).
+        .task(id: environment.session?.binding) {
+            if let session = environment.session { await environment.clientUpdate.observe(session) }
         }
         // The run clocks' server offset (timers.md §5.1).
         .task(id: environment.session?.binding) {

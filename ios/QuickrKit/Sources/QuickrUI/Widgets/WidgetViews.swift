@@ -52,8 +52,9 @@ public struct WidgetStyle: Sendable, Hashable {
 // MARK: - One topic
 
 /// The per-topic quick-log widget: name, due pill, the "Last …" line, "queued" while this device's
-/// logs wait to sync, and the quick-log (chips, or "✓ last" for a number). Chips and ✓ open the
-/// record screen for now; INTENTS makes them log in place.
+/// logs wait to sync, "Update quickR" while this build is too old for the server
+/// (client-versions.md §4.1), and the quick-log (chips, or "✓ last" for a number). Chips and ✓ open
+/// the record screen for now; INTENTS makes them log in place.
 public struct TopicWidgetView: View {
     let topic: WidgetTopic?
     let date: Date
@@ -113,7 +114,8 @@ public struct TopicWidgetView: View {
                 lastLine(topic)
                     .font(.qr(.footnote))
                     .foregroundStyle(.qr.muted)
-                    .lineLimit(2)
+                    .lineLimit(topic.updateRequired ? 1 : 2)
+                if topic.updateRequired { UpdateMark() }
             }
             .accessibilityElement(children: .combine)
             Spacer(minLength: 0)
@@ -202,7 +204,12 @@ public struct TopicWidgetView: View {
                 }
             }
             if let due = dueLabel(topic) { Text(due).font(.caption).lineLimit(1) }
-            lastLine(topic).font(.caption).lineLimit(1)
+            // Three lines fit: the update notice takes the last one's place.
+            if topic.updateRequired {
+                Text(UpdateMark.text).font(.caption).lineLimit(1)
+            } else {
+                lastLine(topic).font(.caption).lineLimit(1)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .widgetURL(topic.recordURL)
@@ -281,8 +288,9 @@ public struct TopicWidgetView: View {
                     lastLine(topic)
                         .font(.qr(.footnote))
                         .foregroundStyle(.qr.muted)
-                        .lineLimit(2)
+                        .lineLimit(topic.updateRequired ? 1 : 2)
                 }
+                if topic.updateRequired { UpdateMark() }
             }
             .accessibilityElement(children: .combine)
             Spacer(minLength: 0)
@@ -334,10 +342,11 @@ public struct TopicWidgetView: View {
             if case .open = topic.runTile, let display = topic.runDisplay {
                 Text(display.label).font(.caption).lineLimit(1)
                 RunWidgetTimer(timer: display.segmentTimer).font(.caption)
-            } else if topic.runTile == .finishing {
-                Text("Add details").font(.caption).lineLimit(1)
             } else {
-                Text(dueLabel(topic) ?? "Start").font(.caption).lineLimit(1)
+                Text(topic.runTile == .finishing ? "Add details" : dueLabel(topic) ?? "Start")
+                    .font(.caption).lineLimit(1)
+                // The third line, which a running segment's timer takes.
+                if topic.updateRequired { Text(UpdateMark.text).font(.caption).lineLimit(1) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -390,6 +399,9 @@ public struct DueListWidgetView: View {
 
     /// The due count's own rule (`TopicListing.countsAsDue`): a topic with an open run isn't due.
     private var dueNow: [WidgetTopic] { topics.filter { $0.countsAsDue(at: date) } }
+
+    /// Every topic comes from one store: it is too old for its server (client-versions.md §4.1).
+    private var updateRequired: Bool { topics.contains { $0.updateRequired } }
 
     /// Due and scheduled topics, in the list's order; plain ones only fill a large widget.
     private var rows: [WidgetTopic] {
@@ -460,6 +472,7 @@ public struct DueListWidgetView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(dueNow.count) due now")
             .accessibilityAddTraits(.isHeader)
+            if updateRequired { UpdateMark() }
             if rows.isEmpty {
                 Text("Nothing due — you’re all caught up.")
                     .font(.qr(.footnote))
@@ -532,6 +545,21 @@ struct RunWidgetTimer: View {
             )
             .monospacedDigit()
         }
+    }
+}
+
+/// "Update quickR": this build is too old for the server (client-versions.md §4.1). Taps are
+/// still kept on the iPhone; they sync once quickR is updated.
+struct UpdateMark: View {
+    static let text = "Update quickR"
+
+    var body: some View {
+        Label(Self.text, systemImage: "arrow.down.app")
+            .font(.qr(.caption))
+            .foregroundStyle(.qr.warn)
+            .labelStyle(.titleAndIcon)
+            .lineLimit(1)
+            .accessibilityLabel("Update quickR to sync")
     }
 }
 

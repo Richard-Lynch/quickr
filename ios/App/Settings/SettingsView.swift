@@ -81,6 +81,15 @@ struct SettingsView: View {
                     .accessibilityIdentifier("settings.serverURL")
             }
             LabeledContent("Status", value: status)
+            if environment.clientUpdate.serverIsBehind {
+                Label {
+                    Text(ClientUpdate.serverBehindMessage).font(.qr(.footnote)).foregroundStyle(.qr.inkSoft)
+                } icon: {
+                    QIcon.info.view(size: 16, weight: .bold).foregroundStyle(.qr.info)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("settings.serverBehind")
+            }
             Button("Change server…") {
                 guard let session = environment.session else { return }
                 changingServer = ServerSetup(

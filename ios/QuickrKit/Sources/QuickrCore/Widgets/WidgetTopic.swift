@@ -26,12 +26,16 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     /// finishing one, as the Live Activity's content state (`steps_unknown` when the pinned
     /// version's steps aren't stored). Nil for none.
     public var run: RunActivityState?
+    /// This build is too old for the store's server (client-versions.md §4.1): the widget shows a
+    /// small "Update quickR" line, and its taps are kept on the iPhone until the update.
+    public var updateRequired: Bool
 
     public var id: UUID { topic.id }
 
     public init(
         topic: Topic, quick: QuickLog?, lastAnswer: AnswerValue?, queued: Int = 0, failed: Int = 0,
-        scope: EntryScope? = nil, skew: TimeInterval = 0, hasOpenRun: Bool = false, run: RunActivityState? = nil
+        scope: EntryScope? = nil, skew: TimeInterval = 0, hasOpenRun: Bool = false, run: RunActivityState? = nil,
+        updateRequired: Bool = false
     ) {
         self.topic = topic
         self.quick = quick
@@ -42,6 +46,7 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
         self.skew = skew
         self.hasOpenRun = hasOpenRun
         self.run = run
+        self.updateRequired = updateRequired
     }
 
     /// What ✓ shows and logs for a number topic, the same value for both: the last one while the

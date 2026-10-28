@@ -232,6 +232,32 @@ import Testing
         #expect(try await reader.topic(id: Self.water.id)?.skew == skew)
     }
 
+    /// "Update quickR" (client-versions.md §4.1): every topic says so while the store's
+    /// `client_outdated_min` refuses this build, and none once this build meets it.
+    @Test func theReaderCarriesTheOutdatedState() async throws {
+        let store = try seeded([Self.water])
+        let reader = WidgetReader(store: store.store)
+        let before = try #require(try await reader.topic(id: Self.water.id))
+        #expect(before.updateRequired == false)
+
+        try store.write { db in
+            try db.execute(
+                sql: "UPDATE sync_state SET client_outdated_min = ? WHERE id = 1", arguments: [APILevel.current + 1])
+        }
+        let outdated = try #require(try await reader.topic(id: Self.water.id))
+        #expect(outdated.updateRequired)
+        let listed = try await reader.dueList(now: Make.t0)
+        let allSay: Bool = listed.allSatisfy { (topic: WidgetTopic) -> Bool in topic.updateRequired }
+        #expect(allSay)
+
+        try store.write { db in
+            try db.execute(
+                sql: "UPDATE sync_state SET client_outdated_min = ? WHERE id = 1", arguments: [APILevel.current])
+        }
+        let met = try #require(try await reader.topic(id: Self.water.id))
+        #expect(met.updateRequired == false)
+    }
+
     @Test func aSkewOfAMinuteOrMoreReloads() {
         func print(_ skew: TimeInterval) -> WidgetFingerprint {
             WidgetFingerprint([WidgetTopic(topic: Self.water, quick: nil, lastAnswer: nil, skew: skew)])
@@ -265,6 +291,7 @@ import Testing
         #expect(changed { $0.topic.lastCapturedAt = Make.t0.addingTimeInterval(60) })
         #expect(changed { $0.topic.schedule = Self.every(30) })
         #expect(changed { $0.topic.status = .archived })
+        #expect(changed { $0.updateRequired = true })
     }
 
     @Test func theGateReloadsOnTheFirstStateAndOnChangesOnly() {
