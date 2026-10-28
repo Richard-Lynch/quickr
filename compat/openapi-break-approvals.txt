@@ -1,8 +1,11 @@
 # Approved breaking changes to openapi.json, read by compat/openapi-breaking.sh as oasdiff's
 # --err-ignore file (docs/ios/specs/compatibility.md §2).
 #
-# A break needs an approval only while the latest v* tag predates it, and only when no client in
-# compat/supported-clients.json calls what it breaks. One line per break, as oasdiff prints it:
+# The normal way to break the API is to bump shared/api-level.json, which needs no approval
+# (docs/specs/client-versions.md §7). An approval is for a break no client notices (a field no
+# client reads, say): needed only while the latest v* tag predates it, and only when no supported
+# client in compat/supported-clients.json calls what it breaks. One line per break, as oasdiff
+# prints it:
 #   <METHOD> <path> <message>
 # with a comment above it naming the PR and why no supported client is affected. Remove the
 # lines once a v* tag includes the change.

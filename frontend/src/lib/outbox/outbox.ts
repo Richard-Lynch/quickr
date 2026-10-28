@@ -1,3 +1,4 @@
+import { isClientOutdatedProblem } from '../../api/clientVersion';
 import { uuid } from '../uuid';
 import { backoffMs, classifyStatus, errorMessageFor } from './classify';
 import { idbOutboxStore, type OutboxStore } from './store';
@@ -29,6 +30,11 @@ export interface OutboxOptions {
   lockName?: string;
   /** BroadcastChannel for cross-context events (tabs ↔ SW); `null` disables it. */
   channelName?: string | null;
+  /**
+   * While this returns true nothing is sent: the server refuses this bundle
+   * (client-versions.md §5.3). Flushes return at once and `sendNow` answers `queued`.
+   */
+  hold?: () => boolean;
 }
 
 export type OutboxListener = (event: OutboxEvent, remote: boolean) => void;
@@ -79,6 +85,7 @@ export function createOutbox(opts: OutboxOptions): Outbox {
   const random = opts.random ?? Math.random;
   const iso = () => new Date(now()).toISOString();
   const listeners = new Set<OutboxListener>();
+  const held = opts.hold ?? (() => false);
 
   const channel =
     opts.channelName !== null && typeof BroadcastChannel !== 'undefined'
@@ -248,6 +255,13 @@ export function createOutbox(opts: OutboxOptions): Outbox {
     }
 
     const { status, text, json, parsed } = res;
+    // Before the kind's classify: the code is in the body (client-versions.md §5.3).
+    if (isClientOutdatedProblem(status, json)) {
+      return {
+        outcome: 'held',
+        error: { message: errorMessageFor(status, json), status, body: json },
+      };
+    }
     const outcome = kind.classify?.(status, json, item) ?? classifyStatus(status);
     if (outcome === 'ok') {
       // A 200 HTML page (captive portal, proxy) is not a confirmation.
@@ -318,7 +332,19 @@ export function createOutbox(opts: OutboxOptions): Outbox {
     const due = (await list()).filter(
       (i) => i.status === 'pending' && (force || i.next_attempt_at <= now()),
     );
-    for (const snapshot of due) {
+    /** Every item left in this pass is held: a waiting `sendNow` answers at once. */
+    const holdRest = async (from: number) => {
+      for (const rest of due.slice(from)) {
+        const item = await store.get(rest.id);
+        if (item?.status === 'pending') emit({ type: 'held', item });
+      }
+    };
+    for (const [index, snapshot] of due.entries()) {
+      // Outdated, maybe learnt from another request during this pass: send nothing more.
+      if (held()) {
+        await holdRest(index);
+        break;
+      }
       const item = await store.get(snapshot.id);
       if (item?.status !== 'pending') continue;
       // Waits for an item still queued (e.g. its run's start): not attempted, no backoff.
@@ -338,6 +364,11 @@ export function createOutbox(opts: OutboxOptions): Outbox {
         continue;
       }
 
+      if (res.outcome === 'held') {
+        // Refused before any effect: the items stay as they were, for the updated bundle.
+        await holdRest(index);
+        break;
+      }
       const error = res.error;
       if (res.outcome === 'retired') {
         // Compare-and-set as below: a discard or edit made meanwhile wins.
@@ -438,7 +469,8 @@ export function createOutbox(opts: OutboxOptions): Outbox {
         if (!('item' in e) || e.item.id !== id) return;
         if (e.type === 'sent') done({ status: 'sent', data: e.data });
         else if (e.type === 'failed') done({ status: 'failed', item: e.item });
-        else if (e.type === 'retrying') done({ status: 'queued', item: e.item });
+        else if (e.type === 'retrying' || e.type === 'held')
+          done({ status: 'queued', item: e.item });
         else if (e.type === 'retired') done({ status: 'retired', item: e.item, error: e.error });
         else if (e.type === 'discarded') done({ status: 'discarded' });
       });
@@ -535,7 +567,8 @@ export function createOutbox(opts: OutboxOptions): Outbox {
       return item;
     },
     flush,
-    sendNow(id, timeoutMs = 8_000) {
+    async sendNow(id, timeoutMs = 8_000) {
+      if (held()) return { status: 'queued', item: await store.get(id) };
       const wait = waitFor(id, timeoutMs);
       void flush();
       return wait;

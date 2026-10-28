@@ -9,3 +9,8 @@ declare const __BUILD_TIME__: string;
  * regenerating the client after an API change drops cache entries of the old shape.
  */
 declare const __API_HASH__: string;
+/**
+ * The API level this bundle speaks (`api_level` of shared/api-level.json, through its copy
+ * src/api/apiLevel.json). Sent in `X-QuickR-Client` (docs/specs/client-versions.md §2, §5.1).
+ */
+declare const __API_LEVEL__: number;

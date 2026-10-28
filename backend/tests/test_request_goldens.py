@@ -435,3 +435,34 @@ async def test_replay_fills_in_the_client_header(
     if level > 0:
         transport.client_level = str(level - 1)
         assert (await client.get("/topics", headers=headers)).status_code == 426
+
+
+async def test_a_listed_client_below_the_minimum_gets_426_on_replay(
+    replay: tuple[httpx.AsyncClient, Substituting], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """compat/old-requests.sh replays each listed client at its own level, through
+    QUICKR_REPLAY_CLIENT_LEVEL. A server whose minimum is above that level refuses the client's
+    goldens with 426, so the gate fails rather than passing them at this commit's level
+    (client-versions.md §6, §7)."""
+    from app import client_versions
+
+    _, transport = replay
+    raised = client_versions.Levels(1, {"ios": 1, "web": 1}, "itms-beta://")
+    monkeypatch.setattr(client_versions, "current", lambda: raised)
+    golden = load("createTopic")["request"]
+    request = {
+        **golden,
+        "headers": {**golden["headers"], "x-quickr-client": "ios; level=<level>; build=<build>"},
+    }
+
+    statuses = {}
+    for listed in ("0", "1"):
+        monkeypatch.setenv("QUICKR_REPLAY_CLIENT_LEVEL", listed)
+        as_listed = Substituting(transport.inner)
+        as_listed.values = transport.values
+        async with httpx.AsyncClient(transport=as_listed, base_url=f"http://test{PREFIX}") as client:
+            r = await send(client, request)
+        statuses[listed] = r.status_code
+        if r.status_code == 426:
+            assert r.json()["code"] == "client_outdated"
+    assert statuses == {"0": 426, "1": 201}

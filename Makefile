@@ -71,6 +71,7 @@ client: openapi ## Regenerate spec + typed TS client/zod schemas
 .PHONY: api-level
 api-level: ## Copy shared/api-level.json into each component that reads it (docs/specs/client-versions.md §2)
 	cp shared/api-level.json backend/app/api_level.json
+	cp shared/api-level.json frontend/src/api/apiLevel.json
 	python3 ios/scripts/gen-api-level.py
 
 .PHONY: vectors

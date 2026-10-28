@@ -1,5 +1,5 @@
 {
-  "_doc": "The iOS builds the server must keep serving. Rule and format: docs/ios/specs/compatibility.md.",
+  "_doc": "The iOS builds the server must keep serving, each with its API level (missing means 0); those below min_client_level.ios in shared/api-level.json are refused, so not checked. Rule and format: docs/ios/specs/compatibility.md.",
   "suites": [
     "FixtureCoverageTests",
     "WireDateTests",
@@ -16,6 +16,7 @@
     {
       "build": "20261026.143027",
       "sha": "0d7ba41f59119d4052bb7292fa4db73e974047f0",
+      "api_level": 0,
       "source": "TestFlight 0.1.0 (20261026.143027), uploaded by CI from v0.3.0 0d7ba41",
       "fallbacks": {}
     }

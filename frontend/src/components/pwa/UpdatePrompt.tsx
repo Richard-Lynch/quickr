@@ -5,6 +5,7 @@ import { hasUnsavedChanges } from '../../lib/unsavedChanges';
 import { ConfirmSheet } from '../ui/Sheet';
 import { useToast } from '../ui/Toast';
 import { Icon } from '../ui/Icon';
+import { ClientOutdated, useClientVersion } from './ClientVersion';
 import { setRegistration } from './swRegistration';
 
 const HOUR = 60 * 60 * 1000;
@@ -12,9 +13,11 @@ const HOUR = 60 * 60 * 1000;
 /**
  * Registers the service worker and shows an unobtrusive "Update available — Reload"
  * card when a new version is waiting. Nothing reloads until the user taps Reload, and
- * if a form has unsaved changes we ask first.
+ * if a form has unsaved changes we ask first. When the server refuses this bundle, the
+ * blocking forced update replaces the card (docs/specs/client-versions.md §5.2).
  */
 export function UpdatePrompt() {
+  const { outdated } = useClientVersion();
   const { toast } = useToast();
   const [dismissed, setDismissed] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -50,6 +53,7 @@ export function UpdatePrompt() {
     void updateServiceWorker(true);
   };
 
+  if (outdated) return <ClientOutdated />;
   if (!needRefresh || dismissed) return null;
 
   return (
