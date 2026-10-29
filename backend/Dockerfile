@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # --- build: resolve the locked environment with uv -------------------------
-FROM python:3.14.7-slim AS builder
+FROM python:3.15.0-slim AS builder
 COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 # --- runtime: slim image, no uv, non-root ----------------------------------
-FROM python:3.14.7-slim
+FROM python:3.15.0-slim
 
 RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --home-dir /app --no-create-home app
