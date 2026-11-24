@@ -9,6 +9,11 @@ opening a port. Each client signs in differently:
 | The iOS app           | A **service token**, sent as two headers on every request (a **Service Auth** policy)                    |
 | MCP clients           | Their own service token, on a separate application for `/mcp` (section 5)                                |
 
+Access is the only gate. quickR itself never reads the token, the
+`Cf-Access-Jwt-Assertion` header or the cookie: neither nginx
+(`frontend/nginx.conf`) nor the backend inspects them, and the origin stays open
+behind the tunnel.
+
 Every value below is a placeholder. The dashboard names were current when this
 was written; Cloudflare moves things around now and then.
 

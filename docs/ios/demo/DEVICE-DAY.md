@@ -202,11 +202,13 @@ PLAN items (M1–M5) in the M3 PR body; M0 and M6 are extra.
 
 From PLAN §7 M4, DAG row M4-DEV and STATUS M4.
 
-Some rows depend on work packages that haven't merged yet. At f695859,
-ios/m3 has `LogEntryIntent` (the "Log … in quickR" phrase) and the topic
-widget, but not `RepeatLastEntryIntent`, `LogTopicIntent` or a Control. W2, W4–W6, W9
-and W7 wait for INTENTS and WIDGETS; skip them with `[-]` until those have
-merged.
+Every row's code is on `main` now: `LogEntryIntent` (the "Log … in quickR"
+phrase), `RepeatLastEntryIntent` and `LogTopicIntent` (App Shortcuts in
+`ios/App/Intents/QuickRAppIntents.swift`), the
+topic widget (`ios/Widgets/TopicWidget.swift`) and the Controls
+(`ios/Widgets/TopicControl.swift`). When this page was written (at f695859, on
+the `ios/m3` branch) W2, W4–W6, W9 and W7 waited for INTENTS and WIDGETS; that
+no longer applies, so run every row.
 
 | #   | Check                                  | Steps                                                                                                                                        | Expected                                                                                                                                                                                                     |
 | --- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

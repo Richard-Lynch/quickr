@@ -97,7 +97,7 @@ booted for an interactive session afterwards. A new boot also needs room: it is 
 `IOS_SIM_MEM_WAIT` seconds (default 600) while `memory_pressure` reports under
 `IOS_SIM_MIN_FREE_PCT` (default 20) % free (`IOS_SIM_RESOURCE_GUARD=0` turns both off).
 `make ios-prune` frees disk from finished work: the simulator clones of worktrees that are gone,
-or merged (into `origin/ios/m3` or a merged pull request), unused and idle for
+or merged (into `origin/main`, or `IOS_PRUNE_BASE`, or a merged pull request), unused and idle for
 `IOS_PRUNE_IDLE_HOURS` (default 3), with those worktrees' `ios/build` and `QuickrKit/.build`,
 and unavailable simulators; never a booted or held simulator, a base device or this worktree.
 `IOS_PRUNE_DRY_RUN=1` (or `--dry-run`) only lists what it would remove. `make ios-script-test` tests all of this (no
@@ -536,10 +536,31 @@ close and reopen the PR to run its required checks.
 ## CI
 
 `.github/workflows/ios.yml` runs on `macos-26` with Xcode 26.6 pinned through
-`DEVELOPER_DIR`, and downloads a pinned, checksummed xcodegen release. A push
-runs `swift test`; a non-draft PR or a manual dispatch runs `make ios-check-ci`
-(Unit plan on an "iPhone 17" simulator with an iOS 26.x runtime, the oldest one
-available; `ios/scripts/sim-ios26.sh` fails the job if the runner has none).
+`DEVELOPER_DIR`, and downloads a pinned, checksummed xcodegen release. It runs
+on a push to `main` or `feat/ios-app`, on a pull request (opened, reopened,
+ready for review, new commits) and on a manual dispatch. Three jobs:
+
+- `ios changes` decides whether a PR touched `ios/`, `shared/fixtures/`, the
+  `Makefile` or the workflow itself. A push or a dispatch always counts as a
+  change, so every commit on `main` gets a gate of its own (a `v*` tag deploys
+  only from a commit whose gates passed).
+- `swift test` (host): `make ios-script-test`, then `ios/scripts/swift-test.sh`
+  (QuickrKit under a strict one-thread cooperative pool), `timing-test.sh`
+  (TimingTests and MultiProcessTests, alone and one at a time) and the
+  lifecycle tests (`QUICKR_LIFECYCLE_TESTS=1`, GRDB suspension, in a `swift
+  test` process of their own).
+- `build + Unit plan`: `make ios-script-test`, then
+  `make ios-check-ci IOS_SIM_CI="iPhone 17"`: xcodegen, then the build and the
+  Unit plan on an "iPhone 17" simulator with an iOS 26.x runtime, the oldest
+  one available (`ios/scripts/sim-ios26.sh` fails the job if the runner has
+  none). The xcresult is uploaded when it fails.
+
+Both slow jobs are skipped on a draft PR and on a PR without iOS changes.
+`ios gate` always runs and is the check branch protection requires on `main`
+(with `backend`, `frontend`, `docker` and `compat gate`): it
+fails on a draft-time run, when the path check failed, or when either job
+failed, and passes when the path check skipped them. The required checks and
+the compat gate are in docs/ios/specs/compatibility.md §4.
 
 ## Interactive loop
 

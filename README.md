@@ -51,7 +51,7 @@ make db migrate    # Postgres in docker on :5433, apply migrations
 make api           # FastAPI on :8100 (reload)
 make web           # Vite on :5180 (proxies /api and /mcp to :8100; QUICKR_API_TARGET overrides)
 make seed          # optional demo data (scheduled topics, a multi-select question)
-make check         # everything CI runs except the docker smoke test (needs Postgres)
+make check         # the backend + frontend CI checks (not the docker smoke test or the iOS/compat gates; needs Postgres)
 make notebook      # Jupyter tour of the REST API + MCP (backend/notebooks/explore_api.ipynb)
 ```
 
@@ -61,6 +61,7 @@ Configuration is via `QUICKR_*` environment variables (or `backend/.env`):
 | ----------------------------------- | ---------------------------------------------------------- |
 | `QUICKR_DATABASE_URL`               | `postgresql+asyncpg://quickr:quickr@localhost:5433/quickr` |
 | `QUICKR_CORS_ORIGINS`               | `["http://localhost:5180","http://localhost:8080"]`        |
+| `QUICKR_DB_ECHO`                    | `false`: log every SQL statement                           |
 | `QUICKR_VAPID_PRIVATE_KEY`          | unset → generated once and stored in the database          |
 | `QUICKR_VAPID_PUBLIC_KEY`           | derived from the private key when unset                    |
 | `QUICKR_VAPID_SUBJECT`              | `https://github.com/Richard-Lynch/quickr`                  |
@@ -74,6 +75,7 @@ Configuration is via `QUICKR_*` environment variables (or `backend/.env`):
 (\*) Raises, never lowers, `min_client_level` from `shared/api-level.json`, and
 is capped at its `api_level`
 ([client-versions.md §2](docs/specs/client-versions.md#2-the-source-of-truth)).
+The APNs variables are listed under [APNs](#apns-the-ios-app).
 
 Tests use `QUICKR_TEST_DATABASE_URL` (default
 `postgresql+asyncpg://quickr:quickr@localhost:5433/quickr_test`, or
@@ -415,11 +417,19 @@ Start from `after=0` and follow `next` while `has_more`.
 
 ## MCP
 
-Point any MCP client at `http://<host>/mcp/` (streamable HTTP). Tools:
-`list_topics` (with `sort`/`due_only`), `list_due_topics`, `get_topic`,
-`create_topic`, `update_topic`, `set_topic_archived`, `list_topic_versions`,
-`check_topic_version`, `publish_topic_version`, `record_entry`, `list_entries`,
-`update_entry`, `delete_entry`, `topic_stats`, `question_series`.
+Point any MCP client at `http://<host>/mcp/` (streamable HTTP). Tools
+(`backend/app/mcp_server.py`):
+
+- **Topics:** `list_topics` (with `sort`/`due_only`), `list_due_topics`,
+  `get_topic`, `create_topic`, `update_topic`, `set_topic_archived`. There is no
+  `delete_topic`; use the REST API.
+- **Versions:** `list_topic_versions`, `check_topic_version`,
+  `publish_topic_version`.
+- **Entries:** `record_entry`, `list_entries`, `update_entry`, `delete_entry`.
+- **Stats:** `topic_stats`, `question_series`.
+- **Runs (timed topics):** `start_run`, `run_action` (`next`, `lap`, `skip`,
+  `pause`, `resume`, `stop`, `finish`, `discard`), `list_runs`,
+  `edit_run_timing`.
 
 ```bash
 claude mcp add --transport http quickr http://localhost:8100/mcp/
@@ -427,19 +437,42 @@ claude mcp add --transport http quickr http://localhost:8100/mcp/
 
 ## CI/CD
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every PR:
+GitHub Actions (`.github/workflows/`) runs on every PR and on every push to
+`main`:
 
-- **backend:** ruff, strict mypy, OpenAPI drift check, Alembic migration check,
-  pytest against Postgres.
-- **frontend:** codegen drift check, prettier, eslint (strict type-checked),
-  tsc, vitest, build.
-- **docker:** builds the images, boots the compose stack, and smoke-tests the
-  UI, API and MCP through nginx.
+- **`ci.yml`**
+  - **backend:** ruff, strict mypy, OpenAPI drift check, Alembic migration
+    check, pytest against Postgres.
+  - **frontend:** codegen drift check, prettier, eslint (strict type-checked),
+    tsc, vitest, build.
+  - **docker:** builds the images, boots the compose stack, and smoke-tests the
+    UI, API and MCP through nginx.
+- **`compat.yml` → `compat gate`**
+  ([compatibility.md](docs/ios/specs/compatibility.md),
+  [client-versions.md](docs/specs/client-versions.md)): `openapi.json` against
+  the latest `v*` tag and against each supported client's own
+  (`compat/supported-clients.json`) with oasdiff; the API level check
+  (`shared/api-level.json` consistent, never lowered, copies fresh); and, when
+  the server side changed, each listed build's recorded requests replayed
+  through this backend, plus the build's own wire suites on macOS (non-draft PRs
+  only). The gate fails a draft-time run rather than passing on skips.
+- **`ios.yml` → `ios gate`**: path-gated on `ios/`, `shared/fixtures/`, the
+  `Makefile` and itself; `swift test` for `ios/QuickrKit` (plus the real-time
+  and lifecycle tests in their own processes) and `make ios-check-ci` (build +
+  Unit plan on an iOS 26.x simulator, no signing). The gate aggregates both.
 
-`main` is protected. Changes land through PRs with all three checks green. When
-CI passes on `main`, `release.yml` publishes multi-arch images to
-`ghcr.io/richard-lynch/quickr-{backend,frontend}`, tagged `latest` plus the
-commit SHA, and with semver tags for `v*` tags.
+`main` is protected: linear history (squash or rebase), and the five checks
+`backend`, `frontend`, `docker`, `ios gate` and `compat gate` must be green.
+
+- **`release.yml`**: when CI passes on `main`, publishes multi-arch images to
+  `ghcr.io/richard-lynch/quickr-{backend,frontend}` (the repository owner,
+  lower-cased), tagged `latest` plus the commit SHA. A `v*` tag publishes the
+  SHA and semver tags, not `latest`.
+- **`testflight.yml`**: on a `v*` tag (a tag ruleset lets only admins create
+  one), archives the iOS app and uploads it to TestFlight, then opens a "Compat:
+  list TestFlight build …" PR that adds the build to
+  `compat/supported-clients.json` so the compat gate keeps checking the server
+  against it. Close and reopen that PR to start its checks.
 
 Dependency updates come from [Renovate](https://docs.renovatebot.com/)
 (`renovate.json`): one weekly PR per ecosystem (uv, pnpm, Dockerfiles, GitHub

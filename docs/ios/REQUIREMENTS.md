@@ -47,13 +47,17 @@ This replaces the "additive only" wording in PLAN §5 and §1.
 
 ## Process
 
-- All work happens in worktrees on the feature branch **`feat/ios-app`**
-  (worktree `../quickr-worktrees/ios`). Sub-agents work in their own worktrees
-  and branches off `feat/ios-app`.
-- **One PR per milestone into `feat/ios-app`.** Each PR includes demo
-  **screenshots, videos and GIFs** (simulator recordings, device captures once
-  available).
-- **One final PR from `feat/ios-app` to `main`.**
+- Work happens on short-lived branches in their own worktrees and merges
+  straight into **`main`** by squash PR (merge commits are off). A PR needs the
+  five required checks green: `backend`, `frontend`, `docker`, `ios gate` and
+  `compat gate`. No doc may depend on a particular worktree path existing;
+  finished worktrees are deleted.
+- Historical: the app was first built on the long-lived branch `feat/ios-app`,
+  with one PR per milestone into it and one final PR to `main` (#6, 2026-10-22).
+  A milestone may still use a short integration branch (timers used
+  `feat/timers`, CV `feat/client-versions`), merged to `main` as one PR.
+- Each milestone PR includes demo **screenshots, videos and GIFs** (simulator
+  recordings, device captures once available).
 - **Testing:** a local gate (`make check-ios`) with unit tests (sync engine, due
   logic, validation, API client) and a few XCUITest flows, plus a **GitHub CI
   macOS job** that builds and runs the unit tests. The existing backend and
