@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # make ios-prune: frees disk from finished work. Removes
 # - shut-down quickR simulator clones (sim-clone.sh's "<source> <dir>-<hash6>") whose worktree
-#   is gone, or finished: its HEAD merged into IOS_PRUNE_BASE (default origin/ios/m3) or into
+#   is gone, or finished: its HEAD merged into IOS_PRUNE_BASE (default origin/main) or into
 #   the head of a merged pull request (milestone PRs are squash-merged), no process working in
 #   it, no uncommitted change, and nothing in it (HEAD, reflog, build output) changed for
 #   IOS_PRUNE_IDLE_HOURS (default 3);
@@ -27,7 +27,7 @@ set +e
 dry="${IOS_PRUNE_DRY_RUN:-0}"
 [[ "${1:-}" == --dry-run ]] && dry=1
 repo="${IOS_PRUNE_REPO:-$ROOT_DIR}"
-base="${IOS_PRUNE_BASE:-origin/ios/m3}"
+base="${IOS_PRUNE_BASE:-origin/main}"
 data="${IOS_SIM_DATA_DIR:-$HOME/Library/Developer/CoreSimulator}/Devices"
 current="$(cd "$repo" && pwd -P)" || die "prune: no repo at $repo"
 git -C "$repo" rev-parse --verify -q "$base^{commit}" >/dev/null || die "prune: no $base here (git fetch first)"
