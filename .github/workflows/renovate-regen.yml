@@ -1,0 +1,275 @@
+name: Renovate regen
+
+# Renovate runs as the hosted Mend app, which cannot run postUpgradeTasks. This workflow does the
+# repo's post-upgrade codegen on its branches instead:
+# - `make client`: openapi.json (a FastAPI/pydantic bump can change the schema output) and
+#   frontend/src/client (a @hey-api/openapi-ts bump changes the generated code). CI's drift checks
+#   fail the PR otherwise.
+# - Package.resolved: Renovate moves `from:` in ios/QuickrKit/Package.swift but not the pins, and
+#   the iOS build runs with "only use versions from the resolved file".
+#
+# Supply-chain shape: the jobs that run dependency code (uv, pnpm, SwiftPM) have a read-only
+# token, no persisted credentials, no install scripts and no writable caches. They hand a plain
+# patch to a write job that runs git and nothing else, and that job checks the patch against a
+# path allowlist before and after applying it. A push made with GITHUB_TOKEN does not trigger the
+# check workflows, so the last job dispatches them for the new head; their check runs attach to it
+# and satisfy the branch protection like `pull_request` runs would. Renovate keeps rebasing the
+# branch because renovate.json lists this bot's author in gitIgnoredAuthors.
+on:
+  push:
+    branches: ["renovate/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: renovate-regen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: what moved
+    runs-on: ubuntu-latest
+    outputs:
+      swift: ${{ steps.diff.outputs.swift }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        run: |
+          base=$(git merge-base origin/main HEAD)
+          files=$(git diff --name-only "$base" HEAD)
+          echo "$files"
+          swift=false
+          grep -qx 'ios/QuickrKit/Package.swift' <<<"$files" && swift=true
+          echo "swift=$swift" >> "$GITHUB_OUTPUT"
+
+  client:
+    name: regenerate client
+    runs-on: ubuntu-latest
+    outputs:
+      # Set only once the patch is uploaded, so the commit job never waits on a missing artifact.
+      changed: ${{ steps.done.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # No caches here: a poisoned install must not be able to seed a cache another job restores.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/.nvmrc
+      - run: uv sync --frozen
+        working-directory: backend
+      # openapi-ts needs no build step, so lifecycle scripts stay off.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+        working-directory: frontend
+      - run: make client
+      - name: Patch of what changed
+        id: patch
+        run: |
+          git add -A -- openapi.json frontend/src/client
+          if git diff --cached --quiet; then
+            echo "client: nothing to regenerate"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --cached --stat
+          git diff --cached > "$RUNNER_TEMP/client.patch"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+      - if: steps.patch.outputs.changed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: client.patch
+          path: ${{ runner.temp }}/client.patch
+          retention-days: 1
+      - id: done
+        run: echo "changed=${{ steps.patch.outputs.changed }}" >> "$GITHUB_OUTPUT"
+
+  swift:
+    name: regenerate Package.resolved
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    outputs:
+      changed: ${{ steps.done.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # `resolve`, not `update`: pins that still satisfy Package.swift stay put, so only the
+      # package Renovate moved changes. The iOS gate's resolved-check.sh confirms Xcode agrees.
+      - run: swift package resolve --package-path ios/QuickrKit
+      - name: Patch of what changed
+        id: patch
+        run: |
+          git add -- ios/QuickrKit/Package.resolved
+          if git diff --cached --quiet; then
+            echo "swift: pins unchanged"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --cached
+          git diff --cached > "$RUNNER_TEMP/swift.patch"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+      - if: steps.patch.outputs.changed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: swift.patch
+          path: ${{ runner.temp }}/swift.patch
+          retention-days: 1
+      - id: done
+        run: echo "changed=${{ steps.patch.outputs.changed }}" >> "$GITHUB_OUTPUT"
+
+  commit:
+    name: commit to the branch
+    # Runs when either patch exists, even if the other job failed (its failure stays visible on
+    # this workflow run); whatever was regenerated still lands and gets its checks.
+    needs: [client, swift]
+    if: >-
+      always() && startsWith(github.ref_name, 'renovate/') &&
+      ((needs.client.result == 'success' && needs.client.outputs.changed == 'true') ||
+       (needs.swift.result == 'success' && needs.swift.outputs.changed == 'true'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      pushed: ${{ steps.push.outputs.pushed }}
+      sha: ${{ steps.push.outputs.sha }}
+    env:
+      CLIENT: ${{ needs.client.result == 'success' && needs.client.outputs.changed == 'true' }}
+      SWIFT: ${{ needs.swift.result == 'success' && needs.swift.outputs.changed == 'true' }}
+      GIT_AUTHOR_NAME: github-actions[bot]
+      GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+      GIT_COMMITTER_NAME: github-actions[bot]
+      GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+    steps:
+      # The commit the patches were made from; if Renovate has pushed since, the push below is
+      # rejected and that newer push's own run takes over. No credentials on disk: the token is
+      # handed to the one push command only.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - if: env.CLIENT == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: client.patch
+          path: ${{ runner.temp }}/patches
+      - if: env.SWIFT == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: swift.patch
+          path: ${{ runner.temp }}/patches
+      - name: Check the patches against the allowlist
+        # The patches come from jobs that ran dependency code, so they are untrusted: only plain
+        # text edits to the generated paths get through (no modes, symlinks, renames, binaries).
+        run: |
+          set -euo pipefail
+          check() {
+            python3 - "$@" <<'PY'
+          import fnmatch, subprocess, sys
+          patch, allow = sys.argv[1], sys.argv[2:]
+          text = b"\n" + open(patch, "rb").read()
+          for marker in (b"\nold mode ", b"\nnew mode ", b"\nrename from ", b"\nrename to ",
+                         b"\ncopy from ", b"\ncopy to ", b"\nsimilarity index ",
+                         b"\nGIT binary patch", b"\nBinary files "):
+              if marker in text:
+                  sys.exit(f"{patch}: refused, contains {marker.strip().decode()!r}")
+          for line in text.split(b"\n"):
+              if line.startswith((b"new file mode ", b"deleted file mode ")) and not line.endswith(b" 100644"):
+                  sys.exit(f"{patch}: refused, {line.decode()!r}")
+          out = subprocess.run(["git", "apply", "--numstat", "-z", patch], capture_output=True, check=True).stdout
+          paths = []
+          for rec in out.split(b"\0"):
+              if not rec:
+                  continue
+              added, deleted, path = rec.split(b"\t", 2)
+              if path == b"" or b"-" in (added, deleted):
+                  sys.exit(f"{patch}: refused, rename or binary entry {rec!r}")
+              paths.append(path.decode())
+          for path in paths:
+              parts = path.split("/")
+              if path.startswith("/") or ".." in parts or not any(fnmatch.fnmatchcase(path, a) for a in allow):
+                  sys.exit(f"{patch}: refused, {path!r} is outside {allow}")
+          print(f"{patch}: ok, {len(paths)} file(s): {' '.join(paths)}")
+          PY
+          }
+          if [[ "$CLIENT" == true ]]; then
+            check "$RUNNER_TEMP/patches/client.patch" 'openapi.json' 'frontend/src/client/*'
+          fi
+          if [[ "$SWIFT" == true ]]; then
+            check "$RUNNER_TEMP/patches/swift.patch" 'ios/QuickrKit/Package.resolved'
+          fi
+      - name: Apply, commit, push
+        id: push
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          staged_within() {
+            while IFS= read -r path; do
+              case "$path" in
+                openapi.json | frontend/src/client/* | ios/QuickrKit/Package.resolved) ;;
+                *) echo "refusing to commit $path"; exit 1 ;;
+              esac
+            done < <(git diff --cached --name-only)
+          }
+          if [[ "$CLIENT" == true ]]; then
+            git apply --index "$RUNNER_TEMP/patches/client.patch"
+            staged_within
+            git commit -q -m "Regenerate openapi.json and client after dependency update" \
+              -m "make client, run by renovate-regen.yml on ${GITHUB_SHA}."
+          fi
+          if [[ "$SWIFT" == true ]]; then
+            git apply --index "$RUNNER_TEMP/patches/swift.patch"
+            staged_within
+            git commit -q -m "Update Package.resolved after dependency update" \
+              -m "swift package resolve, run by renovate-regen.yml on ${GITHUB_SHA}."
+          fi
+          git log --oneline "${GITHUB_SHA}..HEAD"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
+            push origin "HEAD:refs/heads/${GITHUB_REF_NAME}"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  dispatch:
+    name: re-run checks on the new head
+    needs: commit
+    # always(): a skipped swift job upstream must not skip this one.
+    if: always() && needs.commit.result == 'success' && needs.commit.outputs.pushed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PUSHED_SHA: ${{ needs.commit.outputs.sha }}
+    steps:
+      # workflow_dispatch takes a branch, not a sha. If the branch has moved on, that push
+      # triggered its own runs, so there is nothing to certify here; a move between the check
+      # and a dispatch only costs an extra run, since the newer head is certified by its own.
+      - run: |
+          set -euo pipefail
+          tip=$(gh api "repos/${GH_REPO}/git/ref/heads/${GITHUB_REF_NAME}" --jq .object.sha)
+          if [[ "$tip" != "$PUSHED_SHA" ]]; then
+            echo "branch moved to $tip since $PUSHED_SHA; skipping"
+            exit 0
+          fi
+          # Under dispatch, compat's api-level step compares HEAD with HEAD^1, i.e. the regen
+          # commit with Renovate's; that is fine, a dependency bump never touches
+          # shared/api-level.json, and Renovate's own push already ran the pull_request checks.
+          for wf in ci.yml compat.yml ios.yml; do
+            gh workflow run "$wf" --ref "${GITHUB_REF_NAME}"
+          done
