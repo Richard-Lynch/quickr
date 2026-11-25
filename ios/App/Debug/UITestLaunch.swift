@@ -425,7 +425,8 @@ enum FakeServer {
         #"""
         {"kind": "topic", "seq": \#(seq), "topic": {"archived_at": null, "created_at": "2026-01-01T00:00:00Z",
          "current_version": 1, "description": "", "due": null, "entry_count": 0, "id": "\#(id.wireString)",
-         "last_captured_at": null, "name": "\#(name)", "question_count": \#(count), "questions": \#(questions),
+         "last_captured_at": null, "last_entry": null, "name": "\#(name)", "question_count": \#(count),
+         "questions": \#(questions),
          "revision": 1, "schedule": null, "schedule_updated_at": null, "slug": "\#(slug)", "status": "active",
          "timer": \#(timer), "updated_at": "2026-01-01T00:00:00Z"}}
         """#
@@ -667,7 +668,8 @@ private struct FakeServerTransport: Transport {
                 "id": UUID().wireString, "slug": slug, "name": name,
                 "description": body["description"] as? String ?? "",
                 "status": "active", "current_version": 1, "revision": 1, "question_count": questions.count,
-                "entry_count": 0, "last_captured_at": NSNull(), "created_at": now, "updated_at": now,
+                "entry_count": 0, "last_captured_at": NSNull(), "last_entry": NSNull(),  // T2-M4: last_entry
+                "created_at": now, "updated_at": now,
                 "archived_at": NSNull(), "schedule": schedule,
                 "schedule_updated_at": schedule is NSNull ? NSNull() : now as Any, "due": NSNull(),
                 "timer": body["timer"] ?? NSNull(), "questions": questions,
