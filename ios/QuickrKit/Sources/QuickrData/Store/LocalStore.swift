@@ -135,8 +135,14 @@ public struct LocalStore: Sendable {
         }
     }
 
-    public func observeOutbox(refresh: AsyncStream<Void>? = nil) -> AsyncThrowingStream<[OutboxItem], any Error> {
-        StoreObservation.values(in: writer, refresh: refresh) { db in try OutboxStorage.items(db) }
+    /// The items and their summary from one read (`OutboxSnapshot`): a consumer that shows both
+    /// never sees one ahead of the other.
+    public func observeOutbox(refresh: AsyncStream<Void>? = nil) -> AsyncThrowingStream<OutboxSnapshot, any Error> {
+        let clock = leaseClock
+        return StoreObservation.values(in: writer, refresh: refresh) { db in
+            let items = try OutboxStorage.items(db)
+            return OutboxSnapshot(items: items, summary: try OutboxSummary.read(db, items: items, now: clock.now()))
+        }
     }
 
     public func observeSyncState(refresh: AsyncStream<Void>? = nil) -> AsyncThrowingStream<SyncState?, any Error> {
