@@ -3,7 +3,9 @@
  * charts and summaries make of the server's stats and series (the inputs are the real
  * responses in shared/fixtures/stats-vectors.json), for the iOS port. It runs the PWA's own
  * code: the chart models (`chartModels.ts`), `niceTicks`, `formatBucket`, `formatTick`,
- * `formatNumber`, `formatPercent`, `plural` and `optionColors`.
+ * `formatNumber`, `formatPercent`, `plural` and `optionColors`; and (v2, content-display.md
+ * §4.2, §4.3) the activity strip, the numeric sparklines and the timing chart models
+ * (`timingModels.ts`), the last over shared/fixtures/timing-stats-vectors.json.
  *
  * Text is en-US (the generator checks the locale), and bucket labels are in each series'
  * `tz`, which the generator sets as the process zone before labelling it. Label positions
@@ -21,6 +23,7 @@ import type {
   SeriesPoint,
   StrStats,
   TopicStats,
+  TopicTiming,
 } from '../../client';
 import { RANGE_PRESETS } from '../../lib/dates';
 import { formatNumber, formatPercent, plural } from '../../lib/format';
@@ -34,6 +37,13 @@ import {
   seriesTotal,
 } from './chartModels';
 import { formatBucket, formatTick, niceTicks, pickLabels, type Bucket } from './chartUtils';
+import {
+  activityLevel,
+  activityStrip,
+  localMidnight,
+  sparkline,
+  stepsByBucket,
+} from './timingModels';
 
 // No @types/node in the app's tsconfig: reach Node through narrow local types.
 interface NodeProcess {
@@ -60,9 +70,10 @@ function inZone<T>(tz: string, body: () => T): T {
 
 const DIR = `${decodeURIComponent(new URL(import.meta.url).pathname).replace(/\/[^/]*$/, '')}/../../../../shared/fixtures`;
 const INPUT = `${DIR}/stats-vectors.json`;
+const TIMING_INPUT = `${DIR}/timing-stats-vectors.json`;
 const FILE = `${DIR}/stats-chart-vectors.json`;
 const FILE_LABEL = 'shared/fixtures/stats-chart-vectors.json';
-const GENERATOR_VERSION = 1;
+const GENERATOR_VERSION = 2;
 const WIDTHS = [320, 600];
 /** The zone the summaries' dates are shown in. */
 const SUMMARY_TZ = 'Europe/London';
@@ -227,6 +238,146 @@ const PICK_CASES: { xs: number[]; gap: number }[] = [
   { xs: [0, 51.999, 104], gap: 52 },
 ];
 
+// Activity strip cases (content-display.md §4.2). `today` is the local date in `tz`.
+const ms = (iso: string) => Date.parse(iso);
+const ACTIVITY: { name: string; tz: string; today: string; captured_at: number[] }[] = [
+  { name: 'empty', tz: 'UTC', today: '2026-11-25', captured_at: [] },
+  {
+    // 2026-11-25 is a Wednesday: first cell Monday 2026-09-07 (BST), today in GMT.
+    name: 'cell edges: first cell 00:00 local, today 23:59 local, and just outside',
+    tz: 'Europe/London',
+    today: '2026-11-25',
+    captured_at: [
+      ms('2026-09-06T22:59:59.999Z'),
+      ms('2026-09-06T23:00:00Z'),
+      ms('2026-11-25T23:59:00Z'),
+      ms('2026-11-26T00:00:00Z'),
+    ],
+  },
+  {
+    name: '23:30 UTC is the next local day in Pacific/Auckland',
+    tz: 'Pacific/Auckland',
+    today: '2026-11-01',
+    captured_at: [ms('2026-10-25T23:30:00Z')],
+  },
+  {
+    name: '23:30 UTC is the same local day in America/Los_Angeles',
+    tz: 'America/Los_Angeles',
+    today: '2026-11-01',
+    captured_at: [ms('2026-10-25T23:30:00Z')],
+  },
+  {
+    // Sunday 2026-03-29 has 23 hours: 01:00 GMT -> 02:00 BST.
+    name: 'Europe/London spring-forward week',
+    tz: 'Europe/London',
+    today: '2026-04-01',
+    captured_at: [
+      ms('2026-03-28T23:30:00Z'),
+      ms('2026-03-29T00:30:00Z'),
+      ms('2026-03-29T01:30:00Z'),
+      ms('2026-03-29T22:59:00Z'),
+      ms('2026-03-29T23:00:00Z'),
+    ],
+  },
+  {
+    // Sunday 2026-10-25 has 25 hours: 01:00-02:00 happens twice (BST, then GMT).
+    name: 'Europe/London fall-back week',
+    tz: 'Europe/London',
+    today: '2026-10-28',
+    captured_at: [
+      ms('2026-10-24T22:59:00Z'),
+      ms('2026-10-24T23:00:00Z'),
+      ms('2026-10-25T00:30:00Z'),
+      ms('2026-10-25T01:30:00Z'),
+      ms('2026-10-25T23:59:00Z'),
+      ms('2026-10-26T00:00:00Z'),
+    ],
+  },
+  {
+    // The last column has one cell; counts reach every intensity step.
+    name: 'today on a Monday',
+    tz: 'Europe/London',
+    today: '2026-11-23',
+    captured_at: [
+      ms('2026-11-22T10:00:00Z'),
+      ms('2026-11-22T11:00:00Z'),
+      ms('2026-11-23T08:00:00Z'),
+      ms('2026-11-23T09:00:00Z'),
+      ms('2026-11-23T10:00:00Z'),
+      ms('2026-11-23T11:00:00Z'),
+      ms('2026-11-21T12:00:00Z'),
+    ],
+  },
+  {
+    // The grid is full; tomorrow (Monday) would start a new column and drop a week.
+    name: 'today on a Sunday',
+    tz: 'Europe/London',
+    today: '2026-11-29',
+    captured_at: [ms('2026-09-07T00:00:00Z'), ms('2026-11-29T12:00:00Z')],
+  },
+];
+
+function activityCase(c: (typeof ACTIVITY)[number]) {
+  const strip = activityStrip(c.captured_at, c.today, c.tz);
+  return {
+    ...c,
+    first_day: strip.firstDay,
+    from: new Date(localMidnight(strip.firstDay, c.tz)).toISOString(),
+    cells: strip.cells.map((cell) => [cell.day, cell.count, activityLevel(cell.count)]),
+    max: strip.max,
+    total: strip.total,
+  };
+}
+
+// Sparklines (content-display.md §4.3): every int/double series of stats-vectors.json at
+// SPARK_WIDTH, and shapes the server doesn't send.
+const SPARK_WIDTH = 160;
+const SPARK_SYNTHETIC: { name: string; width: number; points: SeriesPoint[] }[] = [
+  { name: 'sparkline: no points', width: SPARK_WIDTH, points: [] },
+  {
+    name: 'sparkline: no bucket has a mean',
+    width: SPARK_WIDTH,
+    points: [point('2025-01-06T00:00:00Z', { count: 3 })],
+  },
+  {
+    name: 'sparkline: one point sits at the right edge, mid height',
+    width: SPARK_WIDTH,
+    points: [point('2025-01-06T00:00:00Z', { count: 1, mean: 3, min: 3, max: 3 })],
+  },
+  {
+    name: 'sparkline: one value is a flat line',
+    width: 100,
+    points: [
+      point('2025-01-06T00:00:00Z', { count: 1, mean: 3, min: 3, max: 3 }),
+      point('2025-01-13T00:00:00Z', { count: 1, mean: 3, min: 3, max: 3 }),
+    ],
+  },
+  {
+    name: 'sparkline: x by time, buckets without a mean skipped, negatives',
+    width: 108,
+    points: [
+      point('2025-01-01T00:00:00Z', { count: 1, mean: -2 }),
+      point('2025-01-02T00:00:00Z', { count: 1 }),
+      point('2025-01-03T00:00:00Z', { count: 2, mean: 6.25 }),
+      point('2025-01-05T00:00:00Z', { count: 1, mean: 1 / 3 }),
+    ],
+  },
+];
+
+function sparkCase(name: string, points: readonly SeriesPoint[], width: number, inline: boolean) {
+  const model = sparkline(points, width);
+  return {
+    name,
+    width,
+    ...(inline ? { points } : {}),
+    ...(model ? { ...model, empty: false } : { empty: true }),
+  };
+}
+
+// The timing models over each timing-stats-vectors.json case, bucketed in TIMING_TZ.
+const TIMING_TZ = 'Europe/London';
+const TIMING_BUCKETS: Bucket[] = ['day', 'week', 'month'];
+
 // ---------------------------------------------------------------------------
 // Builders
 // ---------------------------------------------------------------------------
@@ -352,7 +503,10 @@ function statsCase(c: InputCase) {
   };
 }
 
-function build(input: { cases: InputCase[] }) {
+function build(
+  input: { cases: InputCase[] },
+  timing: { cases: { name: string; expected: TopicTiming }[] },
+) {
   const statsByTopic = new Map<string, TopicStats>();
   for (const c of input.cases) {
     if (c.kind === 'stats' && Object.keys(c.query).length === 0)
@@ -368,7 +522,13 @@ function build(input: { cases: InputCase[] }) {
         'series[i] is the chart for the stats-vectors.json series case of the same name: ' +
         "'kept' indexes its response points (line: those with a mean; stacked: those with answers); " +
         "'labelled' indexes 'kept' per chart width; labels are formatBucket(start) in 'tz'. " +
-        'stats[i] is the Overview for the stats case of the same name (dates in meta.summary_tz).',
+        'stats[i] is the Overview for the stats case of the same name (dates in meta.summary_tz). ' +
+        'activity[i] is activityStrip(captured_at, today, tz): cells [day, count, level] from ' +
+        "first_day to today, 'from' the listEntries bound (first_day's local midnight, UTC). " +
+        'sparklines[i] is sparkline(points, width) for the stats-vectors.json series case of the ' +
+        "same name, or its inline 'points'. timing_models[i] is stepsByBucket(series, bucket) " +
+        "for the timing-stats-vectors.json case of the same name, bucketed in 'tz'.",
+      spark_width: SPARK_WIDTH,
     },
     default_bucket: RANGE_PRESETS.map((r) => [r.value, defaultBucket(r.value)]),
     ticks: TICK_CASES.map(([min, max]) => {
@@ -390,6 +550,26 @@ function build(input: { cases: InputCase[] }) {
     series: input.cases.filter((c) => c.kind === 'series').map((c) => seriesCase(c, statsByTopic)),
     synthetic: SYNTHETIC.map(syntheticCase),
     stats: input.cases.filter((c) => c.kind === 'stats').map(statsCase),
+    activity: ACTIVITY.map(activityCase),
+    sparklines: [
+      ...input.cases
+        .filter(
+          (c) =>
+            c.kind === 'series' &&
+            ((c.response as QuestionSeries).type === 'int' ||
+              (c.response as QuestionSeries).type === 'double'),
+        )
+        .map((c) => sparkCase(c.name, (c.response as QuestionSeries).points, SPARK_WIDTH, false)),
+      ...SPARK_SYNTHETIC.map((c) => sparkCase(c.name, c.points, c.width, true)),
+    ],
+    timing_models: timing.cases.flatMap((c) =>
+      TIMING_BUCKETS.map((bucket) => ({
+        name: c.name,
+        tz: TIMING_TZ,
+        bucket,
+        steps_by_bucket: inZone(TIMING_TZ, () => stepsByBucket(c.expected.series, bucket)),
+      })),
+    ),
   };
 }
 
@@ -436,7 +616,10 @@ describe('stats chart vectors (shared with iOS)', () => {
     const fsName = 'node:fs';
     const fs = (await import(/* @vite-ignore */ fsName)) as NodeFs;
     const input = JSON.parse(fs.readFileSync(INPUT, 'utf8')) as { cases: InputCase[] };
-    const content = dumpCases(build(input));
+    const timing = JSON.parse(fs.readFileSync(TIMING_INPUT, 'utf8')) as {
+      cases: { name: string; expected: TopicTiming }[];
+    };
+    const content = dumpCases(build(input, timing));
     if (nodeProcess.env.QUICKR_UPDATE_VECTORS === '1') {
       fs.writeFileSync(FILE, content);
       return;

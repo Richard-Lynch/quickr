@@ -1,20 +1,30 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type RefObject } from 'react';
 
 import { errorMessage } from '../../api/errors';
 import {
   getQuestionSeriesOptions,
   getTopicStatsOptions,
   getTopicTimingOptions,
+  listEntriesOptions,
   listTopicVersionsOptions,
 } from '../../client/@tanstack/react-query.gen';
 import type { EnumStats, NumericStats, StrStats, TopicStats } from '../../client';
 import { defaultBucket, enumView } from '../../components/charts/chartModels';
-import { type Bucket } from '../../components/charts/chartUtils';
+import { useWidth, type Bucket } from '../../components/charts/chartUtils';
 import { EnumBars, optionColors } from '../../components/charts/EnumBars';
 import { Histogram } from '../../components/charts/Histogram';
 import { LineChart } from '../../components/charts/LineChart';
 import { StackedBars } from '../../components/charts/StackedBars';
+import {
+  ACTIVITY_WEEKS,
+  activityLevel,
+  activityStrip,
+  localDay,
+  localMidnight,
+  SPARK_LAYOUT,
+  sparkline,
+} from '../../components/charts/timingModels';
 import { FilterBar } from '../../components/FilterBar';
 import { TimingOverview } from '../../components/runs/TimingOverview';
 import { ButtonLink } from '../../components/ui/Button';
@@ -25,6 +35,7 @@ import { Skeleton } from '../../components/ui/Spinner';
 import { browserTimeZone, formatDate, formatRelative, type RangePreset } from '../../lib/dates';
 import { filterQuery, useEntryFilters, type EntryFilterState } from '../../lib/filters';
 import { formatNumber, formatPercent, plural } from '../../lib/format';
+import { useNow } from '../../lib/hooks';
 import type { Question } from '../../lib/questions';
 import { useTopic } from './TopicLayout';
 
@@ -78,28 +89,33 @@ export function OverviewPage() {
           <Skeleton className="h-72 rounded-card" />
         </div>
       ) : stats.data.entry_count === 0 ? (
-        <EmptyState
-          title={topic.entry_count === 0 ? 'No data yet' : 'Nothing in this range'}
-          icon={<Icon name="chart" className="size-9" />}
-          action={
-            topic.entry_count === 0 && topic.status === 'active' ? (
-              <ButtonLink
-                to={`/t/${topic.slug}/record`}
-                variant="primary"
-                icon={<Icon name="plus" />}
-              >
-                Log the first entry
-              </ButtonLink>
-            ) : null
-          }
-        >
-          {topic.entry_count === 0
-            ? 'Charts and stats appear as soon as you log an entry.'
-            : 'Try a wider date range.'}
-        </EmptyState>
+        <>
+          {/* The strip ignores the range and filters: an empty range still has a last 12 weeks. */}
+          {topic.entry_count > 0 ? <Activity slug={topic.slug} /> : null}
+          <EmptyState
+            title={topic.entry_count === 0 ? 'No data yet' : 'Nothing in this range'}
+            icon={<Icon name="chart" className="size-9" />}
+            action={
+              topic.entry_count === 0 && topic.status === 'active' ? (
+                <ButtonLink
+                  to={`/t/${topic.slug}/record`}
+                  variant="primary"
+                  icon={<Icon name="plus" />}
+                >
+                  Log the first entry
+                </ButtonLink>
+              ) : null
+            }
+          >
+            {topic.entry_count === 0
+              ? 'Charts and stats appear as soon as you log an entry.'
+              : 'Try a wider date range.'}
+          </EmptyState>
+        </>
       ) : (
         <>
           <Summary stats={stats.data} />
+          <Activity slug={topic.slug} />
           {timing.isError ? (
             <Banner title="Could not load timing">{errorMessage(timing.error)}</Banner>
           ) : timing.data && timing.data.runs > 0 ? (
@@ -248,11 +264,14 @@ function NumericCard({
   const u = unit ? ` ${unit}` : '';
   return (
     <>
-      <div className="flex items-baseline gap-2">
-        <span className="font-mono text-4xl leading-none font-bold tabular">
-          {formatNumber(stats.mean, dec)}
-        </span>
-        <span className="text-sm text-muted">avg{u}</span>
+      <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-baseline gap-2">
+          <span className="font-mono text-4xl leading-none font-bold tabular">
+            {formatNumber(stats.mean, dec)}
+          </span>
+          <span className="text-sm text-muted">avg{u}</span>
+        </div>
+        <Sparkline slug={slug} questionKey={stats.key} label={stats.label} filters={filters} />
       </div>
       <dl className="grid grid-cols-3 gap-x-3 gap-y-2 rounded-xl bg-sunken/60 p-3 text-sm sm:grid-cols-5">
         {(
@@ -284,6 +303,192 @@ function NumericCard({
         )}
       </div>
     </>
+  );
+}
+
+/** True once `ref` has been on screen (always true without `IntersectionObserver`). */
+function useSeen(ref: RefObject<Element | null>): boolean {
+  const [seen, setSeen] = useState(() => typeof IntersectionObserver === 'undefined');
+  useEffect(() => {
+    const el = ref.current;
+    if (seen || !el) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) setSeen(true);
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ref, seen]);
+  return seen;
+}
+
+/**
+ * A numeric card's trend (content-display.md §4.3): the means per default bucket of the range,
+ * the last point marked, max and min as end labels. Its query waits until the card is on
+ * screen.
+ */
+function Sparkline({
+  slug,
+  questionKey,
+  label,
+  filters,
+}: {
+  slug: string;
+  questionKey: string;
+  label: string;
+  filters: EntryFilterState;
+}) {
+  const [ref, width] = useWidth<HTMLDivElement>(160);
+  const seen = useSeen(ref);
+  const series = useQuery({
+    ...getQuestionSeriesOptions({
+      path: { ref: slug, key: questionKey },
+      query: {
+        ...filterQuery(filters),
+        bucket: defaultBucket(filters.range),
+        tz: browserTimeZone(),
+      },
+    }),
+    staleTime: 5 * 60_000,
+    enabled: seen,
+  });
+  const model = series.data ? sparkline(series.data.points, width) : null;
+  const { height, pad } = SPARK_LAYOUT;
+  return (
+    <div className="flex min-w-0 flex-1 items-stretch gap-1.5">
+      <div ref={ref} className="min-w-0 flex-1" data-testid={`sparkline-${questionKey}`}>
+        {model ? (
+          <svg
+            width={width}
+            height={height}
+            role="img"
+            aria-label={`${label}: trend, last ${formatNumber(model.last.value)}`}
+            className="block overflow-visible"
+          >
+            <polyline
+              points={model.path.map(([x, y]) => `${x},${y}`).join(' ')}
+              fill="none"
+              className="stroke-accent"
+              strokeWidth={1.5}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+            <circle
+              cx={model.last.x}
+              cy={model.last.y}
+              r={pad - 1}
+              className="fill-accent stroke-surface"
+              strokeWidth={1.5}
+            />
+          </svg>
+        ) : series.isError ? (
+          <p
+            className="flex items-center text-xs text-danger"
+            style={{ height }}
+            title={errorMessage(series.error)}
+          >
+            Trend unavailable
+          </p>
+        ) : series.isPending && seen ? (
+          <Skeleton className="h-12" />
+        ) : (
+          <div style={{ height }} />
+        )}
+      </div>
+      {model ? (
+        <div className="flex shrink-0 flex-col justify-between py-0.5 text-right font-mono text-[0.65rem] leading-none text-muted tabular">
+          <span data-testid="sparkline-max">{formatNumber(model.max)}</span>
+          <span data-testid="sparkline-min">{formatNumber(model.min)}</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const ACTIVITY_LIMIT = 500;
+const LEVEL_CLASS = ['bg-sunken', 'bg-accent/35', 'bg-accent/65', 'bg-accent'] as const;
+const cellDate = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short',
+  day: 'numeric',
+  month: 'short',
+  timeZone: 'UTC',
+});
+
+/**
+ * Entries per local day over the last 12 Monday-started weeks (content-display.md §4.2), from
+ * the entries themselves: one `listEntries` from the first cell's local midnight. Not
+ * filtered by the range or the filters.
+ */
+function Activity({ slug }: { slug: string }) {
+  const tz = browserTimeZone();
+  // Ticks each minute, so the strip moves on at midnight.
+  const today = localDay(useNow(60_000).getTime(), tz);
+  // Only the cells' shape matters for the query bound: it changes once a day.
+  const firstDay = activityStrip([], today, tz).firstDay;
+  const entries = useQuery(
+    listEntriesOptions({
+      path: { ref: slug },
+      query: {
+        captured_from: new Date(localMidnight(firstDay, tz)).toISOString(),
+        limit: ACTIVITY_LIMIT,
+        order: '-captured_at',
+      },
+    }),
+  );
+  const strip = useMemo(
+    () =>
+      entries.data
+        ? activityStrip(
+            entries.data.items.map((e) => new Date(e.captured_at).getTime()),
+            today,
+            tz,
+          )
+        : null,
+    [entries.data, today, tz],
+  );
+  const caption = !strip
+    ? null
+    : (entries.data?.total ?? 0) > ACTIVITY_LIMIT
+      ? `Showing the last ${String(ACTIVITY_LIMIT)} entries`
+      : `${plural(strip.total, 'entry', 'entries')} in the last ${String(ACTIVITY_WEEKS)} weeks`;
+  return (
+    <Card className="p-4 sm:p-5" role="region" aria-label="Activity">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="font-display text-lg leading-tight font-semibold">Activity</h3>
+        {caption ? (
+          <p className="text-xs text-muted" data-testid="activity-caption">
+            {caption}
+          </p>
+        ) : null}
+      </div>
+      {entries.isError ? (
+        <p className="mt-2 text-sm text-danger">{errorMessage(entries.error)}</p>
+      ) : !strip ? (
+        <Skeleton className="mt-3 h-28 max-w-md" />
+      ) : (
+        <div
+          role="img"
+          aria-label={caption ?? 'Activity'}
+          className="mt-3 grid max-w-md grid-flow-col grid-cols-12 grid-rows-7 gap-1"
+        >
+          {Array.from({ length: ACTIVITY_WEEKS * 7 }, (_, i) => {
+            const cell = strip.cells[i];
+            if (!cell) return <span key={i} className="aspect-square" />;
+            return (
+              <span
+                key={cell.day}
+                data-testid="activity-cell"
+                data-day={cell.day}
+                data-count={cell.count}
+                title={`${cellDate.format(new Date(`${cell.day}T00:00:00Z`))}: ${plural(cell.count, 'entry', 'entries')}`}
+                className={`aspect-square rounded-[3px] ${LEVEL_CLASS[activityLevel(cell.count)]} ${
+                  cell.day === today ? 'outline-2 outline-offset-1 outline-ink' : ''
+                }`}
+              />
+            );
+          })}
+        </div>
+      )}
+    </Card>
   );
 }
 
