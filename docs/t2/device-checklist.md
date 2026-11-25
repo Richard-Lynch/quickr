@@ -72,7 +72,9 @@ missing, check that the named WP merged before filing.
 Extra setup for M2: two timed topics **without lap types** (the §5.3 Auto
 carve-out applies to them): `Dishwasher` (no steps: a stopwatch) and `Morning`
 (steps `Shower`, `Breakfast`). Neither has questions, so Stop saves at once.
-Before the activity items, unlock the phone, open quickR, then close it.
+Before the activity items, unlock the phone, open quickR, then close it. Each
+item starts with every topic idle: stop any run an item leaves open before the
+next one.
 
 - [ ] **Live Activity layout on the real Lock Screen.** Start `Morning`, lock.
       Expected, top to bottom (§4.2: two text rows and one button row, so iOS's
@@ -96,26 +98,27 @@ Before the activity items, unlock the phone, open quickR, then close it.
       (VoiceOver: "Lap, then Rest"). Tap it so `Rest 1` is open: under the
       total, "⏰ Half way · 0:30" counts down in the warning colour and stays at
       0:00 once reached (the activity itself makes no sound: the M1 alert items
-      cover the sound). While paused the alert line is hidden.
+      cover the sound). While paused the alert line is hidden. Stop `Intervals`.
 - [ ] **Dynamic Island.** Start `Morning` (iPhone with a Dynamic Island).
       Expected: compact leading shows the step number ("1"), compact trailing
       and minimal the segment timer. Long-press for the expanded view: segment
       timer leading, total trailing, "Shower" in the centre, and one row with
       **Next: Breakfast** prominent at two thirds and **Stop** at one third (no
       Pause in the Island). Start `Dishwasher` instead: compact leading is the
-      timer glyph and the expanded primary is **Lap**.
+      timer glyph and the expanded primary is **Lap**. Stop both runs.
 - [ ] **Dynamic Island lap counter (pending I2-LA-FIELDS).** Start `Intervals`.
       Expected: compact leading shows the lap counter ("L1", then "L2" after a
       Lap); expanded trailing shows the alert countdown under the total while
-      `Rest` is open.
+      `Rest` is open. Stop `Intervals`.
 - [ ] **Lap tap from the Lock Screen with the app killed.** Phone online (Wi-Fi
       or cellular). Start `Dishwasher`, swipe quickR away in the app switcher,
       lock. Tap **Lap** on the Lock Screen activity (the phone stays locked; no
       Face ID prompt). Expected: within a second or two the segment timer
       restarts from 0:00 and the label moves to the next lap ("Lap 2"), the
       total keeps running. Wait about 10 s, then refresh the second device: it
-      shows the lap. Opening quickR shows the lap row in the table. Repeat once
-      from the expanded Dynamic Island.
+      shows the lap. Opening quickR shows the lap row in the table. Swipe quickR
+      away again, lock, and repeat the Lap tap from the expanded Dynamic Island:
+      the same result. Stop `Dishwasher`.
 - [ ] **Timer control on a timer without lap types reads "Stop" (§5.3).** In
       Control Center, add the quickR **Timer** control and pick `Dishwasher`.
       Expected: idle, the control reads "Timer: Dishwasher" / "Start" with a
@@ -142,11 +145,13 @@ Before the activity items, unlock the phone, open quickR, then close it.
       small **Pause** text button, the **segment** timer big and "total m:ss"
       small beside it, a "Running · …" badge, the alert line while one is
       pending, and one controls row: the primary (**Lap → Rest**) filling the
-      row and **Stop** at a fixed width beside it. A tap on the card outside the
-      buttons opens the run screen. Pause: the badge reads "Paused · …", the
-      clock dims, the button reads **Resume**. At the largest accessibility text
-      size the primary stacks over Stop (both full width) and Pause moves under
-      the badge. Light and dark both legible. Stop: the section disappears.
+      row and **Stop** at a fixed width beside it. Tap **Lap → Rest**: the
+      segment clock restarts, the badge names `Rest`, and the primary reads
+      **Lap → Run**. A tap on the card outside the buttons opens the run screen.
+      Pause: the badge reads "Paused · …", the clock dims, the button reads
+      **Resume**. At the largest accessibility text size the primary stacks over
+      Stop (both full width) and Pause moves under the badge. Light and dark
+      both legible. Stop: the section disappears.
 - [ ] **Resume within 15 minutes (pending M1, M2-RESUME).** `Smoke` has no
       questions, so Stop saves at once. Start `Smoke`, run it about a minute,
       stop it from its active card. Expected: the toast "Saved Smoke: m:ss"
