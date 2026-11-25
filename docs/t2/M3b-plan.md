@@ -1,0 +1,232 @@
+# Plan: M3b · photos (appearance phase B)
+
+**Status:** draft (revision 3, 2026-11-25, after review round 2). **Spec:**
+[appearance.md](../specs/appearance.md). **Programme plan:**
+[t2-plan.md](../specs/t2-plan.md); its scope guard, out-of-scope list, merge
+ritual, seams and ownership table, simulator budget, effort legend and open
+questions apply here unchanged. **Branch:** `t2/m3b` off `feat/t2`; WP branches
+`t2/m3b-<wp>`, one worktree each under `/Users/richie/code/quickr-worktrees/`.
+**Lead:** M3 lead. **Evidence:** `docs/t2/evidence/M3b.md` and
+`docs/t2/evidence/M3b/` (below).
+
+## Definition of done (every WP)
+
+A WP is done when its **Acceptance** holds, the tests its **DoD** names pass,
+and the evidence is in the PR description (team rules, "Definition of done and
+proof"):
+
+- the commands run, with pass/fail counts copied from the output;
+- for iOS, the xcresult path and the test count (a plan with 0 tests run is a
+  failure); for host runs, the `swift test` summary line;
+- the Codex review file (`codex -o` output committed under the WP's worktree and
+  attached to the PR) and how each finding was resolved;
+- the CI run link; `make check` (and `make check-ios` when `ios/` changed)
+  green, no skipped or disabled tests;
+- for UI WPs, screenshots under `docs/t2/evidence/M3b/` (iOS light and dark, a
+  large Dynamic Type check, the Live Activity/widget states where relevant, PWA
+  mobile width) and a short GIF/MP4 for interaction flows;
+- anything found outside scope filed as a `t2-followup` issue and linked.
+
+Friction is logged as it happens to
+`/Users/richie/code/quickr-worktrees/_friction/<agent-name>.jsonl` (format in
+`_friction/README.md`); never edit another agent's file.
+
+**Brief.** A photo per topic: upload, thumbnails, ETag serving, delete,
+`Topic.photo` on the wire and in the feed, cleanup on topic delete, an App-Group
+cache on iOS so widgets and the Live Activity can render it, a service-worker
+cache in the PWA. Local volume + Pillow (OQ-10); Cloudflare Access protects the
+URLs; iOS fetches through `APIClient`, never `AsyncImage`. Starts after M3a has
+merged to `feat/t2`.
+
+### M3B-STORAGE · upload, serve, delete, GC · be · L
+
+- **Scope:** appearance.md §11–§12.1 and §13 as the contract:
+  `20261201_a8b5c1d6e437_topic_photo.py` adds `topics.photo_etag VARCHAR(32)`
+  and `topics.photo_updated_at`; new `services/media.py`: `QUICKR_MEDIA_DIR`,
+  Pillow + `pillow-heif` decode (HEIC/PNG/JPEG, EXIF rotation), JPEG re-encode,
+  sizes `thumb|medium|full`, **content-addressed files** (`{etag}.{size}.jpg`,
+  etag = the hash §12 defines), files written before the writer transaction and
+  only the writer publishes `photo_etag`. Routes `POST /topics/{ref}/photo`
+  (multipart, ≤ 5 MB → 413, unsupported → 415),
+  `GET /topics/{ref}/photo?size=thumb|medium|full` with the cache headers of §11
+  (`ETag`, 304 on `If-None-Match`, immutable with `v=<etag>`),
+  `DELETE /topics/{ref}/photo` (no-op 204, no revision bump, no log when
+  `photo_etag` is null, D2). **No request deletes files** (§12.1): a scheduler
+  tick every 10 min removes files whose etag is not the topic's current one and
+  whose mtime is older than 1 h, and directories of topics that no longer exist
+  older than 1 h; topic delete never touches files inside the writer.
+  `limits.py` `max_photo_bytes`; compose volume `media`; hosting nginx
+  `client_max_body_size 5m`; `docs/hosting/backend.md` backup/restore for the
+  `media` volume (OQ-10 rider). API fixtures for the upload and delete responses
+  and a documented exemption for the binary GET in `test_api_fixtures.py`;
+  `openapi.json`, `make client`; minimal Swift: endpoint-table rows.
+- **Areas:** `backend/alembic/versions/`, `backend/app/models.py`,
+  `services/media.py` (new), `services/scheduler.py` (the GC tick),
+  `services/topics.py` (publish `photo_etag` in the writer), `api/routes.py`,
+  `schemas/{api,limits}.py`, `docker-compose.yml`, `hosting/`,
+  `docs/hosting/backend.md`, `backend/tests/test_photos.py` (new).
+- **Depends on:** M3a merged.
+- **Acceptance:** upload → GET each size with a matching ETag → 304 → delete →
+  404, and a second DELETE is a 204 no-op with no log row; HEIC converts and
+  EXIF rotation is applied; a 6 MB file is 413 and nothing is written; **the
+  three interleavings of §12.1 as tests**: (1) upload A → upload B → upload A
+  again before the tick keeps A's files; (2) a crash between the file write and
+  the writer leaves an orphan the tick removes after 1 h and the topic's
+  `photo_etag` unchanged; (3) a retry after a lost upload response is idempotent
+  (same etag, one publish); the writer transaction never touches the filesystem;
+  `test_identity.py` `_mutations` gains the upload and delete preconditions.
+- **Tests:** `test_photos.py` per appearance.md §16; migration round trip; the
+  GC tick with a fake clock.
+- **DoD:** the Acceptance above holds, proven by the tests named above. Evidence
+  in the PR: `cd backend && uv run pytest -q <files>` pass counts; the
+  `make vectors` diff when generators or fixtures change; the Codex review file
+  with each finding resolved or justified; the CI run link.
+
+### M3B-FEED · `Topic.photo` on the wire · be · M
+
+- **Scope:** `Topic.photo: {etag, updated_at} | null` on `TopicSummary`,
+  `TopicDetail` and the `topic` feed item; upload/delete bump `revision` and
+  `_log_topic`; fixtures regenerated.
+- **Depends on:** M3B-STORAGE.
+- **Acceptance:** an upload produces a `topic` feed item with the new etag; a
+  delete produces one with `photo: null`.
+- **Tests:** feed tests; fixture drift.
+- **DoD:** the Acceptance above holds, proven by feed tests; fixture drift.
+  Evidence in the PR: `cd backend && uv run pytest -q <the files above>` pass
+  counts; when generators or fixtures change, the `make vectors` diff is in the
+  PR; migration WPs paste the `alembic upgrade head` and `downgrade` output; the
+  Codex review file with each finding resolved or justified; the CI run link.
+
+### I3B-CACHE · App-Group photo cache · host · M
+
+- **Scope (appearance.md §14.1, one design, B5):** `StoreSchema+T2M3B.swift`
+  with `t2m3b_photo_cache`: table
+  `photo_cache(topic_id, etag, size, bytes BLOB, fetched_at)` in the
+  **per-server store** (readable by the widget and activity processes through
+  the App Group store); `QuickrData/Media/PhotoCache.swift` fetches through
+  `APIClient` with `If-None-Match`, keeps one row per `(topic_id, size)`,
+  replaces it on etag change and deletes rows on topic delete; `TopicDTO.photo`;
+  `ServerLayer` apply.
+- **Depends on:** M3B-FEED.
+- **Acceptance:** hit/miss/304/etag-change/evict with a fake transport; a widget
+  process can read a cached thumb by `(server_id, topic_id)`.
+- **Tests:** `PhotoCacheTests` (new).
+- **Review round 1 (D8, E3):** the `ServerLayer` topic-cascade change (evict the
+  topic's cached photos) is a patch to M1's file owner; the migration lives in
+  `StoreSchema+T2M3B.swift`, separate from M3a's file.
+- **DoD:** the Acceptance above holds, proven by `PhotoCacheTests` (new).
+  Evidence in the PR:
+  `cd ios/QuickrKit && swift test --filter <the suites above>` summary lines
+  with counts (plus `make ios-core-test` once); the Codex review file with each
+  finding resolved or justified; the CI run link.
+
+### I3B-RENDER · picker, upload, header, glyph · host · M
+
+- **Scope:** `AppearanceEditorView` gains a `PhotosPicker` row;
+  `TopicWrites.uploadPhoto` / `deletePhoto`; `TopicGlyphView` photo variant
+  (thumb from the cache, emoji fallback); `TopicTabsView` header shows the 512
+  px image. Widgets and LA pick it up through `TopicGlyphView` without M2
+  changes.
+- **Depends on:** I3B-CACHE.
+- **Acceptance:** model tests for the upload path (request shape, revision); the
+  glyph falls back when the cache is cold.
+- **Tests:** `TopicWritesTests`, `TopicThemeTests` photo cases.
+- **DoD:** the Acceptance above holds, proven by `TopicWritesTests`,
+  `TopicThemeTests` photo cases. Evidence in the PR:
+  `cd ios/QuickrKit && swift test --filter <the suites above>` summary lines
+  with counts (plus `make ios-core-test` once); the Codex review file with each
+  finding resolved or justified; the CI run link. UI WP: header and glyph with a
+  photo captured in M3B-UITEST.
+
+### F3B · PWA photo upload, glyph, SW cache · fe · M
+
+- **Scope:** `TopicMetaFields.tsx` file input with client-side downscale to ≤ 5
+  MB; `TopicGlyph.tsx` photo variant; `src/sw.ts` cache route for `/photo`
+  (appearance.md §14.2: `CacheFirst` + `ExpirationPlugin(300, 30 d)`, keyed by
+  the URL with `v=<etag>`); `TopicLayout.tsx` header.
+- **Depends on:** M3B-FEED.
+- **Acceptance:** upload → the tile glyph shows the thumb; delete → emoji
+  fallback; the SW serves the cached thumb offline.
+- **Tests:** `TopicGlyph.test.tsx`, `sw.photo.test.ts` (new, in the style of the
+  existing SW tests).
+- **DoD:** the Acceptance above holds, proven by `TopicGlyph.test.tsx`,
+  `sw.photo.test.ts` (new, in the style of the existing SW tests). Evidence in
+  the PR: `pnpm exec vitest run <the tests above>` pass counts and a green
+  `make check-frontend`; the Codex review file with each finding resolved or
+  justified; the CI run link. UI WP: PWA tile glyph and header with a photo at
+  mobile width.
+
+### M3B-UITEST · simulator: thumb from the fake server · sim · S · last
+
+- **Scope:** `TopicLifecycleUITests.testPhotoThumbRenders` (the fake server
+  serves a PNG for the photo route; the header and the glyph show it);
+  `UITestLaunch.swift` `// T2-M3B` block. Simulator-only because it is an
+  XCUITest flow proving the App-Group cache feeds a rendered image; the cache
+  logic is host-tested in I3B-CACHE.
+- **Depends on:** I3B-RENDER.
+- **Acceptance:** the test passes once on the clone; screenshots in
+  `docs/t2/evidence/M3b/`.
+- **DoD:** the Acceptance above holds, proven by the tests named in Acceptance.
+  Evidence in the PR: the xcresult path
+  (`ios/build/results/<plan>-<date>-<time>-<rand>/<plan>.xcresult`) and its
+  non-zero test count; screenshots iOS light/dark + XXXL (and LA/widget states
+  where the scope names them) under `docs/t2/evidence/M3b/`; a GIF/MP4 per
+  interaction flow; the clone shut down (`xcrun simctl shutdown <udid>`) at the
+  end of the run; the Codex review file with each finding resolved or justified;
+  the CI run link.
+
+### M3B-REVIEW · milestone review · docs · S
+
+- **Scope:** as M1-REVIEW, against appearance.md phase B; adds \"photo in a
+  widget and the Live Activity\" to the device checklist.
+- **Depends on:** every other M3b WP.
+- **Acceptance:** no open finding inside scope; every other finding has a
+  `t2-followup` issue; `docs/t2/evidence/M3b.md` is complete; the milestone PR
+  is ready with the five checks green.
+- **DoD:** the Acceptance above holds, proven by the tests named in Acceptance.
+  Evidence in the PR: the named file exists on the milestone branch and is
+  linked from the milestone PR; the Codex review file with each finding resolved
+  or justified; the CI run link.
+
+- As M1-REVIEW, against appearance.md phase B; adds "photo in a widget and the
+  Live Activity" to the device checklist.
+
+### M3b DAG
+
+```mermaid
+flowchart LR
+  M3A[M3a merged] --> STO[M3B-STORAGE]
+  STO --> FEED[M3B-FEED]
+  FEED --> CACHE[I3B-CACHE]
+  CACHE --> IREN[I3B-RENDER]
+  FEED --> F3B
+  IREN --> UIT[M3B-UITEST]
+  UIT --> REV[M3B-REVIEW]
+  F3B --> REV
+```
+
+| WP          | Depends on  | Class | Effort |
+| ----------- | ----------- | ----- | ------ |
+| M3B-STORAGE | M3a merged  | be    | L      |
+| M3B-FEED    | M3B-STORAGE | be    | M      |
+| I3B-CACHE   | M3B-FEED    | host  | M      |
+| I3B-RENDER  | I3B-CACHE   | host  | M      |
+| F3B         | M3B-FEED    | fe    | M      |
+| M3B-UITEST  | I3B-RENDER  | sim   | S      |
+| M3B-REVIEW  | all         | docs  | S      |
+
+**Critical path:** M3B-STORAGE → M3B-FEED → I3B-CACHE → I3B-RENDER → M3B-UITEST
+→ M3B-REVIEW. **First wave:** M3B-STORAGE.
+
+## Milestone evidence
+
+`docs/t2/evidence/M3b.md` on `t2/m3b`: criteria → proof; screenshots under
+`docs/t2/evidence/M3b/` (photo in the header and tile glyph, iOS light/dark; PWA
+at mobile width); the upload/304/delete request log from `test_photos.py`;
+review reports.
+
+### Device-only (the simulator cannot prove)
+
+- Photo upload from the camera roll (HEIC) and its thumbnail in a widget and the
+  Live Activity.
+- Upload over a slow cellular link (5 MB ceiling, progress, failure notice).
