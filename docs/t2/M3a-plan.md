@@ -51,8 +51,8 @@ unless M2 took M3-TOKENS early.
   `DesignCatalogView` section. PWA `src/lib/appearance.ts`
   (`topicStyle(appearance) -> CSSProperties` setting `--topic-tint`,
   `--topic-tint-soft`, `--topic-on-tint`; palette table light and dark),
-  `index.css` utilities `bg-topic`, `bg-topic-soft`, `text-topic`,
-  `text-on-topic`, `border-topic`, `src/components/ui/TopicGlyph.tsx`.
+  `index.css` utilities as appearance.md §4.2 names them (the one set, also used
+  by active-surfaces.md §6.2), `src/components/ui/TopicGlyph.tsx`.
 - **Depends on:** nothing (values from appearance.md's palette table; the vector
   drift test is switched on in M3-DB).
 - **Acceptance:** `TopicThemeTests`: nil appearance gives the accent theme and

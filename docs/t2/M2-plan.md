@@ -113,8 +113,8 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
 - **Tests:** `HomeModelTests.activePartition`, `HomeVectorTests` unchanged;
   `HomeTests`/`TileUITests` in I2-UITEST.
 - **Review round 1 (A7, D9):** the idle tile's Resume uses
-  `entry.timing.terminal_id` (`tile.<slug>.run`); a "resuming" run shows the
-  active card without controls until the ack.
+  `entry.timing.terminal_id` (accessibility id per active-surfaces.md §3.2); a
+  "resuming" run shows the active card without controls until the ack.
 - **DoD:** the Acceptance above holds, proven by
   `HomeModelTests.activePartition`, `HomeVectorTests` unchanged;
   `HomeTests`/`TileUITests` in I2-UITEST. Evidence in the PR:
