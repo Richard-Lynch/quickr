@@ -83,10 +83,13 @@ Before the activity items, unlock the phone, open quickR, then close it.
       **Stop** (Stop in red) bordered at a quarter each. Tap Next: the badge
       reads "2 of 2" and the primary becomes **Lap** (the last step is open, so
       Lap is primary and Stop never is). Pause: the timers freeze and Pause
-      reads **Resume**. Repeat with Settings → Accessibility → Display & Text
-      Size → Larger Text at the largest size: the text stops growing at the
-      widgets' cap (xxLarge) and the button row is still fully visible. Stop:
-      the activity shows "Saved · m:ss" and no buttons.
+      reads **Resume**. With VoiceOver on, the buttons read "Next: Breakfast"
+      (then "Lap"), "Pause", "Stop Morning" (§1.3; the shipped Stop reads
+      "Stop": #143). Repeat with Settings → Accessibility → Display & Text Size
+      → Larger Text at the largest size: the text stops growing at the widgets'
+      cap (xxLarge), the button row is still fully visible and every label,
+      "Next: Breakfast" included, reads in full (shrunk is fine, cut off is
+      not). Stop: the activity shows "Saved · m:ss" and no buttons.
 - [ ] **Live Activity lap fields (pending I2-LA-FIELDS).** Start `Intervals`,
       lock. Expected: the second row's text is the headline ("Run 1 · lap 1"
       style, §4.1) and the trailing badge "L1"; the primary reads **Lap → Rest**
@@ -105,13 +108,14 @@ Before the activity items, unlock the phone, open quickR, then close it.
       Expected: compact leading shows the lap counter ("L1", then "L2" after a
       Lap); expanded trailing shows the alert countdown under the total while
       `Rest` is open.
-- [ ] **Lap tap from the Lock Screen with the app killed.** Start `Dishwasher`,
-      swipe quickR away in the app switcher, lock. Tap **Lap** on the Lock
-      Screen activity (the phone stays locked; no Face ID prompt). Expected: the
-      segment timer restarts from 0:00 and the label moves to the next lap ("Lap
-      2") within a second or two, the total keeps running; the second device
-      shows the lap after its next sync; opening quickR shows the lap row in the
-      table. Repeat once from the expanded Dynamic Island.
+- [ ] **Lap tap from the Lock Screen with the app killed.** Phone online (Wi-Fi
+      or cellular). Start `Dishwasher`, swipe quickR away in the app switcher,
+      lock. Tap **Lap** on the Lock Screen activity (the phone stays locked; no
+      Face ID prompt). Expected: within a second or two the segment timer
+      restarts from 0:00 and the label moves to the next lap ("Lap 2"), the
+      total keeps running. Wait about 10 s, then refresh the second device: it
+      shows the lap. Opening quickR shows the lap row in the table. Repeat once
+      from the expanded Dynamic Island.
 - [ ] **Timer control on a timer without lap types reads "Stop" (§5.3).** In
       Control Center, add the quickR **Timer** control and pick `Dishwasher`.
       Expected: idle, the control reads "Timer: Dishwasher" / "Start" with a
@@ -143,15 +147,19 @@ Before the activity items, unlock the phone, open quickR, then close it.
       clock dims, the button reads **Resume**. At the largest accessibility text
       size the primary stacks over Stop (both full width) and Pause moves under
       the badge. Light and dark both legible. Stop: the section disappears.
-- [ ] **Resume within 15 minutes (pending M1, M2-RESUME).** Start `Smoke`, then
+- [ ] **Resume within 15 minutes (pending M1, M2-RESUME).** `Smoke` has no
+      questions, so Stop saves at once. Start `Smoke`, run it about a minute,
       stop it from its active card. Expected: the toast "Saved Smoke: m:ss"
-      offers **Resume**, and the idle tile shows "Resume · m:ss" under its meta
-      line. Tap Resume on the tile: the card shows "Resuming…" without controls
-      until the server acks, then the ordinary running card, and the run screen
-      shows a pause row for the gap; this phone's Live Activity comes back. Stop
-      again and wait 15 minutes: neither the toast nor the tile offers Resume
-      any more (the entry detail's "Resume run" is the M4 item). The ended Live
-      Activity ("Saved · m:ss") never offers Resume (§4.4).
+      offers **Resume**; tap it: the same run is running again (its total
+      carries on from the stop) and the run screen shows a pause row for the
+      gap; this phone's Live Activity comes back. Stop again, dismiss the toast:
+      the idle tile shows "Resume · m:ss" under its meta line. Turn on airplane
+      mode, tap that Resume: the card shows "Resuming…" with no controls row;
+      turn airplane mode off: once the server acks, the ordinary running card
+      with its controls. Stop again and wait 15 minutes: neither the toast nor
+      the tile offers Resume any more (the entry detail's "Resume run" is the M4
+      item). The ended Live Activity ("Saved · m:ss") never offers Resume
+      (§4.4).
 - [ ] **Smart Stack and StandBy (observe only).** Put the small Topic widget for
       `Dishwasher` in a Home Screen Smart Stack, then start the run. Charge the
       phone locked and in landscape for StandBy. Expected: nothing to pass or
