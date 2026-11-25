@@ -52,11 +52,14 @@ struct WidgetGalleryView: View {
             topic: topic, quick: nil, lastAnswer: nil, hasOpenRun: true, run: run, updateRequired: outdated)
     }
 
-    /// A stopwatch (no steps) on its third lap; the lap it opens is typed "Rest" (`next_label`
+    /// A stopwatch (no steps) on its third lap: Lap is the primary; without lap types the small
+    /// size's one Auto chip is Stop (§5.3). `typed`: the lap it opens is "Rest" (`next_label`
     /// during a lap, M1-LA-STATE), so the primary reads "Lap → Rest" once I2-LA lands the §4.1
-    /// rule in `RunActivityDisplay` (today's v1 rule reads it as Next).
-    private var smoke: WidgetTopic? {
-        timed(slug: "smoke", name: "Smoke", steps: [], open: (label: "Lap 3", stepIndex: nil, next: "Rest"))
+    /// rule in `RunActivityDisplay` (today's v1 rule reads that fixture as Next).
+    private func smoke(typed: Bool = false) -> WidgetTopic? {
+        timed(
+            slug: typed ? "smoke-typed" : "smoke", name: "Smoke", steps: [],
+            open: (label: "Lap 3", stepIndex: nil, next: typed ? "Rest" : nil))
     }
 
     /// A step run on its first step, Breakfast next; `paused` freezes its timers.
@@ -98,11 +101,15 @@ struct WidgetGalleryView: View {
             TopicWidgetView(topic: topic("headache"), date: now, style: $0)
         }
         frame(.systemMedium, "widget.medium.due") { DueListWidgetView(topics: topics, date: now, style: $0) }
-        // Timed (active-surfaces.md §5.1): the lap primary with Stop beside it; the small size's one
-        // Auto chip (§5.3: Stop on a stopwatch without lap types, Next while a step remains); paused.
-        frame(.systemMedium, "widget.medium.timed.lap") { TopicWidgetView(topic: smoke, date: now, style: $0) }
+        // Timed (active-surfaces.md §5.1): the lap primary with Stop beside it (plain, and typed
+        // "Lap → Rest"); the small size's one Auto chip (§5.3: Stop on a stopwatch without lap
+        // types, Next while a step remains); paused.
+        frame(.systemMedium, "widget.medium.timed.lap") { TopicWidgetView(topic: smoke(), date: now, style: $0) }
+        frame(.systemMedium, "widget.medium.timed.typedlap") {
+            TopicWidgetView(topic: smoke(typed: true), date: now, style: $0)
+        }
         HStack(spacing: 16) {
-            frame(.systemSmall, "widget.small.timed.auto") { TopicWidgetView(topic: smoke, date: now, style: $0) }
+            frame(.systemSmall, "widget.small.timed.auto") { TopicWidgetView(topic: smoke(), date: now, style: $0) }
             frame(.systemSmall, "widget.small.timed.step") { TopicWidgetView(topic: morning(), date: now, style: $0) }
         }
         frame(.systemMedium, "widget.medium.timed.paused") {

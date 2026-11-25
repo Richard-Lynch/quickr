@@ -146,16 +146,19 @@ extension WidgetTopic {
     /// Auto button (`autoButton`).
     public static func runButtons(of display: RunActivityDisplay, compact: Bool, lapTyped: Bool) -> [WidgetRunButton] {
         let primary: WidgetRunButton = display.buttons.first == .lap ? .lap : .next
-        if compact { return [autoButton(primary: primary, lapTyped: lapTyped)] }
+        if compact { return [autoButton(primary: primary, nextLabel: display.nextLabel, lapTyped: lapTyped)] }
         return [primary, .stop]
     }
 
     /// The one-button rule (§5.3): a lap-typed timer's Auto is its primary (Lap stays Lap); on any
-    /// other timer v1's Auto, Next while a named step remains or the steps aren't known, else Stop
-    /// (so a one-press stopwatch can still be stopped).
-    public static func autoButton(primary: WidgetRunButton, lapTyped: Bool) -> WidgetRunButton {
+    /// other timer v1's Auto (timers.md §11.1), Next while a named step remains or the steps
+    /// aren't known, else Stop (so a one-press stopwatch can still be stopped). A step remains when
+    /// the primary is Next, or when a lap is open with a step still to come (`nextLabel` names it:
+    /// without lap types a lap's `nextLabel` is never a lap type), which is what `RunWrites.auto`
+    /// does on that press.
+    public static func autoButton(primary: WidgetRunButton, nextLabel: String?, lapTyped: Bool) -> WidgetRunButton {
         if lapTyped { return primary }
-        return primary == .next ? .next : .stop
+        return primary == .next || nextLabel != nil ? .next : .stop
     }
 
     /// A button's title (§1.3): "Start", "Next: Breakfast" (a plain "Next" while the steps aren't

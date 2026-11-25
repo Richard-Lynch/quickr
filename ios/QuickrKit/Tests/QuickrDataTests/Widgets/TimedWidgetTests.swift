@@ -116,7 +116,8 @@ import Testing
     }
 
     /// The one-button rule (§5.3) on an open run: a lap-typed timer's Auto is its primary, so Lap
-    /// stays Lap; without lap types v1's Auto, Next while a step remains, else Stop.
+    /// stays Lap; without lap types v1's Auto, Next while a named step remains (a lap with a step
+    /// still to come included: that is what `RunWrites.auto` presses), else Stop.
     @Test func theSmallSizeFollowsTheOneButtonRule() {
         var lap = RunActivityDisplay(state: Self.state(label: "Lap 3", stepIndex: nil, next: nil), topicName: "Smoke")
         #expect(lap.buttons.first == .lap)
@@ -126,15 +127,27 @@ import Testing
         #expect(WidgetTopic.runButtonTitle(.lap, of: lap) == "Lap → Rest")
         #expect(WidgetTopic.runButtons(of: lap, compact: true, lapTyped: true) == [.lap])
 
+        // A lap open on a step timer with "Out" still to come (the §4.1 display, I2-LA): on-screen
+        // Lap, but v1's Auto is Next, not Stop; a lap-typed timer laps.
+        var lapBeforeStep = RunActivityDisplay(
+            state: Self.state(label: "Lap 2", stepIndex: nil, next: "Out"), topicName: "Morning")
+        lapBeforeStep.buttons = [.lap, .pause, .stop]
+        #expect(WidgetTopic.runButtons(of: lapBeforeStep, compact: false, lapTyped: false) == [.lap, .stop])
+        #expect(WidgetTopic.runButtons(of: lapBeforeStep, compact: true, lapTyped: false) == [.next])
+        #expect(WidgetTopic.runButtonTitle(.next, of: lapBeforeStep) == "Next: Out")
+        #expect(WidgetTopic.runButtons(of: lapBeforeStep, compact: true, lapTyped: true) == [.lap])
+
         let step = RunActivityDisplay(
             state: Self.state(label: "Shower", stepIndex: 0, next: "Breakfast"), topicName: "Morning")
         #expect(WidgetTopic.runButtons(of: step, compact: true, lapTyped: true) == [.next])
         #expect(WidgetTopic.runButtons(of: step, compact: true, lapTyped: false) == [.next])
 
-        #expect(WidgetTopic.autoButton(primary: .lap, lapTyped: true) == .lap)
-        #expect(WidgetTopic.autoButton(primary: .lap, lapTyped: false) == .stop)
-        #expect(WidgetTopic.autoButton(primary: .next, lapTyped: true) == .next)
-        #expect(WidgetTopic.autoButton(primary: .next, lapTyped: false) == .next)
+        #expect(WidgetTopic.autoButton(primary: .lap, nextLabel: nil, lapTyped: true) == .lap)
+        #expect(WidgetTopic.autoButton(primary: .lap, nextLabel: nil, lapTyped: false) == .stop)
+        #expect(WidgetTopic.autoButton(primary: .lap, nextLabel: "Out", lapTyped: false) == .next)
+        #expect(WidgetTopic.autoButton(primary: .lap, nextLabel: "Rest", lapTyped: true) == .lap)
+        #expect(WidgetTopic.autoButton(primary: .next, nextLabel: "Breakfast", lapTyped: true) == .next)
+        #expect(WidgetTopic.autoButton(primary: .next, nextLabel: nil, lapTyped: false) == .next, "steps unknown")
     }
 
     /// Paused: the same primary and Stop (widgets have no Pause chip); the Lock Screen's Resume
