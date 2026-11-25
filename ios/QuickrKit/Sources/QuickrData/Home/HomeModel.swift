@@ -50,6 +50,15 @@ public final class HomeModel {
     public private(set) var rows: [Row] = []
     /// `rows` in sections, when `isSectioned`.
     public private(set) var sections = TopicListing.Sections<Row>()
+    /// "Active now" (active-surfaces.md §3.1): the rows with an open run (`openRuns`), the most
+    /// recently started first. A view over the listing, in the sectioned and the searched layout
+    /// alike; `TopicListing` and its vectors don't know it.
+    public private(set) var activeRows: [Row] = []
+    /// `sections` without `activeRows`: an active topic shows once, in "Active now". ("Due now"
+    /// already leaves it out: an open run isn't due.)
+    public private(set) var inactiveSections = TopicListing.Sections<Row>()
+    /// `rows` without `activeRows`: the unsectioned (searched or filtered) list under "Active now".
+    public private(set) var inactiveRows: [Row] = []
     /// Active topics due now, whatever the search or filter: the app badge.
     public private(set) var badgeCount = 0
     /// The run each timed topic's tile shows, by topic id: its open run, else its latest finishing
@@ -247,5 +256,27 @@ public final class HomeModel {
             topics, topic: \.topic, now: now, status: status, sort: sort, query: query)
         sections = TopicListing.sections(rows, now: now, openRuns: openRuns)
         badgeCount = TopicListing.dueCount(topics.map(\.topic), now: now, openRuns: openRuns)
+        partitionActive()
+    }
+
+    /// Splits `rows` and `sections` by `openRuns` (active-surfaces.md §3.1, D-4). Only the order
+    /// of "Active now" is new: latest start first, ties (and a run not read yet) in list order.
+    private func partitionActive() {
+        let openRuns = openRuns
+        func isActive(_ row: Row) -> Bool { openRuns.contains(row.topic.id) }
+        func started(_ row: Row) -> Int {
+            guard let run = runs[row.topic.id], run.isOpen else { return .min }
+            return run.state.startedAt
+        }
+        activeRows = rows.enumerated().filter { isActive($0.element) }
+            .sorted { a, b in
+                let (x, y) = (started(a.element), started(b.element))
+                return x != y ? x > y : a.offset < b.offset
+            }
+            .map(\.element)
+        inactiveRows = rows.filter { !isActive($0) }
+        inactiveSections = TopicListing.Sections(
+            due: sections.due.filter { !isActive($0) }, upcoming: sections.upcoming.filter { !isActive($0) },
+            other: sections.other.filter { !isActive($0) })
     }
 }
