@@ -368,42 +368,6 @@ private struct TilesPage: View {
     }
 }
 
-/// Wraps children onto new lines (for badges).
-private struct FlowRow: Layout {
-    var spacing: CGFloat = 6
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        arrange(proposal.width ?? .infinity, subviews).size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        for (point, subview) in zip(arrange(bounds.width, subviews).points, subviews) {
-            subview.place(at: CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y), proposal: .unspecified)
-        }
-    }
-
-    private func arrange(_ width: CGFloat, _ subviews: Subviews) -> (points: [CGPoint], size: CGSize) {
-        var points: [CGPoint] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var row: CGFloat = 0
-        var widest: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > 0 && x + size.width > width {
-                x = 0
-                y += row + spacing
-                row = 0
-            }
-            points.append(CGPoint(x: x, y: y))
-            x += size.width + spacing
-            widest = max(widest, x - spacing)
-            row = max(row, size.height)
-        }
-        return (points, CGSize(width: widest, height: y + row))
-    }
-}
-
 #Preview("Catalogue") { DesignCatalogView() }
 #Preview("Catalogue · tiles") { DesignCatalogView(page: .tiles) }
 #endif
