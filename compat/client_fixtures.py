@@ -4,7 +4,9 @@
 its API level (missing means 0) and the vector cases it predates (a new enum case, say) with the
 fallback it must take instead (docs/ios/specs/compatibility.md). Only the clients at or above
 ``min_client_level.ios`` in ``shared/api-level.json`` are supported: the server refuses the others
-(docs/specs/client-versions.md §7), so ``shas`` leaves them out and says so on stderr.
+(docs/specs/client-versions.md §7), so ``shas`` leaves them out and says so on stderr. It also
+leaves out a client above this checkout's ``api_level`` (listed by a record PR before the bump it
+was built with reached this branch): its suites read fixtures this checkout doesn't have yet.
 
 ``fixtures`` writes, for the client with ``sha``:
 
@@ -61,25 +63,38 @@ def level(entry: dict[str, Any]) -> int:
     return value
 
 
-def minimum() -> int:
-    """The lowest iOS level this checkout's server accepts."""
-    value: int = json.loads((ROOT / API_LEVEL_PATH).read_text())["min_client_level"]["ios"]
-    return value
+def levels() -> tuple[int, int]:
+    """The lowest iOS level this checkout's server accepts, and the level it speaks."""
+    data = json.loads((ROOT / API_LEVEL_PATH).read_text())
+    floor: int = data["min_client_level"]["ios"]
+    ceiling: int = data["api_level"]
+    return floor, ceiling
 
 
 def supported() -> list[dict[str, Any]]:
-    """The listed clients the server must keep serving: those at or above the minimum."""
-    floor = minimum()
+    """The listed clients the server must keep serving: those at or above the minimum, and at or
+    below this checkout's ``api_level``.
+
+    A client above it was built from a bumped branch (a release candidate's TestFlight upload,
+    say) and listed here by its record PR before the bump reached this branch. Its suites read
+    the fixtures it was built for, not this checkout's, so it is skipped until the bump lands
+    (docs/specs/client-versions.md §7).
+    """
+    floor, ceiling = levels()
     kept = []
     for entry in policy()["clients"]:
+        skip = None
         if level(entry) < floor:
+            skip = f"is below min_client_level.ios {floor}, so the server refuses it"
+        elif level(entry) > ceiling:
+            skip = f"is above api_level {ceiling}, which this checkout's server and fixtures speak"
+        if skip is None:
+            kept.append(entry)
+        else:
             print(
-                f"compat: skips build {entry['build']} ({entry['sha'][:7]}): level {level(entry)} is below "
-                f"min_client_level.ios {floor}, so the server refuses it",
+                f"compat: skips build {entry['build']} ({entry['sha'][:7]}): level {level(entry)} {skip}",
                 file=sys.stderr,
             )
-        else:
-            kept.append(entry)
     return kept
 
 
