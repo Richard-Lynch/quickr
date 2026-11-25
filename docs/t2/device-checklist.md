@@ -63,25 +63,103 @@ signed in to the same server.
 
 ## M2 · active surfaces
 
-- [ ] **Live Activity on the real Lock Screen.** Start `Intervals`, lock.
-      Expected: the Lock Screen activity shows the segment timer, the lap
-      counter, a dominant **Lap** button labelled with the next type, Stop as a
-      secondary; the alert countdown line counts down to 0:00.
-- [ ] **Dynamic Island.** Expected: compact leading shows the lap counter
-      (`L2`), trailing the segment timer; expanded shows Lap primary and Stop. A
-      Lap tap from the Island with the app killed registers (the counter
-      increments; the second device sees the lap).
-- [ ] **Control Center Timer control.** Add the Timer control for `Intervals`.
-      Expected: detail reads "Lap → Rest" while a `Run` lap is open; a tap
-      performs the lap and the detail flips to "Lap → Run".
-- [ ] **Action button Auto.** Assign the Auto shortcut; press with `Intervals`
-      running. Expected: a lap is recorded (not a stop); when idle, a start.
-- [ ] **Active card on the home screen.** Expected: the running topic sits in
-      "Active now" above "Due now", tinted, with inline Lap and Stop; XXXL text
-      stacks the buttons; light and dark both legible.
-- [ ] **Resume within 15 minutes.** Stop `Smoke` from the tile. Expected: the
-      toast and the idle tile offer Resume for 15 minutes; after that, only the
-      entry detail does.
+Checked against `t2/m2` after I2-LA (#138) and I2-WIDGETS (#136); spec
+[active-surfaces.md](../specs/active-surfaces.md) §3–§5. An item, or a part of
+one, marked **(pending <WP>)** depends on work not yet in `t2/m2` when this was
+written; the release build has it, so run it as written, and if the behaviour is
+missing, check that the named WP merged before filing.
+
+Extra setup for M2: two timed topics **without lap types** (the §5.3 Auto
+carve-out applies to them): `Dishwasher` (no steps: a stopwatch) and `Morning`
+(steps `Shower`, `Breakfast`). Neither has questions, so Stop saves at once.
+Before the activity items, unlock the phone, open quickR, then close it.
+
+- [ ] **Live Activity layout on the real Lock Screen.** Start `Morning`, lock.
+      Expected, top to bottom (§4.2: two text rows and one button row, so iOS's
+      160 pt Lock Screen limit never truncates it): `Morning` with "1 of 2" at
+      the trailing edge; the ticking segment timer (large), "Shower", and at the
+      trailing edge the total in muted text; then one button row: **Next:
+      Breakfast** filled (prominent, accent) at half the width, **Pause** and
+      **Stop** (Stop in red) bordered at a quarter each. Tap Next: the badge
+      reads "2 of 2" and the primary becomes **Lap** (the last step is open, so
+      Lap is primary and Stop never is). Pause: the timers freeze and Pause
+      reads **Resume**. Repeat with Settings → Accessibility → Display & Text
+      Size → Larger Text at the largest size: the text stops growing at the
+      widgets' cap (xxLarge) and the button row is still fully visible. Stop:
+      the activity shows "Saved · m:ss" and no buttons.
+- [ ] **Live Activity lap fields (pending I2-LA-FIELDS).** Start `Intervals`,
+      lock. Expected: the second row's text is the headline ("Run 1 · lap 1"
+      style, §4.1) and the trailing badge "L1"; the primary reads **Lap → Rest**
+      (VoiceOver: "Lap, then Rest"). Tap it so `Rest 1` is open: under the
+      total, "⏰ Half way · 0:30" counts down in the warning colour and stays at
+      0:00 once reached (the activity itself makes no sound: the M1 alert items
+      cover the sound). While paused the alert line is hidden.
+- [ ] **Dynamic Island.** Start `Morning` (iPhone with a Dynamic Island).
+      Expected: compact leading shows the step number ("1"), compact trailing
+      and minimal the segment timer. Long-press for the expanded view: segment
+      timer leading, total trailing, "Shower" in the centre, and one row with
+      **Next: Breakfast** prominent at two thirds and **Stop** at one third (no
+      Pause in the Island). Start `Dishwasher` instead: compact leading is the
+      timer glyph and the expanded primary is **Lap**.
+- [ ] **Dynamic Island lap counter (pending I2-LA-FIELDS).** Start `Intervals`.
+      Expected: compact leading shows the lap counter ("L1", then "L2" after a
+      Lap); expanded trailing shows the alert countdown under the total while
+      `Rest` is open.
+- [ ] **Lap tap from the Lock Screen with the app killed.** Start `Dishwasher`,
+      swipe quickR away in the app switcher, lock. Tap **Lap** on the Lock
+      Screen activity (the phone stays locked; no Face ID prompt). Expected: the
+      segment timer restarts from 0:00 and the label moves to the next lap ("Lap
+      2") within a second or two, the total keeps running; the second device
+      shows the lap after its next sync; opening quickR shows the lap row in the
+      table. Repeat once from the expanded Dynamic Island.
+- [ ] **Timer control on a timer without lap types reads "Stop" (§5.3).** In
+      Control Center, add the quickR **Timer** control and pick `Dishwasher`.
+      Expected: idle, the control reads "Timer: Dishwasher" / "Start" with a
+      play icon; press it: the run starts (the Live Activity appears) and the
+      control reads **"Stop"** with a stop icon, although the app's and the
+      activity's primary is Lap. Press it again: the run stops and saves, and
+      the control reads "Start". With `Morning`: "Next: Breakfast" (chevron
+      icon) while `Shower` is open, then "Stop" on `Breakfast`.
+- [ ] **Timer control on a lap-typed timer (pending I1-WRITES, I2-LA-FIELDS).**
+      Configure a second Timer control for `Intervals`, start it. Expected: the
+      detail reads "Lap → Rest" (flag icon) while a `Run` lap is open; a press
+      performs the lap (not a stop) and the detail flips to "Lap → Run". No
+      press of this control ever stops `Intervals`.
+- [ ] **Action button Auto.** Settings → Action Button → Shortcut → quickR
+      **Advance Timer**, topic `Dishwasher`, action Auto. Expected: idle, a
+      press starts the run; the next press stops it (v1 Auto on a timer without
+      lap types); a press may show quickR's short confirmation. Then set the
+      topic to `Intervals` **(pending I1-WRITES)**: while it runs, a press
+      records a lap (the Live Activity's lap moves on), never a stop.
+- [ ] **Active card on the home screen (pending I2-HOME).** Start `Intervals`
+      and open the home screen. Expected: an "Active now" section, with a
+      pulsing timer glyph, sits above "Due now", and `Intervals` appears only
+      there. Its card is tinted, with a leading bar; it shows the name with a
+      small **Pause** text button, the **segment** timer big and "total m:ss"
+      small beside it, a "Running · …" badge, the alert line while one is
+      pending, and one controls row: the primary (**Lap → Rest**) filling the
+      row and **Stop** at a fixed width beside it. A tap on the card outside the
+      buttons opens the run screen. Pause: the badge reads "Paused · …", the
+      clock dims, the button reads **Resume**. At the largest accessibility text
+      size the primary stacks over Stop (both full width) and Pause moves under
+      the badge. Light and dark both legible. Stop: the section disappears.
+- [ ] **Resume within 15 minutes (pending M1, M2-RESUME).** Start `Smoke`, then
+      stop it from its active card. Expected: the toast "Saved Smoke: m:ss"
+      offers **Resume**, and the idle tile shows "Resume · m:ss" under its meta
+      line. Tap Resume on the tile: the card shows "Resuming…" without controls
+      until the server acks, then the ordinary running card, and the run screen
+      shows a pause row for the gap; this phone's Live Activity comes back. Stop
+      again and wait 15 minutes: neither the toast nor the tile offers Resume
+      any more (the entry detail's "Resume run" is the M4 item). The ended Live
+      Activity ("Saved · m:ss") never offers Resume (§4.4).
+- [ ] **Smart Stack and StandBy (observe only).** Put the small Topic widget for
+      `Dishwasher` in a Home Screen Smart Stack, then start the run. Charge the
+      phone locked and in landscape for StandBy. Expected: nothing to pass or
+      fail. Note whether the Smart Stack rotates to the widget or to the
+      activity, and how StandBy shows the Live Activity (scaled Lock Screen
+      layout; the system derives it, quickR adds no StandBy view). File a
+      `t2-followup` issue only for clipped buttons, unreadable text or a tap
+      that does nothing.
 
 ## M3a · appearance
 
