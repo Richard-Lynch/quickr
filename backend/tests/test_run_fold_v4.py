@@ -910,35 +910,61 @@ def check_sums(state: RunState, timer: Timer) -> None:
         assert t.terminal_id == state.terminal_id
 
 
-def fixed_ids(events: Sequence[Event]) -> set[str]:
-    """The events whose relative arrival order the property keeps: terminals, reopens, removes
-    and their targets (by id, so a replay stays with its original)."""
-    ordered = [x for x in events if x.type in ORDERED]
-    return {x.id for x in ordered} | {x.target for x in ordered if x.target is not None}
+def must_keep_order(a: Event, b: Event) -> bool:
+    """The pairs whose relative arrival order the property keeps (timers2.md §3.4): terminals,
+    discards, reopens and removes among themselves, and each reopen or remove with its target
+    (every occurrence, so replays count too). Everything else may swap, targets included."""
+    if a.type in ORDERED and b.type in ORDERED:
+        return True
+    return (a.type in ORDERED and a.target == b.id) or (b.type in ORDERED and b.target == a.id)
 
 
 def reorder(rng: random.Random, events: list[Event], frozen: Frozen | None) -> list[Event]:
-    """A random arrival order that keeps the fixed events as a subsequence, and the events before
-    the ``frozen`` cut-off before it (those after it are void whatever their order)."""
+    """A random arrival order that keeps every :func:`must_keep_order` pair as it was (a random
+    topological order of those constraints), and the events before the ``frozen`` cut-off
+    before it (those after it are void whatever their order)."""
     if frozen is not None:
         tail = events[frozen.after :]
         rng.shuffle(tail)
         return [*reorder(rng, events[: frozen.after], None), *tail]
-    keep = fixed_ids(events)
-    fixed = [x for x in events if x.id in keep]
-    free = [x for x in events if x.id not in keep]
-    rng.shuffle(free)
-    slots = ["fixed"] * len(fixed) + ["free"] * len(free)
-    rng.shuffle(slots)
+    n = len(events)
+    after: list[list[int]] = [[] for _ in range(n)]
+    blockers = [0] * n
+    for i in range(n):
+        for k in range(i + 1, n):
+            if must_keep_order(events[i], events[k]):
+                after[i].append(k)
+                blockers[k] += 1
+    ready = [i for i in range(n) if blockers[i] == 0]
     out: list[Event] = []
-    for slot in slots:
-        out.append(fixed.pop(0) if slot == "fixed" else free.pop(0))
+    while ready:
+        i = ready.pop(rng.randrange(len(ready)))
+        out.append(events[i])
+        for k in after[i]:
+            blockers[k] -= 1
+            if blockers[k] == 0:
+                ready.append(k)
+    assert len(out) == n
     return out
+
+
+def targets_swapped(before: list[Event], after: list[Event]) -> bool:
+    """Whether two distinct targets of reopens or removes arrive in the other order."""
+    targets = {x.target for x in before if x.type in ORDERED and x.target is not None}
+
+    def order(events: list[Event]) -> list[str]:
+        seen: list[str] = []
+        for x in events:
+            if x.id in targets and x.id not in seen:
+                seen.append(x.id)
+        return seen
+
+    return order(before) != order(after)
 
 
 def test_arrival_orders_that_keep_terminals_reopens_and_removes_in_order_give_the_same_state() -> None:
     rng = random.Random(20261125)
-    reopened = removed = stopped = 0
+    reopened = removed = stopped = swapped = 0
     for _ in range(2000):
         timer, events = random_run(rng)
         frozen = None
@@ -952,11 +978,14 @@ def test_arrival_orders_that_keep_terminals_reopens_and_removes_in_order_give_th
         reopened += any(x.type == "reopen" and state.effects[x.id].effect == "applied" for x in events)
         removed += any(x.type == "remove" and state.effects[x.id].effect == "applied" for x in events)
         for _ in range(6):
-            again = run_fold.fold(RUN, timer, reorder(rng, events, frozen), frozen=frozen)
+            shuffled = reorder(rng, events, frozen)
+            swapped += targets_swapped(events, shuffled)
+            again = run_fold.fold(RUN, timer, shuffled, frozen=frozen)
             assert again == state
     assert stopped > 400  # the generator reaches stopped runs often
     assert reopened > 200  # and applied reopens
     assert removed > 200  # and applied removes
+    assert swapped > 200  # and orders where unrelated targets pass one another
 
 
 @pytest.mark.parametrize("timer", TIMERS, ids=lambda t: f"{len(t.steps)}s{len(t.laps)}l")
