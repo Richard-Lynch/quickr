@@ -440,3 +440,11 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every PR:
 CI passes on `main`, `release.yml` publishes multi-arch images to
 `ghcr.io/richard-lynch/quickr-{backend,frontend}`, tagged `latest` plus the
 commit SHA, and with semver tags for `v*` tags.
+
+Dependency updates come from [Renovate](https://docs.renovatebot.com/)
+(`renovate.json`): one weekly PR per ecosystem (uv, pnpm, Dockerfiles, GitHub
+Actions, SwiftPM), majors on their own, and Python/Node runtime bumps held for a
+tick on the Dependency Dashboard issue. Because the hosted app cannot run
+post-upgrade commands, `.github/workflows/renovate-regen.yml` runs `make client`
+and `swift package resolve` on `renovate/*` branches and commits the result, so
+the drift checks above stay green without a manual `make client`.

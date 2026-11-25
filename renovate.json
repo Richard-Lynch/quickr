@@ -1,0 +1,159 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Dependency updates for the whole monorepo (uv, pnpm, Dockerfiles, compose, GitHub Actions, SwiftPM).",
+    "One weekly batch per ecosystem for minor/patch moves; majors are separate PRs (GitHub Actions excepted),",
+    "and runtime bumps (Python, Node, Postgres, TypeScript majors) wait for a Dependency Dashboard tick.",
+    "Releases must be 3 days old before they are proposed (vulnerability fixes excepted).",
+    "The hosted app cannot run postUpgradeTasks: .github/workflows/renovate-regen.yml regenerates",
+    "openapi.json + frontend/src/client (make client) and ios/QuickrKit/Package.resolved on renovate/* branches."
+  ],
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    "helpers:pinGitHubActionDigests",
+    ":semanticCommitsDisabled"
+  ],
+  "timezone": "Europe/Dublin",
+  "schedule": [
+    "before 7am on monday"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "rangeStrategy": "bump",
+  "minimumReleaseAge": "3 days",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "minimumReleaseAge": null
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 7am on the first day of the month"
+    ]
+  },
+  "gitIgnoredAuthors": [
+    "41898282+github-actions[bot]@users.noreply.github.com"
+  ],
+  "packageRules": [
+    {
+      "description": "Backend: one weekly PR for minor/patch moves (what the Dependabot `python` group did). Majors stay separate.",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "python packages"
+    },
+    {
+      "description": "Frontend: one weekly PR for minor/patch moves (the Dependabot `npm` group). Majors stay separate.",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "npm packages"
+    },
+    {
+      "description": "The hey-api generator rewrites frontend/src/client, so keep it out of the npm batch: its PR carries the regenerated client (renovate-regen.yml) and is reviewed on its own.",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "@hey-api/openapi-ts"
+      ],
+      "groupName": "openapi-ts codegen"
+    },
+    {
+      "description": "Workflows: one weekly PR, majors included (an action major is usually its Node runtime). Digests stay pinned with the `# vX.Y.Z` comment (helpers:pinGitHubActionDigests).",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "github actions"
+    },
+    {
+      "description": "Base images in the Dockerfiles and compose files: one weekly PR for minor/patch moves; majors separate. Tags, not digests: the images are multi-arch and rebuilt locally by compose; a digest pin would add a weekly PR per image for no reproducibility we rely on.",
+      "matchManagers": [
+        "dockerfile",
+        "docker-compose"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "docker images"
+    },
+    {
+      "description": "SwiftPM (GRDB): one weekly PR for minor/patch moves. Package.swift moves here; renovate-regen.yml refreshes Package.resolved on a macOS runner.",
+      "matchManagers": [
+        "swift"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "swift packages"
+    },
+    {
+      "description": "Python is pinned to 3.14 (pyproject requires-python, uv.lock, ruff target, Dockerfile). A 3.15 move needs all of them plus wheel coverage, so it waits for a tick on the Dependency Dashboard. 3.14.x patches flow normally.",
+      "matchDepNames": [
+        "python"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "major"
+      ],
+      "groupName": "python runtime",
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "A Node major moves .nvmrc, the frontend Dockerfile and @types/node together; opt in from the Dependency Dashboard.",
+      "matchDepNames": [
+        "node",
+        "@types/node"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "groupName": "node runtime",
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "A Postgres major (compose and the CI service) needs the hosted data volume upgraded first; opt in from the Dependency Dashboard.",
+      "matchDepNames": [
+        "postgres"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "groupName": "postgres",
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "TypeScript 7 ships only the native tsc: @hey-api/openapi-ts needs the JS compiler API and typescript-eslint pins typescript <6.1 (see #116). Opt in from the Dependency Dashboard once both support it.",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "typescript"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true
+    }
+  ]
+}
