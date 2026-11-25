@@ -244,6 +244,11 @@ def test_shas_skips_clients_above_the_checkouts_api_level(repo: Repo) -> None:
     r = repo.breaking()
     assert r.returncode == 0, r.stdout + r.stderr
     assert ahead not in r.stdout
+    # Once the bump lands here, the build is checked like any other.
+    repo.write("shared/api-level.json", levels(3, 3))
+    r = repo.fixtures("shas")
+    assert r.stdout.split() == [ahead], r.stderr
+    assert "skips build 2" in r.stderr  # now below the minimum
 
 
 def test_add_records_the_level_at_the_builds_sha(repo: Repo) -> None:
