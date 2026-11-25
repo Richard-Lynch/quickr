@@ -8,14 +8,28 @@ backend. There's nothing to set up on the server side for the app. It sends
 ## The stack
 
 ```bash
-make up      # db, backend and web in docker; web on :8080 (API :8100, Postgres :5433)
+make up      # the db, backend and frontend services in docker; web on :8080 (API :8100, Postgres :5433)
 make down
 ```
+
+The `frontend` service is nginx with the built PWA; `backend` is FastAPI on port
+8000 inside the network; `db` is Postgres with the `pgdata` volume. The compose
+project is named `quickr` (`name:` in `docker-compose.yml`) and the Makefile
+sets no `COMPOSE_PROJECT_NAME` or `-p`, so unless the shell exports one, every
+checkout and worktree that runs `make up` shares the same containers and
+volume (and, by default, the same host ports): there is no per-worktree stack. The host ports are compose variables,
+`QUICKR_WEB_PORT` (8080), `QUICKR_API_PORT` (8100) and `QUICKR_DB_PORT` (5433),
+read from the shell or from a gitignored `.env` next to `docker-compose.yml`.
 
 `docker compose` also reads `docker-compose.override.yml` when it exists. That
 file is gitignored and is where machine-specific settings go, such as the APNs
 key ([apns.md](apns.md)). Every other setting is a `QUICKR_*` variable, listed
 in the [README](../../README.md#quick-start).
+
+Released images are published by `.github/workflows/release.yml` as
+`ghcr.io/<owner>/quickr-backend` and `ghcr.io/<owner>/quickr-frontend`: a green
+CI run on `main` pushes `latest` and the full commit sha; a `v*` tag pushes the
+semver version (no `latest`). `make up` builds both images from source.
 
 To check that it's up, and which server it is:
 
@@ -61,7 +75,7 @@ app and MCP then each sign in their own way.
 
 | Need                                                | Where                                                                                              |
 | --------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| The API under `/api/v1` with the identity headers   | Any quickR backend from this branch on                                                             |
+| The API under `/api/v1` with the identity headers   | Any quickR backend since the iOS app merged to `main` (#6, 2026-10-22), so every `v0.3.x` image    |
 | `GET /api/v1/changes` (the feed the app syncs from) | Same                                                                                               |
 | Push                                                | Optional: [apns.md](apns.md). Without it, the app works, but the server can't send reminders to it |
 | A service token                                     | Only behind Cloudflare Access: [cloudflare-access.md](cloudflare-access.md)                        |

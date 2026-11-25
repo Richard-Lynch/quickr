@@ -14,7 +14,7 @@ fails=0
 fail() { echo "FAIL $*"; fails=$((fails + 1)); }
 ok() { echo "ok   $*"; }
 
-# --- the repo: base (ios/m3), its worktrees, and a squash-merged PR branch ---------------------
+# --- the repo: base (origin/main), its worktrees, and a squash-merged PR branch ----------------------
 repo="$fake/repo"
 git init -q -b main "$repo"
 g() { git -C "$repo" "$@"; }
@@ -22,8 +22,8 @@ g config user.email t@example.com; g config user.name t
 commit() { echo "$2" >"$1/f-$2"; git -C "$1" add -A; git -C "$1" commit -qm "$2"; }
 printf 'ios/build/\n.build/\n' >"$repo/.gitignore"  # as the real repo ignores its build output
 commit "$repo" one
-g branch -q ios/m3
-g update-ref refs/remotes/origin/ios/m3 ios/m3
+g branch -q ios/m3  # worktrees are cut from it; no origin/ios/m3 exists, as on the real remote
+g update-ref refs/remotes/origin/main main
 mk() {  # mk <name> <branch> [from]: a worktree, its HEAD and reflog dated a day ago
   g worktree add -q -b "$2" "$fake/$1" "${3:-ios/m3}"
   echo "$fake/$1"

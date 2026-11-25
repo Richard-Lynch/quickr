@@ -15,18 +15,33 @@ branch.
 - `[ ]` to do
 - `[-]` skipped, with a reason
 
-**Last updated:** 2026-10-19 21:00 EDT. **M1 merged** into `feat/ios-app` (#9, 48fa566). M2 is in progress on `ios/m2-ui`, starting with WIRE.
+**Last updated:** 2026-11-24 (doc refresh; no code change). **M1–M3 merged**
+into `feat/ios-app` (#9 48fa566, #10 21a6c2d, #11 e73e01f, follow-ups #19
+32d70b8), and **`feat/ios-app` merged into `main`** (#6, 1ca2b94, 2026-10-22).
+Since then work goes straight into `main` by squash PR: **timers v0.3.0** (#72,
+0d7ba41, 2026-10-26) and **client versions v0.3.1** (#93, 396be80, 2026-10-28).
+M4–M7's simulator parts shipped in M2 and M3 (#10, #11); what still needs the
+phone (checkpoint D, M3-DEV, M4-DEV, the M7 regression) is open. The log was last written on
+2026-10-21; the 2026-11-24 entry fills the gap.
 
-**Execution plan:** [DAG.md](DAG.md) (Fable). Waves of ≤4 WPs with at most 2 simulator-heavy at once. Milestones are stacked (squash-merge, then `rebase --onto`).
+**For the user:** `ios/project.yml` still says `MARKETING_VERSION: "0.1.0"`
+(TestFlight shows "0.1.0 (20261028.170408)") while the server tags are v0.3.0
+and v0.3.1. Left as it is on your decision; bump it there for a new release
+(ios/README.md, "TestFlight").
+
+**Execution plan:** [DAG.md](DAG.md) (Fable). Waves of ≤4 WPs with at most 2
+simulator-heavy at once. Milestones were stacked (squash-merge, then
+`rebase --onto`) until #6; since then the integration branch is `main` (PLAN §4,
+"Current reality").
 
 ## Now
 
 |                     |                                                                                                                                                                |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Active milestone    | **M1** on `ios/m1-data`. M0 merged (#8, 6249b0e).                                                                                                              |
-| Running             | Cap raised to **6 agents** (simulator-heavy ≤2; Mac has 14 cores). STORE (last Codex fix: intent token), API, B7, SKEL (sim), OUTBOX, SYNC, PWA zod length fix |
-| Waiting on the user | Apple enrollment activation and the Team ID; a session restart to load MobileBuildMCP                                                                          |
-| Next up             | Wave 1 reviews (Codex) → merge C1 first → Wave 2: STORE, API, DUE, VAL                                                                                         |
+| Active milestone    | **No milestone branch is open**; what M3–M7 still list is device validation (plus any unticked backlog line below). M0–M3 merged (#8, #9, #10, #11, #19) and reached `main` in #6 (2026-10-22). Timers (v0.3.0, #72) and CV (v0.3.1, #93) shipped on `main` afterwards. |
+| Running             | Nothing tracked here (2026-11-24: docs refresh only). The integration branch is `main`; `feat/ios-app` is left at 32d70b8 (#19) and is no longer used.                         |
+| Waiting on the user | Device validation on the phone (checkpoint D, M3-DEV, M4-DEV, the M7 regression, timers §13.5) with TestFlight 20261028.170408; the `MARKETING_VERSION` bump (see above).      |
+| Next up             | Device day per [demo/DEVICE-DAY.md](demo/DEVICE-DAY.md); the backlog below; the `timers-followup` and `cv-followup` issues on GitHub.                                          |
 
 ## Human steps (PLAN §9)
 
@@ -34,14 +49,27 @@ branch.
       supports it.
 - [x] H2: install Xcode 27.x with `xcodes`. Installed Xcode 27.1 (27A9275) at `/Applications/Xcode-27.1.0.app`, selected, with Swift 6.4. (another agent is doing it), then run
       `xcode-select` and accept the licence. Report the install path.
-- [~] H3: Apple Developer enrollment. Submitted 2026-10-17 (order W1832720362),
-  awaiting activation. Then send the Team ID.
-- [ ] H4: Xcode ▸ Settings ▸ Accounts sign-in. Needed after H3, before
-      checkpoint D.
-- [~] H5: phone is an **iPhone 16 Pro Max on iOS 26.6.2**. It has the Action button and Apple Intelligence (A18 Pro), so one-sentence Siri logging is available. Still to do: trust this Mac and turn on Developer Mode (after enrollment).
-- [ ] H6: APNs `.p8` key, with its Key ID (M3).
-- [ ] H7: App Store Connect app record and API key (M7).
-- [ ] H8: Cloudflare tunnel, Access app and service token (M7).
+- [x] H3: Apple Developer enrollment. Submitted 2026-10-17 (order W1832720362),
+      confirmed 2026-10-20 (valid through 2027-10-19). The Team ID is in use:
+      local TestFlight uploads from 2026-10-22 and CI's `DEVELOPMENT_TEAM`
+      variable.
+- [~] H4: Xcode ▸ Settings ▸ Accounts sign-in. Not confirmed: TestFlight signs
+  through the ASC API key, so nothing so far needed it. Still needed for
+  `make ios-device-run` and checkpoint D.
+- [~] H5: phone is an **iPhone 16 Pro Max on iOS 26.6.2**. It has the Action
+  button and Apple Intelligence (A18 Pro), so one-sentence Siri logging is
+  available. TestFlight builds run on it (push verified 2026-10-21; build
+  20261028.170408 installed). Trusting this Mac and Developer Mode (for
+  `devicectl`) are not confirmed.
+- [x] H6: APNs `.p8` key, with its Key ID (M3). Applied in the deployment (IaaC
+      #184, 2026-10-21); push works on the device over production APNs (log,
+      2026-10-21 18:50).
+- [x] H7: App Store Connect app record and API key (M7). TestFlight 0.1.0 builds
+      20261022.005113 (local), 20261026.143027 and 20261028.170408 (CI,
+      `testflight` environment; #73, #95).
+- [x] H8: Cloudflare tunnel, Access app and service token (M7).
+      quickr.bahumia.com is behind Access with the iOS service token (verify
+      9/9, 2026-10-21); the AASA bypass is applied.
 
 ## Open questions (PLAN §10)
 
@@ -49,7 +77,7 @@ Each one is answered for now with the default shown below, marked provisional.
 The user can override any of them.
 
 - [x] Q1: milestone PRs merge without waiting for review. **Yes.**
-- [x] Q2: lock-screen logging without Face ID. **Yes, if it's clean.** Verified at checkpoint D.
+- [x] Q2: lock-screen logging without Face ID. **Yes, if it's clean.** To verify at checkpoint D (not run as of 2026-11-24).
 - [x] Q3: Siri opens the record screen or runs Repeat-last for multi-question topics. **Yes, and better:** research `04-siri.md` shows multi-question topics CAN be logged by voice on iOS 26 (`LogTopicIntent`: field-by-field turns plus an interactive confirmation card; one-sentence parsing on Apple Intelligence phones). Plan and DAG updated.
 - [x] Q4: **3 most-used + "More…"** (opens the app) for 5–6 options, with the truncation stated in the body.
 
@@ -152,7 +180,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 - [x] The `X-QuickR-Server-Id` header is on every `/api/v1` response, including errors and
       `/health`.
 - [ ] (M3) `due_since` in push payloads is UTC truncated to whole seconds.
-- [ ] (M3) `quicklog-vectors.json` gains category-id cases, so Python and Swift produce identical
+- [x] (M3, shipped as `notification-vectors.json` category ids) `quicklog-vectors.json` gains category-id cases, so Python and Swift produce identical
       `quickr.t.{id}.{hash}`.
 
 ### Backlog from M0 reviews (non-blocking)
@@ -164,7 +192,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 - A11Y T5: at AX XXXL the toast's single HStack (text, Undo, ✕) squeezes the text column; stack the actions under the text at AX sizes (ToastView.swift).
 - A11Y SE6: each licence is one huge Text element; split it into paragraphs so VoiceOver can move through it (LicencesView.swift).
 - A11Y SE2 → superseded by AUTOFILL: on the device, the token fields fill from 1Password for quickr.bahumia.com and a hand-typed token is offered for saving; closing the sheet saves nothing in quickR (DEVICE-DAY §6, "The token fields work with Password AutoFill"). Needs the AASA Access bypass (H8, cloudflare-access.md §7).
-- H8: Cloudflare Bypass app for quickr.bahumia.com/.well-known/apple-app-site-association (IaaC); required for AutoFill.
+- H8: Cloudflare Bypass app for quickr.bahumia.com/.well-known/apple-app-site-association (IaaC); required for AutoFill. Applied 2026-10-21 (log, 18:10).
 - A11Y: the Home due-pulse doesn't stop if Reduce Motion is switched on mid-animation; stop or restart it when the setting changes (HomeView.swift).
 - UIT-6 stall (not reproduced): once, on iOS 27 under load from other simulators, the app never went idle on the record screen just after a topic was created. Every XCUITest action waited out the 120 s "wait for app to idle" ("App animations complete notification not received", 4×), so TopicLifecycleUITests overran its 5 min allowance; the screen looked static. Not reproduced in 6 further runs (test times 102–129 s), with the app's log stream and periodic `sample` showing nothing stuck. Ruled out: the A11Y shared code (not in that build), PerfProbe (passive), and the full keyboard on the int field (by design: no minimum means negatives are allowed). If it recurs, sample the app during the stall and check the record screen's `.task`s and any repeating animation.
 - Tooling: `make ios-uitest-e2e` doesn't pass the IOS_SIM_DEFAULTED marker, so a plain run picks the shared base device rather than the worktree clone (it still counts toward the cap). Extend simcap's per-target defaulting to it.
@@ -246,6 +274,11 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## D: Device checkpoint · needs H3–H5
 
+Status 2026-11-24: **not run.** No `devicectl` install or D1–D11 result is
+recorded anywhere (the phone has only TestFlight builds). PR #11 lists what D
+covers under "Deferred to the device"; the steps are in
+[demo/DEVICE-DAY.md](demo/DEVICE-DAY.md).
+
 - [ ] devicectl install
 - [ ] NSE category upsert timing
 - [ ] How many notification actions are shown (banner and expanded)
@@ -258,63 +291,156 @@ Branch `ios/m1-data` (stacked on `ios/m0-foundations`). WPs per [DAG.md](DAG.md)
 
 ## M2a: Shell, design system, home · needs H2
 
-- [ ] Design system: tokens, fonts, components, icon
-- [ ] Onboarding and Settings (server URL, Cloudflare token, notification
-      permission)
-- [ ] Home, with due-first ordering
-- [ ] Quick-log tiles at parity; undo toasts
-- [ ] UI test (chip and undo); tap counts; screenshots in light and dark, and at
-      Dynamic Type XL
-- [ ] Reviews; PR with GIFs and screenshots
+Shipped in **PR #10** (`ios/m2-ui` → `feat/ios-app`, squash 21a6c2d,
+2026-10-21), on the M1 design system (DS, 6a579a4). Media: `docs/ios/demo/m2/`.
+
+- [x] Design system: tokens, fonts, components, icon (M1 DS; `demo/m1/ds-*.png`)
+- [x] Onboarding and Settings (server URL, Cloudflare token, notification
+      permission) (LINKS+SETTINGS, REG: per-server Keychain Access credentials,
+      push setup)
+- [x] Home, with due-first ordering (HOME; APP-SKEW in #11 put due state on
+      server time)
+- [x] Quick-log tiles at parity; undo toasts (TILES: UI 20/20, integration
+      18/18)
+- [x] UI test (chip and undo); tap counts; screenshots in light and dark, and at
+      Dynamic Type XL (UIT-2 tap-count tests, `demo/m2/tap-counts.md`;
+      `home-light/dark.png`, `home-ax-xxxl.png`, `tiles-chip-undo.gif`)
+- [x] Reviews; PR with GIFs and screenshots (Codex rounds per WP; #10)
 
 ## M2b: Record, sync UX, background · needs H2
 
-- [ ] Record-screen form engine and focus rules; "Same as last time"; "Log
-      another"; auto-save; fix mode
-- [ ] Sync sheet; deep links; flush triggers; BGAppRefresh
-- [ ] UI tests; full tap-count table; device install (once D passes)
-- [ ] Reviews; PR with GIFs
+Shipped in **PR #10**.
+
+- [x] Record-screen form engine and focus rules; "Same as last time"; "Log
+      another"; auto-save; fix mode (FORM, RECORD: UI 27/27)
+- [x] Sync sheet; deep links; flush triggers; BGAppRefresh (SYNC-UX: UI 30/30;
+      LINKS; the BGTask launch-handler crash fixed in #19)
+- [x] UI tests; full tap-count table (UIT-2, `make ios-uitest-e2e`;
+      `demo/m2/tap-counts.md`)
+- [ ] Device install (once D passes)
+- [x] Reviews; PR with GIFs (`record.gif`, `uit2-*.gif`; #10)
 
 ## M3: Reminders and logging from notifications · needs H3–H6
 
-- [ ] B6 APNs sender, B7 payload, B8 PWA notification actions
-- [ ] iOS: registration, the category table, the NSE, the action handler, number
-      input, "Test this device"
-- [ ] Backend MockTransport and failure tests; device sandbox checklist (5
-      items)
-- [ ] Reviews; PR with a device recording
+Shipped in **PR #11** (`ios/m3` → `feat/ios-app`, squash e73e01f, 2026-10-21)
+and **#19** (32d70b8, 2026-10-22). Media: `docs/ios/demo/m3/`.
+
+- [x] B6 APNs sender, B7 payload (M1, #9), B8 PWA notification actions (#10)
+- [x] iOS: registration (REG, #10), the category table (CAT #10, CATCAP #11),
+      the NSE, the action handler, number input ("Log 72 kg"), "Test this
+      device" (REG)
+- [x] Backend fake APNs transport and failure tests
+      (`backend/tests/fake_apns.py`; B6's 4 Codex rounds, #9)
+- [ ] Device sandbox checklist (5 items): M3-DEV in DEVICE-DAY.md, not run. Push
+      itself is verified on the phone (2026-10-21, production APNs via
+      TestFlight).
+- [~] Reviews; PR with a device recording. Reviews and the PR are done (#11:
+  milestone Codex review, no Blockers); the recordings are from the simulator
+  (`log-from-notification.gif`), not the device.
 
 ## M4: Widgets, Controls, Siri and Shortcuts · needs H3–H5
 
-- [ ] Intents, widgets, controls, Shortcuts phrases
-- [ ] Device checks: logging with the app killed and offline, the Action button, Siri; **a 3-question topic by voice while offline; editing and confirming in the Siri card; the one-sentence path on an Apple Intelligence phone**; multi-process soak
-- [ ] Reviews; PR with GIFs and a recording
+The simulator-provable parts shipped in **PR #11**; the timers release (#72)
+added the run widgets, Control, Action button and a parameterised App Shortcut.
+
+- [x] Intents, widgets, controls, Shortcuts phrases (INTENTS: `LogEntryIntent`,
+      `LogTopicIntent` with the confirmation snippet; WIDGETS: topic and due
+      widgets, the per-topic Control; `demo/m3/widgets-*.png`,
+      `siri-snippet-*.png`)
+- [ ] Device checks: logging with the app killed and offline, the Action button,
+      Siri; **a 3-question topic by voice while offline; editing and confirming
+      in the Siri card; the one-sentence path on an Apple Intelligence phone**;
+      multi-process soak (M4-DEV W1–W9 in DEVICE-DAY.md, not run)
+- [~] Reviews; PR with GIFs and a recording. Reviews and the PR are done (#11);
+  `log-from-widget.gif` is from the simulator, no device recording.
 
 ## M5: History and entries · needs H2
 
-- [ ] Entries list and filters, edit (pinned version), delete with undo, CSV,
-      offline
-- [ ] UI test; integration (edit on the web, a web delete while an update is
-      pending)
-- [ ] Reviews; PR with GIFs
+Shipped in **PR #10** (LIST, EDIT, CSV).
+
+- [x] Entries list and filters, edit (pinned version), delete with undo, CSV,
+      offline (LIST: UI 36/36, integration 19/19; EDIT: UI 61/61, Fix for
+      refused edits; CSV: online-only share-sheet export,
+      `QuickrData/Entries/EntriesExport.swift`)
+- [~] UI test; integration (edit on the web, a web delete while an update is
+  pending). The UI tests and LIST's integration run are done; the two named
+  web-side scenarios are not confirmed as separate integration cases (the outbox
+  matrix covers `deleted_elsewhere`).
+- [x] Reviews; PR with GIFs (#10; `demo/m2/entries-*.png`, `edit-*.png`)
 
 ## M6: Management parity · needs H2
 
-- [ ] Stats with Swift Charts, new topic, builder plus compatibility check and
-      publish, versions, topic settings, app settings
-- [ ] Builder tests, chart-model tests, UI test (create → log → publish v2 →
-      log)
-- [ ] Reviews; PR with GIFs
+Shipped in **PR #10** (STATS, TOPIC, BUILDER, BUILDER-UI, APPSET) with the
+end-to-end UI test in **#11** (UIT-6).
+
+- [x] Stats with Swift Charts (`ios/App/Stats/StatsCharts.swift`), new topic,
+      builder plus compatibility check and publish (Review via a dry-run
+      `/check`, publish v(n+1), the 409 conflict sheet), versions, topic
+      settings, app settings
+- [x] Builder tests (server-generated builder vectors), chart-model tests, UI
+      test (create → log → publish v2 → log) (UIT-6, #11)
+- [x] Reviews; PR with GIFs (#10; `demo/m2/builder-*.png`; the builder-binding
+      bug UIT-6 found is fixed in #11)
 
 ## M7: Hardening, TestFlight, hosting · needs H7, H8
 
-- [ ] `make ios-testflight`; hosting B9 and an end-to-end test through
-      Cloudflare
-- [ ] Accessibility, performance, schema upgrade test, docs
-- [ ] Full regression on the device
-- [ ] Final PR `feat/ios-app` → `main` (squash)
+The tooling and docs shipped in **PR #11** and **#19**; the device regression is
+open.
+
+- [x] `make ios-testflight` (TF, #11; CI uploads on `v*` tags since #19,
+      `.github/workflows/testflight.yml`); hosting B9 (`docs/hosting/`) and an
+      end-to-end test through Cloudflare (AccessIntegrationTests 21/21; the live
+      verify of quickr.bahumia.com, 9/9, 2026-10-21)
+- [x] Accessibility (A11Y A–C, Lows, widgets; `reviews/a11y-audit.md`),
+      performance (PERF, `demo/m3/perf.md`), schema upgrade test (UPG), docs
+- [ ] Full regression on the device (DEVICE-DAY.md "M7 regression"; not run)
+- [x] Final PR `feat/ios-app` → `main` (squash): **#6, 1ca2b94, 2026-10-22.**
+      Required checks since: backend, frontend, docker, `ios gate`,
+      `compat gate` (#22 closed the draft-time gaps).
+
+## After M7 (on `main`)
+
+Not milestones of this plan; listed so the tracker is complete. Their specs live
+in `docs/specs/`.
+
+- [x] **Timers, v0.3.0** (#72, 0d7ba41, 2026-10-26): runs with steps, laps and a
+      Live Activity across backend, PWA and iOS (`docs/specs/timers.md`).
+      Post-release fixes #76, #77, #79. TestFlight 20261026.143027 listed in
+      `compat/supported-clients.json` (#73).
+- [x] **Client versions (CV), v0.3.1** (#93, 396be80, 2026-10-28): API levels,
+      `426 client_outdated`, the iOS "Update required" window
+      (`docs/specs/client-versions.md`; spec review #80). TestFlight
+      20261028.170408 listed (#95).
+- [ ] Timers device validation (timers-plan.md §13.5) on the phone.
 
 ## Log
+
+- 2026-11-24: **Docs refresh; what happened 2026-10-20 → 2026-10-28** (this log
+  stopped on 2026-10-21 22:45; the entries below it are unchanged).
+  - **M2 merged** into `feat/ios-app`: PR #10, squash 21a6c2d (2026-10-21). **M3
+    merged**, with the M4 and M7 simulator parts: PR #11, squash e73e01f
+    (2026-10-21). **M3 follow-ups** (TestFlight hardening, AUTOFILL, SINGLE, the
+    BGTask crash fix, #13 phases 1–2): PR #19, squash 32d70b8 (2026-10-22).
+  - **`feat/ios-app` → `main`: PR #6, squash 1ca2b94 (2026-10-22).** #22
+    (4d65ec1) made the gates fail on draft-time runs and required listed clients
+    to be reachable from a tag; #23 added the MIT licence. From here on every PR
+    targets `main` (squash, linear history; required checks backend, frontend,
+    docker, `ios gate`, `compat gate`). `feat/ios-app` stays on the remote at
+    32d70b8 and is not used; `ios/m3` is gone.
+  - **Timers v0.3.0:** PR #72, squash 0d7ba41 (2026-10-26), from `feat/timers`
+    with its WPs as PRs #24–#71; tag `v0.3.0`. Fixes #76 (b119f33), #77
+    (b81cbf5), #79 (274b793) on 2026-10-27. CI uploaded **TestFlight 0.1.0
+    (20261026.143027)**; #73 (6304083) listed it.
+  - **Client versions v0.3.1:** spec review #80 (1296536), release PR #93,
+    squash 396be80 (2026-10-28); tag `v0.3.1`. CI uploaded **TestFlight 0.1.0
+    (20261028.170408)** (API level 1); #95 (850a5d6) listed it.
+  - **Today:** header, Now, H1–H8 and the M2a–M7 checklists above reflect what
+    merged (evidence: the PR bodies and the code); device items stay open.
+    `ios/scripts/prune.sh` now defaults its base to `origin/main` (was
+    `origin/ios/m3`); PLAN §4 gets a "Current reality" note (integration on
+    `main`; the per-worktree compose isolation of §4 "(v2)" was never
+    implemented); sync-protocol F3 now names `run` among the tombstoned kinds
+    (issue #75).
 
 - 2026-10-21 22:45 (EDT): **#13 phase 2 merged** (PR #15, squash d77035a; 12/12 green).
   - **testflight.yml:**

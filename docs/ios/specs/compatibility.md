@@ -153,8 +153,10 @@ Each gated workflow ends in one always-run job that is the check to require:
 `compat gate` (compat.yml) and `ios gate` (ios.yml). It fails unless its path
 check succeeded and every other job passed or was skipped by it. A skipped job
 reports as passing, so requiring the jobs themselves would let a broken or
-cancelled path check through. The full list for `main` and `feat/ios-app`:
-`backend`, `frontend`, `docker` (ci.yml, not gated), `ios gate`, `compat gate`.
+cancelled path check through. The full list for `main` (and for `feat/ios-app`,
+the integration branch until #6 merged it into `main` on 2026-10-22; since then
+every PR targets `main`): `backend`, `frontend`, `docker` (ci.yml, not gated),
+`ios gate`, `compat gate`.
 
 Both workflows also run on every push to `main` (ios.yml on `feat/ios-app` too),
 so a pushed commit gets both gates. A `v*` tag deploys only from a commit whose

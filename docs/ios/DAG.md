@@ -24,6 +24,9 @@ three specs). Where this deviates from PLAN §7 it says so.
    first wave implements. **Orchestrator decision:** the repo allows squash and
    rebase merges only, so milestone PRs are squash-merged into `feat/ios-app` and
    N+1 is moved with `git rebase --onto origin/feat/ios-app <N tip>` (Q5 dropped).
+   _(2026-11-24: this held through M3. #6 merged `feat/ios-app` into `main` on
+   2026-10-22; since then WP and milestone branches merge straight into `main`
+   by squash PR, see PLAN §4 "Current reality".)_
 
 ## 1. Critical path
 

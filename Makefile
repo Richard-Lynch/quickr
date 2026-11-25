@@ -97,7 +97,7 @@ endif
 TEST_DB := $(BACKEND) uv run python -m tools.test_database
 
 .PHONY: check
-check: check-backend check-frontend ## Run every check CI runs (except the docker smoke test)
+check: check-backend check-frontend ## Backend + frontend checks (ci.yml minus the docker smoke test; iOS gate: check-ios, compat gate: compat.yml)
 
 .PHONY: check-backend
 check-backend: ## Backend: lint, types, openapi.json freshness, pytest, migrations match models

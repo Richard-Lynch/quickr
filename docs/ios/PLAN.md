@@ -76,8 +76,13 @@ ios/
   App/ Widgets/ NotificationService/ UITests/ TestPlans/ Resources/ scripts/
   Local.xcconfig              gitignored: DEVELOPMENT_TEAM, device id, dev server URL
 shared/fixtures/              due-vectors.json, quicklog-vectors.json, api/*.json, requests/*.json (all generated + drift-checked)
-docs/ios/                     REQUIREMENTS, PLAN, specs/, research/, reviews/, demo/mN/
-.github/workflows/ios.yml     path-filtered macOS job
+docs/ios/                     REQUIREMENTS, PLAN, STATUS (the tracker), DAG (the execution plan), specs/ (sync-protocol,
+                              outbox, notifications, m2-screens, compatibility), research/, reviews/, demo/ (m0–m3, DEVICE-DAY)
+docs/specs/                   timers.md, timers-plan.md, client-versions.md: the milestones after M7, shipped on main
+docs/hosting/                 backend, APNs and Cloudflare Access deployment notes (M7 HOST)
+compat/                       supported-clients.json and the compat gate's scripts (docs/ios/specs/compatibility.md)
+.github/workflows/            ios.yml (path-gated `swift test` + build, `ios gate`), compat.yml (`compat gate`),
+                              testflight.yml (uploads on v* tags), ci.yml, release.yml
 ```
 
 ## 4. Workflow and branch management
@@ -98,6 +103,20 @@ docs/ios/                     REQUIREMENTS, PLAN, specs/, research/, reviews/, d
   `COMPOSE_PROJECT_NAME`, `QUICKR_DB_PORT`, `QUICKR_API_PORT`, `QUICKR_WEB_PORT`
   and `QUICKR_TEST_DATABASE_URL` (a test DB per worktree). Each also gets its
   own simulator device, made with `simctl clone`.
+- **(2026-11-24) Current reality.** `feat/ios-app` was the integration branch
+  until PR #6 merged it into `main` on 2026-10-22 (1ca2b94); since then every
+  PR targets `main` directly (squash merges, linear history; required checks
+  `backend`, `frontend`, `docker`, `ios gate`, `compat gate`). WP branches take
+  a prefix per milestone (`ios/m*` for M0–M3, `timers/*` and `timers-fix/*`
+  for v0.3.0, `cv/*` for v0.3.1); a milestone's own branch (`feat/timers`,
+  `feat/client-versions`) collects them and lands in one PR. The per-worktree
+  `.env` isolation in the "(v2)" bullet above was **never implemented**:
+  `docker-compose.yml` sets `name: quickr` and the Makefile passes no
+  `COMPOSE_PROJECT_NAME` or `-p`, so unless the shell exports one, every
+  worktree's `make up` acts on the one compose project. Never run `make up` or `make down` from a worktree. What is
+  isolated: test databases (`quickr_test_<dir>_<hash8>`, see
+  `backend/tools/test_database.py`) and simulators (`make ios-sim-clone` makes
+  one clone per worktree). Issue #114 tracks the compose isolation.
 - **Before each milestone PR:**
   1. All gates are green (§8).
   2. A code-review sub-agent and `codex review` have both reviewed the diff, and
