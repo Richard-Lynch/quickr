@@ -71,8 +71,9 @@ struct RunScreen: View {
     }
 }
 
-/// The run screen's body for `topic`: its open run's clocks and controls, a finishing run's Add
-/// details, or Start. Also the record screen's, for a timed topic.
+/// The run screen's body for `topic` (active-surfaces.md §2.1): a header, the controls under it,
+/// then the step and lap table, for its open run, a finishing run's Add details, or Start. Also
+/// the record screen's, for a timed topic. The whole screen scrolls; the controls aren't pinned.
 struct RunPanel: View {
     let topic: Topic
     let run: LocalRun?
@@ -80,37 +81,32 @@ struct RunPanel: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingDiscard = false
     @State private var starts = 0
+    @State private var advances = 0
+    @State private var stops = 0
 
     private var link: TopicLinkRef { TopicLinkRef(id: topic.id) }
 
     var body: some View {
+        let slots = RunControlItem.slots(controls)
+        let busy = environment.runActions.isBusy(topic.id)
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if let run, run.isOpen {
-                    OpenRunView(run: run)
+                    OpenRunView(run: run) { RunControls(slots, busy: busy) }
                 } else if let run, run.status == .finishing {
-                    finishing(run)
+                    finishing(run, controls: RunControls(slots, busy: busy))
                 } else {
-                    idle
+                    idle(controls: RunControls(slots, busy: busy))
                 }
             }
             .padding(16)
         }
         .qrPaperBackground()
-        .safeAreaInset(edge: .bottom) { bar }
         .navigationTitle(topic.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let run, run.isOpen || run.status == .finishing {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Discard run…", role: .destructive) { confirmingDiscard = true }
-                            .accessibilityIdentifier("run.discard")
-                    } label: {
-                        Label("More", systemImage: "ellipsis.circle")
-                    }
-                    .accessibilityIdentifier("run.menu")
-                }
+            if !slots.menu.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) { RunOverflowMenu(items: slots.menu, busy: busy) }
             }
         }
         .alert("Discard this run?", isPresented: $confirmingDiscard) {
@@ -120,11 +116,13 @@ struct RunPanel: View {
             Text("Its times won’t be saved. This can’t be undone.")
         }
         .qrHaptic(.logged, trigger: starts)
+        .qrHaptic(.selection, trigger: advances)
+        .qrHaptic(.logged, trigger: stops)
     }
 
     // MARK: - States
 
-    private var idle: some View {
+    private func idle(controls: RunControls) -> some View {
         let steps = topic.timer?.steps ?? []
         return VStack(alignment: .leading, spacing: 20) {
             VStack(spacing: 6) {
@@ -139,19 +137,20 @@ struct RunPanel: View {
                 .foregroundStyle(.qr.muted)
             }
             .frame(maxWidth: .infinity)
-            if !steps.isEmpty {
-                StepList(rows: RunPresentation.rows(steps: steps), liveMs: 0)
-            }
             if topic.status == .archived {
                 Text("This topic is archived. Unarchive it to time it.")
                     .font(.qr(.subheadline))
                     .foregroundStyle(QuickrTone.warn.foreground)
                     .accessibilityIdentifier("run.archived")
             }
+            controls
+            if !steps.isEmpty {
+                StepList(rows: RunPresentation.rows(steps: steps), liveMs: 0)
+            }
         }
     }
 
-    private func finishing(_ run: LocalRun) -> some View {
+    private func finishing(_ run: LocalRun, controls: RunControls) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             QuickrBadge("Stopped", icon: .stop, tone: .warn)
             RunDuration(
@@ -163,58 +162,75 @@ struct RunPanel: View {
             Text("Add the details to save it.")
                 .font(.qr(.subheadline))
                 .foregroundStyle(.qr.muted)
+            controls.padding(.vertical, 8)
             StepList(rows: RunPresentation.rows(run.state, steps: run.steps), liveMs: 0)
         }
     }
 
-    // MARK: - The bar
+    // MARK: - Controls
 
-    @ViewBuilder private var bar: some View {
-        HStack(spacing: 10) {
-            if let run, run.isOpen {
-                let primary = RunPresentation.primary(run.state, steps: run.steps)
-                if primary.isNext {
-                    Button {
-                        stop(run)
-                    } label: {
-                        Label("Stop", systemImage: "stop")
-                    }
-                    .buttonStyle(.qr(.secondary, size: .large))
-                    .accessibilityIdentifier("run.stop")
-                }
-                Button {
-                    if primary.isNext { tap(.next, run) } else { stop(run) }
-                } label: {
-                    Label(primary.title, systemImage: primary.isNext ? "chevron.right" : "stop")
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.qr(.primary, size: .large))
-                .accessibilityIdentifier("run.primary")
-            } else if let run, run.status == .finishing, let runId = UUID(uuidString: run.id) {
-                Button {
-                    environment.router.open(.runDetails(link, runId: runId))
-                } label: {
-                    Label("Add details", systemImage: "pencil").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.qr(.primary, size: .large))
-                .accessibilityIdentifier("run.addDetails")
-            } else if topic.status != .archived {
-                Button {
-                    start()
-                } label: {
-                    Label("Start", systemImage: "play").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.qr(.primary, size: .large))
-                .accessibilityIdentifier("run.start")
+    /// The screen's controls in display order, each with its place (§2.2).
+    ///
+    /// Phase-1 seam (I2-CONTROLS): today's taps, given the roles of active-surfaces.md §1.2
+    /// (Lap is the primary on a lap or once no named step remains; Stop and Pause/Resume are the
+    /// secondaries; Skip and Discard sit in the menu). Phase 2 replaces this with M1's
+    /// `RunPresentation.actions(_:status:timer:now:)` placed by `RunControlsLayout`.
+    private var controls: [RunControlItem] {
+        if let run, run.isOpen {
+            let paused = run.status == .paused
+            let primary = RunPresentation.primary(run.state, steps: run.steps)
+            let lap = run.steps != nil && (run.state.open?.kind == .lap || !primary.isNext)
+            var items = [
+                lap
+                    ? RunControlItem(
+                        id: "run.primary", title: "Lap", icon: "flag", role: .primary,
+                        enabled: run.state.open != nil, perform: { advance(.lap, run) })
+                    : RunControlItem(
+                        id: "run.primary", title: primary.title, icon: "chevron.right", role: .primary,
+                        perform: { advance(.next, run) }),
+                RunControlItem(
+                    id: "run.stop", title: "Stop", icon: "stop", label: "Stop \(topic.name)", role: .secondary,
+                    danger: true, perform: { stop(run) }),
+                paused
+                    ? RunControlItem(
+                        id: "run.resume", title: "Resume", icon: "play", role: .secondary,
+                        perform: { tap(.resume, run) })
+                    : RunControlItem(
+                        id: "run.pause", title: "Pause", icon: "pause", role: .secondary,
+                        perform: { tap(.pause, run) }),
+            ]
+            if let skip = RunPresentation.skipTarget(run.state, steps: run.steps) {
+                items.append(
+                    RunControlItem(
+                        id: "run.skip", title: "Skip \(skip.label)", icon: "forward.end", role: .overflow,
+                        perform: { tap(.skip, run) }))
             }
+            items.append(discardItem)
+            return items
         }
-        .disabled(environment.runActions.isBusy(topic.id))
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color.qr.paper)
+        if let run, run.status == .finishing {
+            guard let runId = UUID(uuidString: run.id) else { return [discardItem] }
+            return [
+                RunControlItem(
+                    id: "run.addDetails", title: "Add details", icon: "pencil",
+                    label: "Add details to \(topic.name)", role: .primary,
+                    perform: { environment.router.open(.runDetails(link, runId: runId)) }),
+                discardItem,
+            ]
+        }
+        // An archived topic can't start a run (the server would refuse it).
+        guard topic.status != .archived else { return [] }
+        return [
+            RunControlItem(
+                id: "run.start", title: "Start", icon: "play", label: "Start \(topic.name)", role: .primary,
+                perform: start)
+        ]
+    }
+
+    private var discardItem: RunControlItem {
+        RunControlItem(
+            id: "run.discard", title: "Discard run…", icon: "trash", label: "Discard run", role: .destructive,
+            perform: { confirmingDiscard = true })
     }
 
     // MARK: - Taps
@@ -224,6 +240,14 @@ struct RunPanel: View {
         let version = topic.currentVersion
         Task {
             if await environment.runActions.start(topic: ref, version: version) != nil { starts += 1 }
+        }
+    }
+
+    /// Lap or Next: a tap with the selection haptic (§2.5).
+    private func advance(_ type: RunTapType, _ run: LocalRun) {
+        let expect = RunTapExpect(run)
+        Task {
+            if await environment.runActions.tap(type, run: run, expect: expect) != nil { advances += 1 }
         }
     }
 
@@ -240,6 +264,7 @@ struct RunPanel: View {
             guard let outcome = await environment.runActions.stop(run: run, topicName: name, expect: expect) else {
                 return
             }
+            stops += 1
             switch outcome {
             case .details(let runId):
                 guard let id = UUID(uuidString: runId) else { return }
@@ -259,10 +284,11 @@ struct RunPanel: View {
     }
 }
 
-/// An open run: the status, the total and segment clocks, the step list, and Lap, Skip and
-/// Pause or Resume.
-private struct OpenRunView: View {
+/// An open run, top to bottom (§2.1): the header (status, the total clock, the headline with the
+/// segment's time, the alert line), then `controls`, then the step and lap table.
+private struct OpenRunView<Controls: View>: View {
     let run: LocalRun
+    @ViewBuilder let controls: Controls
     @Environment(AppEnvironment.self) private var environment
 
     var body: some View {
@@ -270,9 +296,6 @@ private struct OpenRunView: View {
         let paused = run.status == .paused
         let total = RunPresentation.activeMs(run.state, now: now)
         let segment = RunPresentation.segmentMs(run.state, now: now)
-        let skip = RunPresentation.skipTarget(run.state, steps: run.steps)
-        let expect = RunTapExpect(run)
-        let busy = environment.runActions.isBusy(run.topicId)
         VStack(alignment: .leading, spacing: 20) {
             HStack {
                 QuickrBadge(
@@ -289,70 +312,22 @@ private struct OpenRunView: View {
                     .foregroundStyle(paused ? Color.qr.muted : .qr.ink)
                     .accessibilityLabel("Total \(RunPresentation.spoken(total))")
                     .accessibilityIdentifier("run.total")
-                if let open = run.state.open {
+                if let headline = RunHeadline.text(run.state) {
                     HStack(spacing: 8) {
-                        Text(open.label).font(.qr(.callout)).foregroundStyle(.qr.ink)
+                        Text(headline).font(.qr(.callout)).foregroundStyle(.qr.ink)
                         RunDuration(ms: segment, font: .qr(.callout), ticking: !paused).foregroundStyle(.qr.muted)
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("run.segment")
                 }
+                // Phase 2: M1's `RunPresentation.alertLine` (nil while paused).
+                RunAlertLine(text: nil)
             }
             .frame(maxWidth: .infinity)
+            controls
             StepList(rows: RunPresentation.rows(run.state, steps: run.steps), liveMs: segment)
-            // Side by side; stacked when the labels don't fit (large text, a long step name).
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) { controls(skip: skip, expect: expect, busy: busy, paused: paused) }
-                VStack(spacing: 8) { controls(skip: skip, expect: expect, busy: busy, paused: paused) }
-            }
         }
         .runTicking(!paused)
-    }
-
-    @ViewBuilder
-    private func controls(
-        skip: RunPresentation.SkipTarget?, expect: RunTapExpect, busy: Bool, paused: Bool
-    ) -> some View {
-        control("Lap", icon: "flag", id: "run.lap", label: "Lap") {
-            tap(.lap, expect)
-        }
-        .disabled(busy || run.state.open == nil)
-        control(
-            skip.map { "Skip \($0.label)" } ?? "Skip", icon: "forward.end", id: "run.skip",
-            label: skipLabel(skip)
-        ) {
-            tap(.skip, expect)
-        }
-        .disabled(busy || skip == nil)
-        control(
-            paused ? "Resume" : "Pause", icon: paused ? "play" : "pause",
-            id: paused ? "run.resume" : "run.pause", label: paused ? "Resume" : "Pause"
-        ) {
-            tap(paused ? .resume : .pause, expect)
-        }
-        .disabled(busy)
-    }
-
-    /// "Skip Breakfast (step 3)".
-    private func skipLabel(_ skip: RunPresentation.SkipTarget?) -> String {
-        guard let skip else { return "Skip" }
-        guard let index = run.steps?.firstIndex(where: { $0.key == skip.key }) else { return "Skip \(skip.label)" }
-        return "Skip \(skip.label) (step \(index + 1))"
-    }
-
-    private func control(
-        _ title: String, icon: String, id: String, label: String, action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: icon).lineLimit(1).frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.qr(.secondary))
-        .accessibilityLabel(label)
-        .accessibilityIdentifier(id)
-    }
-
-    private func tap(_ type: RunTapType, _ expect: RunTapExpect) {
-        Task { await environment.runActions.tap(type, run: run, expect: expect) }
     }
 }
 

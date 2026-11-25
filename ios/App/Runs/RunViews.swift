@@ -53,8 +53,8 @@ struct RunDuration: View {
     }
 }
 
-/// The tile's run line (§11.1): "Running · 4:12" (or "Paused · …") and the open segment with its
-/// time; "Add details" for a finishing run.
+/// The tile's run line (§11.1): "Running · 4:12" (or "Paused · …") and the headline with the
+/// segment's time ("Rest 2 · lap 4 0:41"); "Add details" for a finishing run.
 struct RunStatusLine: View {
     let run: LocalRun
     @Environment(AppEnvironment.self) private var environment
@@ -76,9 +76,9 @@ struct RunStatusLine: View {
                     .accessibilityLabel(
                         "\(paused ? "Paused" : "Running"), \(RunPresentation.spoken(RunPresentation.activeMs(run.state, now: now)))"
                     )
-                    if let open = run.state.open {
+                    if let headline = RunHeadline.text(run.state) {
                         HStack(spacing: 4) {
-                            Text(open.label).fontWeight(.semibold).foregroundStyle(.qr.inkSoft)
+                            Text(headline).fontWeight(.semibold).foregroundStyle(.qr.inkSoft)
                             RunDuration(
                                 ms: RunPresentation.segmentMs(run.state, now: now), font: .qr(.footnote),
                                 ticking: !paused)
@@ -91,6 +91,39 @@ struct RunStatusLine: View {
         }
         .runTicking(run.status == .running)
         .accessibilityIdentifier("run.status")
+    }
+}
+
+/// The open segment's headline (active-surfaces.md §2.1): its label, with the lap counter when
+/// the label doesn't already carry it ("Rest 2 · lap 4"; an untyped "Lap 4" stays as it is).
+///
+/// Phase-1 seam (I2-CONTROLS): derived from the fold's segments. Phase 2 swaps `text` for M1's
+/// `RunPresentation.headline(_:status:timer:)`.
+enum RunHeadline {
+    static func text(_ state: RunState) -> String? {
+        guard let open = state.open else { return nil }
+        guard open.kind == .lap else { return open.label }
+        let lap = state.segments.count(where: { $0.kind == .lap }) + 1
+        return open.label == RunFold.lapLabel(lap) ? open.label : "\(open.label) · lap \(lap)"
+    }
+}
+
+/// The next alert and its countdown ("Half way · in 0:12"), under the headline; nothing when
+/// there is none.
+///
+/// Phase-1 seam (I2-CONTROLS): fed nil. Phase 2 passes M1's `RunPresentation.alertLine`, which
+/// also keeps a fired alert's label (with a bell) for 10 s (timers2.md §9).
+struct RunAlertLine: View {
+    let text: String?
+
+    var body: some View {
+        if let text {
+            Label(text, systemImage: "bell")
+                .font(.qr(.subheadline))
+                .foregroundStyle(.qr.inkSoft)
+                .monospacedDigit()
+                .accessibilityIdentifier("run.alert")
+        }
     }
 }
 
