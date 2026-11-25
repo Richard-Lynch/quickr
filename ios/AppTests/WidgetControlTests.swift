@@ -101,19 +101,20 @@ import Testing
             "no store: the record screen opens instead")
     }
 
-    // MARK: - Timed topics (timers.md §11.3)
+    // MARK: - Timed topics (timers.md §11.3, active-surfaces.md §5.2)
 
-    /// A timed topic, with the run its widget shows: `next` is the step after the open one
-    /// (nil on the last step).
-    static func timed(status: String? = nil, next: String? = "Breakfast") -> WidgetTopic {
+    /// A timed topic, with the run its widget shows: a step open (`stepIndex` 0, `next` the step
+    /// after it, nil on the last step), or a lap (`stepIndex` nil, "Lap 2").
+    static func timed(status: String? = nil, next: String? = "Breakfast", stepIndex: Int? = 0) -> WidgetTopic {
         var shown = Self.shown([], last: nil, name: "Morning")
-        shown.topic.timer = TopicTimer(steps: [TopicTimer.Step(key: "shower", label: "Shower")])
+        shown.topic.timer = TopicTimer(steps: stepIndex == nil ? [] : [TopicTimer.Step(key: "shower", label: "Shower")])
         if let status {
             shown.run = RunActivityState(
                 runId: "00000000-0000-4000-8000-0000000000aa", revision: 1, status: status, startedAt: 0, seg: 2,
-                segStartedAt: 0, label: "Shower", stepIndex: 0, stepCount: 2, nextLabel: next, pausedAt: nil,
+                segStartedAt: 0, label: stepIndex == nil ? "Lap 2" : "Shower", stepIndex: stepIndex,
+                stepCount: stepIndex == nil ? 0 : 2, nextLabel: next, pausedAt: status == "paused" ? 10 : nil,
                 pausedMsBeforeSeg: 0, pausedMsInSeg: 0, endedAt: nil, activeMs: nil)
-            shown.hasOpenRun = status == "running"
+            shown.hasOpenRun = status == "running" || status == "paused"
         }
         return shown
     }
@@ -124,10 +125,15 @@ import Testing
         #expect(value.detail == "Timed: use the Timer control")
     }
 
+    /// The detail says what the one press does (§5.2, §1.3): Start; "Next: Breakfast" while a step
+    /// follows; Stop on the last step and on a lap, the §5.3 carve-out of a timer without lap
+    /// types. The "Lap → Rest" detail needs a lap-typed timer (`WidgetTopic.isLapTyped`, T2-M1):
+    /// M2-RESUME drives it once I1-WRITES has merged.
     @Test func theTimerControlRunsAutoAndSaysWhatAPressDoes() {
         let idle = TimerControlValue(Self.timed())
         #expect(idle.title == "Timer: Morning")
         #expect(idle.detail == "Start")
+        #expect(idle.icon == "play")
         let idleAction: String? = idle.intent.action
         #expect(idleAction == "auto")
         let idleScope: String? = idle.intent.scope
@@ -137,8 +143,17 @@ import Testing
 
         let running = TimerControlValue(Self.timed(status: "running"))
         #expect(running.detail == "Next: Breakfast")
+        #expect(running.icon == "chevron.right")
+        let paused = TimerControlValue(Self.timed(status: "paused"))
+        #expect(paused.detail == "Next: Breakfast", "the primary doesn't change while paused")
         let last = TimerControlValue(Self.timed(status: "running", next: nil))
         #expect(last.detail == "Stop")
+        #expect(last.icon == "stop")
+        let lap = TimerControlValue(Self.timed(status: "running", next: nil, stepIndex: nil))
+        #expect(lap.detail == "Stop", "§5.3: a stopwatch without lap types still stops in one press")
+        #expect(lap.icon == "stop")
+        let lapAction: String? = lap.intent.action
+        #expect(lapAction == "auto", "one Control, one intent: Auto decides")
         let finishing = TimerControlValue(Self.timed(status: "finishing", next: nil))
         #expect(finishing.detail == "Start", "a finishing run isn't open: a press starts a new one")
 

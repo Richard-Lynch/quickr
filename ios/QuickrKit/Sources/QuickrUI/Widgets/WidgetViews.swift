@@ -242,12 +242,12 @@ public struct TopicWidgetView: View {
         return view.kind == .none ? nil : view.label()
     }
 
-    // MARK: Timed (timers.md §11.3)
+    // MARK: Timed (timers.md §11.3, active-surfaces.md §5.1)
 
-    /// A timed topic: never a one-tap log. Idle, its due state and Start; running, the segment's
-    /// label, its ticking timer and the total, and Next (or Lap) and Stop, the small size one
-    /// Auto button; finishing, "Add details", which opens its answers form. A tap elsewhere opens
-    /// the run screen.
+    /// A timed topic: never a one-tap log. Idle, its due state and Start; open, the segment's
+    /// headline, its ticking timer and the total, and the primary (Lap or Next) with Stop, the
+    /// small size one Auto button (§5.3); finishing, "Add details", which opens its answers form.
+    /// A tap elsewhere opens the run screen.
     private func timedHome(_ topic: WidgetTopic) -> some View {
         let display = topic.runDisplay
         let state = topic.runTile
@@ -262,6 +262,7 @@ public struct TopicWidgetView: View {
                 switch state {
                 case .open(let paused):
                     if let display {
+                        // I2-LA-FIELDS: `display.headline` ("Rest 2 · lap 4") takes the label's place.
                         Text(paused ? "Paused · \(display.label)" : display.label)
                             .font(.qr(.footnote))
                             .foregroundStyle(.qr.muted)
@@ -274,6 +275,8 @@ public struct TopicWidgetView: View {
                             RunWidgetTimer(timer: display.totalTimer)
                                 .font(.qr(.footnote))
                                 .foregroundStyle(.qr.muted)
+                            // I2-LA-FIELDS: the alert line ("Half way · in 0:12", `display.alert`) goes
+                            // here, under the total, when one is pending.
                         }
                     }
                 case .finishing:
@@ -307,16 +310,19 @@ public struct TopicWidgetView: View {
             }
             .accessibilityLabel("Add details to \(topic.topic.name)")
         } else {
+            // The primary (Start, Lap or Next: §1.3 titles) is the filled chip and takes the row;
+            // Stop is a secondary of the tile's fixed width beside it. The small size's one Auto
+            // chip is filled whatever it does (§5.3). Accented modes outline every chip.
             let compact = style.family == .systemSmall
             HStack(spacing: 6) {
                 ForEach(topic.runButtons(compact: compact), id: \.self) { button in
+                    let isPrimary = compact || button != .stop
                     runControl(actions?.run(button), topic) {
                         WidgetChip(
-                            label: compact && button == .next
-                                ? (topic.run?.nextLabel.map { "Next: \($0)" } ?? "Next")
-                                : button.title,
-                            isLast: false, isAccented: style.isAccented, isPrimary: button != .lap)
+                            label: topic.runButtonTitle(button), isLast: false, isAccented: style.isAccented,
+                            isPrimary: isPrimary)
                     }
+                    .frame(maxWidth: isPrimary ? .infinity : QuickrMetrics.logBlockWidth)
                     .accessibilityLabel(topic.runButtonLabel(button))
                 }
             }
