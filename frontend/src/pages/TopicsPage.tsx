@@ -98,7 +98,29 @@ export function TopicsPage() {
     }
     return out;
   }, [runs]);
-  const sections = useMemo(() => splitByDue(items, now, openTopics), [items, now, openTopics]);
+  // "Active now" (active-surfaces.md §6.2): the listed topics with an open run, the most
+  // recently started first, shown once there and left out of every other list. A view over
+  // the listing: `splitByDue` and its vectors don't change.
+  const active = useMemo(() => {
+    const startedAt = (t: TopicSummary) => tileRuns.get(t.id)?.state.started_at ?? 0;
+    return items
+      .filter((t) => {
+        const r = tileRuns.get(t.id);
+        return r !== undefined && isOpen(r);
+      })
+      .sort((a, b) => startedAt(b) - startedAt(a));
+  }, [items, tileRuns]);
+  const sections = useMemo(() => {
+    const ids = new Set(active.map((t) => t.id));
+    const idle = (list: TopicSummary[]) => list.filter((t) => !ids.has(t.id));
+    const split = splitByDue(items, now, openTopics);
+    return {
+      due: idle(split.due),
+      upcoming: idle(split.upcoming),
+      other: idle(split.other),
+      all: idle(items),
+    };
+  }, [items, now, openTopics, active]);
   const dueTotal = useMemo(() => dueCount(items, now, openTopics), [items, now, openTopics]);
 
   return (
@@ -171,6 +193,12 @@ export function TopicsPage() {
           </EmptyState>
         ) : (
           <>
+            {active.length > 0 ? (
+              <Section title="Active now" count={active.length} tone="live">
+                <TileList topics={active} now={now} runs={tileRuns} />
+              </Section>
+            ) : null}
+
             {sectioned ? (
               <Section
                 title="Due now"
@@ -277,7 +305,7 @@ export function TopicsPage() {
                 ) : null}
               </>
             ) : (
-              <TileList topics={items} now={now} runs={tileRuns} />
+              <TileList topics={sections.all} now={now} runs={tileRuns} />
             )}
           </>
         )}
@@ -303,7 +331,8 @@ function Section({
 }: {
   title: string;
   count: number;
-  tone?: 'accent';
+  /** `accent`: the due list; `live`: the active list (a timer glyph, the same pulse). */
+  tone?: 'accent' | 'live';
   empty?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -314,10 +343,15 @@ function Section({
         id={id}
         className={cn(
           'flex items-center gap-2 text-xs font-bold tracking-[0.12em] uppercase',
-          tone === 'accent' ? 'text-accent-strong' : 'text-muted',
+          tone ? 'text-accent-strong' : 'text-muted',
         )}
       >
-        {tone === 'accent' && count > 0 ? (
+        {tone === 'live' ? (
+          <span className="relative flex size-3.5 items-center justify-center">
+            <span className="absolute inline-flex size-2 animate-ping rounded-full bg-accent opacity-60 motion-reduce:hidden" />
+            <Icon name="timer" className="relative size-3.5" strokeWidth={2.6} />
+          </span>
+        ) : tone === 'accent' && count > 0 ? (
           <span className="relative flex size-2">
             <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent opacity-60 motion-reduce:hidden" />
             <span className="relative inline-flex size-2 rounded-full bg-accent" />
