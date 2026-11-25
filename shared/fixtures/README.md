@@ -19,7 +19,7 @@ result.
 | `entries-vectors.json`         | `backend/tests/test_entries_vectors.py` (`list_entries`, test database)                           | pytest drift check; Swift topic entry list filters, order and sources (M2)                                                                    |
 | `entries-range-vectors.json`   | `frontend/src/lib/entries.vectors.test.ts` (`rangeStart`, `parseRange`)                           | vitest drift check; Swift entries range filter (M2)                                                                                           |
 | `stats-vectors.json`           | `backend/tests/test_stats_vectors.py` (the app, via ASGI)                                         | pytest drift check; input of `stats-chart-vectors.json`; Swift stats decoding and requests (M6)                                               |
-| `stats-chart-vectors.json`     | `frontend/src/components/charts/stats.vectors.test.ts` (the PWA's chart code)                     | vitest drift check; Swift chart models and Overview summaries (M6)                                                                            |
+| `stats-chart-vectors.json`     | `frontend/src/components/charts/stats.vectors.test.ts` (the PWA's chart code; also reads `timing-stats-vectors.json`) | vitest drift check; Swift chart models and Overview summaries (M6), activity strip and sparklines (T2 M4) |
 | `builder-vectors.json`         | `backend/tests/test_builder_vectors.py` (`schemas/questions.py`, `services/compat.py`, `slugify`) | pytest drift check; Swift `BuilderVectorTests`                                                                                                |
 | `schedule-vectors.json`        | `frontend/src/lib/schedule.vectors.test.ts` (`schedule.ts`, vitest)                               | vitest drift check; Swift schedule editor (TOPIC, M2)                                                                                         |
 | `builder-ui-vectors.json`      | `frontend/src/lib/builderUi.vectors.test.ts` (`builder.ts`, `questionSummary.ts`, vitest)         | vitest drift check; Swift builder screens and versions list (BUILDER-UI, M6; timed cases I-MANAGE)                                            |
@@ -467,6 +467,33 @@ What the PWA's Overview makes of each `stats-vectors.json` case (same `name`), e
   (`visible`, `top`, `shares`, `colors`) or str (`distinct`, `most_common`, `recent`).
 - `default_bucket`, `ticks` (`niceTicks` and `formatTick`), `numbers` (`formatNumber`; NaN and
   null as strings), `percents` (`formatPercent`) and `pick` (`pickLabels`): the helpers alone.
+
+Generator version 2 adds three sections (content-display.md §4.2, §4.3); the models are in
+`frontend/src/components/charts/timingModels.ts`:
+
+- `activity[]`: the Overview's activity strip, `activityStrip(captured_at, today, tz)`. Input:
+  `tz` (IANA), `today` (the local date in `tz`, `YYYY-MM-DD`) and `captured_at` (epoch
+  milliseconds, integers). Expected: `first_day`, the Monday 11 weeks before `today`'s week's
+  Monday (calendar arithmetic on dates, never `now − 84 days`); `from`, the `listEntries`
+  `captured_from` bound: the first instant of `first_day` in `tz`, as UTC with `Z`; `cells`,
+  one `[day, count, level]` per local day from `first_day` to `today` inclusive (78 cells when
+  `today` is a Monday, 84 on a Sunday; the grid's slots after today are blank and not listed),
+  where an entry counts in the day of its `captured_at` in `tz` and `level` is the intensity
+  step (0, 1, 2–3, 4+ → 0–3); `max`, the largest count; `total`, the entries that fell in a
+  cell (entries outside the grid are dropped). Cases: empty, the grid's edges, 23:30 UTC in
+  `Pacific/Auckland` and `America/Los_Angeles`, a `Europe/London` spring-forward and fall-back
+  week, `today` on a Monday and on a Sunday.
+- `sparklines[]`: a numeric card's sparkline, `sparkline(points, width)`, 48 px high with a
+  4 px inset (`SPARK_LAYOUT`). A case named like a `stats-vectors.json` int/double series case
+  uses that response's `points` at `meta.spark_width`; the synthetic ones carry `points`.
+  Expected: `empty` (no bucket has a mean), else `path` (`[x, y]` per bucket with a mean, in
+  order, y down, x by bucket start, each rounded half up to 0.01), `last` (`{x, y, value}`, the
+  marked point and its mean), `min` and `max` (the means' extremes, the end labels). One point
+  sits at the right edge; equal means draw at mid height.
+- `timing_models[]`: `stepsByBucket(series, bucket)` for the `timing-stats-vectors.json` case of
+  the same `name` (its `expected.series`), bucketed in `tz`: `steps_by_bucket` is `SeriesPoint[]`
+  with `option_counts` keyed by step key (the floored mean per run, a run without the step
+  counting 0) and `start` the bucket's local start with its offset.
 
 ## `run-fold-vectors.json`
 
