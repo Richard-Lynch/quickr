@@ -312,6 +312,82 @@ def test_zero_result_is_allowed() -> None:
     assert evaluate("0*t", T) == 0
 
 
+# --- clarifications the ports must match (pinned in the vectors too) -------------------------
+
+
+def test_the_whole_text_parses_before_anything_evaluates() -> None:
+    assert err("x+") == ("syntax", 2)
+    assert err("t/0)") == ("syntax", 3)
+    assert err("x x") == ("syntax", 2)
+
+
+def test_evaluation_reports_the_first_error_in_evaluation_order() -> None:
+    assert err("t/0+x") == ("div_zero", 1)
+    assert err("x+30") == ("unknown_variable", 0)
+    assert err("30+x") == ("unknown_variable", 3)
+    assert err("t*t+x") == ("type", 1)
+    assert err("t*2000+x", {"t": HOUR}) == ("too_long", 0)
+    assert err("2/0", {}) == ("div_zero", 1)  # before the bare-number result
+
+
+def test_the_seven_day_bound_is_on_magnitude() -> None:
+    assert err("-t*200", {"t": HOUR}) == ("too_long", 0)
+    assert err("-169h", {}) == ("too_long", 0)
+    assert err("-168h", {}) == ("negative", 0)
+
+
+def test_numbers_have_no_bound_of_their_own() -> None:
+    assert evaluate("t*(1000000/1000000)", T) == 60_000
+    assert evaluate("t*(99999999999999999999/99999999999999999999)", T) == 60_000
+
+
+def test_checks_are_on_the_untruncated_double() -> None:
+    assert err("0s-0.5ms", {}) == ("negative", 0)
+    assert err("168h+0.5ms", {}) == ("too_long", 0)
+    assert evaluate("-0s", {}) == 0  # -0.0 is not below 0
+    assert evaluate("0*-t", T) == 0
+
+
+def test_whitespace_is_space_tab_cr_lf_only() -> None:
+    assert evaluate("t\t+\r\n30s", T) == 90_000
+    assert err("t\r\n+x") == ("unknown_variable", 4)
+    assert err("t\u00a0+30s") == ("syntax", 1)
+    assert err("t\u2003") == ("syntax", 1)
+
+
+def test_length_and_pos_count_code_points() -> None:
+    assert err("\U0001f600" * 33) == ("syntax", 0)  # 66 UTF-16 units, 33 code points
+    assert err("\U0001f600" * 65) == ("too_long", 64)
+    assert err("t+\U0001f600") == ("syntax", 2)
+
+
+def test_letters_and_digits_are_ascii() -> None:
+    assert err("t+\u0661s") == ("syntax", 2)  # ARABIC-INDIC DIGIT ONE
+    assert err("\u00e9") == ("syntax", 0)
+
+
+def test_the_letters_after_a_number_are_its_unit() -> None:
+    assert err("30sec", {}) == ("syntax", 2)
+    assert err("2mt") == ("syntax", 1)
+    assert err("1m30s", {}) == ("syntax", 2)
+    assert err("30s_", {}) == ("syntax", 3)
+
+
+def test_a_dot_must_be_followed_by_a_digit() -> None:
+    assert err("1.s", {}) == ("syntax", 1)
+    assert err("t*2.") == ("syntax", 3)
+
+
+def test_expr_error_carries_code_pos_and_a_message() -> None:
+    with pytest.raises(ExprError) as info:
+        evaluate("30", {})
+    e = info.value
+    assert (e.code, e.pos) == ("type", 0)
+    assert e.detail
+    assert str(e) == f"type at 0: {e.detail}"
+    assert "unit" in e.detail  # OQ-5: "add a unit"
+
+
 # --- property: random well-typed expressions against a direct computation -------------------
 
 UNITS = {"ms": 1, "s": 1_000, "m": 60_000, "h": 3_600_000}

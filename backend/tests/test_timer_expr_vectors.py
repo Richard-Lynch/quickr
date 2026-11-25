@@ -10,6 +10,8 @@ committed file must match.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
 from typing import Any
 
 from app.services.timer_expr import MAX_LENGTH, MAX_MS, ExprError, evaluate
@@ -67,49 +69,46 @@ CASES: dict[str, tuple[str, dict[str, int]]] = {
     "zero_allowed": ("t-t", T),
 }
 
-# The "at least" list of timers2.md §2.5, in its order; every name must be a case above.
-SPEC_CASES = [
-    "plain_seconds",
-    "minutes_fraction",
-    "hours",
-    "ms_unit",
-    "user_half",
-    "user_half_spaced",
-    "user_alert1_uppercase",
-    "user_alert2_uppercase",
-    "user_div",
-    "user_plus",
-    "user_parens",
-    "user_alert2",
-    "precedence_mul_before_add",
-    "precedence_parens",
-    "left_assoc_minus",
-    "number_times_duration",
-    "division_truncates",
-    "fractional_ms_truncates",
-    "unary_minus_double",
-    "unary_minus_negative",
-    "case_insensitive_variable",
-    "unit_uppercase_is_syntax",
-    "whitespace_ignored",
-    "bare_number",
-    "duration_plus_number",
-    "duration_times_duration",
-    "number_div_duration",
-    "unknown_variable",
-    "div_zero",
-    "div_zero_expression",
-    "too_long_text",
-    "too_long_value",
-    "too_long_intermediate",
-    "syntax_trailing",
-    "syntax_unknown_unit",
-    "syntax_space_before_unit",
-    "syntax_empty",
-    "nested_parens",
-    "two_variables",
-    "zero_allowed",
-]
+# Clarifications of §2 the spec leaves open, pinned so the ports answer the same (proposed for
+# timers2.md §2.3/§2.4 in the M1-EXPR PR).
+CASES |= {
+    # The whole text parses before anything evaluates: a syntax error wins over the rest.
+    "syntax_before_evaluation": ("x+", T),
+    # Then the first error in evaluation order: operands left to right, then the operator.
+    "first_error_in_evaluation_order": ("t/0+x", T),
+    "operand_before_operator_type": ("30+x", T),
+    "type_before_div_zero": ("t/(t-t)", T),
+    # Every check is on the double, before truncation.
+    "negative_sub_ms": ("0s-0.5ms", NONE),
+    "too_long_sub_ms": ("168h+0.5ms", NONE),
+    "seven_days_exactly": ("168h", NONE),
+    # The 7-day bound is on a duration's magnitude: -200h is too long, not negative.
+    "too_long_negative_duration": ("-t*200", HOUR),
+    # Numbers have no bound of their own.
+    "number_intermediate_unbounded": ("t*(1000000/1000000)", T),
+    # Whitespace is space, tab, CR and LF only; positions and the length count code points.
+    "whitespace_tab_newline": ("t\t+\r\n30s", T),
+    "unknown_variable_after_crlf": ("t\r\n+x", T),
+    "nbsp_is_syntax": ("t\u00a0+30s", T),
+    "length_counts_code_points": ("\U0001f600" * 33, T),
+    # The ASCII letters right after a number are its unit and must be one of ms, s, m, h.
+    "unit_letters_run": ("30sec", NONE),
+    "compound_duration_is_syntax": ("1m30s", NONE),
+    "number_trailing_dot": ("1.s", NONE),
+    "number_leading_dot": ("t*.5", T),
+}
+
+SPEC = Path(__file__).resolve().parents[2] / "docs" / "specs" / "timers2.md"
+
+
+def spec_cases() -> dict[str, str | None]:
+    """The "Cases (at least)" list of timers2.md §2.5: name -> the expression it spells out
+    (``None`` when the spec describes it in words, e.g. ``too_long_text``)."""
+    text = SPEC.read_text()
+    section = text[text.index("### 2.5 Implementations and vectors") : text.index("## 3. Fold v4")]
+    listing = section[section.index("Cases (at least):") :].replace("\n", " ")
+    found = re.finditer(r"`([a-z][a-z0-9_]*)` \((?:`([^`]*)`)?", listing)
+    return {m.group(1): m.group(2) for m in found}
 
 
 def outcome(name: str) -> dict[str, Any]:
@@ -149,6 +148,17 @@ def build() -> dict[str, Any]:
                 "for an unexpected end), unknown_variable at the identifier, type and div_zero "
                 "at the operator, negative at 0, too_long at max_length for text longer than "
                 "max_length (checked first) and at 0 for a value.",
+                "Characters are Unicode code points (not UTF-16 units, not grapheme clusters): "
+                "the length limit and pos count them. Whitespace is space, tab, CR and LF only; "
+                "letter and digit are ASCII. The ASCII letters right after a number form its "
+                "unit, which must be exactly ms, s, m or h (else syntax at the unit's first "
+                "letter); a '.' must be followed by a digit (else syntax at the '.').",
+                "Error precedence: the text length, then the whole parse (the first syntax "
+                "error), then evaluation, which reports the first error in evaluation order: "
+                "the left operand, the right operand, then the operator's checks (type, then "
+                "div_zero, then too_long when the result is a duration whose magnitude exceeds "
+                "max_ms; literals and variables are checked too). Last, on the untruncated "
+                "result: a number is type at 0, below 0 is negative at 0. Numbers have no bound.",
             ],
         },
         "cases": [
@@ -164,8 +174,12 @@ def test_timer_expr_vectors_match_committed() -> None:
 
 def test_vectors_cover_the_spec() -> None:
     """timers2.md §2.5: every listed case is generated, with the outcomes the list states."""
-    missing = [name for name in SPEC_CASES if name not in CASES]
+    listed = spec_cases()
+    assert len(listed) >= 40
+    missing = [name for name in listed if name not in CASES]
     assert missing == []
+    spelled = {name: CASES[name][0] for name, expr in listed.items() if expr is not None}
+    assert spelled == {name: expr for name, expr in listed.items() if expr is not None}
     assert len(CASES["too_long_text"][0]) == 65
     assert outcome("minutes_fraction") == {"ms": 90_000}
     assert outcome("user_half") == {"ms": 30_000}
@@ -208,6 +222,29 @@ def test_vectors_cover_the_spec() -> None:
     assert outcome("syntax_empty") == {"error": "syntax", "pos": 0}
     assert outcome("nested_parens") == {"ms": 60_000}
     assert outcome("two_variables") == {"ms": 1_800_000}
+
+
+def test_clarifications_answer_as_documented() -> None:
+    """The cases this generator adds beyond the §2.5 list, with the outcomes their comments state."""
+    assert outcome("syntax_before_evaluation") == {"error": "syntax", "pos": 2}
+    assert outcome("first_error_in_evaluation_order") == {"error": "div_zero", "pos": 1}
+    assert outcome("operand_before_operator_type") == {"error": "unknown_variable", "pos": 3}
+    assert outcome("type_before_div_zero") == {"error": "type", "pos": 1}
+    assert outcome("negative_sub_ms") == {"error": "negative", "pos": 0}
+    assert outcome("too_long_sub_ms") == {"error": "too_long", "pos": 0}
+    assert outcome("seven_days_exactly") == {"ms": MAX_MS}
+    assert outcome("too_long_negative_duration") == {"error": "too_long", "pos": 0}
+    assert outcome("number_intermediate_unbounded") == {"ms": 60_000}
+    assert outcome("whitespace_tab_newline") == {"ms": 90_000}
+    assert outcome("unknown_variable_after_crlf") == {"error": "unknown_variable", "pos": 4}
+    assert outcome("nbsp_is_syntax") == {"error": "syntax", "pos": 1}
+    assert len(CASES["length_counts_code_points"][0]) == 33
+    assert len(CASES["length_counts_code_points"][0].encode("utf-16-le")) // 2 == 66
+    assert outcome("length_counts_code_points") == {"error": "syntax", "pos": 0}
+    assert outcome("unit_letters_run") == {"error": "syntax", "pos": 2}
+    assert outcome("compound_duration_is_syntax") == {"error": "syntax", "pos": 2}
+    assert outcome("number_trailing_dot") == {"error": "syntax", "pos": 1}
+    assert outcome("number_leading_dot") == {"error": "syntax", "pos": 2}
 
 
 def test_every_case_is_a_duration_or_a_spec_error() -> None:
