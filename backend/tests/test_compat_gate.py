@@ -224,6 +224,28 @@ def test_shas_lists_only_clients_at_or_above_the_minimum(repo: Repo) -> None:
     assert repo.fixtures("level", mid).stdout == "2\n"
 
 
+def test_shas_skips_clients_above_the_checkouts_api_level(repo: Repo) -> None:
+    """A build from a bumped branch (the release candidate's TestFlight upload, say) gets listed on
+    main by its record PR while main still speaks the old level. Its suites read the fixtures it
+    was built for, not this checkout's, so the gate skips it, like a client below the minimum
+    (docs/specs/client-versions.md §7); its own ``openapi.json`` is not compared either."""
+    repo.commit(api_level=levels(2, 2), openapi=OPENAPI)
+    repo.git("tag", "v1")
+    current = repo.commit()
+    ahead = repo.commit(api_level=levels(3, 3), openapi=BROKEN)
+    repo.policy([client("3", ahead, 3), client("2", current, 2)])
+    repo.commit(api_level=levels(2, 2), openapi=OPENAPI)
+    r = repo.fixtures("shas")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.stdout.split() == [current]
+    assert "skips build 3" in r.stderr
+    assert "level 3 is above api_level 2" in r.stderr
+    assert repo.fixtures("check").returncode == 0  # still listed at its commit's level
+    r = repo.breaking()
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert ahead not in r.stdout
+
+
 def test_add_records_the_level_at_the_builds_sha(repo: Repo) -> None:
     before = repo.commit(api_level=None)
     after = repo.commit(api_level=levels(2, 1))
