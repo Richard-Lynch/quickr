@@ -102,17 +102,17 @@ import Testing
         var display = RunActivityDisplay(
             state: Self.state(label: "Lap 3", stepIndex: nil, next: "Rest"), topicName: "Smoke")
         display.buttons = [.lap, .pause, .stop]
-        #expect(WidgetTopic.runButtons(of: display, compact: false, lapTyped: false) == [.lap, .stop])
-        #expect(WidgetTopic.runButtonTitle(.lap, of: display) == "Lap → Rest")
-        #expect(WidgetTopic.runButtonLabel(.lap, of: display, topicName: "Smoke") == "Lap, then Rest")
-        #expect(WidgetTopic.runButtonLabel(.stop, of: display, topicName: "Smoke") == "Stop Smoke")
+        #expect(WidgetTopic.runButtons(of: display, compact: false, lapTyped: true) == [.lap, .stop])
+        #expect(WidgetTopic.runButtonTitle(.lap, of: display, lapTyped: true) == "Lap → Rest")
+        #expect(WidgetTopic.runButtonLabel(.lap, of: display, lapTyped: true, topicName: "Smoke") == "Lap, then Rest")
+        #expect(WidgetTopic.runButtonLabel(.stop, of: display, lapTyped: true, topicName: "Smoke") == "Stop Smoke")
 
         // A step's `nextLabel` belongs to Next: Lap never borrows it.
         let step = RunActivityDisplay(
             state: Self.state(label: "Shower", stepIndex: 0, next: "Breakfast"), topicName: "Morning")
         #expect(step.buttons.first == .next)
-        #expect(WidgetTopic.runButtonTitle(.lap, of: step) == "Lap")
-        #expect(WidgetTopic.runButtonTitle(.next, of: step) == "Next: Breakfast")
+        #expect(WidgetTopic.runButtonTitle(.lap, of: step, lapTyped: true) == "Lap")
+        #expect(WidgetTopic.runButtonTitle(.next, of: step, lapTyped: true) == "Next: Breakfast")
     }
 
     /// The one-button rule (§5.3) on an open run: a lap-typed timer's Auto is its primary, so Lap
@@ -124,17 +124,20 @@ import Testing
         #expect(WidgetTopic.runButtons(of: lap, compact: true, lapTyped: true) == [.lap])
         #expect(WidgetTopic.runButtons(of: lap, compact: true, lapTyped: false) == [.stop])
         lap.nextLabel = "Rest"
-        #expect(WidgetTopic.runButtonTitle(.lap, of: lap) == "Lap → Rest")
+        #expect(WidgetTopic.runButtonTitle(.lap, of: lap, lapTyped: true) == "Lap → Rest")
         #expect(WidgetTopic.runButtons(of: lap, compact: true, lapTyped: true) == [.lap])
 
         // A lap open on a step timer with "Out" still to come (the §4.1 display, I2-LA): on-screen
-        // Lap, but v1's Auto is Next, not Stop; a lap-typed timer laps.
+        // Lap, but v1's Auto is Next, not Stop; a lap-typed timer laps. The step Lap doesn't open
+        // is never its label: a plain "Lap", spoken "Lap".
         var lapBeforeStep = RunActivityDisplay(
             state: Self.state(label: "Lap 2", stepIndex: nil, next: "Out"), topicName: "Morning")
         lapBeforeStep.buttons = [.lap, .pause, .stop]
         #expect(WidgetTopic.runButtons(of: lapBeforeStep, compact: false, lapTyped: false) == [.lap, .stop])
         #expect(WidgetTopic.runButtons(of: lapBeforeStep, compact: true, lapTyped: false) == [.next])
-        #expect(WidgetTopic.runButtonTitle(.next, of: lapBeforeStep) == "Next: Out")
+        #expect(WidgetTopic.runButtonTitle(.next, of: lapBeforeStep, lapTyped: false) == "Next: Out")
+        #expect(WidgetTopic.runButtonTitle(.lap, of: lapBeforeStep, lapTyped: false) == "Lap")
+        #expect(WidgetTopic.runButtonLabel(.lap, of: lapBeforeStep, lapTyped: false, topicName: "Morning") == "Lap")
         #expect(WidgetTopic.runButtons(of: lapBeforeStep, compact: true, lapTyped: true) == [.lap])
 
         let step = RunActivityDisplay(

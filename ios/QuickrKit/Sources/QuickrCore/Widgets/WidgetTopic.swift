@@ -163,14 +163,18 @@ extension WidgetTopic {
 
     /// A button's title (§1.3): "Start", "Next: Breakfast" (a plain "Next" while the steps aren't
     /// known), "Lap", or "Lap → Rest" when the lap it opens has a type (the display's `nextLabel`
-    /// during a lap), "Stop".
-    public func runButtonTitle(_ button: WidgetRunButton) -> String { Self.runButtonTitle(button, of: runDisplay) }
+    /// during a lap on a lap-typed timer), "Stop".
+    public func runButtonTitle(_ button: WidgetRunButton) -> String {
+        Self.runButtonTitle(button, of: runDisplay, lapTyped: isLapTyped)
+    }
 
-    public static func runButtonTitle(_ button: WidgetRunButton, of display: RunActivityDisplay?) -> String {
+    public static func runButtonTitle(
+        _ button: WidgetRunButton, of display: RunActivityDisplay?, lapTyped: Bool
+    ) -> String {
         switch button {
         case .start: "Start"
         case .next: display?.nextLabel.map { "Next: \($0)" } ?? "Next"
-        case .lap: lapNextLabel(of: display).map { "Lap → \($0)" } ?? "Lap"
+        case .lap: lapNextLabel(of: display, lapTyped: lapTyped).map { "Lap → \($0)" } ?? "Lap"
         case .stop: "Stop"
         }
     }
@@ -178,24 +182,25 @@ extension WidgetTopic {
     /// What VoiceOver says for `button` (§1.3): "Start Dishwasher", "Next: Breakfast", "Lap, then
     /// Rest", "Stop Dishwasher".
     public func runButtonLabel(_ button: WidgetRunButton) -> String {
-        Self.runButtonLabel(button, of: runDisplay, topicName: topic.name)
+        Self.runButtonLabel(button, of: runDisplay, lapTyped: isLapTyped, topicName: topic.name)
     }
 
     public static func runButtonLabel(
-        _ button: WidgetRunButton, of display: RunActivityDisplay?, topicName: String
+        _ button: WidgetRunButton, of display: RunActivityDisplay?, lapTyped: Bool, topicName: String
     ) -> String {
         switch button {
         case .start: "Start \(topicName)"
-        case .next: runButtonTitle(.next, of: display)
-        case .lap: lapNextLabel(of: display).map { "Lap, then \($0)" } ?? "Lap"
+        case .next: runButtonTitle(.next, of: display, lapTyped: lapTyped)
+        case .lap: lapNextLabel(of: display, lapTyped: lapTyped).map { "Lap, then \($0)" } ?? "Lap"
         case .stop: "Stop \(topicName)"
         }
     }
 
-    /// The lap type a Lap opens ("Rest"): the display's `nextLabel` while its primary is Lap (M1
-    /// sets `next_label` during typed laps; a step's `nextLabel` belongs to Next).
-    private static func lapNextLabel(of display: RunActivityDisplay?) -> String? {
-        guard let display, display.buttons.first == .lap else { return nil }
+    /// The lap type a Lap opens ("Rest"): on a lap-typed timer, the display's `nextLabel` while
+    /// its primary is Lap (M1 sets `next_label` during typed laps). Without lap types a lap's
+    /// `nextLabel` is a step still to come, which Lap doesn't open; a step's belongs to Next.
+    private static func lapNextLabel(of display: RunActivityDisplay?, lapTyped: Bool) -> String? {
+        guard lapTyped, let display, display.buttons.first == .lap else { return nil }
         return display.nextLabel
     }
 
