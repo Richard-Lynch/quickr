@@ -81,9 +81,14 @@ public struct RunActivityDisplay: Sendable, Hashable {
     /// The compact Dynamic Island's lap counter ("L4") while a lap is open; nil until the content
     /// state carries `lap_count` (I2-LA-FIELDS), so the step number keeps that slot.
     public var lapCounter: String?
-    /// The content state's `next_label` while open: the step Next would start, or (once M1's
-    /// state lands) the lap type a Lap opens. Nil when neither is known.
+    /// The content state's `next_label` while open: the step Next would start. Nil when none is
+    /// known. (M1's state also sets it during a lap, to the lap type a Lap opens: that reading is
+    /// `lapNextLabel`.)
     public var nextLabel: String?
+    /// What a Lap opens when the lap types say ("Rest"), for the §1.3 title "Lap → Rest"; nil
+    /// until the content state carries `lap_type` (I2-LA-FIELDS): today's `next_label` names the
+    /// next *step* during a lap, which a Lap does not open, so the title stays "Lap".
+    public var lapNextLabel: String?
     /// While running or paused: the open segment's active time, and the run's.
     public var segmentTimer: Timer?
     public var totalTimer: Timer?
@@ -96,8 +101,6 @@ public struct RunActivityDisplay: Sendable, Hashable {
     /// step is open and another follows, or when the steps aren't known; Lap otherwise), Pause or
     /// Resume, Stop. None once ended.
     public var buttons: [Button]
-    /// A lap is open (no step): what Lap opens then is `nextLabel`.
-    private var lapOpen: Bool
 
     /// The primary: `buttons[0]`; nil once ended.
     public var primary: Button? { buttons.first }
@@ -109,24 +112,21 @@ public struct RunActivityDisplay: Sendable, Hashable {
     /// in a step; nil for the timer glyph.
     public var compactLeading: String? { lapCounter ?? stepNumber }
 
-    /// A button's title (active-surfaces.md §1.3): "Next: Shower", "Lap → Rest" when the lap
-    /// opens a known next one, else the plain title.
+    /// A button's title (active-surfaces.md §1.3): "Next: Shower", "Lap → Rest" when
+    /// `lapNextLabel` names what the lap opens, else the plain title.
     public func title(for button: Button) -> String {
         switch button {
         case .next: nextLabel.map { "Next: \($0)" } ?? button.title
-        case .lap: lapNext.map { "Lap → \($0)" } ?? button.title
+        case .lap: lapNextLabel.map { "Lap → \($0)" } ?? button.title
         case .pause, .resume, .stop: button.title
         }
     }
 
     /// The title VoiceOver reads (§1.3): "Lap, then Rest"; otherwise `title(for:)`.
     public func spokenTitle(for button: Button) -> String {
-        if button == .lap, let next = lapNext { return "Lap, then \(next)" }
+        if button == .lap, let next = lapNextLabel { return "Lap, then \(next)" }
         return title(for: button)
     }
-
-    /// What a Lap opens, when a lap is open and the state names it.
-    private var lapNext: String? { lapOpen ? nextLabel : nil }
 
     public init(state: RunActivityState, topicName: String) {
         self.topicName = topicName
@@ -144,7 +144,6 @@ public struct RunActivityDisplay: Sendable, Hashable {
             position = "\(index + 1) of \(state.stepCount)"
             stepNumber = "\(index + 1)"
         }
-        lapOpen = state.stepIndex == nil && state.stepsUnknown != true
         switch phase {
         case .running, .paused:
             let pausedAt = state.pausedAt

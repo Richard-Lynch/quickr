@@ -123,8 +123,9 @@ import Testing
     }
 
     /// §4.1 replaces v1's `nextLabel != nil` test: a lap open while a step is still pending
-    /// (the content state has `next_label` but no `step_index`) is Lap, and the title says what
-    /// the lap opens. Not among the server's vectors yet (M1's `update_tiktok_lap`), so folded here.
+    /// (the content state has `next_label` but no `step_index`) is Lap. Its title stays "Lap":
+    /// that `next_label` is the step Next would start, not what the lap opens. Not among the
+    /// server's vectors yet (M1's `update_tiktok_lap`), so folded here.
     @Test func lapWithAStepPendingIsLap() throws {
         let state = try Self.folded { runId, t0 in
             [
@@ -144,10 +145,22 @@ import Testing
         #expect(primary == .lap)
         let island: [Button] = d.islandButtons
         #expect(island == [.lap, .stop])
-        #expect(d.title(for: .lap) == "Lap → B")
-        #expect(d.spokenTitle(for: .lap) == "Lap, then B")
+        #expect(d.title(for: .lap) == "Lap")
+        #expect(d.spokenTitle(for: .lap) == "Lap")
+        let lapNext: String? = d.lapNextLabel
+        #expect(lapNext == nil)
         let compact: String? = d.compactLeading
         #expect(compact == nil)
+    }
+
+    /// §1.3: once the state names the lap type a Lap opens, the title and VoiceOver say so.
+    @Test func lapTitleNamesTheLapItOpens() throws {
+        var d = try Self.display("update_no_steps")
+        d.lapNextLabel = "Rest"
+        #expect(d.title(for: .lap) == "Lap → Rest")
+        #expect(d.spokenTitle(for: .lap) == "Lap, then Rest")
+        #expect(d.title(for: .pause) == "Pause")
+        #expect(d.spokenTitle(for: .stop) == "Stop")
     }
 
     /// The device's own state for a run whose steps aren't stored: a plain Next, never Lap.

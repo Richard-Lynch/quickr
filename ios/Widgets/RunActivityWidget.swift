@@ -147,34 +147,62 @@ struct RunActivityLockScreenButtons: View {
     let context: ActivityViewContext<RunActivityAttributes>
 
     var body: some View {
-        if let primary = display.primary {
-            HStack(spacing: 8) {
-                RunActivityButton(button: primary, display: display, context: context, primary: true)
-                    .frame(maxWidth: .infinity)
-                HStack(spacing: 8) {
-                    ForEach(display.buttons.dropFirst(), id: \.self) { button in
-                        RunActivityButton(button: button, display: display, context: context, primary: false)
-                    }
-                }
-                .frame(maxWidth: .infinity)
+        ProportionalRow(fractions: [0.5, 0.25, 0.25]) {
+            ForEach(display.buttons, id: \.self) { button in
+                RunActivityButton(
+                    button: button, display: display, context: context, primary: button == display.primary)
             }
         }
     }
 }
 
-/// The expanded Dynamic Island's row (§4.3): the primary prominent, taking the width Stop leaves.
+/// The expanded Dynamic Island's row (§4.3): the primary prominent at two thirds, Stop one third.
 struct RunActivityIslandButtons: View {
     let display: RunActivityDisplay
     let context: ActivityViewContext<RunActivityAttributes>
 
     var body: some View {
-        HStack(spacing: 8) {
+        ProportionalRow(fractions: [2.0 / 3, 1.0 / 3]) {
             ForEach(display.islandButtons, id: \.self) { button in
-                let isPrimary = button == display.primary
-                RunActivityButton(button: button, display: display, context: context, primary: isPrimary)
-                    .fixedSize(horizontal: !isPrimary, vertical: false)
+                RunActivityButton(
+                    button: button, display: display, context: context, primary: button == display.primary)
             }
         }
+    }
+}
+
+/// A row whose subviews take fixed fractions of its width, whatever their labels measure: the
+/// Lock Screen's ½ ¼ ¼ and the island's ⅔ ⅓. As tall as its tallest subview at that width.
+struct ProportionalRow: Layout {
+    var fractions: [CGFloat]
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let gaps = spacing * CGFloat(max(0, subviews.count - 1))
+        let width =
+            proposal.width.flatMap { $0.isFinite ? $0 : nil }
+            ?? subviews.reduce(gaps) { $0 + $1.sizeThatFits(.unspecified).width }
+        let height =
+            zip(subviews, widths(in: width, count: subviews.count))
+            .map { $0.sizeThatFits(ProposedViewSize(width: $1, height: proposal.height)).height }
+            .max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        for (subview, width) in zip(subviews, widths(in: bounds.width, count: subviews.count)) {
+            subview.place(
+                at: CGPoint(x: x, y: bounds.midY), anchor: .leading,
+                proposal: ProposedViewSize(width: width, height: bounds.height))
+            x += width + spacing
+        }
+    }
+
+    /// Each subview's share of `width` less the gaps; a subview past `fractions` gets none.
+    private func widths(in width: CGFloat, count: Int) -> [CGFloat] {
+        let available = max(0, width - spacing * CGFloat(max(0, count - 1)))
+        return (0..<count).map { available * (fractions.indices.contains($0) ? fractions[$0] : 0) }
     }
 }
 
