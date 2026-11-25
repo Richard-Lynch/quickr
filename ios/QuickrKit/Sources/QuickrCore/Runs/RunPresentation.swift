@@ -246,7 +246,7 @@ public enum RunPresentation {
 public struct RunAction: Sendable, Hashable, Identifiable {
     public enum Kind: Sendable, Hashable {
         case start
-        case next(label: String)  // "Next: Shower" — the step it opens
+        case next(label: String)  // "Shower" — the step it opens (M2 renders "Next: Shower", §1.3)
         case lap(nextTypeLabel: String?)  // nil: untyped laps ("Lap"); "Rest": the lap it opens
         case skip(label: String)  // the step a skip would skip
         case pause, resume, stop
