@@ -82,6 +82,76 @@ public enum RunPresentation {
         steps.first { $0.key == key }?.label ?? key
     }
 
+    // MARK: - RunAction (timers2.md §10; active-surfaces.md §1.1–§1.2)
+
+    /// The run's actions in display order: the primary first, then secondaries, then overflow,
+    /// destructive last (active-surfaces.md §1.1). The on-screen primary rule (timers2.md §10):
+    /// Lap when the open segment is a lap or no named step remains, else Next with the step it
+    /// opens; Stop is never primary. `timer == nil` (steps unknown) is the v1 fallback: a plain
+    /// `next("Next")` and no `skip`, no `lap`.
+    ///
+    /// T2-M1 stub half: `lap(nextTypeLabel:)` is nil until `RunState.nextLapType` exists
+    /// (I1-CORE); `reopen`/`revert` are never returned until the reopen event lands (I1-WRITES);
+    /// row 14 (busy: every `enabled == false`) waits for a cooldown notion in `RunStatus`
+    /// (I1-WRITES). A closed run (`stopped`/`discarded`) yields `[]` today (row 13 without
+    /// `resumable`).
+    // Verbatim from timers2.md §10 (A13).
+    public static func actions(_ state: RunState, status: RunStatus, timer: TopicTimer?, now: Date) -> [RunAction] {
+        // `now` is read for the reopen window (row 13) once `Timing.terminalId` exists.
+        switch status {
+        case .finishing:
+            return [
+                RunAction(kind: .addDetails, role: .primary, enabled: true),
+                RunAction(kind: .discard, role: .destructive, enabled: true),
+            ]
+        case .stopped, .discarded:
+            return []
+        case .running, .paused:
+            break
+        }
+        let steps = timer?.steps
+        let primary: RunAction.Kind
+        if let steps {
+            if state.open?.kind == .lap || state.nextStep == nil {
+                primary = .lap(nextTypeLabel: nil)
+            } else {
+                primary = .next(label: label(of: state.nextStep ?? "", in: steps))
+            }
+        } else {
+            primary = .next(label: "Next")
+        }
+        var out = [
+            RunAction(kind: primary, role: .primary, enabled: true),
+            RunAction(kind: .stop, role: .secondary, enabled: true),
+            RunAction(kind: status == .paused ? .resume : .pause, role: .secondary, enabled: true),
+        ]
+        if let skip = skipTarget(state, steps: steps) {
+            out.append(RunAction(kind: .skip(label: skip.label), role: .overflow, enabled: true))
+        }
+        out.append(RunAction(kind: .discard, role: .destructive, enabled: true))
+        return out
+    }
+
+    /// The open segment's label with its counter. T2-M1 stub half: the bare `open.label`
+    /// ("Shower", "Lap 3") and no counter until `RunState.lapCount`/`nextLapType` exist
+    /// (I1-CORE); "Running"/"Paused" when nothing is open.
+    public static func headline(_ state: RunState, status: RunStatus, timer: TopicTimer?) -> Headline {
+        if let open = state.open { return Headline(text: open.label, counter: nil) }
+        return Headline(text: status == .paused ? "Paused" : "Running", counter: nil)
+    }
+
+    /// The next alert's label and countdown. T2-M1 stub half: nil until I1-CORE's alerts land.
+    public static func alertLine(_ state: RunState, timer: TopicTimer?, now: Date) -> String? {
+        return nil
+    }
+
+    /// Whether the entry's run can be reopened (active-surfaces.md OQ-1: an unedited timed entry
+    /// of the latest stop, within 15 minutes). T2-M1 stub half: false until `Timing.terminalId`
+    /// exists (I1-CORE).
+    public static func resumable(_ entry: Entry, now: Date) -> Bool {
+        return false
+    }
+
     // MARK: - The step list
 
     public enum StepStatus: String, Sendable, Hashable {
@@ -168,6 +238,65 @@ public enum RunPresentation {
         if minutes > 0 { parts.append(unit(minutes, "minute")) }
         if secs > 0 || parts.isEmpty { parts.append(unit(secs, "second")) }
         return parts.joined(separator: " ")
+    }
+}
+
+/// One control of a run (active-surfaces.md §1.1): what it does, where it goes and whether it is
+/// enabled. Surfaces place it by `role` and may read `kind` for the title and icon (§1.3).
+public struct RunAction: Sendable, Hashable, Identifiable {
+    public enum Kind: Sendable, Hashable {
+        case start
+        case next(label: String)  // "Next: Shower" — the step it opens
+        case lap(nextTypeLabel: String?)  // nil: untyped laps ("Lap"); "Rest": the lap it opens
+        case skip(label: String)  // the step a skip would skip
+        case pause, resume, stop
+        case addDetails  // finishing run
+        case reopen(target: UUID)  // the terminal stop's id: entry.timing.terminalId (timers2.md §3.3)
+        case revert  // discard of a reopened run (timers2.md §3.4, §4.1)
+        case discard
+
+        /// Stable per kind: the accessibility id suffix.
+        public var id: String {
+            switch self {
+            case .start: "start"
+            case .next: "next"
+            case .lap: "lap"
+            case .skip: "skip"
+            case .pause: "pause"
+            case .resume: "resume"
+            case .stop: "stop"
+            case .addDetails: "addDetails"
+            case .reopen: "reopen"
+            case .revert: "revert"
+            case .discard: "discard"
+            }
+        }
+    }
+    public enum Role: Sendable, Hashable { case primary, secondary, destructive, overflow }
+    public var kind: Kind
+    public var role: Role
+    public var enabled: Bool
+    /// Stable per kind: "start", "next", "lap", "skip", "pause", "resume", "stop",
+    /// "addDetails", "reopen", "revert", "discard" — the accessibility id suffix.
+    public var id: String
+
+    public init(kind: Kind, role: Role, enabled: Bool) {
+        self.kind = kind
+        self.role = role
+        self.enabled = enabled
+        self.id = kind.id
+    }
+}
+
+/// The headline of an open run (active-surfaces.md §1.1): "Rest 2 · lap 4", "Shower · 2 of 5",
+/// "Running"/"Paused" when nothing is open, and the compact counter ("L4") for the Dynamic Island.
+public struct Headline: Sendable, Hashable {
+    public var text: String
+    public var counter: String?
+
+    public init(text: String, counter: String?) {
+        self.text = text
+        self.counter = counter
     }
 }
 
