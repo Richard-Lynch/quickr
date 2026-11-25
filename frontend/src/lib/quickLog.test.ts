@@ -187,6 +187,7 @@ describe('due list + badge', () => {
     schedule_updated_at: null,
     due: null,
     timer: null,
+    last_entry: null,
     ...patch,
   });
   const daily = {

@@ -409,7 +409,11 @@ async def test_home_vectors_match_committed(db: AsyncSession, monkeypatch: pytes
     ).scalar_one()
 
     details = await topic_details(db, [topic_id(s.n) for s in SPECS])
-    topics = {str(tid): details[tid].model_dump(mode="json") for tid in sorted(details, key=str)}
+    # M4-LASTENTRY: the file pins ordering and due state, not the summary's shape; `last_entry` stays out.
+    topics = {
+        str(tid): details[tid].model_dump(mode="json", exclude={"last_entry"})
+        for tid in sorted(details, key=str)
+    }
     assert len(topics) == len(SPECS)
 
     cases: list[dict[str, Any]] = []

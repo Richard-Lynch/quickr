@@ -247,7 +247,8 @@ def check_coverage(
 async def test_entries_vectors_match_committed(db: AsyncSession) -> None:
     await insert(db)
     details = await topic_details(db, [TOPIC_ID])
-    topic = details[TOPIC_ID].model_dump(mode="json")
+    # M4-LASTENTRY: the file pins the entry listing, not the summary's shape; `last_entry` stays out.
+    topic = details[TOPIC_ID].model_dump(mode="json", exclude={"last_entry"})
 
     full = await list_entries(db, SLUG, EntryFilters(), order="-captured_at", limit=LIMIT)
     by_id = {str(e.id): e.model_dump(mode="json") for e in full.items}
