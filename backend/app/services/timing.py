@@ -46,14 +46,21 @@ async def topic_timing(db: AsyncSession, ref: str, filters: EntryFilters) -> Top
             for entry_id, captured_at, timing in rows
         ]
         # Every version, not only those in range: a step's label is the latest version's.
-        versions: dict[int, list[run_fold.Step] | None] = {}
+        versions: dict[int, run_fold.Timer | None] = {}
         for number, raw in (
             await db.execute(
                 select(TopicVersion.version, TopicVersion.timer).where(TopicVersion.topic_id == topic.id)
             )
         ).all():
             timer = parse_timer(raw)
-            versions[number] = None if timer is None else [run_fold.Step(s.key, s.label) for s in timer.steps]
+            versions[number] = (
+                None
+                if timer is None
+                else run_fold.Timer(
+                    steps=tuple(run_fold.Step(s.key, s.label) for s in timer.steps),
+                    laps=tuple(run_fold.LapType(lap.key, lap.label) for lap in getattr(timer, "laps", ())),
+                )
+            )
         return _out(timing_stats.timing_stats(entries, versions, topic.current_version))
     finally:
         await db.rollback()  # ends the snapshot

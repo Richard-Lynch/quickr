@@ -20,12 +20,29 @@ from app.models import Channel, Entry, Topic, TopicVersion
 from app.services import run_fold
 from app.services.timing_stats import timing_stats
 from tests.helpers import make_topic, record
-from tests.test_timing_stats_vectors import stats_json, to_entry
+from tests.spec_cases import timing_stats_v3_cases
+from tests.test_timing_stats_vectors import stats_json, to_entry, to_timer
 from tests.vectors import FIXTURES_DIR
 
 VECTORS = json.loads((FIXTURES_DIR / "timing-stats-vectors.json").read_text())["cases"]
 CASES = {c["name"]: c for c in VECTORS}
 SLUG = "routine"
+
+
+def storable(case: dict[str, Any]) -> bool:
+    """Whether a topic version can hold the case's timers. Until the stored ``Timer`` v2 schema
+    (M1-DB) a version has steps only, so the lap-type cases of timers2.md §7.4 are checked
+    against the pure function (``test_timing_stats_vectors.py``) and join this endpoint test
+    with M1-MCP, which also adds ``lap_types`` to the ``TopicTiming`` schema."""
+    return all(t is None or not t["laps"] for t in case["versions"].values())
+
+
+def served(stats: dict[str, Any]) -> dict[str, Any]:
+    """The stats as ``getTopicTiming`` serves them before M1-MCP: without the v3 ``lap_types``
+    (timers2.md §7.4), top level and per series point."""
+    out = {k: v for k, v in stats.items() if k != "lap_types"}
+    out["series"] = [{k: v for k, v in p.items() if k != "lap_types"} for p in stats["series"]]
+    return out
 
 
 async def seed(
@@ -40,9 +57,12 @@ async def seed(
     topic = Topic(slug=SLUG, name="Routine", current_version=case["current_version"])
     db.add(topic)
     rows: dict[int, TopicVersion] = {}
-    for number, steps in case["versions"].items():
+    for number, timer in case["versions"].items():
         rows[int(number)] = TopicVersion(
-            topic=topic, version=int(number), questions=[], timer=None if steps is None else {"steps": steps}
+            topic=topic,
+            version=int(number),
+            questions=[],
+            timer=None if timer is None else {"steps": timer["steps"]},
         )
         db.add(rows[int(number)])
     await db.flush()
@@ -73,18 +93,20 @@ async def timing(client: httpx.AsyncClient, ref: str = SLUG, **params: Any) -> d
 
 def expected(case: dict[str, Any], indices: list[int]) -> dict[str, Any]:
     """The reference stats over a subset of the case's entries, with every version."""
-    versions = {
-        int(n): None if s is None else [run_fold.Step(x["key"], x["label"]) for x in s]
-        for n, s in case["versions"].items()
-    }
+    versions = {int(n): to_timer(t) for n, t in case["versions"].items()}
     entries = [to_entry(case["entries"][i]) for i in indices]
-    return stats_json(timing_stats(entries, versions, case["current_version"]))
+    return served(stats_json(timing_stats(entries, versions, case["current_version"])))
 
 
-@pytest.mark.parametrize("name", list(CASES))
+@pytest.mark.parametrize("name", [n for n, c in CASES.items() if storable(c)])
 async def test_endpoint_matches_the_vectors(name: str, db: AsyncSession, client: httpx.AsyncClient) -> None:
     await seed(db, CASES[name])
-    assert await timing(client) == CASES[name]["expected"]
+    assert await timing(client) == served(CASES[name]["expected"])
+
+
+def test_every_case_the_endpoint_skips_is_a_lap_type_case() -> None:
+    """The cases left out above are exactly timers2.md §7.4's, so nothing else drops out."""
+    assert sorted(n for n, c in CASES.items() if not storable(c)) == sorted(timing_stats_v3_cases())
 
 
 async def test_untimed_entries_are_sql_null(db: AsyncSession, client: httpx.AsyncClient) -> None:
@@ -94,7 +116,7 @@ async def test_untimed_entries_are_sql_null(db: AsyncSession, client: httpx.Asyn
     untimed = sum(e["timing"] is None for e in case["entries"])
     assert untimed > 0
     assert (await db.execute(select(func.count()).where(Entry.timing.is_(None)))).scalar_one() == untimed
-    assert await timing(client) == case["expected"]
+    assert await timing(client) == served(case["expected"])
 
 
 async def test_source_and_channel_filter(db: AsyncSession, client: httpx.AsyncClient) -> None:
@@ -137,7 +159,7 @@ async def test_a_removed_step_keeps_its_last_versions_label(
     """Labels come from every version, not only the current one or those in range: 'teeth' is
     renamed in v2 and removed in v3, and its only run was on v1."""
     case = copy.deepcopy(CASES["renamed-and-removed-steps"])
-    case["versions"]["2"].append({"key": "teeth", "label": "Brush teeth"})
+    case["versions"]["2"]["steps"].append({"key": "teeth", "label": "Brush teeth"})
     await seed(db, case, versions_of={0: 1, 1: 2, 2: 3, 3: 3})
     body = await timing(client)
     assert body == expected(case, [0, 1, 2, 3])
@@ -148,7 +170,7 @@ async def test_a_removed_step_keeps_its_last_versions_label(
 async def test_untimed_topic_answers_zero_counts(client: httpx.AsyncClient) -> None:
     await make_topic(client)
     await record(client, "sleep-log", {"hours": 7, "wakeups": 0, "quality": "ok"})
-    assert await timing(client, "sleep-log") == CASES["empty"]["expected"]
+    assert await timing(client, "sleep-log") == served(CASES["empty"]["expected"])
 
 
 async def test_unknown_topic_is_not_found(client: httpx.AsyncClient) -> None:
