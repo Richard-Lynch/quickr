@@ -27,6 +27,7 @@ result.
 | `timing-stats-vectors.json`    | `backend/tests/test_timing_stats_vectors.py` (`services/timing_stats.py`)                         | pytest drift check; `getTopicTiming` (T-STATS); vitest `timingStats.vectors.test.ts` (`lib/runs/stats.ts`, F-CORE); Swift timing chart models |
 | `duration-format-vectors.json` | `backend/tests/test_duration_vectors.py` (`run_fold.fmt_duration`)                                | pytest drift check; vitest `format.vectors.test.ts` (`lib/runs/format.ts` `fmtDuration`, F-CORE); Swift `fmtDuration` (I-CORE)                |
 | `live-activity-vectors.json`   | `backend/tests/test_live_activity_vectors.py` (`services/push/live_activity.py`)                  | pytest drift check; Swift `LiveActivityVectorTests` (I-LA)                                                                                    |
+| `entry-summary-vectors.json`   | `backend/tests/test_entry_summary_vectors.py` (`services/summary.py`)                             | pytest drift check; vitest `entrySummary.vectors.test.ts` (F4-SUMMARYLINE); Swift `EntrySummaryVectorTests` (I4-SUMMARYLINE)                  |
 | `api/*.json`                   | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                                          | pytest drift check; Swift `QuickrData` decoding tests (M1)                                                                                    |
 
 ## Drift checks
@@ -536,6 +537,24 @@ chart models are checked against.
   `RunActivityState`; a `start`'s `attributes` are `RunActivityAttributes`. `bytes` is the
   encoded size (at most `meta.max_bytes`). `meta.headers` are the request headers, and
   `meta.apple` the documentation every `aps` key was checked against.
+
+## `entry-summary-vectors.json`
+
+- `meta`: `max_length` (80), `separator` (`" · "`) and `semantics`, the prose of
+  [content-display.md](../../docs/specs/content-display.md) §1.2.
+- `question_sets`: name → the entry's version's questions (API shape, in order);
+  `timer_sets`: name → the topic's current `Timer`, or `null` for an untimed
+  topic. The `tiktok` and `renamed` sets and the typed-lap cases arrive with
+  M1's lap types (M4-STATS).
+- `cases[]`: `{name, questions, timer, answers, timing, expected}`: `questions`
+  and `timer` name a set; `answers` are wire `AnswerOut` objects, `timing` a wire
+  `Timing` or `null`; `expected` is
+  `entrySummary(answers, timing, questions, timer)`. Lengths are extended
+  grapheme clusters: more than 80 keeps the first 79 and appends `…`, never
+  inside a flag, keycap, ZWJ sequence or base-plus-combining-mark (the
+  `long_truncation_*` cases). Strings are not Unicode-normalised, so decode them
+  as they are. `""` means the entry has nothing to say and the caller shows its
+  fallback.
 
 ## `provisioning/`
 
