@@ -1,6 +1,6 @@
 # Spec: topic appearance (colour, emoji, tags; photos in phase B)
 
-**Status:** draft (revision 2, 2026-11-25, after review round 1). **Applies
+**Status:** draft (revision 3, 2026-11-25, after review round 2). **Applies
 to:** the backend (topic schema, limits, feed, reminders, MCP), the PWA, the iOS
 app (app, widgets, Live Activity, store) and, in phase B, hosting (nginx, docker
 volumes). **Companion specs:** [active-surfaces.md](active-surfaces.md) (M2
@@ -312,17 +312,22 @@ circle.
   summary line (idle tiles; M2's active card shows none) and in the topic header
   (§6.3). At most three chips on a tile, then "+2".
 - **Home filter [server] [pwa] [ios]:** `GET /topics?tag=<exact tag text>`
-  filters `Topic.tags ? :tag` (JSONB `?` containment on the stored spelling).
-  The PWA adds `tag` to the URL params read at `TopicsPage.tsx:55-74` and
-  `listTopicsInfiniteOptions`; tapping a chip sets it; the filter panel shows a
-  "Tag" row with the active tag and a clear ✕. iOS filters locally in
-  `TopicListing.matches` (`QuickrCore/Home/TopicListing.swift`; a tag match
-  joins the name/question search with an explicit `tag:` term is **not** added —
-  a tapped chip sets `HomeModel.tagFilter`), and `home-vectors.json` is
-  unchanged because the server's `?tag=` is a separate query, not a sort. Where
-  the filter touches M2-owned home files (`HomeView.swift`, `HomeModel.swift`,
-  `TopicsPage.tsx`) it lands through the **T2-WIRE-I/F** wiring WP named in
-  t2-plan.md, not in an M3 WP.
+  filters `Topic.tags ? :tag` (JSONB `?` containment): the match is on the
+  **stored spelling, exactly** — no casefolding at query time (B4). Uniqueness
+  is casefolded **on write** (§1.3), so a topic can hold "Gym" or "gym" but not
+  both, and a chip tap always sends the stored text, which is why an exact match
+  is enough. (`gym` typed by hand does not match "Gym"; the filter is
+  chip-driven.) The PWA adds `tag` to the URL params read at
+  `TopicsPage.tsx:55-74` and `listTopicsInfiniteOptions`; tapping a chip sets
+  it; the filter panel shows a "Tag" row with the active tag and a clear ✕. iOS
+  filters locally in `TopicListing.matches`
+  (`QuickrCore/Home/TopicListing.swift`; a tag match joins the name/question
+  search with an explicit `tag:` term is **not** added — a tapped chip sets
+  `HomeModel.tagFilter`), and `home-vectors.json` is unchanged because the
+  server's `?tag=` is a separate query, not a sort. Where the filter touches
+  M2-owned home files (`HomeView.swift`, `HomeModel.swift`, `TopicsPage.tsx`) it
+  lands through the **T2-WIRE-I/F** wiring WP named in t2-plan.md, not in an M3
+  WP.
 - MCP `list_topics` gains `tag: str | None`.
 
 ## 6. Rendering per surface
@@ -354,10 +359,12 @@ circle.
 - **[ios]** `NewTopicScreen.topicSection` and `TopicSettingsView.detailsSection`
   get an Appearance row opening `AppearanceEditorView` (new,
   `App/Topics/Builder/AppearanceEditorView.swift`): swatches
-  (`topic.color.<name>`), an emoji `TextField` limited by `checkIcon` with the
-  system emoji keyboard (`.keyboardType(.default)`; iOS has no emoji-only
-  keyboard type — the field's placeholder says "Emoji"), tags (`topic.tags`,
-  `topic.tags.add`).
+  (`topic.color.<name>`), an emoji `TextField` (`topic.icon`) limited by
+  `checkIcon` with the system emoji keyboard (`.keyboardType(.default)`; iOS has
+  no emoji-only keyboard type — the field's placeholder says "Emoji"), tags
+  (`topic.tags` container, `topic.tags.add` input, `topic.tags.<i>` chips with
+  their ✕). **Accessibility ids live in this spec only** (B3); the plans and the
+  UI tests on both sides of the seam key on these names.
   `TopicDraft`/`NewTopicModel`/`TopicSettingsModel.saveDetails` carry
   `appearance`; `TopicDetailsChange` (`QuickrUI/Topics/TopicWriter.swift`) gains
   `appearance: AppearanceUpdate?`; `TopicWrites` sends it in
@@ -577,11 +584,18 @@ merged the LA renders the default theme) — and M3 **re-runs the payload-size
 vector** of timers2.md §8.2 with `attributes.appearance` set to its largest
 value (`color: "orange"`, a 16-code-point emoji, ten 24-character tags) on the
 `start` payload, adding the case `start_longest_labels_with_appearance` to
-`live-activity-vectors.json` (adjudication C4); `Topic.swift` for the stored
-property (patch); `ServerLayer.swift` for the `photo_cache` cascade line (patch,
-M3b); the Alembic head `e6f3a9b4c215` (M1 merges first). Before M3 lands,
-consumers use `TopicTheme.default` / `topicStyle(null)` = `{}` and nothing
-changes visually.
+`live-activity-vectors.json` (adjudication C4). The budget is timers2.md §8's
+rule on the **encoded** APNs body (A9): the server encodes, and over 4096 bytes
+truncates `alert_label`, then `next_label`, then `label`, then `topic_name` to
+32 characters each, re-encoding after each step; the appearance attributes
+(colour name ≤ 6 bytes, emoji ≤ 64 bytes, tags ≤ 10 × 24 code points) count
+against the same budget and are **never** truncated — they are bounded by §1.3,
+and the worst case (all four labels at 64 four-byte code points plus the largest
+appearance) is what the vector pins; `Topic.swift` for the stored property
+(patch); `ServerLayer.swift` for the `photo_cache` cascade line (patch, M3b);
+the Alembic head `e6f3a9b4c215` (M1 merges first). Before M3 lands, consumers
+use `TopicTheme.default` / `topicStyle(null)` = `{}` and nothing changes
+visually.
 
 ## 16. Tests
 
@@ -656,13 +670,24 @@ changes visually.
 
 ## 20. Review log (round 1)
 
-| Finding                                         | Outcome                                                                                                                      |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| C-S1 #9 async photo cleanup can delete the current photo | Fixed in §11, §12, §12.1 (D1): content-addressed files, no request deletes, 10-minute GC with a 1-hour grace, three interleavings written out |
-| C-S2 photo DELETE mutates on every call         | Fixed in §11 (D2): no-op when `photo_etag` is null                                                                           |
-| C-S2 existing iOS topics stay unthemed after upgrade | Fixed in §8, D-6 (D3): the migration resets the feed cursor; planner told (I3-STORE)                                    |
-| C-S2 payload-size test omits appearance         | Fixed in §15, §16 (C4): M3 re-runs the size vector with `attributes.appearance` set                                          |
-| K-S2 emoji validators cannot agree              | Fixed in §2, §3.2 (D7): exact per-platform predicates, `!isASCII` on iOS, divergence cases listed and pinned                    |
-| K-S2 `t2m3b_photo_cache` registered in the M3a file | Fixed in §14.1 (D8): `StoreSchema+T2M3B.swift`                                                                             |
-| K-S2 `ServerLayer.swift` edited by M3b without ownership | Fixed in §14.1, §15 (D8): a patch to M1's file owner                                                                   |
-| K-S2 `builder.ts`/`serverErrors.ts`/`topics.py` shared edits | Ownership rule lives in t2-plan.md (E3); this spec's §1.2 and §7 are unchanged                                     |
+| Finding                                                      | Outcome                                                                                                                                       |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| C-S1 #9 async photo cleanup can delete the current photo     | Fixed in §11, §12, §12.1 (D1): content-addressed files, no request deletes, 10-minute GC with a 1-hour grace, three interleavings written out |
+| C-S2 photo DELETE mutates on every call                      | Fixed in §11 (D2): no-op when `photo_etag` is null                                                                                            |
+| C-S2 existing iOS topics stay unthemed after upgrade         | Fixed in §8, D-6 (D3): the migration resets the feed cursor; planner told (I3-STORE)                                                          |
+| C-S2 payload-size test omits appearance                      | Fixed in §15, §16 (C4): M3 re-runs the size vector with `attributes.appearance` set                                                           |
+| K-S2 emoji validators cannot agree                           | Fixed in §2, §3.2 (D7): exact per-platform predicates, `!isASCII` on iOS, divergence cases listed and pinned                                  |
+| K-S2 `t2m3b_photo_cache` registered in the M3a file          | Fixed in §14.1 (D8): `StoreSchema+T2M3B.swift`                                                                                                |
+| K-S2 `ServerLayer.swift` edited by M3b without ownership     | Fixed in §14.1, §15 (D8): a patch to M1's file owner                                                                                          |
+| K-S2 `builder.ts`/`serverErrors.ts`/`topics.py` shared edits | Ownership rule lives in t2-plan.md (E3); this spec's §1.2 and §7 are unchanged                                                                |
+
+### Round 2
+
+| Finding                                              | Outcome                                                                                                                    |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| K-S2 `?tag=` casefolded (plan) vs stored spelling     | Fixed in §5 (B4): exact match on the stored spelling; uniqueness casefolded on write; the plan follows                      |
+| K-S2 accessibility-id drift                          | Fixed in §7 (B3): `topic.color.<name>`, `topic.icon`, `topic.tags`, `topic.tags.add`, `topic.tags.<i>`; ids live here only |
+| K-S2 M3b plan and spec disagree on the cache design  | No spec change (B5): the §14 design stands (`photo_cache` BLOB table in the per-server store; SW `CacheFirst` + `ExpirationPlugin(300, 30 d)` with `v=<etag>`; `photo_etag VARCHAR(32)`; sizes `thumb\|medium\|full`; §11 headers); the plan copies it |
+| K-S3 PWA topic utilities have three spellings        | No change here (B6): §4.2 is the one set; active-surfaces §6.2 and M3-TOKENS align to it                                   |
+| C-S2 APNs payload bytes                              | Fixed in §15 (A9): the encoded-body budget and truncation order noted; appearance attributes count against it, never truncated |
+| K-S1 M3B-STORAGE still requires an eager delete       | Plan matter (C); §11–§12.1 unchanged: GC is the only deleter                                                               |

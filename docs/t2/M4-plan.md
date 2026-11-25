@@ -1,6 +1,6 @@
 # Plan: M4 · content display
 
-**Status:** draft (revision 2, 2026-11-25, after review round 1). **Spec:**
+**Status:** draft (revision 3, 2026-11-25, after review round 2). **Spec:**
 [content-display.md](../specs/content-display.md). **Programme plan:**
 [t2-plan.md](../specs/t2-plan.md); its scope guard, out-of-scope list, merge
 ritual, seams and ownership table, simulator budget, effort legend and open
@@ -42,51 +42,45 @@ I4-ENTRIES.
 
 ### M4-SUMMARY · entry summary reference and vectors · be · M · first
 
-- **Scope:** `services/summary.py` `entry_summary(entry, timer) -> str` (≤ 80
-  chars; timing first as `"12:40 · 3 laps"` or `"12:40 · Run 3 · Rest 3"`; then
-  `label: value` joined by `·`; enum lists joined by `, `; truncated with `…`);
-  generator `tests/test_entry_summary_vectors.py` →
-  `shared/fixtures/entry-summary-vectors.json` (cases: answers only, enum list,
-  numeric with unit, boolean, notes ignored, timing only, timing + answers,
-  untyped laps, truncation at a word boundary, unicode width, no answers and no
-  timing → empty, long labels); README row. Typed-lap cases are added in
-  M4-STATS once fold v4 is available.
+- **Scope:** content-display.md §1 as the contract: `services/summary.py`
+  `entry_summary(answers, timing, questions, timer) -> str` (§1.1), the
+  algorithm of §1.2 (timing first, then `label: value` joined by `·`, enum lists
+  by `, `; truncation to **79 extended grapheme clusters + `…`**, no word
+  boundary, no boolean); generator `tests/test_entry_summary_vectors.py` →
+  `shared/fixtures/entry-summary-vectors.json` with the cases §1.3 lists
+  (including the flag pair, keycap and multi-person ZWJ emoji at the boundary;
+  the typed-lap cases are added in M4-STATS); README row.
+- **Areas:** `backend/app/services/summary.py` (new), `backend/tests/`,
+  `shared/fixtures/`.
 - **Depends on:** nothing.
-- **Acceptance:** every rule in content-display.md has a named case; the output
-  never exceeds 80 code points.
-- **Tests:** unit tests per rule; vector drift.
-- **Review round 1 (D6):** truncation is on **extended grapheme clusters**
-  (Python `regex` `\X`; ports: Swift `Character`, JS `Intl.Segmenter`), cap 80
-  clusters; vectors add a flag pair, a keycap and a multi-person ZWJ emoji at
-  the boundary.
-- **DoD:** the Acceptance above holds, proven by unit tests per rule; vector
-  drift. Evidence in the PR: `cd backend && uv run pytest -q <the files above>`
-  pass counts; when generators or fixtures change, the `make vectors` diff is in
-  the PR; migration WPs paste the `alembic upgrade head` and `downgrade` output;
-  the Codex review file with each finding resolved or justified; the CI run
-  link.
+- **Acceptance:** every case §1.3 names exists and the coverage test proves it;
+  no output exceeds 80 clusters; a cluster is never split.
+- **Tests:** unit tests per rule of §1.2; vector drift and coverage.
+- **DoD:** the Acceptance above holds, proven by the tests named above. Evidence
+  in the PR: `cd backend && uv run pytest -q <files>` pass counts; the
+  `make vectors` diff when generators or fixtures change; the Codex review file
+  with each finding resolved or justified; the CI run link.
 
 ### M4-LASTENTRY · `TopicSummary.last_entry` · be · M · first
 
-- **Scope:** `services/topics.py` `_base_select` lateral join (latest by
-  `captured_at`, then `id`; excludes deleted);
-  `TopicSummary.last_entry: EntryOut | null`; fixtures `listTopics`, `getTopic`,
-  `listChanges` bootstrap; `openapi.json`, `make client`; no Swift change (iOS
-  keeps the local `latestEntry`; Codable ignores the field;
-  `FixtureCoverageTests` still decodes).
+- **Scope:** content-display.md §2: `services/topics.py` `_base_select` lateral
+  join (latest by `captured_at`, then `id`; excludes deleted) in a delimited
+  `# T2-M4` block; `TopicSummary.last_entry: EntryOut | null`; fixtures
+  `listTopics`, `getTopic`, `listChanges` bootstrap; `openapi.json`,
+  `make client`. **iOS has no DTO field**: Codable ignores `last_entry` and the
+  app keeps its local `latestEntry`; `home-vectors.json` is unchanged.
+- **Areas:** `backend/app/services/topics.py`, `schemas/api.py`,
+  `backend/tests/`, `shared/fixtures/api/`.
 - **Depends on:** nothing.
-- **Acceptance:** `listTopics` issues one SQL statement for N topics (statement
-  count asserted); `last_entry` is null for a topic without entries and follows
-  a delete; `home-vectors.json` unchanged.
-- **Tests:** `test_topics_last_entry.py` (new); fixture drift.
-- **Review round 1 (D8):** iOS ignores `last_entry` (no `@RequiredKey`, no DTO
-  field); `home-vectors.json` unchanged.
-- **DoD:** the Acceptance above holds, proven by `test_topics_last_entry.py`
-  (new); fixture drift. Evidence in the PR:
-  `cd backend && uv run pytest -q <the files above>` pass counts; when
-  generators or fixtures change, the `make vectors` diff is in the PR; migration
-  WPs paste the `alembic upgrade head` and `downgrade` output; the Codex review
-  file with each finding resolved or justified; the CI run link.
+- **Acceptance:** `listTopics` issues **one extra statement per page**, not per
+  topic (statement count asserted); `last_entry` is null for a topic without
+  entries and follows a delete; `home-vectors.json` unchanged.
+- **Tests:** `test_api_topics.py` additions, `test_home_vectors.py` unchanged;
+  fixture drift.
+- **DoD:** the Acceptance above holds, proven by the tests named above. Evidence
+  in the PR: `cd backend && uv run pytest -q <files>` pass counts; the
+  `make vectors` diff when generators or fixtures change; the Codex review file
+  with each finding resolved or justified; the CI run link.
 
 ### M4-STATS · typed summary cases and stats inputs · be · S
 
@@ -108,10 +102,10 @@ I4-ENTRIES.
 ### F4-SUMMARYLINE · PWA summary port and component · fe · S
 
 - **Scope:** `src/lib/entrySummary.ts` + `entrySummary.vectors.test.ts`;
-  `src/components/topics/TopicSummaryLine.tsx`
-  (`<TopicSummaryLine entry timer/>`). Dropping the per-tile
-  `listEntries`/`listTopicVersions` queries in `TopicTile.tsx` is M2's file →
-  T2-WIRE-F.
+  `src/components/topics/TopicSummaryLine.tsx` with props
+  `{entry, questions, timer, fallback}` (content-display.md §5). Dropping the
+  per-tile `listEntries`/`listTopicVersions` queries in `TopicTile.tsx` is M2's
+  file → T2-WIRE-F.
 - **Depends on:** M4-SUMMARY, M4-LASTENTRY.
 - **Acceptance:** the vector suite passes; the component renders an empty string
   as nothing.
@@ -146,6 +140,10 @@ I4-ENTRIES.
   `TimingSegment.event_id`; Remove is **disabled on a lap row opened by a
   `next`** (a step boundary, edited with the timing editor); the row shows
   "Resuming…" until the ack.
+- **Review round 2 (A14, A15):** Resume is hidden while the topic has a locally
+  open run; a queued Remove from the detail projects no run: the entry stays
+  with its timing re-projected and a pending mark until the ack
+  (content-display.md §3.2); ids per §3.2, not repeated here.
 - **DoD:** the Acceptance above holds, proven by `EntriesPage.test.tsx` (new),
   `EntryEditPage.test.tsx`. Evidence in the PR:
   `pnpm exec vitest run <the tests above>` pass counts and a green
@@ -156,8 +154,9 @@ I4-ENTRIES.
 ### F4-STATS · PWA stats and chart vectors · fe · M · stack base
 
 - **Scope:** `TimingOverview.tsx` per-lap-type cards and a stacked lap-type bars
-  chart; `OverviewPage.tsx` activity strip (12 × 7 cells from
-  `listEntries(captured_from = now − 84 d, limit 500)`, content-display.md §4.2)
+  chart; `OverviewPage.tsx` activity strip (content-display.md §4.2:
+  Monday-aligned local calendar days from the Monday 11 weeks before this week's
+  Monday to today, queried from that day's local midnight, never `now − 84 d`)
   and numeric sparklines from `getQuestionSeries`; `charts/timingModels.ts` new
   models (`lapTypesByBucket`, `activityStrip`, `sparkline`) and
   `stats.vectors.test.ts` → `stats-chart-vectors.json` sections `lap_types[]`,
@@ -182,7 +181,7 @@ I4-ENTRIES.
 
 - **Scope:** `QuickrCore/Entries/EntrySummary.swift` +
   `EntrySummaryVectorTests`; `QuickrUI/Components/TopicSummaryLine.swift`
-  (`TopicSummaryLine(entry:timer:)`).
+  (`TopicSummaryLine(entry:questions:timer:fallback:)`, content-display.md §5).
 - **Depends on:** M4-SUMMARY.
 - **Acceptance:** the vector suite passes; grapheme-aware truncation matches
   Python's code-point rule on every case.
@@ -197,10 +196,11 @@ I4-ENTRIES.
 - **Scope:** `App/Entries/List/EntriesView.swift` rows (summary line,
   `AnswerGrid`, timing chip); `EntriesModel.swift` hides an entry whose id is a
   local open or finishing run (OQ-14); `App/Entries/EntryTimingSection.swift`
-  segments with lap types, pauses, a Remove button per pause/lap (ids
-  `entry.timing.pause.<i>.remove`, `entry.timing.segment.<i>.remove`), a Resume
-  run button (`entry.timing.resume`) when `resumable`; `TimingEditorSheet` /
-  `QuickrUI/Edit/TimingEditModel.swift` show lap types; `EditScreen.swift`.
+  segments with lap types, pauses, a Remove button per pause/lap and a Resume
+  run button when `resumable` (accessibility ids per content-display.md §3.2;
+  Resume hidden while the topic has a locally open run, A15);
+  `TimingEditorSheet` / `QuickrUI/Edit/TimingEditModel.swift` show lap types;
+  `EditScreen.swift`.
 - **Depends on:** I4-SUMMARYLINE; M1 merged to `feat/t2` (I1-WRITES).
 - **Acceptance:** `EntriesModelTests`: the hidden rule, the row summary; a model
   test that Remove calls `RunWrites.remove(target:)` once and Resume calls
@@ -209,6 +209,8 @@ I4-ENTRIES.
   `TimingEditTests`.
 - **Review round 1 (A7, D8):** as F4-ENTRIES: targets from the `Timing` ids,
   Remove disabled on a `next`-opened lap row, "Resuming…" state until the ack.
+- **Review round 2 (A14, A15):** as F4-ENTRIES (Resume hidden with an open run;
+  remove-from-entry keeps the entry visible with a re-projected timing).
 - **DoD:** the Acceptance above holds, proven by `EntriesModelTests`,
   `EntryTimingModelTests` (new), `TimingEditTests`. Evidence in the PR:
   `cd ios/QuickrKit && swift test --filter <the suites above>` summary lines
@@ -221,9 +223,10 @@ I4-ENTRIES.
 
 - **Scope:** `App/Stats/TimingOverview.swift` per-type cards and
   `LapTypeStackChart`; `OverviewView.swift` activity strip from
-  `store.entries(topicId, from: now − 84 days)` (`OverviewModel`), drawn in
-  `StatsCharts.swift` with `ChartAccessibility` labels; `OverviewCards.swift`
-  sparklines; `QuickrData/Stats/TimingOverviewText.swift`, `StatsLoader.swift`;
+  `store.entries(topicId, from:)` at the first cell's local midnight
+  (content-display.md §4.2 rule; `OverviewModel`), drawn in `StatsCharts.swift`
+  with `ChartAccessibility` labels; `OverviewCards.swift` sparklines;
+  `QuickrData/Stats/TimingOverviewText.swift`, `StatsLoader.swift`;
   `QuickrCore/Charts/ChartModels.swift` `ActivityStrip`, `Sparkline`,
   `LapTypesByBucket` and `StatsChartVectorTests` reading the new sections.
 - **Depends on:** F4-STATS (stack), M4-STATS, I1-CORE (via M1 merged).
@@ -264,6 +267,11 @@ I4-ENTRIES.
 
 ### M4-REVIEW · milestone review · docs · S
 
+- **Scope:** as M1-REVIEW, against content-display.md.
+- **Depends on:** every other M4 WP.
+- **Acceptance:** no open finding inside scope; every other finding has a
+  `t2-followup` issue; `docs/t2/evidence/M4.md` is complete; the milestone PR is
+  ready with the five checks green.
 - **DoD:** the Acceptance above holds, proven by the tests named in Acceptance.
   Evidence in the PR: the named file exists on the milestone branch and is
   linked from the milestone PR; the Codex review file with each finding resolved

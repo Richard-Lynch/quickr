@@ -1,6 +1,6 @@
 # Plan: M2 · active surfaces
 
-**Status:** draft (revision 2, 2026-11-25, after review round 1). **Spec:**
+**Status:** draft (revision 3, 2026-11-25, after review round 2). **Spec:**
 [active-surfaces.md](../specs/active-surfaces.md). **Programme plan:**
 [t2-plan.md](../specs/t2-plan.md); its scope guard, out-of-scope list, merge
 ritual, seams and ownership table, simulator budget, effort legend and open
@@ -56,6 +56,9 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
 - **Review round 1 (A9, D8):** the primary rule is cited from timers2.md §10
   verbatim, never restated; the layout model consumes M1's
   `actions(_ state:status:timer:now:)`.
+- **Review round 2 (A13, B1):** the signatures are active-surfaces.md §1.1 (=
+  timers2.md §10) and the state table of §1.2 is the fixture for the layout
+  tests; neither is restated here.
 - **DoD:** the Acceptance above holds, proven by `RunControlsLayoutTests`
   (host), `controlsLayout.test.ts`. Evidence in the PR:
   `pnpm exec vitest run <the tests above>` pass counts and a green
@@ -67,13 +70,12 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
 ### I2-CONTROLS · run screen restructure · host · M
 
 - **Scope:** new `App/Runs/RunControls.swift` (primary ≥ 72 pt tall full width,
-  secondaries 56 pt, destructive in the overflow menu, ids `run.primary`,
-  `run.stop`, `run.pause`, `run.resume`, `run.menu`); `RunScreen.swift`
-  restructured as header (clock, segment, headline, alert line from
-  `RunPresentation.alertLine` shown 10 s) → controls → lap/step table (a
-  `qrCard` with lap types, no controls in it); `RunViews.swift` shared pieces
-  (`RunStatusLine` with lap counter); the stop toast offers Resume when
-  `resumable` (renders nothing until M1 lands it).
+  secondaries 56 pt, destructive in the overflow menu; accessibility ids per
+  active-surfaces.md §2.2); `RunScreen.swift` restructured as header (clock,
+  segment, headline, alert line from `RunPresentation.alertLine` shown 10 s) →
+  controls → lap/step table (a `qrCard` with lap types, no controls in it);
+  `RunViews.swift` shared pieces (`RunStatusLine` with lap counter); the stop
+  toast offers Resume when `resumable` (renders nothing until M1 lands it).
 - **Areas:** `App/Runs/`.
 - **Depends on:** M2-MODEL-ADOPT.
 - **Acceptance:** no control appears twice on the screen; Dynamic Type XXXL
@@ -99,9 +101,9 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
   no `TopicListing.sections` change, no vector change: **decided here**); new
   `App/Home/Tiles/ActiveTopicCard.swift` (larger, tinted by `TopicTheme` or the
   accent default, clock, segment, inline primary + Stop, Pause/Resume secondary,
-  ids `tile.<slug>.primary|stop|pause`); `TileView.swift` gains a `quick:` slot
-  for a two-action block; `TopicTile.swift` idle tiles keep the start block; a
-  Resume action on an idle tile within the OQ-1 window.
+  accessibility ids per active-surfaces.md §3.2); `TileView.swift` gains a
+  `quick:` slot for a two-action block; `TopicTile.swift` idle tiles keep the
+  start block; a Resume action on an idle tile within the OQ-1 window.
 - **Areas:** `App/Home/`, `QuickrUI/Components/TileView.swift`,
   `QuickrData/Home/HomeModel.swift`.
 - **Depends on:** M2-MODEL-ADOPT; soft M3-TOKENS.
@@ -129,9 +131,11 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
   Island compact shows the lap counter;
   `QuickrCore/Runs/RunActivityDisplay.swift` `buttons` with lap primary,
   `alertAt`, `lapCount`; `QuickrData/Intents/RunActivityIntents.swift` unchanged
-  button set; `RunActivityCenter.swift` snapshot carries the new fields.
+  button set; `RunActivityCenter.swift` snapshot carries the new fields (M1's
+  `startFor`-on-reopen lives in `RunActivityCenter+Reopen.swift`, not here).
 - **Areas:** `Widgets/RunActivityWidget.swift`,
-  `QuickrCore/Runs/RunActivityDisplay.swift`, `QuickrData/LiveActivity/`.
+  `QuickrCore/Runs/RunActivityDisplay.swift`, `QuickrData/LiveActivity/` except
+  `RunActivityCenter+Reopen.swift`.
 - **Depends on:** M2-MODEL-ADOPT; **M1-LA-STATE (hard, review E5)**, taken as a
   shared WP branch into `t2/m2`: `RunActivityDisplay` reads `alertAt`,
   `lapCount`, `lapType` from the content state and the vectors.
@@ -153,14 +157,17 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
   primary rule; `QuickrCore/Widgets/WidgetTopic.swift` `runButtons` lap-primary
   with the next type label; `Widgets/TopicControl.swift` `TimerControl` detail
   "Lap → Rest" when applicable; `App/Debug/WidgetGalleryView.swift` new states.
-  No second Control kind. The Auto rule of active-surfaces.md §5.3 is
-  implemented by M1-ACTIONS (`RunWrites.auto` follows `actions(...).primary`);
-  this WP only renders it.
+  No second Control kind. The **conditional Auto rule** (active-surfaces.md
+  §5.3, timers2.md §10: `timer.laps` non-empty → Auto = the on-screen primary;
+  laps empty → the v1 Auto ending in Stop) is implemented in I1-WRITES
+  (`RunWrites.auto`); this WP renders it and tests both branches through the
+  Control (review C9).
 - **Areas:** as listed.
 - **Depends on:** M2-MODEL-ADOPT.
 - **Acceptance:** `TimedWidgetTests` cover idle, step, typed lap, paused,
   compact Auto; `WidgetControlTests` (sim, in I2-UITEST) show the new detail
-  text; the app still has ≤ 10 App Shortcuts.
+  text and drive Auto through the Control for a typed timer (lap) and an untyped
+  one (v1 sequence ending in Stop); the app still has ≤ 10 App Shortcuts.
 - **Tests:** `TimedWidgetTests` (host); `WidgetControlTests`,
   `RunIntentHandlerTests` in I2-UITEST.
 - **DoD:** the Acceptance above holds, proven by `TimedWidgetTests` (host);
@@ -272,6 +279,8 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
 - **Scope:** append: Live Activity lock-screen layout and Dynamic Island lap
   counter; the alert countdown reaching zero; the Control's "Lap → Rest" detail;
   the active card's tint in light and dark.
+- **Acceptance:** the entries exist in `docs/t2/device-checklist.md` under
+  \"M2\", each with steps and the expected result.
 - **Depends on:** I2-LA, I2-WIDGETS.
 - **DoD:** the Acceptance above holds, proven by the tests named in Acceptance.
   Evidence in the PR: the named file exists on the milestone branch and is
@@ -283,6 +292,9 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
 - As M1-REVIEW, against active-surfaces.md; evidence in `docs/t2/evidence/M2.md`
   with light/dark/XXXL screenshots of the run screen, home and the widget
   gallery, PWA mobile width, and a recording of a lap/stop/resume flow.
+- **Acceptance:** no open finding inside scope; every other finding has a
+  `t2-followup` issue; `docs/t2/evidence/M2.md` is complete; the milestone PR to
+  `feat/t2` is ready with the five checks green.
 - **Depends on:** every other M2 WP (M2-RESUME included).
 - **DoD:** the Acceptance above holds, proven by the tests named in Acceptance.
   Evidence in the PR: the named file exists on the milestone branch and is
@@ -297,6 +309,7 @@ flowchart LR
   ADOPT --> ICTRL[I2-CONTROLS]
   ADOPT --> IHOME[I2-HOME]
   ADOPT --> ILA[I2-LA]
+  LAS[M1-LA-STATE shared] --> ILA
   ADOPT --> IWID[I2-WIDGETS]
   TOK[M3-TOKENS shared] -.soft.-> IHOME
   TOK -.soft.-> FHOME
@@ -318,20 +331,20 @@ flowchart LR
   DEV --> REV
 ```
 
-| WP             | Depends on                              | Class     | Effort |
-| -------------- | --------------------------------------- | --------- | ------ |
-| M2-MODEL-ADOPT | M1-ACTIONS (shared)                     | host + fe | S      |
-| I2-CONTROLS    | M2-MODEL-ADOPT                          | host      | M      |
-| I2-HOME        | M2-MODEL-ADOPT (M3-TOKENS soft)         | host      | M      |
-| I2-LA          | M2-MODEL-ADOPT (M1-LA-STATE soft)       | host      | M      |
-| I2-WIDGETS     | M2-MODEL-ADOPT                          | host      | M      |
-| I2-UITEST      | I2-CONTROLS, I2-HOME, I2-LA, I2-WIDGETS | sim       | L      |
-| M2-RESUME      | I2-UITEST, M1 merged to `feat/t2`       | sim       | S      |
-| F2-CONTROLS    | M2-MODEL-ADOPT                          | fe        | M      |
-| F2-HOME        | M2-MODEL-ADOPT (M3-TOKENS soft)         | fe        | M      |
-| F2-BAR         | M2-MODEL-ADOPT                          | fe        | S      |
-| M2-DEV         | I2-LA, I2-WIDGETS                       | docs      | S      |
-| M2-REVIEW      | all                                     | docs      | S      |
+| WP             | Depends on                                 | Class     | Effort |
+| -------------- | ------------------------------------------ | --------- | ------ |
+| M2-MODEL-ADOPT | M1-ACTIONS (shared)                        | host + fe | S      |
+| I2-CONTROLS    | M2-MODEL-ADOPT                             | host      | M      |
+| I2-HOME        | M2-MODEL-ADOPT (M3-TOKENS soft)            | host      | M      |
+| I2-LA          | M2-MODEL-ADOPT, M1-LA-STATE (shared, hard) | host      | M      |
+| I2-WIDGETS     | M2-MODEL-ADOPT                             | host      | M      |
+| I2-UITEST      | I2-CONTROLS, I2-HOME, I2-LA, I2-WIDGETS    | sim       | L      |
+| M2-RESUME      | I2-UITEST, M1 merged to `feat/t2`          | sim       | S      |
+| F2-CONTROLS    | M2-MODEL-ADOPT                             | fe        | M      |
+| F2-HOME        | M2-MODEL-ADOPT (M3-TOKENS soft)            | fe        | M      |
+| F2-BAR         | M2-MODEL-ADOPT                             | fe        | S      |
+| M2-DEV         | I2-LA, I2-WIDGETS                          | docs      | S      |
+| M2-REVIEW      | all                                        | docs      | S      |
 
 **Critical path:** M1-ACTIONS → M2-MODEL-ADOPT → I2-CONTROLS (with I2-HOME,
 I2-LA, I2-WIDGETS beside it) → I2-UITEST → M2-RESUME (waits for M1) → M2-REVIEW.

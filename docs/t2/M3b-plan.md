@@ -1,6 +1,6 @@
 # Plan: M3b · photos (appearance phase B)
 
-**Status:** draft (revision 2, 2026-11-25, after review round 1). **Spec:**
+**Status:** draft (revision 3, 2026-11-25, after review round 2). **Spec:**
 [appearance.md](../specs/appearance.md). **Programme plan:**
 [t2-plan.md](../specs/t2-plan.md); its scope guard, out-of-scope list, merge
 ritual, seams and ownership table, simulator budget, effort legend and open
@@ -38,50 +38,49 @@ cache in the PWA. Local volume + Pillow (OQ-10); Cloudflare Access protects the
 URLs; iOS fetches through `APIClient`, never `AsyncImage`. Starts after M3a has
 merged to `feat/t2`.
 
-### M3B-STORAGE · upload, serve, delete · be · L
+### M3B-STORAGE · upload, serve, delete, GC · be · L
 
-- **Scope:** `20261201_a8b5c1d6e437_topic_photo.py`:
-  `topics.photo_etag VARCHAR(64)`, `topics.photo_updated_at TIMESTAMPTZ`; new
-  `services/media.py` (`QUICKR_MEDIA_DIR`, decode JPEG/PNG/HEIC with Pillow +
-  `pillow-heif`, re-encode JPEG, thumbnails 128/512 px, atomic writes, ETag =
-  content hash); routes `POST /topics/{ref}/photo` (multipart, ≤ 5 MB → 413,
-  unsupported type → 415), `GET /topics/{ref}/photo?size=thumb|full` (`ETag`,
-  304 on `If-None-Match`, `Cache-Control: private, max-age=86400`),
-  `DELETE /topics/{ref}/photo`; `limits.py` `max_photo_bytes`; compose volume
-  `media` and the hosting nginx `client_max_body_size 5m`; cleanup of files on
-  topic delete outside the writer (`area-B-feed-invariants.md` §4); API fixtures
-  for the upload and delete responses and a documented exemption for the binary
-  GET in `test_api_fixtures.py`; `openapi.json`, `make client`; minimal Swift:
-  endpoint-table rows (`endpointTableMatchesOpenAPI`).
-- **Also:** updates `docs/hosting/backend.md` backup/restore for the `media`
-  volume (OQ-10 rider).
+- **Scope:** appearance.md §11–§12.1 and §13 as the contract:
+  `20261201_a8b5c1d6e437_topic_photo.py` adds `topics.photo_etag VARCHAR(32)`
+  and `topics.photo_updated_at`; new `services/media.py`: `QUICKR_MEDIA_DIR`,
+  Pillow + `pillow-heif` decode (HEIC/PNG/JPEG, EXIF rotation), JPEG re-encode,
+  sizes `thumb|medium|full`, **content-addressed files** (`{etag}.{size}.jpg`,
+  etag = the hash §12 defines), files written before the writer transaction and
+  only the writer publishes `photo_etag`. Routes `POST /topics/{ref}/photo`
+  (multipart, ≤ 5 MB → 413, unsupported → 415),
+  `GET /topics/{ref}/photo?size=thumb|medium|full` with the cache headers of §11
+  (`ETag`, 304 on `If-None-Match`, immutable with `v=<etag>`),
+  `DELETE /topics/{ref}/photo` (no-op 204, no revision bump, no log when
+  `photo_etag` is null, D2). **No request deletes files** (§12.1): a scheduler
+  tick every 10 min removes files whose etag is not the topic's current one and
+  whose mtime is older than 1 h, and directories of topics that no longer exist
+  older than 1 h; topic delete never touches files inside the writer.
+  `limits.py` `max_photo_bytes`; compose volume `media`; hosting nginx
+  `client_max_body_size 5m`; `docs/hosting/backend.md` backup/restore for the
+  `media` volume (OQ-10 rider). API fixtures for the upload and delete responses
+  and a documented exemption for the binary GET in `test_api_fixtures.py`;
+  `openapi.json`, `make client`; minimal Swift: endpoint-table rows.
+- **Areas:** `backend/alembic/versions/`, `backend/app/models.py`,
+  `services/media.py` (new), `services/scheduler.py` (the GC tick),
+  `services/topics.py` (publish `photo_etag` in the writer), `api/routes.py`,
+  `schemas/{api,limits}.py`, `docker-compose.yml`, `hosting/`,
+  `docs/hosting/backend.md`, `backend/tests/test_photos.py` (new).
 - **Depends on:** M3a merged.
-- **Acceptance:** upload → GET thumb and full with matching ETag → 304 → delete
-  → 404; HEIC converts; a 6 MB file is 413 and nothing is written; topic delete
-  removes the files after commit; the writer transaction never touches the
-  filesystem.
-- **Tests:** `test_photos.py` (new, appearance.md §16: HEIC/PNG/JPEG, EXIF
-  rotation, sizes, etag stability, 413/415, ETag/304, delete cleanup) with a
-  temp media dir; `test_identity.py` `_mutations` gains the upload and delete
-  preconditions; migration round trip.
-- **Review round 1 (D1, D2):** cleanup is a **GC, not an eager delete**: files
-  are content-addressed (`{etag}.{size}.jpg`, etag = sha256 of the original);
-  the upload writes files before its writer transaction and only the writer
-  publishes `photo_etag`; a scheduler tick every 10 min deletes files whose etag
-  is not the topic's current one and whose mtime is older than 1 h, and
-  directories of topics that no longer exist older than 1 h; topic delete never
-  touches files inside the writer. `DELETE` is a no-op (204, no revision bump,
-  no log) when `photo_etag` is null. Tests: A→B→A re-upload before the tick
-  keeps A; crash between file write and writer leaves an orphan the tick
-  removes; retry after a lost upload response is idempotent; repeated DELETE.
-- **DoD:** the Acceptance above holds, proven by `test_photos.py` (new,
-  appearance.md §16: HEIC/PNG/JPEG, EXIF rotation, sizes, etag stability,
-  413/415, ETag/304, delete cleanup) with a temp media dir; `test_identity.py`
-  `_mutations` gains the upload and delete preconditions; migration round trip.
-  Evidence in the PR: `cd backend && uv run pytest -q <the files above>` pass
-  counts; when generators or fixtures change, the `make vectors` diff is in the
-  PR; migration WPs paste the `alembic upgrade head` and `downgrade` output; the
-  Codex review file with each finding resolved or justified; the CI run link.
+- **Acceptance:** upload → GET each size with a matching ETag → 304 → delete →
+  404, and a second DELETE is a 204 no-op with no log row; HEIC converts and
+  EXIF rotation is applied; a 6 MB file is 413 and nothing is written; **the
+  three interleavings of §12.1 as tests**: (1) upload A → upload B → upload A
+  again before the tick keeps A's files; (2) a crash between the file write and
+  the writer leaves an orphan the tick removes after 1 h and the topic's
+  `photo_etag` unchanged; (3) a retry after a lost upload response is idempotent
+  (same etag, one publish); the writer transaction never touches the filesystem;
+  `test_identity.py` `_mutations` gains the upload and delete preconditions.
+- **Tests:** `test_photos.py` per appearance.md §16; migration round trip; the
+  GC tick with a fake clock.
+- **DoD:** the Acceptance above holds, proven by the tests named above. Evidence
+  in the PR: `cd backend && uv run pytest -q <files>` pass counts; the
+  `make vectors` diff when generators or fixtures change; the Codex review file
+  with each finding resolved or justified; the CI run link.
 
 ### M3B-FEED · `Topic.photo` on the wire · be · M
 
@@ -100,12 +99,14 @@ merged to `feat/t2`.
 
 ### I3B-CACHE · App-Group photo cache · host · M
 
-- **Scope:** `StoreSchema+T2M3B.swift` with `t2m3b_photo_cache` (table
-  `photo_cache(server_id, topic_id, etag, size, path, fetched_at)`);
-  `QuickrData/Media/PhotoCache.swift` (fetch via `APIClient` with
-  `If-None-Match`, files under the App Group `Library/Caches/quickr-photos/`,
-  evict on topic delete and on etag change); `TopicDTO.photo`; `ServerLayer`
-  apply.
+- **Scope (appearance.md §14.1, one design, B5):** `StoreSchema+T2M3B.swift`
+  with `t2m3b_photo_cache`: table
+  `photo_cache(topic_id, etag, size, bytes BLOB, fetched_at)` in the
+  **per-server store** (readable by the widget and activity processes through
+  the App Group store); `QuickrData/Media/PhotoCache.swift` fetches through
+  `APIClient` with `If-None-Match`, keeps one row per `(topic_id, size)`,
+  replaces it on etag change and deletes rows on topic delete; `TopicDTO.photo`;
+  `ServerLayer` apply.
 - **Depends on:** M3B-FEED.
 - **Acceptance:** hit/miss/304/etag-change/evict with a fake transport; a widget
   process can read a cached thumb by `(server_id, topic_id)`.
@@ -140,9 +141,9 @@ merged to `feat/t2`.
 ### F3B · PWA photo upload, glyph, SW cache · fe · M
 
 - **Scope:** `TopicMetaFields.tsx` file input with client-side downscale to ≤ 5
-  MB; `TopicGlyph.tsx` photo variant; `src/sw.ts` cache route for
-  `/photo?size=thumb` (stale-while-revalidate keyed by URL + ETag);
-  `TopicLayout.tsx` header.
+  MB; `TopicGlyph.tsx` photo variant; `src/sw.ts` cache route for `/photo`
+  (appearance.md §14.2: `CacheFirst` + `ExpirationPlugin(300, 30 d)`, keyed by
+  the URL with `v=<etag>`); `TopicLayout.tsx` header.
 - **Depends on:** M3B-FEED.
 - **Acceptance:** upload → the tile glyph shows the thumb; delete → emoji
   fallback; the SW serves the cached thumb offline.
@@ -163,6 +164,8 @@ merged to `feat/t2`.
   XCUITest flow proving the App-Group cache feeds a rendered image; the cache
   logic is host-tested in I3B-CACHE.
 - **Depends on:** I3B-RENDER.
+- **Acceptance:** the test passes once on the clone; screenshots in
+  `docs/t2/evidence/M3b/`.
 - **DoD:** the Acceptance above holds, proven by the tests named in Acceptance.
   Evidence in the PR: the xcresult path
   (`ios/build/results/<plan>-<date>-<time>-<rand>/<plan>.xcresult`) and its
@@ -174,6 +177,12 @@ merged to `feat/t2`.
 
 ### M3B-REVIEW · milestone review · docs · S
 
+- **Scope:** as M1-REVIEW, against appearance.md phase B; adds \"photo in a
+  widget and the Live Activity\" to the device checklist.
+- **Depends on:** every other M3b WP.
+- **Acceptance:** no open finding inside scope; every other finding has a
+  `t2-followup` issue; `docs/t2/evidence/M3b.md` is complete; the milestone PR
+  is ready with the five checks green.
 - **DoD:** the Acceptance above holds, proven by the tests named in Acceptance.
   Evidence in the PR: the named file exists on the milestone branch and is
   linked from the milestone PR; the Codex review file with each finding resolved

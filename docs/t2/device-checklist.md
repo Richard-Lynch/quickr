@@ -1,6 +1,6 @@
 # T2 device checklist (run on the TestFlight build)
 
-**Status:** draft (revision 2, 2026-11-25, after review round 1), seeded by the
+**Status:** draft (revision 3, 2026-11-25, after review round 2), seeded by the
 programme plan ([t2-plan.md](../specs/t2-plan.md)); each milestone appends its
 own simulator-blind items from its evidence file. The user runs it on a real
 iPhone with the TestFlight build from the release tag and ticks each box, or

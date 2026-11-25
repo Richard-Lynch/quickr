@@ -1,6 +1,6 @@
 # Spec: active surfaces (run controls, the active home section, Live Activity, widgets)
 
-**Status:** draft (revision 2, 2026-11-25, after review round 1). **Applies
+**Status:** draft (revision 3, 2026-11-25, after review round 2). **Applies
 to:** the iOS app (run screen, home, Live Activity, widgets, Controls, intents)
 and the PWA (run panel, topics page, running bar, record page). **Companion
 specs:** [timers2.md](timers2.md) (M1: the action model, lap types, alerts,
@@ -60,11 +60,12 @@ RFC 2119. **[server]**, **[ios]** and **[pwa]** mark who implements a rule.
 ## 1. The run action model (consumed from M1)
 
 M1 lands this interface in its first wave (M1-ACTIONS, `RunPresentation.swift`
-and `components/runs/model.ts`) with the v1 kinds, so M2 can lay out against it;
-`reopen`, `revert` and `remove` arrive later and render through the same
-role-based rules without layout edits. **M2 MUST NOT** switch on a kind to
-decide placement; it switches on `role`. It MAY switch on kind for the icon and
-the title.
+and `components/runs/model.ts`). `RunAction.Kind` is **complete from day one**,
+`reopen` and `revert` included (A13); what arrives later is the events behind
+them, and until then those kinds are simply never returned. `remove` is **not**
+a kind: it is an entry-detail action (content-display.md §3.2). **M2 MUST NOT**
+switch on a kind to decide placement; it switches on `role`. It MAY switch on
+kind for the icon and the title.
 
 ### 1.1 Signatures
 
@@ -92,14 +93,20 @@ public struct RunAction: Sendable, Hashable, Identifiable {
     public var id: String
 }
 
+// Verbatim from timers2.md §10 (A13); M1-ACTIONS and the plans copy this block, nothing restates it.
 extension RunPresentation {
-    public static func actions(_ state: RunState, status: RunStatus, timer: TopicTimer?, now: Date) -> [RunAction]
-    public static func headline(_ state: RunState, timer: TopicTimer?) -> String?   // "Rest 2 · lap 4"
-    public static func alertLine(_ state: RunState, timer: TopicTimer?, now: Date) -> AlertLine?
-    public static func resumable(_ entry: Entry, now: Date) -> Bool
+    static func actions(_ state: RunState, status: RunStatus, timer: TopicTimer?, now: Date) -> [RunAction]
+    static func headline(_ state: RunState, status: RunStatus, timer: TopicTimer?) -> Headline
+    static func alertLine(_ state: RunState, timer: TopicTimer?, now: Date) -> String?
+    static func resumable(_ entry: Entry, now: Date) -> Bool
 }
-public struct AlertLine: Sendable, Hashable { public var label: String; public var at: Date }
 ```
+
+`Headline` is M1's value type (timers2.md §10): M2 reads its `text` ("Rest 2 ·
+lap 4", "Shower · 2 of 5", "Running"/"Paused" when nothing is open) and its
+optional `counter` ("L4") for the compact Dynamic Island. `alertLine` returns
+the rendered line ("Half way · in 0:12") or nil; the countdown instant for the
+Live Activity comes from the content state's `alert_at`, not from here.
 
 `actions` returns the list in display order: the primary first, then
 secondaries, then overflow, destructive last. `timer == nil` (steps unknown,
@@ -129,29 +136,36 @@ export interface RunAction {
   enabled: boolean;
   id: string;
 }
-export interface AlertLine {
-  label: string;
-  at: number;
-} // epoch ms, server clock
-
+// Verbatim from timers2.md §10 (A13): state + status, never a LocalRun.
 export function actions(
-  run: LocalRun,
+  state: RunState,
+  status: RunStatus,
   timer: Timer | null,
   now: number,
 ): RunAction[];
-export function headline(run: LocalRun, timer: Timer | null): string | null;
+export function headline(
+  state: RunState,
+  status: RunStatus,
+  timer: Timer | null,
+): Headline;
 export function alertLine(
-  run: LocalRun,
+  state: RunState,
   timer: Timer | null,
   now: number,
-): AlertLine | null;
+): string | null;
 export function resumable(entry: EntryOut, now: number): boolean;
-/** The primary, for the tile and the running bar; null when the run isn't open. */
+/** Convenience over `actions`: the primary, for the tile and the running bar; null when the run isn't open. */
 export function primaryAction(
-  run: LocalRun,
+  state: RunState,
+  status: RunStatus,
   timer: Timer | null,
+  now: number,
 ): RunAction | null;
 ```
+
+Callers pass `run.state` and `run.status` from a `LocalRun`; the model never
+takes the `LocalRun` itself, so the idle screen and the entry detail (which have
+no run) can call `resumable` and build row 13 of the §1.2 table.
 
 `PrimaryAction` (`model.ts:48`, `{type:'next'|'stop'}`) is replaced by
 `primaryAction` returning a `RunAction`; `RunTile.tsx:123-127`,
@@ -177,6 +191,32 @@ the one timers2.md §10 and M1-ACTIONS copy.
 There is exactly one primary while a run is open; `start` is the primary of an
 idle topic; `addDetails` the primary of a finishing run. The "Auto" advance of
 one-button surfaces is §5.3.
+
+**State → `[RunAction]` table** (B1). This is the fixture for the table-driven
+tests of `actions` on both platforms (`RunPresentationTests`, `model.test.ts`):
+one row per state, actions in display order as `kind` (role, enabled). `✓` =
+enabled. `timer` is the run's pinned version's timer; "laps only" = `steps: []`.
+
+| #   | State                                                  | Actions                                                                                                                                                                               |
+| --- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | idle, `timer == nil` (steps unknown; a reminder start) | `start` (primary ✓)                                                                                                                                                                   |
+| 2   | idle, timer with steps                                 | `start` (primary ✓); `reopen(terminalId)` (secondary ✓) only when the latest entry is `resumable`                                                                                     |
+| 3   | idle, laps only                                        | as 2                                                                                                                                                                                  |
+| 4   | open, step open, a step remains, running               | `next(label)` (primary ✓), `stop` (secondary ✓), `pause` (secondary ✓), `skip(label)` (overflow ✓), `discard` (destructive ✓)                                                         |
+| 5   | open, lap open (untyped or typed), running             | `lap(nextTypeLabel)` (primary ✓), `stop` (secondary ✓), `pause` (secondary ✓), `skip(label)` (overflow ✓ only if a step is still pending, else absent), `discard` (destructive ✓)     |
+| 6   | open, last step open (`nextStep == nil`), running      | `lap(nextTypeLabel)` (primary ✓), `stop`, `pause` (secondary ✓), `skip(label)` (overflow ✓ — skips the open step), `discard` (destructive ✓)                                          |
+| 7   | open, no steps, running (the stopwatch)                | `lap(nextTypeLabel)` (primary ✓), `stop`, `pause` (secondary ✓), `discard` (destructive ✓); no `skip`                                                                                 |
+| 8   | open, paused (any of 4–7)                              | as the running row but `resume` replaces `pause`; the primary and `skip` are **present and ✓** (a tap while paused is valid: the fold resumes nothing, it closes the segment at `at`) |
+| 9   | open, `timer == nil` (steps unknown)                   | `next("Next")` (primary ✓), `stop`, `pause`/`resume` (secondary ✓), `discard` (destructive ✓); no `skip`, no `lap`                                                                    |
+| 10  | open after a `reopen` (terminal cleared)               | as 4–8 plus `revert` (destructive ✓) **instead of** `discard`                                                                                                                         |
+| 11  | queued `reopen` not yet acked ("Resuming…" projection) | `[]` — no controls until the ack (§2.4)                                                                                                                                               |
+| 12  | finishing                                              | `addDetails` (primary ✓), `discard` (destructive ✓)                                                                                                                                   |
+| 13  | stopped, entry `resumable` (within OQ-1's window)      | `reopen(terminalId)` (secondary ✓) — rendered by the idle screen / tile / toast; `[]` once the window passes or the entry is edited                                                   |
+| 14  | any open state while `busy` (cooldown)                 | the same list with every `enabled == false`                                                                                                                                           |
+
+Rows 2/13 are the same action seen from the topic and from the entry; row 13's
+`reopen` is hidden while the topic has another open run (A15: the server would
+answer 409 `conflict`).
 
 ### 1.3 Titles and icons (M2 renders)
 
@@ -272,7 +312,7 @@ keeps `minimumScaleFactor(0.5)` (`RunViews.swift:50`).
   Start; it sends `reopen(target: entry.timing.terminalId)` (timers2.md §3.3:
   `Timing` carries `terminal_id`, so no run row or `getRun` is needed, offline
   included) and the screen shows the open run. Offline, until the ack, the local
-  view projects the run as **"Resuming…"** (timers2.md §7.1: closed segments
+  view projects the run as **"Resuming…"** (timers2.md §5.3: closed segments
   from the entry, status running, the open segment continuing from `reopen.at`);
   the screen shows the header with that badge and **no controls**. The same
   action is in the overflow menu for 7 days from the entry detail (M4, OQ-1).
@@ -376,7 +416,7 @@ local entry's, the optimistic one included — the run row is gone from the stor
 by then). The stop toast's **Resume** action (§3.2) uses the same source. On tap
 the card switches to `ActiveTopicCard`; while the reopen is queued and unacked
 the card shows the **"Resuming…"** badge in place of "Running" and hides its
-controls row (timers2.md §7.1 projection), then the ordinary open layout on ack.
+controls row (timers2.md §5.3 projection), then the ordinary open layout on ack.
 
 ## 4. Live Activity **[ios]**
 
@@ -503,9 +543,10 @@ consumed here:
   still Lap per §1.2; only the one-button surfaces differ, and their detail text
   says what they will do.
 
-`RunWrites.auto(topic:version:)` (`RunWrites.swift:212-229`) and
-`RunPresentation.actions` are M1 files and implement the rule; M2 only renders
-what they return. `RunActionKind` (Siri,
+The Auto rule is implemented in M1's **I1-WRITES** WP (`RunWrites.auto`,
+`RunWrites.swift:212-229`, and the PWA equivalent in `actions.ts`), not in
+M1-ACTIONS, which ships the on-screen primary only (A13). M2 only renders what
+`RunWrites.auto` decides. `RunActionKind` (Siri,
 `QuickrData/Intents/RunIntents.swift:52-76`) gains `lap` ("Lap the timer in
 quickR"); the App Shortcut count stays at one for runs (timers.md §11.3).
 
@@ -556,11 +597,12 @@ whenever `active` is non-empty, sectioned or not. `splitByDue` and
 
 `<ActiveTopicCard topic run now/>` (`src/components/topics/ActiveTopicCard.tsx`)
 mirrors §3.2: `<article>` with `style={topicStyle(topic.appearance)}` (M3),
-`bg-topic-soft border-topic/45`, a 4 px left bar; title row with `<TopicGlyph/>`
-and a Pause/Resume text button (`data-testid="card-pause"`); the segment
-`Duration` at `text-5xl`, total beside it; `<RunStatus/>` badge
-(`RunTile.tsx:38-70`, now with the headline); alert line; controls row: the
-primary (`<Button size="lg" variant="primary" className="flex-1">`,
+`bg-topic-tint-soft border-topic-tint/45` (the one utility set of appearance.md
+§4.2), a 4 px `bg-topic-tint` left bar; title row with `<TopicGlyph/>` and a
+Pause/Resume text button (`data-testid="card-pause"`); the segment `Duration` at
+`text-5xl`, total beside it; `<RunStatus/>` badge (`RunTile.tsx:38-70`, now with
+the headline); alert line; controls row: the primary
+(`<Button size="lg" variant="primary" className="flex-1">`,
 `data-testid="card-primary"`) and Stop (`w-[5.25rem]`, `card-stop`). The whole
 card links to `/t/{slug}/record`. `TopicTile` renders it instead of its own
 markup when `running` (`TopicTile.tsx:102`).
@@ -579,7 +621,7 @@ markup when `running` (`TopicTile.tsx:102`).
   (`RecordPage.tsx:272-281`) passes a toast
   `action: { label: 'Resume', onClick }` for 15 minutes with the same target. A
   queued, unacked reopen renders the panel header with a "Resuming…" badge and
-  no `RunControls` (the `localView` projection of timers2.md §7.1). **Undo
+  no `RunControls` (the `localView` projection of timers2.md §5.3). **Undo
   resume** on such a run is a revert: the outbox MUST NOT K6-coalesce it
   (timers2.md §5.5, `k6-not-on-revert`), so the saved entry survives.
 - `useRunActions.tap` already accepts any `TapType`; `reopen`/`remove` are M1's
@@ -626,19 +668,20 @@ markup when `running` (`TopicTile.tsx:102`).
 | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `RunAction`, `actions`, `headline`, `alertLine`, `resumable` (§1)                                                                                   | M1-ACTIONS (hard edge)                      | M2 layout WPs do not start. The stub ships v1 kinds; `reopen`/`revert`/`remove` come later and need no layout edit                                          |
 | `RunState.terminalId`, `nextLapType`, `lapCount`, `Segment.lapType`                                                                                 | M1                                          | `headline` falls back to `open.label`; `lapCounter` nil                                                                                                     |
-| `Timing.terminalId` (the tile/toast/idle-screen Resume target, timers2.md §3.3); the "Resuming…" projection (§7.1); K6 exemption for reverts (§5.5) | M1                                          | Resume is not shown on tiles/toasts/idle screens until `Timing.terminalId` exists; `ActiveTopicCard` treats a run with a queued `reopen` as plain "Running" |
+| `Timing.terminalId` (the tile/toast/idle-screen Resume target, timers2.md §3.3); the "Resuming…" projection (§5.3); K6 exemption for reverts (§5.5) | M1                                          | Resume is not shown on tiles/toasts/idle screens until `Timing.terminalId` exists; `ActiveTopicCard` treats a run with a queued `reopen` as plain "Running" |
 | Content state fields `lap_type`, `lap_count`, `alert_at`, `alert_label`                                                                             | M1 (patch to `RunActivity.swift` + vectors) | optional: `RunActivityDisplay` treats them as nil (no alert line, step-number compact)                                                                      |
 | `TopicTheme`, `.topicTheme(for:)`, `TopicGlyphView`; PWA `topicStyle`, `<TopicGlyph/>`                                                              | M3 (soft)                                   | `TopicTheme.default` = accent tokens, no glyph: M2 codes against the protocol in appearance.md §4 and ships a one-file default until M3 merges              |
 | `attributes.appearance`                                                                                                                             | M3                                          | nil → accent tint                                                                                                                                           |
 | `TopicSummaryLine`                                                                                                                                  | M4 (soft)                                   | idle tiles keep `lastLine` / the PWA "Last …" span                                                                                                          |
-| Auto rule in `RunWrites.auto` (§5.3, timers2.md §10)                                                                                                | M1                                          | until M1's WP merges the Control keeps v1 Auto; M2 renders the detail text from the returned action                                                         |
+| Auto rule in `RunWrites.auto` (§5.3, timers2.md §10)                                                                                                | M1 **I1-WRITES**                            | until I1-WRITES merges the Control keeps v1 Auto; M2 renders the detail text from the returned action                                                       |
 
-**Rendering by role, stated once:** M1-ACTIONS (first wave) ships the
-`RunAction` enum with today's kinds only. M2 places buttons by `role` (`primary`
-/ `secondary` / `destructive` / `overflow`) and MUST NOT special-case a kind for
-placement, so when M1 later adds `reopen`, `revert` and `remove` they appear in
-the right slot with no layout edit; the only per-kind code in M2 is the
-title/icon table of §1.3.
+**Rendering by role, stated once:** M1-ACTIONS (first wave) ships the complete
+`RunAction` enum (`reopen` and `revert` included, A13) while its `actions` still
+returns only today's kinds. M2 places buttons by `role` (`primary` / `secondary`
+/ `destructive` / `overflow`) and MUST NOT special-case a kind for placement, so
+when M1's later WPs start returning `reopen` and `revert` they appear in the
+right slot with no layout edit; the only per-kind code in M2 is the title/icon
+table of §1.3.
 
 ## 9. Tests
 
@@ -704,12 +747,24 @@ are M1's, consumed here.
 
 ## 13. Review log (round 1)
 
-| Finding                                                   | Outcome                                                                                                                                 |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| K-S1 three primary rules across timers2 §10 / M2 / M1-ACTIONS | Fixed in §1.2 (A9, D9): timers2.md §10 quoted verbatim as the single normative text; Auto stated separately                          |
-| K-S1 clients have no source for a stopped run's reopen/remove target | Fixed in §1.1, §2.4, §3.3, §6.3, §8.2 (A7, D9): targets come from `entry.timing.terminal_id`; "Resuming…" projection without controls until the ack |
-| K-S1 K6 erases a saved run on an offline revert           | Fixed in §6.3 (A8): Undo resume is a revert and MUST NOT coalesce; rule and vectors are M1's (timers2 §5.5)                              |
-| C-S2 / K-S3 `terminal_id` in the content state has no consumer | Fixed in §4, §4.4 (C3): dropped; M2 owns the decision that an ended activity never offers Resume                                  |
-| K-S2 / C-S3 wrong timers2 section references; three `actions` signatures | Fixed in §1.1, §2.1, §4, §4.2 (D8): §3.4/§4.1, §8.1, §9; the §1.1 signature is canonical                               |
-| K-S3 id drift (`tile.<slug>.run`, `run.menu`)             | No change here (D8): the spec's ids stand; the plan aligns to them                                                                     |
-| K-S2 I2-LA dependency on M1-LA-STATE is hard               | Plan matter (M2-plan); §8.2 already lists the content-state fields as M1-provided with nil fallbacks                                     |
+| Finding                                                                  | Outcome                                                                                                                                             |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| K-S1 three primary rules across timers2 §10 / M2 / M1-ACTIONS            | Fixed in §1.2 (A9, D9): timers2.md §10 quoted verbatim as the single normative text; Auto stated separately                                         |
+| K-S1 clients have no source for a stopped run's reopen/remove target     | Fixed in §1.1, §2.4, §3.3, §6.3, §8.2 (A7, D9): targets come from `entry.timing.terminal_id`; "Resuming…" projection without controls until the ack |
+| K-S1 K6 erases a saved run on an offline revert                          | Fixed in §6.3 (A8): Undo resume is a revert and MUST NOT coalesce; rule and vectors are M1's (timers2 §5.5)                                         |
+| C-S2 / K-S3 `terminal_id` in the content state has no consumer           | Fixed in §4, §4.4 (C3): dropped; M2 owns the decision that an ended activity never offers Resume                                                    |
+| K-S2 / C-S3 wrong timers2 section references; three `actions` signatures | Fixed in §1.1, §2.1, §4, §4.2 (D8): §3.4/§4.1, §8.1, §9; the §1.1 signature is canonical                                                            |
+| K-S3 id drift (`tile.<slug>.run`, `run.menu`)                            | No change here (D8): the spec's ids stand; the plan aligns to them                                                                                  |
+| K-S2 I2-LA dependency on M1-LA-STATE is hard                             | Plan matter (M2-plan); §8.2 already lists the content-state fields as M1-provided with nil fallbacks                                                |
+
+### Round 2
+
+| Finding                                                      | Outcome                                                                                                                         |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| K-S1 `actions` signature still three things                  | Fixed in §1.1 (A13/B2): both platforms' signatures copied verbatim from timers2.md §10; PWA takes `state, status, timer, now`   |
+| K-S2 the seven-state table cited by the plans does not exist | Fixed in §1.2 (B1): 14-row state → `[RunAction]` table, the fixture for the table-driven tests                                  |
+| K-S2 M1-ACTIONS cannot implement Auto; `RunIntentWrites`     | Fixed in §5.3, §8.2 (A13/B2): Auto lands in I1-WRITES; M1-ACTIONS ships the on-screen primary only                              |
+| K-S3 `RunAction.Kind` from day one; `remove` as a kind       | Fixed in §1 (A13): enum complete from day one; `remove` is an entry-detail action, not a kind                                   |
+| K-S2 accessibility-id drift                                  | No change (B3): ids live here (§2.2 `run.menu`, §3.2 `tile.<slug>.run\|stop\|pause\|resume\|reopen`); plans stop repeating them |
+| K-S3 "timers2.md §7.1" for the Resuming projection           | Fixed in §2.4, §3.3, §6.3, §8.2: §5.3                                                                                           |
+| K-S3 PWA topic utilities have three spellings                | Fixed in §6.2 (B6): the appearance.md §4.2 set                                                                                  |

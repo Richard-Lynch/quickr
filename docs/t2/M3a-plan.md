@@ -1,6 +1,6 @@
 # Plan: M3a · appearance phase A
 
-**Status:** draft (revision 2, 2026-11-25, after review round 1). **Spec:**
+**Status:** draft (revision 3, 2026-11-25, after review round 2). **Spec:**
 [appearance.md](../specs/appearance.md). **Programme plan:**
 [t2-plan.md](../specs/t2-plan.md); its scope guard, out-of-scope list, merge
 ritual, seams and ownership table, simulator budget, effort legend and open
@@ -88,10 +88,10 @@ unless M2 took M3-TOKENS early.
   `reminder_titles[]`, appearance.md §3.2) and the drift tests on both clients
   switched to it; reminder title prefix `"{emoji} {topic name}"` in
   `push/apns.py` and the Web Push payload with new cases in
-  `apns-payload-vectors.json`/`notification-vectors.json` (`due_with_emoji`);
-  MCP `create_topic`/`update_topic` params `color`, `icon`, `tags`,
-  `clear_icon`; API fixtures (`getTopic`, `updateTopic`, `listTopics` with
-  appearance); `openapi.json`, `make client`; minimal Swift:
+  `apns-payload-vectors.json`/`notification-vectors.json` as appearance.md §6
+  and §16 name them; MCP `create_topic`/`update_topic` params `color`, `icon`,
+  `tags`, `clear_icon`; API fixtures (`getTopic`, `updateTopic`, `listTopics`
+  with appearance); `openapi.json`, `make client`; minimal Swift:
   `TopicDTO`/`TopicSummaryDTO` optional `appearance` (M3's own file).
 - **Areas:** `backend/alembic/versions/`, `backend/app/models.py`,
   `schemas/{api,limits}.py`, `services/topics.py`, `push/apns.py`,
@@ -101,8 +101,9 @@ unless M2 took M3-TOKENS early.
 - **Acceptance:** migration round trip; 422 paths `appearance.tags.3`,
   `appearance.icon.value`, `appearance.color`, `appearance.tags`;
   `appearance: null` → 422, `tags: []` accepted; a PATCH of appearance alone
-  bumps `revision` and emits a `topic` feed item; `?tag=` filters casefolded;
-  the reminder title carries the emoji and stays ≤ 120 chars;
+  bumps `revision` and emits a `topic` feed item; `?tag=` matches the stored
+  spelling exactly (JSONB `?`; uniqueness is casefolded on write, B4); the
+  reminder title carries the emoji and stays ≤ 120 chars;
   `DueReminderVectorTests` and `NotificationVectorTests` pass on iOS; both
   clients' palette tests read the vector file.
 - **Tests:** `test_api_topics.py` additions (appearance.md §16), vector drift,
@@ -155,12 +156,11 @@ unless M2 took M3-TOKENS early.
 ### I3-EDIT · appearance editor · host · M
 
 - **Scope:** new `App/Topics/Builder/AppearanceEditorView.swift` (12 swatches,
-  an emoji text field using the system keyboard, tags input with chips; ids
-  `appearance.color.<name>`, `appearance.icon`, `appearance.tag.add`,
-  `appearance.tag.<i>`); an Appearance row in `NewTopicScreen.topicSection` and
-  `TopicSettingsView.detailsSection`; `NewTopicModel`/`TopicSettingsModel`
-  fields and client-side validation (tag rules, grapheme count); must not touch
-  `TimerSections`.
+  an emoji text field using the system keyboard, tags input with chips;
+  accessibility ids per appearance.md §7); an Appearance row in
+  `NewTopicScreen.topicSection` and `TopicSettingsView.detailsSection`;
+  `NewTopicModel`/`TopicSettingsModel` fields and client-side validation (tag
+  rules, grapheme count); must not touch `TimerSections`.
 - **Depends on:** I3-STORE.
 - **Acceptance:** `NewTopicModelTests`/`TopicSettingsModelTests`: a duplicate
   tag (casefolded) is refused, an 11th tag is refused, clearing the icon sends
@@ -182,9 +182,9 @@ unless M2 took M3-TOKENS early.
 ### I3-RENDER · topic header and LA attributes · host · S
 
 - **Scope:** `App/Entries/TopicTabsView.swift` header: glyph, tint bar, tag
-  chips (ids `topic.header.glyph`, `topic.header.tag.<i>`). The coordinated
-  patch to M1: `push/live_activity.py attributes()` gains `appearance`
-  (optional) with vector case `start_appearance`, and `RunActivity.swift`
+  chips (ids per appearance.md §7). The coordinated patch to M1:
+  `push/live_activity.py attributes()` gains `appearance` (optional) with the
+  vector case appearance.md §15 names, and `RunActivity.swift`
   `RunActivityAttributes.appearance: TopicAppearance?`; the M3 lead sends the
   diff to the M1 lead after M1-LA-STATE has merged, the M1 lead approves, it
   lands on `t2/m3a`. Rendering the tint in `RunActivityWidget` and widgets is
@@ -194,8 +194,9 @@ unless M2 took M3-TOKENS early.
   shows the default when appearance is nil.
 - **Tests:** `LiveActivityVectorTests`; the header in M3-UITEST.
 - **Review round 1 (C4):** after the attributes patch, re-run the live-activity
-  size vector with the longest labels **and** `attributes.appearance` set
-  (`start_appearance_longest`); payload ≤ 4 KB.
+  budget vector of timers2.md §8.2 with `attributes.appearance` set (the case
+  appearance.md §15 names); the encoded body stays ≤ 4096 bytes under the
+  truncation order of §8.
 - **DoD:** the Acceptance above holds, proven by `LiveActivityVectorTests`; the
   header in M3-UITEST. Evidence in the PR:
   `cd ios/QuickrKit && swift test --filter <the suites above>` summary lines
@@ -266,6 +267,9 @@ unless M2 took M3-TOKENS early.
   emoji to the device checklist. Files the `t2-followup` issues "free hex topic
   colours" (OQ-8) and "SF Symbol topic icons" (OQ-7) and links them from the
   milestone PR.
+- **Acceptance:** no open finding inside scope; every other finding has a
+  `t2-followup` issue (incl. the two above); `docs/t2/evidence/M3a.md` is
+  complete; the milestone PR is ready with the five checks green.
 - **Depends on:** every other M3a WP.
 - **DoD:** the Acceptance above holds, proven by the tests named in Acceptance.
   Evidence in the PR: the named file exists on the milestone branch and is

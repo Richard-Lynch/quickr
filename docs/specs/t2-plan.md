@@ -1,6 +1,6 @@
 # Plan: programme T2 (timers v2, active surfaces, appearance, content display)
 
-**Status:** draft (revision 2, 2026-11-25, after review round 1). **Specs:**
+**Status:** draft (revision 3, 2026-11-25, after review round 2). **Specs:**
 [timers2.md](timers2.md) (M1), [active-surfaces.md](active-surfaces.md) (M2),
 [appearance.md](appearance.md) (M3a and M3b),
 [content-display.md](content-display.md) (M4). **Branching** (team rules):
@@ -11,11 +11,10 @@ per WP at `/Users/richie/code/quickr-worktrees/t2-m<N>-<wp>`. **Release:** one
 `api_level 1 → 2` in M1's first WP only; M2–M4 are additive at level 2 and bump
 nothing.
 
-_Section references are to the companion specs' revision 1 as drafted alongside
-this plan; `brief §6` refers to the M0 design brief's cross-milestone DAG, whose
-WP names this plan maps in each milestone's brief. Test numbers T18–T33 and
-R13–R23 are timers2.md §12's; (section numbers to be aligned) once the companion
-specs take in their reviews._
+_Section references are to the companion specs at the same revision. Test
+numbers T18–T33 and R13–R26 are timers2.md §12's. Plans reference spec sections
+for every list (vector cases, accessibility ids, signatures) and never copy
+them; the generators' coverage tests read the spec's list._
 
 **Milestone plans** (WPs, DAGs, per-WP acceptance and definition of done,
 evidence and device-only lists): [M1-plan.md](../t2/M1-plan.md),
@@ -129,7 +128,7 @@ The orchestrator's M1–M4 stand. M3 is run as two plans, **M3a** (appearance
 phase A) and **M3b** (photos), in this document and as two milestone branches
 (`t2/m3a`, `t2/m3b`).
 
-- **M1 stays one milestone** although it is the largest (21 WPs). Splitting it
+- **M1 stays one milestone** although it is the largest (22 WPs). Splitting it
   by surface (server+ports vs builder+alerts) would put the `api_level` bump,
   the fold v4 vector stack and the builder vector stack across two milestone
   branches and two reviews, with the second milestone unable to be green until
@@ -320,8 +319,12 @@ exception is **`v0.4.0-rc1`** (review E2, orchestrator conditions):
   older" note and the T2 features do not work; the device checklist says to
   ignore rc builds unless asked.
 - **The bot PR** `compat/testflight-<build>` for the rc build is merged into
-  `main` as usual: listing it is harmless, and level-2 builds matter only after
-  the server bump.
+  `main` as usual. That is safe only because M1-LEVEL makes
+  `compat/client_fixtures.py shas` skip clients whose `api_level` exceeds the
+  checkout's `api_level` (documented in client-versions.md §7 by a docs commit):
+  on `main` (level 1) the level-2 rc build is not replayed by the `old clients`
+  job, so neither the bot PR nor later `main` PRs fail; on `feat/t2` (level 2)
+  it is replayed (review C3).
 - **Fallback:** if rc1's signing fails on the Time Sensitive entitlement, flip
   the `.active` constant in a small PR on `feat/t2` and record the Apple portal
   step on the device checklist.
@@ -352,7 +355,10 @@ run and active surfaces = M2; theme = M3; entries, stats and summary = M4.**
 | PWA `src/components/runs/RunPanel.tsx`, new `RunControls.tsx`, new `controlsLayout.ts`, `RunTile.tsx`, `RunningBar.tsx`, `useRunActions.ts`, `src/pages/TopicsPage.tsx`, `src/components/topics/TopicTile.tsx`, new `ActiveTopicCard.tsx`, `src/pages/topic/RecordPage.tsx` timed branch, `src/components/AppShell.tsx` (M1 patches the `RunAlerts` mount)                                                                                                                                                                                                                                                                                                                                                                                                                  | M2                                                               | consumes `topicStyle`/`TopicGlyph` and `TopicSummaryLine` (T2-WIRE if not yet available)                                                       |
 | PWA `src/lib/appearance.ts` (new), `src/index.css` topic utilities, `src/components/ui/TopicGlyph.tsx` (new), `src/components/builder/TopicMetaFields.tsx`, `src/pages/topic/SettingsPage.tsx` `MetaForm`, `src/pages/topic/TopicLayout.tsx` header, `src/api/mutations.ts`/`cache.ts` appearance patch, `src/lib/serverErrors.ts`, M3b: `src/sw.ts` photo cache route                                                                                                                                                                                                                                                                                                                                                                                                      | M3a / M3b                                                        | —                                                                                                                                              |
 | PWA `src/pages/topic/EntriesPage.tsx`, `EntryEditPage.tsx`, `OverviewPage.tsx`, `src/components/runs/TimingSection.tsx`, `TimingEditor.tsx`, `TimingOverview.tsx`, `src/components/charts/*`, `src/lib/entrySummary.ts` (new), `src/components/topics/TopicSummaryLine.tsx` (new)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | M4                                                               | —                                                                                                                                              |
-| iOS `QuickrData/Sync/ServerLayer.swift`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | M1                                                               | M3b's topic-cascade change (photo-cache eviction) is a patch to M1's owner                                                                     |
+| iOS `QuickrData/Store/ServerLayer.swift`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | M1                                                               | M3b's topic-cascade change (photo-cache eviction) is a patch to M1's owner                                                                     |
+| iOS `UITests/RunUITests+T2M1.swift`, `UITests/BuilderUITests+T2M1.swift` (new)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | M1                                                               | M1's UI tests live in their own files; `RunUITests.swift` and `TimingUITests.swift` stay M2's and M4's (review C4)                             |
+| iOS `QuickrData/LiveActivity/RunActivityCenter+Reopen.swift` (new)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | M1                                                               | `startFor` on reopen (R20); M2 owns the rest of `QuickrData/LiveActivity/*`                                                                    |
+| PWA `frontend/src/components/runs/useRunAudio.ts` (new)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | M1                                                               | the audio unlock; M2's `useRunActions.ts` calls it through a one-line patch M2 owns                                                            |
 | PWA `frontend/src/lib/builder.ts`, `src/lib/serverErrors.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | M1                                                               | M3a edits only the meta-schema block, delimited `// T2-M3` (shared-file rule)                                                                  |
 | backend `services/topics.py` `_summaries` / `_base_select`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | shared                                                           | M3a (appearance columns) and M4 (`last_entry`) each add one delimited block                                                                    |
 | iOS `QuickrData/Contracts/StoreSchema+T2M3B.swift`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | M3b                                                              | separate from M3a's `StoreSchema+T2M3.swift`                                                                                                   |
@@ -422,7 +428,7 @@ in `docs/t2/`. The rules in this document apply to all of them unchanged.
 
 | Milestone                         | Plan                             | Spec                                     | WPs | Sim WPs              | Starts                                                      |
 | --------------------------------- | -------------------------------- | ---------------------------------------- | --- | -------------------- | ----------------------------------------------------------- |
-| M1 · timers v2                    | [M1-plan.md](../t2/M1-plan.md)   | [timers2.md](timers2.md)                 | 21  | I1-UI                | after M0                                                    |
+| M1 · timers v2                    | [M1-plan.md](../t2/M1-plan.md)   | [timers2.md](timers2.md)                 | 22  | I1-UI                | after M0                                                    |
 | M2 · active surfaces              | [M2-plan.md](../t2/M2-plan.md)   | [active-surfaces.md](active-surfaces.md) | 12  | I2-UITEST, M2-RESUME | after M0 (layout WPs once M1-ACTIONS is in `t2/m2`)         |
 | M3a · appearance phase A          | [M3a-plan.md](../t2/M3a-plan.md) | [appearance.md](appearance.md)           | 9   | M3-UITEST            | after M0 (M3-DB once `t2/m1-db` is in)                      |
 | M3b · photos (appearance phase B) | [M3b-plan.md](../t2/M3b-plan.md) | [appearance.md](appearance.md)           | 7   | M3B-UITEST           | after M3a merged to `feat/t2`                               |
@@ -493,6 +499,21 @@ in `docs/t2/`. The rules in this document apply to all of them unchanged.
 
 ## Review log
 
+- **Revision 3 (2026-11-25, after review round 2).** Reviews `codex-r2.md` and
+  `claude-r2.md`, adjudicated in `adjudication-r2.md`. Plans: C1 M3B-STORAGE
+  rewritten from appearance.md §11–§12.1; C2 I1-SIGNING proof = generated
+  entitlements + rc1; C3 `client_fixtures.py shas` skips higher-level clients
+  (M1-LEVEL) so the rc bot PR merges; C4 new files instead of shared edits
+  (`RunUITests+T2M1.swift`, `BuilderUITests+T2M1.swift`, `useRunAudio.ts`,
+  `RunActivityCenter+Reopen.swift`); C5 I2-LA hard edge in table and DAG; C6
+  every copied vector/case/id list replaced by a spec-section reference; C7
+  I1-SYNC from timers2 §5.2 (`t2m1_run_closed`); C8 new M1-FEED WP
+  (`FeedDeletion.revision`, current-state pagination, sync-protocol F2/F3 docs
+  commit), A7/A14 in F1-OUTBOX and I1-WRITES, A12 nullable ids and A15 409s in
+  M1-RUNS, A9 byte budget in M1-LA-STATE; C9 Auto rule in I1-WRITES, M1-ACTIONS
+  on-screen primary only, I2-WIDGETS tests typed and untyped Auto; C10 M4
+  signatures, truncation, strip and `last_entry` wording from content-display;
+  C11 Acceptance on every docs/review WP; C12 path and numbering rot.
 - **Revision 2 (2026-11-25, after review round 1).** Reviews `codex-r1.md` and
   `claude-r1.md`, adjudicated in `adjudication-r1.md` (scratchpad
   `t2/m0/reviews/`). Applied to the plans: E1 no distribution before T2-RELEASE

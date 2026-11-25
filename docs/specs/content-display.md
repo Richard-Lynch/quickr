@@ -1,6 +1,6 @@
 # Spec: content display (entry summary line, entry list and detail, richer stats)
 
-**Status:** draft (revision 2, 2026-11-25, after review round 1). **Applies
+**Status:** draft (revision 3, 2026-11-25, after review round 2). **Applies
 to:** the backend (`TopicSummary.last_entry`, the summary reference
 implementation, stats vectors), the PWA (entries page, entry edit page,
 overview, tile summary) and the iOS app (entries list, entry detail, stats, tile
@@ -171,21 +171,21 @@ Consumers: `backend/tests` (the reference itself), PWA
 - **Feed note:** `FeedTopic` embeds `TopicDetail`, so `last_entry` rides along,
   but it is a **derived** field like `entry_count` and `last_captured_at`
   (`api.py:1217-1223` docstring): it is **not** re-sent when entries change.
-  Rules: **[ios]** no Swift change: `TopicDetailDTO` declares
-  `lastEntry: EntryDTO?` as a plain optional (not `@RequiredKey`, so a fixture
-  without it still decodes) and `StoreView` **ignores** it; the tile keeps
-  `store.observeEntries(topicId:limit:1)` (`TopicTile.swift:206-211`) and
-  widgets `latestEntry(topicId:)` (`WidgetReader.swift:55-59`), which are
-  already offline-correct. **[pwa]** the tile reads `t.last_entry` and
-  `t.timer`. **Staleness bound ≤ 60 s:** `listTopics` already refetches every 60
-  s and on window focus (`TopicsPage.tsx:76-84`); in addition every entry
-  create/update/delete mutation and every `entry.create` / `run.event` outbox
-  ack **invalidates** the topic's `listTopics` pages and `getTopic`
-  (`outboxEffects.ts:117-139`, `mutations.ts`), and the enqueue path patches
-  `last_entry` optimistically from the payload as it bumps `entry_count` today.
-  An entry created, edited or deleted on **another device** therefore shows on
-  the tile within 60 s or at the next focus, never later (review C-S2); the iOS
-  tile is exact because it reads the store.
+  Rules: **[ios]** **no Swift change at all**: `TopicDetailDTO` gets no field —
+  `Codable` ignores the unknown `last_entry` key (B6), so a fixture with or
+  without it decodes; the tile keeps `store.observeEntries(topicId:limit:1)`
+  (`TopicTile.swift:206-211`) and widgets `latestEntry(topicId:)`
+  (`WidgetReader.swift:55-59`), which are already offline-correct. **[pwa]** the
+  tile reads `t.last_entry` and `t.timer`. **Staleness bound ≤ 60 s:**
+  `listTopics` already refetches every 60 s and on window focus
+  (`TopicsPage.tsx:76-84`); in addition every entry create/update/delete
+  mutation and every `entry.create` / `run.event` outbox ack **invalidates** the
+  topic's `listTopics` pages and `getTopic` (`outboxEffects.ts:117-139`,
+  `mutations.ts`), and the enqueue path patches `last_entry` optimistically from
+  the payload as it bumps `entry_count` today. An entry created, edited or
+  deleted on **another device** therefore shows on the tile within 60 s or at
+  the next focus, never later (review C-S2); the iOS tile is exact because it
+  reads the store.
 - **PWA tile query reduction:** `TopicTile.tsx` drops `useTopicVersions` (`:71`)
   and `lastEntryOptions` (`:91-95`): `timed = Boolean(t.timer) || run` and
   `unknown` is gone (the summary carries the timer). The `getTopic` prefetch
@@ -228,20 +228,29 @@ chip. Untimed entries of a timed topic have no chip (timers.md §11.1).
   `i` targets `timing.segments[i].event_id` (the event that opened the segment);
   a pause `j` targets `timing.pauses[j].id`; a gap pause carries the reopened
   stop's id and removing it is the "remove the gap" of timers2.md §3.4. The
-  `next`-opened case is recognised by `timing.segments[i].opened_by == "next"`,
-  which M4 asks M1 to carry beside `event_id` (seam, §6); until it exists the
-  row stays enabled and a `no_target` ack shows M1's notice. Works **offline**:
-  the item queues like any run event; the row shows a pending mark until the
-  ack, when the section reloads the entry (`revision` bumped, `edited` stays
-  false, timers2.md §3.4). `Edit times` (the whole-timing editor) remains for
-  everything else.
+  `next`-opened case is recognised by `timing.segments[i].opened_by == "next"`
+  (M1 carries `opened_by` beside `event_id`, A12). These ids are **null only on
+  pre-v2 stored timings** (A12): a row whose `event_id`/`id` is null has no
+  Remove (the `Edit times` editor still works). Ids: `entry.timing.remove.<i>`
+  on segment rows and `entry.timing.pause.remove.<j>` on pause rows (B3). Works
+  **offline**: the item queues like any run event. **Projection while queued
+  (A14):** no run is projected; the entry **stays visible** with its timing
+  re-projected locally (the boundary merged into the previous segment, or the
+  pause's time made active), `revision` unchanged, and a pending mark on the
+  section until the ack, when the server's entry (revision bumped, `edited`
+  still false, timers2.md §3.4) replaces the projection. `Edit times` (the
+  whole-timing editor) remains for everything else.
 - **Resume run** (`entry.resume` / `entry-resume`): shown when
   `resumable(entry, now)` from the detail (within 7 days of `timing.started_at`,
   OQ-1 detail rule); sends `reopen(target: timing.terminal_id)` — from the
-  entry, no `getRun` — and navigates to the run screen/panel, which shows the
-  **"Resuming…"** projection without controls until the ack (timers2.md §7.1).
-  Hidden when `timing.edited` ("edited runs can't be resumed", timers2.md §3.6)
-  or the entry is pending.
+  entry, no `getRun`; on a pre-v2 timing (`terminal_id` null, A12) it sends
+  `target: null` and the server resolves the current terminal — and navigates to
+  the run screen/panel, which shows the **"Resuming…"** projection without
+  controls until the ack (timers2.md §5.3). **Hidden** when `timing.edited`
+  ("edited runs can't be resumed", timers2.md §3.6), when the entry is pending,
+  and **while the topic has a locally open or finishing run** (A15: the server
+  would answer 409 `conflict`, terminal on both outboxes, and the intent would
+  be lost without a notice).
 - `TimingEdit` editor (`TimingEditorSheet`, `TimingEditor.tsx`) keeps lap types:
   a lap row's type picker (none / declared types) via M1's `TimingEdit`
   additions; relabelling follows M1's rule after save.
@@ -376,10 +385,11 @@ Default rendering before M4 lands: M2 keeps `lastLine` / the "Last …" span
 **Consumes (from M1):** `Segment.lap_type` and `TimingSegment.lap_type`,
 `LapType` labels in `Timer.laps`, `TopicTiming.lap_types`,
 `SeriesPoint.lap_types` (`timing-stats-vectors.json` v3); the ids on `Timing`
-(timers2.md §3.3): `terminal_id`, `TimingSegment.event_id`, `TimingPause.id` —
-plus the requested `TimingSegment.opened_by: "next" | "lap" | null` (§3.2; if M1
-declines, the `next`-opened row relies on the `no_target` notice);
-`remove`/`reopen` events, the "Resuming…" projection (timers2.md §7.1) and the
+(timers2.md §3.3, A12): `terminal_id`, `TimingSegment.event_id`,
+`TimingSegment.opened_by`, `TimingPause.id` (all null only on pre-v2 stored
+timings; vector `timing-pre-v2-null-ids`; `target: null` on a reopen from such
+an entry); the A14 remove projection (entry re-projected, no run);
+`remove`/`reopen` events, the "Resuming…" projection (timers2.md §5.3) and the
 K6 exemption for reverts (§5.5); `resumable(entry, now)`; `TimingEdit` lap
 types. Before M1-STATS lands, §4.1 renders nothing extra (`lap_types` absent ⇒
 v1 tiles); before the reopen/remove server WPs and the `Timing` ids land, §3.2's
@@ -453,14 +463,26 @@ client-side from the entries each client already has (iOS store, PWA
 
 ## 11. Review log (round 1)
 
-| Finding                                              | Outcome                                                                                                                                       |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| C-S2 PWA `last_entry` stale after remote changes     | Fixed in §2 (D4): 60 s refetch + focus refetch + invalidation on entry mutations and outbox acks; staleness bound ≤ 60 s stated                 |
-| C-S2 12-week strip window vs calendar cells          | Fixed in §4.2 (D5): cells are local calendar days from the Monday 11 weeks before this week's Monday to today; query from that local midnight; DST/week-transition vectors |
-| C-S2 truncation can still split emoji                | Fixed in §1.2, §1.3 (D6): extended grapheme clusters everywhere, 80-cluster cap, flag/keycap/ZWJ/combining vectors                                |
-| K-S1 no target source for Remove/Resume              | Fixed in §3.2, §6, D-3 (A7): targets from `timing.segments[].event_id`, `pauses[].id`, `terminal_id`; offline-capable; "Resuming…" projection |
-| K-S3 a `next`-opened lap row maps to a `next` event  | Fixed in §3.2 (D8): Remove disabled on that row; `opened_by` requested from M1 as a seam                                                        |
-| K-S3 `home-vectors.json` "regenerates" vs plan "unchanged"; `@RequiredKey lastEntry` | Fixed in §2 (D8): unchanged; plain optional on iOS, no Swift change                                                      |
-| K-S2 wrong timers2 section references                | Fixed in §3.2, §4, §10 (D8): §3.4, §3.6, §5.3, §7.4                                                                                           |
-| K-S3 lap-type key equal to a historic step key        | Noted in §4 (A10): `lap_types[]` and `steps[]` are keyed separately                                                                           |
-| K-S2 `topics.py` `_summaries`/`_base_select` edited by M3a and M4 | Ownership rule lives in t2-plan.md (E3, delimited blocks); §2 unchanged                                                           |
+| Finding                                                                              | Outcome                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C-S2 PWA `last_entry` stale after remote changes                                     | Fixed in §2 (D4): 60 s refetch + focus refetch + invalidation on entry mutations and outbox acks; staleness bound ≤ 60 s stated                                            |
+| C-S2 12-week strip window vs calendar cells                                          | Fixed in §4.2 (D5): cells are local calendar days from the Monday 11 weeks before this week's Monday to today; query from that local midnight; DST/week-transition vectors |
+| C-S2 truncation can still split emoji                                                | Fixed in §1.2, §1.3 (D6): extended grapheme clusters everywhere, 80-cluster cap, flag/keycap/ZWJ/combining vectors                                                         |
+| K-S1 no target source for Remove/Resume                                              | Fixed in §3.2, §6, D-3 (A7): targets from `timing.segments[].event_id`, `pauses[].id`, `terminal_id`; offline-capable; "Resuming…" projection                              |
+| K-S3 a `next`-opened lap row maps to a `next` event                                  | Fixed in §3.2 (D8): Remove disabled on that row; `opened_by` requested from M1 as a seam                                                                                   |
+| K-S3 `home-vectors.json` "regenerates" vs plan "unchanged"; `@RequiredKey lastEntry` | Fixed in §2 (D8): unchanged; plain optional on iOS, no Swift change                                                                                                        |
+| K-S2 wrong timers2 section references                                                | Fixed in §3.2, §4, §10 (D8): §3.4, §3.6, §5.3, §7.4                                                                                                                        |
+| K-S3 lap-type key equal to a historic step key                                       | Noted in §4 (A10): `lap_types[]` and `steps[]` are keyed separately                                                                                                        |
+| K-S2 `topics.py` `_summaries`/`_base_select` edited by M3a and M4                    | Ownership rule lives in t2-plan.md (E3, delimited blocks); §2 unchanged                                                                                                    |
+
+### Round 2
+
+| Finding                                                        | Outcome                                                                                                                      |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| K-S2 three behaviours for a `remove` queued from an entry       | Fixed in §3.2, §6 (A14): no run projected; the entry stays visible with its timing re-projected, `revision` unchanged, pending mark |
+| K-S1 `terminal_id` and ids null on pre-v2 timings               | Fixed in §3.2, §6 (A12): ids null only on pre-v2 timings; Resume sends `target: null`; Remove absent on a null-id row         |
+| K-S3 Resume from the entry while the topic has an open run      | Fixed in §3.2 (A15): hidden while the topic has a locally open or finishing run                                              |
+| K-S3 iOS DTO field for `last_entry`                             | Fixed in §2 (B6): no DTO field; `Codable` ignores the key                                                                    |
+| K-S2 accessibility-id drift                                     | Fixed in §3.2 (B3): `entry.resume`, `entry.timing.remove.<i>`, `entry.timing.pause.remove.<j>`; ids live here only           |
+| K-S3 "timers2.md §7.1" for the Resuming projection              | Fixed in §3.2, §6: §5.3                                                                                                      |
+| K-S2 M4-plan interfaces differ (`entry_summary`, `TopicSummaryLine`, strip window) | No spec change: §1.1, §4.2, §5 are canonical; the plan copies them                                         |
