@@ -119,10 +119,16 @@ extension WidgetTopic {
     /// The shown run's label, timers and buttons, as its Live Activity has them.
     public var runDisplay: RunActivityDisplay? { run.map { RunActivityDisplay(state: $0, topicName: topic.name) } }
 
-    /// The buttons (§11.3): idle, Start (none for an archived topic); running, Next (or Lap on
-    /// the last step) and Stop; `compact` (the small widget), the one Auto button: Next while a
-    /// named step remains or the steps aren't known, else Stop. A finishing run has none: it
-    /// links to "Add details".
+    /// The topic's timer declares lap types (active-surfaces.md §5.3): its one-button Auto is
+    /// the on-screen primary, never Stop.
+    // T2-M1: TopicTimer.laps — becomes `!(topic.timer?.laps.isEmpty ?? true)` when M1 lands it;
+    // false until then, so every timer takes v1's Auto.
+    public var isLapTyped: Bool { false }
+
+    /// The buttons (timers.md §11.3, active-surfaces.md §5.1): idle, Start (none for an archived
+    /// topic); open, the primary (Lap whenever a lap or the last step is open, else Next: §4.1,
+    /// as the Live Activity has it) and Stop; `compact` (the small widget, the Control), the one
+    /// Auto button of §5.3. A finishing run has none: it links to "Add details".
     public func runButtons(compact: Bool) -> [WidgetRunButton] {
         switch runTile {
         case .untimed, .finishing:
@@ -131,20 +137,71 @@ extension WidgetTopic {
             return topic.status == .archived ? [] : [.start]
         case .open:
             guard let display = runDisplay else { return [] }
-            let primary: WidgetRunButton = display.buttons.first == .lap ? .lap : .next
-            if compact { return [primary == .next ? .next : .stop] }
-            return [primary, .stop]
+            return Self.runButtons(of: display, compact: compact, lapTyped: isLapTyped)
         }
     }
 
-    /// What VoiceOver says for `button`: "Next: Breakfast", "Start Dishwasher".
-    public func runButtonLabel(_ button: WidgetRunButton) -> String {
+    /// An open run's buttons from what its Live Activity shows: `display.buttons.first` is the
+    /// primary (the §4.1 rule lives in `RunActivityDisplay`), Stop beside it; `compact`, the one
+    /// Auto button (`autoButton`).
+    public static func runButtons(of display: RunActivityDisplay, compact: Bool, lapTyped: Bool) -> [WidgetRunButton] {
+        let primary: WidgetRunButton = display.buttons.first == .lap ? .lap : .next
+        if compact { return [autoButton(primary: primary, nextLabel: display.nextLabel, lapTyped: lapTyped)] }
+        return [primary, .stop]
+    }
+
+    /// The one-button rule (§5.3): a lap-typed timer's Auto is its primary (Lap stays Lap); on any
+    /// other timer v1's Auto (timers.md §11.1), Next while a named step remains or the steps
+    /// aren't known, else Stop (so a one-press stopwatch can still be stopped). A step remains when
+    /// the primary is Next, or when a lap is open with a step still to come (`nextLabel` names it:
+    /// without lap types a lap's `nextLabel` is never a lap type), which is what `RunWrites.auto`
+    /// does on that press.
+    public static func autoButton(primary: WidgetRunButton, nextLabel: String?, lapTyped: Bool) -> WidgetRunButton {
+        if lapTyped { return primary }
+        return primary == .next || nextLabel != nil ? .next : .stop
+    }
+
+    /// A button's title (§1.3): "Start", "Next: Breakfast" (a plain "Next" while the steps aren't
+    /// known), "Lap", or "Lap → Rest" when the lap it opens has a type (the display's `nextLabel`
+    /// during a lap on a lap-typed timer), "Stop".
+    public func runButtonTitle(_ button: WidgetRunButton) -> String {
+        Self.runButtonTitle(button, of: runDisplay, lapTyped: isLapTyped)
+    }
+
+    public static func runButtonTitle(
+        _ button: WidgetRunButton, of display: RunActivityDisplay?, lapTyped: Bool
+    ) -> String {
         switch button {
-        case .start: "Start \(topic.name)"
-        case .next: run?.nextLabel.map { "Next: \($0)" } ?? "Next"
-        case .lap: "Lap"
-        case .stop: "Stop \(topic.name)"
+        case .start: "Start"
+        case .next: display?.nextLabel.map { "Next: \($0)" } ?? "Next"
+        case .lap: lapNextLabel(of: display, lapTyped: lapTyped).map { "Lap → \($0)" } ?? "Lap"
+        case .stop: "Stop"
         }
+    }
+
+    /// What VoiceOver says for `button` (§1.3): "Start Dishwasher", "Next: Breakfast", "Lap, then
+    /// Rest", "Stop Dishwasher".
+    public func runButtonLabel(_ button: WidgetRunButton) -> String {
+        Self.runButtonLabel(button, of: runDisplay, lapTyped: isLapTyped, topicName: topic.name)
+    }
+
+    public static func runButtonLabel(
+        _ button: WidgetRunButton, of display: RunActivityDisplay?, lapTyped: Bool, topicName: String
+    ) -> String {
+        switch button {
+        case .start: "Start \(topicName)"
+        case .next: runButtonTitle(.next, of: display, lapTyped: lapTyped)
+        case .lap: lapNextLabel(of: display, lapTyped: lapTyped).map { "Lap, then \($0)" } ?? "Lap"
+        case .stop: "Stop \(topicName)"
+        }
+    }
+
+    /// The lap type a Lap opens ("Rest"): on a lap-typed timer, the display's `nextLabel` while
+    /// its primary is Lap (M1 sets `next_label` during typed laps). Without lap types a lap's
+    /// `nextLabel` is a step still to come, which Lap doesn't open; a step's belongs to Next.
+    private static func lapNextLabel(of display: RunActivityDisplay?, lapTyped: Bool) -> String? {
+        guard lapTyped, let display, display.buttons.first == .lap else { return nil }
+        return display.nextLabel
     }
 
     /// Where a tap on a timed widget goes: the run screen, or for a finishing run its answers

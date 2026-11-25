@@ -30,6 +30,50 @@ struct WidgetGalleryView: View {
 
     private func topic(_ slug: String) -> WidgetTopic? { topics.first { $0.topic.slug == slug } }
 
+    /// A timed topic with an open run (the demo store has none), as the widget reader would show
+    /// it: `steps` is the pinned version's; `open` the segment, as the Live Activity's content
+    /// state. No store, so its chips open the run screen.
+    private func timed(
+        slug: String, name: String, steps: [TopicTimer.Step], open: (label: String, stepIndex: Int?, next: String?),
+        paused: Bool = false
+    ) -> WidgetTopic? {
+        guard var topic = topics.first?.topic else { return nil }
+        topic.slug = slug
+        topic.name = name
+        topic.questions = []
+        topic.timer = TopicTimer(steps: steps)
+        let startedAt = now.timeIntervalSince1970 - 104
+        let run = RunActivityState(
+            runId: "00000000-0000-4000-8000-0000000000aa", revision: 3, status: paused ? "paused" : "running",
+            startedAt: startedAt, seg: 3, segStartedAt: startedAt + 63, label: open.label, stepIndex: open.stepIndex,
+            stepCount: steps.count, nextLabel: open.next, pausedAt: paused ? startedAt + 90 : nil,
+            pausedMsBeforeSeg: 0, pausedMsInSeg: 0, endedAt: nil, activeMs: nil)
+        return WidgetTopic(
+            topic: topic, quick: nil, lastAnswer: nil, hasOpenRun: true, run: run, updateRequired: outdated)
+    }
+
+    /// A stopwatch (no steps) on its third lap: Lap is the primary; without lap types the small
+    /// size's one Auto chip is Stop (§5.3). `typed`: the lap it opens is "Rest" (`next_label`
+    /// during a lap, M1-LA-STATE), so the primary reads "Lap → Rest" once I2-LA lands the §4.1
+    /// rule in `RunActivityDisplay` (today's v1 rule reads that fixture as Next).
+    private func smoke(typed: Bool = false) -> WidgetTopic? {
+        timed(
+            slug: typed ? "smoke-typed" : "smoke", name: "Smoke", steps: [],
+            open: (label: "Lap 3", stepIndex: nil, next: typed ? "Rest" : nil))
+    }
+
+    /// A step run on its first step, Breakfast next; `paused` freezes its timers.
+    private func morning(paused: Bool = false) -> WidgetTopic? {
+        timed(
+            slug: "morning", name: "Morning", steps: Self.morningSteps,
+            open: (label: "Shower", stepIndex: 0, next: "Breakfast"), paused: paused)
+    }
+
+    private static let morningSteps = [
+        TopicTimer.Step(key: "shower", label: "Shower"), TopicTimer.Step(key: "breakfast", label: "Breakfast"),
+        TopicTimer.Step(key: "out", label: "Out"),
+    ]
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -57,6 +101,20 @@ struct WidgetGalleryView: View {
             TopicWidgetView(topic: topic("headache"), date: now, style: $0)
         }
         frame(.systemMedium, "widget.medium.due") { DueListWidgetView(topics: topics, date: now, style: $0) }
+        // Timed (active-surfaces.md §5.1): the lap primary with Stop beside it (plain, and typed
+        // "Lap → Rest"); the small size's one Auto chip (§5.3: Stop on a stopwatch without lap
+        // types, Next while a step remains); paused.
+        frame(.systemMedium, "widget.medium.timed.lap") { TopicWidgetView(topic: smoke(), date: now, style: $0) }
+        frame(.systemMedium, "widget.medium.timed.typedlap") {
+            TopicWidgetView(topic: smoke(typed: true), date: now, style: $0)
+        }
+        HStack(spacing: 16) {
+            frame(.systemSmall, "widget.small.timed.auto") { TopicWidgetView(topic: smoke(), date: now, style: $0) }
+            frame(.systemSmall, "widget.small.timed.step") { TopicWidgetView(topic: morning(), date: now, style: $0) }
+        }
+        frame(.systemMedium, "widget.medium.timed.paused") {
+            TopicWidgetView(topic: morning(paused: true), date: now, style: $0)
+        }
         frame(.systemLarge, "widget.large.due") { DueListWidgetView(topics: topics, date: now, style: $0) }
     }
 

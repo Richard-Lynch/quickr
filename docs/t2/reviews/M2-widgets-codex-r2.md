@@ -1,0 +1,26 @@
+1. **P2 — An untyped lap with a pending step is labelled as a typed lap.** [WidgetTopic.swift](/Users/richie/code/quickr-worktrees/t2-m2-widgets/ios/QuickrKit/Sources/QuickrCore/Widgets/WidgetTopic.swift:197) treats every `nextLabel` on a Lap-primary display as the next lap type. The fix for prior finding 2 correctly relies on that same field containing the *pending step* for an untyped lap. Once I2-LA makes that state Lap-primary, the medium widget will therefore say “Lap → Out” and VoiceOver will say “Lap, then Out,” although tapping Lap does not advance to Out. Gate the lap-type label on the timer having lap types, and test the visual and accessibility labels for the existing `lapBeforeStep` fixture.
+
+2. **P2 — The headline and alert follow-up does not own the widget file.** [WidgetViews.swift](/Users/richie/code/quickr-worktrees/t2-m2-widgets/ios/QuickrKit/Sources/QuickrUI/Widgets/WidgetViews.swift:265) still has placeholders for both required fields. The dependency explains why they cannot be implemented yet, but I2-LA-FIELDS lists its areas as the I2-LA files, which exclude `WidgetViews.swift`, and its acceptance tests cover the Live Activity display rather than widget rendering. Prior finding 5’s justification is therefore incomplete: explicitly add the widget file and its headline/alert acceptance coverage to that follow-up.
+
+3. **P2 — The pending-step fix is not tested through either production surface.** [TimedWidgetTests.swift](/Users/richie/code/quickr-worktrees/t2-m2-widgets/ios/QuickrKit/Tests/QuickrDataTests/Widgets/TimedWidgetTests.swift:132) manually changes `display.buttons` and tests the static helper. The Control test does not cover a lap with a pending step or execute its Auto intent. The calculation in prior finding 2 is correct for the represented untyped states, but its claimed completion is broader than the evidence: add an integration test after I2-LA merges that checks the small widget’s action and the Control’s detail and resulting Auto tap in that state.
+
+4. **P2 — The typed gallery fixture is not a typed timer.** [WidgetGalleryView.swift](/Users/richie/code/quickr-worktrees/t2-m2-widgets/ios/App/Debug/WidgetGalleryView.swift:44) constructs every fixture with only steps, while `smoke(typed: true)` changes only `nextLabel`. The new untyped stopwatch fixture fixes the immediate Lap/Stop screenshot, but the typed fixture cannot validate typed Auto or distinguish a lap type from a pending step. I2-LA alone will not make its timer typed. Update the fixture when `TopicTimer.laps` lands and cover the typed small-widget state as well.
+
+Prior finding **1** is a valid I2-LA seam: the plan explicitly assigns the primary rule to `RunActivityDisplay`, and this branch consumes its first button. The production behavior remains incorrect until that work merges.
+
+Prior finding **3** is a valid temporary M1 seam, but the stub must be replaced when the timer model and I1-WRITES land; the helper-only typed tests do not prove integration. The planned M2-RESUME test should exercise the real topic and Control.
+
+Prior finding **4** is a real spec deviation, not a completed fix. The scope and filed issue explain its deferral, and “Start” accurately describes the current intent, but the finishing Control can still start another run instead of opening details.
+
+I found no additional duplicated controls or independently verifiable Dynamic Type regression in the diff. I did not run host or simulator tests, so visual layout and accessibility rendering remain unverified.
+---
+
+## Resolution (i2-widgets, round 2)
+
+1. **Fixed.** The "→ {type}" label is now gated on the timer having lap types: `runButtonTitle(_:of:lapTyped:)` / `runButtonLabel(_:of:lapTyped:topicName:)` (the instance forms pass `isLapTyped`). Without lap types a lap's `nextLabel` is a step still to come, which Lap doesn't open, so it reads a plain "Lap", spoken "Lap". `theSmallSizeFollowsTheOneButtonRule` asserts both on the `lapBeforeStep` fixture; `aTypedLapNamesTheLapItOpens` passes `lapTyped: true`. A trivial fix (one guard, one Bool threaded through), so no third Codex round.
+
+2. **Stands; plan text proposed to the lead.** The plan is the lead's document (not edited on a WP branch). Proposed for I2-LA-FIELDS "Areas"/"Acceptance": add `QuickrUI/Widgets/WidgetViews.swift` (the two `I2-LA-FIELDS:` slots: headline in place of the label; the alert line under the total on medium and large) and a `TimedWidgetTests` case over the `update_tiktok_lap` / `update_alert_pending` states.
+
+3. **Stands; test proposed to the lead.** After I2-LA merges into `t2/m2` the store can produce the lap-before-step state end to end: proposed for I2-UITEST/M2-RESUME, a `TimedWidgetTests` case (start a 3-step timer, Lap on step 1 → `runButtons(compact: true) == [.next]`, title "Next: Breakfast") and the matching `WidgetControlTests` Control detail with its Auto tap advancing to the step. Not writeable honestly today: the display returns Next for that state (finding 1 of round 1).
+
+4. **Stands (T2-M1).** `TopicTimer.laps` doesn't exist; the typed fixture can only differ by `next_label` until it does. The fixture's doc comment and `smoke(typed:)` name the dependency; the typed small-widget state (Auto = Lap) is added with the same landing.
