@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+import regex
 from pydantic import TypeAdapter
 
 from app.schemas.api import AnswerOut, Timing, TimingPause, TimingSegment
@@ -33,6 +34,11 @@ question_adapter: TypeAdapter[Any] = TypeAdapter(Question)
 answer_adapter: TypeAdapter[Any] = TypeAdapter(AnswerOut)
 
 T0 = datetime(2026, 10, 23, 8, 0, tzinfo=UTC)
+# The whitespace a text answer collapses: Unicode White_Space, the set every port can spell.
+WHITE_SPACE = [ord(c) for c in regex.findall(r"\p{White_Space}", "".join(map(chr, range(0x110000))))]
+# Blank-looking code points no port treats as whitespace here (JS `\s` would strip U+FEFF;
+# Python `str.split()` would split on U+001F).
+LOOKALIKES = "\u200b\ufeff\u001f\u180e"
 S = 1000  # one second in ms
 
 WEIGHT = {"key": "weight", "label": "Weight", "type": "int", "unit": "kg"}
@@ -229,6 +235,8 @@ def cases() -> list[dict[str, Any]]:
     hour_plus = timing([(None, 3600 * S), (None, 123 * S)])
     paused = timing([(None, 400 * S), (None, 480 * S)], pauses=[(100 * S, 220 * S)])
     collapsed = "walked \n\n  the\t dog\r\n"
+    unicode_ws = "\u00a0walked\u0085the\u2003\u3000dog\u2028"
+    lookalikes = "a" + LOOKALIKES + "b"
     everything = [a("weight", 72), a("dose", 2.5), enum("mood", "happy"), a("note", "walked")]
     return [
         # --- the timing part (§1.2) ---
@@ -290,6 +298,30 @@ def cases() -> list[dict[str, Any]]:
             [a("weight", 72), a("note", " \n\t ")],
             None,
             "Weight: 72 kg",
+        ),
+        case(
+            "answers_str_unicode_whitespace",
+            "mixed",
+            "none",
+            [a("note", unicode_ws)],
+            None,
+            "Note: walked the dog",
+        ),
+        case(
+            "answers_str_unicode_whitespace_only_skipped",
+            "mixed",
+            "none",
+            [a("note", "\u00a0\u0085\u3000")],
+            None,
+            "",
+        ),
+        case(
+            "answers_str_lookalikes_kept",
+            "mixed",
+            "none",
+            [a("note", lookalikes)],
+            None,
+            "Note: " + lookalikes,
         ),
         case("answers_missing_optional_skipped", "mixed", "none", [a("weight", 72)], None, "Weight: 72 kg"),
         # --- the line (§1.2) ---
@@ -400,6 +432,7 @@ def build() -> dict[str, Any]:
             "generator_version": GENERATOR_VERSION,
             "max_length": MAX_SUMMARY_LENGTH,
             "separator": SEPARATOR,
+            "whitespace": WHITE_SPACE,
             "semantics": [
                 "entrySummary(answers, timing, questions, timer) (content-display.md §1.2): the timing "
                 "part when timing is not null, then 'label: text' for each question of `questions` in "
@@ -416,7 +449,8 @@ def build() -> dict[str, Any]:
                 "Swift's description), trailing zeros and a bare point dropped, no grouping, '.' as "
                 "the decimal point, then the unit; enum -> the option's label, the raw value for an "
                 "unknown option; enum_list -> labels joined by ', ', an empty list has no text; str -> "
-                "whitespace runs collapsed to one space and trimmed, an empty result has no text. An "
+                "runs of meta.whitespace (Unicode White_Space) collapsed to one space and trimmed, an empty "
+                "result has no text. An "
                 "answer whose key has no question is skipped; a question without an answer is skipped.",
                 "truncate: lengths are extended grapheme clusters (UAX #29; Swift Character, "
                 "Intl.Segmenter grapheme, Python regex \\X). A line of more than meta.max_length "
@@ -425,7 +459,8 @@ def build() -> dict[str, Any]:
                 "cases[].questions / cases[].timer name an entry of question_sets / timer_sets: the "
                 "entry's version's questions and the topic's current timer (null when untimed). "
                 "cases[].answers are wire AnswerOut objects; cases[].timing is a wire Timing or null.",
-                "The str vectors use only ASCII space, tab, LF and CR as whitespace; the strings are not "
+                "meta.whitespace lists the code points answer_text collapses, exactly: not U+FEFF, "
+                "U+200B, U+180E or U+001C..U+001F (answers_str_lookalikes_kept). The strings are not "
                 "Unicode-normalised (long_truncation_combining_marks holds U+0065 U+0301).",
             ],
         },

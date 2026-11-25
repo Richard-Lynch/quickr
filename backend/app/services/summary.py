@@ -35,6 +35,12 @@ DEFAULT_DECIMALS = 3
 
 # Wide enough for any double's digits (up to ~309 before the point) plus the fraction.
 _DECIMAL = Context(prec=400, rounding=ROUND_HALF_UP)
+# A run of whitespace in a text answer: Unicode White_Space (25 code points: the ASCII
+# controls TAB..CR and space, U+0085, U+00A0, U+1680, U+2000..U+200A, U+2028, U+2029,
+# U+202F, U+205F, U+3000). The one set every port can spell: Swift `isWhitespace`, JS
+# `\p{White_Space}` with the u flag. Not Python's `str.split()` (U+001C..U+001F) nor JS
+# `\s` (U+FEFF): the vectors pin the differences.
+_WHITE_SPACE = regex.compile(r"\p{White_Space}+")
 
 
 def entry_summary(
@@ -100,7 +106,7 @@ def answer_text(question: Question, answer: AnswerOut) -> str | None:
             # way round, so an enum question takes both shapes.
             return ", ".join(_option_label(question, v) for v in answer.value) or None
         case StrQuestion(), StrAnswer():
-            return " ".join(answer.value.split()) or None
+            return _WHITE_SPACE.sub(" ", answer.value).strip(" ") or None
         case _:
             return None
 

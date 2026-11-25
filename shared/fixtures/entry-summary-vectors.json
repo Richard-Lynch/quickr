@@ -23,6 +23,9 @@
     {"answers":[{"key":"mood","type":"enum_list","value":[]}],"expected":"","name":"answers_enum_multi_empty_skipped","questions":"mood_multi","timer":"none","timing":null},
     {"answers":[{"key":"note","type":"str","value":"walked \n\n  the\t dog\r\n"}],"expected":"Note: walked the dog","name":"answers_str_collapsed_whitespace","questions":"mixed","timer":"none","timing":null},
     {"answers":[{"key":"weight","type":"int","value":72},{"key":"note","type":"str","value":" \n\t "}],"expected":"Weight: 72 kg","name":"answers_str_empty_skipped","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"note","type":"str","value":" walkedthe 　dog "}],"expected":"Note: walked the dog","name":"answers_str_unicode_whitespace","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"note","type":"str","value":" 　"}],"expected":"","name":"answers_str_unicode_whitespace_only_skipped","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"note","type":"str","value":"a​﻿\u001f᠎b"}],"expected":"Note: a​﻿\u001f᠎b","name":"answers_str_lookalikes_kept","questions":"mixed","timer":"none","timing":null},
     {"answers":[{"key":"weight","type":"int","value":72}],"expected":"Weight: 72 kg","name":"answers_missing_optional_skipped","questions":"mixed","timer":"none","timing":null},
     {"answers":[{"key":"weight","type":"int","value":72}],"expected":"12:40 · 3 laps · Weight: 72 kg","name":"both_timing_then_answers","questions":"weight","timer":"plain","timing":{"active_ms":760000,"complete":true,"edited":false,"ended_at":"2026-10-23T08:12:40Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":300000,"ended_at":"2026-10-23T08:05:00Z","kind":"lap","label":"Lap 1","paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":null},{"active_ms":200000,"ended_at":"2026-10-23T08:08:20Z","kind":"lap","label":"Lap 2","paused_ms":0,"started_at":"2026-10-23T08:05:00Z","step":null},{"active_ms":260000,"ended_at":"2026-10-23T08:12:40Z","kind":"lap","label":"Lap 3","paused_ms":0,"started_at":"2026-10-23T08:08:20Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z"}},
     {"answers":[{"key":"note","type":"str","value":"walked"},{"key":"mood","type":"enum","value":"happy"},{"key":"weight","type":"int","value":72}],"expected":"Weight: 72 kg · Mood: Happy · Note: walked","name":"order_follows_questions_not_answers","questions":"mixed","timer":"none","timing":null},
@@ -48,12 +51,39 @@
     "semantics": [
       "entrySummary(answers, timing, questions, timer) (content-display.md §1.2): the timing part when timing is not null, then 'label: text' for each question of `questions` in that order whose answer has text, joined by meta.separator, then truncated. '' means nothing to say.",
       "Timing part: fmtDuration(active_ms) (duration-format-vectors.json); then, when the timing has lap segments (kind 'lap'): untyped laps as 'n lap' / 'n laps'; typed laps (segment.lap_type, M1) as '{label} {count}' per type in the timer's declared order then first seen, the type's key when the timer doesn't declare it, and the untyped remainder last as 'n lap(s)'. Pauses, steps and skipped steps are not shown.",
-      "answer_text: int -> the integer, no thousands grouping, then ' unit' if the question has one; double -> at most `decimals` fraction digits (3 when null), rounded half away from zero from the number's shortest round-trip decimal (as Intl.NumberFormat and Swift's description), trailing zeros and a bare point dropped, no grouping, '.' as the decimal point, then the unit; enum -> the option's label, the raw value for an unknown option; enum_list -> labels joined by ', ', an empty list has no text; str -> whitespace runs collapsed to one space and trimmed, an empty result has no text. An answer whose key has no question is skipped; a question without an answer is skipped.",
+      "answer_text: int -> the integer, no thousands grouping, then ' unit' if the question has one; double -> at most `decimals` fraction digits (3 when null), rounded half away from zero from the number's shortest round-trip decimal (as Intl.NumberFormat and Swift's description), trailing zeros and a bare point dropped, no grouping, '.' as the decimal point, then the unit; enum -> the option's label, the raw value for an unknown option; enum_list -> labels joined by ', ', an empty list has no text; str -> runs of meta.whitespace (Unicode White_Space) collapsed to one space and trimmed, an empty result has no text. An answer whose key has no question is skipped; a question without an answer is skipped.",
       "truncate: lengths are extended grapheme clusters (UAX #29; Swift Character, Intl.Segmenter grapheme, Python regex \\X). A line of more than meta.max_length clusters keeps its first max_length - 1 clusters and appends U+2026; no word boundary, and a cluster is never split (flags, keycaps, ZWJ sequences, combining marks).",
       "cases[].questions / cases[].timer name an entry of question_sets / timer_sets: the entry's version's questions and the topic's current timer (null when untimed). cases[].answers are wire AnswerOut objects; cases[].timing is a wire Timing or null.",
-      "The str vectors use only ASCII space, tab, LF and CR as whitespace; the strings are not Unicode-normalised (long_truncation_combining_marks holds U+0065 U+0301)."
+      "meta.whitespace lists the code points answer_text collapses, exactly: not U+FEFF, U+200B, U+180E or U+001C..U+001F (answers_str_lookalikes_kept). The strings are not Unicode-normalised (long_truncation_combining_marks holds U+0065 U+0301)."
     ],
-    "separator": " · "
+    "separator": " · ",
+    "whitespace": [
+      9,
+      10,
+      11,
+      12,
+      13,
+      32,
+      133,
+      160,
+      5760,
+      8192,
+      8193,
+      8194,
+      8195,
+      8196,
+      8197,
+      8198,
+      8199,
+      8200,
+      8201,
+      8202,
+      8232,
+      8233,
+      8239,
+      8287,
+      12288
+    ]
   },
   "question_sets": {
     "mixed": [

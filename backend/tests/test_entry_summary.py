@@ -173,6 +173,16 @@ def test_str_collapses_whitespace_and_skips_blank() -> None:
     assert answer_text(s, ans("", "str")) is None
 
 
+def test_str_whitespace_is_unicode_white_space_exactly() -> None:
+    """The one set Swift (`isWhitespace`) and JS (`\\p{White_Space}`) share: not Python's
+    `str.split()` (U+001C..U+001F) and not JS `\\s` (U+FEFF)."""
+    s = q(type="str")
+    assert answer_text(s, ans("\u00a0a\u0085b\u2003\u3000c\u2028", "str")) == "a b c"
+    assert answer_text(s, ans("\u1680\u200a\u202f\u205f", "str")) is None
+    for kept in ("\u200b", "\ufeff", "\u180e", "\u001c", "\u001f"):
+        assert answer_text(s, ans(f"a{kept}b", "str")) == f"a{kept}b"
+
+
 def test_mismatched_shapes_have_no_text() -> None:
     assert answer_text(q(type="int"), ans("72", "str")) is None
     assert answer_text(q(type="str"), ans(72, "int")) is None
