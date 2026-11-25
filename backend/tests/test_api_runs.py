@@ -213,8 +213,14 @@ async def test_start_creates_a_running_run(client: httpx.AsyncClient) -> None:
         "step": "shower",
         "label": "Shower",
         "started_at": "2026-10-23T08:00:00Z",
+        "lap_type": None,
     }
     assert out["state"]["next_step"] == "breakfast"
+    assert (out["state"]["terminal_id"], out["state"]["next_lap_type"], out["state"]["lap_count"]) == (
+        None,
+        None,
+        0,
+    )
     assert out["events"] == [
         {
             "id": run.id,
@@ -602,7 +608,7 @@ async def test_pause_and_resume(client: httpx.AsyncClient) -> None:
     assert resumed["run"]["status"] == "running"
     assert resumed["run"]["revision"] == 4
     assert resumed["run"]["state"]["pauses"] == [
-        {"start": "2026-10-23T08:00:10Z", "end": "2026-10-23T08:00:15Z"}
+        {"start": "2026-10-23T08:00:10Z", "end": "2026-10-23T08:00:15Z", "id": pause["event"]["id"]}
     ]
     assert resumed["run"]["events"][-1]["pause_id"] == pause["event"]["id"]
     # Every change to an open run logs a run upsert.

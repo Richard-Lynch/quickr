@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -231,7 +231,9 @@ async def update_entry(db: AsyncSession, entry_id: UUID, body: EntryUpdate) -> E
                 [FieldIssue(loc=["timing"], message="the entry isn't timed")],
             )
         version = await db.get_one(TopicVersion, s.topic_version_id)
-        timing = edited_timing(body.timing, version_steps(version))
+        # timers2.md §3.3: an edit nulls the segment and pause ids and keeps terminal_id.
+        kept = s.timing.get("terminal_id")
+        timing = edited_timing(body.timing, version_timer(version), terminal_id=kept)
     elif body.captured_at is not None and s.timing is not None:
         raise InvalidRequest(
             "a timed entry's captured_at is the end of its run: edit the run's times instead",
@@ -272,17 +274,26 @@ async def update_entry(db: AsyncSession, entry_id: UUID, body: EntryUpdate) -> E
     return await get_entry(db, s.id)
 
 
-def version_steps(version: TopicVersion) -> list[run_fold.Step]:
-    """The steps a run on ``version`` is timed over."""
+def version_timer(version: TopicVersion) -> run_fold.Timer:
+    """What the fold needs of ``version``'s timer: its steps and lap types (timers2.md §3.1).
+    ``laps`` is read when the stored ``Timer`` schema carries it (M1-DB) and empty before."""
     timer = parse_timer(version.timer)
-    return [] if timer is None else [run_fold.Step(s.key, s.label) for s in timer.steps]
+    if timer is None:
+        return run_fold.Timer()
+    laps = getattr(timer, "laps", ())
+    return run_fold.Timer(
+        steps=tuple(run_fold.Step(s.key, s.label) for s in timer.steps),
+        laps=tuple(run_fold.LapType(lap.key, lap.label) for lap in laps),
+    )
 
 
-def edited_timing(edit: TimingEdit, steps: Sequence[run_fold.Step]) -> run_fold.Timing:
+def edited_timing(
+    edit: TimingEdit, timer: run_fold.Timer, *, terminal_id: str | None = None
+) -> run_fold.Timing:
     """The entry's ``Timing`` rebuilt from an edit (timers.md §3.8), or 422 at the first field
     that breaks a rule: step keys of the run's version, each at most once (T4); segments of
     non-negative length (T2); sorted, disjoint pauses within the run (T3); at most 7 days."""
-    by_key = {step.key: step for step in steps}
+    by_key = {step.key: step for step in timer.steps}
     seen: set[str] = set()
 
     def bad(loc: list[str | int], message: str) -> InvalidRequest:
@@ -335,7 +346,9 @@ def edited_timing(edit: TimingEdit, steps: Sequence[run_fold.Step]) -> run_fold.
         pauses.append(pause)
         floor = pause.end
     skipped = sorted(edit.skipped, key=list(by_key).index)  # in step order (§2.3)
-    timing = run_fold.make_timing(started_at, parts, skipped, pauses, steps=steps, edited=True)
+    timing = run_fold.make_timing(
+        started_at, parts, skipped, pauses, timer=timer, edited=True, terminal_id=terminal_id
+    )
     try:
         run_fold.check_timing(timing, captured_at=timing.ended_at)  # T1 to T5
     except run_fold.TimingError as exc:  # a guard: the checks above cover every way an edit breaks them
