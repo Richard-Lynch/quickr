@@ -5,6 +5,7 @@
 3. **[P3] The 14-row tests do not exercise the action model for several required states** — [RunControlsLayoutTests.swift](/Users/richie/code/quickr-worktrees/t2-m2-model/ios/QuickrKit/Tests/QuickrCoreTests/Surfaces/RunControlsLayoutTests.swift:64) and [controlsLayout.test.ts](/Users/richie/code/quickr-worktrees/t2-m2-model/frontend/src/components/runs/controlsLayout.test.ts:75). Idle, reopened, queued-reopen, resumable and busy rows supply hand-built action arrays, so they prove placement for those inputs but cannot detect a mismatch between the real model and the spec. Some depend on later M1 behavior, as the comments acknowledge; those cases need integration coverage when that behavior lands. The current suite should not be treated as evidence that all 14 state-to-layout paths pass.
 
 The review is limited to the M2-MODEL-ADOPT work package; the run-screen and card implementations are assigned to later packages. I did not run tests.
+
 ---
 
 ## Resolutions (m2-model-adopt)
