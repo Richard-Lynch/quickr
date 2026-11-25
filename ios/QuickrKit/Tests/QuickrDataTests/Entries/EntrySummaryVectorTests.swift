@@ -74,6 +74,20 @@ import Testing
         #expect(EntrySummary.line(entry: nil, questions: questions, timer: timer) == "")
     }
 
+    /// An answer whose text is empty is skipped like a missing one (the reference's `if text`):
+    /// a single-select whose value is "" with no option, and a multi-select of just that.
+    @Test func emptyChoiceTextIsSkipped() {
+        let mood = Question(key: "mood", label: "Mood", kind: .choice(.init(options: [.init(value: "a", label: "A")])))
+        let weight = Question(key: "weight", label: "Weight", kind: .int(.init(unit: "kg")))
+        for value in [AnswerValue.string(""), .strings([""]), .strings([])] {
+            let line = EntrySummary.line(
+                answers: ["mood": value, "weight": .int(72)], timing: nil, questions: [mood, weight], timer: nil)
+            #expect(line == "Weight: 72 kg", "\(value)")
+        }
+        #expect(EntrySummary.answerText(.strings([""]), for: mood) == nil)
+        #expect(EntrySummary.answerText(.strings(["", "a"]), for: mood) == ", A")
+    }
+
     /// The typed-lap branch, until M4-STATS adds its vectors with M1's lap types: the reference's
     /// rule on the lap types directly (timing_tiktok, timing_renamed, timing_mixed_typed_untyped,
     /// timing_lap_type_not_in_timer of §1.3).

@@ -21,7 +21,9 @@ public enum EntrySummary {
         var parts: [String] = []
         if let timing { parts.append(timingLine(timing, timer: timer)) }
         for question in questions {
-            guard let answer = answers[question.key], let text = answerText(answer, for: question) else { continue }
+            // An empty text is nothing to say too (an option whose value or label is "").
+            guard let answer = answers[question.key], let text = answerText(answer, for: question), !text.isEmpty
+            else { continue }
             parts.append("\(question.label): \(text)")
         }
         return truncate(parts.joined(separator: separator))
@@ -82,7 +84,7 @@ public enum EntrySummary {
         case (.choice(let rules), .strings(let vs)):
             // A single-select that became multi-select keeps its old answers and the other way
             // round, so a choice question takes both shapes.
-            vs.isEmpty ? nil : vs.map { optionLabel(rules, $0) }.joined(separator: ", ")
+            nonEmpty(vs.map { optionLabel(rules, $0) }.joined(separator: ", "))
         case (.string, .string(let s)):
             collapsingWhitespace(s)
         default:
@@ -175,6 +177,8 @@ public enum EntrySummary {
         guard let unit, !unit.isEmpty else { return text }
         return "\(text) \(unit)"
     }
+
+    private static func nonEmpty(_ text: String) -> String? { text.isEmpty ? nil : text }
 
     private static func optionLabel(_ rules: Question.ChoiceRules, _ value: String) -> String {
         rules.options.first { $0.value == value }?.label ?? value
