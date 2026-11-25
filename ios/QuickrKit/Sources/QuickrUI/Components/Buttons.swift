@@ -10,17 +10,20 @@ public enum QuickrButtonVariant: Sendable {
     case quietDanger
 }
 
-/// Heights 36, 44 and 56 pt (`sm`, `md`, `lg`).
+/// Heights 36, 44 and 56 pt (`sm`, `md`, `lg`), and 72 pt (`hero`): the run screen's primary
+/// (active-surfaces.md §2.2, §8.1).
 public enum QuickrButtonSize: Sendable {
     case small
     case medium
     case large
+    case hero
 
     public var height: CGFloat {
         switch self {
         case .small: 36
         case .medium: 44
         case .large: 56
+        case .hero: 72
         }
     }
 
@@ -29,6 +32,7 @@ public enum QuickrButtonSize: Sendable {
         case .small: 14
         case .medium: 20
         case .large: 28
+        case .hero: 32
         }
     }
 
@@ -37,8 +41,21 @@ public enum QuickrButtonSize: Sendable {
         case .small: .qr(.sansSemiBold, size: 14, relativeTo: .subheadline)
         case .medium: .qr(.callout)
         case .large: .qr(.sansSemiBold, size: 16, relativeTo: .body)
+        case .hero: .qr(.sansSemiBold, size: 22, relativeTo: .title2)
         }
     }
+
+    /// The icon beside the label (`PrimaryButton`).
+    var iconSize: CGFloat {
+        switch self {
+        case .small: 16
+        case .medium, .large: 20
+        case .hero: 28
+        }
+    }
+
+    /// Large and hero buttons fill their row.
+    var fillsWidth: Bool { self == .large || self == .hero }
 }
 
 /// Capsule buttons in the brand's variants: `.buttonStyle(.qr(.primary, size: .large))`.
@@ -130,11 +147,11 @@ public struct PrimaryButton: View {
                 if isLoading {
                     ProgressView().tint(.qr.onAccent)
                 } else if let icon {
-                    icon.view(size: size == .small ? 16 : 20, weight: .bold)
+                    icon.view(size: size.iconSize, weight: .bold)
                 }
                 Text(title)
             }
-            .frame(maxWidth: size == .large ? .infinity : nil)
+            .frame(maxWidth: size.fillsWidth ? .infinity : nil)
         }
         .buttonStyle(.qr(.primary, size: size))
         .disabled(isLoading)
@@ -182,6 +199,7 @@ public struct QuickrIconButton: View {
 
 #Preview("Buttons") {
     VStack(spacing: 12) {
+        PrimaryButton("Lap", icon: .flag, size: .hero) {}
         PrimaryButton("Save", icon: .check) {}
         HStack {
             Button("Small") {}.buttonStyle(.qr(.primary, size: .small))
