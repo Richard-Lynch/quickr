@@ -75,8 +75,10 @@ public struct QuickrButtonStyle: ButtonStyle {
         let pressed = configuration.isPressed
         configuration.label
             .font(size.font)
-            // One line, except at accessibility sizes, where a label wraps rather than clips.
-            .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+            // One line, except at accessibility sizes, where a label wraps rather than clips. The
+            // hero takes two lines at every size and grows with them (active-surfaces.md §2.3).
+            .lineLimit(size == .hero ? 2 : typeSize.isAccessibilitySize ? 3 : 1)
+            .minimumScaleFactor(size == .hero ? 0.8 : 1)
             .multilineTextAlignment(.center)
             .padding(.horizontal, size.padding)
             .frame(minHeight: size.height)
