@@ -10,3 +10,14 @@ I did not find a definite `FlowRow` measurement or placement defect from the cod
 1. **Medium, no-colour topics show a header: stands (justified).** §5 puts the tag chips in the topic header and §6.3 puts the glyph there. Requirement #9 wants the emoji "rendered on every client". If §4.3 hid the header for every topic without a colour, icon-only and tags-only topics would never show their emoji or chips. So §4.3 is read as "the default theme draws no extra accent chrome". A topic with no appearance at all (nil, or `.empty`) gets no header and looks exactly like `main` (`noAppearanceShowsNoHeader`, `topicWithoutAppearanceShowsNoHeader`). A topic without a colour gets no tint rule and no initial on an accent circle (`noColourDrawsNoAccentChrome`). The spec clarification is proposed to the lead.
 2. **Medium, observation not keyed by `ref`: fixed.** The `.task` id is now `HeaderKey(binding:ref:)`, so a new ref restarts the observation, and `observeTopic` resets `topic` to nil first.
 3. **Low, header chip ids are not §7's: stands (justified).** §7's `topic.tags` / `topic.tags.<i>` belong to the editor (`AppearanceEditorView`). The brief asked for header ids "in the same style". `topic.header.tags.<i>` follows that style and doesn't collide with the editor's ids if both are on screen in one UI test. M3-UITEST keys on `TopicHeaderContent.tagIdentifier(_:)`.
+
+## Round 2 (Codex, on the fixed diff)
+
+**One finding remains:**
+
+- **Medium — No-colour topics still change the default UI.** [TopicHeader.swift](/Users/richie/code/quickr-worktrees/t2-m3a-i3render/ios/QuickrKit/Sources/QuickrUI/Topics/TopicHeader.swift:23) creates a header for icon-only and tags-only appearances. The proposed interpretation of §4.3 limits its guarantee to accent chrome, but the spec says a topic without a colour “looks exactly as it does on `main`.” Sections 5 and 6.3 create a real conflict with that wording; they do not establish the proposed exception. The resolution remains dependent on the requested spec clarification.
+
+The observation fix keys the task on both session binding and topic reference and resets the resolved topic when it restarts. The identifier justification also holds: §7 specifies `topic.tags` identifiers for the appearance editor, not the header.
+
+I did not run tests or verify the iOS layout and accessibility tree on a simulator.
+**Resolution:** finding 2 is confirmed fixed and the finding 3 justification is accepted. Finding 1 is a real conflict between §4.3 and §5/§6.3. It goes to the lead as a spec clarification; the code keeps the reading above until the lead rules.
