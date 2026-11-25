@@ -390,12 +390,15 @@ async def test_last_entry_is_the_latest_counted_entry(client: httpx.AsyncClient)
     assert (await client.get("/topics")).json()["items"][0]["last_entry"] == high
     assert high["answers"]  # the whole EntryOut, answers included
 
-    # The feed's topic item carries it too (derived; not re-sent when entries change).
+    # The feed's topic item carries it too.
     feed = (await client.get("/changes", params={"after": 0})).json()
     topic_items = [i for i in feed["items"] if i["kind"] == "topic"]
     assert [i["topic"]["last_entry"] for i in topic_items] == [high]
 
-    # It follows deletes, back to null.
+    # It follows updates and deletes, back to null...
+    r = await client.patch(f"/entries/{HIGH_ID}", json={"notes": "edited"})
+    assert r.status_code == 200, r.text
+    assert (await client.get("/topics/sleep-log")).json()["last_entry"] == r.json()
     assert (await client.delete(f"/entries/{HIGH_ID}")).status_code == 204
     assert (await client.get("/topics/sleep-log")).json()["last_entry"] == low
     assert (await client.delete(f"/entries/{LOW_ID}")).status_code == 204
@@ -403,6 +406,10 @@ async def test_last_entry_is_the_latest_counted_entry(client: httpx.AsyncClient)
     for entry in (await client.get("/topics/sleep-log/entries")).json()["items"]:
         assert (await client.delete(f"/entries/{entry['id']}")).status_code == 204
     assert (await client.get("/topics/sleep-log")).json()["last_entry"] is None
+    # ...but, like entry_count, it is derived: none of that re-sent the topic through the feed.
+    tail = (await client.get("/changes", params={"after": feed["head"]})).json()
+    assert tail["items"] == []  # the edited entry was deleted later on the page: latest seq wins
+    assert sorted(d["kind"] for d in tail["deleted"]) == ["entry"] * 4
 
 
 async def test_list_topics_loads_last_entries_without_a_query_per_topic(client: httpx.AsyncClient) -> None:
