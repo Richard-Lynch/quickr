@@ -20,8 +20,8 @@ into `feat/ios-app` (#9 48fa566, #10 21a6c2d, #11 e73e01f, follow-ups #19
 32d70b8), and **`feat/ios-app` merged into `main`** (#6, 1ca2b94, 2026-10-22).
 Since then work goes straight into `main` by squash PR: **timers v0.3.0** (#72,
 0d7ba41, 2026-10-26) and **client versions v0.3.1** (#93, 396be80, 2026-10-28).
-M4–M7's simulator parts shipped with M3; what still needs the phone (checkpoint
-D, M3-DEV, M4-DEV, the M7 regression) is open. The log was last written on
+M4–M7's simulator parts shipped in M2 and M3 (#10, #11); what still needs the
+phone (checkpoint D, M3-DEV, M4-DEV, the M7 regression) is open. The log was last written on
 2026-10-21; the 2026-11-24 entry fills the gap.
 
 **For the user:** `ios/project.yml` still says `MARKETING_VERSION: "0.1.0"`
@@ -38,7 +38,7 @@ simulator-heavy at once. Milestones were stacked (squash-merge, then
 
 |                     |                                                                                                                                                                |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Active milestone    | **None of M0–M7 is open.** M0–M3 merged (#8, #9, #10, #11, #19) and reached `main` in #6 (2026-10-22). Timers (v0.3.0, #72) and CV (v0.3.1, #93) shipped on `main` afterwards. |
+| Active milestone    | **No milestone branch is open**; M3–M7's open items are device validation. M0–M3 merged (#8, #9, #10, #11, #19) and reached `main` in #6 (2026-10-22). Timers (v0.3.0, #72) and CV (v0.3.1, #93) shipped on `main` afterwards. |
 | Running             | Nothing tracked here (2026-11-24: docs refresh only). The integration branch is `main`; `feat/ios-app` is left at 32d70b8 (#19) and is no longer used.                         |
 | Waiting on the user | Device validation on the phone (checkpoint D, M3-DEV, M4-DEV, the M7 regression, timers §13.5) with TestFlight 20261028.170408; the `MARKETING_VERSION` bump (see above).      |
 | Next up             | Device day per [demo/DEVICE-DAY.md](demo/DEVICE-DAY.md); the backlog below; the `timers-followup` and `cv-followup` issues on GitHub.                                          |
@@ -77,7 +77,7 @@ Each one is answered for now with the default shown below, marked provisional.
 The user can override any of them.
 
 - [x] Q1: milestone PRs merge without waiting for review. **Yes.**
-- [x] Q2: lock-screen logging without Face ID. **Yes, if it's clean.** Verified at checkpoint D.
+- [x] Q2: lock-screen logging without Face ID. **Yes, if it's clean.** To verify at checkpoint D (not run as of 2026-11-24).
 - [x] Q3: Siri opens the record screen or runs Repeat-last for multi-question topics. **Yes, and better:** research `04-siri.md` shows multi-question topics CAN be logged by voice on iOS 26 (`LogTopicIntent`: field-by-field turns plus an interactive confirmation card; one-sentence parsing on Apple Intelligence phones). Plan and DAG updated.
 - [x] Q4: **3 most-used + "More…"** (opens the app) for 5–6 options, with the truncation stated in the body.
 
@@ -192,7 +192,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 - A11Y T5: at AX XXXL the toast's single HStack (text, Undo, ✕) squeezes the text column; stack the actions under the text at AX sizes (ToastView.swift).
 - A11Y SE6: each licence is one huge Text element; split it into paragraphs so VoiceOver can move through it (LicencesView.swift).
 - A11Y SE2 → superseded by AUTOFILL: on the device, the token fields fill from 1Password for quickr.bahumia.com and a hand-typed token is offered for saving; closing the sheet saves nothing in quickR (DEVICE-DAY §6, "The token fields work with Password AutoFill"). Needs the AASA Access bypass (H8, cloudflare-access.md §7).
-- H8: Cloudflare Bypass app for quickr.bahumia.com/.well-known/apple-app-site-association (IaaC); required for AutoFill.
+- H8: Cloudflare Bypass app for quickr.bahumia.com/.well-known/apple-app-site-association (IaaC); required for AutoFill. Applied 2026-10-21 (log, 18:10).
 - A11Y: the Home due-pulse doesn't stop if Reduce Motion is switched on mid-animation; stop or restart it when the setting changes (HomeView.swift).
 - UIT-6 stall (not reproduced): once, on iOS 27 under load from other simulators, the app never went idle on the record screen just after a topic was created. Every XCUITest action waited out the 120 s "wait for app to idle" ("App animations complete notification not received", 4×), so TopicLifecycleUITests overran its 5 min allowance; the screen looked static. Not reproduced in 6 further runs (test times 102–129 s), with the app's log stream and periodic `sample` showing nothing stuck. Ruled out: the A11Y shared code (not in that build), PerfProbe (passive), and the full keyboard on the int field (by design: no minimum means negatives are allowed). If it recurs, sample the app during the stall and check the record screen's `.task`s and any repeating animation.
 - Tooling: `make ios-uitest-e2e` doesn't pass the IOS_SIM_DEFAULTED marker, so a plain run picks the shared base device rather than the worktree clone (it still counts toward the cap). Extend simcap's per-target defaulting to it.

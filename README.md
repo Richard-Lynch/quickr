@@ -456,8 +456,8 @@ GitHub Actions (`.github/workflows/`) runs on every PR and on every push to
   the server side changed, each listed build's recorded requests replayed
   through this backend, plus the build's own wire suites on macOS (non-draft PRs
   only). The gate fails a draft-time run rather than passing on skips.
-- **`ios.yml` → `ios gate`**: path-gated on `ios/`, `shared/fixtures/`, the
-  `Makefile` and itself; `swift test` for `ios/QuickrKit` (plus the real-time
+- **`ios.yml` → `ios gate`**: on PRs, path-gated on `ios/`, `shared/fixtures/`,
+  the `Makefile` and itself (every push to `main` runs it all); `swift test` for `ios/QuickrKit` (plus the real-time
   and lifecycle tests in their own processes) and `make ios-check-ci` (build +
   Unit plan on an iOS 26.x simulator, no signing). The gate aggregates both.
 

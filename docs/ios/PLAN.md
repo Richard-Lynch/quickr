@@ -111,7 +111,8 @@ compat/                       supported-clients.json and the compat gate's scrip
   for v0.3.0, `cv/*` for v0.3.1); a milestone's own branch (`feat/timers`,
   `feat/client-versions`) collects them and lands in one PR. The per-worktree
   `.env` isolation in the "(v2)" bullet above was **never implemented**:
-  `docker-compose.yml` hard-codes `name: quickr`, so every worktree shares one
+  `docker-compose.yml` sets `name: quickr` and the Makefile passes no
+  `COMPOSE_PROJECT_NAME` or `-p`, so every worktree's `make up` acts on the one
   compose project. Never run `make up` or `make down` from a worktree. What is
   isolated: test databases (`quickr_test_<dir>_<hash8>`, see
   `backend/tools/test_database.py`) and simulators (`make ios-sim-clone` makes
