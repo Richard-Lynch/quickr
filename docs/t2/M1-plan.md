@@ -1,6 +1,6 @@
 # Plan: M1 · timers v2
 
-**Status:** draft (revision 1, 2026-11-25). **Spec:**
+**Status:** draft (revision 2, 2026-11-25, after review round 1). **Spec:**
 [timers2.md](../specs/timers2.md). **Programme plan:**
 [t2-plan.md](../specs/t2-plan.md); its scope guard, out-of-scope list, merge
 ritual, seams and ownership table, simulator budget, effort legend and open
@@ -44,14 +44,17 @@ the M1↔M2 seam is active-surfaces.md §1.
   `min_client_level.ios = .web = 2`; `make api-level`;
   `compat/supported-clients.json`: `"clients": []` (both listed builds are below
   the minimum) and `LiveActivityVectorTests` appended to `suites` (issue #111);
-  `compat/openapi-break-approvals.txt`: a header comment for T2 (M1 WPs add
-  their oasdiff lines under it, each commented "T2 M1, api_level 2");
   `docs/ios/specs/compatibility.md` dated note under §1; `make vectors` (the
   `getClientVersions` fixture).
 - **Areas:** `shared/api-level.json`, `compat/`, generated level files,
   `docs/ios/specs/compatibility.md`,
   `shared/fixtures/api/getClientVersions.json`.
 - **Depends on:** nothing.
+- **Distribution constraint (review E1):** this bump is never distributed before
+  T2-RELEASE: no TestFlight build and no server deploy from `feat/t2` or any WP
+  branch; CI builds are not installed; the orchestrator owns tags (`v0.4.0-rc1`
+  when M1 merges is the first). No `compat/openapi-break-approvals.txt` lines:
+  with `clients: []` and the bump the gate passes without them (E6).
 - **Acceptance:** `python3 compat/api_level.py bumped v0.3.1` succeeds;
   `python3 compat/client_fixtures.py shas` prints nothing; the `api level`,
   `old clients` and `openapi breaking` jobs are green on the PR;
@@ -114,16 +117,15 @@ the M1↔M2 seam is active-surfaces.md §1.
   `QuickrCore/Models/ServerInfo.swift` `Limits.serverDefaults`,
   `shared/fixtures/api/getLimits.json`. `openapi.json`, `make client`.
 - **Areas:** `backend/alembic/versions/`, `backend/app/models.py`,
-  `backend/app/schemas/{questions,limits,api}.py`, the three limits mirrors,
-  `compat/openapi-break-approvals.txt`.
+  `backend/app/schemas/{questions,limits,api}.py`, the three limits mirrors.
 - **Depends on:** M1-LEVEL, M1-EXPR.
 - **Acceptance:** `tests/test_migrations.py` applies and downgrades on a seeded
-  database (the enum rebuild on downgrade is tested); after upgrade no
-  `deleted_ids` row remains for a stopped run; a v1 topic version's `timer`
-  reads back as v2 with `laps: []`, `variables: []`, `alerts: []`; 422 paths
-  such as `laps.1.alerts.0.at`, `laps.2.key` (duplicate of a step key),
-  `variables.0.name`; `GET /limits` carries the new rows and the three mirrors
-  equal it (timers2.md T26, T28).
+  database (the downgrade leaves the enum values in place and says so in one
+  sentence; review E6); after upgrade no `deleted_ids` row remains for a stopped
+  run; a v1 topic version's `timer` reads back as v2 with `laps: []`,
+  `variables: []`, `alerts: []`; 422 paths such as `laps.1.alerts.0.at`,
+  `laps.2.key` (duplicate of a step key), `variables.0.name`; `GET /limits`
+  carries the new rows and the three mirrors equal it (timers2.md T26, T28).
 - **Tests:** migration round trip; `tests/test_timer_schema.py` (new) for every
   validation rule and the normalisation; limits fixture drift. The
   `builder-vectors.json` `timers[]` v2 cases are generated in I1-BUILDER (same
@@ -156,9 +158,9 @@ the M1↔M2 seam is active-surfaces.md §1.
   of timers2.md §6 plus `reopen-not-stopped`, `reopen-stale`,
   `reopen-after-discard`, `remove-twice`, `remove-step-no-target`,
   `remove-gap-pause`, `remove-lap-flips-types`, `seg-guard-after-removed-lap`,
-  `reopen-waits-for-start`; `test_timing_stats_vectors.py` `GENERATOR_VERSION 3`
-  with `versions: {"1": timer}` and typed cases (`tiktok-three-runs`,
-  `renamed-laps`, `mixed-untyped`). (This WP is the brief's "M1-STATS".)
+  `test_timing_stats_vectors.py` `GENERATOR_VERSION 3` with
+  `versions: {"1": timer}` and typed cases (`tiktok-three-runs`, `renamed-laps`,
+  `mixed-untyped`). (This WP is the brief's "M1-STATS".)
 - **Areas:** `backend/app/services/run_fold.py`, `timing_stats.py`,
   `backend/tests/`, `shared/fixtures/run-fold-vectors.json`,
   `timing-stats-vectors.json`, `shared/fixtures/README.md`.
@@ -174,6 +176,18 @@ the M1↔M2 seam is active-surfaces.md §1.
 - **Tests:** a unit test per new rule; the property test; vector drift and the
   coverage test (`test_run_fold_vectors.py:458` style) listing every case name
   the spec requires.
+- **Review round 1:** the vector case list is **timers2.md §12.1** (one list,
+  referenced, not copied); it includes A1
+  `stop-reopen-stop-reopen-discard-discard` (`open_reopen` tracking), A2
+  `reopen-while-paused-ends-pause` and
+  `reopen-gap-removed-user-pause-inside-gap`, A3's `deleted` effect on a removed
+  reopened stop, A4's complete §6.5 late-lap timing, A10's reserved variable
+  names. `reopen-waits-for-start` is an outbox test (F1-OUTBOX, I1-WRITES), not
+  a fold vector. The property test generates arrival orders that keep the
+  relative order of terminals, discards, reopens and removes with respect to
+  their targets and asserts the same state; `next/lap/skip/pause/resume` commute
+  (A6). No 7-day bound on `remove` (A5): its only temporal rule is
+  `at > target.at`.
 - **DoD:** the Acceptance above holds, proven by a unit test per new rule; the
   property test; vector drift and the coverage test
   (`test_run_fold_vectors.py:458` style) listing every case name the spec
@@ -225,6 +239,17 @@ the M1↔M2 seam is active-surfaces.md §1.
 - **Tests:** as listed, in `test_runs_reopen.py` (new) and the updated
   `test_feed_runs.py`; T2/T3-style concurrency for two reopens of one stop (one
   applied, one `not_stopped`).
+- **Review round 1:** `Timing` gains ids, additive (A7): `terminal_id`,
+  `TimingSegment.event_id` (the event that opened the segment; null for the
+  first), `TimingPause.id` (a gap pause carries the stop id); every `api/*.json`
+  fixture with timing regenerates. `RunEventIn.target` MAY be null for `reopen`
+  only: the server resolves it to the run's current terminal and stores the
+  resolved id in `target_id` (the fold always sees an explicit target).
+  `changes.py` documents the two kinds of run deletion (B1): `closed` (log row
+  only, reversible by `reopen`) vs `deleted` (tombstoned, final: discard, topic
+  delete); a `(run, delete)` row is emitted when the run row is closed or
+  missing-and-tombstoned. Tests: null-target reopen resolves; a wrong explicit
+  target is `not_stopped`; T27 cuts with the two kinds.
 - **DoD:** the Acceptance above holds, proven by as listed, in
   `test_runs_reopen.py` (new) and the updated `test_feed_runs.py`; T2/T3-style
   concurrency for two reopens of one stop (one applied, one `not_stopped`).
@@ -233,18 +258,19 @@ the M1↔M2 seam is active-surfaces.md §1.
   PR; migration WPs paste the `alembic upgrade head` and `downgrade` output; the
   Codex review file with each finding resolved or justified; the CI run link.
 
-### M1-LA-STATE · Live Activity content state additions · be + host · M · A
+### M1-LA-STATE · Live Activity content state additions · be + host · M · A · shared with M2
 
 - **Scope:** `push/live_activity.py` `content_state` gains `lap_type`,
   `next_label` for laps, `lap_count`, `alert_at` (seconds, server clock, from
-  active time; null while paused or when none remain), `alert_label`,
-  `terminal_id`; `CONTENT_STATE_VERSION` stays 1. Generator
-  `test_live_activity_vectors.py` `GENERATOR_VERSION 3`, `step_sets` →
-  `timer_sets`, new cases `update_tiktok_lap`, `update_alert_pending`,
-  `update_alert_paused`, `start_renamed_laps`, `update_reopened`. Minimal Swift:
-  the optional fields on `RunActivityState` in
-  `QuickrCore/Runs/RunActivity.swift` so `LiveActivityVectorTests` round-trips;
-  `RunActivityContent.state(...)` fills them from the local fold.
+  active time; null while paused or when none remain), `alert_label`; **no
+  `terminal_id`** (review C3: Resume is never offered from the activity);
+  `CONTENT_STATE_VERSION` stays 1. Generator `test_live_activity_vectors.py`
+  `GENERATOR_VERSION 3`, `step_sets` → `timer_sets`, new cases
+  `update_tiktok_lap`, `update_alert_pending`, `update_alert_paused`,
+  `start_renamed_laps`, `update_reopened`. Minimal Swift: the optional fields on
+  `RunActivityState` in `QuickrCore/Runs/RunActivity.swift` so
+  `LiveActivityVectorTests` round-trips; `RunActivityContent.state(...)` fills
+  them from the local fold.
 - **Areas:** `backend/app/services/push/live_activity.py`,
   `backend/tests/test_live_activity_vectors.py`,
   `shared/fixtures/live-activity-vectors.json`,
@@ -258,6 +284,11 @@ the M1↔M2 seam is active-surfaces.md §1.
   state.
 - **Tests:** generator cases; `LiveActivityVectorTests`; a unit test for
   `alert_at` with paused overlap.
+- **Review round 1:** this WP's branch is merged into `t2/m2` as a shared WP
+  branch (E5): I2-LA depends on it hard. The size check is honest (A10): the
+  longest label, next_label, alert_label and topic name together; M3 re-runs the
+  size vector with `attributes.appearance` set (C4, appearance.md adds the
+  case).
 - **DoD:** the Acceptance above holds, proven by generator cases;
   `LiveActivityVectorTests`; a unit test for `alert_at` with paused overlap.
   Evidence in the PR: `cd backend && uv run pytest -q <the files above>` pass
@@ -304,14 +335,17 @@ the M1↔M2 seam is active-surfaces.md §1.
   is a lap or steps are exhausted; else Next; Stop secondary; Pause/Resume
   secondary; Skip and Discard overflow), `headline(run)`,
   `alertLine(run:now:) -> String?` (nil until I1-CORE),
-  `resumable(entry:now:) -> Bool` (false until I1-WRITES). **The Auto/primary
-  rule is M1-ACTIONS's:** primary = Lap (labelled with the next lap type) when
-  `timer.laps` is non-empty, else the v1 rule; `RunWrites.auto` (Controls, Siri,
-  Action button) and the PWA auto path follow `actions(...).primary`, so M2
-  never patches `RunWrites.swift`. PWA `src/components/runs/model.ts`: the same
-  `RunAction` type and `actions(view, timer, now)`. The `reopen`/`revert` kinds
-  exist in the enum from day one so M2's role-based rendering needs no later
-  layout edit.
+  `resumable(entry:now:) -> Bool` (false until I1-WRITES). **One primary rule,
+  timers2.md §10 verbatim (review A9):** on-screen primary = Lap (labelled with
+  the next lap type when typed) when the open segment is a lap or no named step
+  remains, else Next; Stop is never primary. Auto is separate: `timer.laps`
+  non-empty → Auto = the primary; laps empty → the v1 Auto (… → Stop).
+  `RunWrites.auto` (Controls, Siri, Action button) and the PWA auto path
+  implement it here, so M2 never patches `RunWrites.swift`. Signature (D8):
+  `actions(_ state: RunState, status: RunStatus, timer: TopicTimer, now:) -> [RunAction]`,
+  the same in `model.ts`. PWA `src/components/runs/model.ts`: the same
+  `RunAction` type. The `reopen`/`revert` kinds exist in the enum from day one
+  so M2's role-based rendering needs no later layout edit.
 - **Areas:** `QuickrCore/Runs/RunPresentation.swift`,
   `QuickrCoreTests/Runs/RunPresentationTests.swift`,
   `frontend/src/components/runs/model.ts`, `model.test.ts`.
@@ -347,9 +381,20 @@ the M1↔M2 seam is active-surfaces.md §1.
 - **Areas:** `ios/project.yml`, `.github/workflows/testflight.yml` (read only
   unless the profile must change), `docs/t2/device-checklist.md`.
 - **Depends on:** nothing.
-- **Acceptance:** a TestFlight-style archive signs with the entitlement
-  (`codesign -d --entitlements :- <app>` shows it), or the `.active` fallback is
-  in place with the portal step documented and the orchestrator informed.
+- **Acceptance (review E2):** (1) static: the entitlement is in the app's
+  `.entitlements` and `ios/project.yml`, and `ios/scripts/testflight.sh dry_run`
+  (the workflow's archive path) archives with it
+  (`codesign -d --entitlements :- <app>` shows the key); (2) real proof: the
+  orchestrator tags `v0.4.0-rc1` from `feat/t2` only after M1 has merged there
+  with all five checks green; CI publishes ghcr images and a TestFlight build,
+  nothing deploys the server; the build installs and a lap alert sounds under a
+  Focus on the device (checklist item); against the level-1 server the rc build
+  shows the non-blocking "server is older" note and T2 features do not work
+  (expected); the bot PR `compat/testflight-<build>` is merged into `main` as
+  usual; (3) fallback: if rc1's signing fails on the entitlement, flip the one
+  constant (`RunAlerts.interruptionLevel = .active`) in a small PR on `feat/t2`,
+  record the Apple portal step on the device checklist, and tell the
+  orchestrator.
 - **Tests:** the archive/signing log in the PR; `make check-ios` still green
   (the entitlement changes no test).
 - **DoD:** the Acceptance above holds, proven by the signing log and the
@@ -380,11 +425,13 @@ the M1↔M2 seam is active-surfaces.md §1.
   `terminal_id` or the chosen event id, `makesEntry` for re-stop),
   `localView.ts` (`overlay` lap labelling from the version's timer, `statusOf`
   for a reopened run, optimistic entry hidden while its run is open: OQ-14),
-  `kinds.ts` (`waitsFor`: reopen/remove wait for the start; no new rules),
-  `notices.ts` (`reverted`, `deleted`, `not_stopped`, `no_target`),
-  `src/api/runs.ts` revision-aware closed-run tombstones (a listed run with a
-  higher revision than the one that closed wins), `useRuns.ts`,
-  `src/test/fakeRunServer.ts` (reopen/remove, another device's reopen).
+  `kinds.ts` (`waitsFor`: reopen/remove wait for the run's start **and** for the
+  queued item whose id equals their `target`; K6 MUST NOT apply when the run's
+  queued items contain a `reopen`, A8), `notices.ts` (`reverted`, `deleted`,
+  `not_stopped`, `no_target`), `src/api/runs.ts` revision-aware closed-run
+  tombstones (a listed run with a higher revision than the one that closed
+  wins), `useRuns.ts`, `src/test/fakeRunServer.ts` (reopen/remove, another
+  device's reopen).
 - **Areas:** `frontend/src/lib/runs/`, `src/lib/outbox/kinds.ts`,
   `src/api/runs.ts`, `src/test/fakeRunServer.ts`.
 - **Depends on:** F1-CORE, M1-RUNS.
@@ -396,6 +443,16 @@ the M1↔M2 seam is active-surfaces.md §1.
   `classifyStatus` parity test unchanged.
 - **Tests:** `actions.test.ts`, `localView.test.ts`, `runEvent.test.ts`,
   `notices.test.ts`, `runs.test.ts` (cache) with the new cases.
+- **Review round 1:** `localView.ts` projects a run in state "resuming" for a
+  `reopen`/`remove` enqueued from an entry with no local run row (A7): closed
+  segments = the entry's timing segments, status running, the open segment
+  continues the last one from `reopen.at`; the UI may show "Resuming…" without
+  controls until the ack. `targetOf(reopen)` reads `entry.timing.terminal_id`;
+  pause/lap removes read `TimingPause.id` / `TimingSegment.event_id`.
+  `src/api/runs.ts` adds the ack rule of B2 (an ack upsert applies iff
+  `revision > marker.revision` and the acked event is an applied `reopen`).
+  Tests: `k6-not-on-revert` (A8), `reopen-waits-for-start`,
+  `reopen-waits-for-target`, `resuming-projection`.
 - **DoD:** the Acceptance above holds, proven by `actions.test.ts`,
   `localView.test.ts`, `runEvent.test.ts`, `notices.test.ts`, `runs.test.ts`
   (cache) with the new cases. Evidence in the PR:
@@ -505,6 +562,16 @@ the M1↔M2 seam is active-surfaces.md §1.
   migration drops only run tombstones; the goldens validate in pytest (G2).
 - **Tests:** `RunSyncTests` (new cases), a `StoreSchema` migration test,
   `RunOverlayFoldTests`, `RequestGoldenTests`.
+- **Review round 1 (B2):** iOS keeps a **non-permanent, revision-aware marker**
+  instead of a tombstone for stop-closed runs: table
+  `run_closed(id, revision, closed_at)`; `t2m1_run_tombstones` drops the `run`
+  tombstones and creates the table. Apply rules: a feed upsert for a marked id
+  applies iff `revision > marker.revision`; an ack upsert applies iff
+  `revision > marker.revision` AND the acked event is an applied `reopen`;
+  applying clears the marker; markers prune after 30 days; discard and topic
+  delete still tombstone. Tests (R14): a delayed older ack after close never
+  resurrects; feed delete then reopen upsert across two pages; bootstrap with a
+  marked id; prune.
 - **DoD:** the Acceptance above holds, proven by `RunSyncTests` (new cases), a
   `StoreSchema` migration test, `RunOverlayFoldTests`, `RequestGoldenTests`.
   Evidence in the PR:
@@ -535,6 +602,14 @@ the M1↔M2 seam is active-surfaces.md §1.
   and false after.
 - **Tests:** `RunActionsTests`, `RunLocalViewTests`, `RunOutboxTests`,
   `RunNoticeTextTests`.
+- **Review round 1:** `RunWrites.reopen` from an entry takes the target from
+  `entry.timing.terminal_id` and `remove` from `TimingPause.id` /
+  `TimingSegment.event_id` (A7); with no local run row the overlay projects the
+  "resuming" run (closed segments from the entry's timing, open segment from
+  `reopen.at`) and `RunPresentation.actions` returns no controls for it until
+  the ack. K6 MUST NOT drop a never-sent run whose queued items contain a
+  `reopen` (A8): test `k6-not-on-revert` in `RunOutboxTests` (R16);
+  `reopen-waits-for-start` and `reopen-waits-for-target` live here too.
 - **DoD:** the Acceptance above holds, proven by `RunActionsTests`,
   `RunLocalViewTests`, `RunOutboxTests`, `RunNoticeTextTests`. Evidence in the
   PR: `cd ios/QuickrKit && swift test --filter <the suites above>` summary lines
@@ -583,9 +658,9 @@ the M1↔M2 seam is active-surfaces.md §1.
     `quickr.alert.{run_id}.{seg}.{alert.key}`; thread `topic-{id}`; body
     `"{alert.label} · {segment label}"`, title topic name;
     `quickr.kind = alert`), `RunAlertScheduler.swift` (diff against pending on
-    every local run change, on resume from background, after a Live Activity
-    push updates the store; cancel all for a run on stop/discard),
-    `NotificationCenterProtocol.swift`
+    every local run change, on the app becoming active, and after sync applies a
+    page (review C2: a Live Activity push runs no app code); cancel all for a
+    run on stop/discard), `NotificationCenterProtocol.swift`
     (`LocalNotificationRequest.interruptionLevel`, `fireAt: Date`, backward
     compatible), `SystemNotificationCenter.swift` (interval trigger,
     `.timeSensitive`, OQ-6), `QuickrTestSupport/Fakes.swift`,
@@ -607,6 +682,13 @@ the M1↔M2 seam is active-surfaces.md §1.
   per run; the fake centre sees `interruptionLevel = .timeSensitive`.
 - **Tests:** `RunAlertPlanTests`, `RunAlertSchedulerTests` (fake centre),
   `NotificationCenterProtocolTests` for the compatible request shape.
+- **Review round 1 (C1):** the scheduler compares the **full desired request**
+  (identifier + `fireAt` + content) with the pending set and replaces a request
+  whose fire time or content changed, not only identifier differences. Tests:
+  pause then resume shifts `fireAt` under the same identifier and the pending
+  request is replaced; a corrected alert time after a version publish is
+  replaced; the interruption level is read from the single constant I1-SIGNING
+  owns.
 - **DoD:** the Acceptance above holds, proven by `RunAlertPlanTests`,
   `RunAlertSchedulerTests` (fake centre), `NotificationCenterProtocolTests` for
   the compatible request shape. Evidence in the PR:

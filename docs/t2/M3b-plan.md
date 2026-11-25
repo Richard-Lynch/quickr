@@ -1,6 +1,6 @@
 # Plan: M3b · photos (appearance phase B)
 
-**Status:** draft (revision 1, 2026-11-25). **Spec:**
+**Status:** draft (revision 2, 2026-11-25, after review round 1). **Spec:**
 [appearance.md](../specs/appearance.md). **Programme plan:**
 [t2-plan.md](../specs/t2-plan.md); its scope guard, out-of-scope list, merge
 ritual, seams and ownership table, simulator budget, effort legend and open
@@ -64,6 +64,16 @@ merged to `feat/t2`.
   rotation, sizes, etag stability, 413/415, ETag/304, delete cleanup) with a
   temp media dir; `test_identity.py` `_mutations` gains the upload and delete
   preconditions; migration round trip.
+- **Review round 1 (D1, D2):** cleanup is a **GC, not an eager delete**: files
+  are content-addressed (`{etag}.{size}.jpg`, etag = sha256 of the original);
+  the upload writes files before its writer transaction and only the writer
+  publishes `photo_etag`; a scheduler tick every 10 min deletes files whose etag
+  is not the topic's current one and whose mtime is older than 1 h, and
+  directories of topics that no longer exist older than 1 h; topic delete never
+  touches files inside the writer. `DELETE` is a no-op (204, no revision bump,
+  no log) when `photo_etag` is null. Tests: A→B→A re-upload before the tick
+  keeps A; crash between file write and writer leaves an orphan the tick
+  removes; retry after a lost upload response is idempotent; repeated DELETE.
 - **DoD:** the Acceptance above holds, proven by `test_photos.py` (new,
   appearance.md §16: HEIC/PNG/JPEG, EXIF rotation, sizes, etag stability,
   413/415, ETag/304, delete cleanup) with a temp media dir; `test_identity.py`
@@ -100,6 +110,9 @@ merged to `feat/t2`.
 - **Acceptance:** hit/miss/304/etag-change/evict with a fake transport; a widget
   process can read a cached thumb by `(server_id, topic_id)`.
 - **Tests:** `PhotoCacheTests` (new).
+- **Review round 1 (D8, E3):** the `ServerLayer` topic-cascade change (evict the
+  topic's cached photos) is a patch to M1's file owner; the migration lives in
+  `StoreSchema+T2M3B.swift`, separate from M3a's file.
 - **DoD:** the Acceptance above holds, proven by `PhotoCacheTests` (new).
   Evidence in the PR:
   `cd ios/QuickrKit && swift test --filter <the suites above>` summary lines

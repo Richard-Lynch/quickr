@@ -1,7 +1,7 @@
 # Plan: programme T2 (timers v2, active surfaces, appearance, content display)
 
-**Status:** draft (revision 1, 2026-11-25). **Specs:** [timers2.md](timers2.md)
-(M1), [active-surfaces.md](active-surfaces.md) (M2),
+**Status:** draft (revision 2, 2026-11-25, after review round 1). **Specs:**
+[timers2.md](timers2.md) (M1), [active-surfaces.md](active-surfaces.md) (M2),
 [appearance.md](appearance.md) (M3a and M3b),
 [content-display.md](content-display.md) (M4). **Branching** (team rules):
 integration branch `feat/t2` from `origin/main`; milestone branches `t2/m<N>`
@@ -129,7 +129,7 @@ The orchestrator's M1–M4 stand. M3 is run as two plans, **M3a** (appearance
 phase A) and **M3b** (photos), in this document and as two milestone branches
 (`t2/m3a`, `t2/m3b`).
 
-- **M1 stays one milestone** although it is the largest (20 WPs). Splitting it
+- **M1 stays one milestone** although it is the largest (21 WPs). Splitting it
   by surface (server+ports vs builder+alerts) would put the `api_level` bump,
   the fold v4 vector stack and the builder vector stack across two milestone
   branches and two reviews, with the second milestone unable to be green until
@@ -183,6 +183,7 @@ flowchart LR
 | ------------------------------------------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | M0 → M1, M2, M3a, M4                                   | hard | All four start when the specs in this PR are approved. M3b starts when M3a has merged to `feat/t2`.                                                                              |
 | M1-ACTIONS → M2 layout WPs                             | hard | The `RunAction` enum stub (first wave of M1) is merged into `t2/m2` as a shared WP branch.                                                                                       |
+| M1-LA-STATE → I2-LA                                    | hard | Shared WP branch into `t2/m2` (E5): `RunActivityDisplay` reads `alertAt`, `lapCount`, `lapType` from the content state, so I2-LA starts when M1-LA-STATE is in `t2/m2`.          |
 | M1-DB → M3-DB                                          | hard | Alembic chain: `f7a4b0c5d326` has `down_revision = "e6f3a9b4c215"`. M3-DB starts when `t2/m1-db` has merged into `t2/m1` and is then merged into `t2/m3a`.                       |
 | M1-FOLD stack → M4-STATS, F4-STATS, I4-STATS           | hard | Lap-type stats consume `timing-stats-vectors.json` v3 and fold v4 `lap_type` (brief §6 "M1-STATS → M4-STATS-LAPS").                                                              |
 | M1-RUNS, F1-OUTBOX, I1-WRITES → F4-ENTRIES, I4-ENTRIES | hard | The Remove and Resume buttons send `remove`/`reopen` (brief §6 "M4-ENTRY-ACTIONS"). In practice these WPs start after M1 merged to `feat/t2`.                                    |
@@ -193,13 +194,14 @@ flowchart LR
 | all milestones → T2-WIRE-I, T2-WIRE-F → tag            | hard | Post-merge wiring on `feat/t2` of the theme, tags filter and summary line into M2-owned surfaces; then the release tag and the device checklist.                                 |
 
 **Shared WP branches.** A WP branch may be merged into a second milestone branch
-when that milestone needs it: M1-ACTIONS → `t2/m2`; M1-DB → `t2/m3a`; the
-M1-FOLD stack → `t2/m4`; M3-TOKENS → `t2/m2`. Rules: merge the WP branch, never
-the milestone branch; never rebase a shared branch; the receiving milestone runs
-the generated-file ritual below right after the merge; the receiving milestone
-merges to `feat/t2` only after the donor milestone did. Anything larger (M4's
-entry actions need I1-WRITES, which drags in most of M1) waits for the donor to
-merge to `feat/t2` and then merges `feat/t2` into the milestone branch.
+when that milestone needs it: M1-ACTIONS and M1-LA-STATE → `t2/m2`; M1-DB →
+`t2/m3a`; the M1-FOLD stack → `t2/m4`; M3-TOKENS → `t2/m2`. Rules: merge the WP
+branch, never the milestone branch; never rebase a shared branch; the receiving
+milestone runs the generated-file ritual below right after the merge; the
+receiving milestone merges to `feat/t2` only after the donor milestone did.
+Anything larger (M4's entry actions need I1-WRITES, which drags in most of M1)
+waits for the donor to merge to `feat/t2` and then merges `feat/t2` into the
+milestone branch.
 
 **Vector stacks.** A WP that changes the shape of an **existing** shared vector
 file (`run-fold-vectors.json` v4, `timing-stats-vectors.json` v3,
@@ -212,7 +214,14 @@ into the base branch, and the base merges into the milestone branch once its CI
 is green, which is when every port is in. New vector files (`timer-expr`,
 `entry-summary`, `appearance`) need no stack: the consumer tests arrive with the
 ports. Additive fields in `live-activity-vectors.json` need only the minimal
-Swift decoder change in the same WP (timers-plan.md "Every WP").
+Swift decoder change in the same WP (timers-plan.md "Every WP"). **One writer
+per existing vector file** (review E3): its generator is changed only by the WP
+named in §Seams (M1-FOLD for run-fold and timing-stats, M1-LA-STATE for
+live-activity, I1-BUILDER for builder, F1-BUILDER for builder-ui, F4-STATS for
+stats-chart); generator changes from other WPs are serialised through that WP's
+branch; after the final merge of a stack the merger regenerates (`make vectors`)
+and runs every consumer (pytest, vitest, `swift test`) before merging to the
+milestone branch.
 
 **Merge ritual for generated files.** After every merge into a milestone branch
 and into `feat/t2`, and after taking a shared WP branch, the merger runs
@@ -237,15 +246,20 @@ committing; never chain `commit -a` after a merge.
 
 Enum additions use `with op.get_context().autocommit_block():` and
 `ADD VALUE IF NOT EXISTS` (`20261024_bb9d821fe436_timed_topics.py:36-38`); their
-downgrade rebuilds the enum and is documented, not pretty. `make test-db-reset`
-after editing a migration in place.
+downgrade leaves the enum values in place (one sentence in the migration says
+so; review E6). `make test-db-reset` after editing a migration in place.
 
 **iOS store migrations.** `QuickrData/Contracts/StoreSchema.swift` is
 append-only. Each milestone registers its migrations in **its own file**
 `StoreSchema+T2M1.swift`, `StoreSchema+T2M3.swift`, `StoreSchema+T2M3B.swift`
-(M2 and M4 have none) with identifiers `t2m1_*`, `t2m3_*`, `t2m3b_*`, and adds
-exactly one line to the registration list. Identifiers are independent: no
-migration reads another milestone's columns.
+(M2 and M4 have none) with identifiers `t2m1_*`, `t2m3_*`, `t2m3b_*`, and the
+registration line in `StoreSchema.swift` is added **at merge time by whoever
+merges** the milestone into `feat/t2` (an integration step of the merge ritual,
+review E4), never on a WP branch. Identifiers are independent: no migration
+reads another milestone's columns, so either merge order is valid; the first iOS
+WP that merges second (I3-STORE if M1 lands first, else I1-SYNC) adds
+`StoreMigrationOrderTests`, which upgrades a fresh store with both registration
+orders and asserts the same schema.
 
 **Shared files.** `ios/App/AppEnvironment.swift`, `ios/App/RootView.swift`,
 `ios/project.yml`, `ios/App/Debug/UITestLaunch.swift` (fake server routes),
@@ -282,9 +296,35 @@ The single release is recommended.
 **Deploy order** (the user self-hosts the server via compose; the server's
 `min_client_level.ios = 2` force-updates every older build the moment it is
 deployed): (1) tag `v0.4.0`; (2) CI publishes the TestFlight build and the user
-**installs it on the phone**; (3) only then deploy the server images. Deploying
-the server first would lock the installed `20261028.170408` build out before its
-replacement exists. The same order heads `docs/t2/device-checklist.md`.
+**installs it on the phone**; (3) only then the server deploy = bump
+`quickr_build` + both image digests in the IaaC repo
+`inventories/host_vars/quickr.yml` (orchestrator-owned, after the user confirms
+the TestFlight build is installed). Deploying the server first would lock the
+installed `20261028.170408` build out before its replacement exists. The same
+order heads `docs/t2/device-checklist.md`.
+
+**Nothing is distributed before T2-RELEASE** (review E1, replacing the "atomic
+landing" ask): no server deploy is made from `feat/t2` or any WP branch; CI
+builds are never installed; the orchestrator alone creates tags. An intermediate
+build that advertises level 2 therefore never meets a server. The one deliberate
+exception is **`v0.4.0-rc1`** (review E2, orchestrator conditions):
+
+- **Who tags it:** the orchestrator, from `feat/t2`, only after M1 has merged
+  there with all five required checks green.
+- **What it does:** CI publishes ghcr images tagged `v0.4.0-rc1` and a
+  TestFlight build. Nothing deploys the server: the homelab pins images by build
+  and digest in a separate IaaC repo, which this programme never edits.
+- **Why:** it is the first real signing proof for the time-sensitive entitlement
+  and gives the user the level-2 build the deploy order needs. Against the
+  still-deployed level-1 server the rc build shows the non-blocking "server is
+  older" note and the T2 features do not work; the device checklist says to
+  ignore rc builds unless asked.
+- **The bot PR** `compat/testflight-<build>` for the rc build is merged into
+  `main` as usual: listing it is harmless, and level-2 builds matter only after
+  the server bump.
+- **Fallback:** if rc1's signing fails on the Time Sensitive entitlement, flip
+  the `.active` constant in a small PR on `feat/t2` and record the Apple portal
+  step on the device checklist.
 
 ## Seams and ownership
 
@@ -312,6 +352,10 @@ run and active surfaces = M2; theme = M3; entries, stats and summary = M4.**
 | PWA `src/components/runs/RunPanel.tsx`, new `RunControls.tsx`, new `controlsLayout.ts`, `RunTile.tsx`, `RunningBar.tsx`, `useRunActions.ts`, `src/pages/TopicsPage.tsx`, `src/components/topics/TopicTile.tsx`, new `ActiveTopicCard.tsx`, `src/pages/topic/RecordPage.tsx` timed branch, `src/components/AppShell.tsx` (M1 patches the `RunAlerts` mount)                                                                                                                                                                                                                                                                                                                                                                                                                  | M2                                                               | consumes `topicStyle`/`TopicGlyph` and `TopicSummaryLine` (T2-WIRE if not yet available)                                                       |
 | PWA `src/lib/appearance.ts` (new), `src/index.css` topic utilities, `src/components/ui/TopicGlyph.tsx` (new), `src/components/builder/TopicMetaFields.tsx`, `src/pages/topic/SettingsPage.tsx` `MetaForm`, `src/pages/topic/TopicLayout.tsx` header, `src/api/mutations.ts`/`cache.ts` appearance patch, `src/lib/serverErrors.ts`, M3b: `src/sw.ts` photo cache route                                                                                                                                                                                                                                                                                                                                                                                                      | M3a / M3b                                                        | —                                                                                                                                              |
 | PWA `src/pages/topic/EntriesPage.tsx`, `EntryEditPage.tsx`, `OverviewPage.tsx`, `src/components/runs/TimingSection.tsx`, `TimingEditor.tsx`, `TimingOverview.tsx`, `src/components/charts/*`, `src/lib/entrySummary.ts` (new), `src/components/topics/TopicSummaryLine.tsx` (new)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | M4                                                               | —                                                                                                                                              |
+| iOS `QuickrData/Sync/ServerLayer.swift`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | M1                                                               | M3b's topic-cascade change (photo-cache eviction) is a patch to M1's owner                                                                     |
+| PWA `frontend/src/lib/builder.ts`, `src/lib/serverErrors.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | M1                                                               | M3a edits only the meta-schema block, delimited `// T2-M3` (shared-file rule)                                                                  |
+| backend `services/topics.py` `_summaries` / `_base_select`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | shared                                                           | M3a (appearance columns) and M4 (`last_entry`) each add one delimited block                                                                    |
+| iOS `QuickrData/Contracts/StoreSchema+T2M3B.swift`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | M3b                                                              | separate from M3a's `StoreSchema+T2M3.swift`                                                                                                   |
 | `docs/specs/*`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | M0, then each milestone lead for its own doc (docs commits only) | —                                                                                                                                              |
 | `docs/t2/M<N>-plan.md`, `docs/t2/evidence/M<N>.md`, `docs/t2/device-checklist.md`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | each lead                                                        | `device-checklist.md` is append-only per milestone                                                                                             |
 
@@ -421,17 +465,21 @@ in `docs/t2/`. The rules in this document apply to all of them unchanged.
 ### T2-RELEASE · release PR, tag, TestFlight, deploy, device checklist · docs + device · M
 
 - **Scope (orchestrator):** on `feat/t2`, bump `MARKETING_VERSION` in
-  `ios/project.yml` from `"0.1.0"` to `"0.4.0"` (`make ios-gen`, commit); raise
-  the PR "Release v0.4.0" from `feat/t2` to `main` with the five required checks
-  green and the milestone evidence files linked; merge; tag `v0.4.0` on `main`.
-  Then the **deploy order** of §Release cut: CI publishes both images and the
-  TestFlight build; the TestFlight bot PR lists the new build in
+  `ios/project.yml` from `"0.1.0"` to `"0.4.0"` (`make ios-gen`, commit; the
+  `v0.4.0-rc1` tag after M1 already carried `0.4.0`); raise the PR "Release
+  v0.4.0" from `feat/t2` to `main` with the five required checks green and the
+  milestone evidence files linked; merge; tag `v0.4.0` on `main`. Then the
+  **deploy order** of §Release cut: CI publishes both images and the TestFlight
+  build; the TestFlight bot PR lists the new build in
   `compat/supported-clients.json` (the usual `testflight.yml` path); the user
-  installs it; only then are the server images deployed. The user runs
+  installs it; only then the server deploy = bump `quickr_build` + both image
+  digests in the IaaC repo `inventories/host_vars/quickr.yml`
+  (orchestrator-owned, after the user confirms the TestFlight build is
+  installed). No work is planned in the IaaC repo. The user runs
   `docs/t2/device-checklist.md` on the installed build; findings become
-  `t2-followup` issues. After the tag the T2 lines in
-  `compat/openapi-break-approvals.txt` are removed (compatibility.md §2). If M3b
-  is not in, the same steps repeat as `v0.4.1` once it merges.
+  `t2-followup` issues. No `openapi-break-approvals.txt` lines are needed (with
+  `clients: []` and the bump the gate passes; review E6). If M3b is not in, the
+  same steps repeat as `v0.4.1` once it merges.
 - **Depends on:** T2-WIRE-I, T2-WIRE-F; M3b if it made the cut.
 - **Acceptance:** `main` carries the tag; the TestFlight build shows
   `0.4.0 (<build>)`; the installed build talks to the deployed server with no
@@ -442,6 +490,31 @@ in `docs/t2/`. The rules in this document apply to all of them unchanged.
   PR; `compat/client_fixtures.py check` is green after the bot PR.
 
 ---
+
+## Review log
+
+- **Revision 2 (2026-11-25, after review round 1).** Reviews `codex-r1.md` and
+  `claude-r1.md`, adjudicated in `adjudication-r1.md` (scratchpad
+  `t2/m0/reviews/`). Applied to the plans: E1 no distribution before T2-RELEASE
+  (atomic landing rejected) and the `v0.4.0-rc1` tag; E2 I1-SIGNING acceptance
+  (static proof, rc1 as the real proof, `.active` fallback as one constant); E3
+  ownership rows for `ServerLayer.swift`, `builder.ts`, `serverErrors.ts`,
+  `topics.py` blocks, `StoreSchema+T2M3B.swift`, and one writer per vector file;
+  E4 store-migration registration at merge time plus `StoreMigrationOrderTests`;
+  E5 M1-LA-STATE as a shared branch, I2-LA hard dependency; E6 names and scope
+  fixes (vector list by reference, 21 WPs, downgrade wording, approvals lines
+  dropped, checklist item dropped). Carried into WP scopes: A7 ids in `Timing`,
+  nullable reopen `target`, "Resuming…" projection (M1-RUNS, F1-OUTBOX,
+  I1-WRITES, M2 tiles); A8 K6-not-on-revert tests; A9 one primary rule
+  (M1-ACTIONS copies timers2 §10); B2 iOS `run_closed` markers (I1-SYNC); C1/C2
+  scheduler replace + triggers (I1-ALERTS); C3 no `terminal_id` in the content
+  state; D1 photo GC tick and D2 idempotent delete (M3B-STORAGE); D3 cursor
+  reset (I3-STORE); D4 `last_entry` staleness bound (F4-SUMMARYLINE); D5 strip
+  calendar cells; D6 grapheme truncation (M4-SUMMARY); D7 emoji predicates
+  (M3-DB, I3-EDIT, F3-EDIT); D8 `run.menu`, Remove disabled on a `next`-opened
+  lap row.
+- **Revision 1 (2026-11-25).** First draft; split into milestone plans;
+  orchestrator decisions on OQ-1..14 folded in.
 
 ## Open questions index
 

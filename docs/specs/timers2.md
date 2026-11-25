@@ -1,10 +1,10 @@
 # Spec: timers v2 (lap types, alerts, reopen and remove)
 
-**Status:** draft (revision 1, 2026-11-25). **Applies to:** the backend, the
-PWA, the iOS app (app, widgets, Live Activity, intents, notifications) and the
-MCP server. **Companion specs:** [timers.md](timers.md) (v1: this spec changes
-it **by reference**; v1 stays as history with a banner pointing here),
-[sync-protocol.md](../ios/specs/sync-protocol.md),
+**Status:** draft (revision 2, 2026-11-25, after review round 1). **Applies
+to:** the backend, the PWA, the iOS app (app, widgets, Live Activity, intents,
+notifications) and the MCP server. **Companion specs:** [timers.md](timers.md)
+(v1: this spec changes it **by reference**; v1 stays as history with a banner
+pointing here), [sync-protocol.md](../ios/specs/sync-protocol.md),
 [outbox.md](../ios/specs/outbox.md),
 [notifications.md](../ios/specs/notifications.md) and
 [client-versions.md](client-versions.md). Where this spec is silent, timers.md
@@ -19,24 +19,24 @@ brief because the code made the brief's wording unworkable; each is listed in
 
 ### What changes from v1
 
-| timers.md (v1)                      | Change in v2                                                                                                                                             | Here       |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| §2.1 `Timer = {steps}`              | `Timer` gains `laps` (lap types), `variables` and per-step/per-lap-type `alerts`; output normalised; six new limits                                      | §1, §7     |
-| §2.3 `Segment` / `Timing`           | `Segment` gains `lap_type`; lap labels follow the lap-type rule ("Run 2", "Rest 2") instead of always "Lap n"                                            | §3.2, §7   |
-| §2.4 the change log                 | A **stop no longer tombstones** the run id; only a discard (and a topic delete) writes `deleted_ids(kind=run)`. A run may come back after a run deletion | §4, §5     |
-| §3.2 `RunEventIn`                   | Two event types, `reopen` and `remove`, with a `target`                                                                                                  | §3, §7     |
-| §3.5 Stop, §3.7 Discard             | A stopped run can be reopened; a discard of a reopened run **reverts** the reopen (OQ-2)                                                                 | §3.4, §4.1 |
-| §4 the fold                         | Fold **v4**: input `timer` instead of `steps`; reopen (gap pause), remove (deleted boundaries, the `seg` ghost rule); four new void reasons              | §3         |
-| §4.4 late merges                    | `reopen` and `remove` are exempt from `after_stop`; a remove on a stopped unedited run is a late merge                                                   | §3.6       |
-| §7.1 feed, §7.2 iOS store, §7.3 PWA | Resurrection rule: a `run` deletion is not permanent on clients; iOS drops run tombstones; `changes.py` emits a stop's deletion from its log row         | §5         |
-| §8 outbox                           | `reopen`/`remove` are `run.event` items that wait for the run's start **and for the queued item their `target` names**; nothing else changes             | §5.5       |
-| §9 stats                            | `TopicTiming.lap_types` and `SeriesPoint.lap_types` (M4 consumes)                                                                                        | §7.4       |
-| §10.3 Live Activity content state   | Optional fields `lap_type`, `lap_count`, `alert_at`, `alert_label`, `terminal_id`; `next_label` also for laps; push-to-start on reopen                   | §8         |
-| §11.1 primary button                | Lap is the primary for lap-driven runs; `actions(run, timer, now)` is M1's model, M2 lays it out                                                         | §10        |
-| §11.4 notices                       | Notices for `reverted`, `deleted`, `not_stopped`, `no_target`                                                                                            | §9.3       |
-| §11.6 MCP                           | `run_action` gains `reopen` and `remove`; topic tools take the v2 `Timer`                                                                                | §7.3       |
-| §12 compatibility                   | `api_level 1 → 2`, `min_client_level = 2` on both platforms                                                                                              | §11        |
-| (new)                               | Alerts: expression grammar, iOS local-notification scheduling, PWA in-page alerts                                                                        | §2, §9     |
+| timers.md (v1)                      | Change in v2                                                                                                                                                                                                                        | Here           |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| §2.1 `Timer = {steps}`              | `Timer` gains `laps` (lap types), `variables` and per-step/per-lap-type `alerts`; output normalised; six new limits                                                                                                                 | §1, §7         |
+| §2.3 `Segment` / `Timing`           | `Segment` gains `lap_type`; lap labels follow the lap-type rule ("Run 2", "Rest 2") instead of always "Lap n"; `Timing` carries event ids (`terminal_id`, `segments[].event_id`, `pauses[].id`) so clients can target a stopped run | §3.2, §3.3, §7 |
+| §2.4 the change log                 | A **stop no longer tombstones** the run id; only a discard (and a topic delete) writes `deleted_ids(kind=run)`. A run may come back after a run deletion                                                                            | §4, §5         |
+| §3.2 `RunEventIn`                   | Two event types, `reopen` and `remove`, with a `target`                                                                                                                                                                             | §3, §7         |
+| §3.5 Stop, §3.7 Discard             | A stopped run can be reopened; a discard of a reopened run **reverts** the reopen (OQ-2)                                                                                                                                            | §3.4, §4.1     |
+| §4 the fold                         | Fold **v4**: input `timer` instead of `steps`; reopen (gap pause), remove (deleted boundaries, the `seg` ghost rule); four new void reasons                                                                                         | §3             |
+| §4.4 late merges                    | `reopen` and `remove` are exempt from `after_stop`; a remove on a stopped unedited run is a late merge                                                                                                                              | §3.6           |
+| §7.1 feed, §7.2 iOS store, §7.3 PWA | Resurrection rule: a `run` deletion is not permanent on clients; iOS drops run tombstones; `changes.py` emits a stop's deletion from its log row                                                                                    | §5             |
+| §8 outbox                           | `reopen`/`remove` are `run.event` items that wait for the run's start **and for the queued item their `target` names**; nothing else changes                                                                                        | §5.5           |
+| §9 stats                            | `TopicTiming.lap_types` and `SeriesPoint.lap_types` (M4 consumes)                                                                                                                                                                   | §7.4           |
+| §10.3 Live Activity content state   | Optional fields `lap_type`, `lap_count`, `alert_at`, `alert_label`, `terminal_id`; `next_label` also for laps; push-to-start on reopen                                                                                              | §8             |
+| §11.1 primary button                | Lap is the primary for lap-driven runs; `actions(run, timer, now)` is M1's model, M2 lays it out                                                                                                                                    | §10            |
+| §11.4 notices                       | Notices for `reverted`, `deleted`, `not_stopped`, `no_target`                                                                                                                                                                       | §9.3           |
+| §11.6 MCP                           | `run_action` gains `reopen` and `remove`; topic tools take the v2 `Timer`                                                                                                                                                           | §7.3           |
+| §12 compatibility                   | `api_level 1 → 2`, `min_client_level = 2` on both platforms                                                                                                                                                                         | §11            |
+| (new)                               | Alerts: expression grammar, iOS local-notification scheduling, PWA in-page alerts                                                                                                                                                   | §2, §9         |
 
 ## Purpose
 
@@ -66,18 +66,20 @@ and 9 are `content-display.md` (M4) and `appearance.md` (M3). This spec owns the
 
 ## Glossary additions
 
-| Term               | Meaning                                                                                                                                                                                                                                                                                                                                                |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Lap type**       | A named kind of lap in `timer.laps`: `{key, label, alerts}`. Laps cycle through the version's lap types in order; with none, laps are untyped ("Lap _n_", v1).                                                                                                                                                                                         |
-| **Variable**       | A named duration in `timer.variables` (`{name, ms}`) that alert expressions refer to (`t`, `rest`).                                                                                                                                                                                                                                                    |
-| **Alert**          | `{key, label, at}` on a step or lap type: a cue that fires when the segment's **active** time reaches `at_ms` (the evaluated expression). Paused time doesn't count.                                                                                                                                                                                   |
-| **Reopen**         | The event `reopen(target = the terminal stop's id)`: it un-terminates a stopped (or finishing) run. The gap between the stop and the reopen is a **gap pause**.                                                                                                                                                                                        |
-| **Remove**         | The event `remove(target)`: it voids a pause (its time becomes active), a lap boundary (the lap merges into the previous segment) or a reopened stop (the gap pause goes).                                                                                                                                                                             |
-| **Gap pause**      | The pause from a reopened stop's `at` to its reopen's `at`. It is a `Pause` like any other once folded, so T3/T5 hold and stats count it as paused time.                                                                                                                                                                                               |
-| **Revert**         | A `discard` on a run whose terminal was cleared by a reopen: the reopen becomes void `reverted`, the stop is the terminal again. The way out of an accidental reopen.                                                                                                                                                                                  |
-| **Resumable**      | An entry a client offers "Resume run" for: a timed entry whose run is the topic's latest stop and whose times are **unedited** (`run.edited == false`, i.e. `timing.edited` false; answers, notes and meta changes don't count), within 15 minutes of the stop on tiles and toasts (OQ-1), and from the entry detail within 7 days of the run's start. |
-| **Terminal id**    | `RunState.terminal_id`: the id of the applied stop that closed the run (null while open or discarded). A reopen names it.                                                                                                                                                                                                                              |
-| **Ghost boundary** | A removed lap boundary, which still counts toward the expected `seg` of taps made between the lap and its removal (§3.5).                                                                                                                                                                                                                              |
+| Term                 | Meaning                                                                                                                                                                                                                                                                                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Lap type**         | A named kind of lap in `timer.laps`: `{key, label, alerts}`. Laps cycle through the version's lap types in order; with none, laps are untyped ("Lap _n_", v1).                                                                                                                                                                                         |
+| **Variable**         | A named duration in `timer.variables` (`{name, ms}`) that alert expressions refer to (`t`, `rest`).                                                                                                                                                                                                                                                    |
+| **Alert**            | `{key, label, at}` on a step or lap type: a cue that fires when the segment's **active** time reaches `at_ms` (the evaluated expression). Paused time doesn't count.                                                                                                                                                                                   |
+| **Reopen**           | The event `reopen(target = the terminal stop's id)`: it un-terminates a stopped (or finishing) run. The gap between the stop and the reopen is a **gap pause**.                                                                                                                                                                                        |
+| **Remove**           | The event `remove(target)`: it voids a pause (its time becomes active), a lap boundary (the lap merges into the previous segment) or a reopened stop (the gap pause goes).                                                                                                                                                                             |
+| **Gap pause**        | The pause from a reopened stop's `at` to its reopen's `at`. It is a `Pause` like any other once folded, so T3/T5 hold and stats count it as paused time.                                                                                                                                                                                               |
+| **Revert**           | A `discard` on a run whose terminal was cleared by a reopen: the reopen becomes void `reverted`, the stop is the terminal again. The way out of an accidental reopen.                                                                                                                                                                                  |
+| **Resumable**        | An entry a client offers "Resume run" for: a timed entry whose run is the topic's latest stop and whose times are **unedited** (`run.edited == false`, i.e. `timing.edited` false; answers, notes and meta changes don't count), within 15 minutes of the stop on tiles and toasts (OQ-1), and from the entry detail within 7 days of the run's start. |
+| **Terminal id**      | `RunState.terminal_id` and `Timing.terminal_id`: the id of the applied stop that closed the run (null in `RunState` while open or discarded). A reopen names it.                                                                                                                                                                                       |
+| **Ghost boundary**   | A removed lap boundary, which still counts toward the expected `seg` of taps made between the lap and its removal (§3.5).                                                                                                                                                                                                                              |
+| **Closed / deleted** | The two kinds of `run` feed deletion (§5.1): a **closed** run left the live set (stopped; its row stays, no tombstone; a `reopen` brings it back), a **deleted** run is gone (discarded or with its topic; tombstoned, final).                                                                                                                         |
+| **Resuming**         | A client-local run state: a `reopen` or `remove` queued from an entry with no run row locally projects a run built from the entry's timing until the ack (§5.3).                                                                                                                                                                                       |
 
 ## 1. Timer config v2 **[server]**
 
@@ -97,9 +99,13 @@ Alert    = { key: QuestionKey, label: ShortLabel, at: Expr, at_ms: int } // ≤ 
 QuestionKey = ^[a-z][a-z0-9_]{0,62}$          (limits.py:7, as v1)
 Label       = 1..200 chars                     (questions.py:74, as v1)
 ShortLabel  = 1..64 chars                      (the Live Activity label cap, live_activity.py:75)
-VarName     = ^[a-z][a-z0-9_]{0,15}$           (stored lowercase; input case-insensitive)
+VarName     = ^[a-z][a-z0-9_]{0,15}$           (stored lowercase; input case-insensitive; not a unit name)
 Expr        = 1..64 chars, grammar §2
 ```
+
+- **Reserved variable names:** `ms`, `s`, `m` and `h` are the units of §2.1 and
+  are refused as variable names (422 at `variables.{i}.name`); otherwise `2m`
+  (two minutes) and `2*m` (twice a variable) would read alike.
 
 - `laps = []` means untyped laps labelled "Lap _n_" (v1 behaviour). One lap type
   renames laps ("Cig 1, Cig 2"); two or more cycle ("Run 1, Rest 1, Run 2, Rest
@@ -137,7 +143,7 @@ existing constant). Mirrors: PWA `src/api/limits.ts` `FALLBACK_LIMITS`, iOS
 | `variables`                          | ≤ 16                                                                                                 |
 | `steps.{i}.key`, `laps.{i}.key`      | pattern; unique across steps and lap types ("duplicate key '…' (also a step)" when it crosses lists) |
 | `laps.{i}.label`                     | 1..64                                                                                                |
-| `variables.{i}.name`                 | pattern (after lowercasing); unique (case-insensitive)                                               |
+| `variables.{i}.name`                 | pattern (after lowercasing); not `ms`, `s`, `m` or `h`; unique (case-insensitive)                    |
 | `variables.{i}.ms`                   | 0 ≤ ms ≤ 604 800 000                                                                                 |
 | `{steps\|laps}.{i}.alerts`           | ≤ 8                                                                                                  |
 | `{steps\|laps}.{i}.alerts.{j}.key`   | pattern; unique within the owner                                                                     |
@@ -148,10 +154,11 @@ Pinned in `builder-vectors.json` `timers[]` (generator
 `GENERATOR_VERSION 3 → 4`), new cases: `laps-one-type`, `laps-two-types`,
 `laps-max`, `laps-too-many`, `lap-key-collides-with-step`, `lap-label-65`,
 `variables-max`, `variables-too-many`, `variable-name-uppercase-normalised`,
-`variable-name-duplicate-case`, `variable-ms-negative`, `variable-ms-over-7d`,
-`alerts-max`, `alerts-too-many`, `alert-key-duplicate`, `alert-expr-syntax`,
-`alert-expr-unknown-variable`, `alert-expr-type`, `alert-expr-65-chars`,
-`alert-on-step`, `v1-shape-accepted`, `output-normalised`.
+`variable-name-duplicate-case`, `variable-name-reserved-unit` (`m`),
+`variable-ms-negative`, `variable-ms-over-7d`, `alerts-max`, `alerts-too-many`,
+`alert-key-duplicate`, `alert-expr-syntax`, `alert-expr-unknown-variable`,
+`alert-expr-type`, `alert-expr-65-chars`, `alert-on-step`, `v1-shape-accepted`,
+`output-normalised`.
 
 ### 1.4 Normalisation and stored timers
 
@@ -337,6 +344,23 @@ rhythm (§6, example 4). `TimingEdit` and `_segments` relabel the same way.
   `next_lap_type: key | null` (the type of the lap a `lap` tap would open now:
   lap number `lap_count + (open.kind == lap ? 1 : 0) + 1`; null when untyped or
   the run isn't open); `lap_count: int` (closed lap segments).
+- **Event ids in `Timing` and `RunState`** (additive), so a client can target a
+  stopped run from its entry, offline, after a relaunch or on another device:
+  `Timing.terminal_id: UUID` (the applied stop),
+  `TimingSegment.event_id: UUID | null` (the `next` or `lap` event that
+  **opened** the segment; null for the first segment, which the start opened),
+  `TimingSegment.opened_by: "start" | "next" | "lap" | "skip" | null` (the type
+  of the event named by `event_id`; `"start"` for the first segment; `"skip"`
+  never opens a segment in v2 and is reserved; null only on pre-v2 stored
+  timings), `TimingPause.id: UUID | null` (the `pause` event's id; a gap pause
+  carries its stop's id). `RunState.segments`/`pauses` carry the same. After a
+  `TimingEdit` the segment ids and `opened_by` and the pause ids are null and
+  `terminal_id` is kept (an edited run can't be reopened or removed from anyway,
+  §3.6). Consumers: the tile/toast Resume uses `entry.timing.terminal_id`
+  (active-surfaces.md); the entry detail's Remove uses `segment.event_id` /
+  `pause.id` and disables Remove on a lap row whose `opened_by` is `"next"` (a
+  `remove` of a `next` is `no_target`) (content-display.md §3.2). Vector
+  `timing-carries-event-ids`.
 - New `VoidReason`s: `reverted`, `not_stopped`, `deleted`, `no_target` (§3.4).
 - `Event` gains `target: id | null`.
 
@@ -346,7 +370,8 @@ rhythm (§6, example 4). `TimingEdit` and `_segments` relabel the same way.
 fold(timer, events_in_arrival_order):
   steps = timer.steps; laps = timer.laps
   seen = {}; terminal = null; accepted = []
-  reopened = []                 // (stop S, reopen R) pairs in arrival order; the last is current
+  open_reopen = null            // the (stop S, reopen R) whose reopen cleared the CURRENT terminal
+  roles = []                    // every applied (S, R) pair, for pass 2's gap pause/resume roles
   removed = {}                  // target id → the remove event that applied
   for e in events_in_arrival_order:                       // pass 1: arrival
     if e.id in seen: continue                             // idempotent
@@ -359,14 +384,15 @@ fold(timer, events_in_arrival_order):
       if e.at < start.at: void(e, before_start)           // never a terminal (v1 §4.2)
       elif e.at > start.at + 7 days: void(e, too_long)
       elif terminal: void(e, already_closed)
-      else: terminal = e
+      else: terminal = e; open_reopen = null              // a new terminal ends the reopen transaction
       continue
     if e.type == discard:
       if terminal: void(e, already_closed); continue
-      if reopened and last(reopened).R is applied:        // the terminal was cleared by a reopen: REVERT (OQ-2)
-        (S, R) = pop(reopened)
-        void(R, reverted); terminal = S
-        for rm in removes with rm.target == S.id and applied(rm): void(rm, no_target); removed -= S.id
+      if open_reopen:                                     // the terminal was cleared by a reopen: REVERT (OQ-2)
+        (S, R) = open_reopen; open_reopen = null
+        void(R, reverted); terminal = S; roles -= (S, R)
+        if S.id in removed:                               // the gap pause had been removed: S is a terminal again
+          apply(S); void(removed[S.id], no_target); removed -= S.id
         apply(e)                                          // the discard closed what the reopen opened
       else: terminal = e
       continue
@@ -377,29 +403,31 @@ fold(timer, events_in_arrival_order):
       elif terminal == null or terminal.id != e.target: void(e, not_stopped)   // not the current terminal
       elif e.at ≤ t.at: void(e, stale)
       elif e.at > start.at + 7 days: void(e, too_long)
-      else: apply(e); reopened += (t, e); terminal = null
+      else: apply(e); open_reopen = (t, e); roles += (t, e); terminal = null
       continue
     if e.type == remove:
       t = seen event with id == e.target
       eligible = t and t.id ∉ removed and e.at > t.at and
-                 (t.type ∈ {pause, lap} or (t.type == stop and (t, _) ∈ reopened))
-      if !eligible: void(e, no_target) else: apply(e); removed[t.id] = e
+                 (t.type ∈ {pause, lap} or (t.type == stop and (t, _) ∈ roles))
+      if !eligible: void(e, no_target); continue
+      apply(e); removed[t.id] = e
+      if t.type == stop: void(t, deleted)                 // the gap pause goes; its reopen stays applied
       continue
     accepted += e                                         // next, lap, skip, pause, resume
 
-  // pass 2: time. The reopened stops and reopens take part as synthetic pause/resume roles;
-  // their recorded effects are pass 1's and are not changed here.
-  roles = [ gap_pause(S) for (S, R) in reopened if S.id ∉ removed ] + [ gap_resume(R) for (S, R) in reopened ]
+  // pass 2: time. Reopened stops and reopens take part as synthetic pause/resume roles; their
+  // recorded effects are pass 1's and are not changed here.
+  gaps = [ gap_pause(S) for (S, R) in roles if S.id ∉ removed ] + [ gap_resume(R) for (S, R) in roles ]
   st = { open: Seg(step = pop(pending = steps), start = start.at, index = 0),
          paused_since: null, pause_id: null, segments: [], skipped: [], pauses: [] }
   ghosts = []                                             // (lap.at, remove.at) of removed lap boundaries
   end = terminal ? terminal.at : +∞
   expected_seg(e) = len(st.segments) + |{ g ∈ ghosts : g.at < e.at < g.removed_at }|
-  for e in sort(accepted + roles, by (at, id)):           // a resume at its pause's at right after it (v1 §4.1)
+  for e in sort(accepted + gaps, by (at, id)):            // a resume at its pause's at right after it (v1 §4.1)
     if e is a role:                                       // never recorded; skipped outside the run
       if e.at < start.at or e.at > end: continue
-      gap_pause(S):  if !st.paused_since: st.paused_since = S.at; st.pause_id = S.id    // else: the pause continues
-      gap_resume(R): if st.paused_since: st.pauses += [st.paused_since, R.at); st.paused_since = null
+      gap_pause(S):  if !st.paused_since: st.paused_since = S.at; st.pause_id = S.id    // else: the open pause continues through the gap
+      gap_resume(R): if st.paused_since: st.pauses += [st.paused_since, R.at); st.paused_since = null   // ends WHATEVER pause is open
       continue
     if e.at < start.at: void(e, before_start); continue
     if e.at > end:      void(e, after_stop);   continue
@@ -433,11 +461,25 @@ Notes on the rules:
 
 - **A reopened stop does not close the open segment.** The segment spans the
   gap; the gap is its `paused_ms`. Only the current terminal closes a segment.
+- **A reopen means "the run is running again": it ends whatever pause is open at
+  `R.at`.** With the gap pause present that is the gap; with a user pause open
+  at the stop (stop while paused), that pause continues through the gap and ends
+  at the reopen; with the gap pause removed and an offline user pause inside the
+  gap, that pause ends at the reopen too (its later `resume` is `not_paused`,
+  silent). Vectors `reopen-while-paused-ends-pause`,
+  `reopen-gap-removed-user-pause-inside-gap`.
 - **A reopen's effect is pass 1's.** Its resume role is a no-op when no pause is
-  open at `R.at` (the gap pause was removed, or an offline resume ended it).
-  **[deviation]** The brief voids such a reopen `not_paused`, which would
-  contradict its pass-1 `applied` effect and re-terminate the run; the role is
-  silent instead.
+  open at `R.at` (the gap pause was removed). **[deviation]** The brief voids
+  such a reopen `not_paused`, which would contradict its pass-1 `applied` effect
+  and re-terminate the run; the role is silent instead.
+- **One reopen transaction at a time.** `open_reopen` is the reopen that cleared
+  the current terminal; a later stop that becomes the terminal ends the
+  transaction, so a discard then is `already_closed`, never a revert of an older
+  reopen. Vector `stop-reopen-stop-reopen-discard-discard` (the first discard
+  reverts the second reopen; the second is `already_closed`).
+- **A removed reopened stop is void `deleted`** in pass 1 (its gap pause goes,
+  its reopen stays applied). A revert restores it to `applied` (it is the
+  terminal again) and voids the remove `no_target`.
 - **A later stop becomes the new terminal.** Including a stop whose `at` lies
   before the reopen (another device's offline stop): the run is then stopped at
   that `at`, the gap pause is cut there by the stop-while-paused rule, and taps
@@ -446,11 +488,22 @@ Notes on the rules:
 - **`remove` eligibility** is by type and identity only, not by the target's
   pass-2 effect: a remove of a `stale` lap applies and marks it `deleted`, which
   changes nothing. Clients only offer Remove on applied boundaries.
-- **A reopen that arrives before its stop** is `no_target` for good: pass 1 is
-  arrival order. From one device this can't happen: a reopen waits for the
-  queued item its `target` names, as a remove does (§5.5). Across devices (B
-  reopens A's stop while A's stop is still retrying) it can; B's reopen gets the
-  `no_target` notice and the run stays resumable. Accepted.
+- **`remove` has no 7-day bound** (review C-S1 #6, rejected). A remove is an
+  edit of a stored run, like `TimingEdit` (v1 §3.8), which has no bound on
+  _when_ it is made; its only temporal rule is `at > target.at`. The 7-day cap
+  bounds the run's **length**, which a remove never changes. `reopen` keeps the
+  run-length bound because its `at` lies inside the run.
+- **Determinism (the M1-FOLD property).** Given the same relative arrival order
+  of terminals (`stop`, `discard`), `reopen`s and `remove`s with respect to one
+  another and to their targets, every arrival order of the other events (`next`,
+  `lap`, `skip`, `pause`, `resume`) gives the same state: they commute. A reopen
+  or remove that arrives before its target is `no_target` for good, and a
+  discard before versus after a reopen is a terminal versus a revert, so the
+  property test generates arrival orders under those constraints.
+- **A reopen before its stop in arrival order** can't happen from one device
+  (the outbox orders it behind its `target`, §5.5) and can't happen from another
+  (it learns the stop's id from the server, so the stop is stored first); the
+  fold rule exists for local-view determinism.
 
 ### 3.5 The `seg` guard with removed laps
 
@@ -501,7 +554,7 @@ Let `before = run.status` and `after = fold.status`,
 | open, `has_entry`    | stopped, body is a `discard` (revert) | **Revert**: run `stopped`, `ended_at = fold.ended_at` (the restored stop), `_close`; `_merge_into_entry` (entry upsert only if its timing changed, normally not)                                                                                                                                                                                            |
 | open, `!has_entry`   | stopped, body is a `discard` (revert) | A reopened finishing run is thrown away as v1 §3.7 does for a finishing one: `status = discarded`, `_discard` (run delete + tombstone)                                                                                                                                                                                                                      |
 | open                 | discarded                             | v1: `discarded`, `_discard`                                                                                                                                                                                                                                                                                                                                 |
-| stopped, `has_entry` | running / paused                      | **Reopen**: `status` follows the fold, `ended_at = NULL`, `revision += 1`, run upsert. **The entry stays** (id = run id, timing as of the last stop); nothing is logged for it.                                                                                                                                                                             |
+| stopped, `has_entry` | running / paused                      | **Reopen**: `status` follows the fold, `ended_at = NULL`, run upsert (the `record_event` revision bump, `runs.py:227`, is enough; the upsert carries it). **The entry stays** (id = run id, timing as of the last stop); nothing is logged for it.                                                                                                          |
 | finishing            | running / paused                      | **Reopen** of a finishing run: as above; there is no entry                                                                                                                                                                                                                                                                                                  |
 | stopped              | stopped                               | v1 `_merge_into_entry` (covers `remove` late merges)                                                                                                                                                                                                                                                                                                        |
 | finishing            | stopped                               | v1: run upsert                                                                                                                                                                                                                                                                                                                                              |
@@ -512,7 +565,14 @@ tombstones. `_terminal_stop` (`runs.py:533-539`) returns the stop whose id is
 
 ### 4.2 `record_event` additions
 
-- `reopen` and `remove` require `target` (`_REQUIRED_FOR`).
+- `remove` requires `target` (`_REQUIRED_FOR`). For `reopen`, `target` MAY be
+  null: the server resolves a null target to the run's current terminal stop
+  (`state.terminal_id`) and stores the **resolved** id in
+  `run_events.target_id`, so the fold always sees an explicit target; with no
+  terminal (the run is open or discarded) it stores null and the fold voids the
+  reopen `no_target`. Clients send the explicit id whenever they have it
+  (`RunState.terminal_id` or `entry.timing.terminal_id`): the ordering rule
+  (§5.5) keys on it.
 - Before storing a `reopen` on a run that is not open: if the topic has another
   run in `running`/`paused` (`ux_runs_one_open`, models.py:226-234) → 409
   `conflict` ("another run of this topic is open"), nothing stored. Terminal on
@@ -535,14 +595,15 @@ tombstones. `_terminal_stop` (`runs.py:533-539`) returns the stop whose id is
   `bb9d821fe436` pattern);
   `ALTER TABLE run_events ADD COLUMN target_id UUID NULL`; data:
   `DELETE FROM deleted_ids WHERE kind = 'run' AND id IN (SELECT id FROM runs WHERE status = 'stopped')`.
-  Downgrade drops the column and leaves the enum values (as `bb9d821fe436`
-  documents).
-- `changes.py:101-128` **MUST** emit a closed run row whose own delete row is on
-  the page as a deletion **from the log row**, not from `deleted_ids`
-  (`deleted_at = ChangeLog.at`): today the stop's tombstone is what makes
-  `_page` emit it, and without the tombstone the deletion would be skipped
-  (`vanished` without a tombstone is dropped, changes.py:117-128).
-  **[addition]** to the brief, which lists no `changes.py` change.
+  Downgrade drops `target_id` and leaves the enum values in place (Postgres
+  can't drop them; the migration says so).
+- `changes.py:101-128` changes as §5.1 specifies: a `(run, delete)` log row on
+  the page is emitted as a deletion from the log row
+  (`deleted_at = ChangeLog.at`) when the run row is closed, and from the
+  tombstone when the row is missing. Today the stop's tombstone is what makes
+  `_page` emit it; without it the deletion would be dropped (`vanished` without
+  a tombstone, changes.py:117-128). **[addition]** to the brief, which lists no
+  `changes.py` change.
 
 ### 4.4 What is logged per event (research backend.md §2.7 updated)
 
@@ -585,36 +646,75 @@ start). Re-stop and revert push `end` as any close.
 
 ## 5. Feed and the clients' stores
 
-### 5.1 Meaning of a `run` deletion (unchanged)
+### 5.1 Two kinds of run deletion
 
-"The run is no longer open or finishing: it stopped, was discarded, or went with
-its topic" (api.py `FeedDeletion`). What changes is permanence: **a run may come
-back** after a deletion, as a `(run, upsert)` with a later seq and a higher
-`revision`.
+A `run` feed deletion has **always** meant "the run left the live set" ("no
+longer open or finishing", v1 §2.4, api.py `FeedDeletion`), never entity
+deletion. v1 happened to tombstone on both; v2 names the two and keeps the
+permanent tombstone only for the second:
+
+| Kind        | When                                                           | Server row                | `change_log`                            | `deleted_ids`         | Reversible                                                                    |
+| ----------- | -------------------------------------------------------------- | ------------------------- | --------------------------------------- | --------------------- | ----------------------------------------------------------------------------- |
+| **closed**  | A stop made an entry (or a re-stop, or a revert with an entry) | stays, `status = stopped` | `(run, delete)`                         | none                  | yes: a `reopen` logs `(run, upsert)` with a later seq and a higher `revision` |
+| **deleted** | A discard, or a topic delete                                   | stays `discarded` / gone  | `(run, delete)` / one `(topic, delete)` | `(run, id)` permanent | no: the server never upserts it again                                         |
+
+The wire doesn't distinguish them (both are `FeedDeletion {kind: run}`); the
+guarantee clients rely on is that a **deleted** run never upserts again, while a
+**closed** one may.
+
+**Feed emission (`changes.py`).** A `(run, delete)` log row on the page is
+emitted as a deletion when the run row exists and is not live (`stopped` or
+`discarded`: from the log row, `deleted_at = ChangeLog.at`), or when the row is
+missing **and** tombstoned (topic delete: from the tombstone, at the run's
+latest row on the page, v1 §7.1). A missing, untombstoned run row cannot occur:
+`delete_topic` tombstones every child before the cascade (`topics.py:395-409`).
+A closed run without its own delete row on the page is skipped, as v1 §7.1
+requires, so its entry's row is never behind its deletion. **Topic cascade:**
+one topic deletion; clients cascade locally and tombstone the runs (they are
+deleted, not closed). **Paginated replay:** a run that stopped, reopened and
+re-stopped is, per page, whatever its latest row on that page says (item while
+live, deletion with its delete row); across pages a client sees delete → upsert
+→ delete and applies each in turn (T27 pins every cut).
 
 ### 5.2 Resurrection rule (every client)
 
-A client MUST NOT keep a permanent tombstone for a `run` deletion: it deletes
-the row (and the run's alias rows) and nothing else. A later upsert inserts the
-run again; the revision guard (sync-protocol.md §4.2) applies only when a row
-exists. The topic cascade still tombstones the topic's runs: the topic is gone,
-and the topic tombstone is checked first anyway (`ServerLayer.swift:78-81`).
+A client MUST NOT keep a permanent tombstone for a `run` deletion. It deletes
+the row and the run's alias rows and keeps a **non-permanent, revision-aware
+closed marker** `run_closed(id, revision)` (the deleted row's revision; 0 when
+no row was present), so a delayed older response can't resurrect a closed run:
+
+- a **feed upsert** for a marked id applies iff
+  `run.revision > marker.revision`;
+- an **ack upsert** (a `run.event` response) for a marked id applies iff
+  `run.revision > marker.revision` **and** the acked event is an applied
+  `reopen` (a delayed ack of an older tap can never reopen a run);
+- applying an upsert clears the marker; markers prune after 30 days;
+- the revision guard of sync-protocol.md §4.2 applies as before once a row
+  exists.
+
+The topic cascade still **tombstones** the topic's runs (they are deleted, not
+closed); `upsert(run:)` also checks the topic tombstone
+(`ServerLayer.swift:78-81`).
 
 - **[ios]** `ServerLayer.applyDeletion(.run)` (`ServerLayer.swift:182-192`)
-  stops inserting tombstones for the run id and its aliases; it still deletes
-  the `run` and `run_alias` rows. `upsert(run:)` re-inserts the aliases from
-  `run.aliases`. Store migration `t2m1_run_tombstones` in a new file
-  `StoreSchema+T2M1.swift`, registered after `v6` (`StoreSchema.swift:24`):
-  `DELETE FROM tombstone WHERE kind = 'run'` and the same on `stage_tombstone`.
-  Dependent-items rule unchanged: queued `run.event` items of a deleted run are
-  kept and sent (v1 §7.2). The ack path (`OutboxFlush` →
-  `ServerLayer.apply(runEvent:)`, `ServerLayer.swift:108-124`) applies a closed
-  run's deletion the same way.
-- **[pwa]** `src/api/runs.ts` closed-run tombstones are **already
-  revision-aware** (`tombstones` keeps the closing revision and `buried`
-  compares `>=`, runs.ts:26-45): a listed or responded run with a higher
-  revision wins. M1 adds the resurrection tests and keeps the alias rule
-  (`Infinity`: an alias never becomes a run of its own).
+  inserts the marker instead of tombstones for the run id and its aliases, and
+  deletes the `run` and `run_alias` rows; `upsert(run:)` applies the marker
+  rules and re-inserts the aliases from `run.aliases`; the ack path
+  (`ServerLayer.apply(runEvent:)`, `ServerLayer.swift:108-124`) passes the acked
+  event's type and effect. Store migration `t2m1_run_closed` in a new file
+  `StoreSchema+T2M1.swift` (registration line added at merge time):
+  `CREATE TABLE run_closed (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, closed_at TEXT NOT NULL)`
+  plus its `stage_` copy, and `DELETE FROM tombstone WHERE kind = 'run'` on
+  `tombstone` and `stage_tombstone` (existing run tombstones are dropped, not
+  converted: a stopped run's next upsert has a higher revision than any stale
+  response can carry). Epoch rebuilds stage markers like other tables.
+  Dependent-items rule unchanged: queued `run.event` items of a closed run are
+  kept and sent (v1 §7.2).
+- **[pwa]** `src/api/runs.ts` already keeps this marker (`tombstones` by
+  revision, `buried` compares `>=`, runs.ts:26-45); M1 adds the ack rule
+  (`upsertServerRun` un-buries an id only for an applied `reopen` response) and
+  the resurrection tests, and keeps the alias rule (`Infinity`: an alias never
+  becomes a run of its own).
 
 ### 5.3 "Entry hidden while its run is open" (OQ-14 default)
 
@@ -629,6 +729,18 @@ entry already exists.
 
 `createEntry` with a reopened run's id: `_existing` (`entries.py:134-144`)
 replays the entry, unchanged.
+
+**Offline, from an entry (the "resuming" projection).** A `reopen` or `remove`
+enqueued from an entry when no run row is local (after a relaunch, on another
+device, or on the PWA past the 10-minute acked window) takes its `target` from
+the entry's `timing` (`terminal_id`, `segments[].event_id`, `pauses[].id`, §3.3)
+and projects a local run in state **resuming**, built from the entry's timing:
+closed segments = the timing's segments, pauses = its pauses, status `running`,
+and for a reopen an open segment that continues the last one from `reopen.at`
+(for a remove, the entry is re-projected with the boundary or pause dropped).
+The entry is hidden as above. Clients MAY show "Resuming…" without controls
+until the ack replaces the projection with the server's `RunOut`. The ack paths
+are unchanged.
 
 ### 5.4 Bootstrap
 
@@ -646,10 +758,14 @@ waits for the pause or lap it names. A failed target doesn't hold them (the
 server answers `no_target`). Both outboxes implement it: the PWA in `kinds.ts`
 `waitsFor` (`kinds.ts:142-170`), iOS as one more case of the outbox.md §7.1
 extension in v1 §8.1. No new coalescing. A `target` is the id of an event in the
-local view, queued or acked. Classification is v1 §8.1's; the new void reasons
-are acks with notices (§9.3). K6 still drops a never-sent run as a whole,
-reopen/remove items included. Request goldens `recordRunEvent.reopen.json`,
-`recordRunEvent.remove.json` (G2).
+local view (queued or acked) or in the entry's `timing` (§3.3, §5.3).
+Classification is v1 §8.1's; the new void reasons are acks with notices (§9.3).
+**K6 MUST NOT apply when the run's queued items contain a `reopen`:** that
+discard is a revert (§3.4), and dropping the queue would also drop the stop the
+user chose to keep and its optimistic entry; the discard is appended and sent.
+K6 otherwise still drops a never-sent run as a whole, remove items included.
+Cases `k6-not-on-revert` on both outboxes (R16, §12.4). Request goldens
+`recordRunEvent.reopen.json`, `recordRunEvent.remove.json` (G2).
 
 ## 6. Worked examples
 
@@ -713,10 +829,12 @@ are void `deleted`, `pauses []`, `Lap 1 0:00–2:00 active 120 000`. Run upsert
 each time.
 
 (b) `start 0:00`, `S stop 1:00`, `R1 reopen 1:30 (target S)`,
-`x2 remove 1:40 (target S)`. After `x2`: `S` void `deleted` (the stop stays
-reopened: `R1` applied, terminal null), no gap pause, the open segment runs
-since 0:00 with `paused_ms 0`; the clock shows 1:40 at 1:40. A later `stop 2:00`
-closes `Lap 1 0:00–2:00 (120 000)` with no pauses; entry revision 2.
+`x2 remove 1:40 (target S)`. After `x2`: `S` void `deleted` (pass 1, §3.4; the
+stop stays reopened: `R1` applied, terminal null), no gap pause, the open
+segment runs since 0:00 with `paused_ms 0`; the clock shows 1:40 at 1:40. A
+later `stop 2:00` closes `Lap 1 0:00–2:00 (120 000)` with no pauses; entry
+revision 2. Had a `discard 1:50` come instead, the revert restores `S` to
+`applied` (terminal, `ended_at 1:00`) and voids `x2` `no_target`.
 
 ### 6.4 Remove a double-tapped lap in a run/rest cycle (timer `tiktok`)
 
@@ -744,9 +862,15 @@ removes `Cig 2` "into the previous": the client sends `remove(target = e1)` (the
 lap at 1:00 that **opened** Cig 2) at 3:40. The run is stopped, unedited, with
 its entry → late merge: `Cig 1 0:00–1:05`, `Cig 2 1:05–3:00`; `timing` replaced,
 `captured_at` unchanged (3:00), entry revision **2**, `edited` **false**,
-`(entry, upsert)`, no run row. A late lap from another device at 2:00 with seg 2
-still applies: expected = 1 + ghost(1:00 < 2:00 < 3:40) = 2 ✓ (a further late
-merge). "Into the next" would have sent `remove(target = e2)` (the lap at 1:05).
+`(entry, upsert)`, no run row. Re-derived with §3.4: `e1` is removed; at its
+turn `closed = 0` and its `seg 0` matches → ghost `(1:00, 3:40)`, void
+`deleted`; `e2` (1:05, `seg 1`) expects `0 + 1 = 1` ✓ → closes Cig 1 at 1:05. A
+late lap `b1` from another device at 2:00 with `seg 2` then arrives at 3:50:
+expected = 1 closed + ghost(1:00 < 2:00 < 3:40) = 2 ✓ → applied, a further late
+merge: `Cig 1 0:00–1:05 (65 000)`, `Cig 2 1:05–2:00 (55 000)`,
+`Cig 3 2:00–3:00 (60 000)`, `captured_at 3:00`, entry revision **3**. Vector
+`remove-lap-after-stop-then-late-lap`. "Into the next" would have sent
+`remove(target = e2)` (the lap at 1:05).
 
 ### 6.6 Two devices: offline lap inside the gap
 
@@ -784,10 +908,14 @@ failed items out of the fold (v1 §8.3), shows the same.
 
 ```
 RunEventIn.type  : + "reopen" | "remove"
-RunEventIn.target: UUID | null      // required for reopen (RunState.terminal_id) and remove
-RunEventOut      : + target: UUID | null
+RunEventIn.target: UUID | null      // required for remove; for reopen null = "the current terminal" (§4.2)
+RunEventOut      : + target: UUID | null   // the resolved id
 VoidReason       : + "reverted" | "not_stopped" | "deleted" | "no_target"
-RunOpenSegment, TimingSegment : + lap_type: str | null
+RunOpenSegment   : + lap_type: str | null
+TimingSegment    : + lap_type: str | null, event_id: UUID | null,  // the event that opened it (§3.3)
+                     opened_by: "start" | "next" | "lap" | "skip" | null
+TimingPause      : + id: UUID | null                               // the pause event; a gap pause: the stop's id
+Timing           : + terminal_id: UUID
 RunState         : + terminal_id: UUID | null, next_lap_type: str | null, lap_count: int
 Timer            : + laps: LapType[], variables: Variable[]; Step + alerts: Alert[]   (§1.1)
 Limits           : + max_steps, max_lap_types, max_variables, max_alerts, max_expr_length,
@@ -797,17 +925,18 @@ TimingSeriesPoint: + lap_types: {key: active_ms}
 ```
 
 `RunEventIn`'s validator: `answers`/`notes` only on stop and finish (v1);
-`target` only on reopen and remove (422 otherwise). `run_events.target_id`
-stores it.
+`target` only on reopen and remove (422 otherwise), required for remove.
+`run_events.target_id` stores the resolved id. `timing_json`/`timing_from_json`
+and `TimingEdit`'s rebuild carry the ids (null after an edit, §3.3).
 
 ### 7.2 Errors
 
-| Status | Code              | When                                                                                                       |
-| ------ | ----------------- | ---------------------------------------------------------------------------------------------------------- |
-| 409    | `conflict`        | `reopen` while the topic has another open run (nothing stored)                                             |
-| 422    | `invalid_request` | `target` missing for reopen/remove, or present on another type; v2 `Timer` validation (§1.3, dotted paths) |
-| 422    | `run_too_long`    | A re-stop more than 7 days after `started_at` (v1 rule; the revert is the way out)                         |
-| 422    | `before_start`    | A re-stop before `started_at` (v1)                                                                         |
+| Status | Code              | When                                                                                                                   |
+| ------ | ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 409    | `conflict`        | `reopen` while the topic has another open run (nothing stored)                                                         |
+| 422    | `invalid_request` | `target` missing for remove, or present on a type other than reopen/remove; v2 `Timer` validation (§1.3, dotted paths) |
+| 422    | `run_too_long`    | A re-stop more than 7 days after `started_at` (v1 rule; the revert is the way out)                                     |
+| 422    | `before_start`    | A re-stop before `started_at` (v1)                                                                                     |
 
 No new codes. `no_target`, `not_stopped`, `reverted`, `deleted` are void reasons
 (200), not errors.
@@ -849,7 +978,10 @@ in order, then historic ones), `label` from the latest version that has the key,
 `best/median/mean_ms` over those segments' `active_ms` (floor rules of v1 §9.1).
 `laps` (the v1 single bucket) is unchanged. `series[].lap_types` sums
 `active_ms` per type per run. Untyped laps (`lap_type` null) contribute only to
-`laps`. `timing-stats-vectors.json` `GENERATOR_VERSION 2 → 3`, new cases
+`laps`. `lap_types[]` and `steps[]` are keyed **separately**: the shared key
+namespace of §1.1 is per timer, not per topic, so a lap-type key equal to a
+historic step key of an older version does not join that step's bucket (and vice
+versa). `timing-stats-vectors.json` `GENERATOR_VERSION 2 → 3`, new cases
 `lap_types_one`, `lap_types_cycle`, `lap_types_renamed_across_versions`,
 `lap_types_untyped_mixed`, `lap_types_in_series`. M4 consumes these.
 
@@ -865,8 +997,10 @@ lap_count:   Int?       // closed laps
 next_label:  String?    // v1 field, now also set in a lap: the next lap type's label (null if untyped)
 alert_at:    Double?    // next alert instant (server clock, seconds) for the open segment; null while paused or when none remain
 alert_label: String?    // its label (≤ 64)
-terminal_id: String?    // set in `end` for a stopped run, so the ended activity can offer Resume (M2 decides whether it does)
 ```
+
+No `terminal_id` in the content state: Resume is never offered from the activity
+(active-surfaces.md §4.4), so the field would have no consumer.
 
 `alert_at = seg_started_at + paused_ms_in_seg + a.at_ms` for the first alert `a`
 of the open segment's step or lap type with `a.at_ms > active_in_seg_now` (at
@@ -884,9 +1018,13 @@ cannot sound.
 `paused_ms_in_seg` includes the gap). `update_tiktok_lap` MUST pin a typed lap
 with `next_label` set ("Rest") and `step_index` null: `RunActivityDisplay` can
 no longer derive "this is a lap" from `next_label == nil`; it reads
-`step_index == nil` (and `lap_type`). `LiveActivityVectorTests` keeps checking
-size ≤ 4 KB with 30 steps and 8 lap types of 64-character labels
-(`start_longest_labels` v2).
+`step_index == nil` (and `lap_type`). **Size check**, honestly: the payload
+carries no step or lap-type list (v1 §10.3), only one `label`, one `next_label`,
+one `alert_label` and the topic name, each ≤ 64 characters.
+`start_longest_labels` v2 pins a `start` with all four at 64 multibyte
+characters and the UTF-8 body ≤ 4 096 bytes. M3 re-runs the size vector with
+`attributes.appearance` set (appearance.md adds the case), since attributes grow
+there.
 
 ### 8.3 Push-to-start on reopen
 
@@ -924,13 +1062,17 @@ originating device with `live_activity: true`). `register`
   orchestrator at once. **A TestFlight build MUST never fail on the
   entitlement**: the entitlement and the `.timeSensitive` level are added
   together, only once the profile carries the capability.
-- **Scheduler** diffs the plan against pending requests (by identifier) and
-  adds/removes the difference: on every local-run change (`observeLocalRuns`),
-  on resume from background, and after a Live Activity push updates the store.
-  Cancels all `quickr.alert.{run_id}.*` on stop, discard, and when the run
-  leaves the local view. Requests whose instant is already past are not
-  scheduled (an alert missed while the app was dead is missed; the Live Activity
-  countdown covered it).
+- **Scheduler** computes the desired set and compares it with the pending
+  `quickr.alert.*` requests on **identifier, `fireAt` and content**: it adds
+  missing ones, removes stale ones and **replaces** changed ones (a pause,
+  resume or corrected time moves `fireAt` without changing the identifier).
+  Triggers: every local-run change (`observeLocalRuns`, which covers this
+  device's taps and sync applying a page) and the app becoming active. A Live
+  Activity push runs no app code and is **not** a trigger (OQ-11). Cancels all
+  `quickr.alert.{run_id}.*` on stop, discard, and when the run leaves the local
+  view. Requests whose instant is already past are not scheduled (an alert
+  missed while the app was dead is missed; the Live Activity countdown covered
+  it).
 - `LocalNotificationRequest` gains `interruptionLevel` (default `.active`) and
   `fireAt: Date?`; `SystemNotificationCenter.add` uses
   `UNTimeIntervalNotificationTrigger(timeInterval: max(1, fireAt − now))` for
@@ -977,17 +1119,25 @@ discard another's; `stale` stays silent.
 
 Owner map from the brief §5 and the research ownership tables.
 
-**Primary and Auto rule (M1 owns the model; M2 lays it out).**
-`RunPresentation.actions(run, timer, now)` / `RunPresentation.primary` on iOS
-and `model.ts` `actions` / `primaryAction` on the PWA define the primary action:
-**Lap**, labelled with the next lap type ("Lap → Rest"; plain "Lap" when
-untyped), whenever `timer.laps` is non-empty; otherwise v1 §11.1's rule (Next
-while a named step remains, Stop on the last step or with no steps). Stop is
-secondary; Pause/Resume secondary; Skip, Reopen, Discard overflow. **Auto**
-(`RunWrites.auto`, `RunIntentWrites`, the PWA's auto path) follows the primary:
-idle → Start, else the primary. Consumers: active-surfaces.md §1 and §5.3 (run
-screen, tiles, Live Activity, widgets, Control). M1 lands the `RunAction` enum
-with v1's actions in its first wave, then adds `reopen`/`revert`/`remove`.
+**Primary and Auto rule (the single normative text; active-surfaces.md §1.2 and
+§5.3 cite it; M1 owns the model, M2 lays it out).** iOS
+`RunPresentation.actions(_ state: RunState, status:, timer:, now:) -> [RunAction]`
+and PWA `model.ts` `actions(state, status, timer, now)` / `primaryAction`:
+
+- **On-screen primary** = **Lap** when the open segment is a lap **or no named
+  step remains** (`next_step == null`), labelled with the next lap type's label
+  when `timer.laps` is non-empty ("Lap → Rest") and plain "Lap" otherwise; else
+  **Next: {step}**. **Stop is never primary**: Stop, Pause and Resume are
+  secondary; Skip, Reopen, Discard are overflow.
+- **Auto** (the Action button, the Control, the small widget, Siri;
+  `RunWrites.auto`, `RunIntentWrites`, the PWA's auto path) is a separate rule:
+  `timer.laps` non-empty → Auto = the on-screen primary (idle → Start);
+  `timer.laps` empty → v1 §11.1's Auto (idle → Start; a named step remains →
+  Next; otherwise → **Stop**), so a stepless Control still stops the dishwasher.
+
+Consumers: active-surfaces.md §1 and §5.3 (run screen, tiles, Live Activity,
+widgets, Control). M1 lands the `RunAction` enum with v1's actions in its first
+wave (M1-ACTIONS), then adds `reopen`/`revert`/`remove`; R18 pins the rule.
 
 **iOS** (`ios/QuickrKit/Sources/...` unless `App/`):
 
@@ -997,15 +1147,16 @@ with v1's actions in its first wave, then adds `reopen`/`revert`/`remove`.
   `VoidReason` + 4; `RunSegment.lapType`,
   `RunState.terminalId/nextLapType/lapCount`), `RunFold.swift` (v4, `overlay`
   lap labelling: untyped until the version is stored), `RunPresentation.swift`
-  (`actions(run, timer, now) -> [RunAction]`, `headline`, `alertLine`,
-  `resumable`), `TimingEdit.swift` (lap types), `TimingStats.swift` (v3), new
-  `TimerExpr.swift`, `RunNoticeText.swift`.
+  (`actions(_:status:timer:now:) -> [RunAction]`, `headline`, `alertLine`,
+  `resumable`), `TimingEdit.swift` (lap types, ids), `TimingStats.swift` (v3),
+  new `TimerExpr.swift`, `RunNoticeText.swift`.
 - `QuickrData/Session/RunWrites.swift` (`.reopen(target)`, `.remove(target)`,
-  `auto` follows the primary), `RunActions.swift`, `Contracts/RunDTO.swift`,
+  `auto` per the Auto rule above), `RunActions.swift`, `Contracts/RunDTO.swift`,
   `QuickrData/Outbox/*` ordering (reopen/remove wait for their `target` item,
-  §5.5), `Store/RunOverlay.swift`, `Store/ServerLayer.swift` (§5.2), new
-  `Contracts/StoreSchema+T2M1.swift` (+ one registration line),
-  `Store/StoreView.swift` (§5.3).
+  §5.5; K6 exempt when a `reopen` is queued), `Store/RunOverlay.swift`
+  ("resuming" projection, §5.3), `Store/ServerLayer.swift` (§5.2 `run_closed`
+  markers), new `Contracts/StoreSchema+T2M1.swift` (`t2m1_run_closed`; the
+  registration line is added at merge time), `Store/StoreView.swift` (§5.3).
 - `QuickrCore/Runs/RunActivity.swift` (§8.1 fields),
   `QuickrData/LiveActivity/RunActivityCenter.swift` (`startFor` on reopen).
 - `QuickrData/Notifications/RunAlerts.swift` (new),
@@ -1033,8 +1184,9 @@ with v1's actions in its first wave, then adds `reopen`/`revert`/`remove`.
   `timerExpr.ts`, new `alerts.ts`.
 - `lib/outbox/kinds.ts` (`RunEventPayload.timer` replaces `steps` so offline
   runs know their lap types and alerts; `waitsFor` adds the pending `target`
-  item for reopen/remove, §5.5), `api/runs.ts` (tests), `api/limits.ts`
-  (`FALLBACK_LIMITS`).
+  item for reopen/remove; `coalesce` K6 exempt when a `reopen` is queued, §5.5),
+  `api/runs.ts` (ack rule for buried ids, §5.2, tests), `localView.ts`
+  "resuming" projection (§5.3), `api/limits.ts` (`FALLBACK_LIMITS`).
 - `components/runs/model.ts` (`actions`, `primaryAction` with Lap, the Auto rule
   above, `headline`, `alertLine`, `resumable`), `timingEdit.ts` (lap types), new
   `RunAlerts.tsx`, `useRunActions.ts` (audio unlock), `AppShell.tsx` (mount),
@@ -1058,8 +1210,9 @@ with v1's actions in its first wave, then adds `reopen`/`revert`/`remove`.
 - `compat/supported-clients.json`: remove both listed builds (`20261028.170408`
   level 1, `20261026.143027` level 0: below the new minimum, so never checked);
   add `LiveActivityVectorTests` to `suites` (issue #111) so the next listed
-  build is covered. The user is on TestFlight 20261028.170408; raising the
-  minimum is acceptable (requirements).
+  build is covered. The user is on TestFlight 20261028.170408 (session memory
+  `project-cv-build-installed.md`); the orchestrator decided that raising the
+  minimum is acceptable (requirements.md says nothing about client levels).
 - `CONTENT_STATE_VERSION` stays 1: only optional fields are added (§8.1).
 - **Signing**: the Time Sensitive capability (§9.1) is a TestFlight profile
   change; it lands only after the signing path is verified, and a build never
@@ -1076,67 +1229,73 @@ with v1's actions in its first wave, then adds `reopen`/`revert`/`remove`.
 
 ### 12.1 Shared vectors
 
-| File                            | Generator (version)                                   | New or changed cases                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `run-fold-vectors.json`         | `test_run_fold_vectors.py` (3 → 4); `timer_sets`      | every v1 case re-pinned with `lap_type`/`terminal_id`/`next_lap_type`/`lap_count`; `renamed-laps`, `tiktok-cycle`, `three-types-with-step`, `reopen-accidental-stop` (§6.1), `reopen-then-restop-labels`, `reopen-not-terminal` (`not_stopped`), `reopen-unknown-target` (`no_target`), `reopen-after-discard` (`already_closed`), `reopen-stale-at`, `reopen-too-long`, `reopen-double-tap`, `reopen-revert-by-discard` (§6.2), `reopen-revert-then-reopen-again`, `reopen-second-stop-new-terminal`, `reopen-offline-stop-earlier-than-reopen`, `reopen-stop-while-paused-pause-continues`, `reopen-lap-inside-gap` (§6.6), `remove-pause` (§6.3a), `remove-pause-resume-deleted`, `remove-gap-pause` (§6.3b), `remove-lap-merges-previous`, `remove-lap-renumbers-types` (§6.4), `remove-lap-ghost-keeps-later-lap-applied`, `remove-two-laps-ghosts-stack`, `remove-stale-lap-no-ghost`, `remove-lap-after-stop-late-merge` (§6.5), `remove-next-is-no-target`, `remove-terminal-stop-no-target`, `remove-twice-no-target`, `remove-at-before-target-no-target`, `remove-then-revert-restores-stop`, `frozen-reopen-run-edited`, `frozen-remove-entry-deleted` |
-| `timer-expr-vectors.json` (new) | `test_timer_expr_vectors.py` (1)                      | §2.5 list                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `builder-vectors.json`          | `test_builder_vectors.py` (3 → 4)                     | §1.3 list                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `builder-ui-vectors.json`       | `builderUi.vectors.test.ts`                           | `new_lap_type`, `lap_type_label`, `variable`, `alert_expr`, `timer_output` v2, `timer_changes` v2                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `timing-stats-vectors.json`     | `test_timing_stats_vectors.py` (2 → 3)                | §7.4 list                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `live-activity-vectors.json`    | `test_live_activity_vectors.py` (2 → 3); `timer_sets` | §8.2 list                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `api/*.json`                    | `test_api_fixtures.py`                                | `recordRunEvent.reopen`, `recordRunEvent.restop`, `recordRunEvent.remove`, `recordRunEvent.remove_late`, `recordRunEvent.revert`, `listChanges.reopened_run`, `getLimits` (new rows), `getTopicTiming` (lap types), `getTopic` / `listTopicVersions` (normalised timer), `getRun` (MCP)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `requests/*.json`               | Swift golden generator                                | `recordRunEvent.reopen`, `recordRunEvent.remove`, `publishTopicVersion.timer_v2`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `getClientVersions` fixture     | `make vectors` after the bump                         | level 2                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| File                            | Generator (version)                                   | New or changed cases                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run-fold-vectors.json`         | `test_run_fold_vectors.py` (3 → 4); `timer_sets`      | every v1 case re-pinned with `lap_type`/`terminal_id`/`next_lap_type`/`lap_count`; `renamed-laps`, `tiktok-cycle`, `three-types-with-step`, `reopen-accidental-stop` (§6.1), `reopen-then-restop-labels`, `reopen-not-terminal` (`not_stopped`), `reopen-unknown-target` (`no_target`), `reopen-after-discard` (`already_closed`), `reopen-stale-at`, `reopen-too-long`, `reopen-double-tap`, `reopen-revert-by-discard` (§6.2), `reopen-revert-then-reopen-again`, `reopen-second-stop-new-terminal`, `stop-reopen-stop-reopen-discard-discard`, `reopen-offline-stop-earlier-than-reopen`, `reopen-while-paused-ends-pause`, `reopen-gap-removed-user-pause-inside-gap`, `reopen-lap-inside-gap` (§6.6), `remove-pause` (§6.3a), `remove-pause-resume-deleted`, `remove-gap-pause` (§6.3b, the stop `deleted`), `remove-lap-merges-previous`, `remove-lap-renumbers-types` (§6.4), `remove-lap-ghost-keeps-later-lap-applied`, `remove-two-laps-ghosts-stack`, `remove-stale-lap-no-ghost`, `remove-lap-after-stop-late-merge` (§6.5), `remove-lap-after-stop-then-late-lap` (§6.5, revision 3), `remove-years-later-applies` (no 7-day bound), `remove-next-is-no-target`, `remove-terminal-stop-no-target`, `remove-twice-no-target`, `remove-at-before-target-no-target`, `remove-then-revert-restores-stop`, `timing-carries-event-ids`, `frozen-reopen-run-edited`, `frozen-remove-entry-deleted` |
+| `timer-expr-vectors.json` (new) | `test_timer_expr_vectors.py` (1)                      | §2.5 list                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `builder-vectors.json`          | `test_builder_vectors.py` (3 → 4)                     | §1.3 list                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `builder-ui-vectors.json`       | `builderUi.vectors.test.ts`                           | `new_lap_type`, `lap_type_label`, `variable`, `alert_expr`, `timer_output` v2, `timer_changes` v2                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `timing-stats-vectors.json`     | `test_timing_stats_vectors.py` (2 → 3)                | §7.4 list                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `live-activity-vectors.json`    | `test_live_activity_vectors.py` (2 → 3); `timer_sets` | §8.2 list                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `api/*.json`                    | `test_api_fixtures.py`                                | `recordRunEvent.reopen`, `recordRunEvent.restop`, `recordRunEvent.remove`, `recordRunEvent.remove_late`, `recordRunEvent.revert`, `listChanges.reopened_run`, `getLimits` (new rows), `getTopicTiming` (lap types), `getTopic` / `listTopicVersions` (normalised timer), `getRun` (MCP)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `requests/*.json`               | Swift golden generator                                | `recordRunEvent.reopen`, `recordRunEvent.remove`, `publishTopicVersion.timer_v2`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `getClientVersions` fixture     | `make vectors` after the bump                         | level 2                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 `shared/fixtures/README.md` gains a row for `timer-expr-vectors.json`.
 
 ### 12.2 Backend (continuing timers.md §13.2)
 
-| #   | Case                                                                                                                                                                                                                                                                                                                                        |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| T18 | Every fold v4 vector through the real endpoint gives the same `RunState`, effects and (when stopped) entry `timing` as the pure fold.                                                                                                                                                                                                       |
-| T19 | Reopen of a stopped run: 200 applied, run `running`, `ended_at` null, revision + 1, `(run, upsert)` logged, the entry unchanged (same revision) and still returned by `getEntry`; `createEntry` with its id replays it.                                                                                                                     |
-| T20 | Re-stop: entry `timing` and `captured_at` replaced, revision + 1, `(entry, upsert)` then `(run, delete)`; no `deleted_ids` row; a stop with answers on the re-stop merges them.                                                                                                                                                             |
-| T21 | Discard after reopen (revert): run `stopped`, `ended_at` restored, `(run, delete)` logged, no tombstone, entry revision unchanged; the reopen is `reverted` in `RunOut.events`; a reopened **finishing** run's discard leaves it `discarded` with a tombstone.                                                                              |
-| T22 | Reopen while the topic has another open run: 409 `conflict`, nothing stored (event count unchanged).                                                                                                                                                                                                                                        |
-| T23 | Reopen on an edited run → `run_edited`; on a run whose entry was deleted → `entry_deleted`; on a discarded run → `already_closed`; naming a non-terminal stop → `not_stopped`; an unknown id → `no_target`; without `target` → 422.                                                                                                         |
-| T24 | Remove on an open run (pause, lap, gap pause): applied, `(run, upsert)`; the `seg` ghost rule keeps a later lap applied (§6.4) and a tap after the remove with the renumbered `seg` applies.                                                                                                                                                |
-| T25 | Remove on a stopped unedited run: late merge, entry revision + 1, `runs.edited` false, `(entry, upsert)` only; a later late lap still merges. Remove of a `next`, a terminal stop, a removed id, or with `at ≤ target.at` → `no_target`.                                                                                                    |
-| T26 | A stop writes no `deleted_ids` row; a discard and a topic delete do. The data migration removes the rows of stopped runs and keeps those of discarded ones (`test_migrations.py`).                                                                                                                                                          |
-| T27 | `test_feed_runs.py` T7/T8 updated: a stopped run's deletion is still emitted (from its log row); a run that stopped, reopened and re-stopped within one page is one deletion; an incremental page after a reopen carries the run as an **item** again (resurrection); `limit` cutting between the reopen's upsert and the re-stop's delete. |
-| T28 | `Timer` v2 validation: every §1.3 vector; the v1 shape is accepted; output is normalised with `at_ms`; `GET /limits` carries the seven new rows; `checkTopicVersion` and MCP accept v2.                                                                                                                                                     |
-| T29 | `timer_expr`: every §2.5 vector; a 65-character expression is `too_long` at 64; results are identical for the same operations in Python (the ports check the same file).                                                                                                                                                                    |
-| T30 | Live Activity: an applied reopen sends `start` to push-to-start tokens (not the originating device's with `live_activity: true`); `content_state` fills `alert_at`/`alert_label` from active time, null while paused; `terminal_id` in `end`; payloads ≤ 4 KB.                                                                              |
-| T31 | `getTopicTiming.lap_types` over mixed typed/untyped runs and a renamed lap type across versions; `series[].lap_types`.                                                                                                                                                                                                                      |
-| T32 | MCP: `run_action reopen` defaults `target` to `terminal_id` and refuses when null; `run_action remove` requires `target`; `get_run`; `INSTRUCTIONS` mentions reopen/remove (string check).                                                                                                                                                  |
-| T33 | `test_identity.py` `_mutations`: no new operations (reopen/remove reuse `recordRunEvent`); `test_compat_gate.py` passes after the level-2 bump with the two builds removed.                                                                                                                                                                 |
+| #   | Case                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T18 | Every fold v4 vector through the real endpoint gives the same `RunState`, effects and (when stopped) entry `timing` as the pure fold.                                                                                                                                                                                                                                                                                       |
+| T19 | Reopen of a stopped run: 200 applied, run `running`, `ended_at` null, revision + 1, `(run, upsert)` logged, the entry unchanged (same revision) and still returned by `getEntry`; `createEntry` with its id replays it.                                                                                                                                                                                                     |
+| T20 | Re-stop: entry `timing` and `captured_at` replaced, revision + 1, `(entry, upsert)` then `(run, delete)`; no `deleted_ids` row; a stop with answers on the re-stop merges them.                                                                                                                                                                                                                                             |
+| T21 | Discard after reopen (revert): run `stopped`, `ended_at` restored, `(run, delete)` logged, no tombstone, entry revision unchanged; the reopen is `reverted` in `RunOut.events`; a reopened **finishing** run's discard leaves it `discarded` with a tombstone.                                                                                                                                                              |
+| T22 | Reopen while the topic has another open run: 409 `conflict`, nothing stored (event count unchanged).                                                                                                                                                                                                                                                                                                                        |
+| T23 | Reopen on an edited run → `run_edited`; on a run whose entry was deleted → `entry_deleted`; on a discarded run → `already_closed`; naming a non-terminal stop → `not_stopped`; an unknown id → `no_target`; `target: null` resolves to the terminal and `RunEventOut.target` carries it; `remove` without `target` → 422; `Timing` carries `terminal_id`, `segments[].event_id`, `pauses[].id` (null after a `TimingEdit`). |
+| T24 | Remove on an open run (pause, lap, gap pause): applied, `(run, upsert)`; the `seg` ghost rule keeps a later lap applied (§6.4) and a tap after the remove with the renumbered `seg` applies.                                                                                                                                                                                                                                |
+| T25 | Remove on a stopped unedited run: late merge, entry revision + 1, `runs.edited` false, `(entry, upsert)` only; a later late lap still merges. Remove of a `next`, a terminal stop, a removed id, or with `at ≤ target.at` → `no_target`.                                                                                                                                                                                    |
+| T26 | A stop writes no `deleted_ids` row; a discard and a topic delete do. The data migration removes the rows of stopped runs and keeps those of discarded ones (`test_migrations.py`).                                                                                                                                                                                                                                          |
+| T27 | `test_feed_runs.py` T7/T8 updated: a stopped run's deletion is still emitted (from its log row); a run that stopped, reopened and re-stopped within one page is one deletion; an incremental page after a reopen carries the run as an **item** again (resurrection); `limit` cutting between the reopen's upsert and the re-stop's delete.                                                                                 |
+| T28 | `Timer` v2 validation: every §1.3 vector; the v1 shape is accepted; output is normalised with `at_ms`; `GET /limits` carries the seven new rows; `checkTopicVersion` and MCP accept v2.                                                                                                                                                                                                                                     |
+| T29 | `timer_expr`: every §2.5 vector; a 65-character expression is `too_long` at 64; results are identical for the same operations in Python (the ports check the same file).                                                                                                                                                                                                                                                    |
+| T30 | Live Activity: an applied reopen sends `start` to push-to-start tokens (not the originating device's with `live_activity: true`); `content_state` fills `alert_at`/`alert_label` from active time, null while paused; no `terminal_id`; `start_longest_labels` v2 (four 64-character multibyte fields) ≤ 4 096 UTF-8 bytes.                                                                                                 |
+| T31 | `getTopicTiming.lap_types` over mixed typed/untyped runs and a renamed lap type across versions; `series[].lap_types`.                                                                                                                                                                                                                                                                                                      |
+| T32 | MCP: `run_action reopen` defaults `target` to `terminal_id` and refuses when null; `run_action remove` requires `target`; `get_run`; `INSTRUCTIONS` mentions reopen/remove (string check).                                                                                                                                                                                                                                  |
+| T33 | `test_identity.py` `_mutations`: no new operations (reopen/remove reuse `recordRunEvent`); `test_compat_gate.py` passes after the level-2 bump with the two builds removed.                                                                                                                                                                                                                                                 |
 
 ### 12.3 iOS (continuing §13.3)
 
-| #   | Case                                                                                                                                                                                                                                                                                    | Class |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
-| R13 | Fold v4, expression, stats v3 and Live Activity v3 vectors; `TopicTimer` decodes v1 and v2 JSON                                                                                                                                                                                         | host  |
-| R14 | `ServerLayer`: a `run` deletion leaves no tombstone and removes alias rows; a later upsert of the same id applies; the topic cascade still tombstones; `t2m1_run_tombstones` empties `tombstone`/`stage_tombstone` of kind run; an epoch rebuild stages a reopened run (`RunSyncTests`) | host  |
-| R15 | `RunOverlay`: a queued reopen opens the run locally (entry hidden, §5.3); a queued remove relabels at once; `overlay` without the version leaves laps untyped                                                                                                                           | host  |
-| R16 | Outbox: reopen/remove wait for the start and for their pending `target` item (a failed target holds nothing); K6 drops them with a never-sent run; `no_target`/`not_stopped`/`reverted` acks and their notices                                                                          | host  |
-| R17 | `RunAlertPlan`: plan from open segment, paused → none, cap 8, identifiers, time-sensitive; scheduler diff adds/cancels against `FakeNotificationCenter`; cancel-all on stop/discard                                                                                                     | host  |
-| R18 | `RunPresentation.actions`: Lap primary for lap-driven runs, Next otherwise, Stop secondary, Reopen/Discard overflow; `resumable` 15 min / 7 days rules                                                                                                                                  | host  |
-| R19 | Builder models: lap types, variables and alerts drafts; `DraftValidation` paths; `timerChanges` text; `BuilderUIVectorTests` new sections                                                                                                                                               | host  |
-| R20 | `LiveActivityReconcileTests`: a reopen this device made requests an activity (`startFor`); one made elsewhere waits for push-to-start                                                                                                                                                   | host  |
-| R21 | UI test (`RunUITests`): start, lap, stop, Resume from the saved state, lap, stop; the entry shows three laps and one pause. **Run by M2** (the Resume control lives in M2-owned files); M1's sim WP keeps R22 and the resurrection tests (R14)                                          | sim   |
-| R22 | UI test (`BuilderUITests`/`TimingUITests`): publish a topic with two lap types, a variable and an alert; the run screen shows "Run 1" then "Rest 1"                                                                                                                                     | sim   |
-| R23 | `SystemNotificationCenterTests`: `fireAt` → interval trigger, `interruptionLevel` set                                                                                                                                                                                                   | sim   |
+| #   | Case                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Class |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- |
+| R13 | Fold v4, expression, stats v3 and Live Activity v3 vectors; `TopicTimer` decodes v1 and v2 JSON                                                                                                                                                                                                                                                                                                                                                                                                                          | host  |
+| R14 | `ServerLayer`: a `run` deletion writes a `run_closed(id, revision)` marker, no tombstone, and removes alias rows; a feed upsert applies iff its revision beats the marker and clears it; a delayed ack of an older tap (lower revision, or not a reopen) is dropped; a reopen ack applies; the topic cascade still tombstones; `t2m1_run_closed` creates the tables and empties `tombstone`/`stage_tombstone` of kind run; markers prune at 30 days; an epoch rebuild stages markers and a reopened run (`RunSyncTests`) | host  |
+| R15 | `RunOverlay`: a queued reopen opens the run locally (entry hidden, §5.3); a queued remove relabels at once; `overlay` without the version leaves laps untyped                                                                                                                                                                                                                                                                                                                                                            | host  |
+| R16 | Outbox: reopen/remove wait for the start and for their pending `target` item (a failed target holds nothing); K6 drops a never-sent run with its remove items; `k6-not-on-revert`: a discard after a queued reopen is appended, nothing dropped, the optimistic entry stays; `no_target`/`not_stopped`/`reverted` acks and their notices                                                                                                                                                                                 | host  |
+| R17 | `RunAlertPlan`: plan from open segment, paused → none, cap 8, identifiers, time-sensitive; scheduler compares identifier + `fireAt` + content against `FakeNotificationCenter` and replaces a request whose `fireAt` moved (pause/resume, a corrected time) under the same identifier; cancel-all on stop/discard; a Live Activity push is not a trigger                                                                                                                                                                 | host  |
+| R18 | `RunPresentation.actions(_:status:timer:now:)`: Lap primary when the open segment is a lap or no step remains (labelled with the next lap type when typed), Next otherwise, Stop never primary, Reopen/Discard overflow; Auto = the primary when `timer.laps` is non-empty, v1's Auto (… → Stop) when empty; `resumable` 15 min / 7 days rules                                                                                                                                                                           | host  |
+| R19 | Builder models: lap types, variables and alerts drafts; `DraftValidation` paths; `timerChanges` text; `BuilderUIVectorTests` new sections                                                                                                                                                                                                                                                                                                                                                                                | host  |
+| R20 | `LiveActivityReconcileTests`: a reopen this device made requests an activity (`startFor`); one made elsewhere waits for push-to-start                                                                                                                                                                                                                                                                                                                                                                                    | host  |
+| R21 | UI test (`RunUITests`): start, lap, stop, Resume from the saved state, lap, stop; the entry shows three laps and one pause. **Run by M2** (the Resume control lives in M2-owned files); M1's sim WP keeps R22 and the resurrection tests (R14)                                                                                                                                                                                                                                                                           | sim   |
+| R22 | UI test (`BuilderUITests`/`TimingUITests`): publish a topic with two lap types, a variable and an alert; the run screen shows "Run 1" then "Rest 1"                                                                                                                                                                                                                                                                                                                                                                      | sim   |
+| R23 | `SystemNotificationCenterTests`: `fireAt` → interval trigger, `interruptionLevel` set                                                                                                                                                                                                                                                                                                                                                                                                                                    | sim   |
+| R24 | Closed markers, acks: a `run.event` ack for a closed run with a lower revision, or a higher one that is not an applied `reopen`, leaves the run closed; an applied-reopen ack reopens it and clears the marker                                                                                                                                                                                                                                                                                                           | host  |
+| R25 | Closed markers, feed: a run deletion on one page and its reopen upsert on the next apply in turn; a bootstrap after a reopen lists the run as an item; a delayed list page with the closing revision is ignored; markers older than 30 days are pruned                                                                                                                                                                                                                                                                   | host  |
+| R26 | "Resuming" projection: a reopen queued from an entry with no run row shows a running run built from the entry's timing (entry hidden) and is replaced by the ack's `RunOut`; `targetOf` reads `terminal_id` / `event_id` / `pause.id` from the timing                                                                                                                                                                                                                                                                    | host  |
 
 ### 12.4 PWA
 
 Vitest: fold v4, expression and stats vectors; `localView` (reopen hides the
-entry, remove relabels, `targetOf` for reopen/remove, `makesEntry`); outbox kind
+entry, remove relabels, `targetOf` for reopen/remove from the run or from the
+entry's timing ids, the "resuming" projection, `makesEntry`); outbox kind
 (`waitsFor`: reopen/remove wait for their pending `target` item and the start, a
-failed target holds nothing; K6); `api/runs.ts` resurrection (a closed run's
-tombstone is beaten by a higher-revision list row and by the reopen response);
-`notices`; `alerts.ts` (next alert, paused, late drop) and `RunAlerts.tsx` with
-fake timers (toast, notification when granted, mute); `model.ts`
-`actions`/`resumable`; builder (`draftFromTimer` v2, `timerFromDraft`
+failed target holds nothing; K6; `k6-not-on-revert`: a discard after a queued
+reopen is appended, never coalesced); `api/runs.ts` resurrection (a closed run's
+marker is beaten by a higher-revision list row and by an applied-reopen
+response; a delayed older ack and a non-reopen ack stay buried; bootstrap after
+a reopen lists the run); `notices`; `alerts.ts` (next alert, paused, late drop)
+and `RunAlerts.tsx` with fake timers (toast, notification when granted, mute);
+`model.ts` `actions`/`resumable`; builder (`draftFromTimer` v2, `timerFromDraft`
 normalised, `timerChanges`, server error paths); `RunFlow.test.tsx` reopen and
 remove flows against `fakeRunServer` (v4); `EditQuestionsPage` publishes v2.
 
@@ -1148,8 +1307,9 @@ remove flows against `fakeRunServer` (v4); `EditQuestionsPage` publishes v2.
 2. Lap on the PWA while the phone is locked: the phone's alerts are stale
    (OQ-11); after unlocking they are re-planned.
 3. Reopen from the PWA: the phone's Live Activity reappears by push-to-start;
-   reopen on the phone with the app killed (from the ended activity if M2 adds
-   it): the activity is requested locally.
+   reopen on the phone from the tile or the entry (M2/M4 surfaces; never from
+   the ended activity, active-surfaces.md §4.4): the activity is requested
+   locally.
 4. Resume within 15 minutes from the tile; after 15 minutes only from the entry.
 5. Web Audio tone on an installed iOS PWA after the Start tap; silent switch
    mutes it.
@@ -1169,12 +1329,47 @@ Each default is written into the spec; the plan lists them for the user.
 | OQ-11 | Stale alerts after another device's tap while locked | Accepted limitation; the Live Activity countdown stays right                                                                                                                                                   | A silent push that wakes the app to re-plan would add a push path and battery cost                         |
 | OQ-13 | PWA audible cue                                      | A short synthesised Web Audio tone, mute toggle                                                                                                                                                                | Vibrate + toast only: silent on iOS, where vibrate is a no-op                                              |
 | OQ-14 | The entry during a reopen                            | Kept on the server; hidden on clients while the run is open or finishing                                                                                                                                       | Deleting it at reopen would tombstone the id (F3) and make the run unresumable for good                    |
-
-| OQ-9 | Topic tags | Owned by appearance.md (M3); not covered here | — |
+| OQ-9  | Topic tags                                           | Owned by appearance.md (M3); not covered here                                                                                                                                                                  | —                                                                                                          |
 
 **Decided (was a note here):** a `reopen`/`remove` also waits for the queued
 item its `target` names (§5.5), so a reopen can't overtake its own device's
 stop.
+
+## Review log (round 1)
+
+C = `codex-r1.md` (S1 numbered in file order), K = `claude-r1.md`; the lead's
+adjudication is `adjudication-r1.md` §A–§C.
+
+| Finding                                 | Outcome                                                                                                                           |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| C-S1 #1 permanent-deletion contract     | fixed in §5.1 (closed vs deleted; only deleted runs are tombstoned)                                                               |
+| C-S1 #2 vanished-entity invariant       | fixed in §5.1 (emission rule from the log row; missing-and-untombstoned cannot occur), §4.3                                       |
+| C-S1 #3 iOS marker                      | fixed in §5.2 (`run_closed(id, revision)`, feed/ack rules, prune), R14, §12.4                                                     |
+| C-S1 #4 revert pops the wrong reopen    | fixed in §3.4 (`open_reopen`), vector `stop-reopen-stop-reopen-discard-discard`                                                   |
+| C-S1 #5 gap resume closes a user pause  | fixed in §3.4 (decision: a reopen ends whatever pause is open), two vectors                                                       |
+| C-S1 #6 7-day bound on `remove`         | **rejected**: a remove is an edit like `TimingEdit`, bounded only by `at > target.at` (§3.4); vector `remove-years-later-applies` |
+| C-S1 #7 example 6.5                     | fixed in §6.5 (full post-late-lap timing, revision 3), vector `remove-lap-after-stop-then-late-lap`                               |
+| C-S1 #8 scheduler by identifier         | fixed in §9.1 (compare identifier + `fireAt` + content, replace), R17                                                             |
+| C-S2 LA push as a trigger               | fixed in §9.1 (triggers: local-run change, app active, sync)                                                                      |
+| C-S2 `terminal_id` in the content state | fixed in §8.1 (dropped), §12.5, T30                                                                                               |
+| C-S2 payload size after M3              | fixed in §8.2 (M3 re-runs the size vector with `attributes.appearance`)                                                           |
+| K-S1 primary rule ×3                    | fixed in §10 (single normative text, M2's rule; Auto separate), R18                                                               |
+| K-S1 targets for stopped runs           | fixed in §3.3, §4.2, §5.3, §7.1 (ids in `Timing` incl. `opened_by`; `reopen` target may be null; "resuming"), R26                 |
+| K-S1 K6 erases a reverted run           | fixed in §5.5 (K6 exempt when a reopen is queued), R16, §12.4                                                                     |
+| K-S2 6.3(b) effect                      | fixed in §3.4 (`void(t, deleted)` in pass 1, restored on revert), §6.3                                                            |
+| K-S2 `gap_resume` semantics             | fixed in §3.4 (as C-S1 #5)                                                                                                        |
+| K-S2 determinism invariant              | fixed in §3.4 (restated; property test constraints)                                                                               |
+| K-S2 cross-refs and `actions` signature | fixed in §10 (`actions(_:status:timer:now:)`); other docs' references are theirs                                                  |
+| K-S3 downgrade story                    | fixed in §4.3 (leave the enum values; one sentence)                                                                               |
+| K-S3 `revision += 1` double count       | fixed in §4.1                                                                                                                     |
+| K-S3 `terminal_id` dead weight          | fixed in §8.1 (as C-S2)                                                                                                           |
+| K-S3 cross-device reopen note           | fixed in §3.4 (reworded: local-view determinism)                                                                                  |
+| K-S3 "requirements" citation            | fixed in §11                                                                                                                      |
+| K-S3 size check tests nothing new       | fixed in §8.2                                                                                                                     |
+| K-S3 unit names as variables            | fixed in §1.1, §1.3, vector `variable-name-reserved-unit`                                                                         |
+| K-S3 `ServerLayer.swift:78-81`          | fixed in §5.2 ("also checked")                                                                                                    |
+| K-S3 key namespace per timer            | fixed in §7.4 (`lap_types[]` and `steps[]` keyed separately)                                                                      |
+| K-S2 signing proof, K-S2/S3 plan items  | the planner's (adjudication §E); §9.1 and §11 already carry the `.active` fallback                                                |
 
 ## Decisions
 
@@ -1189,9 +1384,10 @@ one coordinated `api_level 2` bump (§11).
 open pause stays `applied` rather than `not_paused` (§3.4); (2) `changes.py`
 must emit a stopped run's deletion from its log row (§4.3); (3)
 `max_short_label_length 64` is added to the limits (§1.2); (4) MCP gains a small
-`get_run` so `terminal_id` is reachable (§7.3); (5) reopen is also accepted on a
-`finishing` run, and its revert discards it (§4.1); (6) the PWA runs cache is
-already revision-aware (§5.2).
+`get_run` (`remove` via MCP needs the event list) (§7.3); (5) reopen is also
+accepted on a `finishing` run, and its revert discards it (§4.1); (6) the PWA
+runs cache is already revision-aware (§5.2). All six were accepted by the M0
+lead in round 1.
 
 ## Traceability
 

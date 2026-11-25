@@ -1,11 +1,11 @@
 # Spec: content display (entry summary line, entry list and detail, richer stats)
 
-**Status:** draft (revision 1, 2026-11-25). **Applies to:** the backend
-(`TopicSummary.last_entry`, the summary reference implementation, stats
-vectors), the PWA (entries page, entry edit page, overview, tile summary) and
-the iOS app (entries list, entry detail, stats, tile summary, widgets).
-**Companion specs:** [timers2.md](timers2.md) (M1: `Segment.lap_type`,
-`TopicTiming.lap_types`, `remove`/`reopen`),
+**Status:** draft (revision 2, 2026-11-25, after review round 1). **Applies
+to:** the backend (`TopicSummary.last_entry`, the summary reference
+implementation, stats vectors), the PWA (entries page, entry edit page,
+overview, tile summary) and the iOS app (entries list, entry detail, stats, tile
+summary, widgets). **Companion specs:** [timers2.md](timers2.md) (M1:
+`Segment.lap_type`, `TopicTiming.lap_types`, `remove`/`reopen`),
 [active-surfaces.md](active-surfaces.md) (M2 consumes `TopicSummaryLine`),
 [appearance.md](appearance.md) (M3 owns the topic header's glyph and chips),
 [timers.md](timers.md) §9, §11.2, §11.5 (v1 stats and entry surfaces, revised
@@ -111,12 +111,15 @@ return truncate(line)
   `enum_list`: labels joined by `", "`; empty list → null (part skipped);
 - `str`: whitespace runs collapsed to one space, trimmed; empty → null.
 
-`truncate`: if the line has more than 80 code points, keep the first 79 and
-append `…` (U+2026); back the cut off while the next code point is a ZWJ
-(U+200D), VS16 (U+FE0F), a skin-tone modifier (U+1F3FB–1F3FF) or a combining
-mark (category Mn/Me), so an emoji sequence is dropped whole rather than split.
-Lengths are **code points** everywhere (Python `len`, Swift
-`unicodeScalars.count`, TS `Array.from(s).length`).
+`truncate`: lengths are **extended grapheme clusters** (UAX #29) everywhere:
+Python `regex.findall(r"\X", s)` (the `regex` package appearance.md §2 already
+adds), Swift `String.count` (`Character` = one cluster), TS
+`[...new Intl.Segmenter('en', {granularity: 'grapheme'}).segment(s)]`. If the
+line has more than **80 clusters**, keep the first 79 clusters and append `…`
+(U+2026). A flag pair, a keycap sequence, a skin-toned or ZWJ-joined emoji and a
+base with combining marks are each one cluster, so nothing is split; the three
+implementations agree as long as they share a Unicode version within one major
+(the vectors avoid clusters whose segmentation changed across Unicode 15–16).
 
 Pauses, skipped steps and notes are not in the line. The empty line (`""`) means
 "nothing to say": callers show their fallback (§5).
@@ -144,9 +147,11 @@ label), `timing_hour_plus` ("1:02:03 · 2 laps"), `timing_paused_ignored`,
 value), `answers_str_collapsed_whitespace`, `answers_str_empty_skipped`,
 `answers_missing_optional_skipped`, `both_timing_then_answers`,
 `order_follows_questions_not_answers`, `question_without_answer_skipped`,
-`long_truncated` (ends with `…`, 80 code points),
-`long_truncation_keeps_emoji_whole`, `empty` (no timing, no answers → `""`),
-`untimed_entry_of_timed_topic`.
+`long_truncated` (ends with `…`, 80 clusters), `long_truncation_flag_pair` (a 🇬🇧
+straddling the cut is dropped whole), `long_truncation_keycap` (1️⃣),
+`long_truncation_zwj_family` (👨‍👩‍👧‍👦, one cluster of 7 code points),
+`long_truncation_combining_marks` (e + U+0301), `empty` (no timing, no answers →
+`""`), `untimed_entry_of_timed_topic`.
 
 Consumers: `backend/tests` (the reference itself), PWA
 `entrySummary.vectors.test.ts`, iOS `EntrySummaryVectorTests` (+
@@ -161,19 +166,26 @@ Consumers: `backend/tests` (the reference itself), PWA
   `_summaries` (`:132-164`) collects the entry ids and loads their answers in
   **one** extra query (`Answer.entry_id IN (...)`, `_answer_out` from
   `services/entries.py:71-87`). `list_topics` cost: one extra statement per
-  page, not per topic. `home-vectors.json` regenerates with the new field (its
-  cases do not sort by it).
+  page, not per topic. `home-vectors.json` is **unchanged** (M4-LASTENTRY): its
+  cases pin ordering and due state, not the summary's shape.
 - **Feed note:** `FeedTopic` embeds `TopicDetail`, so `last_entry` rides along,
   but it is a **derived** field like `entry_count` and `last_captured_at`
   (`api.py:1217-1223` docstring): it is **not** re-sent when entries change.
-  Rules: **[ios]** `TopicDetailDTO` decodes it
-  (`@RequiredKey lastEntry: EntryDTO?`) and `StoreView` **ignores** it; the tile
-  keeps `store.observeEntries(topicId:limit:1)` (`TopicTile.swift:206-211`) and
+  Rules: **[ios]** no Swift change: `TopicDetailDTO` declares
+  `lastEntry: EntryDTO?` as a plain optional (not `@RequiredKey`, so a fixture
+  without it still decodes) and `StoreView` **ignores** it; the tile keeps
+  `store.observeEntries(topicId:limit:1)` (`TopicTile.swift:206-211`) and
   widgets `latestEntry(topicId:)` (`WidgetReader.swift:55-59`), which are
   already offline-correct. **[pwa]** the tile reads `t.last_entry` and
-  `t.timer`, and `outboxEffects.ts:117-139` patches `last_entry` on enqueue
-  (optimistic, from the payload) and on ack (the server's `EntryOut`), as it
-  bumps `entry_count` today.
+  `t.timer`. **Staleness bound ≤ 60 s:** `listTopics` already refetches every 60
+  s and on window focus (`TopicsPage.tsx:76-84`); in addition every entry
+  create/update/delete mutation and every `entry.create` / `run.event` outbox
+  ack **invalidates** the topic's `listTopics` pages and `getTopic`
+  (`outboxEffects.ts:117-139`, `mutations.ts`), and the enqueue path patches
+  `last_entry` optimistically from the payload as it bumps `entry_count` today.
+  An entry created, edited or deleted on **another device** therefore shows on
+  the tile within 60 s or at the next focus, never later (review C-S2); the iOS
+  tile is exact because it reads the store.
 - **PWA tile query reduction:** `TopicTile.tsx` drops `useTopicVersions` (`:71`)
   and `lastEntryOptions` (`:91-95`): `timed = Boolean(t.timer) || run` and
   `unknown` is gone (the summary carries the timer). The `getTopic` prefetch
@@ -206,35 +218,46 @@ chip. Untimed entries of a timed topic have no chip (timers.md §11.1).
   `entry.timing.segment.<i>` and `entry.timing.pause.<i>`.
 - **One-tap Remove** (UI contract; the event is M1's `remove`): a trailing swipe
   action / an `IconButton` "Remove" on **lap** rows and **pause** rows only
-  (never on a step; never on the first segment). It confirms ("Remove this lap?
-  Its time joins the previous segment." / "Remove this pause? Its time becomes
-  active."), then sends `remove(target:)` through
+  (never on a step; never on the first segment; **disabled on a lap row whose
+  opening event is a `next`** — the lap that follows the last step — because
+  `remove` of a `next` is `no_target`, timers2.md §3.4). It confirms ("Remove
+  this lap? Its time joins the previous segment." / "Remove this pause? Its time
+  becomes active."), then sends `remove(target:)` through
   `RunWrites.tap(.remove(target), …)` / `actions.tap(run.id, ctx, 'remove', …)`.
-  Target resolution: `getRun(entry.id)` → `RunOut.events`; a lap row `i` maps to
-  the applied `lap`/`next` event whose `at == segments[i].started_at`; a pause
-  `j` to the applied `pause` event whose `at == pauses[j].start`. Online only:
-  offline the buttons are disabled with "Connect to edit laps"; `Edit times`
-  (the whole-timing editor) stays the offline path. The section reloads the
-  entry on ack (`revision` bumped, `edited` stays false, timers2.md §1.3).
+  **Target resolution from the entry itself** (timers2.md §3.3, A7): a lap row
+  `i` targets `timing.segments[i].event_id` (the event that opened the segment);
+  a pause `j` targets `timing.pauses[j].id`; a gap pause carries the reopened
+  stop's id and removing it is the "remove the gap" of timers2.md §3.4. The
+  `next`-opened case is recognised by `timing.segments[i].opened_by == "next"`,
+  which M4 asks M1 to carry beside `event_id` (seam, §6); until it exists the
+  row stays enabled and a `no_target` ack shows M1's notice. Works **offline**:
+  the item queues like any run event; the row shows a pending mark until the
+  ack, when the section reloads the entry (`revision` bumped, `edited` stays
+  false, timers2.md §3.4). `Edit times` (the whole-timing editor) remains for
+  everything else.
 - **Resume run** (`entry.resume` / `entry-resume`): shown when
   `resumable(entry, now)` from the detail (within 7 days of `timing.started_at`,
-  OQ-1 detail rule); sends `reopen(target: RunState.terminal_id)` from `getRun`;
-  on success navigates to the run screen/panel. Hidden when `timing.edited`
-  ("edited runs can't be resumed", timers2.md §1.3) or the entry is pending.
+  OQ-1 detail rule); sends `reopen(target: timing.terminal_id)` — from the
+  entry, no `getRun` — and navigates to the run screen/panel, which shows the
+  **"Resuming…"** projection without controls until the ack (timers2.md §7.1).
+  Hidden when `timing.edited` ("edited runs can't be resumed", timers2.md §3.6)
+  or the entry is pending.
 - `TimingEdit` editor (`TimingEditorSheet`, `TimingEditor.tsx`) keeps lap types:
   a lap row's type picker (none / declared types) via M1's `TimingEdit`
   additions; relabelling follows M1's rule after save.
 - An entry whose id is a locally open or finishing run is **not shown as an
-  entry** (OQ-14 default, timers2.md §1.4): the list filters it out and the
+  entry** (OQ-14 default, timers2.md §5.3): the list filters it out and the
   detail route redirects to the run.
 
 ## 4. Stats
 
 All stats additions are additive to `getTopicTiming` (M1 provides `lap_types`
-and `SeriesPoint.lap_types`, timers2.md §1.5) and `getTopicStats` /
-`getQuestionSeries` (unchanged). Chart models are PWA code pinned in
-`stats-chart-vectors.json` (`src/components/charts/stats.vectors.test.ts`,
-`GENERATOR_VERSION` 1 → 2) and ported to `QuickrCore/Charts/ChartModels.swift`.
+and `SeriesPoint.lap_types`, timers2.md §7.4; `lap_types[]` and `steps[]`
+buckets are keyed separately, so a lap-type key equal to a historic step key
+never joins) and `getTopicStats` / `getQuestionSeries` (unchanged). Chart models
+are PWA code pinned in `stats-chart-vectors.json`
+(`src/components/charts/stats.vectors.test.ts`, `GENERATOR_VERSION` 1 → 2) and
+ported to `QuickrCore/Charts/ChartModels.swift`.
 
 ### 4.1 Lap types
 
@@ -261,24 +284,39 @@ and `SeriesPoint.lap_types`, timers2.md §1.5) and `getTopicStats` /
 Overview gains "Activity" under the summary tiles: 12 columns × 7 rows of cells
 (weeks × weekdays, oldest left), cell intensity by count (0, 1, 2–3, 4+ →
 `sunken`, `tint` at 35/65/100 %), today outlined; a caption "N entries in the
-last 12 weeks". Data: **client-side from entries**, not a new endpoint:
-**[ios]** `store.entries(topicId, from: now − 84 days)`; **[pwa]**
-`listEntries(captured_from = now − 84 d, limit = 500, order = -captured_at)`;
-with `total > 500` the caption says "last 500 entries". Model:
+last 12 weeks". **Cells are local calendar days**, in the device's zone (`tz`):
+the first cell is the **Monday 11 weeks before this week's Monday** (calendar
+arithmetic on dates, never `now − 84 × 86 400 s`), the last cell is **today**;
+the trailing cells of the current week after today are blank. An entry falls in
+the cell of its `captured_at` converted to `tz` and truncated to the date. Data:
+**client-side from entries**, not a new endpoint: **[ios]**
+`store.entries(topicId, from: firstCell.localMidnight(tz))`; **[pwa]**
+`listEntries(captured_from = <first cell's local midnight as an instant>, limit = 500, order = -captured_at)`;
+with `total > 500` the caption says "last 500 entries". The query bound and the
+cells derive from the same date, so no entry of a shown day is excluded and
+nothing outside the grid is counted; DST shifts change a day's length, not its
+membership. Model:
 
 ```ts
 export function activityStrip(
-  capturedAt: readonly number[],
-  now: number,
+  capturedAt: readonly number[], // epoch ms
+  today: string, // local date "YYYY-MM-DD" in `tz`
   tz: string,
-): { cells: { day: string; count: number }[]; max: number; total: number };
+): {
+  firstDay: string;
+  cells: { day: string; count: number }[];
+  max: number;
+  total: number;
+};
 ```
 
-pinned in `stats-chart-vectors.json` `activity[]` (inputs incl. a DST week and
-an empty list; `tz` set per case as the generator does for series). iOS
-`ActivityStrip` in `QuickrCore/Charts/ChartModels.swift`; view in
-`App/Stats/StatsCharts.swift` with `ChartAccessibility` ("Week of 3 Nov: 5
-entries").
+pinned in `stats-chart-vectors.json` `activity[]` — cases: empty; one entry per
+cell edge (first cell 00:00 local, today 23:59 local); an entry at 23:30 UTC
+that is the next local day in `Pacific/Auckland` and the previous one in
+`America/Los_Angeles`; a spring-forward and a fall-back week in `Europe/London`;
+`today` on a Monday and on a Sunday (week transitions). iOS `ActivityStrip` in
+`QuickrCore/Charts/ChartModels.swift`; view in `App/Stats/StatsCharts.swift`
+with `ChartAccessibility` ("Week of 3 Nov: 5 entries").
 
 ### 4.3 Sparklines
 
@@ -337,11 +375,15 @@ Default rendering before M4 lands: M2 keeps `lastLine` / the "Last …" span
 
 **Consumes (from M1):** `Segment.lap_type` and `TimingSegment.lap_type`,
 `LapType` labels in `Timer.laps`, `TopicTiming.lap_types`,
-`SeriesPoint.lap_types` (`timing-stats-vectors.json` v3), `remove`/`reopen`
-events with `RunState.terminal_id`, `resumable(entry, now)`, `TimingEdit` lap
+`SeriesPoint.lap_types` (`timing-stats-vectors.json` v3); the ids on `Timing`
+(timers2.md §3.3): `terminal_id`, `TimingSegment.event_id`, `TimingPause.id` —
+plus the requested `TimingSegment.opened_by: "next" | "lap" | null` (§3.2; if M1
+declines, the `next`-opened row relies on the `no_target` notice);
+`remove`/`reopen` events, the "Resuming…" projection (timers2.md §7.1) and the
+K6 exemption for reverts (§5.5); `resumable(entry, now)`; `TimingEdit` lap
 types. Before M1-STATS lands, §4.1 renders nothing extra (`lap_types` absent ⇒
-v1 tiles); before the reopen/remove server WPs land, §3.2's buttons are not
-built (hard edge M1 server → M4-ENTRY-ACTIONS).
+v1 tiles); before the reopen/remove server WPs and the `Timing` ids land, §3.2's
+buttons are not built (hard edge M1 server → M4-ENTRY-ACTIONS).
 
 **Consumes (from M3):** the topic header's glyph and chips are M3's
 (`TopicTabsView`, `TopicLayout.tsx:154-206`); M4 edits the tabs' content only.
@@ -358,18 +400,18 @@ client-side from the entries each client already has (iOS store, PWA
 
 ## 7. Tests
 
-| Where                                                                        | Runs on | What                                                                                                                                                                |
-| ---------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `backend/tests/test_entry_summary_vectors.py`                                | pytest  | generator; every case; the ≤ 80 and emoji-whole truncation                                                                                                          |
-| `test_api_topics.py`, `test_home_vectors.py`                                 | pytest  | `last_entry` is the latest counted entry, null without entries, one extra statement per page (query count assertion), present in the feed topic item                |
-| PWA `entrySummary.vectors.test.ts`                                           | vitest  | the vectors; `answerText` ≡ `formatAnswer` for the old inputs                                                                                                       |
-| PWA `EntriesPage.test.tsx`, `EntryEditPage.test.tsx`                         | vitest  | summary line and timing chip per row; Remove on a lap sends `remove` with the resolved target; Resume run sends `reopen`; both hidden when edited/offline           |
-| PWA `TopicTile.test.tsx`                                                     | vitest  | the tile issues no `listTopicVersions`/`listEntries`; summary from `last_entry`                                                                                     |
-| PWA `stats.vectors.test.ts`, `timingModels.test.ts`, `OverviewPage.test.tsx` | vitest  | `lap_types[]`, `activity[]`, `sparklines[]`; cards render per type                                                                                                  |
-| iOS `EntrySummaryVectorTests`, `StatsChartVectorTests`                       | host    | the ports                                                                                                                                                           |
-| iOS `EntriesModelTests`, `OverviewModelTests`                                | host    | row models carry the summary; `activityStrip` from store entries                                                                                                    |
-| iOS `EntriesTests` (UI)                                                      | sim     | one flow: a timed entry shows its chip and summary; open it; Remove a lap → the segment count drops and `edited` badge stays absent (fake server from `UITestRuns`) |
-| iOS `StatsUITests`                                                           | sim     | lap-type cards present for the tiktok topic; activity strip accessible labels                                                                                       |
+| Where                                                                        | Runs on | What                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/tests/test_entry_summary_vectors.py`                                | pytest  | generator; every case; the ≤ 80 and emoji-whole truncation                                                                                                                                                                                                                                                  |
+| `test_api_topics.py`, `test_home_vectors.py`                                 | pytest  | `last_entry` is the latest counted entry, null without entries, one extra statement per page (query count assertion), present in the feed topic item                                                                                                                                                        |
+| PWA `entrySummary.vectors.test.ts`                                           | vitest  | the vectors; `answerText` ≡ `formatAnswer` for the old inputs                                                                                                                                                                                                                                               |
+| PWA `EntriesPage.test.tsx`, `EntryEditPage.test.tsx`                         | vitest  | summary line and timing chip per row; Remove on a lap sends `remove` with `segments[i].event_id`, on a pause with `pauses[j].id`; disabled on a `next`-opened lap; Resume run sends `reopen` with `timing.terminal_id` and the panel shows "Resuming…"; both hidden when edited; both work offline (queued) |
+| PWA `TopicTile.test.tsx`                                                     | vitest  | the tile issues no `listTopicVersions`/`listEntries`; summary from `last_entry`                                                                                                                                                                                                                             |
+| PWA `stats.vectors.test.ts`, `timingModels.test.ts`, `OverviewPage.test.tsx` | vitest  | `lap_types[]`, `activity[]`, `sparklines[]`; cards render per type                                                                                                                                                                                                                                          |
+| iOS `EntrySummaryVectorTests`, `StatsChartVectorTests`                       | host    | the ports                                                                                                                                                                                                                                                                                                   |
+| iOS `EntriesModelTests`, `OverviewModelTests`                                | host    | row models carry the summary; `activityStrip` from store entries                                                                                                                                                                                                                                            |
+| iOS `EntriesTests` (UI)                                                      | sim     | one flow: a timed entry shows its chip and summary; open it; Remove a lap → the segment count drops and `edited` badge stays absent (fake server from `UITestRuns`)                                                                                                                                         |
+| iOS `StatsUITests`                                                           | sim     | lap-type cards present for the tiktok topic; activity strip accessible labels                                                                                                                                                                                                                               |
 
 ## 8. Open questions
 
@@ -389,8 +431,9 @@ client-side from the entries each client already has (iOS store, PWA
   in question order, `" · "` separators, 80 code points (§1).
 - D-2 `last_entry` is additive and derived: iOS ignores it, the PWA uses it and
   drops two queries per tile (§2).
-- D-3 Remove and Resume on an entry are online actions resolved through
-  `getRun`; `Edit times` remains the offline editor (§3.2).
+- D-3 Remove and Resume on an entry take their targets from the entry's own
+  `timing` ids (`event_id`, `pauses[].id`, `terminal_id`), so they queue offline
+  like any run event; `Edit times` remains the whole-timing editor (§3.2).
 - D-4 Lap-type stats are cards + one stacked chart; untyped laps keep the v1
   tiles (§4.1).
 - D-5 The activity strip and sparklines need no new endpoint (§4.2, §4.3).
@@ -404,6 +447,20 @@ client-side from the entries each client already has (iOS store, PWA
 | 8 entry detail                                 | §3.2                             |
 | 8 home tiles: glanceable summary               | §1, §2, §5                       |
 | 8 stats screen: richer                         | §4                               |
-| 2 delete a pause / a lap from a saved session  | §3.2 (events in timers2.md §1.3) |
+| 2 delete a pause / a lap from a saved session  | §3.2 (events in timers2.md §3.4) |
 | 2 resume a session from its entry              | §3.2 Resume run                  |
 | 1, 4 renamed and tik-tok laps shown everywhere | §1.2, §3, §4.1                   |
+
+## 11. Review log (round 1)
+
+| Finding                                              | Outcome                                                                                                                                       |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| C-S2 PWA `last_entry` stale after remote changes     | Fixed in §2 (D4): 60 s refetch + focus refetch + invalidation on entry mutations and outbox acks; staleness bound ≤ 60 s stated                 |
+| C-S2 12-week strip window vs calendar cells          | Fixed in §4.2 (D5): cells are local calendar days from the Monday 11 weeks before this week's Monday to today; query from that local midnight; DST/week-transition vectors |
+| C-S2 truncation can still split emoji                | Fixed in §1.2, §1.3 (D6): extended grapheme clusters everywhere, 80-cluster cap, flag/keycap/ZWJ/combining vectors                                |
+| K-S1 no target source for Remove/Resume              | Fixed in §3.2, §6, D-3 (A7): targets from `timing.segments[].event_id`, `pauses[].id`, `terminal_id`; offline-capable; "Resuming…" projection |
+| K-S3 a `next`-opened lap row maps to a `next` event  | Fixed in §3.2 (D8): Remove disabled on that row; `opened_by` requested from M1 as a seam                                                        |
+| K-S3 `home-vectors.json` "regenerates" vs plan "unchanged"; `@RequiredKey lastEntry` | Fixed in §2 (D8): unchanged; plain optional on iOS, no Swift change                                                      |
+| K-S2 wrong timers2 section references                | Fixed in §3.2, §4, §10 (D8): §3.4, §3.6, §5.3, §7.4                                                                                           |
+| K-S3 lap-type key equal to a historic step key        | Noted in §4 (A10): `lap_types[]` and `steps[]` are keyed separately                                                                           |
+| K-S2 `topics.py` `_summaries`/`_base_select` edited by M3a and M4 | Ownership rule lives in t2-plan.md (E3, delimited blocks); §2 unchanged                                                           |

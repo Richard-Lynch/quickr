@@ -1,6 +1,6 @@
 # Plan: M3a · appearance phase A
 
-**Status:** draft (revision 1, 2026-11-25). **Spec:**
+**Status:** draft (revision 2, 2026-11-25, after review round 1). **Spec:**
 [appearance.md](../specs/appearance.md). **Programme plan:**
 [t2-plan.md](../specs/t2-plan.md); its scope guard, out-of-scope list, merge
 ritual, seams and ownership table, simulator budget, effort legend and open
@@ -107,6 +107,14 @@ unless M2 took M3-TOKENS early.
   clients' palette tests read the vector file.
 - **Tests:** `test_api_topics.py` additions (appearance.md §16), vector drift,
   `test_mcp.py` appearance params, the feed re-send case.
+- **Review round 1 (D7):** the server emoji predicate is exact: `regex` `^\X$`
+  (one extended grapheme cluster) whose first scalar is
+  `\p{Extended_Pictographic}`, or a regional-indicator pair, or a keycap
+  sequence; digits with VS16 are refused. `appearance-vectors.json` `icons[]`
+  lists accept/reject cases incl. a flag pair, a keycap, a multi-person ZWJ
+  emoji, a skin-tone modifier, `1️⃣`-style keycaps, a digit + VS16 (rejected),
+  and marks the cases where iOS is stricter or looser. `?tag=` on `listTopics`
+  (appearance.md §15).
 - **DoD:** the Acceptance above holds, proven by `test_api_topics.py` additions
   (appearance.md §16), vector drift, `test_mcp.py` appearance params, the feed
   re-send case. Evidence in the PR:
@@ -119,18 +127,24 @@ unless M2 took M3-TOKENS early.
 
 - **Scope:** `StoreSchema+T2M3.swift` with `t2m3_topic_appearance`
   (`ALTER TABLE topic ADD COLUMN color, icon, tags_json` on `topic` and
-  `stage_topic`; **no** feed-cursor reset: a stale theme is cosmetic and every
-  PATCH re-sends the topic, appearance.md §8); `TopicDTO`, `TopicSummaryDTO`
-  `@RequiredKey appearance`, `TopicRequestDTO`; `StoreView` mapping;
-  `Topic`/`ViewTopic.appearance`; `TopicWrites.updateAppearance` (PATCH with
-  `expected_revision`); `TopicWriter` `TopicDetailsChange.appearance`; request
-  golden `updateTopic.appearance`.
+  `stage_topic`; **resets the feed cursor** (topic re-pull) as `v2` did; review
+  D3 reversed the earlier "no re-pull" claim, appearance.md §8 updated);
+  `TopicDTO`, `TopicSummaryDTO` `@RequiredKey appearance`, `TopicRequestDTO`;
+  `StoreView` mapping; `Topic`/`ViewTopic.appearance`;
+  `TopicWrites.updateAppearance` (PATCH with `expected_revision`); `TopicWriter`
+  `TopicDetailsChange.appearance`; request golden `updateTopic.appearance`.
 - **Depends on:** M3-DB, M3-TOKENS.
 - **Acceptance:** `api/getTopic.json` decodes with and without appearance;
-  `MappingTests` carry the fields to `ViewTopic`; a pre-migration row reads as
-  the default theme until its next upsert; the golden validates in pytest.
+  `MappingTests` carry the fields to `ViewTopic`; after the migration the next
+  sync re-pulls topics, so a topic themed on another device shows its theme
+  (upgrade test with an unchanged pre-existing topic); the golden validates in
+  pytest.
 - **Tests:** store migration test, `TopicDTOTests`, `MappingTests`,
   `TopicWritesTests`, `RequestGoldenTests`.
+- **Review round 1 (E4):** the `StoreSchema.swift` registration line is added at
+  merge time by the merger, not here; if M1's `t2m1_*` migration is already on
+  `feat/t2` when this merges, this WP adds `StoreMigrationOrderTests` (upgrade a
+  fresh store with `t2m1` then `t2m3` and the reverse; same schema).
 - **DoD:** the Acceptance above holds, proven by store migration test,
   `TopicDTOTests`, `MappingTests`, `TopicWritesTests`, `RequestGoldenTests`.
   Evidence in the PR:
@@ -153,6 +167,11 @@ unless M2 took M3-TOKENS early.
   `icon: null`; save goes through `TopicWrites.updateAppearance` with the
   revision.
 - **Tests:** QuickrDesignTests as listed.
+- **Review round 1 (D7):** iOS `checkIcon` predicate: one `Character` whose
+  first scalar `isEmojiPresentation`, or (`isEmoji && !isASCII` followed by
+  U+FE0F), or two regional indicators, or a keycap sequence; `!isASCII` is what
+  refuses a digit + VS16. `TopicThemeTests` runs the `icons[]` vectors and
+  asserts the documented stricter/looser cases.
 - **DoD:** the Acceptance above holds, proven by QuickrDesignTests as listed.
   Evidence in the PR:
   `cd ios/QuickrKit && swift test --filter <the suites above>` summary lines
@@ -174,6 +193,9 @@ unless M2 took M3-TOKENS early.
 - **Acceptance:** `LiveActivityVectorTests` round-trips the new case; the header
   shows the default when appearance is nil.
 - **Tests:** `LiveActivityVectorTests`; the header in M3-UITEST.
+- **Review round 1 (C4):** after the attributes patch, re-run the live-activity
+  size vector with the longest labels **and** `attributes.appearance` set
+  (`start_appearance_longest`); payload ≤ 4 KB.
 - **DoD:** the Acceptance above holds, proven by `LiveActivityVectorTests`; the
   header in M3-UITEST. Evidence in the PR:
   `cd ios/QuickrKit && swift test --filter <the suites above>` summary lines
@@ -193,6 +215,10 @@ unless M2 took M3-TOKENS early.
   updates optimistically.
 - **Tests:** `TopicMetaFields.test.tsx` (new), `builder.test.ts`,
   `mutations.test.ts`.
+- **Review round 1 (D7, E3):** PWA predicate = `Intl.Segmenter` one grapheme +
+  `\p{Extended_Pictographic}` on the first scalar (same as the server), run
+  against `icons[]`. Edits to `src/lib/builder.ts` and `serverErrors.ts` are
+  limited to the meta-schema block, delimited `// T2-M3` (M1 owns the files).
 - **DoD:** the Acceptance above holds, proven by `TopicMetaFields.test.tsx`
   (new), `builder.test.ts`, `mutations.test.ts`. Evidence in the PR:
   `pnpm exec vitest run <the tests above>` pass counts and a green

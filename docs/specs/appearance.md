@@ -1,11 +1,11 @@
 # Spec: topic appearance (colour, emoji, tags; photos in phase B)
 
-**Status:** draft (revision 1, 2026-11-25). **Applies to:** the backend (topic
-schema, limits, feed, reminders, MCP), the PWA, the iOS app (app, widgets, Live
-Activity, store) and, in phase B, hosting (nginx, docker volumes). **Companion
-specs:** [active-surfaces.md](active-surfaces.md) (M2 consumes the theme API),
-[content-display.md](content-display.md) (M4 topic header),
-[timers2.md](timers2.md) (M1 owns `RunActivity.swift`; M3 patches
+**Status:** draft (revision 2, 2026-11-25, after review round 1). **Applies
+to:** the backend (topic schema, limits, feed, reminders, MCP), the PWA, the iOS
+app (app, widgets, Live Activity, store) and, in phase B, hosting (nginx, docker
+volumes). **Companion specs:** [active-surfaces.md](active-surfaces.md) (M2
+consumes the theme API), [content-display.md](content-display.md) (M4 topic
+header), [timers2.md](timers2.md) (M1 owns `RunActivity.swift`; M3 patches
 `attributes.appearance`), [sync-protocol.md](../ios/specs/sync-protocol.md)
 (§4.2 upsert guards, §4.3 tombstones),
 [notifications.md](../ios/specs/notifications.md) (reminder payloads) and
@@ -149,14 +149,25 @@ segmentation, so the server uses the `regex` package (added to
    letters, digits, "abc", two emoji, and a bare pictograph the normalisation
    could not fix.
 
-Ports: **[ios]** `TopicAppearance.checkIcon` uses `Character` (one grapheme) and
-`Unicode.Scalar.Properties.isEmojiPresentation` / `.isEmoji` + VS16 / regional
-indicators / keycap; **[pwa]** `lib/appearance.ts` `checkIcon` uses
-`Intl.Segmenter('en', {granularity: 'grapheme'})` and the `v`-flag regex
-`/^(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}️|\p{Regional_Indicator}{2}|[0-9#*]️⃣)/v`.
-Both apply the same VS16 normalisation before sending. All three agree on the
-`icons[]` vectors (§3.2). The clients' pickers (§7) normally produce valid
-input; the rule exists for the API and MCP.
+**Exact predicates per platform** (after the shared NFC + VS16 normalisation of
+steps 1–2 and the one-cluster check of step 3; `s0` is the first scalar, `s1`
+the second):
+
+| Platform   | One cluster                                                                            | Starts as an emoji                                                                                                                                                                                                                                                         |
+| ---------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **server** | `regex.fullmatch(r"\X", value)`                                                        | `s0 ∈ \p{Extended_Pictographic}` and (`s0 ∈ \p{Emoji_Presentation}` or `s1 == U+FE0F`); or `s0, s1 ∈ \p{Regional_Indicator}`; or `s0 ∈ [0-9#*]` and `s1 == U+FE0F` and `s2 == U+20E3` (keycap)                                                                             |
+| **iOS**    | `value.count == 1` (one `Character`)                                                   | `s0.properties.isEmojiPresentation`; or (`s0.properties.isEmoji && !s0.isASCII` and `s1 == U+FE0F`); or `s0`, `s1` both in U+1F1E6–1F1FF; or the keycap sequence as on the server. Swift has no `Extended_Pictographic`; `isEmoji` is true for `0–9 # *`, hence `!isASCII` |
+| **PWA**    | `[...new Intl.Segmenter('en', {granularity: 'grapheme'}).segment(value)].length === 1` | the server's regex with the `v` flag: `/^(?:\p{Extended_Pictographic}(?:\p{Emoji_Presentation}                                                                                                                                                                             | ️)   | \p{Regional_Indicator}{2} | [0-9#*]️⃣)/v`— written as`s0`-level checks, identical to the server |
+
+Where the platforms differ: a **digit or `#`/`*` followed by VS16** (`5️`) is
+refused everywhere (server: not `Extended_Pictographic`; iOS: `isASCII`);
+`©️`/`®️` (U+00A9/U+00AE + VS16) are accepted everywhere (both properties,
+non-ASCII). The only known divergence is an **unassigned** code point in an
+`Extended_Pictographic` reserved range followed by VS16: the server (Unicode
+tables of `regex`) accepts it, iOS (`isEmoji` false on unassigned scalars)
+refuses; the vectors contain no such case and the behaviour is not pinned. Both
+clients apply the normalisation of step 2 before sending. The clients' pickers
+(§7) normally produce valid input; the rule exists for the API and MCP.
 
 ## 3. Palette
 
@@ -204,12 +215,15 @@ does), README row added:
   "reminder_titles": [ { "name", "topic_name", "icon", "expected" } ] }
 ```
 
-`icons[]` (≥ 14): `plain` (🚬), `vs16_added` (☺ → ☺️), `vs16_present` (☺️),
-`zwj_family`, `skin_tone`, `flag`, `keycap` (1️⃣), `letter` (✗), `digit` (✗),
-`two_emoji` (✗), `emoji_plus_letter` (✗), `empty` (✗), `too_long` (✗, 17 code
-points of tag characters), `text_symbol_no_vs16_unfixable` (✗, e.g. "→").
-`tags[]` (≥ 8): trim, collapse, casefold duplicate, eleventh tag, 25-char tag,
-empty after trim, order kept, control character. `reminder_titles[]` (§6.6).
+`icons[]` (≥ 17): `plain` (🚬), `vs16_added` (☺ → ☺️), `vs16_present` (☺️),
+`copyright_vs16` (©️ ✓), `zwj_family`, `skin_tone`, `flag`, `keycap` (1️⃣),
+`letter` (✗), `digit` (✗), `digit_vs16` (`5️` ✗ — iOS must check `!isASCII`),
+`hash_vs16_no_keycap` (`#️` ✗), `two_emoji` (✗), `emoji_plus_letter` (✗), `empty`
+(✗), `too_long` (✗, 17 code points of tag characters),
+`text_symbol_no_vs16_unfixable` (✗, e.g. "→"). Every case carries one
+`expected`; the three validators MUST agree on all of them (§2). `tags[]` (≥ 8):
+trim, collapse, casefold duplicate, eleventh tag, 25-char tag, empty after trim,
+order kept, control character. `reminder_titles[]` (§6.6).
 
 ### 3.3 Consumers
 
@@ -363,12 +377,15 @@ circle.
   ALTER TABLE topic ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]';
   ```
 
-  (`StoreSchema.swift:23-25` gets one line in `migrations`.) Existing rows keep
-  `NULL`/`[]` until the next topic upsert; a topic saved before the migration
-  shows the default theme until it is PATCHed or re-pulled. **Re-pull note:**
-  the migration does not force a full re-pull (unlike `v2`,
-  `StoreSchema.swift:105-119`): a stale theme is cosmetic, and every PATCH
-  re-sends the topic. `TopicDetailDTO`/`TopicSummaryDTO` gain
+  (`StoreSchema.swift:23-25` gets one line in `migrations`.) **Re-pull:** the
+  migration **resets the feed cursor** so every topic is re-pulled, exactly as
+  `v2` did for `timer_json` (`StoreSchema.swift:105-119`). Without it a topic
+  themed on another device before this build upgraded would stay unthemed for
+  good: nothing re-sends a topic whose own fields don't change (review C-S2).
+  The reset is epoch-safe (the cursor restarts at 0 in the same epoch;
+  sync-protocol.md §5) and costs one bootstrap of topics and versions; entries
+  and runs are re-applied through the §4.2 revision guard. The planner records
+  this on I3-STORE. `TopicDetailDTO`/`TopicSummaryDTO` gain
   `@RequiredKey appearance` (`TopicDTO.swift:34-41` pattern), `StoreView` maps
   the columns, the upsert guard rules of sync-protocol.md §4.2 apply unchanged.
   `api/*.json` fixtures regenerate.
@@ -403,12 +420,13 @@ generated types widen). No `api_level` bump; no `supported-clients.json` change.
 | ------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `uploadTopicPhoto` | `POST /topics/{ref}/photo` (multipart, field `file`)        | `ExpectIdentity`; ≤ `MAX_PHOTO_BYTES` = 5 000 000 (under nginx's `client_max_body_size 5m`, `frontend/nginx.conf:19`); accepted `image/jpeg`, `image/png`, `image/heic`, `image/heif` (sniffed, not trusted from the header); 201 with `TopicDetail`; 413 `photo_too_large`, 415 `photo_unsupported` (new `DomainError`s, terminal on both clients) |
 | `getTopicPhoto`    | `GET /topics/{ref}/photo?size=thumb\|medium\|full&v=<etag>` | `image/jpeg`; `ETag: "<etag>"`; with a matching `v`: `Cache-Control: private, max-age=31536000, immutable`; without `v` or mismatched: `Cache-Control: private, no-cache` and `If-None-Match` → 304; 404 when none                                                                                                                                  |
-| `deleteTopicPhoto` | `DELETE /topics/{ref}/photo`                                | `ExpectIdentity`; 204, idempotent; `revision += 1`, topic logged                                                                                                                                                                                                                                                                                    |
+| `deleteTopicPhoto` | `DELETE /topics/{ref}/photo`                                | `ExpectIdentity`; 204 always. When `photo_etag` is set: cleared, `revision += 1`, topic logged. When it is already null: **a no-op** — no revision bump, no log row, still 204 — so a retry after a lost response writes nothing (review C-S2)                                                                                                      |
 
 `expected_revision` is accepted as a query parameter on upload and delete (the
 `ExpectedRevision` dependency, `routes.py:75-81`). Both mutations are `@writer`
 service functions for the **row** part only (area-B §7 rules 1, 7): image work
-happens before, file deletion after, never inside.
+happens before the writer, and **no file is ever deleted by a request** — the
+garbage collector of §12.1 is the only deleter.
 
 ## 12. Storage and pipeline **[server]**
 
@@ -416,8 +434,9 @@ happens before, file deletion after, never inside.
   `backend/app/config.py`). Layout:
   `QUICKR_MEDIA_DIR/topics/{topic_id}/{etag}.{size}.jpg` with sizes `full`
   (longest side ≤ 1600 px), `medium` (512 px) and `thumb` (128 px, centre-
-  square). `etag` = first 16 hex characters of SHA-256 of the normalised `full`
-  JPEG bytes.
+  square). `etag` = first 16 hex characters of SHA-256 of the **uploaded bytes**
+  (the original): files are content-addressed, so the same upload always lands
+  on the same names and a re-upload of a current photo changes nothing.
 - Pillow (`pillow>=11` added) plus **`pillow-heif`** for HEIC/HEIF: iPhone
   cameras produce HEIC by default and the PWA on iOS hands the file over as is,
   so refusing it would make the common path fail; `pillow-heif` ships manylinux
@@ -429,13 +448,39 @@ happens before, file deletion after, never inside.
   place (idempotent: an identical upload lands on the same names). Decompression
   bomb guard: `Image.MAX_IMAGE_PIXELS` 40 MP → 415.
 - Writer: `topics.set_photo(db, ref, etag, expected_revision)` sets
-  `photo_etag`, `photo_updated_at = now()`, `revision += 1`, `_log_topic`. After
-  commit a `BackgroundTasks` job deletes files of the **previous** etag (if
-  different). Replace-then-crash leaves orphan files: a `make media-gc` sweep
-  (files whose etag is not in `topics.photo_etag`) is a follow-up, not part of
-  M3b.
-- `delete_topic` (`topics.py:386-414`) stays a writer; the route adds a
-  background task removing `topics/{id}/` after commit (area-B §7 rule 7).
+  `photo_etag`, `photo_updated_at = now()`, `revision += 1`, `_log_topic`. Only
+  the writer **publishes** an etag; the files already exist when it runs. It
+  deletes nothing. `delete_topic` (`topics.py:386-414`) stays a writer and does
+  not touch files either.
+
+### 12.1 Cleanup is garbage collection, not eager deletion
+
+A scheduler tick (`services/scheduler.py`, every 10 minutes, alongside the
+reminder loop) walks `QUICKR_MEDIA_DIR/topics/` and deletes:
+
+- a file whose etag is **not** the topic's current `photo_etag` **and** whose
+  mtime is older than **1 hour**;
+- a directory whose topic id no longer exists in `topics`, when its newest file
+  is older than 1 hour.
+
+The 1-hour grace covers every in-flight interleaving, because files are
+content-addressed and a request never deletes:
+
+1. **A → B → A within the grace.** Upload B publishes `B`; before GC runs the
+   user uploads A again: the files `A.*` already exist (same names), the writer
+   publishes `A`. GC later sees `B` unreferenced and old → deleted; `A` is
+   current → kept. With eager deletion the first job would have removed the
+   now-current `A` (review C-S1 #9).
+2. **Files written, writer crashed.** `X.*` exist, `photo_etag` unchanged. GC
+   deletes `X.*` once they are an hour old; a retry of the upload within the
+   hour reuses them (rename is idempotent) and the writer publishes `X`.
+3. **Topic deleted while an upload is in flight.** The directory survives up to
+   an hour past its newest file, then goes; the upload's writer fails on the
+   missing topic (404) and leaves nothing published.
+
+`make media-gc` runs one tick by hand (restore drills, §13). A GC run is
+idempotent and safe to run concurrently with uploads.
+
 - Cloudflare Access protects the URLs like every `/api/` path; nothing is
   mounted as `StaticFiles` (the route reads the file and streams it, so identity
   and version middleware apply uniformly).
@@ -477,8 +522,8 @@ Wire: `TopicSummary.photo: { etag: str, updated_at: datetime } | null`
 
 - Fetch through `APIClient` (Cloudflare Access credentials are per `baseURL`,
   `QuickrData/API/APIClient.swift:25-27`), never `AsyncImage`.
-- Cache: `StoreSchema+T2M3.swift` registers a second migration
-  `t2m3b_photo_cache`:
+- Cache: `StoreSchema+T2M3B.swift` (its own file, one line in the registration
+  list) registers `t2m3b_photo_cache`:
 
   ```sql
   CREATE TABLE photo_cache (
@@ -493,8 +538,9 @@ Wire: `TopicSummary.photo: { etag: str, updated_at: datetime } | null`
   read it through `ReadOnlyStores`. `full` is never cached. The app fills
   `thumb` and `medium` when a topic's `photo.etag` changes (observed from
   `observeTopics`), deletes rows whose etag is stale, and the topic tombstone
-  cascade clears the table (`ServerLayer.swift:207-210` list gains
-  `photo_cache`).
+  cascade clears the table (`ServerLayer.swift:207-210` list gains `photo_cache`
+  — `ServerLayer.swift` is M1's file; M3b sends that one-line change as a patch
+  to its owner).
 
 - Rendering: `TopicGlyphView` prefers the photo (`thumb`, clipped to a circle or
   rounded square) over the emoji when a cached row exists; the emoji remains the
@@ -527,26 +573,33 @@ Wire: `TopicSummary.photo: { etag: str, updated_at: datetime } | null`
 screen, LA, widgets), M4 (topic header), M1 (none).
 
 **Consumes:** M1's `RunActivity.swift` for `attributes.appearance` (patch; until
-merged the LA renders the default theme); `Topic.swift` for the stored property
-(patch); the Alembic head `e6f3a9b4c215` (M1 merges first). Before M3 lands,
+merged the LA renders the default theme) — and M3 **re-runs the payload-size
+vector** of timers2.md §8.2 with `attributes.appearance` set to its largest
+value (`color: "orange"`, a 16-code-point emoji, ten 24-character tags) on the
+`start` payload, adding the case `start_longest_labels_with_appearance` to
+`live-activity-vectors.json` (adjudication C4); `Topic.swift` for the stored
+property (patch); `ServerLayer.swift` for the `photo_cache` cascade line (patch,
+M3b); the Alembic head `e6f3a9b4c215` (M1 merges first). Before M3 lands,
 consumers use `TopicTheme.default` / `topicStyle(null)` = `{}` and nothing
 changes visually.
 
 ## 16. Tests
 
-| Where                                                                     | Runs on | What                                                                                                                                                                       |
-| ------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `backend/tests/test_appearance_vectors.py`                                | pytest  | generator + contrast assertion; `icons[]`, `tags[]`, `reminder_titles[]`                                                                                                   |
-| `test_api_topics.py` additions                                            | pytest  | create/PATCH semantics (omitted, null, `tags: []`, `appearance: null` → 422), dotted error paths, `?tag=`, feed re-send, revision                                          |
-| `test_identity.py` `_mutations` (+3 in M3b)                               | pytest  | upload/delete photo preconditions                                                                                                                                          |
-| `test_photos.py` (M3b)                                                    | pytest  | HEIC/PNG/JPEG accepted, EXIF rotation, sizes, etag stability, 413/415, ETag/304, immutable with `v`, delete cleanup outside the writer, topic delete removes the directory |
-| `test_mcp.py`                                                             | pytest  | appearance params, bad emoji surfaces 422                                                                                                                                  |
-| `TopicThemeTests` (QuickrDesignTests)                                     | host    | catalogue vs vectors; `checkIcon`/`checkTags`; `TopicTheme(appearance:)` default                                                                                           |
-| `TopicSettingsModelTests`, `NewTopicModelTests`                           | host    | appearance in the draft and the PATCH body                                                                                                                                 |
-| `appearance.test.ts`, `TopicMetaFields.test.tsx`, `SettingsPage.test.tsx` | vitest  | palette vs vectors, validators, optimistic patch and rollback                                                                                                              |
-| `BuilderUITests` (one case)                                               | sim     | pick a colour and emoji in New topic → the tile shows the glyph and the tinted bar                                                                                         |
-| `WidgetViewsUITests`                                                      | sim     | gallery: themed topic widget in full-colour and accented modes                                                                                                             |
-| Device check                                                              | device  | Live Activity tinted background and glyph; reminder title shows the emoji                                                                                                  |
+| Where                                                                     | Runs on | What                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/tests/test_appearance_vectors.py`                                | pytest  | generator + contrast assertion; `icons[]`, `tags[]`, `reminder_titles[]`                                                                                                                                                                                      |
+| `test_api_topics.py` additions                                            | pytest  | create/PATCH semantics (omitted, null, `tags: []`, `appearance: null` → 422), dotted error paths, `?tag=`, feed re-send, revision                                                                                                                             |
+| `test_identity.py` `_mutations` (+3 in M3b)                               | pytest  | upload/delete photo preconditions                                                                                                                                                                                                                             |
+| `test_photos.py` (M3b)                                                    | pytest  | HEIC/PNG/JPEG accepted, EXIF rotation, sizes, etag stability, 413/415, ETag/304, immutable with `v`; DELETE twice → second is a no-op (same revision, no log row); GC: the three §12.1 interleavings with a mocked clock, a GC tick concurrent with an upload |
+| `test_live_activity_vectors.py` (M3a re-run)                              | pytest  | `start_longest_labels_with_appearance` ≤ 4096 bytes                                                                                                                                                                                                           |
+| `StoreMigrationTests` (QuickrDataTests)                                   | host    | `t2m3_topic_appearance` resets the cursor; a pre-existing topic is re-pulled with its appearance; `t2m3b_photo_cache` creates the table                                                                                                                       |
+| `test_mcp.py`                                                             | pytest  | appearance params, bad emoji surfaces 422                                                                                                                                                                                                                     |
+| `TopicThemeTests` (QuickrDesignTests)                                     | host    | catalogue vs vectors; `checkIcon`/`checkTags`; `TopicTheme(appearance:)` default                                                                                                                                                                              |
+| `TopicSettingsModelTests`, `NewTopicModelTests`                           | host    | appearance in the draft and the PATCH body                                                                                                                                                                                                                    |
+| `appearance.test.ts`, `TopicMetaFields.test.tsx`, `SettingsPage.test.tsx` | vitest  | palette vs vectors, validators, optimistic patch and rollback                                                                                                                                                                                                 |
+| `BuilderUITests` (one case)                                               | sim     | pick a colour and emoji in New topic → the tile shows the glyph and the tinted bar                                                                                                                                                                            |
+| `WidgetViewsUITests`                                                      | sim     | gallery: themed topic widget in full-colour and accented modes                                                                                                                                                                                                |
+| Device check                                                              | device  | Live Activity tinted background and glyph; reminder title shows the emoji                                                                                                                                                                                     |
 
 ## 17. Open questions
 
@@ -581,10 +634,14 @@ changes visually.
   enforced 4.5:1 contrast (§3).
 - D-5 Topic colours live in their own asset catalogue / CSS block so the
   brand-token drift test is untouched (§4).
-- D-6 No iOS re-pull on the appearance migration (§8).
+- D-6 The iOS appearance migration resets the feed cursor (topic re-pull), as
+  `v2` did (§8).
 - D-7 Photos: filesystem volume, three sizes, etag in the URL for immutable
   caching, thumbs only in widgets and the Live Activity (§12–§14).
-- D-8 Image decoding runs before the writer; file deletion after it (§12).
+- D-8 Image decoding runs before the writer; files are content-addressed by the
+  upload's SHA-256 and only ever deleted by the 10-minute GC with a 1-hour
+  grace, never by a request (§12, §12.1). Photo DELETE on a topic without a
+  photo is a no-op (§11).
 
 ## 19. Traceability
 
@@ -596,3 +653,16 @@ changes visually.
 | 9 images — photo upload later | Part II                              |
 | 9 labels (tags)               | §1.3, §5, §7                         |
 | 6 obvious on the home page    | §6.1, §6.2 (with active-surfaces.md) |
+
+## 20. Review log (round 1)
+
+| Finding                                         | Outcome                                                                                                                      |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| C-S1 #9 async photo cleanup can delete the current photo | Fixed in §11, §12, §12.1 (D1): content-addressed files, no request deletes, 10-minute GC with a 1-hour grace, three interleavings written out |
+| C-S2 photo DELETE mutates on every call         | Fixed in §11 (D2): no-op when `photo_etag` is null                                                                           |
+| C-S2 existing iOS topics stay unthemed after upgrade | Fixed in §8, D-6 (D3): the migration resets the feed cursor; planner told (I3-STORE)                                    |
+| C-S2 payload-size test omits appearance         | Fixed in §15, §16 (C4): M3 re-runs the size vector with `attributes.appearance` set                                          |
+| K-S2 emoji validators cannot agree              | Fixed in §2, §3.2 (D7): exact per-platform predicates, `!isASCII` on iOS, divergence cases listed and pinned                    |
+| K-S2 `t2m3b_photo_cache` registered in the M3a file | Fixed in §14.1 (D8): `StoreSchema+T2M3B.swift`                                                                             |
+| K-S2 `ServerLayer.swift` edited by M3b without ownership | Fixed in §14.1, §15 (D8): a patch to M1's file owner                                                                   |
+| K-S2 `builder.ts`/`serverErrors.ts`/`topics.py` shared edits | Ownership rule lives in t2-plan.md (E3); this spec's §1.2 and §7 are unchanged                                     |

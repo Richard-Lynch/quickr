@@ -1,6 +1,6 @@
 # Plan: M4 · content display
 
-**Status:** draft (revision 1, 2026-11-25). **Spec:**
+**Status:** draft (revision 2, 2026-11-25, after review round 1). **Spec:**
 [content-display.md](../specs/content-display.md). **Programme plan:**
 [t2-plan.md](../specs/t2-plan.md); its scope guard, out-of-scope list, merge
 ritual, seams and ownership table, simulator budget, effort legend and open
@@ -55,6 +55,10 @@ I4-ENTRIES.
 - **Acceptance:** every rule in content-display.md has a named case; the output
   never exceeds 80 code points.
 - **Tests:** unit tests per rule; vector drift.
+- **Review round 1 (D6):** truncation is on **extended grapheme clusters**
+  (Python `regex` `\X`; ports: Swift `Character`, JS `Intl.Segmenter`), cap 80
+  clusters; vectors add a flag pair, a keycap and a multi-person ZWJ emoji at
+  the boundary.
 - **DoD:** the Acceptance above holds, proven by unit tests per rule; vector
   drift. Evidence in the PR: `cd backend && uv run pytest -q <the files above>`
   pass counts; when generators or fixtures change, the `make vectors` diff is in
@@ -75,6 +79,8 @@ I4-ENTRIES.
   count asserted); `last_entry` is null for a topic without entries and follows
   a delete; `home-vectors.json` unchanged.
 - **Tests:** `test_topics_last_entry.py` (new); fixture drift.
+- **Review round 1 (D8):** iOS ignores `last_entry` (no `@RequiredKey`, no DTO
+  field); `home-vectors.json` unchanged.
 - **DoD:** the Acceptance above holds, proven by `test_topics_last_entry.py`
   (new); fixture drift. Evidence in the PR:
   `cd backend && uv run pytest -q <the files above>` pass counts; when
@@ -110,6 +116,10 @@ I4-ENTRIES.
 - **Acceptance:** the vector suite passes; the component renders an empty string
   as nothing.
 - **Tests:** vector suite; `TopicSummaryLine.test.tsx`.
+- **Review round 1 (D4):** staleness bound ≤ 60 s: `listTopics` refetches every
+  60 s and on window focus; entry create/update/delete mutations and outbox acks
+  invalidate the topic's `listTopics` pages. Test: a remote entry change shows
+  within one refetch; a local ack updates at once.
 - **DoD:** the Acceptance above holds, proven by vector suite;
   `TopicSummaryLine.test.tsx`. Evidence in the PR:
   `pnpm exec vitest run <the tests above>` pass counts and a green
@@ -131,6 +141,11 @@ I4-ENTRIES.
   panel; neither button shows on an edited entry; an entry whose run is open is
   absent from the list.
 - **Tests:** `EntriesPage.test.tsx` (new), `EntryEditPage.test.tsx`.
+- **Review round 1 (A7, D8):** Resume sends `reopen` with
+  `entry.timing.terminal_id`; Remove on a pause uses `TimingPause.id`, on a lap
+  `TimingSegment.event_id`; Remove is **disabled on a lap row opened by a
+  `next`** (a step boundary, edited with the timing editor); the row shows
+  "Resuming…" until the ack.
 - **DoD:** the Acceptance above holds, proven by `EntriesPage.test.tsx` (new),
   `EntryEditPage.test.tsx`. Evidence in the PR:
   `pnpm exec vitest run <the tests above>` pass counts and a green
@@ -152,6 +167,10 @@ I4-ENTRIES.
 - **Acceptance:** the Overview renders the three new charts from a fixture; the
   vector file gains the three models and iOS (I4-STATS) consumes them.
 - **Tests:** `timingModels.test.ts`, `OverviewPage.test.tsx`, vector generation.
+- **Review round 1 (D5):** the strip's cells are local calendar days from the
+  Monday 11 weeks before this week's Monday to today; `listEntries` queries from
+  that day's local midnight (calendar arithmetic, DST-safe); vectors cover a
+  week transition and a DST week.
 - **DoD:** the Acceptance above holds, proven by `timingModels.test.ts`,
   `OverviewPage.test.tsx`, vector generation. Evidence in the PR:
   `pnpm exec vitest run <the tests above>` pass counts and a green
@@ -188,6 +207,8 @@ I4-ENTRIES.
   `reopen` with the entry's `terminal_id`; neither on an edited entry.
 - **Tests:** `EntriesModelTests`, `EntryTimingModelTests` (new),
   `TimingEditTests`.
+- **Review round 1 (A7, D8):** as F4-ENTRIES: targets from the `Timing` ids,
+  Remove disabled on a `next`-opened lap row, "Resuming…" state until the ack.
 - **DoD:** the Acceptance above holds, proven by `EntriesModelTests`,
   `EntryTimingModelTests` (new), `TimingEditTests`. Evidence in the PR:
   `cd ios/QuickrKit && swift test --filter <the suites above>` summary lines
@@ -209,6 +230,9 @@ I4-ENTRIES.
 - **Acceptance:** chart vector tests pass; `TimingOverviewText` strings for a
   typed topic match content-display.md's examples.
 - **Tests:** `QuickrDataTests/Stats/*`, `StatsChartVectorTests`.
+- **Review round 1 (D5):** same cell definition as F4-STATS via the shared
+  `activity[]` vectors; `store.entries(from:)` uses the first cell's local
+  midnight.
 - **DoD:** the Acceptance above holds, proven by `QuickrDataTests/Stats/*`,
   `StatsChartVectorTests`. Evidence in the PR:
   `cd ios/QuickrKit && swift test --filter <the suites above>` summary lines

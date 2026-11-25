@@ -1,6 +1,6 @@
 # Plan: M2 · active surfaces
 
-**Status:** draft (revision 1, 2026-11-25). **Spec:**
+**Status:** draft (revision 2, 2026-11-25, after review round 1). **Spec:**
 [active-surfaces.md](../specs/active-surfaces.md). **Programme plan:**
 [t2-plan.md](../specs/t2-plan.md); its scope guard, out-of-scope list, merge
 ritual, seams and ownership table, simulator budget, effort legend and open
@@ -53,6 +53,9 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
   primary, secondaries and overflow match the table; `reopen`/`revert` in the
   input land in overflow without code changes.
 - **Tests:** `RunControlsLayoutTests` (host), `controlsLayout.test.ts`.
+- **Review round 1 (A9, D8):** the primary rule is cited from timers2.md §10
+  verbatim, never restated; the layout model consumes M1's
+  `actions(_ state:status:timer:now:)`.
 - **DoD:** the Acceptance above holds, proven by `RunControlsLayoutTests`
   (host), `controlsLayout.test.ts`. Evidence in the PR:
   `pnpm exec vitest run <the tests above>` pass counts and a green
@@ -65,7 +68,7 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
 
 - **Scope:** new `App/Runs/RunControls.swift` (primary ≥ 72 pt tall full width,
   secondaries 56 pt, destructive in the overflow menu, ids `run.primary`,
-  `run.stop`, `run.pause`, `run.resume`, `run.overflow`); `RunScreen.swift`
+  `run.stop`, `run.pause`, `run.resume`, `run.menu`); `RunScreen.swift`
   restructured as header (clock, segment, headline, alert line from
   `RunPresentation.alertLine` shown 10 s) → controls → lap/step table (a
   `qrCard` with lap types, no controls in it); `RunViews.swift` shared pieces
@@ -77,6 +80,10 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
   stacks the secondaries; reduce-motion path has no bare `withAnimation`
   (`lint-motion.sh`); verified by I2-UITEST.
 - **Tests:** `RunControlsLayoutTests` cover the model; the views in I2-UITEST.
+- **Review round 1 (A7, D9):** the stop toast's Resume sends `reopen` with
+  `entry.timing.terminal_id`; a run in the "resuming" projection renders the
+  header and "Resuming…" with no controls until the ack. Overflow menu id is
+  `run.menu`.
 - **DoD:** the Acceptance above holds, proven by `RunControlsLayoutTests` cover
   the model; the views in I2-UITEST. Evidence in the PR:
   `cd ios/QuickrKit && swift test --filter <the suites above>` summary lines
@@ -103,6 +110,9 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
   section disappears when no run is open.
 - **Tests:** `HomeModelTests.activePartition`, `HomeVectorTests` unchanged;
   `HomeTests`/`TileUITests` in I2-UITEST.
+- **Review round 1 (A7, D9):** the idle tile's Resume uses
+  `entry.timing.terminal_id` (`tile.<slug>.run`); a "resuming" run shows the
+  active card without controls until the ack.
 - **DoD:** the Acceptance above holds, proven by
   `HomeModelTests.activePartition`, `HomeVectorTests` unchanged;
   `HomeTests`/`TileUITests` in I2-UITEST. Evidence in the PR:
@@ -122,8 +132,9 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
   button set; `RunActivityCenter.swift` snapshot carries the new fields.
 - **Areas:** `Widgets/RunActivityWidget.swift`,
   `QuickrCore/Runs/RunActivityDisplay.swift`, `QuickrData/LiveActivity/`.
-- **Depends on:** M2-MODEL-ADOPT; soft M1-LA-STATE (fields are optional; tests
-  use hand-built states until the vectors arrive).
+- **Depends on:** M2-MODEL-ADOPT; **M1-LA-STATE (hard, review E5)**, taken as a
+  shared WP branch into `t2/m2`: `RunActivityDisplay` reads `alertAt`,
+  `lapCount`, `lapType` from the content state and the vectors.
 - **Acceptance:** `RunActivityDisplayTests` for running on a typed lap, alert
   pending, alert paused, reopened, last step, no steps; payload-free (no vector
   shape change); `LiveActivityReconcileTests` unchanged.
@@ -214,6 +225,8 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
   Resume → Stop → answers → Save through the new controls; Lap is the primary on
   a lap topic; a mobile-width screenshot in the evidence.
 - **Tests:** `RunControls.test.tsx` (new), `RunFlow.test.tsx`.
+- **Review round 1 (A7, D9):** toast Resume uses `entry.timing.terminal_id`; the
+  "resuming" projection renders without controls.
 - **DoD:** the Acceptance above holds, proven by `RunControls.test.tsx` (new),
   `RunFlow.test.tsx`. Evidence in the PR:
   `pnpm exec vitest run <the tests above>` pass counts and a green
@@ -232,6 +245,8 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
   `home-due-vectors.json` unchanged.
 - **Tests:** `TopicsPage.test.tsx` (new), `ActiveTopicCard.test.tsx`,
   `TopicTile.test.tsx`.
+- **Review round 1 (A7, D9):** tile Resume uses `entry.timing.terminal_id`;
+  "Resuming…" card without controls until the ack.
 - **DoD:** the Acceptance above holds, proven by `TopicsPage.test.tsx` (new),
   `ActiveTopicCard.test.tsx`, `TopicTile.test.tsx`. Evidence in the PR:
   `pnpm exec vitest run <the tests above>` pass counts and a green

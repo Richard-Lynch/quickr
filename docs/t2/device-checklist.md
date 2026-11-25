@@ -1,22 +1,29 @@
 # T2 device checklist (run on the TestFlight build)
 
-**Status:** draft (revision 1, 2026-11-25), seeded by the programme plan
-([t2-plan.md](../specs/t2-plan.md)); each milestone appends its own
-simulator-blind items from its evidence file. The user runs it on a real iPhone
-with the TestFlight build from the release tag and ticks each box, or files a
-`t2-followup` issue with what was seen. Checkboxes stay empty until then.
+**Status:** draft (revision 2, 2026-11-25, after review round 1), seeded by the
+programme plan ([t2-plan.md](../specs/t2-plan.md)); each milestone appends its
+own simulator-blind items from its evidence file. The user runs it on a real
+iPhone with the TestFlight build from the release tag and ticks each box, or
+files a `t2-followup` issue with what was seen. Checkboxes stay empty until
+then.
 
 ## Deploy order (read first)
 
 The server self-hosted via compose will set `min_client_level.ios = 2` and
 force-update every older build the moment it is deployed. So:
 
+0. **Ignore rc builds unless asked.** When M1 merged to `feat/t2` the
+   orchestrator tagged `v0.4.0-rc1` (ghcr images + a TestFlight build; nothing
+   deployed). Against the old level-1 server an rc build shows the non-blocking
+   "server is older" note and the T2 features won't work. Install it only when
+   the orchestrator asks (the time-sensitive signing proof, M1 item 2 below).
 1. Tag `v0.4.0` on `main` (T2-RELEASE).
 2. Wait for CI to publish the TestFlight build and **install it on the phone**
    (the TestFlight bot PR lists it in `compat/supported-clients.json`).
-3. Only then deploy the server images (`v0.4.0`). The old build
-   `20261028.170408` must never meet the new server before its replacement is
-   installed.
+3. Only then the server deploy = bump `quickr_build` + both image digests in the
+   IaaC repo `inventories/host_vars/quickr.yml` (orchestrator-owned, after you
+   confirm the TestFlight build is installed). The old build `20261028.170408`
+   must never meet the new server before its replacement is installed.
 4. Open the app once online so the store re-pulls; then run the items below.
 
 Setup for the items: two timed topics, `Smoke` (laps renamed to `Cig`, one alert
@@ -49,8 +56,6 @@ signed in to the same server.
       device stop `Smoke`, then tap Resume. Expected: this phone's Live Activity
       for `Smoke` reappears by push-to-start within a few seconds and shows
       Running with a pause row for the gap.
-- [ ] **7-day cap on a reopened run.** (Only if a run older than 7 days exists.)
-      Resume it. Expected: a "too long" notice, nothing reopened.
 - [ ] **Apple portal step (only if I1-SIGNING fell back).** In the developer
       portal, enable Time Sensitive Notifications on the App ID, regenerate the
       profile, re-run `testflight.yml`. Expected: the next build sounds under
