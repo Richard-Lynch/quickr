@@ -816,15 +816,15 @@ flowchart LR
 | M1-MCP      | M1-RUNS, M1-FOLD stack                                       | be        | M      | A        |
 | M1-ACTIONS  | — (shared with M2)                                           | host + fe | S      | B        |
 | I1-SIGNING  | —                                                            | host      | S      | B        |
-| F1-CORE     | M1-FOLD (stacked), M1-EXPR                                   | fe        | L      | A        |
+| F1-CORE     | M1-FOLD (stacked)                                            | fe        | L      | A        |
 | F1-OUTBOX   | F1-CORE, M1-RUNS                                             | fe        | M      | A        |
-| F1-BUILDER  | M1-DB, F1-CORE (stack base)                                  | fe        | L      | B        |
+| F1-BUILDER  | M1-DB, M1-EXPR (stack base)                                  | fe        | L      | B        |
 | F1-ALERTS   | F1-CORE, F1-OUTBOX                                           | fe        | M      | B        |
 | I1-CORE     | M1-FOLD (stacked), M1-EXPR, M1-ACTIONS                       | host      | L      | A        |
 | I1-SYNC     | I1-CORE, M1-FEED                                             | host      | M      | A        |
 | I1-WRITES   | I1-SYNC                                                      | host      | M      | A        |
 | I1-BUILDER  | F1-BUILDER (stacked), I1-CORE                                | host      | L      | B        |
-| I1-ALERTS   | I1-CORE, I1-SYNC, I1-SIGNING                                 | host      | M      | B        |
+| I1-ALERTS   | I1-CORE, I1-SIGNING                                          | host      | M      | B        |
 | I1-UI       | I1-WRITES, I1-BUILDER, I1-ALERTS                             | sim       | M      | B        |
 | M1-DEV      | I1-ALERTS, M1-RUNS                                           | docs      | S      | B        |
 | M1-REVIEW   | all                                                          | docs      | S      | lead     |
