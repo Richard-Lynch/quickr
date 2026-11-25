@@ -39,10 +39,16 @@ public struct TopicDetailDTO: Codable, Sendable, Hashable, WireResponse {
     @RequiredKey public var scheduleUpdatedAt: Date?
     @RequiredKey public var due: DueStatusDTO?
     @RequiredKey public var timer: TopicTimer?
+    // T2-M4
+    /// `TopicSummary.last_entry` (content-display.md §2): decoded so the required-key sweep (G1) holds;
+    /// not mapped, the app keeps its store-backed latest entry.
+    @RequiredKey public var lastEntry: EntryDTO?
+    // end T2-M4
     public var questions: [QuestionDTO]
 
     enum CodingKeys: String, CodingKey {
         case id, slug, name, description, status, revision, schedule, due, timer, questions
+        case lastEntry = "last_entry"  // T2-M4
         case currentVersion = "current_version"
         case questionCount = "question_count"
         case entryCount = "entry_count"
@@ -82,9 +88,14 @@ public struct TopicSummaryDTO: Codable, Sendable, Hashable, DomainConvertible {
     @RequiredKey public var scheduleUpdatedAt: Date?
     @RequiredKey public var due: DueStatusDTO?
     @RequiredKey public var timer: TopicTimer?
+    // T2-M4
+    /// See `TopicDetailDTO.lastEntry`.
+    @RequiredKey public var lastEntry: EntryDTO?
+    // end T2-M4
 
     enum CodingKeys: String, CodingKey {
         case id, slug, name, description, status, revision, schedule, due, timer
+        case lastEntry = "last_entry"  // T2-M4
         case currentVersion = "current_version"
         case questionCount = "question_count"
         case entryCount = "entry_count"
