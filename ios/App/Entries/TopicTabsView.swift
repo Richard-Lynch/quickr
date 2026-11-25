@@ -50,7 +50,7 @@ struct TopicTabsView: View {
             }
         }
         .qrPaperBackground()
-        .task(id: environment.session?.binding) { await observeTopic() }
+        .task(id: HeaderKey(binding: environment.session?.binding, ref: ref)) { await observeTopic() }
         .navigationTitle(ref.rawValue)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -75,6 +75,12 @@ struct TopicTabsView: View {
 
     private var tabBinding: Binding<TopicTab> {
         Binding(get: { tab }, set: { environment.router.replaceTop(with: .topic(ref, $0)) })
+    }
+
+    /// Another store or another topic starts the header's observation over.
+    private struct HeaderKey: Hashable {
+        var binding: AppSession.Binding?
+        var ref: TopicLinkRef
     }
 
     private func observeTopic() async {
