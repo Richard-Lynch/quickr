@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 from app.services.timer_expr import MAX_LENGTH, MAX_MS, ExprError, evaluate
-
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
 
 PATH = FIXTURES_DIR / "timer-expr-vectors.json"

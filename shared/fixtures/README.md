@@ -27,6 +27,7 @@ result.
 | `timing-stats-vectors.json`    | `backend/tests/test_timing_stats_vectors.py` (`services/timing_stats.py`)                         | pytest drift check; `getTopicTiming` (T-STATS); vitest `timingStats.vectors.test.ts` (`lib/runs/stats.ts`, F-CORE); Swift timing chart models |
 | `duration-format-vectors.json` | `backend/tests/test_duration_vectors.py` (`run_fold.fmt_duration`)                                | pytest drift check; vitest `format.vectors.test.ts` (`lib/runs/format.ts` `fmtDuration`, F-CORE); Swift `fmtDuration` (I-CORE)                |
 | `live-activity-vectors.json`   | `backend/tests/test_live_activity_vectors.py` (`services/push/live_activity.py`)                  | pytest drift check; Swift `LiveActivityVectorTests` (I-LA)                                                                                    |
+| `timer-expr-vectors.json`      | `backend/tests/test_timer_expr_vectors.py` (`services/timer_expr.py`)                             | pytest drift check; vitest `timerExpr.vectors.test.ts` (F1-BUILDER); Swift `TimerExprVectorTests` (I1-CORE)                                   |
 | `api/*.json`                   | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                                          | pytest drift check; Swift `QuickrData` decoding tests (M1)                                                                                    |
 
 ## Drift checks
@@ -536,6 +537,18 @@ chart models are checked against.
   `RunActivityState`; a `start`'s `attributes` are `RunActivityAttributes`. `bytes` is the
   encoded size (at most `meta.max_bytes`). `meta.headers` are the request headers, and
   `meta.apple` the documentation every `aps` key was checked against.
+
+## `timer-expr-vectors.json`
+
+- `meta`: `generator`, `generator_version`, `max_ms` (7 days), `max_length` (64), and
+  `semantics`: the grammar, types, error positions and precedence in prose
+  ([timers2.md](../../docs/specs/timers2.md) §2).
+- `cases[]`: `{name, expr, variables, expected}`. `variables` maps lowercase names to ms.
+  `expected` is `{ms}` (whole ms, truncated toward zero) or `{error, pos}`, `pos` a 0-based
+  offset in Unicode code points (not UTF-16 units, not grapheme clusters: count
+  `unicodeScalars` in Swift and code points in TypeScript). The list holds every case of
+  §2.5 plus the edges §2 leaves open (error precedence, the bound on a negative duration,
+  sub-ms checks, which whitespace and letters count).
 
 ## `provisioning/`
 

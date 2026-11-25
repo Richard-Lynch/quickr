@@ -10,6 +10,7 @@ import random
 from collections.abc import Mapping
 
 import pytest
+
 from app.services.timer_expr import MAX_LENGTH, MAX_MS, ExprError, evaluate
 
 T = {"t": 60_000}
