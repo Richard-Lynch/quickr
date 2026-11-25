@@ -15,12 +15,25 @@ extension LocalStore {
     }
 }
 
+extension LocalStore {
+    /// ``entries(topicId:from:)``, re-emitted on every change (here, or signalled by `refresh`).
+    public func observeEntries(topicId: UUID, from: Date, refresh: AsyncStream<Void>? = nil)
+        -> AsyncThrowingStream<[ViewEntry], any Error>
+    {
+        let topicId = topicId.wireString
+        return StoreObservation.values(in: writer, refresh: refresh) { db in
+            try StoreView.entries(db, topicId: topicId, from: from)
+        }
+    }
+}
+
 extension StoreView {
     /// ``entries(_:topicId:limit:countedOnly:)`` with `countedOnly` and a `captured_at >= from`
     /// bound, filtered in SQL for the server rows (the `(topic_id, captured_at)` index).
     static func entries(_ db: Database, topicId: String, from: Date) throws -> [ViewEntry] {
-        guard try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM topic WHERE id = ?)", arguments: [topicId])
-            ?? false
+        guard
+            try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM topic WHERE id = ?)", arguments: [topicId])
+                ?? false
         else { return [] }
         let book = QuestionBook(db)
         let overlaid = try overlays(db, topicId: topicId, book: book)

@@ -22,6 +22,9 @@ struct OverviewView: View {
     @State private var now = Date()
     /// The reader's zone, which series are bucketed and labelled in: a change reloads them.
     @State private var timeZone = TimeZone.current.identifier
+    /// The activity strip's today, in the reader's zone: checked each minute, so the strip moves
+    /// on at midnight with the screen open (the PWA's `useNow(60_000)`).
+    @State private var today = ActivityStrip.localDay(Date(), timeZone: .current)
     /// The pull to refresh in flight. Unstructured, so SwiftUI updating the view doesn't cancel
     /// it; the model drops its answer if the store changed meanwhile.
     @State private var refreshing: Task<Void, Never>?
@@ -35,6 +38,12 @@ struct OverviewView: View {
     private struct ModelKey: Hashable {
         var topicId: UUID
         var binding: AppSession.Binding?
+    }
+
+    private struct ActivityKey: Hashable {
+        var model: ModelKey?
+        var today: String
+        var timeZone: String
     }
 
     private struct LoadKey: Hashable {
@@ -86,18 +95,35 @@ struct OverviewView: View {
         ) {
             await load()
         }
+        // The strip follows the store (a sync, a logged or deleted entry) while it's on screen.
+        .task(id: ActivityKey(model: modelKey, today: today, timeZone: timeZone)) { [session] in
+            await model?.observeActivity(today: today, refresh: session.refresh.stream())
+        }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                updateToday()
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 now = Date()
                 timeZone = TimeZone.current.identifier
+                updateToday()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
             timeZone = TimeZone.current.identifier
+            updateToday()
         }
     }
 
     // MARK: - Loading
+
+    private func updateToday() {
+        let day = ActivityStrip.localDay(Date(), timeZone: .current)
+        if day != today { today = day }
+    }
 
     private func observeTopic() async {
         topic = nil
