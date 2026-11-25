@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
+import { topicStyle } from '../../lib/appearance';
 import { TopicGlyph } from './TopicGlyph';
 
 describe('TopicGlyph', () => {
@@ -27,11 +28,16 @@ describe('TopicGlyph', () => {
     expect(glyph.style.width).toBe('28px');
   });
 
-  it('leaves the accent alone without a colour, and renders nothing without a name', () => {
-    const { container, rerender } = render(<TopicGlyph appearance={null} name="Mood" />);
+  it('is the accent without a colour, even inside another topic’s themed subtree', () => {
+    const { container, rerender } = render(
+      <div style={topicStyle({ color: 'teal', icon: null, tags: [] })}>
+        <TopicGlyph appearance={null} name="Mood" />
+      </div>,
+    );
     const glyph = screen.getByRole('img', { name: 'Mood' });
     expect(glyph).toHaveTextContent('M');
-    expect(glyph.style.getPropertyValue('--topic-tint')).toBe('');
+    expect(glyph.style.getPropertyValue('--topic-tint')).toBe('var(--color-accent)');
+    expect(glyph.style.getPropertyValue('--topic-on-tint')).toBe('var(--color-on-accent)');
     rerender(<TopicGlyph appearance={null} name="" />);
     expect(container).toBeEmptyDOMElement();
   });
