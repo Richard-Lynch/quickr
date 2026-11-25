@@ -106,7 +106,8 @@ public struct RunVoid: Sendable, Hashable {
 }
 
 /// The outbox as one read: the sheet's rows and the pill's summary from the same transaction,
-/// so no surface shows a pill that disagrees with its rows (issue #28).
+/// so no surface shows a pill that disagrees with its rows (issue #28). An observed one's summary
+/// has no `nextWake` (`LocalStore.observeOutbox`).
 public struct OutboxSnapshot: Sendable, Hashable {
     public var items: [OutboxItem]
     public var summary: OutboxSummary

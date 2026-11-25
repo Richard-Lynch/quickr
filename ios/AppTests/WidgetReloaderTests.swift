@@ -37,11 +37,17 @@ import Testing
         let counter = Counter()
         let (checks, checked) = AsyncStream.makeStream(of: [WidgetTopic].self)
         var iterator = checks.makeAsyncIterator()
-        /// Skips the checks that read an earlier state, up to the first that read `state`.
-        func checkThatRead(_ state: (WidgetTopic) -> Bool) async {
+        /// Skips the checks that read an earlier state, up to the first that read `state`. The counts
+        /// are exact and cumulative, so a reload that mustn't happen fails the next step's count
+        /// even if it comes after this check. No check reading it fails here: the stream ends
+        /// when the test is cancelled (its time limit).
+        func checkThatRead(
+            sourceLocation: SourceLocation = #_sourceLocation, _ state: (WidgetTopic) -> Bool
+        ) async {
             while let shown = await iterator.next(isolation: #isolation) {
                 if let first = shown.first, state(first) { return }
             }
+            Issue.record("no check read the state", sourceLocation: sourceLocation)
         }
         let reloader = WidgetReloader(
             settle: .milliseconds(50), reloadTimelines: { counter.timelines += 1 },

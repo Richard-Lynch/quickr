@@ -66,5 +66,7 @@ import Testing
         let next = try #require(try await iterator.next())
         #expect(next.items.map(\.id) == [item.id])
         #expect(next.summary.queued == 1, "the summary comes from the same read as the items")
+        // The item is due now: a wake read from the clock would make every re-read a new value.
+        #expect(next.summary.nextWake == nil, "the observed summary leaves the clock out")
     }
 }
