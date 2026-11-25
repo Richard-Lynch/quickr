@@ -89,25 +89,29 @@ export function OverviewPage() {
           <Skeleton className="h-72 rounded-card" />
         </div>
       ) : stats.data.entry_count === 0 ? (
-        <EmptyState
-          title={topic.entry_count === 0 ? 'No data yet' : 'Nothing in this range'}
-          icon={<Icon name="chart" className="size-9" />}
-          action={
-            topic.entry_count === 0 && topic.status === 'active' ? (
-              <ButtonLink
-                to={`/t/${topic.slug}/record`}
-                variant="primary"
-                icon={<Icon name="plus" />}
-              >
-                Log the first entry
-              </ButtonLink>
-            ) : null
-          }
-        >
-          {topic.entry_count === 0
-            ? 'Charts and stats appear as soon as you log an entry.'
-            : 'Try a wider date range.'}
-        </EmptyState>
+        <>
+          {/* The strip ignores the range and filters: an empty range still has a last 12 weeks. */}
+          {topic.entry_count > 0 ? <Activity slug={topic.slug} /> : null}
+          <EmptyState
+            title={topic.entry_count === 0 ? 'No data yet' : 'Nothing in this range'}
+            icon={<Icon name="chart" className="size-9" />}
+            action={
+              topic.entry_count === 0 && topic.status === 'active' ? (
+                <ButtonLink
+                  to={`/t/${topic.slug}/record`}
+                  variant="primary"
+                  icon={<Icon name="plus" />}
+                >
+                  Log the first entry
+                </ButtonLink>
+              ) : null
+            }
+          >
+            {topic.entry_count === 0
+              ? 'Charts and stats appear as soon as you log an entry.'
+              : 'Try a wider date range.'}
+          </EmptyState>
+        </>
       ) : (
         <>
           <Summary stats={stats.data} />
@@ -376,6 +380,14 @@ function Sparkline({
               strokeWidth={1.5}
             />
           </svg>
+        ) : series.isError ? (
+          <p
+            className="flex items-center text-xs text-danger"
+            style={{ height }}
+            title={errorMessage(series.error)}
+          >
+            Trend unavailable
+          </p>
         ) : series.isPending && seen ? (
           <Skeleton className="h-12" />
         ) : (

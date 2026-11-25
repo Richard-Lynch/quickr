@@ -480,16 +480,24 @@ Generator version 2 adds three sections (content-display.md §4.2, §4.3); the m
   `today` is a Monday, 84 on a Sunday; the grid's slots after today are blank and not listed),
   where an entry counts in the day of its `captured_at` in `tz` and `level` is the intensity
   step (0, 1, 2–3, 4+ → 0–3); `max`, the largest count; `total`, the entries that fell in a
-  cell (entries outside the grid are dropped). Cases: empty, the grid's edges, 23:30 UTC in
-  `Pacific/Auckland` and `America/Los_Angeles`, a `Europe/London` spring-forward and fall-back
-  week, `today` on a Monday and on a Sunday.
-- `sparklines[]`: a numeric card's sparkline, `sparkline(points, width)`, 48 px high with a
-  4 px inset (`SPARK_LAYOUT`). A case named like a `stats-vectors.json` int/double series case
-  uses that response's `points` at `meta.spark_width`; the synthetic ones carry `points`.
-  Expected: `empty` (no bucket has a mean), else `path` (`[x, y]` per bucket with a mean, in
-  order, y down, x by bucket start, each rounded half up to 0.01), `last` (`{x, y, value}`, the
-  marked point and its mean), `min` and `max` (the means' extremes, the end labels). One point
-  sits at the right edge; equal means draw at mid height.
+  cell (entries outside the grid are dropped). Cases: empty, the grid's edges, one instant
+  (2026-10-25 23:30 UTC) that is 2026-10-26 in `Pacific/Auckland` and 2026-10-25 in
+  `America/Los_Angeles` (the day before Auckland's), a `Europe/London` spring-forward and
+  fall-back week, `today` on a Monday and on a Sunday.
+- `sparklines[]`: a numeric card's sparkline, `sparkline(points, width)`, `H` = 48 px high with
+  an inset `P` = 4 px (`SPARK_LAYOUT`). A case named like a `stats-vectors.json` int/double
+  series case uses that response's `points` at `meta.spark_width`; the synthetic ones carry
+  `points`. Only the points with a non-null `mean` are drawn (call them `d[0..n-1]`, in
+  response order); `empty: true` when there are none. Otherwise, with `t` a point's `start` in
+  epoch ms, `lo`/`hi` the smallest/largest mean of `d`:
+  - `x = P + (t - t(d[0])) / (t(d[n-1]) - t(d[0])) * (width - 2P)`, or `width - P` when
+    `t(d[0]) = t(d[n-1])` (one point). Elapsed time, not equal spacing, and not the requested
+    range: the first drawn point is at `P`, the last at `width - P`.
+  - `y = P + (hi - mean) / (hi - lo) * (H - 2P)` (y grows downward: `hi` at `P`, `lo` at
+    `H - P`), or `H / 2` when `hi = lo`.
+  - `path` is `[x, y]` per drawn point, each rounded half up to 0.01 (`Math.round(v * 100) /
+    100`); `last` is `{x, y, value}` of `d[n-1]` (the rounded coordinates and the unrounded
+    mean), the marked point; `min` = `lo` and `max` = `hi`, the end labels.
 - `timing_models[]`: `stepsByBucket(series, bucket)` for the `timing-stats-vectors.json` case of
   the same `name` (its `expected.series`), bucketed in `tz`: `steps_by_bucket` is `SeriesPoint[]`
   with `option_counts` keyed by step key (the floored mean per run, a run without the step

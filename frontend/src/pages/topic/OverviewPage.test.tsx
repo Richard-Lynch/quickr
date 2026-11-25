@@ -195,7 +195,10 @@ describe('OverviewPage Timing', () => {
 });
 
 /** The stats fixture's questions (two numeric, two enum, one str), their series and entries. */
-function stubContent(entries: EntryPage = entriesFixture) {
+function stubContent(
+  entries: EntryPage = entriesFixture,
+  { stats = statsFixture, seriesStatus = 200 }: { stats?: TopicStats; seriesStatus?: number } = {},
+) {
   const requests: URL[] = [];
   vi.stubGlobal(
     'fetch',
@@ -206,8 +209,12 @@ function stubContent(entries: EntryPage = entriesFixture) {
       if (path.endsWith('/timing')) return Promise.resolve(json(200, untimedFixture));
       if (path.endsWith('/versions')) return Promise.resolve(json(200, [versionWith(null)]));
       if (path.endsWith('/entries')) return Promise.resolve(json(200, entries));
-      if (path.endsWith('/stats')) return Promise.resolve(json(200, statsFixture));
+      if (path.endsWith('/stats')) return Promise.resolve(json(200, stats));
       const series = /\/questions\/([^/]+)\/series$/.exec(path);
+      if (series && seriesStatus !== 200)
+        return Promise.resolve(
+          json(seriesStatus, { code: 'internal', detail: 'boom', errors: [] }),
+        );
       if (series) {
         const key = series[1] ?? '';
         const q = statsFixture.questions.find((x) => x.key === key);
@@ -267,6 +274,16 @@ describe('OverviewPage activity strip', () => {
     expect(list[0]?.searchParams.get('order')).toBe('-captured_at');
   });
 
+  it('stays when the selected range is empty: it has its own 12 weeks', async () => {
+    stubContent(entriesFixture, { stats: { ...statsFixture, entry_count: 0, questions: [] } });
+    renderPage('7d');
+    expect(await screen.findByText('Nothing in this range')).toBeInTheDocument();
+    const region = await screen.findByRole('region', { name: 'Activity' });
+    expect((await within(region).findByTestId('activity-caption')).textContent).toBe(
+      '3 entries in the last 12 weeks',
+    );
+  });
+
   it('says it shows the last 500 entries when there are more', async () => {
     stubContent({ ...entriesFixture, total: 501, limit: 500 });
     renderPage();
@@ -291,6 +308,14 @@ describe('OverviewPage sparklines', () => {
     }
     expect(screen.queryByTestId('sparkline-mood')).toBeNull();
     expect(screen.queryByTestId('sparkline-note')).toBeNull();
+  });
+
+  it('says so when the series fails, rather than drawing an empty trend', async () => {
+    stubContent(entriesFixture, { seriesStatus: 500 });
+    renderPage();
+    const spark = await screen.findByTestId('sparkline-glasses');
+    expect(await within(spark).findByText('Trend unavailable')).toBeInTheDocument();
+    expect(within(spark).queryByRole('img')).toBeNull();
   });
 
   it("stays on the range's default bucket when the charts change bucket", async () => {
