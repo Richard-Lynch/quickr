@@ -14,6 +14,7 @@ from typing import Any
 
 from app.services import run_fold
 from app.services.run_fold import Event, Frozen, FrozenReason, Step
+from tests.spec_cases import run_fold_v4_cases
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
 
 PATH = FIXTURES_DIR / "run-fold-vectors.json"
@@ -453,6 +454,17 @@ def effects(name: str) -> dict[str, tuple[str, str | None]]:
 
 def reasons(name: str) -> list[str | None]:
     return sorted((r for _, r in effects(name).values() if r is not None), key=str)
+
+
+def test_vectors_cover_timers2() -> None:
+    """timers2.md §12.1: every v4 case the spec names is present (the list is read from the
+    spec), the generator is at version 4 and the timer sets are §3.1's."""
+    built = build()
+    names = {c["name"] for c in built["cases"]} | {t["name"] for t in built.get("timings", [])}
+    missing = [name for name in run_fold_v4_cases() if name not in names]
+    assert not missing, missing
+    assert built["meta"]["generator_version"] == 4
+    assert list(built["timer_sets"]) == ["none", "two", "three", "renamed", "tiktok", "three_types"]
 
 
 def test_vectors_cover_the_spec() -> None:

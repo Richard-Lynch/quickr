@@ -13,6 +13,7 @@ from typing import Any
 
 from app.services import run_fold, timing_stats
 from app.services.run_fold import Pause, Step
+from tests.spec_cases import timing_stats_v3_cases
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
 
 PATH = FIXTURES_DIR / "timing-stats-vectors.json"
@@ -282,6 +283,16 @@ def build() -> dict[str, Any]:
 
 def test_timing_stats_vectors_match_committed() -> None:
     check_or_write(PATH, dump_cases(build()))
+
+
+def test_vectors_cover_timers2() -> None:
+    """timers2.md §7.4: every v3 case the spec names is present (the list is read from the
+    spec) and the generator is at version 3."""
+    built = build()
+    names = {c["name"] for c in built["cases"]}
+    missing = [name for name in timing_stats_v3_cases() if name not in names]
+    assert not missing, missing
+    assert built["meta"]["generator_version"] == 3
 
 
 def test_vectors_cover_the_spec() -> None:
