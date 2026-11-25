@@ -113,3 +113,29 @@
 3. Fixed: the VoiceOver and largest-text checks run on a fresh `Morning` run
    (first step open, so "Next: Breakfast" and "Pause" are on screen), after the
    first run is stopped; both settings are reset at the end.
+
+## Round 4
+
+1. **[P2] The active-card test navigates away before checking its Pause button**
+   —
+   [device-checklist.md:154](/Users/richie/code/quickr-worktrees/t2-m2-dev/docs/t2/device-checklist.md:154).
+   Tapping outside the buttons opens the run screen, so the following Pause,
+   Resume, Dynamic Type, and Stop checks no longer specify how to return to the
+   card. A tester could exercise the run-screen controls instead and miss broken
+   card controls. Return to the home screen after the navigation check before
+   testing the card.
+
+2. **[P2] The paused alert check may run after both alerts have expired** —
+   [device-checklist.md:101](/Users/richie/code/quickr-worktrees/t2-m2-dev/docs/t2/device-checklist.md:101).
+   The instructions wait for “Half way” to reach 0:00 and allow the next update
+   to select “Done,” but do not require pausing while an alert is pending. If
+   the tester pauses after 60 seconds, an implementation that incorrectly shows
+   alerts while paused can pass because there is no alert left to show. Pause
+   while “Done” is counting down, or start a fresh `Rest` lap before checking.
+
+## Resolution (round 4)
+
+1. Fixed: after the tap that opens the run screen, the item returns to the home
+   screen before the Pause, text-size and Stop checks on the card.
+2. Fixed: the paused check laps to a fresh `Rest 2` and pauses within its first
+   30 s, so an alert is pending; the line must hide and come back on Resume.

@@ -100,8 +100,9 @@ next one.
       total, "⏰ Half way · 0:30" counts down in the warning colour and reaches
       0:00 at 30 s; it stays at 0:00 until the activity's next update, which may
       switch it to "⏰ Done" counting down to 60 s (the activity itself makes no
-      sound: the M1 alert items cover the sound). While paused the alert line is
-      hidden. Stop `Intervals`.
+      sound: the M1 alert items cover the sound). Tap Lap twice more so a fresh
+      `Rest 2` is open and pause within its first 30 s: the alert line is hidden
+      while paused and returns on Resume. Stop `Intervals`.
 - [ ] **Dynamic Island.** Start `Morning` (iPhone with a Dynamic Island).
       Expected: compact leading shows the step number ("1"), compact trailing
       and minimal the segment timer. Long-press for the expanded view: segment
@@ -151,11 +152,12 @@ next one.
       pending, and one controls row: the primary (**Lap → Rest**) filling the
       row and **Stop** at a fixed width beside it. Tap **Lap → Rest**: the
       segment clock restarts, the badge names `Rest`, and the primary reads
-      **Lap → Run**. A tap on the card outside the buttons opens the run screen.
-      Pause: the badge reads "Paused · …", the clock dims, the button reads
-      **Resume**. At the largest accessibility text size the primary stacks over
-      Stop (both full width) and Pause moves under the badge. Light and dark
-      both legible. Stop: the section disappears.
+      **Lap → Run**. A tap on the card outside the buttons opens the run screen;
+      go back to the home screen for the rest of this item. Pause: the badge
+      reads "Paused · …", the clock dims, the button reads **Resume**. At the
+      largest accessibility text size the primary stacks over Stop (both full
+      width) and Pause moves under the badge. Light and dark both legible. Stop:
+      the section disappears.
 - [ ] **Resume within 15 minutes (pending M1, M2-RESUME).** `Smoke` has no
       questions, so Stop saves at once. Start `Smoke`, run it about a minute,
       stop it from its active card. Expected: the toast "Saved Smoke: m:ss"
