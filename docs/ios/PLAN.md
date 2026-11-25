@@ -112,8 +112,8 @@ compat/                       supported-clients.json and the compat gate's scrip
   `feat/client-versions`) collects them and lands in one PR. The per-worktree
   `.env` isolation in the "(v2)" bullet above was **never implemented**:
   `docker-compose.yml` sets `name: quickr` and the Makefile passes no
-  `COMPOSE_PROJECT_NAME` or `-p`, so every worktree's `make up` acts on the one
-  compose project. Never run `make up` or `make down` from a worktree. What is
+  `COMPOSE_PROJECT_NAME` or `-p`, so unless the shell exports one, every
+  worktree's `make up` acts on the one compose project. Never run `make up` or `make down` from a worktree. What is
   isolated: test databases (`quickr_test_<dir>_<hash8>`, see
   `backend/tools/test_database.py`) and simulators (`make ios-sim-clone` makes
   one clone per worktree). Issue #114 tracks the compose isolation.

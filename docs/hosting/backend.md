@@ -15,9 +15,9 @@ make down
 The `frontend` service is nginx with the built PWA; `backend` is FastAPI on port
 8000 inside the network; `db` is Postgres with the `pgdata` volume. The compose
 project is named `quickr` (`name:` in `docker-compose.yml`) and the Makefile
-sets no `COMPOSE_PROJECT_NAME` or `-p`, so every checkout and worktree that
-runs `make up` shares the same containers, volume and ports: there is no
-per-worktree stack. The host ports are compose variables,
+sets no `COMPOSE_PROJECT_NAME` or `-p`, so unless the shell exports one, every
+checkout and worktree that runs `make up` shares the same containers and
+volume (and, by default, the same host ports): there is no per-worktree stack. The host ports are compose variables,
 `QUICKR_WEB_PORT` (8080), `QUICKR_API_PORT` (8100) and `QUICKR_DB_PORT` (5433),
 read from the shell or from a gitignored `.env` next to `docker-compose.yml`.
 

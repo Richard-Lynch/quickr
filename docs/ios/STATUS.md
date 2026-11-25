@@ -38,7 +38,7 @@ simulator-heavy at once. Milestones were stacked (squash-merge, then
 
 |                     |                                                                                                                                                                |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Active milestone    | **No milestone branch is open**; M3–M7's open items are device validation. M0–M3 merged (#8, #9, #10, #11, #19) and reached `main` in #6 (2026-10-22). Timers (v0.3.0, #72) and CV (v0.3.1, #93) shipped on `main` afterwards. |
+| Active milestone    | **No milestone branch is open**; what M3–M7 still list is device validation (plus any unticked backlog line below). M0–M3 merged (#8, #9, #10, #11, #19) and reached `main` in #6 (2026-10-22). Timers (v0.3.0, #72) and CV (v0.3.1, #93) shipped on `main` afterwards. |
 | Running             | Nothing tracked here (2026-11-24: docs refresh only). The integration branch is `main`; `feat/ios-app` is left at 32d70b8 (#19) and is no longer used.                         |
 | Waiting on the user | Device validation on the phone (checkpoint D, M3-DEV, M4-DEV, the M7 regression, timers §13.5) with TestFlight 20261028.170408; the `MARKETING_VERSION` bump (see above).      |
 | Next up             | Device day per [demo/DEVICE-DAY.md](demo/DEVICE-DAY.md); the backlog below; the `timers-followup` and `cv-followup` issues on GitHub.                                          |
@@ -180,7 +180,7 @@ These are the server details the specs assume. Each one must be confirmed in the
 - [x] The `X-QuickR-Server-Id` header is on every `/api/v1` response, including errors and
       `/health`.
 - [ ] (M3) `due_since` in push payloads is UTC truncated to whole seconds.
-- [ ] (M3) `quicklog-vectors.json` gains category-id cases, so Python and Swift produce identical
+- [x] (M3, shipped as `notification-vectors.json` category ids) `quicklog-vectors.json` gains category-id cases, so Python and Swift produce identical
       `quickr.t.{id}.{hash}`.
 
 ### Backlog from M0 reviews (non-blocking)
