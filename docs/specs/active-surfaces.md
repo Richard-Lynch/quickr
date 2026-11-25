@@ -459,16 +459,27 @@ by `RunActivityDisplayTests` over the new vector cases `update_tiktok_lap`,
 
 ```
 [glyph] Topic name                                  2 of 5 | L4
-Rest 2 · lap 4                                     total 12:40
-0:41                                   (segment timer, largeTitle)
-⏰ Half way · in 0:12                  (countdown, hidden when nil)
-[         Lap → Rest        ]          (primary, prominent, full width, ≥ 56 pt)
-[   Pause   ] [    Stop     ]          (secondaries, bordered)
+0:41  Rest 2 · lap 4                     total 12:40
+                                      ⏰ Half way · 0:12
+[   Lap → Rest   ] [ Pause ] [ Stop ]
 ```
+
+iOS truncates a Lock Screen Live Activity taller than 160 pt (ActivityKit:
+"The system may truncate a Live Activity if its height exceeds 160 points").
+So the layout is two text rows and one button row:
+
+- Row 1: the topic name, with "2 of 5", "L4" or "2 of 5 | L4" trailing.
+- Row 2: the segment timer (largeTitle), then the headline, then a trailing
+  stack with the total and, below it, the alert countdown (hidden when nil).
+  The headline truncates first.
+- The button row: the primary at ½ the width (≥ 56 pt tall), then
+  Pause/Resume and Stop at ¼ each (≥ 44 pt).
+- Dynamic Type is capped at the widgets' xxLarge (§7), so the button row stays
+  above the 160 pt cut.
 
 - The primary is `Button(intent:)` `.buttonStyle(.borderedProminent)` with
   `.tint(display.tint?.tint ?? Color.qr.accentStrong)`, `controlSize(.large)`,
-  full width; Stop stays `.bordered` with `Color.qr.danger`
+  half the row; Stop stays `.bordered` with `Color.qr.danger`
   (`RunActivityWidget.swift:113-114`); Pause/Resume `.bordered` accent.
 - The alert countdown is
   `Text(timerInterval: now...Date(timeIntervalSince1970: alert.at), countsDown: true)`
@@ -768,3 +779,9 @@ are M1's, consumed here.
 | K-S2 accessibility-id drift                                  | No change (B3): ids live here (§2.2 `run.menu`, §3.2 `tile.<slug>.run\|stop\|pause\|resume\|reopen`); plans stop repeating them |
 | K-S3 "timers2.md §7.1" for the Resuming projection           | Fixed in §2.4, §3.3, §6.3, §8.2: §5.3                                                                                           |
 | K-S3 PWA topic utilities have three spellings                | Fixed in §6.2 (B6): the appearance.md §4.2 set                                                                                  |
+
+### M2 implementation corrections
+
+| Finding                                                  | Outcome                                                                                                             |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| I2-LA: iOS truncates a Lock Screen activity above 160 pt | Fixed in §4.2: two text rows and one button row (primary ½, Pause/Resume ¼, Stop ¼); Dynamic Type capped at xxLarge |
