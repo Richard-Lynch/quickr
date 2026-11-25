@@ -108,6 +108,12 @@ targets:
         # APNs. Device builds register in the sandbox; exporting for App Store Connect re-signs
         # with the distribution profile, whose value is production (ios/README.md, TestFlight).
         aps-environment: development
+        # T2-M1: Time Sensitive lap/step alerts (timers2.md §9.1, OQ-6). Read by
+        # `RunAlerts.interruptionLevel` (.timeSensitive). App target only: the extensions
+        # schedule no alerts. Signing is automatic (CODE_SIGN_STYLE above, testflight.sh
+        # -allowProvisioningUpdates with the ASC key), so Xcode adds the capability to the App
+        # ID and regenerates the profile; proven by the v0.4.0-rc1 upload.
+        com.apple.developer.usernotifications.time-sensitive: true
 
   QuickRWidgets:
     type: app-extension
