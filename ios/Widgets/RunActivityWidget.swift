@@ -60,7 +60,8 @@ struct RunActivityWidget: Widget {
 /// primary dominant; once ended, "Saved · 7:42" or "Add details".
 ///
 /// iOS truncates a Lock Screen activity above 160 pt, so the text is two rows and the buttons
-/// one: the primary at half the width, Pause/Resume and Stop a quarter each (all ≥ 56 pt tall).
+/// one: the primary (≥ 56 pt tall) at half the width, Pause/Resume and Stop (≥ 44 pt) a quarter
+/// each.
 struct RunActivityLockScreen: View {
     let context: ActivityViewContext<RunActivityAttributes>
 
