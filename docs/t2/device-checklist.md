@@ -85,20 +85,23 @@ next one.
       **Stop** (Stop in red) bordered at a quarter each. Tap Next: the badge
       reads "2 of 2" and the primary becomes **Lap** (the last step is open, so
       Lap is primary and Stop never is). Pause: the timers freeze and Pause
-      reads **Resume**. With VoiceOver on, the buttons read "Next: Breakfast"
-      (then "Lap"), "Pause", "Stop Morning" (§1.3; the shipped Stop reads
-      "Stop": #143). Repeat with Settings → Accessibility → Display & Text Size
-      → Larger Text at the largest size: the text stops growing at the widgets'
-      cap (xxLarge), the button row is still fully visible and every label,
-      "Next: Breakfast" included, reads in full (shrunk is fine, cut off is
-      not). Stop: the activity shows "Saved · m:ss" and no buttons.
+      reads **Resume**. Stop: the activity shows "Saved · m:ss" and no buttons.
+      Then turn VoiceOver on and set Settings → Accessibility → Display & Text
+      Size → Larger Text to the largest size, start `Morning` again and lock:
+      the text stops growing at the widgets' cap (xxLarge), the button row is
+      still fully visible and every label, "Next: Breakfast" included, reads in
+      full (shrunk is fine, cut off is not); VoiceOver reads the buttons "Next:
+      Breakfast", "Pause", "Stop Morning" (§1.3; the shipped Stop reads "Stop":
+      #143). Stop `Morning`; VoiceOver off and the text size back.
 - [ ] **Live Activity lap fields (pending I2-LA-FIELDS).** Start `Intervals`,
       lock. Expected: the second row's text is the headline ("Run 1 · lap 1"
       style, §4.1) and the trailing badge "L1"; the primary reads **Lap → Rest**
       (VoiceOver: "Lap, then Rest"). Tap it so `Rest 1` is open: under the
-      total, "⏰ Half way · 0:30" counts down in the warning colour and stays at
-      0:00 once reached (the activity itself makes no sound: the M1 alert items
-      cover the sound). While paused the alert line is hidden. Stop `Intervals`.
+      total, "⏰ Half way · 0:30" counts down in the warning colour and reaches
+      0:00 at 30 s; it stays at 0:00 until the activity's next update, which may
+      switch it to "⏰ Done" counting down to 60 s (the activity itself makes no
+      sound: the M1 alert items cover the sound). While paused the alert line is
+      hidden. Stop `Intervals`.
 - [ ] **Dynamic Island.** Start `Morning` (iPhone with a Dynamic Island).
       Expected: compact leading shows the step number ("1"), compact trailing
       and minimal the segment timer. Long-press for the expanded view: segment
@@ -136,8 +139,9 @@ next one.
       **Advance Timer**, topic `Dishwasher`, action Auto. Expected: idle, a
       press starts the run; the next press stops it (v1 Auto on a timer without
       lap types); a press may show quickR's short confirmation. Then set the
-      topic to `Intervals` **(pending I1-WRITES)**: while it runs, a press
-      records a lap (the Live Activity's lap moves on), never a stop.
+      topic to `Intervals` **(pending I1-WRITES)**: a first press starts it;
+      while it runs, each further press records a lap (the Live Activity's lap
+      moves on), never a stop. Stop `Intervals` from the app.
 - [ ] **Active card on the home screen (pending I2-HOME).** Start `Intervals`
       and open the home screen. Expected: an "Active now" section, with a
       pulsing timer glyph, sits above "Due now", and `Intervals` appears only

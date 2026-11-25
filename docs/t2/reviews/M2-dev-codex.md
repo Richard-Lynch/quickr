@@ -77,3 +77,39 @@
 2. Fixed: the active-card item taps **Lap → Rest** and checks the clock
    restarts, the badge names `Rest` and the primary reads **Lap → Run**.
 3. Fixed: quickR is swiped away again before the Dynamic Island repeat.
+
+## Round 3
+
+1. **[P2] The alert check requires 0:00 to persist past the next alert update**
+   —
+   [device-checklist.md:99](/Users/richie/code/quickr-worktrees/t2-m2-dev/docs/t2/device-checklist.md:99).
+   `Intervals` has a second alert, “Done,” at 60 seconds. The spec requires
+   “Half way” to stay at 0:00 only until the next push or local update; once
+   that update selects “Done,” the countdown may change. Qualify the expectation
+   so a correct transition does not fail the device check.
+
+2. **[P2] The typed Action button check never starts its run** —
+   [device-checklist.md:138](/Users/richie/code/quickr-worktrees/t2-m2-dev/docs/t2/device-checklist.md:138).
+   Each item starts with all topics idle, and changing the shortcut’s topic to
+   `Intervals` does not start it. The next press therefore starts the run
+   instead of recording a lap. Explicitly start `Intervals` before testing its
+   running Auto action.
+
+3. **[P2] The Lock Screen VoiceOver and text-size checks lack the required
+   state** —
+   [device-checklist.md:85](/Users/richie/code/quickr-worktrees/t2-m2-dev/docs/t2/device-checklist.md:85).
+   The instructions advance to the last step and pause before asking the tester
+   to check “Next: Breakfast” and “Pause.” At that point the controls read “Lap”
+   and “Resume.” The largest-text check likewise cannot inspect “Next:
+   Breakfast” without restarting the run. Specify when to enable VoiceOver and
+   reset to the first step before repeating the long-label check.
+
+## Resolution (round 3)
+
+1. Fixed: "Half way" reaches 0:00 at 30 s and stays there until the next update,
+   which may switch the line to "Done" counting down to 60 s.
+2. Fixed: the typed Action button part starts `Intervals` with a first press,
+   then checks each further press laps; it ends by stopping `Intervals`.
+3. Fixed: the VoiceOver and largest-text checks run on a fresh `Morning` run
+   (first step open, so "Next: Breakfast" and "Pause" are on screen), after the
+   first run is stopped; both settings are reset at the end.
