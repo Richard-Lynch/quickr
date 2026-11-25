@@ -16,8 +16,9 @@ Grammar (§2.1)::
 Evaluation runs in three stages and reports the first error it meets:
 
 1. the text is at most :data:`MAX_LENGTH` code points (``too_long`` at 64);
-2. the whole text parses (``syntax`` at the leftmost offending character; tokens are read lazily,
-   so an unknown character after a parse error is never reached);
+2. the whole text parses (``syntax`` at the leftmost offending token or character; tokens are
+   matched longest-first and read lazily, so an unknown character after a parse error is never
+   reached);
 3. the tree evaluates on doubles in evaluation order: the left operand, the right operand, then
    the operator's checks (``type``, then ``div_zero``, then ``too_long`` when a duration's
    magnitude exceeds :data:`MAX_MS`; literals and variables are checked as they are read). Last,
@@ -36,6 +37,7 @@ MAX_LENGTH = 64  # characters (Unicode code points) of an expression
 MAX_MS = 7 * 24 * 3_600_000  # 7 days: the bound on the result and on every duration on the way
 
 UNIT_MS: dict[str, float] = {"ms": 1.0, "s": 1_000.0, "m": 60_000.0, "h": 3_600_000.0}
+_UNITS_LONGEST_FIRST = sorted(UNIT_MS, key=len, reverse=True)
 
 ErrorCode = Literal["syntax", "unknown_variable", "type", "negative", "too_long", "div_zero"]
 
@@ -97,29 +99,24 @@ class _Lexer:
         raise ExprError("syntax", start, f"unknown character {c!r}")
 
     def _number(self, start: int) -> _Token:
+        """``number [unit]``, matched longest-first: ``1.`` is the number 1 (the ``.`` is the
+        next, unknown, character) and ``30sec`` is ``30s`` followed by the identifier ``ec``."""
         text, n = self.text, len(self.text)
         i = start
         while i < n and text[i] in _DIGITS:
             i += 1
-        if i < n and text[i] == ".":
-            if i + 1 >= n or text[i + 1] not in _DIGITS:
-                raise ExprError("syntax", i, "a '.' must be followed by a digit")
+        if i + 1 < n and text[i] == "." and text[i + 1] in _DIGITS:
             i += 1
             while i < n and text[i] in _DIGITS:
                 i += 1
         literal = text[start:i]
         value = float(literal)
-        if i < n and text[i] in _LETTERS:
-            unit_start = i
-            while i < n and text[i] in _LETTERS:
-                i += 1
-            unit = text[unit_start:i]
-            if unit not in UNIT_MS:
-                raise ExprError("syntax", unit_start, f"unknown unit {unit!r} (use ms, s, m or h)")
+        unit = next((u for u in _UNITS_LONGEST_FIRST if text.startswith(u, i)), None)
+        if unit is None:
             self.i = i
-            return _Token("duration", start, text[start:i], value * UNIT_MS[unit])
-        self.i = i
-        return _Token("number", start, literal, value)
+            return _Token("number", start, literal, value)
+        self.i = i + len(unit)
+        return _Token("duration", start, text[start : self.i], value * UNIT_MS[unit])
 
 
 # --- tree -------------------------------------------------------------------------------------
@@ -150,9 +147,13 @@ class _Parser:
     def __init__(self, text: str) -> None:
         self.lexer = _Lexer(text)
         self.token = self.lexer.next()
+        self.previous_end = -1
+        self.previous_numeric = False
 
     def advance(self) -> _Token:
         token = self.token
+        self.previous_end = self.lexer.i
+        self.previous_numeric = token.kind in ("number", "duration")
         self.token = self.lexer.next()
         return token
 
@@ -161,6 +162,8 @@ class _Parser:
         if token.kind == "end":
             detail = "empty expression" if token.pos == 0 else "unexpected end"
             return ExprError("syntax", token.pos, detail)
+        if token.kind == "ident" and self.previous_end == token.pos and self.previous_numeric:
+            return ExprError("syntax", token.pos, f"unknown unit {token.text!r} (use ms, s, m or h)")
         return ExprError("syntax", token.pos, f"unexpected {token.text!r}")
 
     def is_op(self, ops: str) -> bool:

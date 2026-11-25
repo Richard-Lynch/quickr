@@ -367,9 +367,10 @@ def test_letters_and_digits_are_ascii() -> None:
     assert err("\u00e9") == ("syntax", 0)
 
 
-def test_the_letters_after_a_number_are_its_unit() -> None:
-    assert err("30sec", {}) == ("syntax", 2)
-    assert err("2mt") == ("syntax", 1)
+def test_units_match_longest_first_and_letters_after_them_start_a_token() -> None:
+    assert err("30sec", {}) == ("syntax", 3)  # 30s, then the identifier ec
+    assert err("2mt") == ("syntax", 2)  # 2m, then t
+    assert err("2mst") == ("syntax", 3)  # 2ms, then t
     assert err("1m30s", {}) == ("syntax", 2)
     assert err("30s_", {}) == ("syntax", 3)
 
@@ -377,6 +378,18 @@ def test_the_letters_after_a_number_are_its_unit() -> None:
 def test_a_dot_must_be_followed_by_a_digit() -> None:
     assert err("1.s", {}) == ("syntax", 1)
     assert err("t*2.") == ("syntax", 3)
+
+
+def test_an_unexpected_token_is_reported_at_its_start() -> None:
+    assert err("t 1.s") == ("syntax", 2)
+    assert err("t 30d") == ("syntax", 2)
+    assert err("t 30sec") == ("syntax", 2)
+
+
+def test_binary_doubles_in_left_to_right_order() -> None:
+    # 0.57 * 100 is 56.99999999999999 in binary; decimal arithmetic would give 3420000.
+    assert evaluate("0.57*100*1m", {}) == 3_419_999
+    assert evaluate("1m*0.57*100", {}) == 3_420_000
 
 
 def test_expr_error_carries_code_pos_and_a_message() -> None:

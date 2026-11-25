@@ -53,10 +53,13 @@
     {"expected":{"error":"unknown_variable","pos":4},"expr":"t\r\n+x","name":"unknown_variable_after_crlf","variables":{"t":60000}},
     {"expected":{"error":"syntax","pos":1},"expr":"t +30s","name":"nbsp_is_syntax","variables":{"t":60000}},
     {"expected":{"error":"syntax","pos":0},"expr":"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀","name":"length_counts_code_points","variables":{"t":60000}},
-    {"expected":{"error":"syntax","pos":2},"expr":"30sec","name":"unit_letters_run","variables":{}},
+    {"expected":{"error":"syntax","pos":3},"expr":"30sec","name":"unit_longest_match","variables":{}},
     {"expected":{"error":"syntax","pos":2},"expr":"1m30s","name":"compound_duration_is_syntax","variables":{}},
     {"expected":{"error":"syntax","pos":1},"expr":"1.s","name":"number_trailing_dot","variables":{}},
-    {"expected":{"error":"syntax","pos":2},"expr":"t*.5","name":"number_leading_dot","variables":{"t":60000}}
+    {"expected":{"error":"syntax","pos":2},"expr":"t*.5","name":"number_leading_dot","variables":{"t":60000}},
+    {"expected":{"error":"syntax","pos":2},"expr":"t 1.s","name":"unexpected_token_at_its_start","variables":{"t":60000}},
+    {"expected":{"ms":3419999},"expr":"0.57*100*1m","name":"binary_doubles","variables":{}},
+    {"expected":{"ms":3420000},"expr":"1m*0.57*100","name":"binary_doubles_other_order","variables":{}}
   ],
   "meta": {
     "generator": "backend/tests/test_timer_expr_vectors.py",
@@ -68,7 +71,7 @@
       "Two types: number and duration (ms). Variables are durations, matched case-insensitively by name. duration +- duration, duration * number, number * duration, duration / number, number op number and unary minus are allowed; anything else is a type error at the operator. The whole expression must be a duration (a bare number is type at 0), >= 0 (negative at 0) and <= max_ms (too_long at 0, also for any intermediate duration).",
       "Numbers and durations are IEEE doubles; a unit literal is number * factor (1, 1000, 60000, 3600000); the same operations in the same order on every platform; intermediates are never rounded; the result is truncated toward zero to whole ms.",
       "expected is {ms} or {error, pos}; pos is the 0-based character offset of the token the error is reported at: syntax at the offending character (end of input for an unexpected end), unknown_variable at the identifier, type and div_zero at the operator, negative at 0, too_long at max_length for text longer than max_length (checked first) and at 0 for a value.",
-      "Characters are Unicode code points (not UTF-16 units, not grapheme clusters): the length limit and pos count them. Whitespace is space, tab, CR and LF only; letter and digit are ASCII. The ASCII letters right after a number form its unit, which must be exactly ms, s, m or h (else syntax at the unit's first letter); a '.' must be followed by a digit (else syntax at the '.').",
+      "Characters are Unicode code points (not UTF-16 units, not grapheme clusters): the length limit and pos count them. Whitespace is space, tab, CR and LF only; letter and digit are ASCII. Tokens match longest-first: a number takes a fraction only when a digit follows the '.', then the longest unit that follows with no space (ms before m; case-sensitive); whatever comes next starts a new token (30sec is 30s then the identifier ec: syntax at 3). An unexpected token is reported at its first character.",
       "Error precedence: the text length, then the whole parse (the first syntax error), then evaluation, which reports the first error in evaluation order: the left operand, the right operand, then the operator's checks (type, then div_zero, then too_long when the result is a duration whose magnitude exceeds max_ms; literals and variables are checked too). Last, on the untruncated result: a number is type at 0, below 0 is negative at 0. Numbers have no bound."
     ]
   }

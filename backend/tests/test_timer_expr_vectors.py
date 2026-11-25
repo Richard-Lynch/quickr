@@ -90,11 +90,16 @@ CASES |= {
     "unknown_variable_after_crlf": ("t\r\n+x", T),
     "nbsp_is_syntax": ("t\u00a0+30s", T),
     "length_counts_code_points": ("\U0001f600" * 33, T),
-    # The ASCII letters right after a number are its unit and must be one of ms, s, m, h.
-    "unit_letters_run": ("30sec", NONE),
+    # Tokens match longest-first: 30sec is 30s then the identifier ec; 1. is 1 then '.'.
+    "unit_longest_match": ("30sec", NONE),
     "compound_duration_is_syntax": ("1m30s", NONE),
     "number_trailing_dot": ("1.s", NONE),
     "number_leading_dot": ("t*.5", T),
+    # An unexpected token is reported at its start, whatever follows it.
+    "unexpected_token_at_its_start": ("t 1.s", T),
+    # Binary doubles, left to right: 0.57*100 is 56.99999999999999, so the first is 3419999.
+    "binary_doubles": ("0.57*100*1m", NONE),
+    "binary_doubles_other_order": ("1m*0.57*100", NONE),
 }
 
 SPEC = Path(__file__).resolve().parents[2] / "docs" / "specs" / "timers2.md"
@@ -149,9 +154,11 @@ def build() -> dict[str, Any]:
                 "max_length (checked first) and at 0 for a value.",
                 "Characters are Unicode code points (not UTF-16 units, not grapheme clusters): "
                 "the length limit and pos count them. Whitespace is space, tab, CR and LF only; "
-                "letter and digit are ASCII. The ASCII letters right after a number form its "
-                "unit, which must be exactly ms, s, m or h (else syntax at the unit's first "
-                "letter); a '.' must be followed by a digit (else syntax at the '.').",
+                "letter and digit are ASCII. Tokens match longest-first: a number takes a "
+                "fraction only when a digit follows the '.', then the longest unit that follows "
+                "with no space (ms before m; case-sensitive); whatever comes next starts a new "
+                "token (30sec is 30s then the identifier ec: syntax at 3). An unexpected token "
+                "is reported at its first character.",
                 "Error precedence: the text length, then the whole parse (the first syntax "
                 "error), then evaluation, which reports the first error in evaluation order: "
                 "the left operand, the right operand, then the operator's checks (type, then "
@@ -240,7 +247,10 @@ def test_clarifications_answer_as_documented() -> None:
     assert len(CASES["length_counts_code_points"][0]) == 33
     assert len(CASES["length_counts_code_points"][0].encode("utf-16-le")) // 2 == 66
     assert outcome("length_counts_code_points") == {"error": "syntax", "pos": 0}
-    assert outcome("unit_letters_run") == {"error": "syntax", "pos": 2}
+    assert outcome("unit_longest_match") == {"error": "syntax", "pos": 3}
+    assert outcome("unexpected_token_at_its_start") == {"error": "syntax", "pos": 2}
+    assert outcome("binary_doubles") == {"ms": 3_419_999}
+    assert outcome("binary_doubles_other_order") == {"ms": 3_420_000}
     assert outcome("compound_duration_is_syntax") == {"error": "syntax", "pos": 2}
     assert outcome("number_trailing_dot") == {"error": "syntax", "pos": 1}
     assert outcome("number_leading_dot") == {"error": "syntax", "pos": 2}
