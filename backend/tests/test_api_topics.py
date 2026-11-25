@@ -380,6 +380,7 @@ async def test_last_entry_is_the_latest_counted_entry(client: httpx.AsyncClient)
     assert t["last_entry"] is None
     assert (await client.get("/topics/sleep-log")).json()["last_entry"] is None
     assert (await client.get("/topics")).json()["items"][0]["last_entry"] is None
+    before_entries = (await client.get("/changes", params={"after": 0})).json()["head"]
 
     e1 = await record(client, "sleep-log", SLEEP, captured_at="2026-03-01T08:00:00Z")
     # Latest by captured_at, then by id (descending): insertion order does not count.
@@ -389,6 +390,9 @@ async def test_last_entry_is_the_latest_counted_entry(client: httpx.AsyncClient)
     assert (await client.get("/topics/sleep-log")).json()["last_entry"] == high
     assert (await client.get("/topics")).json()["items"][0]["last_entry"] == high
     assert high["answers"]  # the whole EntryOut, answers included
+    # Creating entries does not re-send the topic either.
+    created = (await client.get("/changes", params={"after": before_entries})).json()
+    assert [i["kind"] for i in created["items"]] == ["entry"] * 4
 
     # The feed's topic item carries it too.
     feed = (await client.get("/changes", params={"after": 0})).json()
