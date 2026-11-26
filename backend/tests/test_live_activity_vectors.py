@@ -230,11 +230,14 @@ LARGEST_APPEARANCE = TopicAppearance.model_validate(
 # end T2-M3
 
 
-def start_body(timer: str, topic_name: str) -> dict[str, Any]:
+def start_body(
+    timer: str,
+    topic_name: str,
+    appearance: TopicAppearance | None = None,  # T2-M3
+) -> dict[str, Any]:
     state = la.content_state(RUN, 1, state_of(TIMERS[timer], [START]), TIMERS[timer], now=NOW_MS)
-    return la.payload(
-        "start", state, timestamp=TIMESTAMP, attrs=la.attributes(SERVER_ID, TOPIC_ID, topic_name)
-    )
+    attrs = la.attributes(SERVER_ID, TOPIC_ID, topic_name, appearance)
+    return la.payload("start", state, timestamp=TIMESTAMP, attrs=attrs)
 
 
 def sizes(body: dict[str, Any]) -> list[int]:
@@ -750,6 +753,38 @@ def test_budget_largest_m1_body_fits_untruncated() -> None:
     assert steps == ()
     assert len(data) <= MAX_PAYLOAD_BYTES
     assert data == la.encode(start_body("escapes", ESC * 200))
+
+
+# T2-M3: appearance.md §15. The appearance counts against the budget and is never truncated.
+
+
+def test_budget_largest_body_with_the_largest_appearance_fits_after_the_first_step() -> None:
+    """Every label at 64 six-byte escapes plus the largest appearance is the largest start body
+    there is: just over 4 096 bytes, so the budget truncates ``alert_label`` and it fits, with the
+    appearance whole. (``start_longest_labels_with_appearance`` pins the four-byte labels the spec
+    names, which fit untruncated.)"""
+    body = start_body("escapes", ESC * 200, LARGEST_APPEARANCE)
+    assert len(la.dump(body)) > MAX_PAYLOAD_BYTES
+    data, steps = la.fit(body)
+    assert steps == ("alert_label",)
+    assert len(data) <= MAX_PAYLOAD_BYTES
+    sent = json.loads(data)["aps"]["attributes"]
+    assert sent["appearance"] == LARGEST_APPEARANCE.model_dump(mode="json")
+
+
+def test_budget_bound_holds_with_the_largest_appearance() -> None:
+    """After the terminal step a start is at most :func:`fixed_bound` bytes plus its appearance,
+    and the largest appearance leaves that well under 4 096: ``fit`` never raises for a topic
+    §1.3 accepts."""
+    key = len(la.dump({"appearance": LARGEST_APPEARANCE.model_dump(mode="json")})) - len("{}") + len(",")
+    assert fixed_bound() + key <= MAX_PAYLOAD_BYTES
+    body = start_body("escapes", ESC * 200, LARGEST_APPEARANCE)
+    for step in la.BUDGET_STEPS:
+        body = la.shrink(body, step)
+    assert len(la.dump(body)) <= fixed_bound() + key
+
+
+# end T2-M3
 
 
 def test_budget_raises_when_nothing_fits() -> None:
