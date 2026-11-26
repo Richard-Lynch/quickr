@@ -18,6 +18,7 @@ import { topicVersionsOptions } from './context';
 import {
   MAX_WAIT_MS,
   RunAlerts,
+  FIRED_ALERTS_KEY,
   RunAlertsFor,
   resetFiredAlerts,
   type AlertSource,
@@ -282,6 +283,42 @@ describe('RunAlerts', () => {
     setVisibility('hidden');
     setVisibility('visible');
     expect(vibrate).toHaveBeenCalledTimes(1);
+  });
+
+  it('two tabs: an alert another tab fired (localStorage) does not fire here (P3-7)', () => {
+    mount(source([start, lap]));
+    advance(10 * S);
+    // The other tab fires "Half way" first and records it.
+    localStorage.setItem(FIRED_ALERTS_KEY, JSON.stringify([`r1.1.half@${String(REST_AT)}`]));
+    advance(20 * S);
+    expect(toastShown('Half way · Rest 1')).toBe(false);
+    expect(vibrate).not.toHaveBeenCalled();
+    // This tab fires "Done" and records it where the other tab looks.
+    advance(30 * S);
+    expect(toastShown('Done · Rest 1')).toBe(true);
+    const stored = JSON.parse(localStorage.getItem(FIRED_ALERTS_KEY) ?? '[]') as string[];
+    expect(stored).toContain(`r1.1.done@${String(REST_AT)}`);
+  });
+
+  it('fires from memory when storage throws', () => {
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    try {
+      const view = mount(source([start, lap]));
+      advance(30 * S);
+      expect(vibrate).toHaveBeenCalledTimes(1);
+      view.update(source([start, lap]));
+      setVisibility('hidden');
+      setVisibility('visible');
+      expect(vibrate).toHaveBeenCalledTimes(1);
+    } finally {
+      getItem.mockRestore();
+      setItem.mockRestore();
+    }
   });
 
   it('times alerts on the server clock', () => {
