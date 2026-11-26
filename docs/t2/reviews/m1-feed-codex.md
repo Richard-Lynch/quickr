@@ -1,0 +1,3 @@
+- **Medium — convergence test starts with an empty client:** [test_feed_runs.py](/Users/richie/code/quickr-worktrees/t2-m1-feed/backend/tests/test_feed_runs.py:318) creates a fresh `Client` for each page sequence. Its assertion that the run is absent from `model.live` therefore passes even if a deletion would fail to remove a previously synced open run. Seed the model with the run’s pre-stop revision before applying pages, then assert it is removed and fenced at the final revision.
+
+The feed implementation, required Swift decoding, fixtures, and F2/F3 wording otherwise appear consistent with the requested contract. I did not run the tests.

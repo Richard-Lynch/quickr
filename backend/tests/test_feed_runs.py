@@ -214,13 +214,16 @@ async def test_limit_between_a_runs_rows_and_its_delete_row(client: httpx.AsyncC
 # --- T27: reopen, revision and the page cuts (timers2.md §5.1, §5.2) ------------------------------
 
 
+OPEN_REVISION = 2  # start, lap: what a client synced up to the cursor holds
+
+
 class Client:
     """A feed consumer applying timers2.md §5.2's revision rules to runs: an item applies iff its
     revision is above the local row's or marker's; a deletion against a row applies iff its revision
     is above the row's, and against a marker only raises it."""
 
-    def __init__(self) -> None:
-        self.live: dict[str, int] = {}
+    def __init__(self, live: dict[str, int] | None = None) -> None:
+        self.live: dict[str, int] = dict(live or {})
         self.closed: dict[str, int] = {}
 
     def apply(self, page: dict[str, Any]) -> None:
@@ -241,10 +244,11 @@ class Client:
 
 
 async def stop_reopen(client: httpx.AsyncClient, name: str) -> tuple[Driver, int]:
-    """A run started and stopped once before the returned cursor, then stopped again after it
-    (``(entry, upsert)``, ``(run, delete)``) and reopened (``(run, upsert)``)."""
+    """A run open (revision 2) at the returned cursor, then stopped (``(entry, upsert)``,
+    ``(run, delete)``) and reopened (``(run, upsert)``) after it."""
     run = await started(client, name, questions=OPTIONAL)
     await run.tap("lap", 10, seg=0)
+    assert (await run.get())["revision"] == OPEN_REVISION
     cursor = await head()
     stop = (await run.tap("stop", 20))["event"]["id"]
     reopened = await run.tap("reopen", 30, target=stop)
@@ -312,7 +316,7 @@ async def test_stop_reopen_restop_split_every_way_converges(client: httpx.AsyncC
     assert final["status"] == "stopped"
     middles = 0
     for start, pages in await every_cut(client, cursor):
-        model = Client()
+        model = Client({run.id: OPEN_REVISION})  # synced up to the cursor
         for after, page in spans(start, pages):
             model.apply(page)
             latest = latest_op(rows, cursor, after, page["next"], run.id)
@@ -336,7 +340,7 @@ async def test_stop_reopen_split_with_the_run_open_emits_the_item(client: httpx.
     current = await run.get()
     deletes_first = 0
     for start, pages in await every_cut(client, cursor):
-        model = Client()
+        model = Client({run.id: OPEN_REVISION})  # synced up to the cursor
         for after, page in spans(start, pages):
             model.apply(page)
             latest = latest_op(rows, cursor, after, page["next"], run.id)
