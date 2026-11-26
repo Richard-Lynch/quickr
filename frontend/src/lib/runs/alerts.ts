@@ -2,8 +2,8 @@
  * Run alerts in the PWA (timers2.md §9.2): the pure planner. The maths is iOS's
  * `RunAlertPlan` (§9.1): for the **open segment** only, each alert of its step or lap type
  * fires at `seg_started_at + paused_in_segment_so_far + at_ms`, on the server's clock; none
- * while paused (`paused_since` set) or once the run is closed, and none for an alert the
- * server hasn't evaluated (`at_ms` missing).
+ * while paused (`paused_since` set) or once the run is closed, none for an alert the
+ * server hasn't evaluated (`at_ms` missing), and none at the segment's start (`at_ms <= 0`).
  *
  * The PWA fires only while the page is open: a background tab's timers are frozen or late,
  * so `RunAlerts.tsx` recomputes on return and fires what is at most {@link LATE_DROP_MS}
@@ -81,7 +81,9 @@ export function planAlerts(
   const aliases = (run.aliases ?? []).map((a) => a.toLowerCase());
   return segmentAlerts(timer, open)
     .flatMap((alert, index) => {
-      if (alert.at_ms === undefined) return [];
+      // An alert at the segment's start (`at_ms` 0, e.g. `0s` or `t-t`) never fires, as iOS
+      // never schedules it (only future instants): the clients agree (M1 review P3-8).
+      if (alert.at_ms === undefined || alert.at_ms <= 0) return [];
       const at = open.started_at + paused + alert.at_ms;
       return at > now - graceMs ? [{ alert, index, at }] : [];
     })
