@@ -6252,7 +6252,7 @@
           "topic"
         ],
         "title": "FeedTopic",
-        "description": "A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,\n``due``) are not re-sent when entries change: clients recompute them from entries."
+        "description": "A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,\n``due``, ``last_entry``) are not re-sent when entries change: clients recompute them from entries."
       },
       "FeedVersion": {
         "properties": {
@@ -9621,6 +9621,17 @@
             ],
             "description": "The current version's timer; null when the topic is not timed."
           },
+          "last_entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntryOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest counted entry, by (captured_at, id) descending; null when the topic has none. Derived like entry_count: a feed topic item is not re-sent when entries change."
+          },
           "questions": {
             "items": {
               "oneOf": [
@@ -9671,6 +9682,7 @@
           "schedule_updated_at",
           "due",
           "timer",
+          "last_entry",
           "questions"
         ],
         "title": "TopicDetail"
@@ -9929,6 +9941,17 @@
               }
             ],
             "description": "The current version's timer; null when the topic is not timed."
+          },
+          "last_entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntryOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest counted entry, by (captured_at, id) descending; null when the topic has none. Derived like entry_count: a feed topic item is not re-sent when entries change."
           }
         },
         "additionalProperties": false,
@@ -9950,7 +9973,8 @@
           "schedule",
           "schedule_updated_at",
           "due",
-          "timer"
+          "timer",
+          "last_entry"
         ],
         "title": "TopicSummary"
       },
