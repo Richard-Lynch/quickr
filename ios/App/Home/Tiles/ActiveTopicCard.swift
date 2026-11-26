@@ -90,21 +90,15 @@ struct ActiveTopicCard: View {
                     .foregroundStyle(.qr.ink)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            // The segment is the big clock: the lap is what the user is timing (D-7).
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                RunDuration(
-                    ms: run.state.open == nil ? total : segment,
-                    font: .qr(.sansSemiBold, size: 40, relativeTo: .largeTitle), ticking: !paused
-                )
-                .foregroundStyle(paused ? Color.qr.muted : .qr.ink)
-                .accessibilityIdentifier("tile.\(slug).segment")
-                Text("total \(DurationFormat.format(total))")
-                    .font(.qr(.footnote))
-                    .monospacedDigit()
-                    .foregroundStyle(.qr.inkSoft)
-                    .lineLimit(1)
-                    .accessibilityLabel("total \(RunPresentation.spoken(total))")
-                    .accessibilityIdentifier("tile.\(slug).total")
+            // The segment is the big clock: the lap is what the user is timing (D-7). The total
+            // beside it, or under it when the two don't fit (accessibility sizes, an hour-long run).
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    clocks(segment: segment, total: total, paused: paused, slug: slug)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    clocks(segment: segment, total: total, paused: paused, slug: slug)
+                }
             }
             QuickrBadge(
                 Self.headline(run, timer: timer, resuming: resuming), icon: paused ? .pause : .timer,
@@ -122,6 +116,24 @@ struct ActiveTopicCard: View {
         .accessibilitySortPriority(3)
     }
 
+    @ViewBuilder
+    private func clocks(segment: Int, total: Int, paused: Bool, slug: String) -> some View {
+        RunDuration(
+            ms: run.state.open == nil ? total : segment,
+            font: .qr(.sansSemiBold, size: 40, relativeTo: .largeTitle), ticking: !paused
+        )
+        .foregroundStyle(paused ? Color.qr.muted : .qr.ink)
+        .accessibilityIdentifier("tile.\(slug).segment")
+        Text("total \(DurationFormat.format(total))")
+            .font(.qr(.footnote))
+            .monospacedDigit()
+            .foregroundStyle(.qr.inkSoft)
+            .lineLimit(1)
+            .fixedSize()
+            .accessibilityLabel("total \(RunPresentation.spoken(total))")
+            .accessibilityIdentifier("tile.\(slug).total")
+    }
+
     /// The small Pause/Resume text button: in the title row, under the headline at accessibility
     /// sizes (§3.2). A 44 pt target (the small size's hit area).
     private func pauseButton(_ action: RunAction, slug: String) -> some View {
@@ -135,6 +147,8 @@ struct ActiveTopicCard: View {
         .disabled(!action.enabled || busy)
         .accessibilityLabel(label.spoken)
         .accessibilityIdentifier("tile.\(slug).\(action.id)")
+        // Last in the card's order (§7): summary 3, primary 2, Stop 1, then this.
+        .accessibilitySortPriority(0)
     }
 
     /// The primary filling the row, Stop beside it; stacked (both full width) at accessibility
